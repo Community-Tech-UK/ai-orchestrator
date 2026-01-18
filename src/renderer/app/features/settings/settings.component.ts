@@ -48,6 +48,13 @@ const getApi = () => (window as any).electronAPI;
             </button>
             <button
               class="tab"
+              [class.active]="activeTab() === 'memory'"
+              (click)="activeTab.set('memory')"
+            >
+              Memory
+            </button>
+            <button
+              class="tab"
               [class.active]="activeTab() === 'display'"
               (click)="activeTab.set('display')"
             >
@@ -117,6 +124,41 @@ const getApi = () => (window as any).electronAPI;
               }
               @case ('orchestration') {
                 @for (setting of store.orchestrationSettings(); track setting.key) {
+                  <div class="setting-row">
+                    <div class="setting-info">
+                      <label [for]="setting.key" class="setting-label">{{ setting.label }}</label>
+                      <p class="setting-description">{{ setting.description }}</p>
+                    </div>
+                    <div class="setting-control">
+                      @switch (setting.type) {
+                        @case ('boolean') {
+                          <label class="toggle">
+                            <input
+                              type="checkbox"
+                              [id]="setting.key"
+                              [checked]="getValue(setting.key)"
+                              (change)="onBooleanChange(setting.key, $event)"
+                            />
+                            <span class="toggle-slider"></span>
+                          </label>
+                        }
+                        @case ('number') {
+                          <input
+                            type="number"
+                            [id]="setting.key"
+                            [value]="getValue(setting.key)"
+                            [min]="setting.min"
+                            [max]="setting.max"
+                            (change)="onNumberChange(setting.key, $event)"
+                          />
+                        }
+                      }
+                    </div>
+                  </div>
+                }
+              }
+              @case ('memory') {
+                @for (setting of store.memorySettings(); track setting.key) {
                   <div class="setting-row">
                     <div class="setting-info">
                       <label [for]="setting.key" class="setting-label">{{ setting.label }}</label>
@@ -557,7 +599,7 @@ export class SettingsComponent {
   store = inject(SettingsStore);
   close = output<void>();
 
-  activeTab = signal<'general' | 'orchestration' | 'display' | 'advanced'>('general');
+  activeTab = signal<'general' | 'orchestration' | 'memory' | 'display' | 'advanced'>('general');
 
   onOverlayClick(event: MouseEvent): void {
     if ((event.target as HTMLElement).classList.contains('settings-overlay')) {

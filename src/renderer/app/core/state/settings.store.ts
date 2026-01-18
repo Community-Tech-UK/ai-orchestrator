@@ -41,6 +41,9 @@ export class SettingsStore {
   readonly orchestrationSettings = computed(() =>
     SETTINGS_METADATA.filter(m => m.category === 'orchestration')
   );
+  readonly memorySettings = computed(() =>
+    SETTINGS_METADATA.filter(m => m.category === 'memory')
+  );
   readonly displaySettings = computed(() =>
     SETTINGS_METADATA.filter(m => m.category === 'display')
   );

@@ -236,4 +236,14 @@ export class OrchestrationHandler extends EventEmitter {
       message: 'Child instance terminated',
     });
   }
+
+  /**
+   * Notify an instance about an error
+   */
+  notifyError(instanceId: string, error: string): void {
+    this.injectResponse(instanceId, 'error', false, {
+      error,
+      message: error,
+    });
+  }
 }

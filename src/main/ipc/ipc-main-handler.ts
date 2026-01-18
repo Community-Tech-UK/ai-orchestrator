@@ -43,6 +43,12 @@ export class IpcMainHandler {
     // Settings handlers
     this.registerSettingsHandlers();
 
+    // Memory handlers
+    this.registerMemoryHandlers();
+
+    // Set up memory event forwarding to renderer
+    this.setupMemoryEventForwarding();
+
     console.log('IPC handlers registered');
   }
 
@@ -472,6 +478,92 @@ export class IpcMainHandler {
         }
       }
     );
+  }
+
+  /**
+   * Register memory-related handlers
+   */
+  private registerMemoryHandlers(): void {
+    // Get memory stats
+    ipcMain.handle(IPC_CHANNELS.MEMORY_GET_STATS, async (): Promise<IpcResponse> => {
+      try {
+        const stats = this.instanceManager.getMemoryStats();
+        return {
+          success: true,
+          data: stats,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MEMORY_STATS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    });
+
+    // Load historical output from disk
+    ipcMain.handle(
+      IPC_CHANNELS.MEMORY_LOAD_HISTORY,
+      async (event: IpcMainInvokeEvent, payload: { instanceId: string; limit?: number }): Promise<IpcResponse> => {
+        try {
+          const messages = await this.instanceManager.loadHistoricalOutput(
+            payload.instanceId,
+            payload.limit
+          );
+          return {
+            success: true,
+            data: messages,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'LOAD_HISTORY_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+  }
+
+  /**
+   * Set up memory event forwarding to renderer
+   */
+  private setupMemoryEventForwarding(): void {
+    // Forward memory stats updates to renderer
+    this.instanceManager.on('memory:stats', (stats) => {
+      this.windowManager.getMainWindow()?.webContents.send(
+        IPC_CHANNELS.MEMORY_STATS_UPDATE,
+        stats
+      );
+    });
+
+    // Forward memory warnings
+    this.instanceManager.on('memory:warning', (stats) => {
+      this.windowManager.getMainWindow()?.webContents.send(
+        IPC_CHANNELS.MEMORY_WARNING,
+        {
+          ...stats,
+          message: `Memory usage warning: ${stats.heapUsedMB}MB heap used`,
+        }
+      );
+    });
+
+    // Forward critical memory alerts
+    this.instanceManager.on('memory:critical', (stats) => {
+      this.windowManager.getMainWindow()?.webContents.send(
+        IPC_CHANNELS.MEMORY_CRITICAL,
+        {
+          ...stats,
+          message: `Critical memory usage: ${stats.heapUsedMB}MB heap used. Idle instances may be terminated.`,
+        }
+      );
+    });
   }
 
   /**

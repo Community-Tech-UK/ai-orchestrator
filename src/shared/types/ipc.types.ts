@@ -56,6 +56,13 @@ export const IPC_CHANNELS = {
   SETTINGS_RESET: 'settings:reset',
   SETTINGS_RESET_ONE: 'settings:reset-one',
   SETTINGS_CHANGED: 'settings:changed',
+
+  // Memory management
+  MEMORY_GET_STATS: 'memory:get-stats',
+  MEMORY_STATS_UPDATE: 'memory:stats-update',
+  MEMORY_WARNING: 'memory:warning',
+  MEMORY_CRITICAL: 'memory:critical',
+  MEMORY_LOAD_HISTORY: 'memory:load-history',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -216,6 +223,38 @@ export interface SettingsResetOnePayload {
 export interface SettingsChangedPayload {
   key: string;
   value: unknown;
+}
+
+// ============================================
+// Memory Management Payloads
+// ============================================
+
+export interface MemoryStatsPayload {
+  process: {
+    heapUsedMB: number;
+    heapTotalMB: number;
+    externalMB: number;
+    rssMB: number;
+    percentUsed: number;
+  };
+  storage: {
+    totalInstances: number;
+    totalMessages: number;
+    totalSizeMB: number;
+    maxSizeMB: number;
+  };
+  pressureLevel: 'normal' | 'warning' | 'critical';
+}
+
+export interface MemoryWarningPayload {
+  heapUsedMB: number;
+  heapTotalMB: number;
+  message: string;
+}
+
+export interface LoadHistoryPayload {
+  instanceId: string;
+  limit?: number;
 }
 
 // ============================================

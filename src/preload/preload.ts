@@ -45,6 +45,13 @@ const IPC_CHANNELS = {
   SETTINGS_RESET: 'settings:reset',
   SETTINGS_RESET_ONE: 'settings:reset-one',
   SETTINGS_CHANGED: 'settings:changed',
+
+  // Memory management
+  MEMORY_GET_STATS: 'memory:get-stats',
+  MEMORY_STATS_UPDATE: 'memory:stats-update',
+  MEMORY_WARNING: 'memory:warning',
+  MEMORY_CRITICAL: 'memory:critical',
+  MEMORY_LOAD_HISTORY: 'memory:load-history',
 } as const;
 
 // Response type
@@ -285,6 +292,51 @@ const electronAPI = {
     const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.SETTINGS_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.SETTINGS_CHANGED, handler);
+  },
+
+  // ============================================
+  // Memory Management
+  // ============================================
+
+  /**
+   * Get current memory stats
+   */
+  getMemoryStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_GET_STATS);
+  },
+
+  /**
+   * Load historical output from disk for an instance
+   */
+  loadHistoricalOutput: (instanceId: string, limit?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_LOAD_HISTORY, { instanceId, limit });
+  },
+
+  /**
+   * Listen for memory stats updates
+   */
+  onMemoryStatsUpdate: (callback: (stats: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, stats: unknown) => callback(stats);
+    ipcRenderer.on(IPC_CHANNELS.MEMORY_STATS_UPDATE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MEMORY_STATS_UPDATE, handler);
+  },
+
+  /**
+   * Listen for memory warnings
+   */
+  onMemoryWarning: (callback: (warning: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, warning: unknown) => callback(warning);
+    ipcRenderer.on(IPC_CHANNELS.MEMORY_WARNING, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MEMORY_WARNING, handler);
+  },
+
+  /**
+   * Listen for critical memory alerts
+   */
+  onMemoryCritical: (callback: (alert: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, alert: unknown) => callback(alert);
+    ipcRenderer.on(IPC_CHANNELS.MEMORY_CRITICAL, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MEMORY_CRITICAL, handler);
   },
 
   // ============================================

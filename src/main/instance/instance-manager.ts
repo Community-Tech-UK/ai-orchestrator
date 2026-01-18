@@ -6,6 +6,8 @@ import { EventEmitter } from 'events';
 import { ClaudeCliAdapter } from '../cli/claude-cli-adapter';
 import { OrchestrationHandler } from '../orchestration/orchestration-handler';
 import { generateChildPrompt } from '../orchestration/orchestration-protocol';
+import { getOutputStorageManager, getMemoryMonitor } from '../memory';
+import { getSettingsManager } from '../settings/settings-manager';
 import type { SpawnChildCommand, MessageChildCommand, TerminateChildCommand, GetChildOutputCommand } from '../orchestration/orchestration-protocol';
 import type {
   Instance,
@@ -29,14 +31,135 @@ export class InstanceManager extends EventEmitter {
   private adapters: Map<string, ClaudeCliAdapter> = new Map();
   private pendingUpdates: Map<string, InstanceStateUpdatePayload> = new Map();
   private batchTimer: NodeJS.Timeout | null = null;
+  private idleCheckTimer: NodeJS.Timeout | null = null;
   private orchestration: OrchestrationHandler;
   private hasReceivedFirstMessage: Set<string> = new Set();
+
+  // Memory management
+  private outputStorage = getOutputStorageManager();
+  private memoryMonitor = getMemoryMonitor();
+  private settings = getSettingsManager();
 
   constructor() {
     super();
     this.startBatchTimer();
+    this.startIdleCheckTimer();
     this.orchestration = new OrchestrationHandler();
     this.setupOrchestrationHandlers();
+    this.setupMemoryMonitoring();
+    this.configureFromSettings();
+
+    // Listen for settings changes
+    this.settings.on('setting-changed', (key: string) => {
+      this.configureFromSettings();
+    });
+  }
+
+  /**
+   * Configure from current settings
+   */
+  private configureFromSettings(): void {
+    const settings = this.settings.getAll();
+
+    // Configure memory monitor
+    this.memoryMonitor.configure({
+      warningThresholdMB: settings.memoryWarningThresholdMB,
+      criticalThresholdMB: settings.memoryWarningThresholdMB * 1.5, // 50% above warning
+    });
+
+    // Configure output storage
+    this.outputStorage.configure({
+      maxDiskStorageMB: settings.maxDiskStorageMB,
+    });
+  }
+
+  /**
+   * Set up memory monitoring
+   */
+  private setupMemoryMonitoring(): void {
+    this.memoryMonitor.on('warning', (stats) => {
+      console.log('Memory warning:', stats);
+      this.emit('memory:warning', stats);
+    });
+
+    this.memoryMonitor.on('critical', (stats) => {
+      console.log('Memory critical:', stats);
+      this.emit('memory:critical', stats);
+
+      // Auto-terminate idle instances if enabled
+      const settings = this.settings.getAll();
+      if (settings.autoTerminateOnMemoryPressure) {
+        this.terminateIdleInstances();
+      }
+    });
+
+    this.memoryMonitor.on('stats', (stats) => {
+      this.emit('memory:stats', stats);
+    });
+
+    this.memoryMonitor.start();
+  }
+
+  /**
+   * Start idle instance check timer
+   */
+  private startIdleCheckTimer(): void {
+    // Check every minute for idle instances
+    this.idleCheckTimer = setInterval(() => {
+      this.checkIdleInstances();
+    }, 60000);
+  }
+
+  /**
+   * Check for and terminate idle instances
+   */
+  private checkIdleInstances(): void {
+    const settings = this.settings.getAll();
+    const idleMinutes = settings.autoTerminateIdleMinutes;
+
+    if (idleMinutes <= 0) return; // Disabled
+
+    const idleThreshold = idleMinutes * 60 * 1000; // Convert to ms
+    const now = Date.now();
+
+    for (const instance of this.instances.values()) {
+      // Only auto-terminate child instances (not root instances)
+      if (!instance.parentId) continue;
+
+      // Check if idle
+      if (instance.status === 'idle' && (now - instance.lastActivity) > idleThreshold) {
+        console.log(`Auto-terminating idle instance ${instance.id} (${instance.displayName})`);
+        this.terminateInstance(instance.id, true);
+      }
+    }
+  }
+
+  /**
+   * Terminate idle instances (called on memory pressure)
+   */
+  private terminateIdleInstances(): void {
+    // Sort by last activity (oldest first)
+    const idleInstances = Array.from(this.instances.values())
+      .filter(i => i.status === 'idle' && i.parentId) // Only child instances
+      .sort((a, b) => a.lastActivity - b.lastActivity);
+
+    // Terminate up to half of idle instances
+    const toTerminate = Math.ceil(idleInstances.length / 2);
+    for (let i = 0; i < toTerminate && i < idleInstances.length; i++) {
+      console.log(`Terminating idle instance ${idleInstances[i].id} due to memory pressure`);
+      this.terminateInstance(idleInstances[i].id, true);
+    }
+  }
+
+  /**
+   * Get memory statistics
+   */
+  getMemoryStats() {
+    return {
+      process: this.memoryMonitor.getStats(),
+      storage: this.outputStorage.getTotalStats(),
+      pressureLevel: this.memoryMonitor.getPressureLevel(),
+    };
   }
 
   /**
@@ -47,6 +170,22 @@ export class InstanceManager extends EventEmitter {
     this.orchestration.on('spawn-child', async (parentId: string, command: SpawnChildCommand) => {
       const parent = this.instances.get(parentId);
       if (!parent) return;
+
+      const settings = this.settings.getAll();
+
+      // Check max total instances limit
+      if (settings.maxTotalInstances > 0 && this.instances.size >= settings.maxTotalInstances) {
+        console.log(`Cannot spawn child: max total instances (${settings.maxTotalInstances}) reached`);
+        this.orchestration.notifyError(parentId, `Cannot spawn child: maximum total instances (${settings.maxTotalInstances}) reached`);
+        return;
+      }
+
+      // Check max children per parent limit
+      if (settings.maxChildrenPerParent > 0 && parent.childrenIds.length >= settings.maxChildrenPerParent) {
+        console.log(`Cannot spawn child: max children per parent (${settings.maxChildrenPerParent}) reached`);
+        this.orchestration.notifyError(parentId, `Cannot spawn child: maximum children per parent (${settings.maxChildrenPerParent}) reached`);
+        return;
+      }
 
       try {
         // Generate a temporary ID for the child prompt (actual ID assigned in createInstance)
@@ -69,6 +208,7 @@ export class InstanceManager extends EventEmitter {
         this.orchestration.notifyChildSpawned(parentId, child.id, child.displayName);
       } catch (error) {
         console.error('Failed to spawn child:', error);
+        this.orchestration.notifyError(parentId, `Failed to spawn child: ${error}`);
       }
     });
 
@@ -335,6 +475,11 @@ export class InstanceManager extends EventEmitter {
       this.orchestration.unregisterInstance(instanceId);
       this.hasReceivedFirstMessage.delete(instanceId);
 
+      // Clean up disk storage for this instance
+      this.outputStorage.deleteInstance(instanceId).catch((err) => {
+        console.error(`Failed to clean up storage for ${instanceId}:`, err);
+      });
+
       this.emit('instance:removed', instanceId);
       this.instances.delete(instanceId);
     }
@@ -475,10 +620,36 @@ export class InstanceManager extends EventEmitter {
   private addToOutputBuffer(instance: Instance, message: OutputMessage): void {
     instance.outputBuffer.push(message);
 
+    const settings = this.settings.getAll();
+    const bufferSize = settings.outputBufferSize;
+
     // Trim buffer if it exceeds max size
-    if (instance.outputBuffer.length > instance.outputBufferMaxSize) {
-      instance.outputBuffer = instance.outputBuffer.slice(-instance.outputBufferMaxSize);
+    if (instance.outputBuffer.length > bufferSize) {
+      // If disk storage is enabled, save overflow to disk
+      if (settings.enableDiskStorage) {
+        const overflow = instance.outputBuffer.slice(0, instance.outputBuffer.length - bufferSize);
+        this.outputStorage.storeMessages(instance.id, overflow).catch((err) => {
+          console.error(`Failed to store output to disk for ${instance.id}:`, err);
+        });
+      }
+
+      // Keep only the most recent messages in memory
+      instance.outputBuffer = instance.outputBuffer.slice(-bufferSize);
     }
+  }
+
+  /**
+   * Load historical output from disk for an instance
+   */
+  async loadHistoricalOutput(instanceId: string, limit?: number): Promise<OutputMessage[]> {
+    return this.outputStorage.loadMessages(instanceId, { limit });
+  }
+
+  /**
+   * Get storage stats for an instance
+   */
+  getInstanceStorageStats(instanceId: string) {
+    return this.outputStorage.getInstanceStats(instanceId);
   }
 
   /**
@@ -539,6 +710,10 @@ export class InstanceManager extends EventEmitter {
     if (this.batchTimer) {
       clearInterval(this.batchTimer);
     }
+    if (this.idleCheckTimer) {
+      clearInterval(this.idleCheckTimer);
+    }
+    this.memoryMonitor.stop();
     this.terminateAll();
   }
 }

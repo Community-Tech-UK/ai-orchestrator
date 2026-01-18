@@ -17,8 +17,16 @@ export interface AppSettings {
 
   // Orchestration
   maxChildrenPerParent: number;
+  maxTotalInstances: number; // 0 = unlimited
   autoTerminateIdleMinutes: number; // 0 = disabled
   allowNestedOrchestration: boolean;
+
+  // Memory Management
+  outputBufferSize: number; // messages kept in memory per instance
+  enableDiskStorage: boolean; // save older output to disk
+  maxDiskStorageMB: number; // max disk space for output storage (0 = unlimited)
+  memoryWarningThresholdMB: number; // warn when heap exceeds this (0 = disabled)
+  autoTerminateOnMemoryPressure: boolean; // terminate idle instances when memory critical
 
   // Display
   fontSize: number; // 12-20
@@ -26,8 +34,8 @@ export interface AppSettings {
   showToolMessages: boolean;
 
   // Advanced
-  outputBufferSize: number;
   customModelOverride: string; // empty = use default
+  parserBufferMaxKB: number; // max size for NDJSON parser buffer
 }
 
 /**
@@ -42,8 +50,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Orchestration
   maxChildrenPerParent: 10,
-  autoTerminateIdleMinutes: 0,
+  maxTotalInstances: 20,
+  autoTerminateIdleMinutes: 30,
   allowNestedOrchestration: false,
+
+  // Memory Management
+  outputBufferSize: 500, // keep 500 messages in memory per instance
+  enableDiskStorage: true, // save older output to disk
+  maxDiskStorageMB: 500, // 500MB max disk storage
+  memoryWarningThresholdMB: 1024, // warn at 1GB heap
+  autoTerminateOnMemoryPressure: true,
 
   // Display
   fontSize: 14,
@@ -51,8 +67,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showToolMessages: true,
 
   // Advanced
-  outputBufferSize: 1000,
   customModelOverride: '',
+  parserBufferMaxKB: 1024, // 1MB max parser buffer
 };
 
 /**
@@ -77,7 +93,7 @@ export interface SettingMetadata {
   label: string;
   description: string;
   type: 'boolean' | 'string' | 'number' | 'select' | 'directory';
-  category: 'general' | 'orchestration' | 'display' | 'advanced';
+  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced';
   options?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
@@ -131,20 +147,29 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'maxChildrenPerParent',
     label: 'Max Children per Parent',
-    description: 'Maximum number of child instances a parent can spawn',
-    type: 'number',
-    category: 'orchestration',
-    min: 1,
-    max: 50,
-  },
-  {
-    key: 'autoTerminateIdleMinutes',
-    label: 'Auto-terminate Idle Children',
-    description: 'Automatically terminate children after N minutes of inactivity (0 = disabled)',
+    description: 'Maximum child instances per parent (0 = unlimited)',
     type: 'number',
     category: 'orchestration',
     min: 0,
-    max: 60,
+    max: 100,
+  },
+  {
+    key: 'maxTotalInstances',
+    label: 'Max Total Instances',
+    description: 'Maximum total instances allowed (0 = unlimited)',
+    type: 'number',
+    category: 'orchestration',
+    min: 0,
+    max: 100,
+  },
+  {
+    key: 'autoTerminateIdleMinutes',
+    label: 'Auto-terminate Idle Instances',
+    description: 'Terminate instances after N minutes of inactivity (0 = disabled)',
+    type: 'number',
+    category: 'orchestration',
+    min: 0,
+    max: 120,
   },
   {
     key: 'allowNestedOrchestration',
@@ -181,16 +206,50 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     category: 'display',
   },
 
-  // Advanced
+  // Memory Management
   {
     key: 'outputBufferSize',
-    label: 'Output Buffer Size',
-    description: 'Maximum number of messages to keep in history per instance',
+    label: 'In-Memory Buffer Size',
+    description: 'Messages kept in memory per instance (older ones saved to disk)',
     type: 'number',
-    category: 'advanced',
+    category: 'memory',
     min: 100,
+    max: 5000,
+  },
+  {
+    key: 'enableDiskStorage',
+    label: 'Enable Disk Storage',
+    description: 'Save older output to disk to reduce memory usage',
+    type: 'boolean',
+    category: 'memory',
+  },
+  {
+    key: 'maxDiskStorageMB',
+    label: 'Max Disk Storage (MB)',
+    description: 'Maximum disk space for output storage (0 = unlimited)',
+    type: 'number',
+    category: 'memory',
+    min: 0,
     max: 10000,
   },
+  {
+    key: 'memoryWarningThresholdMB',
+    label: 'Memory Warning Threshold (MB)',
+    description: 'Show warning when heap usage exceeds this (0 = disabled)',
+    type: 'number',
+    category: 'memory',
+    min: 0,
+    max: 8192,
+  },
+  {
+    key: 'autoTerminateOnMemoryPressure',
+    label: 'Auto-terminate on Memory Pressure',
+    description: 'Terminate idle instances when memory is critical',
+    type: 'boolean',
+    category: 'memory',
+  },
+
+  // Advanced
   {
     key: 'customModelOverride',
     label: 'Custom Model Override',
@@ -198,5 +257,14 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     type: 'string',
     category: 'advanced',
     placeholder: 'e.g., claude-3-opus-20240229',
+  },
+  {
+    key: 'parserBufferMaxKB',
+    label: 'Parser Buffer Max (KB)',
+    description: 'Maximum size for NDJSON parser buffer before reset',
+    type: 'number',
+    category: 'advanced',
+    min: 256,
+    max: 10240,
   },
 ];
