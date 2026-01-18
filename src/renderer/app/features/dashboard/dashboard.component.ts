@@ -2,23 +2,25 @@
  * Dashboard Component - Main application layout
  */
 
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { InstanceStore } from '../../core/state/instance.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { AgentStore } from '../../core/state/agent.store';
+import { KeybindingService } from '../../core/services/keybinding.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
 import { SettingsComponent } from '../settings/settings.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { AgentSelectorComponent } from '../agents/agent-selector.component';
+import { CommandPaletteComponent } from '../commands/command-palette.component';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [DecimalPipe, InstanceListComponent, InstanceDetailComponent, CliErrorComponent, SettingsComponent, HistorySidebarComponent, AgentSelectorComponent],
+  imports: [DecimalPipe, InstanceListComponent, InstanceDetailComponent, CliErrorComponent, SettingsComponent, HistorySidebarComponent, AgentSelectorComponent, CommandPaletteComponent],
   template: `
     @if (cliStore.loading()) {
       <div class="loading-container">
@@ -28,8 +30,9 @@ import { AgentSelectorComponent } from '../agents/agent-selector.component';
     } @else if (cliStore.noClisError()) {
       <app-cli-error [error]="cliStore.noClisError()!" (retry)="onRetryCliDetection()" />
     } @else {
-    <div class="dashboard">
+    <div class="dashboard" [class.sidebar-hidden]="!showSidebar()">
       <!-- Sidebar with instance list -->
+      @if (showSidebar()) {
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="header-row">
@@ -87,6 +90,7 @@ import { AgentSelectorComponent } from '../agents/agent-selector.component';
           }
         </div>
       </aside>
+      }
 
       <!-- Main content area -->
       <main class="main-content">
@@ -102,6 +106,14 @@ import { AgentSelectorComponent } from '../agents/agent-selector.component';
     <!-- History Sidebar -->
     @if (showHistory()) {
       <app-history-sidebar (close)="showHistory.set(false)" />
+    }
+
+    <!-- Command Palette -->
+    @if (showCommandPalette()) {
+      <app-command-palette
+        (close)="showCommandPalette.set(false)"
+        (commandExecuted)="onCommandExecuted($event)"
+      />
     }
     }
   `,
@@ -276,20 +288,130 @@ import { AgentSelectorComponent } from '../agents/agent-selector.component';
     }
   `],
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   store = inject(InstanceStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
   agentStore = inject(AgentStore);
+  keybindingService = inject(KeybindingService);
 
   showSettings = signal(false);
   showHistory = signal(false);
+  showCommandPalette = signal(false);
+  showSidebar = signal(true);
+
+  private keybindingCleanup: (() => void)[] = [];
 
   ngOnInit(): void {
     // Initialize settings first, then CLI detection
     this.settingsStore.initialize().then(() => {
       this.cliStore.initialize();
     });
+
+    // Register keybinding handlers
+    this.registerKeybindingHandlers();
+  }
+
+  /**
+   * Register all keybinding handlers
+   */
+  private registerKeybindingHandlers(): void {
+    // Command palette - Cmd+Shift+P or Cmd+K
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('toggle-command-palette', () => {
+        if (this.store.selectedInstance()) {
+          this.showCommandPalette.set(!this.showCommandPalette());
+        }
+      })
+    );
+
+    // Settings - Cmd+,
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('toggle-settings', () => {
+        this.showSettings.set(!this.showSettings());
+      })
+    );
+
+    // History - Cmd+H
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('toggle-history', () => {
+        this.showHistory.set(!this.showHistory());
+      })
+    );
+
+    // Sidebar toggle - Cmd+B
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('toggle-sidebar', () => {
+        this.showSidebar.set(!this.showSidebar());
+      })
+    );
+
+    // New instance - Cmd+N
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('new-instance', () => {
+        this.createInstance();
+      })
+    );
+
+    // Close instance - Cmd+W
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('close-instance', () => {
+        const instance = this.store.selectedInstance();
+        if (instance) {
+          this.store.terminateInstance(instance.id);
+        }
+      })
+    );
+
+    // Next instance - Ctrl+Tab
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('next-instance', () => {
+        const instances = this.store.instances();
+        const selected = this.store.selectedInstance();
+        if (instances.length > 1 && selected) {
+          const currentIndex = instances.findIndex(i => i.id === selected.id);
+          const nextIndex = (currentIndex + 1) % instances.length;
+          this.store.setSelectedInstance(instances[nextIndex].id);
+        }
+      })
+    );
+
+    // Previous instance - Ctrl+Shift+Tab
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('prev-instance', () => {
+        const instances = this.store.instances();
+        const selected = this.store.selectedInstance();
+        if (instances.length > 1 && selected) {
+          const currentIndex = instances.findIndex(i => i.id === selected.id);
+          const prevIndex = currentIndex === 0 ? instances.length - 1 : currentIndex - 1;
+          this.store.setSelectedInstance(instances[prevIndex].id);
+        }
+      })
+    );
+
+    // Restart instance - Cmd+Shift+R
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('restart-instance', () => {
+        const instance = this.store.selectedInstance();
+        if (instance) {
+          this.store.restartInstance(instance.id);
+        }
+      })
+    );
+
+    // Cancel operation - Escape
+    this.keybindingCleanup.push(
+      this.keybindingService.onAction('cancel-operation', () => {
+        // Close any open modals first
+        if (this.showCommandPalette()) {
+          this.showCommandPalette.set(false);
+        } else if (this.showSettings()) {
+          this.showSettings.set(false);
+        } else if (this.showHistory()) {
+          this.showHistory.set(false);
+        }
+      })
+    );
   }
 
   createInstance(): void {
@@ -309,5 +431,16 @@ export class DashboardComponent implements OnInit {
 
   onRetryCliDetection(): void {
     this.cliStore.refresh();
+  }
+
+  onCommandExecuted(event: { commandId: string; args: string[] }): void {
+    console.log('Command executed:', event);
+    // Command execution is handled by the palette component via CommandStore
+  }
+
+  ngOnDestroy(): void {
+    // Cleanup keybinding handlers
+    this.keybindingCleanup.forEach(cleanup => cleanup());
+    this.keybindingCleanup = [];
   }
 }

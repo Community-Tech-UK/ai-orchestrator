@@ -9,6 +9,7 @@ import { ActivityDebouncerService } from '../services/activity-debouncer.service
 import { generateActivityStatus } from '../utils/tool-activity-map';
 import { LIMITS } from '../../../../shared/constants/limits';
 import type { AgentMode } from '../../../../shared/types/agent.types';
+import type { FileAttachment } from '../../../../shared/types/instance.types';
 
 // Types
 export type InstanceStatus =
@@ -32,6 +33,8 @@ export interface OutputMessage {
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
   content: string;
   metadata?: Record<string, unknown>;
+  /** File attachments for user messages */
+  attachments?: FileAttachment[];
 }
 
 export interface Instance {

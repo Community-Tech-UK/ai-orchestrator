@@ -10,7 +10,11 @@ export type OrchestratorAction =
   | 'message_child'
   | 'get_children'
   | 'terminate_child'
-  | 'get_child_output';
+  | 'get_child_output'
+  | 'report_task_complete'
+  | 'report_progress'
+  | 'report_error'
+  | 'get_task_status';
 
 export interface SpawnChildCommand {
   action: 'spawn_child';
@@ -40,12 +44,53 @@ export interface GetChildOutputCommand {
   lastN?: number;
 }
 
+export interface ReportTaskCompleteCommand {
+  action: 'report_task_complete';
+  taskId?: string;
+  success: boolean;
+  summary: string;
+  data?: Record<string, unknown>;
+  artifacts?: Array<{
+    type: 'file' | 'data' | 'url';
+    path?: string;
+    name: string;
+    description?: string;
+  }>;
+  recommendations?: string[];
+}
+
+export interface ReportProgressCommand {
+  action: 'report_progress';
+  taskId?: string;
+  percentage: number;
+  currentStep: string;
+  stepsRemaining?: number;
+}
+
+export interface ReportErrorCommand {
+  action: 'report_error';
+  taskId?: string;
+  code: string;
+  message: string;
+  context?: string;
+  suggestedAction?: 'retry' | 'abandon' | 'escalate' | 'modify';
+}
+
+export interface GetTaskStatusCommand {
+  action: 'get_task_status';
+  taskId?: string;
+}
+
 export type OrchestratorCommand =
   | SpawnChildCommand
   | MessageChildCommand
   | GetChildrenCommand
   | TerminateChildCommand
-  | GetChildOutputCommand;
+  | GetChildOutputCommand
+  | ReportTaskCompleteCommand
+  | ReportProgressCommand
+  | ReportErrorCommand
+  | GetTaskStatusCommand;
 
 /**
  * Generate the system prompt that explains orchestration capabilities to Claude
@@ -138,11 +183,12 @@ Your instance ID: ${instanceId}
 /**
  * Generate the prompt for a child instance
  */
-export function generateChildPrompt(childId: string, parentId: string, task: string): string {
+export function generateChildPrompt(childId: string, parentId: string, task: string, taskId?: string): string {
+  const taskIdInfo = taskId ? `\nTask ID: ${taskId}` : '';
   return `
 ## 👶 You Are a Child Instance
 
-You were spawned by a parent orchestrator (ID: ${parentId}) to complete a specific task.
+You were spawned by a parent orchestrator (ID: ${parentId}) to complete a specific task.${taskIdInfo}
 
 ### Your Task
 ${task}
@@ -154,8 +200,27 @@ ${task}
 - You cannot spawn your own children
 - Work independently - you don't have access to the parent's conversation
 
+### Reporting Progress & Completion
+
+You can report your progress and completion to your parent using these commands:
+
+**Report Progress** (optional, for long tasks):
+${ORCHESTRATION_MARKER_START}
+{"action": "report_progress", "percentage": 50, "currentStep": "Analyzing code structure", "stepsRemaining": 3}
+${ORCHESTRATION_MARKER_END}
+
+**Report Completion** (recommended when done):
+${ORCHESTRATION_MARKER_START}
+{"action": "report_task_complete", "success": true, "summary": "Brief summary of what you accomplished", "recommendations": ["Optional follow-up suggestions"]}
+${ORCHESTRATION_MARKER_END}
+
+**Report Error** (if you encounter a blocking issue):
+${ORCHESTRATION_MARKER_START}
+{"action": "report_error", "code": "ERROR_CODE", "message": "What went wrong", "suggestedAction": "retry|abandon|escalate|modify"}
+${ORCHESTRATION_MARKER_END}
+
 ### When Done
-Simply complete your analysis/task. Your parent will check on your progress and retrieve your output.
+Report your task completion using the command above, then your parent will receive the notification automatically.
 
 Your instance ID: ${childId}
 `;
@@ -211,6 +276,23 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
       return typeof (cmd as TerminateChildCommand).childId === 'string';
     case 'get_child_output':
       return typeof (cmd as GetChildOutputCommand).childId === 'string';
+    case 'report_task_complete':
+      return (
+        typeof (cmd as ReportTaskCompleteCommand).success === 'boolean' &&
+        typeof (cmd as ReportTaskCompleteCommand).summary === 'string'
+      );
+    case 'report_progress':
+      return (
+        typeof (cmd as ReportProgressCommand).percentage === 'number' &&
+        typeof (cmd as ReportProgressCommand).currentStep === 'string'
+      );
+    case 'report_error':
+      return (
+        typeof (cmd as ReportErrorCommand).code === 'string' &&
+        typeof (cmd as ReportErrorCommand).message === 'string'
+      );
+    case 'get_task_status':
+      return true;
     default:
       return false;
   }

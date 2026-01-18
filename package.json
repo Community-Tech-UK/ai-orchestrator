@@ -36,7 +36,13 @@
     "@angular/platform-browser": "^21.1.0",
     "@angular/platform-browser-dynamic": "^21.1.0",
     "@angular/router": "^21.1.0",
+    "@types/diff": "^7.0.2",
+    "@types/dompurify": "^3.0.5",
+    "diff": "^8.0.3",
+    "dompurify": "^3.3.1",
     "electron-store": "^11.0.2",
+    "highlight.js": "^11.11.1",
+    "marked": "^17.0.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.6.0"
   },

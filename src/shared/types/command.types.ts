@@ -1,0 +1,148 @@
+/**
+ * Command Types - Custom user-defined commands and templates
+ */
+
+/**
+ * A custom command template
+ */
+export interface CommandTemplate {
+  id: string;
+  name: string;          // Command name (e.g., "review", "commit")
+  description: string;   // Human-readable description
+  template: string;      // Template with placeholders ($1, $2, $ARGUMENTS)
+  hint?: string;         // Hint shown when entering command
+  shortcut?: string;     // Keyboard shortcut
+  builtIn: boolean;      // Whether this is a built-in command
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Parsed command with resolved arguments
+ */
+export interface ParsedCommand {
+  command: CommandTemplate;
+  args: string[];
+  resolvedPrompt: string;
+}
+
+/**
+ * Built-in commands
+ */
+export const BUILT_IN_COMMANDS: Omit<CommandTemplate, 'id' | 'createdAt' | 'updatedAt'>[] = [
+  {
+    name: 'help',
+    description: 'Show all available commands',
+    template: `Please list all available commands in this application. Here are the built-in commands:
+
+**Available Commands:**
+- \`/help\` - Show this help message
+- \`/review\` - Review changes in the current branch
+- \`/commit\` - Create a git commit with a generated message
+- \`/explain <file or code>\` - Explain a file or code section
+- \`/fix <issue>\` - Fix an issue or bug
+- \`/test <file or function>\` - Generate tests for code
+- \`/refactor <file or code>\` - Refactor code for better quality
+- \`/pr\` - Create a pull request
+- \`/plan <feature>\` - Create a plan for implementing a feature
+
+**Tips:**
+- Press \`Cmd+K\` (Mac) or \`Ctrl+K\` (Windows/Linux) to open the command palette
+- Type \`/\` in the input box to see command suggestions
+- Commands can include arguments after the command name
+
+$ARGUMENTS`,
+    hint: 'Show available commands',
+    builtIn: true,
+  },
+  {
+    name: 'review',
+    description: 'Review changes in the current branch',
+    template: 'Please review the changes in the current branch. Look at the git diff and provide feedback on:\n1. Code quality and best practices\n2. Potential bugs or issues\n3. Suggestions for improvement\n\n$ARGUMENTS',
+    hint: 'Optional: specify what to focus on',
+    builtIn: true,
+  },
+  {
+    name: 'commit',
+    description: 'Create a git commit with a generated message',
+    template: 'Please review the staged changes (git diff --staged) and create an appropriate commit. Follow conventional commit format. $ARGUMENTS',
+    hint: 'Optional: add context for the commit',
+    builtIn: true,
+  },
+  {
+    name: 'explain',
+    description: 'Explain a file or code section',
+    template: 'Please explain the following in detail:\n\n$ARGUMENTS',
+    hint: 'Specify file path or paste code',
+    builtIn: true,
+  },
+  {
+    name: 'fix',
+    description: 'Fix an issue or bug',
+    template: 'Please fix the following issue:\n\n$ARGUMENTS\n\nAnalyze the problem, propose a solution, and implement the fix.',
+    hint: 'Describe the issue',
+    builtIn: true,
+  },
+  {
+    name: 'test',
+    description: 'Generate tests for code',
+    template: 'Please generate comprehensive tests for:\n\n$ARGUMENTS\n\nInclude unit tests covering edge cases and error conditions.',
+    hint: 'Specify file or function to test',
+    builtIn: true,
+  },
+  {
+    name: 'refactor',
+    description: 'Refactor code for better quality',
+    template: 'Please refactor the following code to improve:\n- Readability\n- Maintainability\n- Performance (if applicable)\n\n$ARGUMENTS',
+    hint: 'Specify file or paste code',
+    builtIn: true,
+  },
+  {
+    name: 'pr',
+    description: 'Create a pull request',
+    template: 'Please create a pull request for the current branch. Generate:\n1. A descriptive title\n2. A summary of changes\n3. Testing instructions\n\n$ARGUMENTS',
+    hint: 'Optional: add context',
+    builtIn: true,
+  },
+  {
+    name: 'plan',
+    description: 'Create a plan for implementing a feature',
+    template: 'Please create a detailed implementation plan for:\n\n$ARGUMENTS\n\nInclude:\n1. Steps to implement\n2. Files to modify/create\n3. Potential challenges\n4. Testing approach',
+    hint: 'Describe the feature',
+    builtIn: true,
+  },
+];
+
+/**
+ * Resolve command template placeholders
+ */
+export function resolveTemplate(template: string, args: string[]): string {
+  let result = template;
+
+  // Replace numbered placeholders ($1, $2, etc.)
+  args.forEach((arg, index) => {
+    result = result.replace(new RegExp(`\\$${index + 1}`, 'g'), arg);
+  });
+
+  // Replace $ARGUMENTS with all args joined
+  result = result.replace(/\$ARGUMENTS/g, args.join(' '));
+
+  // Clean up any remaining unreplaced placeholders
+  result = result.replace(/\$\d+/g, '');
+
+  return result.trim();
+}
+
+/**
+ * Parse a command string (e.g., "/review focus on error handling")
+ */
+export function parseCommandString(input: string): { name: string; args: string[] } | null {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('/')) return null;
+
+  const parts = trimmed.slice(1).split(/\s+/);
+  const name = parts[0];
+  const args = parts.slice(1);
+
+  return { name, args };
+}

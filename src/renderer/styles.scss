@@ -262,3 +262,376 @@ textarea {
 .status-waiting { color: var(--warning-color); }
 .status-error { color: var(--error-color); }
 .status-terminated { color: var(--text-muted); }
+
+// ============================================
+// Markdown Content Styles
+// ============================================
+
+.markdown-content {
+  line-height: 1.6;
+  color: var(--text-primary);
+  word-break: break-word;
+
+  // Headings
+  h1, h2, h3, h4, h5, h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.25;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  h1 { font-size: 1.5em; }
+  h2 { font-size: 1.35em; }
+  h3 { font-size: 1.2em; }
+  h4 { font-size: 1.1em; }
+  h5 { font-size: 1em; }
+  h6 { font-size: 0.9em; }
+
+  // Paragraphs
+  p {
+    margin: 0.75em 0;
+
+    &:first-child {
+      margin-top: 0;
+    }
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  // Lists
+  ul, ol {
+    margin: 0.75em 0;
+    padding-left: 1.5em;
+  }
+
+  li {
+    margin: 0.25em 0;
+  }
+
+  // Links
+  a {
+    color: var(--primary-color);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  // Inline code
+  .inline-code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--bg-secondary);
+    padding: 0.15em 0.4em;
+    border-radius: var(--radius-sm);
+    color: #e06c75;
+  }
+
+  // Blockquote
+  .md-blockquote {
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    border-left: 4px solid var(--primary-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+
+    p {
+      margin: 0;
+    }
+  }
+
+  // Horizontal rule
+  hr {
+    margin: 1.5em 0;
+    border: none;
+    border-top: 1px solid var(--border-color);
+  }
+
+  // Strong and emphasis
+  strong, b {
+    font-weight: 600;
+  }
+
+  em, i {
+    font-style: italic;
+  }
+}
+
+// Code block wrapper (shared with markdown-content but also usable standalone)
+.code-block-wrapper {
+  margin: 1em 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+
+  &:first-child {
+    margin-top: 0;
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5em 1em;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.code-language {
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.copy-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.25em 0.75em;
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  &.copied {
+    background: var(--success-bg);
+    border-color: var(--success-color);
+    color: var(--success-color);
+  }
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.code-block-wrapper pre.hljs {
+  margin: 0;
+  padding: 1em;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  line-height: 1.5;
+  background: var(--bg-primary);
+
+  code {
+    font-family: inherit;
+    font-size: inherit;
+    background: transparent;
+    padding: 0;
+  }
+}
+
+// Table styles
+.table-wrapper {
+  margin: 1em 0;
+  overflow-x: auto;
+}
+
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+
+  th, td {
+    padding: 0.5em 1em;
+    border: 1px solid var(--border-color);
+    text-align: left;
+  }
+
+  th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+  }
+
+  tr:nth-child(even) {
+    background: var(--bg-secondary);
+  }
+}
+
+// ============================================
+// Highlight.js Theme - VS Code Dark+ inspired
+// ============================================
+
+.hljs {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6a9955;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal {
+  color: #c586c0;
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-section,
+.hljs-attribute,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-addition {
+  color: #ce9178;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-meta,
+.hljs-selector-id,
+.hljs-title.function_ {
+  color: #b5cea8;
+}
+
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: #4ec9b0;
+}
+
+.hljs-variable,
+.hljs-params {
+  color: #9cdcfe;
+}
+
+.hljs-attr,
+.hljs-selector-class {
+  color: #9cdcfe;
+}
+
+.hljs-deletion {
+  color: #ce9178;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.hljs-name,
+.hljs-tag {
+  color: #569cd6;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+// Light theme overrides for highlight.js
+:root[data-theme="light"],
+:root:not([data-theme]) {
+  @media (prefers-color-scheme: light) {
+    .hljs-comment,
+    .hljs-quote {
+      color: #008000;
+    }
+
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-literal {
+      color: #af00db;
+    }
+
+    .hljs-string,
+    .hljs-title,
+    .hljs-section,
+    .hljs-attribute {
+      color: #a31515;
+    }
+
+    .hljs-number,
+    .hljs-symbol,
+    .hljs-bullet {
+      color: #098658;
+    }
+
+    .hljs-built_in,
+    .hljs-title.class_ {
+      color: #267f99;
+    }
+
+    .hljs-variable,
+    .hljs-params,
+    .hljs-attr {
+      color: #001080;
+    }
+
+    .hljs-name,
+    .hljs-tag {
+      color: #0000ff;
+    }
+  }
+}
+
+:root[data-theme="light"] {
+  .hljs-comment,
+  .hljs-quote {
+    color: #008000;
+  }
+
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-literal {
+    color: #af00db;
+  }
+
+  .hljs-string,
+  .hljs-title,
+  .hljs-section,
+  .hljs-attribute {
+    color: #a31515;
+  }
+
+  .hljs-number,
+  .hljs-symbol,
+  .hljs-bullet {
+    color: #098658;
+  }
+
+  .hljs-built_in,
+  .hljs-title.class_ {
+    color: #267f99;
+  }
+
+  .hljs-variable,
+  .hljs-params,
+  .hljs-attr {
+    color: #001080;
+  }
+
+  .hljs-name,
+  .hljs-tag {
+    color: #0000ff;
+  }
+}

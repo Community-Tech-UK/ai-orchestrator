@@ -4,6 +4,56 @@
 
 import type { AgentMode } from './agent.types';
 
+// ============================================
+// Session Export Types
+// ============================================
+
+/**
+ * Exported session format (JSON)
+ */
+export interface ExportedSession {
+  version: string;           // Export format version
+  exportedAt: number;
+  metadata: {
+    displayName: string;
+    createdAt: number;
+    workingDirectory: string;
+    agentId: string;
+    agentMode: AgentMode;
+    totalMessages: number;
+    contextUsage: ContextUsage;
+  };
+  messages: OutputMessage[];
+}
+
+/**
+ * Fork configuration
+ */
+export interface ForkConfig {
+  instanceId: string;
+  atMessageIndex?: number;   // Fork at specific message, defaults to latest
+  displayName?: string;
+}
+
+/**
+ * Plan mode state
+ */
+export type PlanModeState = 'off' | 'planning' | 'approved';
+
+/**
+ * Plan mode configuration
+ */
+export interface PlanModeConfig {
+  enabled: boolean;
+  state: PlanModeState;
+  planContent?: string;     // The plan being reviewed
+  approvedAt?: number;      // When the plan was approved
+}
+
+// ============================================
+// Core Types
+// ============================================
+
 export type InstanceStatus =
   | 'initializing'
   | 'idle'
@@ -25,6 +75,8 @@ export interface OutputMessage {
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
   content: string;
   metadata?: Record<string, unknown>;
+  /** File attachments for user messages */
+  attachments?: FileAttachment[];
 }
 
 export interface FileAttachment {
@@ -56,6 +108,9 @@ export interface Instance {
   // Agent mode
   agentId: string;  // References AgentProfile.id ('build', 'plan', 'review', or custom)
   agentMode: AgentMode;
+
+  // Plan mode state
+  planMode: PlanModeConfig;
 
   // State
   status: InstanceStatus;
@@ -130,6 +185,11 @@ export function createInstance(config: InstanceCreateConfig): Instance {
 
     agentId: resolvedAgent.id,
     agentMode: resolvedAgent.mode,
+
+    planMode: {
+      enabled: false,
+      state: 'off',
+    },
 
     status: 'initializing',
     contextUsage: { used: 0, total: 200000, percentage: 0 },

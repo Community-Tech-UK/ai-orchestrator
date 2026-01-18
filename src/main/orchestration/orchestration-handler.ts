@@ -9,10 +9,16 @@ import {
   MessageChildCommand,
   TerminateChildCommand,
   GetChildOutputCommand,
+  ReportTaskCompleteCommand,
+  ReportProgressCommand,
+  ReportErrorCommand,
+  GetTaskStatusCommand,
   parseOrchestratorCommands,
   formatCommandResponse,
   generateOrchestrationPrompt,
 } from './orchestration-protocol';
+import { getTaskManager } from './task-manager';
+import type { TaskExecution, TaskResult, TaskProgress, TaskError } from '../../shared/types/task.types';
 
 export interface OrchestrationContext {
   instanceId: string;
@@ -28,6 +34,9 @@ export interface OrchestrationEvents {
   'get-children': (parentId: string, callback: (children: ChildInfo[]) => void) => void;
   'get-child-output': (parentId: string, command: GetChildOutputCommand, callback: (output: string[]) => void) => void;
   'inject-response': (instanceId: string, response: string) => void;
+  'task-complete': (parentId: string, childId: string, task: TaskExecution) => void;
+  'task-progress': (parentId: string, childId: string, progress: TaskProgress) => void;
+  'task-error': (parentId: string, childId: string, error: TaskError) => void;
 }
 
 export interface ChildInfo {
@@ -128,6 +137,22 @@ export class OrchestrationHandler extends EventEmitter {
       case 'get_child_output':
         this.handleGetChildOutput(instanceId, command);
         break;
+
+      case 'report_task_complete':
+        this.handleReportTaskComplete(instanceId, command);
+        break;
+
+      case 'report_progress':
+        this.handleReportProgress(instanceId, command);
+        break;
+
+      case 'report_error':
+        this.handleReportError(instanceId, command);
+        break;
+
+      case 'get_task_status':
+        this.handleGetTaskStatus(instanceId, command);
+        break;
     }
   }
 
@@ -186,6 +211,131 @@ export class OrchestrationHandler extends EventEmitter {
     this.emit('get-child-output', parentId, command, (output: string[]) => {
       this.injectResponse(parentId, 'get_child_output', true, { output });
     });
+  }
+
+  /**
+   * Handle task completion report from child
+   */
+  private handleReportTaskComplete(childId: string, command: ReportTaskCompleteCommand): void {
+    const ctx = this.contexts.get(childId);
+    if (!ctx || !ctx.parentId) {
+      console.warn(`No parent for child ${childId} to report completion to`);
+      return;
+    }
+
+    const taskManager = getTaskManager();
+    const task = taskManager.getTaskByChildId(childId);
+
+    const result: TaskResult = {
+      success: command.success,
+      summary: command.summary,
+      data: command.data,
+      artifacts: command.artifacts,
+      recommendations: command.recommendations,
+    };
+
+    if (task) {
+      taskManager.completeTask(task.taskId, result);
+      this.emit('task-complete', ctx.parentId, childId, task);
+    }
+
+    // Notify the parent instance
+    this.injectResponse(ctx.parentId, 'task_complete', true, {
+      childId,
+      taskId: task?.taskId,
+      result,
+      message: `Child ${childId} completed task: ${command.summary}`,
+    });
+  }
+
+  /**
+   * Handle progress report from child
+   */
+  private handleReportProgress(childId: string, command: ReportProgressCommand): void {
+    const ctx = this.contexts.get(childId);
+    if (!ctx || !ctx.parentId) {
+      return;
+    }
+
+    const taskManager = getTaskManager();
+    const progress: TaskProgress = {
+      percentage: command.percentage,
+      currentStep: command.currentStep,
+      stepsRemaining: command.stepsRemaining,
+    };
+
+    taskManager.updateProgress(childId, progress);
+    this.emit('task-progress', ctx.parentId, childId, progress);
+
+    // Optionally notify the parent (can be noisy, so only for significant progress)
+    if (command.percentage % 25 === 0) {
+      this.injectResponse(ctx.parentId, 'task_progress', true, {
+        childId,
+        progress,
+      });
+    }
+  }
+
+  /**
+   * Handle error report from child
+   */
+  private handleReportError(childId: string, command: ReportErrorCommand): void {
+    const ctx = this.contexts.get(childId);
+    if (!ctx || !ctx.parentId) {
+      return;
+    }
+
+    const taskManager = getTaskManager();
+    const task = taskManager.getTaskByChildId(childId);
+
+    const error: TaskError = {
+      code: command.code,
+      message: command.message,
+      context: command.context,
+      suggestedAction: command.suggestedAction,
+    };
+
+    if (task) {
+      taskManager.failTask(task.taskId, error);
+    }
+
+    this.emit('task-error', ctx.parentId, childId, error);
+
+    // Notify the parent instance
+    this.injectResponse(ctx.parentId, 'task_error', true, {
+      childId,
+      taskId: task?.taskId,
+      error,
+      message: `Child ${childId} reported error: ${command.message}`,
+    });
+  }
+
+  /**
+   * Handle task status query
+   */
+  private handleGetTaskStatus(instanceId: string, command: GetTaskStatusCommand): void {
+    const ctx = this.contexts.get(instanceId);
+    if (!ctx) return;
+
+    const taskManager = getTaskManager();
+
+    if (command.taskId) {
+      // Get specific task
+      const task = taskManager.getTask(command.taskId);
+      this.injectResponse(instanceId, 'get_task_status', !!task, {
+        task: task ? taskManager.serializeTask(task) : null,
+      });
+    } else {
+      // Get all tasks for this instance
+      const tasks = ctx.parentId
+        ? [] // Children don't have their own tasks
+        : taskManager.getTasksByParentId(instanceId);
+
+      this.injectResponse(instanceId, 'get_task_status', true, {
+        tasks: tasks.map(t => taskManager.serializeTask(t)),
+        history: taskManager.getTaskHistory(instanceId),
+      });
+    }
   }
 
   /**

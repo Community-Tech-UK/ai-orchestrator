@@ -1,9 +1,15 @@
 /**
  * Settings Types - Application settings configuration
+ *
+ * Configuration hierarchy (highest to lowest priority):
+ * 1. Project config (.claude-orchestrator.json in project root)
+ * 2. User config (stored in app data)
+ * 3. Default config (built-in defaults)
  */
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type CliType = 'claude' | 'gemini' | 'openai' | 'auto';
+export type ConfigSource = 'project' | 'user' | 'default';
 
 /**
  * Application settings that are persisted to disk
@@ -268,3 +274,94 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     max: 10240,
   },
 ];
+
+// ============================================
+// Project Configuration Types
+// ============================================
+
+/**
+ * Project-level configuration file format
+ * Stored in .claude-orchestrator.json in project root
+ */
+export interface ProjectConfig {
+  // Project identity
+  name?: string;
+  description?: string;
+
+  // Override settings (partial)
+  settings?: Partial<AppSettings>;
+
+  // Agent configuration
+  defaultAgent?: string;  // Default agent mode for this project
+
+  // Custom commands for this project
+  commands?: {
+    name: string;
+    description: string;
+    template: string;
+    hint?: string;
+  }[];
+
+  // File patterns to ignore
+  ignorePatterns?: string[];
+
+  // Custom system prompt additions
+  systemPromptAdditions?: string;
+}
+
+/**
+ * Resolved configuration with source tracking
+ */
+export interface ResolvedConfig {
+  settings: AppSettings;
+  sources: Record<keyof AppSettings, ConfigSource>;
+  projectConfig?: ProjectConfig;
+  projectPath?: string;
+}
+
+/**
+ * Project config file name
+ */
+export const PROJECT_CONFIG_FILE = '.claude-orchestrator.json';
+
+/**
+ * Merge project config with user settings
+ */
+export function mergeConfigs(
+  defaultSettings: AppSettings,
+  userSettings: Partial<AppSettings>,
+  projectSettings?: Partial<AppSettings>
+): ResolvedConfig {
+  const settings = { ...defaultSettings };
+  const sources: Record<string, ConfigSource> = {};
+
+  // Start with defaults
+  for (const key of Object.keys(defaultSettings) as (keyof AppSettings)[]) {
+    sources[key] = 'default';
+  }
+
+  // Apply user settings
+  if (userSettings) {
+    for (const [key, value] of Object.entries(userSettings)) {
+      if (value !== undefined) {
+        (settings as any)[key] = value;
+        sources[key] = 'user';
+      }
+    }
+  }
+
+  // Apply project settings (highest priority)
+  if (projectSettings) {
+    for (const [key, value] of Object.entries(projectSettings)) {
+      if (value !== undefined) {
+        (settings as any)[key] = value;
+        sources[key] = 'project';
+      }
+    }
+  }
+
+  return {
+    settings,
+    sources: sources as Record<keyof AppSettings, ConfigSource>,
+  };
+}

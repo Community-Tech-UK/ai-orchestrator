@@ -1,0 +1,409 @@
+/**
+ * Keybinding Types - Configurable keyboard shortcuts
+ */
+
+/**
+ * Modifier keys
+ */
+export type KeyModifier = 'ctrl' | 'alt' | 'shift' | 'meta' | 'cmd';
+
+/**
+ * A key combination (e.g., "ctrl+shift+p")
+ */
+export interface KeyCombo {
+  key: string;  // The actual key (e.g., 'p', 'Enter', 'Escape')
+  modifiers: KeyModifier[];
+}
+
+/**
+ * A keybinding that can be a single key combo or a sequence (leader key pattern)
+ */
+export interface KeyBinding {
+  id: string;
+  name: string;
+  description: string;
+  // Either a single combo or a sequence for leader key pattern
+  keys: KeyCombo | KeyCombo[];
+  // The action to perform (command ID or action type)
+  action: string;
+  // Optional context when the binding is active
+  context?: KeybindingContext;
+  // Whether this binding can be customized
+  customizable?: boolean;
+  // Category for grouping in UI
+  category?: string;
+}
+
+/**
+ * Context in which a keybinding is active
+ */
+export type KeybindingContext =
+  | 'global'           // Always active
+  | 'input'            // When input field is focused
+  | 'output'           // When output area is focused
+  | 'instance-list'    // When instance list is focused
+  | 'command-palette'; // When command palette is open
+
+/**
+ * Keybinding action types
+ */
+export type KeybindingAction =
+  // Navigation
+  | 'focus-input'
+  | 'focus-output'
+  | 'focus-instance-list'
+  // Instance management
+  | 'new-instance'
+  | 'close-instance'
+  | 'next-instance'
+  | 'prev-instance'
+  | 'restart-instance'
+  // UI
+  | 'toggle-command-palette'
+  | 'toggle-sidebar'
+  | 'toggle-history'
+  | 'toggle-settings'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'zoom-reset'
+  // Session
+  | 'send-message'
+  | 'cancel-operation'
+  | 'clear-input'
+  | 'copy-last-response'
+  // Agent
+  | 'toggle-agent'
+  | 'select-agent-build'
+  | 'select-agent-plan'
+  // Custom command
+  | `command:${string}`;
+
+/**
+ * Default keybindings
+ */
+export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
+  // Navigation
+  {
+    id: 'focus-input',
+    name: 'Focus Input',
+    description: 'Focus the message input field',
+    keys: { key: 'i', modifiers: [] },
+    action: 'focus-input',
+    context: 'global',
+    category: 'Navigation',
+    customizable: true,
+  },
+  {
+    id: 'focus-output',
+    name: 'Focus Output',
+    description: 'Focus the output area',
+    keys: { key: 'o', modifiers: [] },
+    action: 'focus-output',
+    context: 'global',
+    category: 'Navigation',
+    customizable: true,
+  },
+
+  // Instance management
+  {
+    id: 'new-instance',
+    name: 'New Instance',
+    description: 'Create a new Claude instance',
+    keys: { key: 'n', modifiers: ['meta'] },
+    action: 'new-instance',
+    context: 'global',
+    category: 'Instance',
+    customizable: true,
+  },
+  {
+    id: 'close-instance',
+    name: 'Close Instance',
+    description: 'Close the current instance',
+    keys: { key: 'w', modifiers: ['meta'] },
+    action: 'close-instance',
+    context: 'global',
+    category: 'Instance',
+    customizable: true,
+  },
+  {
+    id: 'next-instance',
+    name: 'Next Instance',
+    description: 'Switch to the next instance',
+    keys: { key: 'Tab', modifiers: ['ctrl'] },
+    action: 'next-instance',
+    context: 'global',
+    category: 'Instance',
+    customizable: true,
+  },
+  {
+    id: 'prev-instance',
+    name: 'Previous Instance',
+    description: 'Switch to the previous instance',
+    keys: { key: 'Tab', modifiers: ['ctrl', 'shift'] },
+    action: 'prev-instance',
+    context: 'global',
+    category: 'Instance',
+    customizable: true,
+  },
+  {
+    id: 'restart-instance',
+    name: 'Restart Instance',
+    description: 'Restart the current instance',
+    keys: { key: 'r', modifiers: ['meta', 'shift'] },
+    action: 'restart-instance',
+    context: 'global',
+    category: 'Instance',
+    customizable: true,
+  },
+
+  // UI
+  {
+    id: 'toggle-command-palette',
+    name: 'Command Palette',
+    description: 'Open the command palette',
+    keys: { key: 'p', modifiers: ['meta', 'shift'] },
+    action: 'toggle-command-palette',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'toggle-command-palette-alt',
+    name: 'Command Palette (Alternate)',
+    description: 'Open the command palette (Cmd+K)',
+    keys: { key: 'k', modifiers: ['meta'] },
+    action: 'toggle-command-palette',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'toggle-sidebar',
+    name: 'Toggle Sidebar',
+    description: 'Toggle the sidebar visibility',
+    keys: { key: 'b', modifiers: ['meta'] },
+    action: 'toggle-sidebar',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'toggle-history',
+    name: 'Toggle History',
+    description: 'Toggle the history sidebar',
+    keys: { key: 'h', modifiers: ['meta'] },
+    action: 'toggle-history',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'toggle-settings',
+    name: 'Open Settings',
+    description: 'Open the settings panel',
+    keys: { key: ',', modifiers: ['meta'] },
+    action: 'toggle-settings',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'zoom-in',
+    name: 'Zoom In',
+    description: 'Increase font size',
+    keys: { key: '=', modifiers: ['meta'] },
+    action: 'zoom-in',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'zoom-out',
+    name: 'Zoom Out',
+    description: 'Decrease font size',
+    keys: { key: '-', modifiers: ['meta'] },
+    action: 'zoom-out',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+  {
+    id: 'zoom-reset',
+    name: 'Reset Zoom',
+    description: 'Reset font size to default',
+    keys: { key: '0', modifiers: ['meta'] },
+    action: 'zoom-reset',
+    context: 'global',
+    category: 'UI',
+    customizable: true,
+  },
+
+  // Session
+  {
+    id: 'send-message',
+    name: 'Send Message',
+    description: 'Send the current message',
+    keys: { key: 'Enter', modifiers: [] },
+    action: 'send-message',
+    context: 'input',
+    category: 'Session',
+    customizable: false,
+  },
+  {
+    id: 'send-message-meta',
+    name: 'Send Message (Meta)',
+    description: 'Send the current message',
+    keys: { key: 'Enter', modifiers: ['meta'] },
+    action: 'send-message',
+    context: 'input',
+    category: 'Session',
+    customizable: true,
+  },
+  {
+    id: 'cancel-operation',
+    name: 'Cancel Operation',
+    description: 'Cancel the current operation',
+    keys: { key: 'Escape', modifiers: [] },
+    action: 'cancel-operation',
+    context: 'global',
+    category: 'Session',
+    customizable: false,
+  },
+  {
+    id: 'clear-input',
+    name: 'Clear Input',
+    description: 'Clear the input field',
+    keys: { key: 'u', modifiers: ['meta'] },
+    action: 'clear-input',
+    context: 'input',
+    category: 'Session',
+    customizable: true,
+  },
+  {
+    id: 'copy-last-response',
+    name: 'Copy Last Response',
+    description: 'Copy the last Claude response to clipboard',
+    keys: { key: 'c', modifiers: ['meta', 'shift'] },
+    action: 'copy-last-response',
+    context: 'global',
+    category: 'Session',
+    customizable: true,
+  },
+
+  // Agent
+  {
+    id: 'toggle-agent',
+    name: 'Toggle Agent',
+    description: 'Switch between agent modes',
+    keys: { key: 'Tab', modifiers: [] },
+    action: 'toggle-agent',
+    context: 'input',
+    category: 'Agent',
+    customizable: true,
+  },
+];
+
+/**
+ * User keybinding customization
+ */
+export interface KeybindingCustomization {
+  id: string;
+  keys: KeyCombo | KeyCombo[];
+}
+
+/**
+ * Parse a key string like "ctrl+shift+p" into KeyCombo
+ */
+export function parseKeyCombo(keyString: string): KeyCombo {
+  const parts = keyString.toLowerCase().split('+');
+  const modifiers: KeyModifier[] = [];
+  let key = '';
+
+  for (const part of parts) {
+    if (part === 'ctrl' || part === 'control') {
+      modifiers.push('ctrl');
+    } else if (part === 'alt' || part === 'option') {
+      modifiers.push('alt');
+    } else if (part === 'shift') {
+      modifiers.push('shift');
+    } else if (part === 'meta' || part === 'cmd' || part === 'command' || part === 'win') {
+      modifiers.push('meta');
+    } else {
+      // This is the actual key
+      key = part;
+    }
+  }
+
+  return { key, modifiers };
+}
+
+/**
+ * Format a KeyCombo as a display string
+ */
+export function formatKeyCombo(combo: KeyCombo, isMac = true): string {
+  const modifierSymbols: Record<KeyModifier, string> = isMac
+    ? { ctrl: '⌃', alt: '⌥', shift: '⇧', meta: '⌘', cmd: '⌘' }
+    : { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Win', cmd: 'Win' };
+
+  const parts = combo.modifiers.map((m) => modifierSymbols[m]);
+  parts.push(combo.key.length === 1 ? combo.key.toUpperCase() : combo.key);
+
+  return isMac ? parts.join('') : parts.join('+');
+}
+
+/**
+ * Format a KeyBinding for display
+ */
+export function formatKeyBinding(binding: KeyBinding, isMac = true): string {
+  if (Array.isArray(binding.keys)) {
+    return binding.keys.map((k) => formatKeyCombo(k, isMac)).join(' ');
+  }
+  return formatKeyCombo(binding.keys, isMac);
+}
+
+/**
+ * Minimal keyboard event interface for cross-platform compatibility
+ */
+export interface KeyboardEventLike {
+  key: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  metaKey: boolean;
+}
+
+/**
+ * Check if a keyboard event matches a key combo
+ */
+export function matchesKeyCombo(event: KeyboardEventLike, combo: KeyCombo): boolean {
+  const eventModifiers = {
+    ctrl: event.ctrlKey,
+    alt: event.altKey,
+    shift: event.shiftKey,
+    meta: event.metaKey,
+    cmd: event.metaKey,
+  };
+
+  // Check all required modifiers are pressed
+  for (const mod of combo.modifiers) {
+    if (!eventModifiers[mod]) {
+      return false;
+    }
+  }
+
+  // Check no extra modifiers are pressed
+  const requiredModCount = combo.modifiers.length;
+  const pressedModCount = [
+    event.ctrlKey,
+    event.altKey,
+    event.shiftKey,
+    event.metaKey,
+  ].filter(Boolean).length;
+
+  if (pressedModCount !== requiredModCount) {
+    return false;
+  }
+
+  // Check the key
+  return event.key.toLowerCase() === combo.key.toLowerCase();
+}

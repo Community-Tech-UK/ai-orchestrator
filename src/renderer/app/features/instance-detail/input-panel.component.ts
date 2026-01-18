@@ -7,8 +7,12 @@ import {
   input,
   output,
   signal,
+  computed,
+  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { CommandStore } from '../../core/state/command.store';
+import type { CommandTemplate } from '../../../../shared/types/command.types';
 
 @Component({
   selector: 'app-input-panel',
@@ -30,6 +34,23 @@ import {
                 ×
               </button>
             </div>
+          }
+        </div>
+      }
+
+      <!-- Command suggestions dropdown -->
+      @if (showCommandSuggestions() && filteredCommands().length > 0) {
+        <div class="command-suggestions">
+          @for (cmd of filteredCommands(); track cmd.id; let i = $index) {
+            <button
+              class="suggestion-item"
+              [class.selected]="i === selectedCommandIndex()"
+              (click)="onSelectCommand(cmd)"
+              (mouseenter)="selectedCommandIndex.set(i)"
+            >
+              <span class="cmd-name">/{{ cmd.name }}</span>
+              <span class="cmd-desc">{{ cmd.description }}</span>
+            </button>
           }
         </div>
       }
@@ -59,7 +80,7 @@ import {
 
       <div class="input-hints">
         <span class="hint">Press Enter to send, Shift+Enter for new line</span>
-        <span class="hint">Drag files or paste images to attach</span>
+        <span class="hint">Type / for commands, Cmd+K for palette</span>
       </div>
     </div>
   `,
@@ -175,19 +196,100 @@ import {
       font-size: 11px;
       color: var(--text-muted);
     }
+
+    .command-suggestions {
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--spacing-xs);
+      max-height: 240px;
+      overflow-y: auto;
+      box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 100;
+    }
+
+    .suggestion-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
+      padding: var(--spacing-sm) var(--spacing-md);
+      background: transparent;
+      border: none;
+      text-align: left;
+      cursor: pointer;
+      transition: background var(--transition-fast);
+
+      &:hover,
+      &.selected {
+        background: var(--bg-secondary);
+      }
+
+      &.selected {
+        background: var(--bg-tertiary);
+      }
+    }
+
+    .cmd-name {
+      font-weight: 600;
+      color: var(--primary-color);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+    }
+
+    .cmd-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .input-panel {
+      position: relative;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InputPanelComponent {
+  private commandStore = inject(CommandStore);
+
   instanceId = input.required<string>();
   disabled = input<boolean>(false);
   placeholder = input<string>('Send a message...');
   pendingFiles = input<File[]>([]);
 
   sendMessage = output<string>();
+  executeCommand = output<{ commandId: string; args: string[] }>();
   removeFile = output<File>();
 
   message = signal('');
+  showCommandSuggestions = signal(false);
+  selectedCommandIndex = signal(0);
+
+  // Computed: filter commands based on input
+  filteredCommands = computed(() => {
+    const msg = this.message();
+    if (!msg.startsWith('/')) return [];
+
+    const query = msg.slice(1).toLowerCase().split(/\s/)[0];
+    const commands = this.commandStore.commands();
+
+    if (!query) return commands.slice(0, 8); // Show first 8 commands when just "/" is typed
+
+    return commands
+      .filter(cmd => cmd.name.toLowerCase().startsWith(query))
+      .slice(0, 8);
+  });
+
+  constructor() {
+    // Load commands on init
+    this.commandStore.loadCommands();
+  }
 
   canSend(): boolean {
     return this.message().trim().length > 0 || (this.pendingFiles()?.length ?? 0) > 0;
@@ -195,7 +297,16 @@ export class InputPanelComponent {
 
   onInput(event: Event): void {
     const textarea = event.target as HTMLTextAreaElement;
-    this.message.set(textarea.value);
+    const value = textarea.value;
+    this.message.set(value);
+
+    // Show command suggestions when typing "/"
+    if (value.startsWith('/') && !value.includes('\n')) {
+      this.showCommandSuggestions.set(true);
+      this.selectedCommandIndex.set(0);
+    } else {
+      this.showCommandSuggestions.set(false);
+    }
 
     // Auto-resize textarea
     textarea.style.height = 'auto';
@@ -203,9 +314,66 @@ export class InputPanelComponent {
   }
 
   onKeyDown(event: KeyboardEvent): void {
+    // Handle command suggestions navigation
+    if (this.showCommandSuggestions() && this.filteredCommands().length > 0) {
+      const commands = this.filteredCommands();
+
+      switch (event.key) {
+        case 'ArrowDown':
+          event.preventDefault();
+          this.selectedCommandIndex.update(i =>
+            i < commands.length - 1 ? i + 1 : 0
+          );
+          return;
+
+        case 'ArrowUp':
+          event.preventDefault();
+          this.selectedCommandIndex.update(i =>
+            i > 0 ? i - 1 : commands.length - 1
+          );
+          return;
+
+        case 'Tab':
+        case 'Enter':
+          event.preventDefault();
+          const selected = commands[this.selectedCommandIndex()];
+          if (selected) {
+            this.onSelectCommand(selected);
+          }
+          return;
+
+        case 'Escape':
+          event.preventDefault();
+          this.showCommandSuggestions.set(false);
+          return;
+      }
+    }
+
+    // Normal enter to send
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       this.onSend();
+    }
+  }
+
+  onSelectCommand(command: CommandTemplate): void {
+    // Get any args after the command name in the current message
+    const msg = this.message();
+    const parts = msg.slice(1).split(/\s+/);
+    const args = parts.slice(1).filter(Boolean);
+
+    // Execute the command
+    this.commandStore.executeCommand(command.id, this.instanceId(), args);
+    this.executeCommand.emit({ commandId: command.id, args });
+
+    // Clear input
+    this.message.set('');
+    this.showCommandSuggestions.set(false);
+
+    // Reset textarea height
+    const textarea = document.querySelector('.message-input') as HTMLTextAreaElement;
+    if (textarea) {
+      textarea.style.height = 'auto';
     }
   }
 
@@ -213,8 +381,24 @@ export class InputPanelComponent {
     if (!this.canSend() || this.disabled()) return;
 
     const text = this.message().trim();
+
+    // Check if it's a command
+    if (text.startsWith('/')) {
+      const parts = text.slice(1).split(/\s+/);
+      const cmdName = parts[0];
+      const args = parts.slice(1);
+
+      const command = this.commandStore.getCommandByName(cmdName);
+      if (command) {
+        this.onSelectCommand(command);
+        return;
+      }
+      // If no matching command, send as regular message
+    }
+
     this.sendMessage.emit(text);
     this.message.set('');
+    this.showCommandSuggestions.set(false);
 
     // Reset textarea height
     const textarea = document.querySelector('.message-input') as HTMLTextAreaElement;

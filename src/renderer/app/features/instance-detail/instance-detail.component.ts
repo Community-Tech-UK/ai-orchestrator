@@ -17,6 +17,7 @@ import { StatusIndicatorComponent } from '../instance-list/status-indicator.comp
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { ActivityStatusComponent } from './activity-status.component';
 import { ChildInstancesPanelComponent } from './child-instances-panel.component';
+import { TodoListComponent } from './todo-list.component';
 
 @Component({
   selector: 'app-instance-detail',
@@ -28,7 +29,8 @@ import { ChildInstancesPanelComponent } from './child-instances-panel.component'
     StatusIndicatorComponent,
     DropZoneComponent,
     ActivityStatusComponent,
-    ChildInstancesPanelComponent
+    ChildInstancesPanelComponent,
+    TodoListComponent
   ],
   template: `
     @if (instance(); as inst) {
@@ -111,6 +113,9 @@ import { ChildInstancesPanelComponent } from './child-instances-panel.component'
         <div class="context-section">
           <app-context-bar [usage]="inst.contextUsage" [showDetails]="true" />
         </div>
+
+        <!-- TODO list -->
+        <app-todo-list [sessionId]="inst.sessionId" />
 
         <!-- Output stream -->
         <div class="output-section">

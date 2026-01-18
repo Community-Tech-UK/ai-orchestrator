@@ -1,0 +1,703 @@
+/**
+ * MCP Manager - Handle MCP server connections and tool execution
+ *
+ * Features:
+ * - Manage multiple MCP server connections
+ * - Execute tools, read resources, get prompts
+ * - Handle server lifecycle (connect, disconnect, restart)
+ * - Event-based communication for status updates
+ */
+
+import { EventEmitter } from 'events';
+import { spawn, ChildProcess } from 'child_process';
+import {
+  McpServerConfig,
+  McpTool,
+  McpResource,
+  McpPrompt,
+  McpToolCallRequest,
+  McpToolCallResponse,
+  McpResourceReadRequest,
+  McpResourceReadResponse,
+  McpPromptGetRequest,
+  McpPromptGetResponse,
+  McpContent,
+  McpLogEntry,
+  McpManagerState,
+  McpServerCapabilities,
+} from '../../shared/types/mcp.types';
+
+// JSON-RPC message types
+interface JsonRpcRequest {
+  jsonrpc: '2.0';
+  id: number;
+  method: string;
+  params?: unknown;
+}
+
+interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  id: number;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+interface JsonRpcNotification {
+  jsonrpc: '2.0';
+  method: string;
+  params?: unknown;
+}
+
+// MCP Events
+export interface McpManagerEvents {
+  'server:connected': (serverId: string) => void;
+  'server:disconnected': (serverId: string) => void;
+  'server:error': (serverId: string, error: string) => void;
+  'tools:updated': (tools: McpTool[]) => void;
+  'resources:updated': (resources: McpResource[]) => void;
+  'prompts:updated': (prompts: McpPrompt[]) => void;
+  'log': (entry: McpLogEntry) => void;
+}
+
+interface ServerConnection {
+  config: McpServerConfig;
+  process?: ChildProcess;
+  requestId: number;
+  pendingRequests: Map<number, {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+  }>;
+  buffer: string;
+}
+
+export class McpManager extends EventEmitter {
+  private connections: Map<string, ServerConnection> = new Map();
+  private tools: Map<string, McpTool> = new Map();
+  private resources: Map<string, McpResource> = new Map();
+  private prompts: Map<string, McpPrompt> = new Map();
+
+  constructor() {
+    super();
+  }
+
+  // ============================================
+  // Server Management
+  // ============================================
+
+  /**
+   * Add a server configuration
+   */
+  addServer(config: McpServerConfig): void {
+    const connection: ServerConnection = {
+      config: { ...config, status: 'disconnected' },
+      requestId: 0,
+      pendingRequests: new Map(),
+      buffer: '',
+    };
+    this.connections.set(config.id, connection);
+
+    // Auto-connect if configured
+    if (config.autoConnect) {
+      this.connect(config.id).catch((err) => {
+        console.error(`Failed to auto-connect to MCP server ${config.id}:`, err);
+      });
+    }
+  }
+
+  /**
+   * Remove a server
+   */
+  async removeServer(serverId: string): Promise<void> {
+    await this.disconnect(serverId);
+    this.connections.delete(serverId);
+
+    // Remove associated tools, resources, and prompts
+    this.removeServerItems(serverId);
+  }
+
+  /**
+   * Connect to a server
+   */
+  async connect(serverId: string): Promise<void> {
+    const connection = this.connections.get(serverId);
+    if (!connection) {
+      throw new Error(`Server not found: ${serverId}`);
+    }
+
+    if (connection.config.status === 'connected') {
+      return;
+    }
+
+    connection.config.status = 'connecting';
+
+    try {
+      if (connection.config.transport === 'stdio') {
+        await this.connectStdio(connection);
+      } else {
+        throw new Error(`Transport ${connection.config.transport} not yet implemented`);
+      }
+
+      // Initialize the server
+      await this.initializeServer(connection);
+
+      connection.config.status = 'connected';
+      this.emit('server:connected', serverId);
+
+      // Discover capabilities
+      await this.discoverCapabilities(connection);
+    } catch (error) {
+      connection.config.status = 'error';
+      connection.config.error = (error as Error).message;
+      this.emit('server:error', serverId, (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Disconnect from a server
+   */
+  async disconnect(serverId: string): Promise<void> {
+    const connection = this.connections.get(serverId);
+    if (!connection || connection.config.status === 'disconnected') {
+      return;
+    }
+
+    // Kill the process
+    if (connection.process) {
+      connection.process.kill();
+      connection.process = undefined;
+    }
+
+    // Reject pending requests
+    for (const [, pending] of connection.pendingRequests) {
+      pending.reject(new Error('Server disconnected'));
+    }
+    connection.pendingRequests.clear();
+
+    connection.config.status = 'disconnected';
+    this.emit('server:disconnected', serverId);
+
+    // Remove associated items
+    this.removeServerItems(serverId);
+  }
+
+  /**
+   * Restart a server connection
+   */
+  async restart(serverId: string): Promise<void> {
+    await this.disconnect(serverId);
+    await this.connect(serverId);
+  }
+
+  // ============================================
+  // Tool Operations
+  // ============================================
+
+  /**
+   * Call a tool
+   */
+  async callTool(request: McpToolCallRequest): Promise<McpToolCallResponse> {
+    const connection = this.connections.get(request.serverId);
+    if (!connection || connection.config.status !== 'connected') {
+      return {
+        success: false,
+        error: 'Server not connected',
+      };
+    }
+
+    try {
+      const result = await this.sendRequest(connection, 'tools/call', {
+        name: request.toolName,
+        arguments: request.arguments,
+      });
+
+      const response = result as { content?: McpContent[]; isError?: boolean };
+      return {
+        success: !response.isError,
+        content: response.content,
+        isError: response.isError,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: (error as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Get all available tools
+   */
+  getTools(): McpTool[] {
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * Get tools for a specific server
+   */
+  getServerTools(serverId: string): McpTool[] {
+    return this.getTools().filter((t) => t.serverId === serverId);
+  }
+
+  // ============================================
+  // Resource Operations
+  // ============================================
+
+  /**
+   * Read a resource
+   */
+  async readResource(request: McpResourceReadRequest): Promise<McpResourceReadResponse> {
+    const connection = this.connections.get(request.serverId);
+    if (!connection || connection.config.status !== 'connected') {
+      return {
+        success: false,
+        error: 'Server not connected',
+      };
+    }
+
+    try {
+      const result = await this.sendRequest(connection, 'resources/read', {
+        uri: request.uri,
+      });
+
+      const response = result as { contents?: McpContent[] };
+      return {
+        success: true,
+        contents: response.contents,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: (error as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Get all available resources
+   */
+  getResources(): McpResource[] {
+    return Array.from(this.resources.values());
+  }
+
+  // ============================================
+  // Prompt Operations
+  // ============================================
+
+  /**
+   * Get a prompt
+   */
+  async getPrompt(request: McpPromptGetRequest): Promise<McpPromptGetResponse> {
+    const connection = this.connections.get(request.serverId);
+    if (!connection || connection.config.status !== 'connected') {
+      return {
+        success: false,
+        error: 'Server not connected',
+      };
+    }
+
+    try {
+      const result = await this.sendRequest(connection, 'prompts/get', {
+        name: request.promptName,
+        arguments: request.arguments,
+      });
+
+      const response = result as McpPromptGetResponse;
+      return {
+        success: true,
+        description: response.description,
+        messages: response.messages,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: (error as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Get all available prompts
+   */
+  getPrompts(): McpPrompt[] {
+    return Array.from(this.prompts.values());
+  }
+
+  // ============================================
+  // State Management
+  // ============================================
+
+  /**
+   * Get current state
+   */
+  getState(): McpManagerState {
+    const servers = Array.from(this.connections.values()).map((c) => c.config);
+    return {
+      servers,
+      tools: this.getTools(),
+      resources: this.getResources(),
+      prompts: this.getPrompts(),
+    };
+  }
+
+  /**
+   * Get server status
+   */
+  getServerStatus(serverId: string): McpServerConfig | undefined {
+    return this.connections.get(serverId)?.config;
+  }
+
+  /**
+   * Get all servers
+   */
+  getServers(): McpServerConfig[] {
+    return Array.from(this.connections.values()).map((c) => c.config);
+  }
+
+  // ============================================
+  // Private Methods
+  // ============================================
+
+  /**
+   * Connect via stdio transport
+   */
+  private async connectStdio(connection: ServerConnection): Promise<void> {
+    const { command, args, env } = connection.config;
+    if (!command) {
+      throw new Error('No command specified for stdio transport');
+    }
+
+    const proc = spawn(command, args || [], {
+      env: { ...process.env, ...env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    connection.process = proc;
+
+    // Handle stdout (JSON-RPC messages)
+    proc.stdout?.on('data', (data: Buffer) => {
+      this.handleStdoutData(connection, data);
+    });
+
+    // Handle stderr (logging)
+    proc.stderr?.on('data', (data: Buffer) => {
+      const message = data.toString();
+      this.emit('log', {
+        level: 'error',
+        message,
+        timestamp: Date.now(),
+        serverId: connection.config.id,
+      });
+    });
+
+    // Handle process exit
+    proc.on('exit', (code) => {
+      if (connection.config.status === 'connected') {
+        connection.config.status = 'disconnected';
+        this.emit('server:disconnected', connection.config.id);
+      }
+    });
+
+    // Wait a bit for the process to start
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  /**
+   * Handle stdout data from stdio transport
+   */
+  private handleStdoutData(connection: ServerConnection, data: Buffer): void {
+    connection.buffer += data.toString();
+
+    // Process complete JSON-RPC messages (newline-delimited)
+    let newlineIndex: number;
+    while ((newlineIndex = connection.buffer.indexOf('\n')) !== -1) {
+      const line = connection.buffer.slice(0, newlineIndex);
+      connection.buffer = connection.buffer.slice(newlineIndex + 1);
+
+      if (!line.trim()) continue;
+
+      try {
+        const message = JSON.parse(line);
+        this.handleMessage(connection, message);
+      } catch {
+        console.error('Failed to parse MCP message:', line);
+      }
+    }
+  }
+
+  /**
+   * Handle a JSON-RPC message
+   */
+  private handleMessage(
+    connection: ServerConnection,
+    message: JsonRpcResponse | JsonRpcNotification
+  ): void {
+    // Handle response
+    if ('id' in message) {
+      const pending = connection.pendingRequests.get(message.id);
+      if (pending) {
+        connection.pendingRequests.delete(message.id);
+        if (message.error) {
+          pending.reject(new Error(message.error.message));
+        } else {
+          pending.resolve(message.result);
+        }
+      }
+      return;
+    }
+
+    // Handle notification
+    if ('method' in message) {
+      this.handleNotification(connection, message);
+    }
+  }
+
+  /**
+   * Handle a JSON-RPC notification
+   */
+  private handleNotification(
+    connection: ServerConnection,
+    notification: JsonRpcNotification
+  ): void {
+    switch (notification.method) {
+      case 'notifications/tools/list_changed':
+        this.listTools(connection).catch(console.error);
+        break;
+      case 'notifications/resources/list_changed':
+        this.listResources(connection).catch(console.error);
+        break;
+      case 'notifications/prompts/list_changed':
+        this.listPrompts(connection).catch(console.error);
+        break;
+      case 'notifications/message':
+        const params = notification.params as { level: string; logger?: string; data: string };
+        this.emit('log', {
+          level: params.level as McpLogEntry['level'],
+          logger: params.logger,
+          message: params.data,
+          timestamp: Date.now(),
+          serverId: connection.config.id,
+        });
+        break;
+    }
+  }
+
+  /**
+   * Send a JSON-RPC request
+   */
+  private sendRequest(
+    connection: ServerConnection,
+    method: string,
+    params?: unknown
+  ): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = ++connection.requestId;
+      const request: JsonRpcRequest = {
+        jsonrpc: '2.0',
+        id,
+        method,
+        params,
+      };
+
+      connection.pendingRequests.set(id, { resolve, reject });
+
+      // Send to process stdin
+      if (connection.process?.stdin) {
+        connection.process.stdin.write(JSON.stringify(request) + '\n');
+      } else {
+        reject(new Error('Process not connected'));
+      }
+
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        if (connection.pendingRequests.has(id)) {
+          connection.pendingRequests.delete(id);
+          reject(new Error('Request timed out'));
+        }
+      }, 30000);
+    });
+  }
+
+  /**
+   * Initialize the server
+   */
+  private async initializeServer(connection: ServerConnection): Promise<void> {
+    const result = await this.sendRequest(connection, 'initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {
+        roots: {
+          listChanged: true,
+        },
+      },
+      clientInfo: {
+        name: 'claude-orchestrator',
+        version: '0.1.0',
+      },
+    });
+
+    const initResult = result as {
+      protocolVersion: string;
+      capabilities: McpServerCapabilities;
+      serverInfo?: { name: string; version?: string };
+    };
+
+    connection.config.capabilities = initResult.capabilities;
+
+    // Send initialized notification
+    if (connection.process?.stdin) {
+      const notification: JsonRpcNotification = {
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+      };
+      connection.process.stdin.write(JSON.stringify(notification) + '\n');
+    }
+  }
+
+  /**
+   * Discover server capabilities (tools, resources, prompts)
+   */
+  private async discoverCapabilities(connection: ServerConnection): Promise<void> {
+    const caps = connection.config.capabilities;
+
+    if (caps?.tools) {
+      await this.listTools(connection);
+    }
+    if (caps?.resources) {
+      await this.listResources(connection);
+    }
+    if (caps?.prompts) {
+      await this.listPrompts(connection);
+    }
+  }
+
+  /**
+   * List tools from a server
+   */
+  private async listTools(connection: ServerConnection): Promise<void> {
+    try {
+      const result = await this.sendRequest(connection, 'tools/list');
+      const { tools } = result as { tools: Array<{ name: string; description?: string; inputSchema: unknown }> };
+
+      // Update tools map
+      for (const tool of tools) {
+        const mcpTool: McpTool = {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema as McpTool['inputSchema'],
+          serverId: connection.config.id,
+        };
+        this.tools.set(`${connection.config.id}:${tool.name}`, mcpTool);
+      }
+
+      this.emit('tools:updated', this.getTools());
+    } catch (error) {
+      console.error('Failed to list tools:', error);
+    }
+  }
+
+  /**
+   * List resources from a server
+   */
+  private async listResources(connection: ServerConnection): Promise<void> {
+    try {
+      const result = await this.sendRequest(connection, 'resources/list');
+      const { resources } = result as {
+        resources: Array<{ uri: string; name: string; description?: string; mimeType?: string }>;
+      };
+
+      // Update resources map
+      for (const resource of resources) {
+        const mcpResource: McpResource = {
+          uri: resource.uri,
+          name: resource.name,
+          description: resource.description,
+          mimeType: resource.mimeType,
+          serverId: connection.config.id,
+        };
+        this.resources.set(`${connection.config.id}:${resource.uri}`, mcpResource);
+      }
+
+      this.emit('resources:updated', this.getResources());
+    } catch (error) {
+      console.error('Failed to list resources:', error);
+    }
+  }
+
+  /**
+   * List prompts from a server
+   */
+  private async listPrompts(connection: ServerConnection): Promise<void> {
+    try {
+      const result = await this.sendRequest(connection, 'prompts/list');
+      const { prompts } = result as {
+        prompts: Array<{ name: string; description?: string; arguments?: McpPrompt['arguments'] }>;
+      };
+
+      // Update prompts map
+      for (const prompt of prompts) {
+        const mcpPrompt: McpPrompt = {
+          name: prompt.name,
+          description: prompt.description,
+          arguments: prompt.arguments,
+          serverId: connection.config.id,
+        };
+        this.prompts.set(`${connection.config.id}:${prompt.name}`, mcpPrompt);
+      }
+
+      this.emit('prompts:updated', this.getPrompts());
+    } catch (error) {
+      console.error('Failed to list prompts:', error);
+    }
+  }
+
+  /**
+   * Remove tools, resources, and prompts for a server
+   */
+  private removeServerItems(serverId: string): void {
+    // Remove tools
+    for (const [key, tool] of this.tools) {
+      if (tool.serverId === serverId) {
+        this.tools.delete(key);
+      }
+    }
+    this.emit('tools:updated', this.getTools());
+
+    // Remove resources
+    for (const [key, resource] of this.resources) {
+      if (resource.serverId === serverId) {
+        this.resources.delete(key);
+      }
+    }
+    this.emit('resources:updated', this.getResources());
+
+    // Remove prompts
+    for (const [key, prompt] of this.prompts) {
+      if (prompt.serverId === serverId) {
+        this.prompts.delete(key);
+      }
+    }
+    this.emit('prompts:updated', this.getPrompts());
+  }
+
+  /**
+   * Cleanup on shutdown
+   */
+  async shutdown(): Promise<void> {
+    const serverIds = Array.from(this.connections.keys());
+    await Promise.all(serverIds.map((id) => this.disconnect(id)));
+  }
+}
+
+// Singleton instance
+let mcpManager: McpManager | null = null;
+
+export function getMcpManager(): McpManager {
+  if (!mcpManager) {
+    mcpManager = new McpManager();
+  }
+  return mcpManager;
+}

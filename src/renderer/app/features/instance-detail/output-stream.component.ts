@@ -1,5 +1,5 @@
 /**
- * Output Stream Component - Displays Claude's output messages
+ * Output Stream Component - Displays Claude's output messages with rich markdown rendering
  */
 
 import {
@@ -8,15 +8,19 @@ import {
   ElementRef,
   viewChild,
   effect,
+  inject,
   ChangeDetectionStrategy,
+  afterNextRender,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
+import { MarkdownService } from '../../core/services/markdown.service';
+import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
 
 @Component({
   selector: 'app-output-stream',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, MessageAttachmentsComponent],
   template: `
     <div class="output-stream" #container>
       @for (message of messages(); track message.id) {
@@ -30,9 +34,17 @@ import { OutputMessage } from '../../core/state/instance.store';
             </div>
             <div class="message-content">
               @if (message.type === 'tool_use' || message.type === 'tool_result') {
-                <pre class="code-block">{{ formatContent(message) }}</pre>
+                <div class="code-block-wrapper">
+                  <div class="code-block-header">
+                    <span class="code-language">{{ getToolName(message) }}</span>
+                  </div>
+                  <pre class="hljs"><code>{{ formatContent(message) }}</code></pre>
+                </div>
               } @else {
-                <div class="text-content" [innerHTML]="formatMarkdown(message.content)"></div>
+                <div class="markdown-content" [innerHTML]="renderMarkdown(message.content)"></div>
+              }
+              @if (message.attachments && message.attachments.length > 0) {
+                <app-message-attachments [attachments]="message.attachments" />
               }
             </div>
           </div>
@@ -74,6 +86,20 @@ import { OutputMessage } from '../../core/state/instance.store';
       background: var(--primary-color);
       color: white;
       margin-left: var(--spacing-xl);
+
+      .markdown-content {
+        color: inherit;
+      }
+
+      .markdown-content a {
+        color: white;
+        text-decoration: underline;
+      }
+
+      .inline-code {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+      }
     }
 
     .message-assistant {
@@ -96,7 +122,6 @@ import { OutputMessage } from '../../core/state/instance.store';
     .message-tool_result {
       background: var(--bg-primary);
       border: 1px solid var(--border-color);
-      font-family: var(--font-mono);
       font-size: 12px;
     }
 
@@ -122,20 +147,7 @@ import { OutputMessage } from '../../core/state/instance.store';
 
     .message-content {
       line-height: 1.6;
-    }
-
-    .text-content {
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .code-block {
-      margin: 0;
-      padding: var(--spacing-sm);
-      background: var(--bg-secondary);
-      border-radius: var(--radius-sm);
-      overflow-x: auto;
-      font-size: 12px;
+      font-size: var(--output-font-size, 14px);
     }
 
     .empty-stream {
@@ -162,6 +174,8 @@ export class OutputStreamComponent {
 
   container = viewChild<ElementRef>('container');
 
+  private markdownService = inject(MarkdownService);
+
   constructor() {
     // Auto-scroll to bottom when new messages arrive
     effect(() => {
@@ -174,6 +188,27 @@ export class OutputStreamComponent {
         }, 0);
       }
     });
+
+    // Setup copy handlers after render
+    afterNextRender(() => {
+      this.setupCopyHandlers();
+    });
+
+    // Re-setup copy handlers when messages change
+    effect(() => {
+      this.messages(); // Track message changes
+      setTimeout(() => this.setupCopyHandlers(), 100);
+    });
+  }
+
+  /**
+   * Setup click handlers for copy buttons
+   */
+  private setupCopyHandlers(): void {
+    const el = this.container()?.nativeElement;
+    if (el) {
+      this.markdownService.setupCopyHandlers(el);
+    }
   }
 
   formatType(type: string): string {
@@ -193,7 +228,18 @@ export class OutputStreamComponent {
     if (message.type === 'tool_use' || message.type === 'tool_result') {
       return !!message.metadata || !!message.content;
     }
+    // User messages may have attachments without text
+    if (message.attachments && message.attachments.length > 0) {
+      return true;
+    }
     return !!message.content?.trim();
+  }
+
+  getToolName(message: OutputMessage): string {
+    if (message.metadata && 'name' in message.metadata) {
+      return String(message.metadata['name']);
+    }
+    return message.type === 'tool_use' ? 'Tool Call' : 'Result';
   }
 
   formatContent(message: OutputMessage): string {
@@ -203,33 +249,7 @@ export class OutputStreamComponent {
     return message.content || '';
   }
 
-  formatMarkdown(content: string): string {
-    // Defensive check for undefined/null content
-    if (!content) {
-      return '';
-    }
-
-    // Strip orchestration command blocks (internal commands shouldn't be shown to user)
-    let cleaned = content.replace(
-      /:::ORCHESTRATOR_COMMAND:::\s*[\s\S]*?\s*:::END_COMMAND:::/g,
-      ''
-    );
-
-    // Also strip orchestrator response blocks
-    cleaned = cleaned.replace(
-      /\[Orchestrator Response\][\s\S]*?\[\/Orchestrator Response\]/g,
-      ''
-    );
-
-    // Clean up extra whitespace left behind
-    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
-
-    // Basic markdown formatting - could be enhanced with a proper library
-    return cleaned
-      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br>');
+  renderMarkdown(content: string): ReturnType<MarkdownService['render']> {
+    return this.markdownService.render(content);
   }
 }
