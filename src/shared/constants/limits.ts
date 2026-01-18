@@ -25,10 +25,14 @@ export const LIMITS = {
   // UI
   VIRTUAL_SCROLL_ITEM_SIZE: 72, // pixels
   FILTER_DEBOUNCE_MS: 150,
+
+  // Activity & Status
+  STATUS_DEBOUNCE_MS: 2500, // Debounce activity status updates to prevent flickering
+  TEXT_THROTTLE_MS: 100,    // Throttle text streaming to 100ms batches
 } as const;
 
 export const DEFAULTS = {
   INSTANCE_NAME_PREFIX: 'Instance',
-  WORKING_DIRECTORY: process.cwd?.() || '.',
+  WORKING_DIRECTORY: typeof process !== 'undefined' && process.cwd ? process.cwd() : '.',
   THEME: 'system' as const,
 } as const;

@@ -63,6 +63,13 @@ export const IPC_CHANNELS = {
   MEMORY_WARNING: 'memory:warning',
   MEMORY_CRITICAL: 'memory:critical',
   MEMORY_LOAD_HISTORY: 'memory:load-history',
+
+  // History operations
+  HISTORY_LIST: 'history:list',
+  HISTORY_LOAD: 'history:load',
+  HISTORY_DELETE: 'history:delete',
+  HISTORY_RESTORE: 'history:restore',
+  HISTORY_CLEAR: 'history:clear',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -255,6 +262,29 @@ export interface MemoryWarningPayload {
 export interface LoadHistoryPayload {
   instanceId: string;
   limit?: number;
+}
+
+// ============================================
+// History Payloads
+// ============================================
+
+export interface HistoryListPayload {
+  limit?: number;
+  searchQuery?: string;
+  workingDirectory?: string;
+}
+
+export interface HistoryLoadPayload {
+  entryId: string;
+}
+
+export interface HistoryDeletePayload {
+  entryId: string;
+}
+
+export interface HistoryRestorePayload {
+  entryId: string;
+  workingDirectory?: string;
 }
 
 // ============================================

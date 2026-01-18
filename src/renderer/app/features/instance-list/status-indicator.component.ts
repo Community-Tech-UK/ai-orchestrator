@@ -27,14 +27,25 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
   selector: 'app-status-indicator',
   standalone: true,
   template: `
-    <div
-      class="status-indicator"
-      [style.backgroundColor]="color()"
-      [class.pulsing]="isPulsing()"
-      [title]="label()"
-    ></div>
+    <div class="status-wrapper" [class.with-label]="showLabel()">
+      <div
+        class="status-indicator"
+        [style.backgroundColor]="color()"
+        [class.pulsing]="isPulsing()"
+        [title]="label()"
+      ></div>
+      @if (showLabel()) {
+        <span class="status-label">{{ label() }}</span>
+      }
+    </div>
   `,
   styles: [`
+    .status-wrapper {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--spacing-xs, 4px);
+    }
+
     .status-indicator {
       width: 12px;
       height: 12px;
@@ -44,6 +55,12 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
 
     .status-indicator.pulsing {
       animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
     }
 
     @keyframes pulse {
@@ -61,6 +78,7 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
 })
 export class StatusIndicatorComponent {
   status = input.required<InstanceStatus>();
+  showLabel = input<boolean>(false);
 
   color = computed(() => STATUS_COLORS[this.status()]);
   label = computed(() => STATUS_LABELS[this.status()]);

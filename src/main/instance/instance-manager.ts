@@ -8,6 +8,7 @@ import { OrchestrationHandler } from '../orchestration/orchestration-handler';
 import { generateChildPrompt } from '../orchestration/orchestration-protocol';
 import { getOutputStorageManager, getMemoryMonitor } from '../memory';
 import { getSettingsManager } from '../settings/settings-manager';
+import { getHistoryManager } from '../history';
 import type { SpawnChildCommand, MessageChildCommand, TerminateChildCommand, GetChildOutputCommand } from '../orchestration/orchestration-protocol';
 import type {
   Instance,
@@ -306,7 +307,7 @@ export class InstanceManager extends EventEmitter {
       workingDirectory: config.workingDirectory,
       yoloMode: config.yoloMode ?? true,  // Default to YOLO mode
 
-      outputBuffer: [],
+      outputBuffer: config.initialOutputBuffer || [],
       outputBufferMaxSize: LIMITS.OUTPUT_BUFFER_MAX_SIZE,
 
       communicationTokens: new Map(),
@@ -333,6 +334,7 @@ export class InstanceManager extends EventEmitter {
     const adapter = new ClaudeCliAdapter({
       workingDirectory: config.workingDirectory,
       sessionId: instance.sessionId,
+      resume: config.resume,  // Resume previous session if restoring from history
       yoloMode: instance.yoloMode,
     });
 
@@ -455,6 +457,17 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (instance) {
+      // Archive to history before cleanup (only for root instances with messages)
+      if (!instance.parentId && instance.outputBuffer.length > 0) {
+        try {
+          const history = getHistoryManager();
+          const status = instance.status === 'error' ? 'error' : 'completed';
+          await history.archiveInstance(instance, status);
+        } catch (error) {
+          console.error(`Failed to archive instance ${instanceId} to history:`, error);
+        }
+      }
+
       instance.status = 'terminated';
       instance.processId = null;
 

@@ -17,9 +17,14 @@ import type {
   SettingsSetPayload,
   SettingsUpdatePayload,
   SettingsResetOnePayload,
+  HistoryListPayload,
+  HistoryLoadPayload,
+  HistoryDeletePayload,
+  HistoryRestorePayload,
   IpcResponse,
 } from '../../shared/types/ipc.types';
 import type { AppSettings } from '../../shared/types/settings.types';
+import { getHistoryManager } from '../history';
 
 export class IpcMainHandler {
   private instanceManager: InstanceManager;
@@ -45,6 +50,9 @@ export class IpcMainHandler {
 
     // Memory handlers
     this.registerMemoryHandlers();
+
+    // History handlers
+    this.registerHistoryHandlers();
 
     // Set up memory event forwarding to renderer
     this.setupMemoryEventForwarding();
@@ -564,6 +572,163 @@ export class IpcMainHandler {
         }
       );
     });
+  }
+
+  /**
+   * Register history-related handlers
+   */
+  private registerHistoryHandlers(): void {
+    const history = getHistoryManager();
+
+    // List history entries
+    ipcMain.handle(
+      IPC_CHANNELS.HISTORY_LIST,
+      async (event: IpcMainInvokeEvent, payload: HistoryListPayload): Promise<IpcResponse> => {
+        try {
+          const entries = history.getEntries(payload);
+          return {
+            success: true,
+            data: entries,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'HISTORY_LIST_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+
+    // Load full conversation data
+    ipcMain.handle(
+      IPC_CHANNELS.HISTORY_LOAD,
+      async (event: IpcMainInvokeEvent, payload: HistoryLoadPayload): Promise<IpcResponse> => {
+        try {
+          const data = await history.loadConversation(payload.entryId);
+          if (!data) {
+            return {
+              success: false,
+              error: {
+                code: 'HISTORY_NOT_FOUND',
+                message: `History entry ${payload.entryId} not found`,
+                timestamp: Date.now(),
+              },
+            };
+          }
+          return {
+            success: true,
+            data,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'HISTORY_LOAD_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+
+    // Delete history entry
+    ipcMain.handle(
+      IPC_CHANNELS.HISTORY_DELETE,
+      async (event: IpcMainInvokeEvent, payload: HistoryDeletePayload): Promise<IpcResponse> => {
+        try {
+          const deleted = await history.deleteEntry(payload.entryId);
+          return {
+            success: deleted,
+            error: deleted ? undefined : {
+              code: 'HISTORY_NOT_FOUND',
+              message: `History entry ${payload.entryId} not found`,
+              timestamp: Date.now(),
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'HISTORY_DELETE_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+
+    // Restore conversation as new instance
+    ipcMain.handle(
+      IPC_CHANNELS.HISTORY_RESTORE,
+      async (event: IpcMainInvokeEvent, payload: HistoryRestorePayload): Promise<IpcResponse> => {
+        try {
+          const data = await history.loadConversation(payload.entryId);
+          if (!data) {
+            return {
+              success: false,
+              error: {
+                code: 'HISTORY_NOT_FOUND',
+                message: `History entry ${payload.entryId} not found`,
+                timestamp: Date.now(),
+              },
+            };
+          }
+
+          // Create a new instance that resumes the previous session
+          // This allows Claude to have full context of the previous conversation
+          const instance = await this.instanceManager.createInstance({
+            workingDirectory: payload.workingDirectory || data.entry.workingDirectory,
+            displayName: `${data.entry.displayName} (restored)`,
+            sessionId: data.entry.sessionId,  // Use the original session ID
+            resume: true,  // Resume the session to restore Claude's context
+            initialOutputBuffer: data.messages,  // Pre-populate output buffer for display
+          });
+
+          return {
+            success: true,
+            data: {
+              instanceId: instance.id,
+              restoredMessages: data.messages,
+            },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'HISTORY_RESTORE_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
+
+    // Clear all history
+    ipcMain.handle(
+      IPC_CHANNELS.HISTORY_CLEAR,
+      async (): Promise<IpcResponse> => {
+        try {
+          await history.clearAll();
+          return { success: true };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'HISTORY_CLEAR_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
   }
 
   /**

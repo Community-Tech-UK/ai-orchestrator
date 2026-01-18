@@ -52,6 +52,13 @@ const IPC_CHANNELS = {
   MEMORY_WARNING: 'memory:warning',
   MEMORY_CRITICAL: 'memory:critical',
   MEMORY_LOAD_HISTORY: 'memory:load-history',
+
+  // History operations
+  HISTORY_LIST: 'history:list',
+  HISTORY_LOAD: 'history:load',
+  HISTORY_DELETE: 'history:delete',
+  HISTORY_RESTORE: 'history:restore',
+  HISTORY_CLEAR: 'history:clear',
 } as const;
 
 // Response type
@@ -337,6 +344,49 @@ const electronAPI = {
     const handler = (_event: IpcRendererEvent, alert: unknown) => callback(alert);
     ipcRenderer.on(IPC_CHANNELS.MEMORY_CRITICAL, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.MEMORY_CRITICAL, handler);
+  },
+
+  // ============================================
+  // History
+  // ============================================
+
+  /**
+   * Get history entries
+   */
+  listHistory: (options?: {
+    limit?: number;
+    searchQuery?: string;
+    workingDirectory?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HISTORY_LIST, options || {});
+  },
+
+  /**
+   * Load full conversation data for a history entry
+   */
+  loadHistoryEntry: (entryId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HISTORY_LOAD, { entryId });
+  },
+
+  /**
+   * Delete a history entry
+   */
+  deleteHistoryEntry: (entryId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HISTORY_DELETE, { entryId });
+  },
+
+  /**
+   * Restore a conversation from history as a new instance
+   */
+  restoreHistory: (entryId: string, workingDirectory?: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HISTORY_RESTORE, { entryId, workingDirectory });
+  },
+
+  /**
+   * Clear all history
+   */
+  clearHistory: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HISTORY_CLEAR);
   },
 
   // ============================================

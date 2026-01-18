@@ -198,7 +198,11 @@ export class ClaudeCliAdapter extends EventEmitter {
       args.push('--dangerously-skip-permissions');
     }
 
-    if (this.sessionId) {
+    if (this.options.resume && this.sessionId) {
+      // Resume a previous session
+      args.push('--resume', this.sessionId);
+    } else if (this.sessionId) {
+      // Start a new session with specific ID
       args.push('--session-id', this.sessionId);
     }
 

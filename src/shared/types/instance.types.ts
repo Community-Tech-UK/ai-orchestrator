@@ -55,6 +55,8 @@ export interface Instance {
   status: InstanceStatus;
   contextUsage: ContextUsage;
   lastActivity: number;
+  currentActivity?: string;  // Human-readable activity description
+  currentTool?: string;       // Current tool being used
 
   // CLI process
   processId: number | null;
@@ -81,10 +83,12 @@ export interface InstanceCreateConfig {
   displayName?: string;
   parentId?: string | null;
   sessionId?: string;
+  resume?: boolean;  // Resume a previous session (requires sessionId)
   workingDirectory: string;
   initialPrompt?: string;
   attachments?: FileAttachment[];
   yoloMode?: boolean;
+  initialOutputBuffer?: OutputMessage[];  // Pre-populate output buffer (for history restore)
 }
 
 export interface InstanceSummary {
@@ -119,7 +123,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? true,  // Default to YOLO mode enabled
 
-    outputBuffer: [],
+    outputBuffer: config.initialOutputBuffer || [],
     outputBufferMaxSize: 1000,
 
     communicationTokens: new Map(),

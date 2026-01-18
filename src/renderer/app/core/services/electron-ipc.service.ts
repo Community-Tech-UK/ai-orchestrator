@@ -219,4 +219,52 @@ export class ElectronIpcService {
     const response = await this.api.selectFolder();
     return response.success ? (response.data as string | null) : null;
   }
+
+  // ============================================
+  // History
+  // ============================================
+
+  /**
+   * Get history entries
+   */
+  async listHistory(options?: {
+    limit?: number;
+    searchQuery?: string;
+    workingDirectory?: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.listHistory(options);
+  }
+
+  /**
+   * Load full conversation data for a history entry
+   */
+  async loadHistoryEntry(entryId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.loadHistoryEntry(entryId);
+  }
+
+  /**
+   * Delete a history entry
+   */
+  async deleteHistoryEntry(entryId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.deleteHistoryEntry(entryId);
+  }
+
+  /**
+   * Restore a conversation from history as a new instance
+   */
+  async restoreHistory(entryId: string, workingDirectory?: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.restoreHistory(entryId, workingDirectory);
+  }
+
+  /**
+   * Clear all history
+   */
+  async clearHistory() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.clearHistory();
+  }
 }

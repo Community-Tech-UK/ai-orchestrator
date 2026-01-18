@@ -46,8 +46,15 @@ import { OutputMessage } from '../../core/state/instance.store';
     </div>
   `,
   styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
     .output-stream {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: var(--spacing-md);
       background: var(--bg-secondary);

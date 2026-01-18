@@ -154,6 +154,7 @@ export function isInputRequiredMessage(msg: CliStreamMessage): msg is CliInputRe
 export interface CliSpawnOptions {
   workingDirectory: string;
   sessionId?: string;
+  resume?: boolean;  // Resume a previous session (requires sessionId)
   model?: string;
   maxTokens?: number;
   allowedTools?: string[];

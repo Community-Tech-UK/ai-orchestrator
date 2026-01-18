@@ -5,6 +5,9 @@
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { ElectronIpcService } from '../services/electron-ipc.service';
 import { UpdateBatcherService, StateUpdate } from '../services/update-batcher.service';
+import { ActivityDebouncerService } from '../services/activity-debouncer.service';
+import { generateActivityStatus } from '../utils/tool-activity-map';
+import { LIMITS } from '../../../../shared/constants/limits';
 
 // Types
 export type InstanceStatus =
@@ -38,6 +41,8 @@ export interface Instance {
   status: InstanceStatus;
   contextUsage: ContextUsage;
   lastActivity: number;
+  currentActivity?: string;  // Human-readable activity description
+  currentTool?: string;       // Current tool being used
   sessionId: string;
   workingDirectory: string;
   yoloMode: boolean;
@@ -55,7 +60,12 @@ interface StoreState {
 export class InstanceStore implements OnDestroy {
   private ipc = inject(ElectronIpcService);
   private batcher = inject(UpdateBatcherService);
+  private activityDebouncer = inject(ActivityDebouncerService);
   private unsubscribes: (() => void)[] = [];
+
+  // Output throttling state
+  private outputThrottleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private pendingOutputMessages = new Map<string, OutputMessage[]>();
 
   // Private mutable state
   private state = signal<StoreState>({
@@ -128,6 +138,18 @@ export class InstanceStore implements OnDestroy {
     this.instances().filter((i) => !i.parentId)
   );
 
+  /** Current debounced activity for selected instance */
+  readonly selectedInstanceActivity = computed(() => {
+    const id = this.state().selectedInstanceId;
+    if (!id) return '';
+    return this.activityDebouncer.getActivity(id);
+  });
+
+  /** Activities map from debouncer (for child panels) */
+  readonly instanceActivities = computed(() =>
+    this.activityDebouncer.activities()
+  );
+
   constructor() {
     this.setupIpcListeners();
     this.setupBatcher();
@@ -139,6 +161,13 @@ export class InstanceStore implements OnDestroy {
       unsubscribe();
     }
     this.batcher.destroy();
+
+    // Clean up output throttle timers
+    for (const timer of this.outputThrottleTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.outputThrottleTimers.clear();
+    this.pendingOutputMessages.clear();
   }
 
   // ============================================
@@ -171,10 +200,20 @@ export class InstanceStore implements OnDestroy {
       })
     );
 
-    // Listen for output
+    // Listen for output with activity tracking
     this.unsubscribes.push(
       this.ipc.onInstanceOutput((data: any) => {
-        this.addOutput(data.instanceId, data.message);
+        const { instanceId, message } = data;
+
+        // Track tool usage for activity status
+        if (message.type === 'tool_use' && message.metadata?.name) {
+          const toolName = message.metadata.name as string;
+          const activity = generateActivityStatus(toolName);
+          this.activityDebouncer.setActivity(instanceId, activity, toolName);
+        }
+
+        // Queue output with throttling
+        this.queueOutput(instanceId, message);
       })
     );
 
@@ -243,6 +282,15 @@ export class InstanceStore implements OnDestroy {
   }
 
   private removeInstance(instanceId: string): void {
+    // Clean up activity and output state
+    this.activityDebouncer.clearActivity(instanceId);
+    const timer = this.outputThrottleTimers.get(instanceId);
+    if (timer) {
+      clearTimeout(timer);
+      this.outputThrottleTimers.delete(instanceId);
+    }
+    this.pendingOutputMessages.delete(instanceId);
+
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       newMap.delete(instanceId);
@@ -259,6 +307,14 @@ export class InstanceStore implements OnDestroy {
   }
 
   private applyUpdate(update: StateUpdate): void {
+    const newStatus = update.status as InstanceStatus;
+
+    // Clear activity on idle/terminated
+    if (newStatus === 'idle' || newStatus === 'terminated') {
+      this.activityDebouncer.clearActivity(update.instanceId);
+      this.flushInstanceOutput(update.instanceId);
+    }
+
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       const instance = newMap.get(update.instanceId);
@@ -266,7 +322,7 @@ export class InstanceStore implements OnDestroy {
       if (instance) {
         newMap.set(update.instanceId, {
           ...instance,
-          status: (update.status as InstanceStatus) || instance.status,
+          status: newStatus || instance.status,
           contextUsage: update.contextUsage || instance.contextUsage,
           lastActivity: Date.now(),
         });
@@ -277,6 +333,15 @@ export class InstanceStore implements OnDestroy {
   }
 
   private applyBatchUpdates(updates: StateUpdate[]): void {
+    // Handle activity clearing for idle/terminated statuses
+    for (const update of updates) {
+      const newStatus = update.status as InstanceStatus;
+      if (newStatus === 'idle' || newStatus === 'terminated') {
+        this.activityDebouncer.clearActivity(update.instanceId);
+        this.flushInstanceOutput(update.instanceId);
+      }
+    }
+
     this.state.update((current) => {
       const newMap = new Map(current.instances);
 
@@ -296,13 +361,42 @@ export class InstanceStore implements OnDestroy {
     });
   }
 
-  private addOutput(instanceId: string, message: OutputMessage): void {
+  /**
+   * Queue output message with throttling (100ms batches)
+   */
+  private queueOutput(instanceId: string, message: OutputMessage): void {
+    // Add to pending messages
+    const pending = this.pendingOutputMessages.get(instanceId) || [];
+    pending.push(message);
+    this.pendingOutputMessages.set(instanceId, pending);
+
+    // If no timer exists, start one
+    if (!this.outputThrottleTimers.has(instanceId)) {
+      const timer = setTimeout(() => {
+        this.flushOutput(instanceId);
+      }, LIMITS.TEXT_THROTTLE_MS);
+      this.outputThrottleTimers.set(instanceId, timer);
+    }
+  }
+
+  /**
+   * Flush pending output messages for an instance
+   */
+  private flushOutput(instanceId: string): void {
+    const pending = this.pendingOutputMessages.get(instanceId);
+    if (!pending || pending.length === 0) return;
+
+    // Clear timer and pending
+    this.outputThrottleTimers.delete(instanceId);
+    this.pendingOutputMessages.delete(instanceId);
+
+    // Apply all pending messages at once
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       const instance = newMap.get(instanceId);
 
       if (instance) {
-        const outputBuffer = [...instance.outputBuffer, message];
+        const outputBuffer = [...instance.outputBuffer, ...pending];
         // Keep buffer trimmed
         const trimmed = outputBuffer.length > 1000
           ? outputBuffer.slice(-1000)
@@ -317,6 +411,18 @@ export class InstanceStore implements OnDestroy {
 
       return { ...current, instances: newMap };
     });
+  }
+
+  /**
+   * Force flush output for an instance (call on completion)
+   */
+  flushInstanceOutput(instanceId: string): void {
+    const timer = this.outputThrottleTimers.get(instanceId);
+    if (timer) {
+      clearTimeout(timer);
+      this.outputThrottleTimers.delete(instanceId);
+    }
+    this.flushOutput(instanceId);
   }
 
   // ============================================
@@ -468,6 +574,23 @@ export class InstanceStore implements OnDestroy {
   /** Clear error state */
   clearError(): void {
     this.state.update((s) => ({ ...s, error: null }));
+  }
+
+  /** Set output messages for an instance (used for restoring history) */
+  setInstanceMessages(instanceId: string, messages: OutputMessage[]): void {
+    this.state.update((current) => {
+      const newMap = new Map(current.instances);
+      const instance = newMap.get(instanceId);
+
+      if (instance) {
+        newMap.set(instanceId, {
+          ...instance,
+          outputBuffer: messages,
+        });
+      }
+
+      return { ...current, instances: newMap };
+    });
   }
 
   // ============================================

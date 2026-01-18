@@ -15,6 +15,8 @@ import { ContextBarComponent } from './context-bar.component';
 import { InputPanelComponent } from './input-panel.component';
 import { StatusIndicatorComponent } from '../instance-list/status-indicator.component';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
+import { ActivityStatusComponent } from './activity-status.component';
+import { ChildInstancesPanelComponent } from './child-instances-panel.component';
 
 @Component({
   selector: 'app-instance-detail',
@@ -24,7 +26,9 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
     ContextBarComponent,
     InputPanelComponent,
     StatusIndicatorComponent,
-    DropZoneComponent
+    DropZoneComponent,
+    ActivityStatusComponent,
+    ChildInstancesPanelComponent
   ],
   template: `
     @if (instance(); as inst) {
@@ -114,6 +118,13 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
             [messages]="inst.outputBuffer"
             [instanceId]="inst.id"
           />
+          <!-- Activity status (shown when processing) - appears at bottom of conversation -->
+          @if (inst.status === 'busy' || inst.status === 'initializing') {
+            <app-activity-status
+              [status]="inst.status"
+              [activity]="currentActivity()"
+            />
+          }
         </div>
 
         <!-- Input panel with drop zone -->
@@ -132,20 +143,10 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
         </app-drop-zone>
 
         <!-- Children section -->
-        @if (inst.childrenIds.length > 0) {
-          <div class="children-section">
-            <h3 class="children-title">
-              Child Instances ({{ inst.childrenIds.length }})
-            </h3>
-            <div class="children-list">
-              @for (childId of inst.childrenIds; track childId) {
-                <button class="child-link" (click)="onSelectChild(childId)">
-                  {{ getChildName(childId) }}
-                </button>
-              }
-            </div>
-          </div>
-        }
+        <app-child-instances-panel
+          [childrenIds]="inst.childrenIds"
+          (selectChild)="onSelectChild($event)"
+        />
       </div>
     } @else {
       <div class="no-selection">
@@ -337,41 +338,21 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
 
       .output-section {
         flex: 1;
-        min-height: 200px;
-        overflow: hidden;
-      }
-
-      .children-section {
-        padding-top: var(--spacing-md);
-        border-top: 1px solid var(--border-color);
-      }
-
-      .children-title {
-        font-size: 14px;
-        font-weight: 500;
-        margin-bottom: var(--spacing-sm);
-        color: var(--text-secondary);
-      }
-
-      .children-list {
+        min-height: 0; /* Important for flex children to scroll */
         display: flex;
-        flex-wrap: wrap;
+        flex-direction: column;
         gap: var(--spacing-sm);
       }
 
-      .child-link {
-        padding: var(--spacing-xs) var(--spacing-sm);
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        font-size: 13px;
-        color: var(--text-primary);
-        transition: all var(--transition-fast);
+      .output-section app-output-stream {
+        flex: 1;
+        min-height: 0; /* Allow scrolling within flex container */
+      }
 
-        &:hover {
-          background: var(--bg-hover);
-          border-color: var(--primary-color);
-        }
+      .output-section app-activity-status {
+        flex-shrink: 0;
+        padding: 0 var(--spacing-md);
+        padding-bottom: var(--spacing-sm);
       }
 
       /* No selection state */
@@ -426,6 +407,7 @@ export class InstanceDetailComponent {
   private store = inject(InstanceStore);
 
   instance = this.store.selectedInstance;
+  currentActivity = this.store.selectedInstanceActivity;
   pendingFiles = signal<File[]>([]);
   isEditingName = signal(false);
 
@@ -533,10 +515,5 @@ export class InstanceDetailComponent {
 
   onSelectChild(childId: string): void {
     this.store.setSelectedInstance(childId);
-  }
-
-  getChildName(childId: string): string {
-    const child = this.store.getInstance(childId);
-    return child?.displayName || childId.slice(0, 8);
   }
 }
