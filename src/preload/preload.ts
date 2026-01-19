@@ -256,6 +256,131 @@ const IPC_CHANNELS = {
   PLUGINS_UNINSTALL: 'plugins:uninstall',
   PLUGINS_GET_LOADED: 'plugins:get-loaded',
   PLUGINS_CREATE_TEMPLATE: 'plugins:create-template',
+
+  // Phase 6: Workflows (6.1)
+  WORKFLOW_LIST_TEMPLATES: 'workflow:list-templates',
+  WORKFLOW_GET_TEMPLATE: 'workflow:get-template',
+  WORKFLOW_START: 'workflow:start',
+  WORKFLOW_GET_EXECUTION: 'workflow:get-execution',
+  WORKFLOW_GET_BY_INSTANCE: 'workflow:get-by-instance',
+  WORKFLOW_COMPLETE_PHASE: 'workflow:complete-phase',
+  WORKFLOW_SATISFY_GATE: 'workflow:satisfy-gate',
+  WORKFLOW_SKIP_PHASE: 'workflow:skip-phase',
+  WORKFLOW_CANCEL: 'workflow:cancel',
+  WORKFLOW_GET_PROMPT_ADDITION: 'workflow:get-prompt-addition',
+
+  // Phase 6: Review Agents (6.2)
+  REVIEW_LIST_AGENTS: 'review:list-agents',
+  REVIEW_GET_AGENT: 'review:get-agent',
+
+  // Phase 6: Hooks (6.3)
+  HOOKS_LIST: 'hooks:list',
+  HOOKS_GET: 'hooks:get',
+  HOOKS_CREATE: 'hooks:create',
+  HOOKS_UPDATE: 'hooks:update',
+  HOOKS_DELETE: 'hooks:delete',
+  HOOKS_EVALUATE: 'hooks:evaluate',
+  HOOKS_IMPORT: 'hooks:import',
+  HOOKS_EXPORT: 'hooks:export',
+
+  // Phase 6: Skills (6.4)
+  SKILLS_DISCOVER: 'skills:discover',
+  SKILLS_LIST: 'skills:list',
+  SKILLS_GET: 'skills:get',
+  SKILLS_LOAD: 'skills:load',
+  SKILLS_UNLOAD: 'skills:unload',
+  SKILLS_LOAD_REFERENCE: 'skills:load-reference',
+  SKILLS_LOAD_EXAMPLE: 'skills:load-example',
+  SKILLS_MATCH: 'skills:match',
+  SKILLS_GET_MEMORY: 'skills:get-memory',
+
+  // Phase 7: Worktrees (7.1)
+  WORKTREE_CREATE: 'worktree:create',
+  WORKTREE_LIST: 'worktree:list',
+  WORKTREE_DELETE: 'worktree:delete',
+  WORKTREE_GET_STATUS: 'worktree:get-status',
+
+  // Phase 7: Specialists (7.4)
+  SPECIALIST_LIST: 'specialist:list',
+  SPECIALIST_LIST_BUILTIN: 'specialist:list-builtin',
+  SPECIALIST_LIST_CUSTOM: 'specialist:list-custom',
+  SPECIALIST_GET: 'specialist:get',
+  SPECIALIST_GET_BY_CATEGORY: 'specialist:get-by-category',
+  SPECIALIST_ADD_CUSTOM: 'specialist:add-custom',
+  SPECIALIST_UPDATE_CUSTOM: 'specialist:update-custom',
+  SPECIALIST_REMOVE_CUSTOM: 'specialist:remove-custom',
+  SPECIALIST_RECOMMEND: 'specialist:recommend',
+  SPECIALIST_CREATE_INSTANCE: 'specialist:create-instance',
+  SPECIALIST_GET_INSTANCE: 'specialist:get-instance',
+  SPECIALIST_GET_ACTIVE_INSTANCES: 'specialist:get-active-instances',
+  SPECIALIST_UPDATE_STATUS: 'specialist:update-status',
+  SPECIALIST_ADD_FINDING: 'specialist:add-finding',
+  SPECIALIST_UPDATE_METRICS: 'specialist:update-metrics',
+  SPECIALIST_GET_PROMPT_ADDITION: 'specialist:get-prompt-addition',
+
+  // Phase 7: Supervision (7.3)
+  SUPERVISION_GET_TREE: 'supervision:get-tree',
+  SUPERVISION_GET_HEALTH: 'supervision:get-health',
+
+  // Phase 8: RLM Context (8.1)
+  RLM_RECORD_OUTCOME: 'rlm:record-outcome',
+  RLM_GET_PATTERNS: 'rlm:get-patterns',
+  RLM_GET_STRATEGY_SUGGESTIONS: 'rlm:get-strategy-suggestions',
+
+  // Phase 9: Memory-R1 (9.1)
+  MEMORY_R1_DECIDE_OPERATION: 'memory-r1:decide-operation',
+  MEMORY_R1_EXECUTE_OPERATION: 'memory-r1:execute-operation',
+  MEMORY_R1_ADD_ENTRY: 'memory-r1:add-entry',
+  MEMORY_R1_DELETE_ENTRY: 'memory-r1:delete-entry',
+  MEMORY_R1_GET_ENTRY: 'memory-r1:get-entry',
+  MEMORY_R1_RETRIEVE: 'memory-r1:retrieve',
+  MEMORY_R1_RECORD_OUTCOME: 'memory-r1:record-outcome',
+  MEMORY_R1_GET_STATS: 'memory-r1:get-stats',
+  MEMORY_R1_SAVE: 'memory-r1:save',
+  MEMORY_R1_LOAD: 'memory-r1:load',
+  MEMORY_R1_CONFIGURE: 'memory-r1:configure',
+
+  // Phase 9: Unified Memory (9.2)
+  UNIFIED_MEMORY_PROCESS_INPUT: 'unified-memory:process-input',
+  UNIFIED_MEMORY_RETRIEVE: 'unified-memory:retrieve',
+  UNIFIED_MEMORY_RECORD_SESSION_END: 'unified-memory:record-session-end',
+  UNIFIED_MEMORY_RECORD_WORKFLOW: 'unified-memory:record-workflow',
+  UNIFIED_MEMORY_RECORD_STRATEGY: 'unified-memory:record-strategy',
+  UNIFIED_MEMORY_RECORD_OUTCOME: 'unified-memory:record-outcome',
+  UNIFIED_MEMORY_GET_STATS: 'unified-memory:get-stats',
+  UNIFIED_MEMORY_GET_SESSIONS: 'unified-memory:get-sessions',
+  UNIFIED_MEMORY_GET_PATTERNS: 'unified-memory:get-patterns',
+  UNIFIED_MEMORY_GET_WORKFLOWS: 'unified-memory:get-workflows',
+  UNIFIED_MEMORY_SAVE: 'unified-memory:save',
+  UNIFIED_MEMORY_LOAD: 'unified-memory:load',
+  UNIFIED_MEMORY_CONFIGURE: 'unified-memory:configure',
+
+  // Phase 9: Debate (9.3)
+  DEBATE_START: 'debate:start',
+  DEBATE_GET_RESULT: 'debate:get-result',
+  DEBATE_GET_ACTIVE: 'debate:get-active',
+  DEBATE_CANCEL: 'debate:cancel',
+  DEBATE_GET_STATS: 'debate:get-stats',
+
+  // Phase 9: Training (9.4)
+  TRAINING_RECORD_OUTCOME: 'training:record-outcome',
+  TRAINING_GET_STATS: 'training:get-stats',
+  TRAINING_EXPORT_DATA: 'training:export-data',
+  TRAINING_IMPORT_DATA: 'training:import-data',
+  TRAINING_GET_TREND: 'training:get-trend',
+  TRAINING_GET_TOP_STRATEGIES: 'training:get-top-strategies',
+  TRAINING_CONFIGURE: 'training:configure',
+
+  // Phase 8: Learning (8.2)
+  LEARNING_RECORD_OUTCOME: 'learning:record-outcome',
+  LEARNING_GET_PATTERNS: 'learning:get-patterns',
+  LEARNING_GET_SUGGESTIONS: 'learning:get-suggestions',
+  LEARNING_ENHANCE_PROMPT: 'learning:enhance-prompt',
+
+  // Phase 8: Verification (8.3)
+  VERIFICATION_VERIFY_MULTI: 'verification:verify-multi',
+  VERIFICATION_GET_ACTIVE: 'verification:get-active',
+  VERIFICATION_GET_RESULT: 'verification:get-result',
 } as const;
 
 // Response type
@@ -2045,6 +2170,877 @@ const electronAPI = {
     const handler = (_event: IpcRendererEvent, data: { pluginId: string; error: string }) => callback(data);
     ipcRenderer.on('plugins:error', handler);
     return () => ipcRenderer.removeListener('plugins:error', handler);
+  },
+
+  // ============================================
+  // Phase 6: Workflows (6.1)
+  // ============================================
+
+  /**
+   * List available workflow templates
+   */
+  workflowListTemplates: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_LIST_TEMPLATES);
+  },
+
+  /**
+   * Get a specific workflow template
+   */
+  workflowGetTemplate: (templateId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_GET_TEMPLATE, { templateId });
+  },
+
+  /**
+   * Start a workflow
+   */
+  workflowStart: (payload: {
+    instanceId: string;
+    templateId: string;
+    config?: Record<string, unknown>;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_START, payload);
+  },
+
+  /**
+   * Get workflow execution status
+   */
+  workflowGetExecution: (executionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_GET_EXECUTION, { executionId });
+  },
+
+  /**
+   * Get workflow execution for instance
+   */
+  workflowGetByInstance: (instanceId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_GET_BY_INSTANCE, { instanceId });
+  },
+
+  /**
+   * Complete a workflow phase
+   */
+  workflowCompletePhase: (executionId: string, phaseId: string, result?: unknown): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_COMPLETE_PHASE, { executionId, phaseId, result });
+  },
+
+  /**
+   * Satisfy a workflow gate
+   */
+  workflowSatisfyGate: (executionId: string, gateId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_SATISFY_GATE, { executionId, gateId });
+  },
+
+  /**
+   * Skip a workflow phase
+   */
+  workflowSkipPhase: (executionId: string, phaseId: string, reason?: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_SKIP_PHASE, { executionId, phaseId, reason });
+  },
+
+  /**
+   * Cancel a workflow
+   */
+  workflowCancel: (executionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_CANCEL, { executionId });
+  },
+
+  /**
+   * Get workflow prompt addition
+   */
+  workflowGetPromptAddition: (executionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKFLOW_GET_PROMPT_ADDITION, { executionId });
+  },
+
+  // ============================================
+  // Phase 6: Review Agents (6.2)
+  // ============================================
+
+  /**
+   * List available review agents
+   */
+  reviewListAgents: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_LIST_AGENTS);
+  },
+
+  /**
+   * Get a specific review agent
+   */
+  reviewGetAgent: (agentId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REVIEW_GET_AGENT, { agentId });
+  },
+
+  // ============================================
+  // Phase 6: Hooks (6.3)
+  // ============================================
+
+  /**
+   * List hooks
+   */
+  hooksList: (filter?: { event?: string; scope?: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_LIST, { filter });
+  },
+
+  /**
+   * Get a hook by ID
+   */
+  hooksGet: (hookId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_GET, { hookId });
+  },
+
+  /**
+   * Create a new hook
+   */
+  hooksCreate: (payload: {
+    name: string;
+    event: string;
+    command: string;
+    conditions?: Record<string, unknown>;
+    scope?: 'global' | 'project';
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_CREATE, payload);
+  },
+
+  /**
+   * Update a hook
+   */
+  hooksUpdate: (hookId: string, updates: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_UPDATE, { hookId, updates });
+  },
+
+  /**
+   * Delete a hook
+   */
+  hooksDelete: (hookId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_DELETE, { hookId });
+  },
+
+  /**
+   * Evaluate hooks for an event
+   */
+  hooksEvaluate: (event: string, context: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_EVALUATE, { event, context });
+  },
+
+  /**
+   * Import hooks from file
+   */
+  hooksImport: (filePath: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_IMPORT, { filePath });
+  },
+
+  /**
+   * Export hooks to file
+   */
+  hooksExport: (filePath: string, hookIds?: string[]): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HOOKS_EXPORT, { filePath, hookIds });
+  },
+
+  // ============================================
+  // Phase 6: Skills (6.4)
+  // ============================================
+
+  /**
+   * Discover skills in a directory
+   */
+  skillsDiscover: (directory?: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_DISCOVER, { directory });
+  },
+
+  /**
+   * List available skills
+   */
+  skillsList: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_LIST);
+  },
+
+  /**
+   * Get a skill by ID
+   */
+  skillsGet: (skillId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_GET, { skillId });
+  },
+
+  /**
+   * Load a skill
+   */
+  skillsLoad: (skillId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_LOAD, { skillId });
+  },
+
+  /**
+   * Unload a skill
+   */
+  skillsUnload: (skillId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_UNLOAD, { skillId });
+  },
+
+  /**
+   * Load reference documentation for a skill
+   */
+  skillsLoadReference: (skillId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_LOAD_REFERENCE, { skillId });
+  },
+
+  /**
+   * Load example for a skill
+   */
+  skillsLoadExample: (skillId: string, exampleId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_LOAD_EXAMPLE, { skillId, exampleId });
+  },
+
+  /**
+   * Match skills to a query
+   */
+  skillsMatch: (query: string, maxResults?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_MATCH, { query, maxResults });
+  },
+
+  /**
+   * Get skill memory
+   */
+  skillsGetMemory: (skillId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_GET_MEMORY, { skillId });
+  },
+
+  // ============================================
+  // Phase 7: Worktrees (7.1)
+  // ============================================
+
+  /**
+   * Create a worktree for isolated work
+   */
+  worktreeCreate: (payload: {
+    instanceId: string;
+    baseBranch?: string;
+    branchName?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CREATE, payload);
+  },
+
+  /**
+   * List worktrees
+   */
+  worktreeList: (instanceId?: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_LIST, { instanceId });
+  },
+
+  /**
+   * Delete a worktree
+   */
+  worktreeDelete: (worktreeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_DELETE, { worktreeId });
+  },
+
+  /**
+   * Get worktree status
+   */
+  worktreeGetStatus: (worktreeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_GET_STATUS, { worktreeId });
+  },
+
+  // ============================================
+  // Phase 7: Specialists (7.4)
+  // ============================================
+
+  /**
+   * List all specialist profiles
+   */
+  specialistList: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_LIST);
+  },
+
+  /**
+   * List built-in specialist profiles
+   */
+  specialistListBuiltin: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_LIST_BUILTIN);
+  },
+
+  /**
+   * List custom specialist profiles
+   */
+  specialistListCustom: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_LIST_CUSTOM);
+  },
+
+  /**
+   * Get a specialist profile
+   */
+  specialistGet: (profileId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_GET, { profileId });
+  },
+
+  /**
+   * Get specialist profiles by category
+   */
+  specialistGetByCategory: (category: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_GET_BY_CATEGORY, { category });
+  },
+
+  /**
+   * Add a custom specialist profile
+   */
+  specialistAddCustom: (profile: {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon: string;
+    color: string;
+    systemPromptAddition: string;
+    restrictedTools: string[];
+    constraints?: {
+      readOnlyMode?: boolean;
+      maxTokens?: number;
+      allowedDirectories?: string[];
+      blockedDirectories?: string[];
+      requireApprovalFor?: string[];
+    };
+    tags?: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_ADD_CUSTOM, { profile });
+  },
+
+  /**
+   * Update a custom specialist profile
+   */
+  specialistUpdateCustom: (profileId: string, updates: {
+    name?: string;
+    description?: string;
+    category?: string;
+    icon?: string;
+    color?: string;
+    systemPromptAddition?: string;
+    restrictedTools?: string[];
+    constraints?: {
+      readOnlyMode?: boolean;
+      maxTokens?: number;
+      allowedDirectories?: string[];
+      blockedDirectories?: string[];
+      requireApprovalFor?: string[];
+    };
+    tags?: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_UPDATE_CUSTOM, { profileId, updates });
+  },
+
+  /**
+   * Remove a custom specialist profile
+   */
+  specialistRemoveCustom: (profileId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_REMOVE_CUSTOM, { profileId });
+  },
+
+  /**
+   * Get specialist recommendations based on context
+   */
+  specialistRecommend: (context: {
+    taskDescription?: string;
+    fileTypes?: string[];
+    userPreferences?: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_RECOMMEND, { context });
+  },
+
+  /**
+   * Create a specialist instance
+   */
+  specialistCreateInstance: (profileId: string, orchestratorInstanceId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_CREATE_INSTANCE, { profileId, orchestratorInstanceId });
+  },
+
+  /**
+   * Get a specialist instance
+   */
+  specialistGetInstance: (instanceId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_GET_INSTANCE, { instanceId });
+  },
+
+  /**
+   * Get all active specialist instances
+   */
+  specialistGetActiveInstances: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_GET_ACTIVE_INSTANCES);
+  },
+
+  /**
+   * Update specialist instance status
+   */
+  specialistUpdateStatus: (instanceId: string, status: 'active' | 'paused' | 'completed' | 'failed'): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_UPDATE_STATUS, { instanceId, status });
+  },
+
+  /**
+   * Add a finding to a specialist instance
+   */
+  specialistAddFinding: (instanceId: string, finding: {
+    id: string;
+    type: string;
+    severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+    title: string;
+    description: string;
+    filePath?: string;
+    lineRange?: { start: number; end: number };
+    codeSnippet?: string;
+    suggestion?: string;
+    confidence: number;
+    tags?: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_ADD_FINDING, { instanceId, finding });
+  },
+
+  /**
+   * Update specialist instance metrics
+   */
+  specialistUpdateMetrics: (instanceId: string, updates: {
+    filesAnalyzed?: number;
+    linesAnalyzed?: number;
+    findingsCount?: number;
+    tokensUsed?: number;
+    durationMs?: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_UPDATE_METRICS, { instanceId, updates });
+  },
+
+  /**
+   * Get system prompt addition for a specialist
+   */
+  specialistGetPromptAddition: (profileId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SPECIALIST_GET_PROMPT_ADDITION, { profileId });
+  },
+
+  // ============================================
+  // Phase 7: Supervision (7.3)
+  // ============================================
+
+  /**
+   * Get supervision tree
+   */
+  supervisionGetTree: (rootInstanceId?: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SUPERVISION_GET_TREE, { rootInstanceId });
+  },
+
+  /**
+   * Get supervision health status
+   */
+  supervisionGetHealth: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SUPERVISION_GET_HEALTH);
+  },
+
+  // ============================================
+  // Phase 8: RLM Context (8.1)
+  // ============================================
+
+  /**
+   * Record task outcome for RLM
+   */
+  rlmRecordOutcome: (payload: {
+    taskId: string;
+    success: boolean;
+    score: number;
+    context: Record<string, unknown>;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_RECORD_OUTCOME, payload);
+  },
+
+  /**
+   * Get RLM learned patterns
+   */
+  rlmGetPatterns: (minSuccessRate?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_PATTERNS, { minSuccessRate });
+  },
+
+  /**
+   * Get RLM strategy suggestions
+   */
+  rlmGetStrategySuggestions: (context: string, maxSuggestions?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_STRATEGY_SUGGESTIONS, { context, maxSuggestions });
+  },
+
+  // ============================================
+  // Phase 8: Learning (8.2)
+  // ============================================
+
+  /**
+   * Record learning outcome
+   */
+  learningRecordOutcome: (payload: {
+    taskId: string;
+    strategy: string;
+    success: boolean;
+    score: number;
+    context?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.LEARNING_RECORD_OUTCOME, payload);
+  },
+
+  /**
+   * Get learning patterns
+   */
+  learningGetPatterns: (minSuccessRate?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.LEARNING_GET_PATTERNS, { minSuccessRate });
+  },
+
+  /**
+   * Get learning suggestions
+   */
+  learningGetSuggestions: (context: string, maxSuggestions?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.LEARNING_GET_SUGGESTIONS, { context, maxSuggestions });
+  },
+
+  /**
+   * Enhance prompt with learning
+   */
+  learningEnhancePrompt: (prompt: string, context: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.LEARNING_ENHANCE_PROMPT, { prompt, context });
+  },
+
+  // ============================================
+  // Phase 8: Verification (8.3)
+  // ============================================
+
+  /**
+   * Verify with multiple models
+   */
+  verificationVerifyMulti: (payload: {
+    query: string;
+    context?: string;
+    models?: string[];
+    consensusThreshold?: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_VERIFY_MULTI, payload);
+  },
+
+  /**
+   * Get active verifications
+   */
+  verificationGetActive: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_GET_ACTIVE);
+  },
+
+  /**
+   * Get verification result
+   */
+  verificationGetResult: (verificationId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_GET_RESULT, { verificationId });
+  },
+
+  // ============================================
+  // Phase 9: Memory-R1 (9.1)
+  // ============================================
+
+  /**
+   * Memory-R1: Decide what operation to perform
+   */
+  memoryR1DecideOperation: (payload: {
+    context: string;
+    candidateContent: string;
+    taskId: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_DECIDE_OPERATION, payload);
+  },
+
+  /**
+   * Memory-R1: Execute a decided operation
+   */
+  memoryR1ExecuteOperation: (decision: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_EXECUTE_OPERATION, decision);
+  },
+
+  /**
+   * Memory-R1: Add entry directly
+   */
+  memoryR1AddEntry: (payload: {
+    content: string;
+    reason: string;
+    sourceType?: string;
+    sourceSessionId?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_ADD_ENTRY, payload);
+  },
+
+  /**
+   * Memory-R1: Delete entry
+   */
+  memoryR1DeleteEntry: (entryId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_DELETE_ENTRY, entryId);
+  },
+
+  /**
+   * Memory-R1: Get entry
+   */
+  memoryR1GetEntry: (entryId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_GET_ENTRY, entryId);
+  },
+
+  /**
+   * Memory-R1: Retrieve memories
+   */
+  memoryR1Retrieve: (payload: { query: string; taskId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_RETRIEVE, payload);
+  },
+
+  /**
+   * Memory-R1: Record task outcome
+   */
+  memoryR1RecordOutcome: (payload: {
+    taskId: string;
+    success: boolean;
+    score: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_RECORD_OUTCOME, payload);
+  },
+
+  /**
+   * Memory-R1: Get stats
+   */
+  memoryR1GetStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_GET_STATS);
+  },
+
+  /**
+   * Memory-R1: Save state
+   */
+  memoryR1Save: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_SAVE);
+  },
+
+  /**
+   * Memory-R1: Load state
+   */
+  memoryR1Load: (snapshot: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_LOAD, snapshot);
+  },
+
+  /**
+   * Memory-R1: Configure
+   */
+  memoryR1Configure: (config: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MEMORY_R1_CONFIGURE, config);
+  },
+
+  // ============================================
+  // Phase 9: Unified Memory (9.2)
+  // ============================================
+
+  /**
+   * Unified Memory: Process input
+   */
+  unifiedMemoryProcessInput: (payload: {
+    input: string;
+    sessionId: string;
+    taskId: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_PROCESS_INPUT, payload);
+  },
+
+  /**
+   * Unified Memory: Retrieve
+   */
+  unifiedMemoryRetrieve: (payload: {
+    query: string;
+    taskId: string;
+    options?: { types?: string[]; maxTokens?: number };
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE, payload);
+  },
+
+  /**
+   * Unified Memory: Record session end
+   */
+  unifiedMemoryRecordSessionEnd: (payload: {
+    sessionId: string;
+    outcome: string;
+    summary: string;
+    lessons: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_RECORD_SESSION_END, payload);
+  },
+
+  /**
+   * Unified Memory: Record workflow
+   */
+  unifiedMemoryRecordWorkflow: (payload: {
+    name: string;
+    steps: string[];
+    applicableContexts: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_RECORD_WORKFLOW, payload);
+  },
+
+  /**
+   * Unified Memory: Record strategy
+   */
+  unifiedMemoryRecordStrategy: (payload: {
+    strategy: string;
+    conditions: string[];
+    taskId: string;
+    success: boolean;
+    score: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_RECORD_STRATEGY, payload);
+  },
+
+  /**
+   * Unified Memory: Record outcome
+   */
+  unifiedMemoryRecordOutcome: (payload: {
+    taskId: string;
+    success: boolean;
+    score: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_RECORD_OUTCOME, payload);
+  },
+
+  /**
+   * Unified Memory: Get stats
+   */
+  unifiedMemoryGetStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_GET_STATS);
+  },
+
+  /**
+   * Unified Memory: Get sessions
+   */
+  unifiedMemoryGetSessions: (limit?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_GET_SESSIONS, limit);
+  },
+
+  /**
+   * Unified Memory: Get patterns
+   */
+  unifiedMemoryGetPatterns: (minSuccessRate?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_GET_PATTERNS, minSuccessRate);
+  },
+
+  /**
+   * Unified Memory: Get workflows
+   */
+  unifiedMemoryGetWorkflows: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_GET_WORKFLOWS);
+  },
+
+  /**
+   * Unified Memory: Save state
+   */
+  unifiedMemorySave: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_SAVE);
+  },
+
+  /**
+   * Unified Memory: Load state
+   */
+  unifiedMemoryLoad: (snapshot: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_LOAD, snapshot);
+  },
+
+  /**
+   * Unified Memory: Configure
+   */
+  unifiedMemoryConfigure: (config: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_CONFIGURE, config);
+  },
+
+  // ============================================
+  // Phase 9: Debate (9.3)
+  // ============================================
+
+  /**
+   * Start a debate
+   */
+  debateStart: (payload: {
+    query: string;
+    context?: string;
+    config?: Record<string, unknown>;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_START, payload);
+  },
+
+  /**
+   * Get debate result
+   */
+  debateGetResult: (debateId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_GET_RESULT, debateId);
+  },
+
+  /**
+   * Get active debates
+   */
+  debateGetActive: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_GET_ACTIVE);
+  },
+
+  /**
+   * Cancel debate
+   */
+  debateCancel: (debateId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_CANCEL, debateId);
+  },
+
+  /**
+   * Get debate stats
+   */
+  debateGetStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DEBATE_GET_STATS);
+  },
+
+  // ============================================
+  // Phase 9: Training/GRPO (9.4)
+  // ============================================
+
+  /**
+   * Record training outcome
+   */
+  trainingRecordOutcome: (payload: {
+    taskId: string;
+    prompt: string;
+    response: string;
+    reward: number;
+    strategy?: string;
+    context?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_RECORD_OUTCOME, payload);
+  },
+
+  /**
+   * Get training stats
+   */
+  trainingGetStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_STATS);
+  },
+
+  /**
+   * Export training data
+   */
+  trainingExportData: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_EXPORT_DATA);
+  },
+
+  /**
+   * Import training data
+   */
+  trainingImportData: (data: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_IMPORT_DATA, data);
+  },
+
+  /**
+   * Get reward trend
+   */
+  trainingGetTrend: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_TREND);
+  },
+
+  /**
+   * Get top strategies
+   */
+  trainingGetTopStrategies: (limit?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_GET_TOP_STRATEGIES, limit);
+  },
+
+  /**
+   * Configure training
+   */
+  trainingConfigure: (config: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TRAINING_CONFIGURE, config);
   },
 
   // ============================================

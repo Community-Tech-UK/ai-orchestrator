@@ -120,6 +120,8 @@ import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
 import { registerVerificationHandlers } from './verification-ipc-handler';
 import { registerLearningHandlers } from './learning-ipc-handler';
 import { registerMemoryHandlers } from './memory-ipc-handler';
+import { registerSpecialistHandlers } from './specialist-ipc-handler';
+import { registerTrainingHandlers } from './training-ipc-handler';
 import {
   detectSecretsInContent,
   detectSecretsInEnvContent,
@@ -312,6 +314,12 @@ export class IpcMainHandler {
     // Memory handlers (Memory-R1, Unified Memory, Debate, Training)
     registerMemoryHandlers();
 
+    // Specialist handlers (Phase 7.4: Specialist Profiles)
+    registerSpecialistHandlers();
+
+    // Training handlers (GRPO Dashboard)
+    registerTrainingHandlers();
+
     // Set up memory event forwarding to renderer
     this.setupMemoryEventForwarding();
 
@@ -327,8 +335,20 @@ export class IpcMainHandler {
       IPC_CHANNELS.INSTANCE_CREATE,
       async (event: IpcMainInvokeEvent, payload: InstanceCreatePayload): Promise<IpcResponse> => {
         try {
+          // Use default working directory from settings if not provided or is just '.'
+          let workingDirectory = payload.workingDirectory;
+          if (!workingDirectory || workingDirectory === '.') {
+            const settings = getSettingsManager();
+            const defaultDir = settings.get('defaultWorkingDirectory');
+            if (defaultDir) {
+              workingDirectory = defaultDir;
+            } else {
+              workingDirectory = process.cwd();
+            }
+          }
+
           const instance = await this.instanceManager.createInstance({
-            workingDirectory: payload.workingDirectory,
+            workingDirectory,
             sessionId: payload.sessionId,
             parentId: payload.parentInstanceId,
             displayName: payload.displayName,

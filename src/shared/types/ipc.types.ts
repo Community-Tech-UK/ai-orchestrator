@@ -477,6 +477,27 @@ export const IPC_CHANNELS = {
   TRAINING_GET_TREND: 'training:get-trend',
   TRAINING_GET_TOP_STRATEGIES: 'training:get-top-strategies',
   TRAINING_CONFIGURE: 'training:configure',
+
+  // Specialist operations (7.4)
+  SPECIALIST_LIST: 'specialist:list',
+  SPECIALIST_LIST_BUILTIN: 'specialist:list-builtin',
+  SPECIALIST_LIST_CUSTOM: 'specialist:list-custom',
+  SPECIALIST_GET: 'specialist:get',
+  SPECIALIST_GET_BY_CATEGORY: 'specialist:get-by-category',
+  SPECIALIST_ADD_CUSTOM: 'specialist:add-custom',
+  SPECIALIST_UPDATE_CUSTOM: 'specialist:update-custom',
+  SPECIALIST_REMOVE_CUSTOM: 'specialist:remove-custom',
+  SPECIALIST_RECOMMEND: 'specialist:recommend',
+  SPECIALIST_CREATE_INSTANCE: 'specialist:create-instance',
+  SPECIALIST_GET_INSTANCE: 'specialist:get-instance',
+  SPECIALIST_GET_ACTIVE_INSTANCES: 'specialist:get-active-instances',
+  SPECIALIST_UPDATE_STATUS: 'specialist:update-status',
+  SPECIALIST_ADD_FINDING: 'specialist:add-finding',
+  SPECIALIST_UPDATE_METRICS: 'specialist:update-metrics',
+  SPECIALIST_GET_PROMPT_ADDITION: 'specialist:get-prompt-addition',
+  SPECIALIST_INSTANCE_CREATED: 'specialist:instance-created',
+  SPECIALIST_INSTANCE_STATUS_CHANGED: 'specialist:instance-status-changed',
+  SPECIALIST_FINDING_ADDED: 'specialist:finding-added',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];
@@ -1797,4 +1818,119 @@ export interface SupervisionGetTreePayload {
 
 export interface SupervisionGetHealthPayload {
   instanceId: string;
+}
+
+// ============================================
+// Specialist Payloads (7.4)
+// ============================================
+
+export interface SpecialistGetPayload {
+  profileId: string;
+}
+
+export interface SpecialistGetByCategoryPayload {
+  category: string;
+}
+
+export interface SpecialistAddCustomPayload {
+  profile: {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon: string;
+    color: string;
+    systemPromptAddition: string;
+    restrictedTools: string[];
+    constraints?: {
+      readOnlyMode?: boolean;
+      maxTokens?: number;
+      allowedDirectories?: string[];
+      blockedDirectories?: string[];
+      requireApprovalFor?: string[];
+    };
+    tags?: string[];
+  };
+}
+
+export interface SpecialistUpdateCustomPayload {
+  profileId: string;
+  updates: {
+    name?: string;
+    description?: string;
+    category?: string;
+    icon?: string;
+    color?: string;
+    systemPromptAddition?: string;
+    restrictedTools?: string[];
+    constraints?: {
+      readOnlyMode?: boolean;
+      maxTokens?: number;
+      allowedDirectories?: string[];
+      blockedDirectories?: string[];
+      requireApprovalFor?: string[];
+    };
+    tags?: string[];
+  };
+}
+
+export interface SpecialistRemoveCustomPayload {
+  profileId: string;
+}
+
+export interface SpecialistRecommendPayload {
+  context: {
+    taskDescription?: string;
+    fileTypes?: string[];
+    userPreferences?: string[];
+  };
+}
+
+export interface SpecialistCreateInstancePayload {
+  profileId: string;
+  orchestratorInstanceId: string;
+}
+
+export interface SpecialistGetInstancePayload {
+  instanceId: string;
+}
+
+export interface SpecialistUpdateStatusPayload {
+  instanceId: string;
+  status: 'active' | 'paused' | 'completed' | 'failed';
+}
+
+export interface SpecialistAddFindingPayload {
+  instanceId: string;
+  finding: {
+    id: string;
+    type: string;
+    severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+    title: string;
+    description: string;
+    filePath?: string;
+    lineRange?: {
+      start: number;
+      end: number;
+    };
+    codeSnippet?: string;
+    suggestion?: string;
+    confidence: number;
+    tags?: string[];
+  };
+}
+
+export interface SpecialistUpdateMetricsPayload {
+  instanceId: string;
+  updates: {
+    filesAnalyzed?: number;
+    linesAnalyzed?: number;
+    findingsCount?: number;
+    tokensUsed?: number;
+    durationMs?: number;
+  };
+}
+
+export interface SpecialistGetPromptAdditionPayload {
+  profileId: string;
 }

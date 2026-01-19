@@ -60,10 +60,9 @@ import { TodoListComponent } from './todo-list.component';
                   <span class="edit-icon">✏️</span>
                 </h2>
               }
+              <span class="session-id mono">{{ inst.sessionId }}</span>
             </div>
             <div class="instance-meta">
-              <span class="session-id mono">Session: {{ inst.sessionId }}</span>
-              <span class="separator">•</span>
               <button
                 class="working-dir-btn mono truncate"
                 [title]="inst.workingDirectory || 'Click to select a working folder'"
@@ -200,6 +199,15 @@ import { TodoListComponent } from './todo-list.component';
         display: flex;
         align-items: center;
         gap: var(--spacing-sm);
+      }
+
+      .session-id {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--text-muted);
+        background: var(--bg-tertiary);
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
       }
 
       .instance-name {

@@ -24,6 +24,7 @@ npm-debug.log*
 
 # Claude attachments (temporary files for file uploads)
 .claude-attachments/
+archive/
 
 # Claude Code settings
 .claude/

@@ -8,7 +8,7 @@ import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getMemoryManager } from '../memory-r1/memory-manager';
 import { getUnifiedMemory } from '../memory/unified-controller';
 import { getDebateCoordinator } from '../debate/debate-coordinator';
-import { getGRPOTrainer } from '../training/grpo-trainer';
+// Training handlers moved to training-ipc-handler.ts
 import type {
   MemoryManagerConfig,
   MemoryManagerDecision,
@@ -30,7 +30,7 @@ import type {
   MemoryType,
 } from '../../shared/types/unified-memory.types';
 import type { DebateConfig, DebateResult, ActiveDebate, DebateStats } from '../../shared/types/debate.types';
-import type { GRPOConfig, TrainingStats, TrainingOutcome } from '../training/grpo-trainer';
+// Training types moved to training-ipc-handler.ts
 
 /**
  * Register all memory-related IPC handlers
@@ -39,7 +39,7 @@ export function registerMemoryHandlers(): void {
   registerMemoryR1Handlers();
   registerUnifiedMemoryHandlers();
   registerDebateHandlers();
-  registerTrainingHandlers();
+  // Note: Training handlers are registered separately via training-ipc-handler.ts
 }
 
 // ============ Memory-R1 Handlers ============
@@ -288,61 +288,4 @@ function registerDebateHandlers(): void {
   });
 }
 
-// ============ Training Handlers (GRPO) ============
-
-function registerTrainingHandlers(): void {
-  const trainer = getGRPOTrainer();
-
-  // Record outcome
-  ipcMain.handle(
-    IPC_CHANNELS.TRAINING_RECORD_OUTCOME,
-    (
-      _event,
-      payload: { taskId: string; prompt: string; response: string; reward: number; strategy?: string; context?: string }
-    ): void => {
-      trainer.recordOutcome(payload);
-    }
-  );
-
-  // Get stats
-  ipcMain.handle(IPC_CHANNELS.TRAINING_GET_STATS, (): TrainingStats => {
-    return trainer.getStats();
-  });
-
-  // Export data
-  ipcMain.handle(
-    IPC_CHANNELS.TRAINING_EXPORT_DATA,
-    (): { outcomes: TrainingOutcome[]; batches: unknown[]; stats: TrainingStats } => {
-      return trainer.exportTrainingData();
-    }
-  );
-
-  // Import data
-  ipcMain.handle(
-    IPC_CHANNELS.TRAINING_IMPORT_DATA,
-    (_event, data: { outcomes: TrainingOutcome[]; batches: unknown[] }): void => {
-      trainer.importTrainingData(data as Parameters<typeof trainer.importTrainingData>[0]);
-    }
-  );
-
-  // Get reward trend
-  ipcMain.handle(
-    IPC_CHANNELS.TRAINING_GET_TREND,
-    (): { improving: boolean; slope: number; recent: number[] } => {
-      return trainer.getRewardTrend();
-    }
-  );
-
-  // Get top strategies
-  ipcMain.handle(
-    IPC_CHANNELS.TRAINING_GET_TOP_STRATEGIES,
-    (_event, limit?: number): Array<{ strategy: string; avgReward: number; count: number }> => {
-      return trainer.getTopStrategies(limit);
-    }
-  );
-
-  // Configure
-  ipcMain.handle(IPC_CHANNELS.TRAINING_CONFIGURE, (_event, config: Partial<GRPOConfig>): void => {
-    trainer.configure(config);
-  });
-}
+// Note: Training handlers (GRPO) are now registered in training-ipc-handler.ts

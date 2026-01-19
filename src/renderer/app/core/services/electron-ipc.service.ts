@@ -41,6 +41,39 @@ export class ElectronIpcService {
     return this.api?.platform || 'browser';
   }
 
+  /**
+   * Generic invoke method for IPC calls
+   * Use this for custom/dynamic IPC channels
+   */
+  async invoke<T = unknown>(channel: string, payload?: unknown): Promise<{ success: boolean; data?: T; error?: { message: string } }> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+
+    // Use the underlying ipcRenderer.invoke via preload
+    if ((this.api as Record<string, unknown>)['invoke']) {
+      return (this.api as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)['invoke'](channel, payload) as Promise<{ success: boolean; data?: T; error?: { message: string } }>;
+    }
+
+    // Fallback: map to specific method if available
+    console.warn(`No invoke method available, channel: ${channel}`);
+    return { success: false, error: { message: `Channel not supported: ${channel}` } };
+  }
+
+  /**
+   * Generic event listener for IPC events
+   */
+  on(channel: string, callback: (data: unknown) => void): () => void {
+    if (!this.api) return () => {};
+
+    if ((this.api as Record<string, unknown>)['on']) {
+      return (this.api as unknown as Record<string, (...args: unknown[]) => () => void>)['on'](channel, (data: unknown) => {
+        this.ngZone.run(() => callback(data));
+      });
+    }
+
+    console.warn(`No on method available, channel: ${channel}`);
+    return () => {};
+  }
+
   // ============================================
   // Instance Management
   // ============================================
@@ -1824,5 +1857,973 @@ export class ElectronIpcService {
     return this.api.onPluginError((data) => {
       this.ngZone.run(() => callback(data));
     });
+  }
+
+  // ============================================
+  // Phase 6: Workflows (6.1)
+  // ============================================
+
+  /**
+   * List available workflow templates
+   */
+  async workflowListTemplates() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowListTemplates();
+  }
+
+  /**
+   * Get a specific workflow template
+   */
+  async workflowGetTemplate(templateId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowGetTemplate(templateId);
+  }
+
+  /**
+   * Start a workflow
+   */
+  async workflowStart(payload: {
+    instanceId: string;
+    templateId: string;
+    config?: Record<string, unknown>;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowStart(payload);
+  }
+
+  /**
+   * Get workflow execution status
+   */
+  async workflowGetExecution(executionId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowGetExecution(executionId);
+  }
+
+  /**
+   * Get workflow execution for instance
+   */
+  async workflowGetByInstance(instanceId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowGetByInstance(instanceId);
+  }
+
+  /**
+   * Complete a workflow phase
+   */
+  async workflowCompletePhase(executionId: string, phaseId: string, result?: unknown) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowCompletePhase(executionId, phaseId, result);
+  }
+
+  /**
+   * Satisfy a workflow gate
+   */
+  async workflowSatisfyGate(executionId: string, gateId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowSatisfyGate(executionId, gateId);
+  }
+
+  /**
+   * Skip a workflow phase
+   */
+  async workflowSkipPhase(executionId: string, phaseId: string, reason?: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowSkipPhase(executionId, phaseId, reason);
+  }
+
+  /**
+   * Cancel a workflow
+   */
+  async workflowCancel(executionId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowCancel(executionId);
+  }
+
+  /**
+   * Get workflow prompt addition
+   */
+  async workflowGetPromptAddition(executionId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.workflowGetPromptAddition(executionId);
+  }
+
+  // ============================================
+  // Phase 6: Review Agents (6.2)
+  // ============================================
+
+  /**
+   * List available review agents
+   */
+  async reviewListAgents() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.reviewListAgents();
+  }
+
+  /**
+   * Get a specific review agent
+   */
+  async reviewGetAgent(agentId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.reviewGetAgent(agentId);
+  }
+
+  // ============================================
+  // Phase 6: Hooks (6.3)
+  // ============================================
+
+  /**
+   * List hooks
+   */
+  async hooksList(filter?: { event?: string; scope?: string }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksList(filter);
+  }
+
+  /**
+   * Get a hook by ID
+   */
+  async hooksGet(hookId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksGet(hookId);
+  }
+
+  /**
+   * Create a new hook
+   */
+  async hooksCreate(payload: {
+    name: string;
+    event: string;
+    command: string;
+    conditions?: Record<string, unknown>;
+    scope?: 'global' | 'project';
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksCreate(payload);
+  }
+
+  /**
+   * Update a hook
+   */
+  async hooksUpdate(hookId: string, updates: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksUpdate(hookId, updates);
+  }
+
+  /**
+   * Delete a hook
+   */
+  async hooksDelete(hookId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksDelete(hookId);
+  }
+
+  /**
+   * Evaluate hooks for an event
+   */
+  async hooksEvaluate(event: string, context: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksEvaluate(event, context);
+  }
+
+  /**
+   * Import hooks from file
+   */
+  async hooksImport(filePath: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksImport(filePath);
+  }
+
+  /**
+   * Export hooks to file
+   */
+  async hooksExport(filePath: string, hookIds?: string[]) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.hooksExport(filePath, hookIds);
+  }
+
+  // ============================================
+  // Phase 6: Skills (6.4)
+  // ============================================
+
+  /**
+   * Discover skills in a directory
+   */
+  async skillsDiscover(directory?: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsDiscover(directory);
+  }
+
+  /**
+   * List available skills
+   */
+  async skillsList() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsList();
+  }
+
+  /**
+   * Get a skill by ID
+   */
+  async skillsGet(skillId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsGet(skillId);
+  }
+
+  /**
+   * Load a skill
+   */
+  async skillsLoad(skillId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsLoad(skillId);
+  }
+
+  /**
+   * Unload a skill
+   */
+  async skillsUnload(skillId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsUnload(skillId);
+  }
+
+  /**
+   * Load reference documentation for a skill
+   */
+  async skillsLoadReference(skillId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsLoadReference(skillId);
+  }
+
+  /**
+   * Load example for a skill
+   */
+  async skillsLoadExample(skillId: string, exampleId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsLoadExample(skillId, exampleId);
+  }
+
+  /**
+   * Match skills to a query
+   */
+  async skillsMatch(query: string, maxResults?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsMatch(query, maxResults);
+  }
+
+  /**
+   * Get skill memory
+   */
+  async skillsGetMemory(skillId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.skillsGetMemory(skillId);
+  }
+
+  // ============================================
+  // Phase 7: Worktrees (7.1)
+  // ============================================
+
+  /**
+   * Create a worktree for isolated work
+   */
+  async worktreeCreate(payload: {
+    instanceId: string;
+    baseBranch?: string;
+    branchName?: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.worktreeCreate(payload);
+  }
+
+  /**
+   * List worktrees
+   */
+  async worktreeList(instanceId?: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.worktreeList(instanceId);
+  }
+
+  /**
+   * Delete a worktree
+   */
+  async worktreeDelete(worktreeId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.worktreeDelete(worktreeId);
+  }
+
+  /**
+   * Get worktree status
+   */
+  async worktreeGetStatus(worktreeId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.worktreeGetStatus(worktreeId);
+  }
+
+  // ============================================
+  // Phase 7: Specialists (7.4)
+  // ============================================
+
+  /**
+   * List all specialist profiles
+   */
+  async specialistList() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistList();
+  }
+
+  /**
+   * List built-in specialist profiles
+   */
+  async specialistListBuiltin() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistListBuiltin();
+  }
+
+  /**
+   * List custom specialist profiles
+   */
+  async specialistListCustom() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistListCustom();
+  }
+
+  /**
+   * Get a specialist profile
+   */
+  async specialistGet(profileId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistGet(profileId);
+  }
+
+  /**
+   * Get specialist profiles by category
+   */
+  async specialistGetByCategory(category: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistGetByCategory(category);
+  }
+
+  /**
+   * Add a custom specialist profile
+   */
+  async specialistAddCustom(profile: {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon: string;
+    color: string;
+    systemPromptAddition: string;
+    restrictedTools: string[];
+    constraints?: {
+      readOnlyMode?: boolean;
+      maxTokens?: number;
+      allowedDirectories?: string[];
+      blockedDirectories?: string[];
+      requireApprovalFor?: string[];
+    };
+    tags?: string[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistAddCustom(profile);
+  }
+
+  /**
+   * Update a custom specialist profile
+   */
+  async specialistUpdateCustom(profileId: string, updates: {
+    name?: string;
+    description?: string;
+    category?: string;
+    icon?: string;
+    color?: string;
+    systemPromptAddition?: string;
+    restrictedTools?: string[];
+    constraints?: {
+      readOnlyMode?: boolean;
+      maxTokens?: number;
+      allowedDirectories?: string[];
+      blockedDirectories?: string[];
+      requireApprovalFor?: string[];
+    };
+    tags?: string[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistUpdateCustom(profileId, updates);
+  }
+
+  /**
+   * Remove a custom specialist profile
+   */
+  async specialistRemoveCustom(profileId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistRemoveCustom(profileId);
+  }
+
+  /**
+   * Get specialist recommendations based on context
+   */
+  async specialistRecommend(context: {
+    taskDescription?: string;
+    fileTypes?: string[];
+    userPreferences?: string[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistRecommend(context);
+  }
+
+  /**
+   * Create a specialist instance
+   */
+  async specialistCreateInstance(profileId: string, orchestratorInstanceId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistCreateInstance(profileId, orchestratorInstanceId);
+  }
+
+  /**
+   * Get a specialist instance
+   */
+  async specialistGetInstance(instanceId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistGetInstance(instanceId);
+  }
+
+  /**
+   * Get all active specialist instances
+   */
+  async specialistGetActiveInstances() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistGetActiveInstances();
+  }
+
+  /**
+   * Update specialist instance status
+   */
+  async specialistUpdateStatus(instanceId: string, status: 'active' | 'paused' | 'completed' | 'failed') {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistUpdateStatus(instanceId, status);
+  }
+
+  /**
+   * Add a finding to a specialist instance
+   */
+  async specialistAddFinding(instanceId: string, finding: {
+    id: string;
+    type: string;
+    severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+    title: string;
+    description: string;
+    filePath?: string;
+    lineRange?: { start: number; end: number };
+    codeSnippet?: string;
+    suggestion?: string;
+    confidence: number;
+    tags?: string[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistAddFinding(instanceId, finding);
+  }
+
+  /**
+   * Update specialist instance metrics
+   */
+  async specialistUpdateMetrics(instanceId: string, updates: {
+    filesAnalyzed?: number;
+    linesAnalyzed?: number;
+    findingsCount?: number;
+    tokensUsed?: number;
+    durationMs?: number;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistUpdateMetrics(instanceId, updates);
+  }
+
+  /**
+   * Get system prompt addition for a specialist
+   */
+  async specialistGetPromptAddition(profileId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.specialistGetPromptAddition(profileId);
+  }
+
+  // ============================================
+  // Phase 7: Supervision (7.3)
+  // ============================================
+
+  /**
+   * Get supervision tree
+   */
+  async supervisionGetTree(rootInstanceId?: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.supervisionGetTree(rootInstanceId);
+  }
+
+  /**
+   * Get supervision health status
+   */
+  async supervisionGetHealth() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.supervisionGetHealth();
+  }
+
+  // ============================================
+  // Phase 8: RLM Context (8.1)
+  // ============================================
+
+  /**
+   * Record task outcome for RLM
+   */
+  async rlmRecordOutcome(payload: {
+    taskId: string;
+    success: boolean;
+    score: number;
+    context: Record<string, unknown>;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmRecordOutcome(payload);
+  }
+
+  /**
+   * Get RLM learned patterns
+   */
+  async rlmGetPatterns(minSuccessRate?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmGetPatterns(minSuccessRate);
+  }
+
+  /**
+   * Get RLM strategy suggestions
+   */
+  async rlmGetStrategySuggestions(context: string, maxSuggestions?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmGetStrategySuggestions(context, maxSuggestions);
+  }
+
+  // ============================================
+  // Phase 8: Learning (8.2)
+  // ============================================
+
+  /**
+   * Record learning outcome
+   */
+  async learningRecordOutcome(payload: {
+    taskId: string;
+    strategy: string;
+    success: boolean;
+    score: number;
+    context?: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.learningRecordOutcome(payload);
+  }
+
+  /**
+   * Get learning patterns
+   */
+  async learningGetPatterns(minSuccessRate?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.learningGetPatterns(minSuccessRate);
+  }
+
+  /**
+   * Get learning suggestions
+   */
+  async learningGetSuggestions(context: string, maxSuggestions?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.learningGetSuggestions(context, maxSuggestions);
+  }
+
+  /**
+   * Enhance prompt with learning
+   */
+  async learningEnhancePrompt(prompt: string, context: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.learningEnhancePrompt(prompt, context);
+  }
+
+  // ============================================
+  // Phase 8: Verification (8.3)
+  // ============================================
+
+  /**
+   * Verify with multiple models
+   */
+  async verificationVerifyMulti(payload: {
+    query: string;
+    context?: string;
+    models?: string[];
+    consensusThreshold?: number;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.verificationVerifyMulti(payload);
+  }
+
+  /**
+   * Get active verifications
+   */
+  async verificationGetActive() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.verificationGetActive();
+  }
+
+  /**
+   * Get verification result
+   */
+  async verificationGetResult(verificationId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.verificationGetResult(verificationId);
+  }
+
+  // ============================================
+  // Phase 9: Memory-R1 (9.1)
+  // ============================================
+
+  /**
+   * Memory-R1: Decide what operation to perform
+   */
+  async memoryR1DecideOperation(payload: {
+    context: string;
+    candidateContent: string;
+    taskId: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1DecideOperation(payload);
+  }
+
+  /**
+   * Memory-R1: Execute a decided operation
+   */
+  async memoryR1ExecuteOperation(decision: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1ExecuteOperation(decision);
+  }
+
+  /**
+   * Memory-R1: Add entry directly
+   */
+  async memoryR1AddEntry(payload: {
+    content: string;
+    reason: string;
+    sourceType?: string;
+    sourceSessionId?: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1AddEntry(payload);
+  }
+
+  /**
+   * Memory-R1: Delete entry
+   */
+  async memoryR1DeleteEntry(entryId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1DeleteEntry(entryId);
+  }
+
+  /**
+   * Memory-R1: Get entry
+   */
+  async memoryR1GetEntry(entryId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1GetEntry(entryId);
+  }
+
+  /**
+   * Memory-R1: Retrieve memories
+   */
+  async memoryR1Retrieve(payload: { query: string; taskId: string }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1Retrieve(payload);
+  }
+
+  /**
+   * Memory-R1: Record task outcome
+   */
+  async memoryR1RecordOutcome(payload: {
+    taskId: string;
+    success: boolean;
+    score: number;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1RecordOutcome(payload);
+  }
+
+  /**
+   * Memory-R1: Get stats
+   */
+  async memoryR1GetStats() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1GetStats();
+  }
+
+  /**
+   * Memory-R1: Save state
+   */
+  async memoryR1Save() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1Save();
+  }
+
+  /**
+   * Memory-R1: Load state
+   */
+  async memoryR1Load(snapshot: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1Load(snapshot);
+  }
+
+  /**
+   * Memory-R1: Configure
+   */
+  async memoryR1Configure(config: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.memoryR1Configure(config);
+  }
+
+  // ============================================
+  // Phase 9: Unified Memory (9.2)
+  // ============================================
+
+  /**
+   * Unified Memory: Process input
+   */
+  async unifiedMemoryProcessInput(payload: {
+    input: string;
+    sessionId: string;
+    taskId: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryProcessInput(payload);
+  }
+
+  /**
+   * Unified Memory: Retrieve
+   */
+  async unifiedMemoryRetrieve(payload: {
+    query: string;
+    taskId: string;
+    options?: { types?: string[]; maxTokens?: number };
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryRetrieve(payload);
+  }
+
+  /**
+   * Unified Memory: Record session end
+   */
+  async unifiedMemoryRecordSessionEnd(payload: {
+    sessionId: string;
+    outcome: string;
+    summary: string;
+    lessons: string[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryRecordSessionEnd(payload);
+  }
+
+  /**
+   * Unified Memory: Record workflow
+   */
+  async unifiedMemoryRecordWorkflow(payload: {
+    name: string;
+    steps: string[];
+    applicableContexts: string[];
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryRecordWorkflow(payload);
+  }
+
+  /**
+   * Unified Memory: Record strategy
+   */
+  async unifiedMemoryRecordStrategy(payload: {
+    strategy: string;
+    conditions: string[];
+    taskId: string;
+    success: boolean;
+    score: number;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryRecordStrategy(payload);
+  }
+
+  /**
+   * Unified Memory: Record outcome
+   */
+  async unifiedMemoryRecordOutcome(payload: {
+    taskId: string;
+    success: boolean;
+    score: number;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryRecordOutcome(payload);
+  }
+
+  /**
+   * Unified Memory: Get stats
+   */
+  async unifiedMemoryGetStats() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryGetStats();
+  }
+
+  /**
+   * Unified Memory: Get sessions
+   */
+  async unifiedMemoryGetSessions(limit?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryGetSessions(limit);
+  }
+
+  /**
+   * Unified Memory: Get patterns
+   */
+  async unifiedMemoryGetPatterns(minSuccessRate?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryGetPatterns(minSuccessRate);
+  }
+
+  /**
+   * Unified Memory: Get workflows
+   */
+  async unifiedMemoryGetWorkflows() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryGetWorkflows();
+  }
+
+  /**
+   * Unified Memory: Save state
+   */
+  async unifiedMemorySave() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemorySave();
+  }
+
+  /**
+   * Unified Memory: Load state
+   */
+  async unifiedMemoryLoad(snapshot: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryLoad(snapshot);
+  }
+
+  /**
+   * Unified Memory: Configure
+   */
+  async unifiedMemoryConfigure(config: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.unifiedMemoryConfigure(config);
+  }
+
+  // ============================================
+  // Phase 9: Debate (9.3)
+  // ============================================
+
+  /**
+   * Start a debate
+   */
+  async debateStart(payload: {
+    query: string;
+    context?: string;
+    config?: Record<string, unknown>;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.debateStart(payload);
+  }
+
+  /**
+   * Get debate result
+   */
+  async debateGetResult(debateId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.debateGetResult(debateId);
+  }
+
+  /**
+   * Get active debates
+   */
+  async debateGetActive() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.debateGetActive();
+  }
+
+  /**
+   * Cancel debate
+   */
+  async debateCancel(debateId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.debateCancel(debateId);
+  }
+
+  /**
+   * Get debate stats
+   */
+  async debateGetStats() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.debateGetStats();
+  }
+
+  // ============================================
+  // Phase 9: Training/GRPO (9.4)
+  // ============================================
+
+  /**
+   * Record training outcome
+   */
+  async trainingRecordOutcome(payload: {
+    taskId: string;
+    prompt: string;
+    response: string;
+    reward: number;
+    strategy?: string;
+    context?: string;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingRecordOutcome(payload);
+  }
+
+  /**
+   * Get training stats
+   */
+  async trainingGetStats() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingGetStats();
+  }
+
+  /**
+   * Export training data
+   */
+  async trainingExportData() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingExportData();
+  }
+
+  /**
+   * Import training data
+   */
+  async trainingImportData(data: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingImportData(data);
+  }
+
+  /**
+   * Get reward trend
+   */
+  async trainingGetTrend() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingGetTrend();
+  }
+
+  /**
+   * Get top strategies
+   */
+  async trainingGetTopStrategies(limit?: number) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingGetTopStrategies(limit);
+  }
+
+  /**
+   * Configure training
+   */
+  async trainingConfigure(config: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.trainingConfigure(config);
   }
 }
