@@ -455,8 +455,7 @@ export class InstanceManager extends EventEmitter {
       // Send initial prompt if provided
       if (config.initialPrompt) {
         // Add user message to output buffer so it appears in the conversation
-        // Note: We don't emit 'instance:output' here because the outputBuffer
-        // will be included in the 'instance:created' event below
+        // The outputBuffer will be included in the 'instance:created' event below
         const userMessage = {
           id: generateId(),
           timestamp: Date.now(),
@@ -730,16 +729,17 @@ export class InstanceManager extends EventEmitter {
       const message = {
         id: generateId(),
         type: 'system' as const,
-        content: '⚠️ Interrupted by user (Ctrl+C)',
+        content: '⚠️ Interrupted by user',
         timestamp: Date.now(),
       };
       this.addToOutputBuffer(instance, message);
       this.emit('instance:output', { instanceId, message });
 
-      // Update status to idle (Claude will be waiting for input after interrupt)
-      instance.status = 'idle';
+      // Update status to waiting_for_input (Claude will be waiting for input after interrupt)
+      // Note: The CLI may emit input_required which will also set this status
+      instance.status = 'waiting_for_input';
       instance.lastActivity = Date.now();
-      this.queueUpdate(instanceId, 'idle', instance.contextUsage);
+      this.queueUpdate(instanceId, 'waiting_for_input', instance.contextUsage);
     }
 
     return success;

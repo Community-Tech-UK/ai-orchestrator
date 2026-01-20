@@ -171,8 +171,9 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
         };
 
         // Start verification (async - result sent via events)
+        // Pass the frontend's session ID so events use the same ID
         coordinator.startVerificationWithCli(
-          { prompt: payload.prompt, context: payload.context },
+          { prompt: payload.prompt, context: payload.context, id: payload.id },
           config
         ).then((result) => {
           mainWindow.webContents.send('verification:complete', {
@@ -205,17 +206,62 @@ export function registerCliVerificationHandlers(mainWindow: BrowserWindow): void
     'verification:cancel',
     async (
       _event: IpcMainInvokeEvent,
-      _payload: CliVerificationCancelPayload
+      payload: CliVerificationCancelPayload
     ): Promise<IpcResponse> => {
       try {
-        // Note: CliVerificationCoordinator doesn't have cancel yet
-        // This would need to be implemented
-        return { success: true, data: null };
+        const result = await coordinator.cancelVerification(payload.id);
+
+        if (!result.success) {
+          return {
+            success: false,
+            error: {
+              code: 'VERIFY_CANCEL_NOT_FOUND',
+              message: result.error || 'Verification not found',
+              timestamp: Date.now(),
+            },
+          };
+        }
+
+        return {
+          success: true,
+          data: {
+            verificationId: payload.id,
+            agentsCancelled: result.agentsCancelled,
+          },
+        };
       } catch (error) {
         return {
           success: false,
           error: {
             code: 'VERIFY_CANCEL_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  // Cancel all verifications
+  ipcMain.handle(
+    'verification:cancel-all',
+    async (): Promise<IpcResponse> => {
+      try {
+        const result = await coordinator.cancelAllVerifications();
+
+        return {
+          success: result.success,
+          data: {
+            sessionsCancelled: result.sessionsCancelled,
+            totalAgentsCancelled: result.totalAgentsCancelled,
+            errors: result.errors,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'VERIFY_CANCEL_ALL_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },
@@ -233,49 +279,80 @@ function setupCoordinatorEvents(
   coordinator: ReturnType<typeof getCliVerificationCoordinator>,
   mainWindow: BrowserWindow
 ): void {
+  console.log('[CLI-Verification-IPC] Setting up coordinator event forwarding');
+
   // Forward verification events to renderer
   coordinator.on('verification:started', (data) => {
+    console.log('[CLI-Verification-IPC] Forwarding verification:started', data);
     mainWindow.webContents.send('verification:started', data);
   });
 
   coordinator.on('verification:agents-launching', (data) => {
+    console.log('[CLI-Verification-IPC] Forwarding verification:agents-launching', data);
     // Forward individual agent starts
-    for (const agent of data.agents) {
-      mainWindow.webContents.send('verification:agent-start', {
+    // IMPORTANT: agentId format must match coordinator's format in runAgent()
+    // Coordinator uses: `${request.id}-${agent.name.toLowerCase().replace(/\s+/g, '-')}-${index}`
+    for (let index = 0; index < data.agents.length; index++) {
+      const agent = data.agents[index];
+      const agentId = `${data.requestId}-${agent.name.toLowerCase().replace(/\s+/g, '-')}-${index}`;
+      const payload = {
         sessionId: data.requestId,
-        agentId: `${data.requestId}-${agent.name}`,
+        agentId,
         name: agent.name,
         type: agent.type,
         personality: agent.personality,
-      });
+      };
+      console.log('[CLI-Verification-IPC] Sending verification:agent-start', payload);
+      mainWindow.webContents.send('verification:agent-start', payload);
     }
   });
 
-  // Forward agent streaming events
+  // Track accumulated content per agent for final response
+  const agentContent = new Map<string, string>();
+
+  // Forward agent streaming events and track content
   coordinator.on('verification:agent-stream', (data) => {
-    mainWindow.webContents.send('verification:agent-stream', {
+    // Track content for agent-complete event
+    const currentContent = agentContent.get(data.agentId) || '';
+    agentContent.set(data.agentId, currentContent + (data.content || ''));
+
+    // Forward to renderer - store expects 'chunk', not 'content'
+    const payload = {
       sessionId: data.requestId,
       agentId: data.agentId,
-      agentName: data.agentName,
-      content: data.content,
-      totalContent: data.totalContent,
-    });
+      chunk: data.content,
+    };
+    console.log('[CLI-Verification-IPC] Sending verification:agent-stream (agentId:', data.agentId, ', chunk length:', (data.content || '').length, ')');
+    mainWindow.webContents.send('verification:agent-stream', payload);
   });
 
   // Forward agent complete events
   coordinator.on('verification:agent-complete', (data) => {
-    mainWindow.webContents.send('verification:agent-complete', {
+    // Store expects { sessionId, response: AgentResponse }
+    const finalContent = data.totalContent || agentContent.get(data.agentId) || '';
+    const payload = {
       sessionId: data.requestId,
-      agentId: data.agentId,
-      agentName: data.agentName,
-      success: data.success,
-      error: data.error,
-      responseLength: data.responseLength,
-      tokens: data.tokens,
-    });
+      response: {
+        agentId: data.agentId,
+        agentIndex: 0,
+        model: data.agentName || 'unknown',
+        response: finalContent,
+        keyPoints: [],
+        confidence: data.success ? 1 : 0,
+        duration: 0,
+        tokens: data.tokens || 0,
+        cost: 0,
+        error: data.error,
+      },
+    };
+    console.log('[CLI-Verification-IPC] Sending verification:agent-complete', { agentId: data.agentId, success: data.success, responseLength: finalContent.length });
+    mainWindow.webContents.send('verification:agent-complete', payload);
+    // Clean up tracked content
+    agentContent.delete(data.agentId);
   });
 
   coordinator.on('verification:completed', (result) => {
+    console.log('[CLI-Verification-IPC] Sending verification:complete', { sessionId: result.id, hasResult: !!result });
     mainWindow.webContents.send('verification:complete', {
       sessionId: result.id,
       result,
@@ -283,9 +360,26 @@ function setupCoordinatorEvents(
   });
 
   coordinator.on('verification:error', (data) => {
+    console.log('[CLI-Verification-IPC] Sending verification:error', { sessionId: data.requestId, error: data.error?.message });
     mainWindow.webContents.send('verification:error', {
       sessionId: data.requestId,
       error: data.error?.message || 'Unknown error',
+    });
+  });
+
+  // Forward cancellation events
+  coordinator.on('verification:cancelled', (data) => {
+    mainWindow.webContents.send('verification:cancelled', {
+      sessionId: data.verificationId,
+      reason: data.reason,
+      agentsCancelled: data.agentsCancelled,
+    });
+  });
+
+  coordinator.on('verification:agent-cancelled', (data) => {
+    mainWindow.webContents.send('verification:agent-cancelled', {
+      sessionId: data.verificationId,
+      agentId: data.agentId,
     });
   });
 

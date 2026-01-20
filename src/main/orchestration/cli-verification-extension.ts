@@ -66,11 +66,21 @@ const API_FALLBACKS: Record<string, ProviderType> = {
 /**
  * CLI Verification Coordinator - Manages multi-CLI verification workflows
  */
+/**
+ * Tracks active agent providers for a verification session
+ */
+interface ActiveSession {
+  request: VerificationRequest;
+  providers: Map<string, BaseProvider>;
+  cancelled: boolean;
+}
+
 export class CliVerificationCoordinator extends EventEmitter {
   private static instance: CliVerificationCoordinator;
   private cliDetection = CliDetectionService.getInstance();
   private registry = getProviderRegistry();
   private activeVerifications: Map<string, VerificationRequest> = new Map();
+  private activeSessions: Map<string, ActiveSession> = new Map();
   private results: Map<string, VerificationResult> = new Map();
 
   private constructor() {
@@ -88,7 +98,7 @@ export class CliVerificationCoordinator extends EventEmitter {
    * Start verification with CLI agents
    */
   async startVerificationWithCli(
-    request: { prompt: string; context?: string },
+    request: { prompt: string; context?: string; id?: string },
     config: CliVerificationConfig
   ): Promise<VerificationResult> {
     const startTime = Date.now();
@@ -106,7 +116,8 @@ export class CliVerificationCoordinator extends EventEmitter {
       });
     }
 
-    const verificationId = `cli-verify-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    // Use provided ID or generate a new one
+    const verificationId = request.id || `cli-verify-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
     const verificationRequest: VerificationRequest = {
       id: verificationId,
@@ -121,20 +132,41 @@ export class CliVerificationCoordinator extends EventEmitter {
     };
 
     this.activeVerifications.set(verificationId, verificationRequest);
+
+    // Create active session to track providers for cancellation
+    const activeSession: ActiveSession = {
+      request: verificationRequest,
+      providers: new Map(),
+      cancelled: false,
+    };
+    this.activeSessions.set(verificationId, activeSession);
+
     this.emit('verification:started', { requestId: verificationId, agents: agents.map(a => a.name) });
 
     try {
       // Run verification
-      const result = await this.runCliVerification(verificationRequest, agents);
+      const result = await this.runCliVerification(verificationRequest, agents, activeSession);
       result.totalDuration = Date.now() - startTime;
 
       this.results.set(verificationId, result);
       this.activeVerifications.delete(verificationId);
+      this.activeSessions.delete(verificationId);
 
       this.emit('verification:completed', result);
       return result;
     } catch (error) {
       this.activeVerifications.delete(verificationId);
+      this.activeSessions.delete(verificationId);
+
+      // Check if this was due to cancellation
+      if (activeSession.cancelled) {
+        this.emit('verification:cancelled', {
+          verificationId,
+          reason: 'User requested cancellation'
+        });
+        throw new Error('Verification cancelled');
+      }
+
       this.emit('verification:error', { requestId: verificationId, error });
       throw error;
     }
@@ -246,7 +278,8 @@ export class CliVerificationCoordinator extends EventEmitter {
    */
   private async runCliVerification(
     request: VerificationRequest,
-    agents: AgentConfig[]
+    agents: AgentConfig[],
+    session: ActiveSession
   ): Promise<VerificationResult> {
     const startTime = Date.now();
 
@@ -258,7 +291,7 @@ export class CliVerificationCoordinator extends EventEmitter {
 
     // Run all agents in parallel
     const responsePromises = agents.map((agent, index) =>
-      this.runAgent(request, agent, index)
+      this.runAgent(request, agent, index, session)
     );
 
     const responses = await Promise.all(responsePromises);
@@ -294,10 +327,28 @@ export class CliVerificationCoordinator extends EventEmitter {
   private async runAgent(
     request: VerificationRequest,
     agent: AgentConfig,
-    index: number
+    index: number,
+    session: ActiveSession
   ): Promise<AgentResponse> {
     const startTime = Date.now();
     const agentId = `${request.id}-${agent.name.toLowerCase().replace(/\s+/g, '-')}-${index}`;
+
+    // Check if cancelled before starting
+    if (session.cancelled) {
+      return {
+        agentId,
+        agentIndex: index,
+        model: `${agent.type}:${agent.name}`,
+        personality: agent.personality,
+        response: '',
+        keyPoints: [],
+        confidence: 0,
+        duration: 0,
+        tokens: 0,
+        cost: 0,
+        error: 'Verification cancelled',
+      };
+    }
 
     try {
       // Build prompt with personality
@@ -312,6 +363,28 @@ export class CliVerificationCoordinator extends EventEmitter {
         systemPrompt,
         yoloMode: true, // Auto-approve for verification
       });
+
+      // Register provider in session for cancellation tracking
+      session.providers.set(agentId, agent.provider);
+
+      // Check if cancelled during initialization
+      if (session.cancelled) {
+        await agent.provider.terminate();
+        session.providers.delete(agentId);
+        return {
+          agentId,
+          agentIndex: index,
+          model: `${agent.type}:${agent.name}`,
+          personality: agent.personality,
+          response: '',
+          keyPoints: [],
+          confidence: 0,
+          duration: Date.now() - startTime,
+          tokens: 0,
+          cost: 0,
+          error: 'Verification cancelled',
+        };
+      }
 
       // Collect response
       let responseContent = '';
@@ -341,8 +414,9 @@ export class CliVerificationCoordinator extends EventEmitter {
       // Wait a bit for any final events
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Terminate provider
+      // Terminate provider and remove from session tracking
       await agent.provider.terminate();
+      session.providers.delete(agentId);
 
       // Emit agent complete event
       this.emit('verification:agent-complete', {
@@ -370,6 +444,16 @@ export class CliVerificationCoordinator extends EventEmitter {
         cost: this.estimateCost(tokens, agent.type),
       };
     } catch (error) {
+      // Clean up provider from session tracking
+      try {
+        if (session.providers.has(agentId)) {
+          await agent.provider.terminate();
+          session.providers.delete(agentId);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+
       // Emit agent complete event with error
       this.emit('verification:agent-complete', {
         requestId: request.id,
@@ -649,6 +733,129 @@ State your overall confidence in your response (0-100%): X%`;
     return (tokens / 1_000_000) * rate;
   }
 
+  // ============ Cancellation Methods ============
+
+  /**
+   * Cancel a specific verification session by ID
+   * Terminates all running CLI processes and cleans up resources
+   * @param verificationId The ID of the verification to cancel
+   * @returns Object containing success status and details
+   */
+  async cancelVerification(verificationId: string): Promise<{
+    success: boolean;
+    agentsCancelled: number;
+    error?: string;
+  }> {
+    const session = this.activeSessions.get(verificationId);
+
+    if (!session) {
+      // Check if it's an active verification without a session yet
+      if (this.activeVerifications.has(verificationId)) {
+        // Verification hasn't started agents yet, just remove it
+        this.activeVerifications.delete(verificationId);
+        this.emit('verification:cancelled', {
+          verificationId,
+          reason: 'Cancelled before agents started',
+          agentsCancelled: 0,
+        });
+        return { success: true, agentsCancelled: 0 };
+      }
+
+      return {
+        success: false,
+        agentsCancelled: 0,
+        error: `No active verification found with ID: ${verificationId}`,
+      };
+    }
+
+    // Mark session as cancelled to prevent new work
+    session.cancelled = true;
+
+    // Terminate all active providers
+    const terminationPromises: Promise<void>[] = [];
+    const providerIds = Array.from(session.providers.keys());
+
+    for (const [agentId, provider] of session.providers) {
+      terminationPromises.push(
+        (async () => {
+          try {
+            await provider.terminate(false); // Force terminate for immediate cancellation
+            this.emit('verification:agent-cancelled', {
+              verificationId,
+              agentId,
+            });
+          } catch (error) {
+            // Log but don't fail the cancellation
+            console.error(`Failed to terminate agent ${agentId}:`, error);
+          }
+        })()
+      );
+    }
+
+    // Wait for all terminations with timeout
+    await Promise.race([
+      Promise.all(terminationPromises),
+      new Promise<void>((resolve) => setTimeout(resolve, 10000)), // 10s timeout
+    ]);
+
+    // Clean up session
+    session.providers.clear();
+    this.activeSessions.delete(verificationId);
+    this.activeVerifications.delete(verificationId);
+
+    this.emit('verification:cancelled', {
+      verificationId,
+      reason: 'User requested cancellation',
+      agentsCancelled: providerIds.length,
+    });
+
+    return {
+      success: true,
+      agentsCancelled: providerIds.length,
+    };
+  }
+
+  /**
+   * Cancel all active verification sessions
+   * @returns Summary of all cancellations
+   */
+  async cancelAllVerifications(): Promise<{
+    success: boolean;
+    sessionsCancelled: number;
+    totalAgentsCancelled: number;
+    errors: string[];
+  }> {
+    const sessionIds = Array.from(this.activeSessions.keys());
+    let totalAgentsCancelled = 0;
+    const errors: string[] = [];
+
+    const cancellationPromises = sessionIds.map(async (sessionId) => {
+      const result = await this.cancelVerification(sessionId);
+      if (result.success) {
+        totalAgentsCancelled += result.agentsCancelled;
+      } else if (result.error) {
+        errors.push(result.error);
+      }
+      return result;
+    });
+
+    await Promise.all(cancellationPromises);
+
+    return {
+      success: errors.length === 0,
+      sessionsCancelled: sessionIds.length,
+      totalAgentsCancelled,
+      errors,
+    };
+  }
+
+  /**
+   * Check if a verification session is active
+   */
+  isVerificationActive(verificationId: string): boolean {
+    return this.activeVerifications.has(verificationId) || this.activeSessions.has(verificationId);
+  }
+
   // ============ Query Methods ============
 
   getResult(verificationId: string): VerificationResult | undefined {
@@ -661,6 +868,21 @@ State your overall confidence in your response (0-100%): X%`;
 
   getAllResults(): VerificationResult[] {
     return Array.from(this.results.values());
+  }
+
+  /**
+   * Get information about active sessions (for debugging/monitoring)
+   */
+  getActiveSessions(): Array<{
+    verificationId: string;
+    agentCount: number;
+    cancelled: boolean;
+  }> {
+    return Array.from(this.activeSessions.entries()).map(([id, session]) => ({
+      verificationId: id,
+      agentCount: session.providers.size,
+      cancelled: session.cancelled,
+    }));
   }
 }
 

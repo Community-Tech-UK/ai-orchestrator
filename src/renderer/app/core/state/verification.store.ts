@@ -456,10 +456,13 @@ export class VerificationStore implements OnDestroy {
   // ============================================
 
   private setupEventListeners(): void {
+    console.log('[VerificationStore] Setting up event listeners');
+
     // Agent started
     const unsubAgentStart = this.ipc.on(
       'verification:agent-start',
       (rawData: unknown) => {
+        console.log('[VerificationStore] Received agent-start event:', rawData);
         const data = rawData as { sessionId: string; agentId: string; name: string; type: string; personality?: string };
         this.handleAgentStart(data);
       }
@@ -470,6 +473,7 @@ export class VerificationStore implements OnDestroy {
     const unsubAgentStream = this.ipc.on(
       'verification:agent-stream',
       (rawData: unknown) => {
+        console.log('[VerificationStore] Received agent-stream event:', rawData);
         const data = rawData as { sessionId: string; agentId: string; chunk: string };
         this.handleAgentStream(data);
       }
@@ -480,6 +484,7 @@ export class VerificationStore implements OnDestroy {
     const unsubAgentComplete = this.ipc.on(
       'verification:agent-complete',
       (rawData: unknown) => {
+        console.log('[VerificationStore] Received agent-complete event:', rawData);
         const data = rawData as { sessionId: string; response: AgentResponse };
         this.handleAgentComplete(data);
       }
@@ -510,6 +515,7 @@ export class VerificationStore implements OnDestroy {
     const unsubComplete = this.ipc.on(
       'verification:complete',
       (rawData: unknown) => {
+        console.log('[VerificationStore] Received verification-complete event:', rawData);
         const data = rawData as { sessionId: string; result: VerificationResult };
         this.handleVerificationComplete(data);
       }
@@ -520,11 +526,14 @@ export class VerificationStore implements OnDestroy {
     const unsubError = this.ipc.on(
       'verification:error',
       (rawData: unknown) => {
+        console.log('[VerificationStore] Received verification-error event:', rawData);
         const data = rawData as { sessionId: string; error: string };
         this.handleVerificationError(data);
       }
     );
     this.unsubscribes.push(unsubError);
+
+    console.log('[VerificationStore] Event listeners setup complete');
   }
 
   private handleAgentStart(data: { sessionId: string; agentId: string; name: string; type: string; personality?: string }): void {

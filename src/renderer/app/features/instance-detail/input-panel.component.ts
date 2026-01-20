@@ -77,6 +77,15 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
 
       <!-- Input area -->
       <div class="input-row">
+        <button
+          class="btn-attach"
+          [disabled]="disabled()"
+          (click)="onAddFiles()"
+          title="Add files"
+        >
+          <span class="attach-icon">+</span>
+        </button>
+
         <textarea
           class="message-input"
           [placeholder]="placeholder()"
@@ -228,6 +237,35 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
       }
     }
 
+    .btn-attach {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-md);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition-fast);
+      flex-shrink: 0;
+
+      &:hover:not(:disabled) {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+      }
+
+      &:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+    }
+
+    .attach-icon {
+      font-size: 24px;
+      font-weight: 300;
+      line-height: 1;
+    }
+
     .btn-send {
       width: 44px;
       height: 44px;
@@ -238,6 +276,7 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
       align-items: center;
       justify-content: center;
       transition: all var(--transition-fast);
+      flex-shrink: 0;
 
       &:hover:not(:disabled) {
         background: var(--primary-hover);
@@ -361,6 +400,7 @@ export class InputPanelComponent implements OnDestroy {
   sendMessage = output<string>();
   executeCommand = output<{ commandId: string; args: string[] }>();
   removeFile = output<File>();
+  addFiles = output<void>();
 
   message = signal('');
   showCommandSuggestions = signal(false);
@@ -546,5 +586,9 @@ export class InputPanelComponent implements OnDestroy {
       this.filePreviewUrls.delete(file);
     }
     this.removeFile.emit(file);
+  }
+
+  onAddFiles(): void {
+    this.addFiles.emit();
   }
 }

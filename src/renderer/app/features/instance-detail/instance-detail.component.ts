@@ -95,7 +95,7 @@ import { TodoListComponent } from './todo-list.component';
               @if (inst.status === 'busy') {
                 <button
                   class="btn-action btn-interrupt"
-                  title="Interrupt Claude (Ctrl+C)"
+                  title="Interrupt Claude (Esc)"
                   (click)="onInterrupt()"
                 >
                   ⏸ Interrupt
@@ -157,6 +157,7 @@ import { TodoListComponent } from './todo-list.component';
             [pendingFiles]="pendingFiles()"
             (sendMessage)="onSendMessage($event)"
             (removeFile)="onRemoveFile($event)"
+            (addFiles)="onAddFiles()"
           />
 
           <!-- Children section -->
@@ -166,6 +167,14 @@ import { TodoListComponent } from './todo-list.component';
           />
         </div>
       </app-drop-zone>
+    } @else if (isCreatingInstance()) {
+      <!-- Show loading state while creating instance -->
+      <div class="creating-view">
+        <div class="creating-content">
+          <div class="creating-spinner"></div>
+          <p class="creating-text">Starting conversation...</p>
+        </div>
+      </div>
     } @else {
       <app-drop-zone
         class="full-drop-zone"
@@ -195,6 +204,7 @@ import { TodoListComponent } from './todo-list.component';
               [pendingFiles]="welcomePendingFiles()"
               (sendMessage)="onWelcomeSendMessage($event)"
               (removeFile)="onWelcomeRemoveFile($event)"
+              (addFiles)="onWelcomeAddFiles()"
             />
           </div>
         </div>
@@ -430,6 +440,39 @@ import { TodoListComponent } from './todo-list.component';
       }
 
       /* Welcome view (no selection) */
+      .creating-view {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: var(--spacing-xl);
+      }
+
+      .creating-content {
+        text-align: center;
+      }
+
+      .creating-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--bg-tertiary);
+        border-top-color: var(--primary-color);
+        border-radius: 50%;
+        margin: 0 auto var(--spacing-md);
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .creating-text {
+        font-size: 16px;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+
       .welcome-view {
         display: flex;
         flex: 1;
@@ -507,6 +550,7 @@ export class InstanceDetailComponent {
   welcomePendingFiles = signal<File[]>([]);
   welcomeWorkingDirectory = signal<string | null>(null);
   isEditingName = signal(false);
+  isCreatingInstance = signal(false);
 
   constructor() {
     // Initialize welcomeWorkingDirectory from settings
@@ -516,30 +560,26 @@ export class InstanceDetailComponent {
         this.welcomeWorkingDirectory.set(defaultDir || null);
       }
     });
+
+    // Clear creating flag when instance is selected
+    effect(() => {
+      if (this.instance()) {
+        this.isCreatingInstance.set(false);
+      }
+    });
   }
 
   /**
-   * Handle Ctrl+C keyboard shortcut to interrupt Claude
+   * Handle Escape key to interrupt Claude
    */
   @HostListener('window:keydown', ['$event'])
   handleKeyboardShortcut(event: KeyboardEvent): void {
-    // Check for Ctrl+C (Windows/Linux) or Cmd+C (macOS)
-    // Only intercept when NOT in a text field and instance is busy
-    if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
-      const activeElement = document.activeElement;
-      const isInTextInput = activeElement?.tagName === 'INPUT' ||
-                           activeElement?.tagName === 'TEXTAREA' ||
-                           (activeElement as HTMLElement)?.isContentEditable;
-
-      // Don't intercept if user might be copying text
-      const hasSelection = window.getSelection()?.toString();
-
-      if (!isInTextInput && !hasSelection) {
-        const inst = this.instance();
-        if (inst && inst.status === 'busy') {
-          event.preventDefault();
-          this.onInterrupt();
-        }
+    // Use Escape key to interrupt - avoids conflict with copy/paste
+    if (event.key === 'Escape') {
+      const inst = this.instance();
+      if (inst && inst.status === 'busy') {
+        event.preventDefault();
+        this.onInterrupt();
       }
     }
   }
@@ -651,6 +691,7 @@ export class InstanceDetailComponent {
 
   onWelcomeSendMessage(message: string): void {
     const workingDir = this.welcomeWorkingDirectory() || '.';
+    this.isCreatingInstance.set(true);
     this.store.createInstanceWithMessage(message, this.welcomePendingFiles(), workingDir);
     this.welcomePendingFiles.set([]);
     // Reset to default for next time
@@ -674,6 +715,41 @@ export class InstanceDetailComponent {
 
   onWelcomeRemoveFile(file: File): void {
     this.welcomePendingFiles.update((files) => files.filter((f) => f !== file));
+  }
+
+  async onAddFiles(): Promise<void> {
+    const files = await this.selectAndLoadFiles();
+    if (files.length > 0) {
+      this.pendingFiles.update((current) => [...current, ...files]);
+    }
+  }
+
+  async onWelcomeAddFiles(): Promise<void> {
+    const files = await this.selectAndLoadFiles();
+    if (files.length > 0) {
+      this.welcomePendingFiles.update((current) => [...current, ...files]);
+    }
+  }
+
+  private async selectAndLoadFiles(): Promise<File[]> {
+    const filePaths = await this.ipc.selectFiles({ multiple: true });
+    if (!filePaths || filePaths.length === 0) {
+      return [];
+    }
+
+    const files: File[] = [];
+    for (const filePath of filePaths) {
+      try {
+        const response = await fetch(`file://${filePath}`);
+        const blob = await response.blob();
+        const fileName = filePath.split('/').pop() || 'file';
+        const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+        files.push(file);
+      } catch (error) {
+        console.warn(`Failed to load file: ${filePath}`, error);
+      }
+    }
+    return files;
   }
 
   onCreateNew(): void {

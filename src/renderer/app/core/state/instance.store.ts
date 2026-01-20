@@ -539,18 +539,10 @@ export class InstanceStore implements OnDestroy {
 
     const result = await this.ipc.sendInput(instanceId, message, attachments);
     console.log('InstanceStore: sendInput result', result);
-  }
 
-  /** Terminate an instance */
-  async terminateInstance(instanceId: string): Promise<void> {
-    await this.ipc.terminateInstance(instanceId);
-  }
-
-  /** Interrupt an instance (Ctrl+C equivalent) */
-  async interruptInstance(instanceId: string): Promise<void> {
-    const result = await this.ipc.interruptInstance(instanceId);
-    if (result.success) {
-      // Optimistically update status to idle
+    // If send failed, revert status to idle
+    if (!result.success) {
+      console.error('InstanceStore: sendInput failed', result.error);
       this.state.update((current) => {
         const newMap = new Map(current.instances);
         const instance = newMap.get(instanceId);
@@ -562,9 +554,45 @@ export class InstanceStore implements OnDestroy {
     }
   }
 
+  /** Terminate an instance */
+  async terminateInstance(instanceId: string): Promise<void> {
+    await this.ipc.terminateInstance(instanceId);
+  }
+
+  /** Interrupt an instance (Ctrl+C equivalent) */
+  async interruptInstance(instanceId: string): Promise<void> {
+    const result = await this.ipc.interruptInstance(instanceId);
+    if (result.success) {
+      // Optimistically update status to waiting_for_input (Claude is ready for new input)
+      this.state.update((current) => {
+        const newMap = new Map(current.instances);
+        const instance = newMap.get(instanceId);
+        if (instance && instance.status === 'busy') {
+          newMap.set(instanceId, { ...instance, status: 'waiting_for_input' });
+        }
+        return { ...current, instances: newMap };
+      });
+    }
+  }
+
   /** Restart an instance */
   async restartInstance(instanceId: string): Promise<void> {
-    await this.ipc.restartInstance(instanceId);
+    const result = await this.ipc.restartInstance(instanceId);
+    if (result.success) {
+      // Clear the output buffer in the frontend state
+      this.state.update((current) => {
+        const newMap = new Map(current.instances);
+        const instance = newMap.get(instanceId);
+        if (instance) {
+          newMap.set(instanceId, {
+            ...instance,
+            outputBuffer: [],
+            status: 'idle',
+          });
+        }
+        return { ...current, instances: newMap };
+      });
+    }
   }
 
   /** Rename an instance */

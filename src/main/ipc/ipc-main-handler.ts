@@ -691,6 +691,55 @@ export class IpcMainHandler {
         };
       }
     });
+
+    // Open file selection dialog
+    ipcMain.handle(
+      IPC_CHANNELS.DIALOG_SELECT_FILES,
+      async (
+        _event,
+        options?: { multiple?: boolean; filters?: { name: string; extensions: string[] }[] }
+      ): Promise<IpcResponse> => {
+        try {
+          const properties: ('openFile' | 'multiSelections')[] = ['openFile'];
+          if (options?.multiple) {
+            properties.push('multiSelections');
+          }
+
+          const result = await dialog.showOpenDialog({
+            properties,
+            title: options?.multiple ? 'Select Files' : 'Select File',
+            buttonLabel: 'Select',
+            filters: options?.filters || [
+              { name: 'All Files', extensions: ['*'] },
+              { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+              { name: 'Documents', extensions: ['pdf', 'txt', 'md', 'json', 'csv'] },
+              { name: 'Code', extensions: ['ts', 'js', 'py', 'go', 'rs', 'java', 'cpp', 'c', 'h'] },
+            ],
+          });
+
+          if (result.canceled || result.filePaths.length === 0) {
+            return {
+              success: true,
+              data: null, // User cancelled
+            };
+          }
+
+          return {
+            success: true,
+            data: result.filePaths,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'DIALOG_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now(),
+            },
+          };
+        }
+      }
+    );
   }
 
   /**

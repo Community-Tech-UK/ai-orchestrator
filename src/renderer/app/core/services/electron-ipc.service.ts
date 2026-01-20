@@ -255,11 +255,27 @@ export class ElectronIpcService {
   }
 
   /**
+   * Detect a single CLI by command
+   */
+  async detectOneCli(command: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.detectOneCli(command);
+  }
+
+  /**
    * Check if a specific CLI is available
    */
   async checkCli(cliType: string) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.checkCli(cliType);
+  }
+
+  /**
+   * Test connection to a CLI
+   */
+  async testCliConnection(command: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.testCliConnection(command);
   }
 
   // ============================================
@@ -274,6 +290,19 @@ export class ElectronIpcService {
     if (!this.api) return null;
     const response = await this.api.selectFolder();
     return response.success ? (response.data as string | null) : null;
+  }
+
+  /**
+   * Open file selection dialog
+   * Returns the selected file paths or null if cancelled
+   */
+  async selectFiles(options?: {
+    multiple?: boolean;
+    filters?: { name: string; extensions: string[] }[];
+  }): Promise<string[] | null> {
+    if (!this.api) return null;
+    const response = await this.api.selectFiles(options);
+    return response.success ? (response.data as string[] | null) : null;
   }
 
   // ============================================
@@ -2465,7 +2494,7 @@ export class ElectronIpcService {
   // ============================================
 
   /**
-   * Verify with multiple models
+   * Verify with multiple models (API-based)
    */
   async verificationVerifyMulti(payload: {
     query: string;
@@ -2475,6 +2504,37 @@ export class ElectronIpcService {
   }) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.verificationVerifyMulti(payload);
+  }
+
+  /**
+   * Start CLI-based verification
+   */
+  async verificationStartCli(payload: {
+    id: string;
+    prompt: string;
+    context?: string;
+    config: {
+      cliAgents?: string[];
+      agentCount?: number;
+      synthesisStrategy?: string;
+      personalities?: string[];
+      confidenceThreshold?: number;
+      timeout?: number;
+      maxDebateRounds?: number;
+      fallbackToApi?: boolean;
+      mixedMode?: boolean;
+    };
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.verificationStartCli(payload);
+  }
+
+  /**
+   * Cancel an ongoing verification
+   */
+  async verificationCancel(verificationId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.verificationCancel({ id: verificationId });
   }
 
   /**

@@ -34,10 +34,13 @@ const IPC_CHANNELS = {
 
   // CLI detection
   CLI_DETECT_ALL: 'cli:detect-all',
+  CLI_DETECT_ONE: 'cli:detect-one',
   CLI_CHECK: 'cli:check',
+  CLI_TEST_CONNECTION: 'cli:test-connection',
 
   // Dialogs
   DIALOG_SELECT_FOLDER: 'dialog:select-folder',
+  DIALOG_SELECT_FILES: 'dialog:select-files',
 
   // Settings
   SETTINGS_GET_ALL: 'settings:get-all',
@@ -381,6 +384,8 @@ const IPC_CHANNELS = {
 
   // Phase 8: Verification (8.3)
   VERIFICATION_VERIFY_MULTI: 'verification:verify-multi',
+  VERIFICATION_START_CLI: 'verification:start-cli',
+  VERIFICATION_CANCEL: 'verification:cancel',
   VERIFICATION_GET_ACTIVE: 'verification:get-active',
   VERIFICATION_GET_RESULT: 'verification:get-result',
 } as const;
@@ -574,10 +579,24 @@ const electronAPI = {
   },
 
   /**
+   * Detect a single CLI by command
+   */
+  detectOneCli: (command: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CLI_DETECT_ONE, { command });
+  },
+
+  /**
    * Check if a specific CLI is available
    */
   checkCli: (cliType: string): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.CLI_CHECK, cliType);
+  },
+
+  /**
+   * Test connection to a CLI
+   */
+  testCliConnection: (command: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CLI_TEST_CONNECTION, { command });
   },
 
   // ============================================
@@ -590,6 +609,14 @@ const electronAPI = {
    */
   selectFolder: (): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDER);
+  },
+
+  /**
+   * Open file selection dialog
+   * Returns the selected file paths or null if cancelled
+   */
+  selectFiles: (options?: { multiple?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FILES, options);
   },
 
   // ============================================
@@ -2722,7 +2749,7 @@ const electronAPI = {
   // ============================================
 
   /**
-   * Verify with multiple models
+   * Verify with multiple models (API-based)
    */
   verificationVerifyMulti: (payload: {
     query: string;
@@ -2731,6 +2758,35 @@ const electronAPI = {
     consensusThreshold?: number;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_VERIFY_MULTI, payload);
+  },
+
+  /**
+   * Start CLI-based verification
+   */
+  verificationStartCli: (payload: {
+    id: string;
+    prompt: string;
+    context?: string;
+    config: {
+      cliAgents?: string[];
+      agentCount?: number;
+      synthesisStrategy?: string;
+      personalities?: string[];
+      confidenceThreshold?: number;
+      timeout?: number;
+      maxDebateRounds?: number;
+      fallbackToApi?: boolean;
+      mixedMode?: boolean;
+    };
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_START_CLI, payload);
+  },
+
+  /**
+   * Cancel an ongoing verification
+   */
+  verificationCancel: (payload: { id: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.VERIFICATION_CANCEL, payload);
   },
 
   /**

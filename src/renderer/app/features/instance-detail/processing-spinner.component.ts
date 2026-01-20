@@ -25,23 +25,29 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
     </div>
   `,
   styles: [`
-    .spinner-container {
+    :host {
       display: inline-flex;
       align-items: center;
       justify-content: center;
     }
 
+    .spinner-container {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
     .spinner-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 3px;
-      width: 20px;
-      height: 20px;
+      grid-template-columns: repeat(4, 3px);
+      grid-template-rows: repeat(4, 3px);
+      gap: 2px;
     }
 
     .spinner-square {
-      width: 4px;
-      height: 4px;
+      width: 3px;
+      height: 3px;
       border-radius: 1px;
       background-color: var(--primary-color, #3b82f6);
       animation: pulse 1.2s ease-in-out infinite;

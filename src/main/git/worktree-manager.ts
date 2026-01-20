@@ -8,7 +8,6 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import { globSync } from 'glob';
 import {
   WorktreeConfig,
   WorktreeSession,
@@ -149,13 +148,19 @@ export class WorktreeManager extends EventEmitter {
   private async copyConfigFiles(repoRoot: string, worktreePath: string): Promise<void> {
     for (const pattern of this.config.copyInclude) {
       try {
-        const matches = globSync(pattern, {
+        // Use Node.js built-in fs.glob (Node 22+)
+        const matches = await fs.glob(pattern, {
           cwd: repoRoot,
-          ignore: this.config.copyExclude,
-          dot: true,
+          exclude: (p: string) => this.config.copyExclude.some((excl) => {
+            // Simple glob-like matching for exclusions
+            if (excl.endsWith('/**')) {
+              return p.startsWith(excl.slice(0, -3));
+            }
+            return p === excl;
+          }),
         });
 
-        for (const match of matches) {
+        for await (const match of matches) {
           const srcPath = path.join(repoRoot, match);
           const destPath = path.join(worktreePath, match);
 

@@ -28,13 +28,14 @@ import { InstanceStatus } from '../../core/state/instance.store';
   `,
   styles: [`
     .activity-status {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: var(--spacing-sm, 8px);
       padding: var(--spacing-sm, 8px) var(--spacing-md, 12px);
       background: var(--bg-tertiary, #1a1a2e);
       border-radius: var(--radius-md, 8px);
       border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+      height: 36px;
     }
 
     .activity-text {
@@ -43,6 +44,7 @@ import { InstanceStatus } from '../../core/state/instance.store';
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      line-height: 18px;
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

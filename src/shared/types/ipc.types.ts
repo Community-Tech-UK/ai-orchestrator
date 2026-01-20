@@ -49,6 +49,7 @@ export const IPC_CHANNELS = {
 
   // Dialog operations
   DIALOG_SELECT_FOLDER: 'dialog:select-folder',
+  DIALOG_SELECT_FILES: 'dialog:select-files',
 
   // Settings operations
   SETTINGS_GET_ALL: 'settings:get-all',

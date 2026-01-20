@@ -88,20 +88,20 @@ export interface AttachmentDisplay {
     }
 
     .image-attachment {
-      max-width: 200px;
+      max-width: 120px;
     }
 
     .image-thumbnail {
       position: relative;
       cursor: pointer;
-      border-radius: 8px;
+      border-radius: 6px;
       overflow: hidden;
       background-color: var(--bg-secondary);
       background-size: cover;
       background-position: center;
       background-repeat: no-repeat;
-      width: 200px;
-      height: 150px;
+      width: 120px;
+      height: 90px;
 
       &:hover .image-overlay {
         opacity: 1;

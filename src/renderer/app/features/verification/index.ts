@@ -23,6 +23,7 @@ export { CliStatusIndicatorComponent } from './cli-status-indicator.component';
 export { AgentCapabilityBadgesComponent } from './agent-capability-badges.component';
 export { AgentPersonalityPickerComponent } from './agent-personality-picker.component';
 export { CliDetectionPanelComponent } from './cli-detection-panel.component';
+export { AgentSelectorComponent } from './agent-selector.component';
 
 // Verification Components (new)
 export { VerificationLauncherComponent } from './verification-launcher.component';
