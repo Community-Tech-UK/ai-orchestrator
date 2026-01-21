@@ -461,11 +461,21 @@ export class FileExplorerComponent {
   initialPath = input<string | null>(null);
 
   constructor() {
-    // Watch for initialPath changes and load the directory
+    // Watch for initialPath changes and sync with selected instance's working directory
     effect(() => {
       const path = this.initialPath();
-      if (path && path !== this.rootPath()) {
-        this.loadDirectory(path);
+      if (path) {
+        // Always sync to the selected instance's working directory
+        if (path !== this.rootPath()) {
+          // Reset and load the new root directory
+          this.treeData.set(new Map());
+          this.expandedPaths.set(new Set());
+          this.loadDirectory(path, true);
+        }
+      } else {
+        // Clear the file explorer when no path is provided
+        this.rootPath.set(null);
+        this.treeData.set(new Map());
       }
     });
   }
@@ -732,8 +742,8 @@ export class FileExplorerComponent {
     }
   }
 
-  private async loadDirectory(path: string): Promise<void> {
-    const isRoot = !this.rootPath();
+  private async loadDirectory(path: string, forceAsRoot = false): Promise<void> {
+    const isRoot = forceAsRoot || !this.rootPath();
 
     if (isRoot) {
       this.isLoading.set(true);

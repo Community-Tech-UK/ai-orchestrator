@@ -644,6 +644,10 @@ export class InstanceManager extends EventEmitter {
     // Clear the output buffer on restart
     instance.outputBuffer = [];
 
+    // Reset context usage/token counts on restart
+    instance.contextUsage = { used: 0, total: LIMITS.DEFAULT_MAX_CONTEXT_TOKENS, percentage: 0 };
+    instance.totalTokensUsed = 0;
+
     // Reset first message tracking so orchestration prompt gets injected again
     this.hasReceivedFirstMessage.delete(instanceId);
 

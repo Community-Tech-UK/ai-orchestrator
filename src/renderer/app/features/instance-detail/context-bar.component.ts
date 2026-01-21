@@ -122,7 +122,10 @@ export class ContextBarComponent {
 
   percentage = computed(() => {
     const u = this.usage();
-    return u.total > 0 ? (u.used / u.total) * 100 : 0;
+    // Cap at 100% for display - used can exceed total in long sessions
+    // due to context window truncation/summarization
+    const raw = u.total > 0 ? (u.used / u.total) * 100 : 0;
+    return Math.min(raw, 100);
   });
 
   costEstimate = computed(() => {

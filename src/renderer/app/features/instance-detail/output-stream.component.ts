@@ -130,21 +130,26 @@ interface DisplayItem {
 
     .message-user {
       background: var(--primary-color);
-      color: white;
+      color: #1a1a1a;
       margin-left: var(--spacing-xl);
+
+      .message-type,
+      .message-time {
+        color: rgba(0, 0, 0, 0.7);
+      }
 
       .markdown-content {
         color: inherit;
       }
 
       .markdown-content a {
-        color: white;
+        color: #1a1a1a;
         text-decoration: underline;
       }
 
       .inline-code {
-        background: rgba(255, 255, 255, 0.2);
-        color: white;
+        background: rgba(0, 0, 0, 0.15);
+        color: #1a1a1a;
       }
     }
 

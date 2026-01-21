@@ -65,7 +65,7 @@ import { FileExplorerComponent } from '../file-explorer/file-explorer.component'
           </div>
           <div class="create-section">
             <app-agent-selector />
-            <button class="btn-create" (click)="createInstance()">
+            <button class="btn-create" (click)="createInstance()" title="Create a new Claude instance">
               <span class="btn-icon">+</span>
               New Instance
             </button>
@@ -368,10 +368,10 @@ import { FileExplorerComponent } from '../file-explorer/file-explorer.component'
     }
 
     .btn-icon {
-      font-size: 20px;
-      font-weight: 700;
-      line-height: 1;
+      font-size: 16px;
+      font-weight: 500;
       color: #000;
+      margin-top: -4px;
     }
 
     /* Sidebar Footer - Status bar aesthetic */

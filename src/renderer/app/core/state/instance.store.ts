@@ -141,7 +141,8 @@ export class InstanceStore implements OnDestroy {
     return {
       used,
       total,
-      percentage: total > 0 ? (used / total) * 100 : 0,
+      // Cap at 100% - used can exceed total in long sessions due to context truncation
+      percentage: total > 0 ? Math.min((used / total) * 100, 100) : 0,
       costEstimate: costEstimate > 0 ? costEstimate : undefined,
     };
   });

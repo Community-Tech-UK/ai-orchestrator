@@ -46,7 +46,7 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
             (ngModelChange)="onSearchChange($event)"
           />
           @if (store.searchQuery()) {
-            <button class="btn-clear" (click)="store.clearSearch()">
+            <button class="btn-clear" (click)="store.clearSearch()" title="Clear search">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -70,7 +70,7 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
       <div class="sidebar-footer">
         <span class="entry-count">{{ store.entryCount() }} conversations</span>
         @if (store.hasEntries()) {
-          <button class="btn-clear-all" (click)="onClearAll()">
+          <button class="btn-clear-all" (click)="onClearAll()" title="Delete all conversation history">
             Clear All
           </button>
         }
@@ -84,8 +84,8 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
           <h3>{{ confirmTitle() }}</h3>
           <p>{{ confirmMessage() }}</p>
           <div class="confirm-actions">
-            <button class="btn-cancel" (click)="cancelConfirm()">Cancel</button>
-            <button class="btn-confirm" [class.danger]="confirmDanger()" (click)="executeConfirm()">
+            <button class="btn-cancel" (click)="cancelConfirm()" title="Cancel action">Cancel</button>
+            <button class="btn-confirm" [class.danger]="confirmDanger()" (click)="executeConfirm()" title="Confirm action">
               {{ confirmAction() }}
             </button>
           </div>

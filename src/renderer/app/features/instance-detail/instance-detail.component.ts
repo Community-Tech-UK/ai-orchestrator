@@ -96,7 +96,7 @@ import { TodoListComponent } from './todo-list.component';
                   class="yolo-badge"
                   [class.active]="inst.yoloMode"
                   [disabled]="isTogglingYolo()"
-                  [title]="inst.yoloMode ? 'YOLO Mode ON - Click to disable (will restart)' : 'YOLO Mode OFF - Click to enable (will restart)'"
+                  [title]="inst.yoloMode ? 'YOLO Mode: Auto-approve all tool calls without prompting. Click to disable (will restart)' : 'YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve (will restart)'"
                   (click)="onToggleYolo()"
                 >
                   ⚡ YOLO {{ inst.yoloMode ? 'ON' : 'OFF' }}
@@ -727,11 +727,14 @@ export class InstanceDetailComponent {
       }
     });
 
-    // Clear creating flag when instance is selected
+    // Clear creating flag and pending files when instance changes
     effect(() => {
-      if (this.instance()) {
+      const inst = this.instance();
+      if (inst) {
         this.isCreatingInstance.set(false);
       }
+      // Clear pending files when switching instances
+      this.pendingFiles.set([]);
     });
   }
 

@@ -18,6 +18,7 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         class="selected-agent"
         [style.border-color]="selectedAgent().color"
         (click)="toggleDropdown()"
+        title="Select agent mode for new instances"
       >
         <span class="agent-icon" [style.color]="selectedAgent().color">
           @switch (selectedAgent().icon) {

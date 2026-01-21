@@ -44,7 +44,7 @@ export interface NoCliError {
         </div>
 
         <div class="actions">
-          <button class="btn-retry" (click)="retry.emit()">
+          <button class="btn-retry" (click)="retry.emit()" title="Try detecting AI CLIs again">
             ↻ Retry Detection
           </button>
         </div>
