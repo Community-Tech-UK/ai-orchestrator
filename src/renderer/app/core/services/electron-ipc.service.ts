@@ -2453,13 +2453,155 @@ export class ElectronIpcService {
   // ============================================
 
   /**
+   * Create or fetch a context store
+   */
+  async rlmCreateStore(instanceId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmCreateStore(instanceId);
+  }
+
+  /**
+   * Add a section to a context store
+   */
+  async rlmAddSection(payload: {
+    storeId: string;
+    type: 'file' | 'conversation' | 'tool_output' | 'external' | 'summary';
+    name: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmAddSection(payload);
+  }
+
+  /**
+   * Remove a section from a context store
+   */
+  async rlmRemoveSection(payload: { storeId: string; sectionId: string }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmRemoveSection(payload);
+  }
+
+  /**
+   * Get a context store
+   */
+  async rlmGetStore(storeId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmGetStore(storeId);
+  }
+
+  /**
+   * List context stores
+   */
+  async rlmListStores() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmListStores();
+  }
+
+  /**
+   * List sections in a store
+   */
+  async rlmListSections(storeId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmListSections(storeId);
+  }
+
+  /**
+   * List active RLM sessions
+   */
+  async rlmListSessions() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmListSessions();
+  }
+
+  /**
+   * Delete a context store
+   */
+  async rlmDeleteStore(storeId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmDeleteStore(storeId);
+  }
+
+  /**
+   * Start an RLM session
+   */
+  async rlmStartSession(payload: { storeId: string; instanceId: string }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmStartSession(payload);
+  }
+
+  /**
+   * End an RLM session
+   */
+  async rlmEndSession(sessionId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmEndSession(sessionId);
+  }
+
+  /**
+   * Execute an RLM query
+   */
+  async rlmExecuteQuery(payload: {
+    sessionId: string;
+    query: { type: string; params: Record<string, unknown> };
+    depth?: number;
+  }) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmExecuteQuery(payload);
+  }
+
+  /**
+   * Get an RLM session
+   */
+  async rlmGetSession(sessionId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmGetSession(sessionId);
+  }
+
+  /**
+   * Get RLM store stats
+   */
+  async rlmGetStoreStats(storeId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmGetStoreStats(storeId);
+  }
+
+  /**
+   * Get RLM session stats
+   */
+  async rlmGetSessionStats(sessionId: string) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmGetSessionStats(sessionId);
+  }
+
+  /**
+   * Configure RLM
+   */
+  async rlmConfigure(config: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.rlmConfigure(config);
+  }
+
+  /**
    * Record task outcome for RLM
    */
   async rlmRecordOutcome(payload: {
-    taskId: string;
+    instanceId: string;
+    taskType: string;
+    taskDescription: string;
+    prompt: string;
+    context?: string;
+    agentUsed: string;
+    modelUsed: string;
+    workflowUsed?: string;
+    toolsUsed: Array<{ tool: string; count: number; avgDuration: number; errorCount: number }>;
+    tokensUsed: number;
+    duration: number;
     success: boolean;
-    score: number;
-    context: Record<string, unknown>;
+    completionScore?: number;
+    userSatisfaction?: number;
+    errorType?: string;
+    errorMessage?: string;
   }) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.rlmRecordOutcome(payload);
@@ -2489,11 +2631,22 @@ export class ElectronIpcService {
    * Record learning outcome
    */
   async learningRecordOutcome(payload: {
-    taskId: string;
-    strategy: string;
-    success: boolean;
-    score: number;
+    instanceId: string;
+    taskType: string;
+    taskDescription: string;
+    prompt: string;
     context?: string;
+    agentUsed: string;
+    modelUsed: string;
+    workflowUsed?: string;
+    toolsUsed: Array<{ tool: string; count: number; avgDuration: number; errorCount: number }>;
+    tokensUsed: number;
+    duration: number;
+    success: boolean;
+    completionScore?: number;
+    userSatisfaction?: number;
+    errorType?: string;
+    errorMessage?: string;
   }) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.learningRecordOutcome(payload);

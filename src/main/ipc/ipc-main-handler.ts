@@ -125,6 +125,7 @@ import { registerMemoryHandlers } from './memory-ipc-handler';
 import { registerSpecialistHandlers } from './specialist-ipc-handler';
 import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
+import { RLMContextManager } from '../rlm/context-manager';
 import {
   detectSecretsInContent,
   detectSecretsInEnvContent,
@@ -332,6 +333,7 @@ export class IpcMainHandler {
 
     // Set up memory event forwarding to renderer
     this.setupMemoryEventForwarding();
+    this.setupRlmEventForwarding();
 
     console.log('IPC handlers registered');
   }
@@ -1044,6 +1046,56 @@ export class IpcMainHandler {
           message: `Critical memory usage: ${stats.heapUsedMB}MB heap used. Idle instances may be terminated.`,
         }
       );
+    });
+  }
+
+  /**
+   * Set up RLM event forwarding to renderer
+   */
+  private setupRlmEventForwarding(): void {
+    const rlm = RLMContextManager.getInstance();
+
+    rlm.on('store:created', (store) => {
+      this.windowManager.getMainWindow()?.webContents.send('rlm:store-updated', {
+        storeId: store.id,
+        store,
+      });
+    });
+
+    rlm.on('section:added', ({ store, section }) => {
+      this.windowManager.getMainWindow()?.webContents.send('rlm:section-added', {
+        storeId: store.id,
+        section,
+      });
+      this.windowManager.getMainWindow()?.webContents.send('rlm:store-updated', {
+        storeId: store.id,
+        store,
+      });
+    });
+
+    rlm.on('section:removed', ({ store, section }) => {
+      this.windowManager.getMainWindow()?.webContents.send('rlm:section-removed', {
+        storeId: store.id,
+        sectionId: section.id,
+      });
+      this.windowManager.getMainWindow()?.webContents.send('rlm:store-updated', {
+        storeId: store.id,
+        store,
+      });
+    });
+
+    rlm.on('query:executed', ({ session, queryResult }) => {
+      this.windowManager.getMainWindow()?.webContents.send('rlm:query-complete', {
+        sessionId: session.id,
+        queryResult,
+      });
+    });
+
+    rlm.on('summary:created', ({ storeId, section }) => {
+      this.windowManager.getMainWindow()?.webContents.send('rlm:section-added', {
+        storeId,
+        section,
+      });
     });
   }
 

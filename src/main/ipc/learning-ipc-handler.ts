@@ -22,6 +22,7 @@ import type {
 } from '../../shared/types/rlm.types';
 import type {
   TaskOutcome,
+  TaskPattern,
   ToolUsageRecord,
   Experience,
   LearningInsight,
@@ -46,6 +47,8 @@ export function registerLearningHandlers(): void {
 
 function registerRLMHandlers(): void {
   const rlm = RLMContextManager.getInstance();
+  const tracker = OutcomeTracker.getInstance();
+  const strategist = StrategyLearner.getInstance();
 
   // Create store
   ipcMain.handle(IPC_CHANNELS.RLM_CREATE_STORE, (_event, instanceId: string): ContextStore => {
@@ -92,6 +95,11 @@ function registerRLMHandlers(): void {
     return rlm.listSections(storeId);
   });
 
+  // List active sessions
+  ipcMain.handle(IPC_CHANNELS.RLM_LIST_SESSIONS, (): RLMSession[] => {
+    return rlm.listSessions();
+  });
+
   // Delete store
   ipcMain.handle(IPC_CHANNELS.RLM_DELETE_STORE, (_event, storeId: string): void => {
     rlm.deleteStore(storeId);
@@ -121,6 +129,11 @@ function registerRLMHandlers(): void {
     }
   );
 
+  // Get session
+  ipcMain.handle(IPC_CHANNELS.RLM_GET_SESSION, (_event, sessionId: string): RLMSession | undefined => {
+    return rlm.getSession(sessionId);
+  });
+
   // Get store stats
   ipcMain.handle(IPC_CHANNELS.RLM_GET_STORE_STATS, (_event, storeId: string): RLMStoreStats | undefined => {
     return rlm.getStoreStats(storeId);
@@ -138,6 +151,51 @@ function registerRLMHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.RLM_CONFIGURE, (_event, config: Partial<RLMConfig>): void => {
     rlm.configure(config);
   });
+
+  // Record outcome (RLM alias for learning outcomes)
+  ipcMain.handle(
+    IPC_CHANNELS.RLM_RECORD_OUTCOME,
+    (
+      _event,
+      payload: {
+        instanceId: string;
+        taskType: string;
+        taskDescription: string;
+        prompt: string;
+        context?: string;
+        agentUsed: string;
+        modelUsed: string;
+        workflowUsed?: string;
+        toolsUsed: ToolUsageRecord[];
+        tokensUsed: number;
+        duration: number;
+        success: boolean;
+        completionScore?: number;
+        userSatisfaction?: number;
+        errorType?: string;
+        errorMessage?: string;
+      }
+    ): TaskOutcome => {
+      return tracker.recordOutcome(payload);
+    }
+  );
+
+  // Get patterns (RLM alias)
+  ipcMain.handle(
+    IPC_CHANNELS.RLM_GET_PATTERNS,
+    (_event, payload: { minSuccessRate?: number }): TaskPattern[] => {
+      const minSuccessRate = payload?.minSuccessRate ?? 0;
+      return tracker.getTopPatterns(50).filter(p => p.effectiveness >= minSuccessRate);
+    }
+  );
+
+  // Get strategy suggestions (RLM alias)
+  ipcMain.handle(
+    IPC_CHANNELS.RLM_GET_STRATEGY_SUGGESTIONS,
+    (_event, payload: { context: string; maxSuggestions?: number }): StrategyRecommendation => {
+      return strategist.getRecommendation('general', payload.context, payload.context);
+    }
+  );
 
   // ============ RLM Analytics Handlers ============
 

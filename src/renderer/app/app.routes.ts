@@ -96,8 +96,8 @@ export const routes: Routes = [
   {
     path: 'rlm',
     loadComponent: () =>
-      import('./features/rlm/rlm-context-browser.component').then(
-        (m) => m.RlmContextBrowserComponent
+      import('./features/rlm/rlm-page.component').then(
+        (m) => m.RlmPageComponent
       ),
   },
 

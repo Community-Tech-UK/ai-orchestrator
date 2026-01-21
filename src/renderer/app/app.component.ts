@@ -52,6 +52,14 @@ import { ElectronIpcService } from './core/services/electron-ipc.service';
       overflow: hidden;
     }
 
+    .app-main > router-outlet {
+      flex: 0 0 0;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+      display: contents;
+    }
+
     /* Ensure routed components fill the container */
     .app-main > * {
       flex: 1;

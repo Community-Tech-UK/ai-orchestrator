@@ -348,6 +348,12 @@ export class CommandPaletteComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   onSelectCommand(command: CommandTemplate): void {
+    if (command.name === 'rlm') {
+      this.commandExecuted.emit({ commandId: command.id, args: [] });
+      this.close.emit();
+      return;
+    }
+
     const instId = this.instanceId() || this.instanceStore.selectedInstance()?.id;
 
     if (!instId) {

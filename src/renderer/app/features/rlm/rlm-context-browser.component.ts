@@ -743,8 +743,9 @@ interface ToastNotification {
         border-radius: var(--radius-md);
         display: flex;
         flex-direction: column;
-        max-height: 800px;
+        max-height: none;
         overflow: hidden;
+        width: 100%;
       }
 
       .rlm-header {

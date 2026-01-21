@@ -332,6 +332,21 @@ const IPC_CHANNELS = {
   SUPERVISION_GET_HEALTH: 'supervision:get-health',
 
   // Phase 8: RLM Context (8.1)
+  RLM_CREATE_STORE: 'rlm:create-store',
+  RLM_ADD_SECTION: 'rlm:add-section',
+  RLM_REMOVE_SECTION: 'rlm:remove-section',
+  RLM_GET_STORE: 'rlm:get-store',
+  RLM_LIST_STORES: 'rlm:list-stores',
+  RLM_LIST_SECTIONS: 'rlm:list-sections',
+  RLM_LIST_SESSIONS: 'rlm:list-sessions',
+  RLM_DELETE_STORE: 'rlm:delete-store',
+  RLM_START_SESSION: 'rlm:start-session',
+  RLM_END_SESSION: 'rlm:end-session',
+  RLM_EXECUTE_QUERY: 'rlm:execute-query',
+  RLM_GET_SESSION: 'rlm:get-session',
+  RLM_GET_STORE_STATS: 'rlm:get-store-stats',
+  RLM_GET_SESSION_STATS: 'rlm:get-session-stats',
+  RLM_CONFIGURE: 'rlm:configure',
   RLM_RECORD_OUTCOME: 'rlm:record-outcome',
   RLM_GET_PATTERNS: 'rlm:get-patterns',
   RLM_GET_STRATEGY_SUGGESTIONS: 'rlm:get-strategy-suggestions',
@@ -2703,13 +2718,140 @@ const electronAPI = {
   // ============================================
 
   /**
+   * Create or fetch a context store
+   */
+  rlmCreateStore: (instanceId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_CREATE_STORE, instanceId);
+  },
+
+  /**
+   * Add a section to a context store
+   */
+  rlmAddSection: (payload: {
+    storeId: string;
+    type: 'file' | 'conversation' | 'tool_output' | 'external' | 'summary';
+    name: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_ADD_SECTION, payload);
+  },
+
+  /**
+   * Remove a section from a context store
+   */
+  rlmRemoveSection: (payload: { storeId: string; sectionId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_REMOVE_SECTION, payload);
+  },
+
+  /**
+   * Get a context store
+   */
+  rlmGetStore: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_STORE, storeId);
+  },
+
+  /**
+   * List context stores
+   */
+  rlmListStores: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_LIST_STORES);
+  },
+
+  /**
+   * List sections in a store
+   */
+  rlmListSections: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_LIST_SECTIONS, storeId);
+  },
+
+  /**
+   * List active RLM sessions
+   */
+  rlmListSessions: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_LIST_SESSIONS);
+  },
+
+  /**
+   * Delete a context store
+   */
+  rlmDeleteStore: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_DELETE_STORE, storeId);
+  },
+
+  /**
+   * Start an RLM session
+   */
+  rlmStartSession: (payload: { storeId: string; instanceId: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_START_SESSION, payload);
+  },
+
+  /**
+   * End an RLM session
+   */
+  rlmEndSession: (sessionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_END_SESSION, sessionId);
+  },
+
+  /**
+   * Execute an RLM query
+   */
+  rlmExecuteQuery: (payload: {
+    sessionId: string;
+    query: { type: string; params: Record<string, unknown> };
+    depth?: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_EXECUTE_QUERY, payload);
+  },
+
+  /**
+   * Get an RLM session
+   */
+  rlmGetSession: (sessionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_SESSION, sessionId);
+  },
+
+  /**
+   * Get RLM store stats
+   */
+  rlmGetStoreStats: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_STORE_STATS, storeId);
+  },
+
+  /**
+   * Get RLM session stats
+   */
+  rlmGetSessionStats: (sessionId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_GET_SESSION_STATS, sessionId);
+  },
+
+  /**
+   * Configure RLM
+   */
+  rlmConfigure: (config: Record<string, unknown>): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RLM_CONFIGURE, config);
+  },
+
+  /**
    * Record task outcome for RLM
    */
   rlmRecordOutcome: (payload: {
-    taskId: string;
+    instanceId: string;
+    taskType: string;
+    taskDescription: string;
+    prompt: string;
+    context?: string;
+    agentUsed: string;
+    modelUsed: string;
+    workflowUsed?: string;
+    toolsUsed: Array<{ tool: string; count: number; avgDuration: number; errorCount: number }>;
+    tokensUsed: number;
+    duration: number;
     success: boolean;
-    score: number;
-    context: Record<string, unknown>;
+    completionScore?: number;
+    userSatisfaction?: number;
+    errorType?: string;
+    errorMessage?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.RLM_RECORD_OUTCOME, payload);
   },
@@ -2736,11 +2878,22 @@ const electronAPI = {
    * Record learning outcome
    */
   learningRecordOutcome: (payload: {
-    taskId: string;
-    strategy: string;
-    success: boolean;
-    score: number;
+    instanceId: string;
+    taskType: string;
+    taskDescription: string;
+    prompt: string;
     context?: string;
+    agentUsed: string;
+    modelUsed: string;
+    workflowUsed?: string;
+    toolsUsed: Array<{ tool: string; count: number; avgDuration: number; errorCount: number }>;
+    tokensUsed: number;
+    duration: number;
+    success: boolean;
+    completionScore?: number;
+    userSatisfaction?: number;
+    errorType?: string;
+    errorMessage?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.LEARNING_RECORD_OUTCOME, payload);
   },

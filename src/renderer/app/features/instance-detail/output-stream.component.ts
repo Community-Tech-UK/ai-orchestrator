@@ -130,12 +130,12 @@ interface DisplayItem {
 
     .message-user {
       background: var(--primary-color);
-      color: #1a1a1a;
+      color: #f8fafc;
       margin-left: var(--spacing-xl);
 
       .message-type,
       .message-time {
-        color: rgba(0, 0, 0, 0.7);
+        color: rgba(248, 250, 252, 0.75);
       }
 
       .markdown-content {
@@ -143,13 +143,13 @@ interface DisplayItem {
       }
 
       .markdown-content a {
-        color: #1a1a1a;
+        color: #f8fafc;
         text-decoration: underline;
       }
 
       .inline-code {
-        background: rgba(0, 0, 0, 0.15);
-        color: #1a1a1a;
+        background: rgba(255, 255, 255, 0.18);
+        color: #f8fafc;
       }
     }
 

@@ -49,6 +49,14 @@ import { FileExplorerComponent } from '../file-explorer/file-explorer.component'
                   <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                 </svg>
               </button>
+              <button class="btn-header-icon" (click)="openRlm()" title="RLM Context Manager">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3l9 4.5v9L12 21 3 16.5v-9L12 3z"></path>
+                  <path d="M12 12l9-4.5"></path>
+                  <path d="M12 12L3 7.5"></path>
+                  <path d="M12 12v9"></path>
+                </svg>
+              </button>
               <button class="btn-header-icon" (click)="showHistory.set(true)" title="History">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
@@ -665,6 +673,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.router.navigate(['/verification']);
   }
 
+  openRlm(): void {
+    this.router.navigate(['/rlm']);
+  }
+
   onRetryCliDetection(): void {
     this.cliStore.refresh();
   }
@@ -672,6 +684,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
   onCommandExecuted(event: { commandId: string; args: string[] }): void {
     console.log('Command executed:', event);
     // Command execution is handled by the palette component via CommandStore
+    if (event.commandId === 'builtin-rlm') {
+      this.openRlm();
+    }
   }
 
   onFileDragged(event: { path: string; name: string; isDirectory: boolean }): void {

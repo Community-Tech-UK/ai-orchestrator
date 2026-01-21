@@ -604,7 +604,7 @@ export class RLMContextManager extends EventEmitter {
         throw new Error(`Unknown query type: ${query.type}`);
     }
 
-    const tokensUsed = this.estimateTokens(result);
+    const tokensUsed = query.type === 'sub_query' ? 0 : this.estimateTokens(result);
     const queryResult: ContextQueryResult = {
       query,
       result,
@@ -660,7 +660,17 @@ export class RLMContextManager extends EventEmitter {
     params: { pattern: string; maxResults?: number }
   ): { result: string; sectionsAccessed: string[] } {
     const { pattern, maxResults = 10 } = params;
-    const regex = new RegExp(pattern, 'gi');
+
+    // Validate regex pattern to prevent crashes
+    let regex: RegExp;
+    try {
+      regex = new RegExp(pattern, 'gi');
+    } catch (error) {
+      console.warn('[RLM] Invalid regex pattern, falling back to literal search:', error);
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      regex = new RegExp(escaped, 'gi');
+    }
+
     const matches: { section: ContextSection; match: RegExpMatchArray; context: string }[] = [];
     const sectionsAccessed: string[] = [];
 
@@ -745,22 +755,98 @@ export class RLMContextManager extends EventEmitter {
 
     // Emit event for LLM to summarize
     return new Promise(resolve => {
+      let resolved = false;
+
       this.emit('summarize:request', {
         sessionId: session.id,
         content,
         targetTokens,
         callback: (summary: string) => {
+          if (resolved) return;
+          resolved = true;
+
+          // Store the summary as a new section
+          this.persistSummary(store, summary, params.sectionIds, sections);
+
           resolve(summary);
         },
       });
 
       // Fallback if not handled
       setTimeout(() => {
-        resolve(
-          `[Summary of ${sections.length} sections, ~${totalTokens} tokens → ~${targetTokens} target tokens]\n\nKey content from: ${sections.map(s => s.name).join(', ')}`
-        );
+        if (resolved) return;
+        resolved = true;
+
+        const fallbackSummary = `[Summary of ${sections.length} sections, ~${totalTokens} tokens → ~${targetTokens} target tokens]\n\nKey content from: ${sections.map(s => s.name).join(', ')}`;
+
+        // Store even the fallback summary
+        this.persistSummary(store, fallbackSummary, params.sectionIds, sections);
+
+        resolve(fallbackSummary);
       }, 5000);
     });
+  }
+
+  /**
+   * Persist a summary as a new section in the store
+   */
+  private persistSummary(
+    store: ContextStore,
+    summaryContent: string,
+    summarizedSectionIds: string[],
+    summarizedSections: ContextSection[]
+  ): void {
+    try {
+      const summaryTokens = this.estimateTokens(summaryContent);
+
+      const summaryDepth = Math.max(1, ...summarizedSections.map(s => s.depth + 1));
+      const summarySection: ContextSection = {
+        id: `sum-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'summary',
+        name: `Summary of ${summarizedSections.length} sections`,
+        content: summaryContent,
+        tokens: summaryTokens,
+        startOffset: store.totalSize,
+        endOffset: store.totalSize + summaryContent.length,
+        checksum: this.computeChecksum(summaryContent),
+        depth: summaryDepth,
+        summarizes: summarizedSectionIds,
+      };
+
+      store.sections.push(summarySection);
+      store.totalTokens += summaryTokens;
+      store.totalSize += summaryContent.length;
+
+      // Persist to database
+      if (this.db && this.persistenceEnabled) {
+        this.db.addSection({
+          id: summarySection.id,
+          storeId: store.id,
+          type: summarySection.type,
+          name: summarySection.name,
+          startOffset: summarySection.startOffset,
+          endOffset: summarySection.endOffset,
+          tokens: summarySection.tokens,
+          checksum: summarySection.checksum,
+          depth: summarySection.depth,
+          summarizes: summarySection.summarizes,
+          content: summarySection.content,
+        });
+      }
+
+      // Update summary index
+      if (!store.summaryIndex) {
+        store.summaryIndex = { levels: [], sectionToSummary: new Map() };
+      }
+      for (const sectionId of summarizedSectionIds) {
+        store.summaryIndex.sectionToSummary.set(sectionId, summarySection.id);
+      }
+
+      this.emit('summary:created', { storeId: store.id, section: summarySection });
+      console.log(`[RLM] Created summary section ${summarySection.id} for ${summarizedSectionIds.length} sections`);
+    } catch (error) {
+      console.error('[RLM] Failed to persist summary:', error);
+    }
   }
 
   private async executeSubQuery(
@@ -919,12 +1005,14 @@ export class RLMContextManager extends EventEmitter {
 
     // Simple word tokenization and indexing
     const words = section.content.toLowerCase().match(/\b\w{3,}\b/g) || [];
+    const contentLower = section.content.toLowerCase(); // Use lowercase for searching
     let lineNumber = 1;
     let charIndex = 0;
 
     for (const word of words) {
       const locations = store.searchIndex.terms.get(word) || [];
-      const nextIndex = section.content.indexOf(word, charIndex);
+      // Search in lowercase content to match lowercase word
+      const nextIndex = contentLower.indexOf(word, charIndex);
 
       if (nextIndex >= 0) {
         lineNumber += (section.content.slice(charIndex, nextIndex).match(/\n/g) || []).length;
@@ -994,6 +1082,9 @@ export class RLMContextManager extends EventEmitter {
   // ============ Utilities ============
 
   private estimateTokens(text: string): number {
+    if (this.llmService) {
+      return this.llmService.getTokenCounter().countTokens(text);
+    }
     // Rough estimate: 1 token ≈ 4 characters for English
     return Math.ceil(text.length / 4);
   }
@@ -1475,16 +1566,29 @@ export class RLMContextManager extends EventEmitter {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const history: Map<string, { direct: number; actual: number }> = new Map();
 
-    // Aggregate from sessions
-    for (const session of this.sessions.values()) {
-      if (session.startedAt < cutoff) continue;
+    const sessionRows = this.db && this.persistenceEnabled ? this.db.listSessions() : [];
 
-      const date = new Date(session.startedAt).toISOString().split('T')[0];
-      const existing = history.get(date) || { direct: 0, actual: 0 };
+    if (sessionRows.length > 0) {
+      for (const row of sessionRows) {
+        if (row.started_at < cutoff) continue;
+        const date = new Date(row.started_at).toISOString().split('T')[0];
+        const existing = history.get(date) || { direct: 0, actual: 0 };
 
-      existing.direct += session.estimatedDirectTokens;
-      existing.actual += session.totalRootTokens + session.totalSubQueryTokens;
-      history.set(date, existing);
+        existing.direct += row.estimated_direct_tokens || 0;
+        existing.actual += (row.total_root_tokens || 0) + (row.total_sub_query_tokens || 0);
+        history.set(date, existing);
+      }
+    } else {
+      for (const session of this.sessions.values()) {
+        if (session.startedAt < cutoff) continue;
+
+        const date = new Date(session.startedAt).toISOString().split('T')[0];
+        const existing = history.get(date) || { direct: 0, actual: 0 };
+
+        existing.direct += session.estimatedDirectTokens;
+        existing.actual += session.totalRootTokens + session.totalSubQueryTokens;
+        history.set(date, existing);
+      }
     }
 
     return Array.from(history.entries())
@@ -1511,17 +1615,35 @@ export class RLMContextManager extends EventEmitter {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const stats: Map<string, { count: number; totalDuration: number; totalTokens: number }> = new Map();
 
-    for (const session of this.sessions.values()) {
-      // Skip sessions that started before the cutoff
-      if (session.startedAt < cutoff) continue;
+    const sessionRows = this.db && this.persistenceEnabled ? this.db.listSessions() : [];
 
-      for (const queryResult of session.queries) {
-        const queryType = queryResult.query.type;
-        const existing = stats.get(queryType) || { count: 0, totalDuration: 0, totalTokens: 0 };
-        existing.count++;
-        existing.totalDuration += queryResult.duration || 0;
-        existing.totalTokens += queryResult.tokensUsed || 0;
-        stats.set(queryType, existing);
+    if (sessionRows.length > 0) {
+      for (const row of sessionRows) {
+        if (row.started_at < cutoff) continue;
+        if (!row.queries_json) continue;
+        const queries = JSON.parse(row.queries_json) as ContextQueryResult[];
+
+        for (const queryResult of queries) {
+          const queryType = queryResult.query.type;
+          const existing = stats.get(queryType) || { count: 0, totalDuration: 0, totalTokens: 0 };
+          existing.count++;
+          existing.totalDuration += queryResult.duration || 0;
+          existing.totalTokens += queryResult.tokensUsed || 0;
+          stats.set(queryType, existing);
+        }
+      }
+    } else {
+      for (const session of this.sessions.values()) {
+        if (session.startedAt < cutoff) continue;
+
+        for (const queryResult of session.queries) {
+          const queryType = queryResult.query.type;
+          const existing = stats.get(queryType) || { count: 0, totalDuration: 0, totalTokens: 0 };
+          existing.count++;
+          existing.totalDuration += queryResult.duration || 0;
+          existing.totalTokens += queryResult.tokensUsed || 0;
+          stats.set(queryType, existing);
+        }
       }
     }
 

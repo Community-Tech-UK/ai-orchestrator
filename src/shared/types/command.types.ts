@@ -111,6 +111,13 @@ $ARGUMENTS`,
     hint: 'Describe the feature',
     builtIn: true,
   },
+  {
+    name: 'rlm',
+    description: 'Open the RLM context manager',
+    template: '',
+    hint: 'Open the RLM page',
+    builtIn: true,
+  },
 ];
 
 /**

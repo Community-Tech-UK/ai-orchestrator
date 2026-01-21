@@ -405,13 +405,18 @@ export const IPC_CHANNELS = {
   RLM_GET_STORE: 'rlm:get-store',
   RLM_LIST_STORES: 'rlm:list-stores',
   RLM_LIST_SECTIONS: 'rlm:list-sections',
+  RLM_LIST_SESSIONS: 'rlm:list-sessions',
   RLM_DELETE_STORE: 'rlm:delete-store',
   RLM_START_SESSION: 'rlm:start-session',
   RLM_END_SESSION: 'rlm:end-session',
   RLM_EXECUTE_QUERY: 'rlm:execute-query',
+  RLM_GET_SESSION: 'rlm:get-session',
   RLM_GET_STORE_STATS: 'rlm:get-store-stats',
   RLM_GET_SESSION_STATS: 'rlm:get-session-stats',
   RLM_CONFIGURE: 'rlm:configure',
+  RLM_RECORD_OUTCOME: 'rlm:record-outcome',
+  RLM_GET_PATTERNS: 'rlm:get-patterns',
+  RLM_GET_STRATEGY_SUGGESTIONS: 'rlm:get-strategy-suggestions',
 
   // Self-Improvement operations (8.2)
   LEARNING_RECORD_OUTCOME: 'learning:record-outcome',

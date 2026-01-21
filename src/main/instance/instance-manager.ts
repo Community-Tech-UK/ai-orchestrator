@@ -9,6 +9,7 @@ import { generateChildPrompt } from '../orchestration/orchestration-protocol';
 import { getOutputStorageManager, getMemoryMonitor } from '../memory';
 import { getSettingsManager } from '../settings/settings-manager';
 import { getHistoryManager } from '../history';
+import { RLMContextManager } from '../rlm/context-manager';
 import type { SpawnChildCommand, MessageChildCommand, TerminateChildCommand, GetChildOutputCommand } from '../orchestration/orchestration-protocol';
 import type {
   Instance,
@@ -45,11 +46,17 @@ export class InstanceManager extends EventEmitter {
   private memoryMonitor = getMemoryMonitor();
   private settings = getSettingsManager();
 
+  // RLM Context Management
+  private rlm: RLMContextManager;
+  private instanceRlmStores: Map<string, string> = new Map(); // instanceId -> storeId
+  private instanceRlmSessions: Map<string, string> = new Map(); // instanceId -> sessionId
+
   constructor() {
     super();
     this.startBatchTimer();
     this.startIdleCheckTimer();
     this.orchestration = new OrchestrationHandler();
+    this.rlm = RLMContextManager.getInstance();
     this.setupOrchestrationHandlers();
     this.setupMemoryMonitoring();
     this.configureFromSettings();
@@ -425,6 +432,21 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // Initialize RLM store and session for this instance
+    try {
+      const rlmStore = this.rlm.createStore(instance.id);
+      this.instanceRlmStores.set(instance.id, rlmStore.id);
+      console.log(`[RLM] Created store ${rlmStore.id} for instance ${instance.id}`);
+
+      // Start an RLM session for this instance
+      const rlmSession = await this.rlm.startSession(rlmStore.id, instance.id);
+      this.instanceRlmSessions.set(instance.id, rlmSession.id);
+      console.log(`[RLM] Started session ${rlmSession.id} for instance ${instance.id}`);
+    } catch (error) {
+      console.error('[RLM] Failed to initialize RLM for instance:', error);
+      // Non-fatal - instance can still work without RLM
+    }
+
     // Get disallowed tools based on agent permissions
     const disallowedTools = getDisallowedTools(resolvedAgent.permissions);
 
@@ -611,6 +633,19 @@ export class InstanceManager extends EventEmitter {
       // Unregister from orchestration
       this.orchestration.unregisterInstance(instanceId);
       this.hasReceivedFirstMessage.delete(instanceId);
+
+      // End RLM session for this instance
+      const rlmSessionId = this.instanceRlmSessions.get(instanceId);
+      if (rlmSessionId) {
+        try {
+          this.rlm.endSession(rlmSessionId);
+          console.log(`[RLM] Ended session ${rlmSessionId} for instance ${instanceId}`);
+        } catch (error) {
+          console.error(`[RLM] Failed to end session for ${instanceId}:`, error);
+        }
+        this.instanceRlmSessions.delete(instanceId);
+      }
+      this.instanceRlmStores.delete(instanceId);
 
       // Clean up disk storage for this instance
       this.outputStorage.deleteInstance(instanceId).catch((err) => {
@@ -826,6 +861,75 @@ export class InstanceManager extends EventEmitter {
 
       // Keep only the most recent messages in memory
       instance.outputBuffer = instance.outputBuffer.slice(-bufferSize);
+    }
+
+    // Ingest message into RLM for context management
+    this.ingestToRLM(instance.id, message);
+  }
+
+  /**
+   * Ingest a message into RLM context store
+   */
+  private ingestToRLM(instanceId: string, message: OutputMessage): void {
+    const storeId = this.instanceRlmStores.get(instanceId);
+    if (!storeId) return; // RLM not initialized for this instance
+
+    // Skip empty content
+    if (!message.content || message.content.trim().length === 0) return;
+
+    // Skip very short messages (less than 20 chars) - not worth indexing
+    if (message.content.length < 20) return;
+
+    try {
+      // Map message type to RLM section type
+      let sectionType: 'conversation' | 'tool_output' | 'file' | 'external' | 'summary';
+      let sectionName: string;
+
+      switch (message.type) {
+        case 'user':
+          sectionType = 'conversation';
+          sectionName = `User message at ${new Date(message.timestamp).toISOString()}`;
+          break;
+        case 'assistant':
+          sectionType = 'conversation';
+          sectionName = `Assistant response at ${new Date(message.timestamp).toISOString()}`;
+          break;
+        case 'tool_use':
+          sectionType = 'tool_output';
+          const toolName = message.metadata?.['name'] || 'unknown';
+          sectionName = `Tool use: ${toolName}`;
+          break;
+        case 'tool_result':
+          sectionType = 'tool_output';
+          sectionName = `Tool result at ${new Date(message.timestamp).toISOString()}`;
+          break;
+        case 'system':
+          // Skip system messages (usually internal notifications)
+          return;
+        case 'error':
+          sectionType = 'external';
+          sectionName = `Error at ${new Date(message.timestamp).toISOString()}`;
+          break;
+        default:
+          sectionType = 'external';
+          sectionName = `Message at ${new Date(message.timestamp).toISOString()}`;
+      }
+
+      // Add section to RLM store
+      this.rlm.addSection(
+        storeId,
+        sectionType,
+        sectionName,
+        message.content,
+        {
+          // Additional metadata for better retrieval
+          filePath: message.metadata?.['filePath'] as string | undefined,
+          language: message.metadata?.['language'] as string | undefined,
+        }
+      );
+    } catch (error) {
+      // Log but don't fail - RLM ingestion is non-critical
+      console.error(`[RLM] Failed to ingest message for instance ${instanceId}:`, error);
     }
   }
 
