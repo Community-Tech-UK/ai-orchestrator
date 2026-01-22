@@ -19,6 +19,7 @@ import {
 } from './orchestration-protocol';
 import { getTaskManager } from './task-manager';
 import type { TaskExecution, TaskResult, TaskProgress, TaskError } from '../../shared/types/task.types';
+import type { RoutingDecision } from '../routing';
 
 export interface OrchestrationContext {
   instanceId: string;
@@ -354,13 +355,28 @@ export class OrchestrationHandler extends EventEmitter {
   /**
    * Notify parent about a successful child spawn
    */
-  notifyChildSpawned(parentId: string, childId: string, childName: string): void {
+  notifyChildSpawned(parentId: string, childId: string, childName: string, routing?: RoutingDecision): void {
     this.addChild(parentId, childId);
-    this.injectResponse(parentId, 'spawn_child', true, {
+
+    // Build response data with optional routing info
+    const responseData: Record<string, unknown> = {
       childId,
       name: childName,
       message: 'Child instance created successfully',
-    });
+    };
+
+    // Include routing information if available
+    if (routing) {
+      responseData['routing'] = {
+        model: routing.model,
+        complexity: routing.complexity,
+        tier: routing.tier,
+        confidence: routing.confidence,
+        estimatedSavingsPercent: routing.estimatedSavingsPercent,
+      };
+    }
+
+    this.injectResponse(parentId, 'spawn_child', true, responseData);
   }
 
   /**

@@ -6,10 +6,13 @@ import { EventEmitter } from 'events';
 import { ClaudeCliAdapter } from '../cli/claude-cli-adapter';
 import { OrchestrationHandler } from '../orchestration/orchestration-handler';
 import { generateChildPrompt } from '../orchestration/orchestration-protocol';
-import { getOutputStorageManager, getMemoryMonitor } from '../memory';
+import { getOutputStorageManager, getMemoryMonitor, getUnifiedMemory } from '../memory';
 import { getSettingsManager } from '../settings/settings-manager';
 import { getHistoryManager } from '../history';
 import { RLMContextManager } from '../rlm/context-manager';
+import { OutcomeTracker } from '../learning/outcome-tracker';
+import { getTaskManager } from '../orchestration/task-manager';
+import { getModelRouter, type RoutingDecision } from '../routing';
 import type { SpawnChildCommand, MessageChildCommand, TerminateChildCommand, GetChildOutputCommand } from '../orchestration/orchestration-protocol';
 import type {
   Instance,
@@ -31,6 +34,40 @@ import { generateId } from '../../shared/utils/id-generator';
 import { LIMITS } from '../../shared/constants/limits';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
 import { getDisallowedTools } from '../../shared/utils/permission-mapper';
+import type { ContextQuery, ContextSection, ContextStore } from '../../shared/types/rlm.types';
+import type { MemoryType, UnifiedRetrievalResult } from '../../shared/types/unified-memory.types';
+import type { TaskExecution } from '../../shared/types/task.types';
+import type { ToolUsageRecord } from '../../shared/types/self-improvement.types';
+
+type RlmContextInfo = {
+  context: string;
+  tokens: number;
+  sectionsAccessed: string[];
+  durationMs: number;
+  source: 'semantic' | 'lexical' | 'hybrid';
+};
+
+type ContextBudget = {
+  totalTokens: number;
+  rlmMaxTokens: number;
+  unifiedMaxTokens: number;
+  rlmTopK: number;
+};
+
+type RankedSection = {
+  section: ContextSection;
+  score: number;
+  semanticScore: number;
+  lexicalScore: number;
+};
+
+type UnifiedMemoryContextInfo = {
+  context: string;
+  tokens: number;
+  longTermCount: number;
+  proceduralCount: number;
+  durationMs: number;
+};
 
 export class InstanceManager extends EventEmitter {
   private instances: Map<string, Instance> = new Map();
@@ -40,16 +77,39 @@ export class InstanceManager extends EventEmitter {
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private orchestration: OrchestrationHandler;
   private hasReceivedFirstMessage: Set<string> = new Set();
+  private interruptedInstances: Set<string> = new Set(); // Track instances that were interrupted (to respawn on exit)
 
   // Memory management
   private outputStorage = getOutputStorageManager();
   private memoryMonitor = getMemoryMonitor();
   private settings = getSettingsManager();
+  private unifiedMemory = getUnifiedMemory();
+  private outcomeTracker = OutcomeTracker.getInstance();
 
   // RLM Context Management
   private rlm: RLMContextManager;
   private instanceRlmStores: Map<string, string> = new Map(); // instanceId -> storeId
   private instanceRlmSessions: Map<string, string> = new Map(); // instanceId -> sessionId
+
+  // RLM Context Configuration - tuned to prevent prompt overflow
+  private readonly rlmContextMinChars = 100;        // Increased: skip short messages
+  private readonly rlmContextMaxTokens = 300;       // Reduced from 600: less context injection
+  private readonly rlmContextTopK = 2;              // Reduced from 4: fewer matches
+  private readonly rlmContextMinSimilarity = 0.7;   // Increased from 0.6: higher quality matches
+  private readonly rlmQueryTimeoutMs = 500;         // Reduced from 900: faster timeout
+  private readonly contextBudgetMinTokens = 150;    // Reduced from 300
+  private readonly contextBudgetMaxTokens = 600;    // Reduced from 1200: half the max budget
+  private readonly rlmHybridSemanticWeight = 0.7;
+  private readonly rlmHybridLexicalWeight = 0.3;
+  private readonly rlmHybridOverlapBoost = 0.15;
+  private readonly rlmSectionSummaryMinTokens = 600;
+  private readonly rlmSectionMinTokens = 120;
+  private readonly rlmSectionMaxCount = 3;          // Reduced from 6: fewer sections
+  private readonly toolOutputSummaryMinTokens = 800;
+  private readonly unifiedMemoryMinChars = 50;      // Increased from 30
+  private readonly unifiedMemoryContextMinChars = 80; // Increased from 60
+  private readonly unifiedMemoryContextMaxTokens = 250; // Reduced from 500
+  private readonly unifiedMemoryQueryTimeoutMs = 400;   // Reduced from 700
 
   constructor() {
     super();
@@ -205,6 +265,16 @@ export class InstanceManager extends EventEmitter {
 
         // Create the child with the child-specific prompt prepended to the task
         const childPrompt = generateChildPrompt(tempChildId, parentId, command.task);
+        const childAgentId = this.resolveChildAgentId(command);
+
+        // Use intelligent model routing if no explicit model specified
+        const routingDecision = this.routeChildModel(command.task, command.model, childAgentId);
+        const selectedModel = routingDecision.model;
+
+        console.log(`[ModelRouting] Child task routed to ${selectedModel} (${routingDecision.complexity}, ${routingDecision.confidence.toFixed(2)} confidence): ${routingDecision.reason}`);
+        if (routingDecision.estimatedSavingsPercent && routingDecision.estimatedSavingsPercent > 0) {
+          console.log(`[ModelRouting] Estimated cost savings: ${routingDecision.estimatedSavingsPercent}%`);
+        }
 
         const child = await this.createInstance({
           workingDirectory: command.workingDirectory || parent.workingDirectory,
@@ -212,12 +282,14 @@ export class InstanceManager extends EventEmitter {
           parentId: parentId,
           initialPrompt: childPrompt,
           yoloMode: parent.yoloMode,
+          agentId: childAgentId,
+          modelOverride: selectedModel,
         });
 
         // Mark this child as already having received its first message (the child prompt)
         this.hasReceivedFirstMessage.add(child.id);
 
-        this.orchestration.notifyChildSpawned(parentId, child.id, child.displayName);
+        this.orchestration.notifyChildSpawned(parentId, child.id, child.displayName, routingDecision);
       } catch (error) {
         console.error('Failed to spawn child:', error);
         this.orchestration.notifyError(parentId, `Failed to spawn child: ${error}`);
@@ -281,6 +353,15 @@ export class InstanceManager extends EventEmitter {
       });
 
       callback(messages);
+    });
+
+    this.orchestration.on('task-complete', (parentId: string, childId: string, task: TaskExecution) => {
+      this.recordOrchestrationOutcome(parentId, childId, task, true);
+    });
+
+    this.orchestration.on('task-error', (parentId: string, childId: string, error: { code: string; message: string }) => {
+      const task = this.findTaskForChild(parentId, childId);
+      this.recordOrchestrationOutcome(parentId, childId, task, false, error);
     });
 
     // Handle response injection
@@ -451,6 +532,7 @@ export class InstanceManager extends EventEmitter {
     const disallowedTools = getDisallowedTools(resolvedAgent.permissions);
 
     // Create CLI adapter with agent's system prompt and tool restrictions
+    const modelOverride = config.modelOverride || resolvedAgent.modelOverride;
     const adapter = new ClaudeCliAdapter({
       workingDirectory: config.workingDirectory,
       sessionId: instance.sessionId,
@@ -458,6 +540,7 @@ export class InstanceManager extends EventEmitter {
       yoloMode: instance.yoloMode,
       systemPrompt: resolvedAgent.systemPrompt,
       disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+      model: modelOverride,
     });
 
     // Set up adapter events
@@ -552,16 +635,59 @@ export class InstanceManager extends EventEmitter {
     }
 
     const instance = this.instances.get(instanceId);
+    let rlmContext: RlmContextInfo | null = null;
+    let unifiedMemoryContext: UnifiedMemoryContextInfo | null = null;
+    const userMessageId = generateId();
+    const userMessageTimestamp = Date.now();
     if (instance) {
       instance.requestCount++;
       instance.lastActivity = Date.now();
+      const budgets = this.calculateContextBudget(instance, message);
+
+      [rlmContext, unifiedMemoryContext] = await Promise.all([
+        this.buildRlmContext(instanceId, message, budgets.rlmMaxTokens, budgets.rlmTopK),
+        this.buildUnifiedMemoryContext(instance, message, userMessageId, budgets.unifiedMaxTokens),
+      ]);
+
+      if (rlmContext) {
+        console.log(
+          `[RLM] Injected context for instance ${instanceId}: ${rlmContext.tokens} tokens, ${rlmContext.sectionsAccessed.length} sections, ${rlmContext.durationMs}ms`
+        );
+      }
+
+      if (unifiedMemoryContext) {
+        console.log(
+          `[UnifiedMemory] Injected context for instance ${instanceId}: ${unifiedMemoryContext.tokens} tokens, ${unifiedMemoryContext.longTermCount} long-term, ${unifiedMemoryContext.proceduralCount} procedural, ${unifiedMemoryContext.durationMs}ms`
+        );
+      }
+
+      const metadata: Record<string, unknown> = {};
+      if (rlmContext) {
+        metadata['rlmContext'] = {
+          injected: true,
+          tokens: rlmContext.tokens,
+          sectionsAccessed: rlmContext.sectionsAccessed,
+          durationMs: rlmContext.durationMs,
+          source: rlmContext.source,
+        };
+      }
+      if (unifiedMemoryContext) {
+        metadata['unifiedMemoryContext'] = {
+          injected: true,
+          tokens: unifiedMemoryContext.tokens,
+          longTermCount: unifiedMemoryContext.longTermCount,
+          proceduralCount: unifiedMemoryContext.proceduralCount,
+          durationMs: unifiedMemoryContext.durationMs,
+        };
+      }
 
       // Add user message to output buffer (include attachments for display)
       const userMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
+        id: userMessageId,
+        timestamp: userMessageTimestamp,
         type: 'user' as const,
         content: message,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         // Include attachment metadata for display (but not the full data to save memory)
         attachments: attachments?.map(a => ({
           name: a.name,
@@ -577,11 +703,16 @@ export class InstanceManager extends EventEmitter {
     }
 
     // Prepend orchestration prompt to first message
-    let finalMessage = message;
+    const contextBlocks = [
+      this.formatUnifiedMemoryContextBlock(unifiedMemoryContext),
+      this.formatRlmContextBlock(rlmContext),
+    ].filter(Boolean) as string[];
+    const contextBlock = contextBlocks.length > 0 ? contextBlocks.join('\n\n') : null;
+    let finalMessage = contextBlock ? `${contextBlock}\n\n${message}` : message;
     if (!this.hasReceivedFirstMessage.has(instanceId)) {
       this.hasReceivedFirstMessage.add(instanceId);
       const orchestrationPrompt = this.orchestration.getOrchestrationPrompt(instanceId);
-      finalMessage = `${orchestrationPrompt}\n\n---\n\n${message}`;
+      finalMessage = `${orchestrationPrompt}\n\n---\n\n${finalMessage}`;
       console.log('InstanceManager: Injected orchestration prompt');
     }
 
@@ -746,7 +877,7 @@ export class InstanceManager extends EventEmitter {
 
   /**
    * Interrupt an instance (like Ctrl+C)
-   * Sends SIGINT to pause Claude's current operation without terminating
+   * Sends SIGINT to stop Claude's current operation, then respawns with --resume
    */
   interruptInstance(instanceId: string): boolean {
     const adapter = this.adapters.get(instanceId);
@@ -762,26 +893,97 @@ export class InstanceManager extends EventEmitter {
       return false;
     }
 
+    // Mark this instance as interrupted so we know to respawn it when exit fires
+    this.interruptedInstances.add(instanceId);
+
     const success = adapter.interrupt();
     if (success) {
       // Add a system message to indicate interruption
       const message = {
         id: generateId(),
         type: 'system' as const,
-        content: '⚠️ Interrupted by user',
+        content: '⚠️ Interrupted by user - resuming session...',
         timestamp: Date.now(),
       };
       this.addToOutputBuffer(instance, message);
       this.emit('instance:output', { instanceId, message });
 
-      // Update status to waiting_for_input (Claude will be waiting for input after interrupt)
-      // Note: The CLI may emit input_required which will also set this status
-      instance.status = 'waiting_for_input';
+      // Set status to initializing while we respawn
+      instance.status = 'initializing';
       instance.lastActivity = Date.now();
-      this.queueUpdate(instanceId, 'waiting_for_input', instance.contextUsage);
+      this.queueUpdate(instanceId, 'initializing', instance.contextUsage);
+    } else {
+      // If interrupt failed, remove from tracking
+      this.interruptedInstances.delete(instanceId);
     }
 
     return success;
+  }
+
+  /**
+   * Respawn an instance after interrupt to continue the session
+   * Uses --resume to maintain conversation history
+   */
+  private async respawnAfterInterrupt(instanceId: string): Promise<void> {
+    console.log(`respawnAfterInterrupt: Starting for instance ${instanceId}`);
+
+    const instance = this.instances.get(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    const sessionId = instance.sessionId;
+    console.log(`respawnAfterInterrupt: Session ID = ${sessionId}`);
+
+    if (!sessionId) {
+      throw new Error(`Instance ${instanceId} has no session ID to resume`);
+    }
+
+    // Create new adapter with --resume and --fork-session to continue conversation
+    // with a new session ID (avoids "session already in use" error)
+    const newSessionId = generateId();
+    instance.sessionId = newSessionId; // Update instance with new session ID
+
+    const adapter = new ClaudeCliAdapter({
+      workingDirectory: instance.workingDirectory,
+      sessionId: sessionId, // Original session to resume from
+      yoloMode: instance.yoloMode,
+      resume: true,
+      forkSession: true, // Creates new session ID while preserving history
+    });
+
+    this.setupAdapterEvents(instanceId, adapter);
+    this.adapters.set(instanceId, adapter);
+
+    // Spawn the new process
+    try {
+      console.log(`respawnAfterInterrupt: Spawning new process...`);
+      const pid = await adapter.spawn();
+      console.log(`respawnAfterInterrupt: Process spawned with PID ${pid}`);
+
+      instance.processId = pid;
+      instance.status = 'idle';
+      instance.lastActivity = Date.now();
+
+      // Add a system message to confirm resumption
+      const message = {
+        id: generateId(),
+        type: 'system' as const,
+        content: '✓ Session resumed - ready for input',
+        timestamp: Date.now(),
+      };
+      this.addToOutputBuffer(instance, message);
+      this.emit('instance:output', { instanceId, message });
+
+      this.queueUpdate(instanceId, 'idle', instance.contextUsage);
+      console.log(`respawnAfterInterrupt: Complete, instance is now idle`);
+    } catch (error) {
+      console.error(`respawnAfterInterrupt: Failed to spawn`, error);
+      instance.status = 'error';
+      instance.processId = null;
+      this.queueUpdate(instanceId, 'error');
+      throw error;
+    }
   }
 
   /**
@@ -830,9 +1032,28 @@ export class InstanceManager extends EventEmitter {
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {
+      console.log(`Adapter exit event for instance ${instanceId}: code=${code}, signal=${signal}`);
+
       const instance = this.instances.get(instanceId);
-      if (instance && instance.status !== 'terminated') {
-        // Unexpected exit - mark as error
+      if (!instance) return;
+
+      // Check if this was an interrupted instance that needs respawning
+      if (this.interruptedInstances.has(instanceId)) {
+        console.log(`Instance ${instanceId} was interrupted, will respawn with --resume`);
+        this.interruptedInstances.delete(instanceId);
+        // Respawn the process with --resume to continue the session
+        this.respawnAfterInterrupt(instanceId).catch((err) => {
+          console.error(`Failed to respawn instance ${instanceId} after interrupt:`, err);
+          instance.status = 'error';
+          instance.processId = null;
+          this.queueUpdate(instanceId, 'error');
+        });
+        return;
+      }
+
+      if (instance.status !== 'terminated') {
+        // Unexpected exit - mark as error or terminated
+        console.log(`Instance ${instanceId} exited unexpectedly, marking as ${code === 0 ? 'terminated' : 'error'}`);
         instance.status = code === 0 ? 'terminated' : 'error';
         instance.processId = null;
         this.queueUpdate(instanceId, instance.status);
@@ -865,6 +1086,7 @@ export class InstanceManager extends EventEmitter {
 
     // Ingest message into RLM for context management
     this.ingestToRLM(instance.id, message);
+    this.ingestToUnifiedMemory(instance, message);
   }
 
   /**
@@ -915,8 +1137,11 @@ export class InstanceManager extends EventEmitter {
           sectionName = `Message at ${new Date(message.timestamp).toISOString()}`;
       }
 
+      const store = this.rlm.getStore(storeId);
+      const startOffset = store?.totalSize ?? null;
+
       // Add section to RLM store
-      this.rlm.addSection(
+      const section = this.rlm.addSection(
         storeId,
         sectionType,
         sectionName,
@@ -927,10 +1152,649 @@ export class InstanceManager extends EventEmitter {
           language: message.metadata?.['language'] as string | undefined,
         }
       );
+
+      if (sectionType === 'tool_output') {
+        const newSections = store && startOffset !== null
+          ? store.sections.filter((entry) => entry.startOffset >= startOffset)
+          : [section];
+        this.maybeSummarizeToolOutput(instanceId, store, newSections);
+      }
     } catch (error) {
       // Log but don't fail - RLM ingestion is non-critical
       console.error(`[RLM] Failed to ingest message for instance ${instanceId}:`, error);
     }
+  }
+
+  /**
+   * Ingest a message into unified memory (short/long/procedural)
+   */
+  private ingestToUnifiedMemory(instance: Instance, message: OutputMessage): void {
+    // Skip empty content
+    if (!message.content || message.content.trim().length === 0) return;
+
+    // Skip very short messages
+    if (message.content.length < this.unifiedMemoryMinChars) return;
+
+    // Skip system messages (usually internal notifications)
+    if (message.type === 'system') return;
+
+    const taggedContent = `[instance:${instance.id}] [session:${instance.sessionId}] [${message.type}] ${message.content}`;
+
+    this.unifiedMemory
+      .processInput(taggedContent, instance.sessionId, message.id)
+      .catch((error) => {
+        console.error(`[UnifiedMemory] Failed to ingest message for instance ${instance.id}:`, error);
+      });
+  }
+
+  private calculateContextBudget(instance: Instance, message: string): ContextBudget {
+    const usagePct = instance.contextUsage?.percentage ?? 0;
+
+    // Skip context injection entirely when context is critically high
+    // This prevents "Prompt is too long" errors
+    if (usagePct >= 90) {
+      console.log(`[ContextBudget] Skipping context injection: usage at ${usagePct}%`);
+      return { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 };
+    }
+
+    const messageTokens = this.estimateTokens(message);
+    const baseBudget = Math.round(
+      Math.min(
+        this.contextBudgetMaxTokens,
+        Math.max(this.contextBudgetMinTokens, messageTokens * 1.0) // Reduced from 1.3
+      )
+    );
+
+    // More aggressive scaling as context fills up
+    const usageMultiplier =
+      usagePct >= 80 ? 0.25 :  // Very aggressive at 80%+
+      usagePct >= 70 ? 0.4 :   // Aggressive at 70%+
+      usagePct >= 60 ? 0.6 :   // Moderate at 60%+
+      usagePct >= 50 ? 0.8 :   // Light reduction at 50%+
+      1;
+
+    const totalTokens = Math.max(
+      usagePct >= 75 ? 0 : this.contextBudgetMinTokens, // Allow 0 at high usage
+      Math.round(baseBudget * usageMultiplier)
+    );
+
+    // If budget is too small, skip entirely
+    if (totalTokens < 100) {
+      return { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 };
+    }
+
+    const rlmShare = messageTokens > 350 ? 0.45 : messageTokens > 150 ? 0.55 : 0.65;
+    let rlmMaxTokens = Math.min(this.rlmContextMaxTokens, Math.round(totalTokens * rlmShare));
+    let unifiedMaxTokens = Math.min(
+      this.unifiedMemoryContextMaxTokens,
+      Math.max(0, totalTokens - rlmMaxTokens)
+    );
+
+    if (unifiedMaxTokens < this.rlmSectionMinTokens) {
+      rlmMaxTokens = Math.min(this.rlmContextMaxTokens, rlmMaxTokens + unifiedMaxTokens);
+      unifiedMaxTokens = 0;
+    }
+
+    const rlmTopK = Math.max(
+      1, // Allow minimum of 1
+      Math.min(this.rlmSectionMaxCount, Math.round(rlmMaxTokens / 150))
+    );
+
+    return {
+      totalTokens,
+      rlmMaxTokens,
+      unifiedMaxTokens,
+      rlmTopK,
+    };
+  }
+
+  private async buildRlmContext(
+    instanceId: string,
+    message: string,
+    maxTokens: number = this.rlmContextMaxTokens,
+    topK: number = this.rlmContextTopK
+  ): Promise<RlmContextInfo | null> {
+    if (message.trim().length < this.rlmContextMinChars) return null;
+
+    const sessionId = this.instanceRlmSessions.get(instanceId);
+    const storeId = this.instanceRlmStores.get(instanceId);
+    if (!sessionId || !storeId) return null;
+
+    const store = this.rlm.getStore(storeId);
+    if (!store) return null;
+
+    const semanticQuery: ContextQuery = {
+      type: 'semantic_search',
+      params: {
+        query: message,
+        topK,
+        minSimilarity: this.rlmContextMinSimilarity,
+      },
+    };
+
+    const terms = this.extractQueryTerms(message);
+    const lexicalPattern = terms.length > 0 ? this.buildLexicalPattern(terms) : '';
+    const lexicalQuery: ContextQuery | null = lexicalPattern
+      ? {
+          type: 'grep',
+          params: {
+            pattern: lexicalPattern,
+            maxResults: Math.max(2, topK),
+          },
+        }
+      : null;
+
+    const startTime = Date.now();
+
+    try {
+      const [semanticResult, lexicalResult] = await Promise.all([
+        this.withTimeout(this.rlm.executeQuery(sessionId, semanticQuery), this.rlmQueryTimeoutMs),
+        lexicalQuery
+          ? this.withTimeout(this.rlm.executeQuery(sessionId, lexicalQuery), this.rlmQueryTimeoutMs)
+          : Promise.resolve(null),
+      ]);
+
+      const semanticIds = semanticResult?.sectionsAccessed ?? [];
+      const lexicalIds = lexicalResult?.sectionsAccessed ?? [];
+      const candidateIds = new Set<string>([...semanticIds, ...lexicalIds]);
+
+      if (candidateIds.size === 0) {
+        return null;
+      }
+
+      const ranked = this.rankRlmSections(store, candidateIds, semanticIds, lexicalIds, topK);
+      const payload = this.buildRlmContextPayload(
+        ranked,
+        store,
+        Math.min(maxTokens, this.rlmContextMaxTokens)
+      );
+
+      if (!payload.context) return null;
+
+      return {
+        context: payload.context,
+        tokens: this.estimateTokens(payload.context),
+        sectionsAccessed: payload.sectionIds,
+        durationMs: Date.now() - startTime,
+        source: semanticIds.length > 0 && lexicalIds.length > 0
+          ? 'hybrid'
+          : semanticIds.length > 0
+            ? 'semantic'
+            : 'lexical',
+      };
+    } catch (error) {
+      console.error(`[RLM] Failed to retrieve context for instance ${instanceId}:`, error);
+      return null;
+    }
+  }
+
+  private formatRlmContextBlock(context: RlmContextInfo | null): string | null {
+    if (!context) return null;
+
+    const sourceLabel =
+      context.source === 'hybrid'
+        ? 'RLM hybrid search'
+        : context.source === 'lexical'
+          ? 'RLM lexical search'
+          : 'RLM semantic search';
+
+    return [
+      '[Retrieved Context]',
+      `Source: ${sourceLabel}`,
+      context.context,
+      '[End Retrieved Context]',
+    ].join('\n');
+  }
+
+  private async buildUnifiedMemoryContext(
+    instance: Instance,
+    message: string,
+    taskId: string,
+    maxTokens: number = this.unifiedMemoryContextMaxTokens
+  ): Promise<UnifiedMemoryContextInfo | null> {
+    if (message.trim().length < this.unifiedMemoryContextMinChars) return null;
+
+    const effectiveMaxTokens = Math.min(this.unifiedMemoryContextMaxTokens, maxTokens);
+    if (effectiveMaxTokens <= 0) return null;
+
+    const types: MemoryType[] = ['procedural', 'long_term'];
+    const startTime = Date.now();
+
+    try {
+      const result = await this.withTimeout(
+        this.unifiedMemory.retrieve(message, taskId, {
+          types,
+          maxTokens: effectiveMaxTokens,
+          sessionId: instance.sessionId,
+          instanceId: instance.id,
+        }),
+        this.unifiedMemoryQueryTimeoutMs
+      );
+
+      if (!result) return null;
+
+      const contextPayload = this.formatUnifiedMemoryPayload(result);
+      if (!contextPayload) return null;
+
+      const trimmed = this.trimToTokens(contextPayload, effectiveMaxTokens);
+      if (!trimmed) return null;
+
+      return {
+        context: trimmed,
+        tokens: this.estimateTokens(trimmed),
+        longTermCount: result.longTerm.length,
+        proceduralCount: result.procedural.length,
+        durationMs: Date.now() - startTime,
+      };
+    } catch (error) {
+      console.error(`[UnifiedMemory] Failed to retrieve context for instance ${instance.id}:`, error);
+      return null;
+    }
+  }
+
+  private formatUnifiedMemoryPayload(result: UnifiedRetrievalResult): string | null {
+    const sections: string[] = [];
+
+    if (result.procedural.length > 0) {
+      sections.push('Procedural Memory:');
+      sections.push(...result.procedural.map(item => `- ${item}`));
+    }
+
+    if (result.longTerm.length > 0) {
+      sections.push('Long-term Memory:');
+      sections.push(...result.longTerm.map(item => `- ${item}`));
+    }
+
+    if (sections.length === 0) return null;
+    return sections.join('\n');
+  }
+
+  private extractQueryTerms(message: string): string[] {
+    const matches = message.toLowerCase().match(/[a-z0-9_]{3,}/g) || [];
+    const unique = Array.from(new Set(matches.filter((term) => term.length >= 4)));
+    return unique.slice(0, 12);
+  }
+
+  private buildLexicalPattern(terms: string[]): string {
+    return terms
+      .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+  }
+
+  private buildRankMap(sectionIds: string[], topK: number): Map<string, number> {
+    const rankMap = new Map<string, number>();
+    const denom = Math.max(sectionIds.length, topK, 1);
+
+    sectionIds.forEach((id, index) => {
+      const score = Math.max(0.05, (denom - index) / denom);
+      rankMap.set(id, score);
+    });
+
+    return rankMap;
+  }
+
+  private rankRlmSections(
+    store: ContextStore,
+    candidateIds: Set<string>,
+    semanticIds: string[],
+    lexicalIds: string[],
+    topK: number
+  ): RankedSection[] {
+    const semanticRank = this.buildRankMap(semanticIds, topK);
+    const lexicalRank = this.buildRankMap(lexicalIds, topK);
+    const ranked: RankedSection[] = [];
+
+    for (const id of candidateIds) {
+      const section = store.sections.find((entry) => entry.id === id);
+      if (!section) continue;
+
+      const semanticScore = semanticRank.get(id) ?? 0;
+      const lexicalScore = lexicalRank.get(id) ?? 0;
+      let score =
+        semanticScore * this.rlmHybridSemanticWeight +
+        lexicalScore * this.rlmHybridLexicalWeight;
+
+      if (semanticScore > 0 && lexicalScore > 0) {
+        score += this.rlmHybridOverlapBoost;
+      }
+
+      if (section.type === 'tool_output') {
+        score *= 0.85;
+      }
+      if (section.depth > 0) {
+        score *= 0.9;
+      }
+
+      ranked.push({ section, score, semanticScore, lexicalScore });
+    }
+
+    return ranked.sort((a, b) => b.score - a.score);
+  }
+
+  private buildRlmContextPayload(
+    ranked: RankedSection[],
+    store: ContextStore,
+    maxTokens: number
+  ): { context: string | null; sectionIds: string[] } {
+    if (ranked.length === 0 || maxTokens <= 0) {
+      return { context: null, sectionIds: [] };
+    }
+
+    const targetCount = Math.min(
+      ranked.length,
+      Math.max(1, Math.min(this.rlmSectionMaxCount, Math.round(maxTokens / 220)))
+    );
+    const sectionBudget = Math.max(this.rlmSectionMinTokens, Math.floor(maxTokens / targetCount));
+    const parts: string[] = [];
+    const sectionIds: string[] = [];
+    let usedTokens = 0;
+
+    for (let index = 0; index < targetCount; index += 1) {
+      if (usedTokens >= maxTokens) break;
+
+      const entry = ranked[index];
+      if (!entry) break;
+
+      const { content, usedSummary } = this.selectRlmSectionContent(store, entry.section, sectionBudget);
+      if (!content) continue;
+
+      const label = usedSummary ? `${entry.section.type} summary` : entry.section.type;
+      const source = entry.section.filePath || entry.section.sourceUrl;
+      const header = `[Match ${index + 1}] ${entry.section.name}${source ? ` - ${source}` : ''} (${label})`;
+      const block = `${header}\n${content}`;
+      const blockTokens = this.estimateTokens(block);
+
+      if (parts.length > 0 && usedTokens + blockTokens > maxTokens) {
+        break;
+      }
+
+      parts.push(block);
+      sectionIds.push(entry.section.id);
+      usedTokens += blockTokens;
+    }
+
+    if (parts.length === 0) {
+      return { context: null, sectionIds: [] };
+    }
+
+    return {
+      context: this.trimToTokens(parts.join('\n\n---\n\n'), maxTokens),
+      sectionIds,
+    };
+  }
+
+  private selectRlmSectionContent(
+    store: ContextStore,
+    section: ContextSection,
+    maxTokens: number
+  ): { content: string; usedSummary: boolean } {
+    let selected = section;
+    let usedSummary = false;
+    const summaryId = store.summaryIndex?.sectionToSummary.get(section.id);
+
+    if (summaryId) {
+      const summary = store.sections.find((entry) => entry.id === summaryId);
+      if (
+        summary &&
+        summary.tokens < section.tokens &&
+        (section.tokens > this.rlmSectionSummaryMinTokens || section.tokens > maxTokens)
+      ) {
+        selected = summary;
+        usedSummary = true;
+      }
+    }
+
+    return {
+      content: this.trimToTokens(selected.content, maxTokens),
+      usedSummary,
+    };
+  }
+
+  private maybeSummarizeToolOutput(
+    instanceId: string,
+    store: ContextStore | undefined,
+    newSections: ContextSection[]
+  ): void {
+    if (!store || newSections.length === 0) return;
+
+    const totalTokens = newSections.reduce((sum, section) => sum + section.tokens, 0);
+    if (totalTokens < this.toolOutputSummaryMinTokens) return;
+
+    const sessionId = this.instanceRlmSessions.get(instanceId);
+    if (!sessionId) return;
+
+    const summaryIndex = store.summaryIndex?.sectionToSummary;
+    if (summaryIndex && newSections.every((section) => summaryIndex.has(section.id))) {
+      return;
+    }
+
+    const query: ContextQuery = {
+      type: 'summarize',
+      params: {
+        sectionIds: newSections.map((section) => section.id),
+      },
+    };
+
+    this.rlm.executeQuery(sessionId, query).catch((error) => {
+      console.error(`[RLM] Failed to summarize tool output for instance ${instanceId}:`, error);
+    });
+  }
+
+  private formatUnifiedMemoryContextBlock(context: UnifiedMemoryContextInfo | null): string | null {
+    if (!context) return null;
+
+    return [
+      '[Unified Memory Context]',
+      'Source: Unified Memory',
+      context.context,
+      '[End Unified Memory Context]',
+    ].join('\n');
+  }
+
+  private trimToTokens(text: string, maxTokens: number): string {
+    if (this.estimateTokens(text) <= maxTokens) return text.trim();
+
+    const maxChars = maxTokens * 4;
+    return `${text.slice(0, maxChars).trim()}...`;
+  }
+
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+    type TimeoutResult =
+      | { type: 'timeout' }
+      | { type: 'value'; value: T }
+      | { type: 'error'; error: unknown };
+
+    let timeoutId: NodeJS.Timeout | undefined;
+
+    const timeout = new Promise<TimeoutResult>((resolve) => {
+      timeoutId = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+    });
+
+    const guarded: Promise<TimeoutResult> = promise
+      .then((value) => ({ type: 'value', value } as const))
+      .catch((error) => ({ type: 'error', error } as const));
+
+    const result = await Promise.race([guarded, timeout]);
+
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    if (result.type === 'timeout') {
+      return null;
+    }
+
+    if (result.type === 'error') {
+      throw result.error;
+    }
+
+    return result.value as T;
+  }
+
+  private recordOrchestrationOutcome(
+    parentId: string,
+    childId: string,
+    task: TaskExecution | undefined,
+    success: boolean,
+    error?: { code: string; message: string }
+  ): void {
+    const child = this.instances.get(childId);
+    const duration = task?.startedAt && task?.completedAt ? task.completedAt - task.startedAt : 0;
+
+    try {
+      this.outcomeTracker.recordOutcome({
+        instanceId: childId,
+        taskType: 'orchestration-task',
+        taskDescription: task?.task || error?.message || 'Orchestration task',
+        prompt: task?.task || error?.message || 'Orchestration task',
+        context: task?.result?.summary,
+        agentUsed: child?.agentId || 'unknown',
+        modelUsed: 'unknown',
+        workflowUsed: task?.name,
+        toolsUsed: this.buildToolUsage(child),
+        tokensUsed: child?.totalTokensUsed || 0,
+        duration,
+        success,
+        completionScore: success ? 1 : 0,
+        errorType: success ? undefined : error?.code,
+        errorMessage: success ? undefined : error?.message,
+      });
+    } catch (recordError) {
+      console.error(`[Learning] Failed to record outcome for task ${task?.taskId || 'unknown'}:`, recordError);
+    }
+
+    this.unifiedMemory.recordTaskOutcome(task?.taskId || `${parentId}:${childId}`, success, success ? 1 : 0);
+  }
+
+  private findTaskForChild(parentId: string, childId: string): TaskExecution | undefined {
+    const taskManager = getTaskManager();
+    const history = taskManager.getTaskHistory(parentId);
+    return history.recentTasks.find(task => task.childId === childId);
+  }
+
+  private buildToolUsage(instance?: Instance): ToolUsageRecord[] {
+    if (!instance) return [];
+
+    const counts = new Map<string, { count: number }>();
+
+    for (const message of instance.outputBuffer) {
+      if (message.type !== 'tool_use') continue;
+
+      const toolName = typeof message.metadata?.['name'] === 'string'
+        ? (message.metadata?.['name'] as string)
+        : 'unknown';
+      const entry = counts.get(toolName) || { count: 0 };
+      entry.count += 1;
+      counts.set(toolName, entry);
+    }
+
+    return Array.from(counts.entries()).map(([tool, entry]) => ({
+      tool,
+      count: entry.count,
+      avgDuration: 0,
+      errorCount: 0,
+    }));
+  }
+
+  private resolveChildAgentId(command: SpawnChildCommand): string | undefined {
+    if (command.agentId) {
+      const resolved = getAgentById(command.agentId);
+      if (resolved) return command.agentId;
+      console.warn(`[Orchestration] Unknown agentId "${command.agentId}", using default agent.`);
+      return undefined;
+    }
+
+    if (this.isRetrievalTask(command.task)) {
+      const retriever = getAgentById('retriever');
+      if (retriever) return retriever.id;
+    }
+
+    return undefined;
+  }
+
+  private isRetrievalTask(task: string): boolean {
+    const text = task.toLowerCase();
+    const retrievalHints = [
+      'find',
+      'search',
+      'locate',
+      'list files',
+      'enumerate',
+      'identify',
+      'where is',
+      'grep',
+      'ripgrep',
+      'rg ',
+      'references',
+      'reference',
+      'usages',
+      'usage',
+      'occurrences',
+      'occurrence',
+      'show me',
+      'look for',
+      'scan',
+      'file path',
+      'files containing',
+      'open file',
+      'read file',
+    ];
+    const changeHints = [
+      'implement',
+      'modify',
+      'edit',
+      'refactor',
+      'fix',
+      'add',
+      'remove',
+      'create',
+      'write',
+      'build',
+      'update',
+      'delete',
+      'rename',
+    ];
+
+    if (changeHints.some((hint) => text.includes(hint))) {
+      return false;
+    }
+
+    return retrievalHints.some((hint) => text.includes(hint));
+  }
+
+  /**
+   * Route a child task to the optimal model based on complexity
+   *
+   * Uses intelligent model routing to select the most cost-effective model:
+   * - Simple tasks (file lookups, status checks) -> Haiku (fast/cheap)
+   * - Moderate tasks (most development work) -> Sonnet (balanced)
+   * - Complex tasks (architecture, security analysis) -> Opus (powerful)
+   *
+   * This can achieve 40-85% cost savings by routing simple tasks to cheaper models.
+   */
+  private routeChildModel(task: string, explicitModel?: string, agentId?: string): RoutingDecision {
+    const router = getModelRouter();
+
+    // If agent has a model override, use that (e.g., retriever uses Haiku)
+    if (agentId) {
+      const agent = getAgentById(agentId);
+      if (agent?.modelOverride) {
+        return {
+          model: agent.modelOverride,
+          complexity: 'simple',
+          tier: router.getModelTier(agent.modelOverride),
+          confidence: 1.0,
+          reason: `Agent "${agent.name}" has model override configured`,
+        };
+      }
+    }
+
+    // Use the model router for intelligent selection
+    return router.route(task, explicitModel);
   }
 
   /**

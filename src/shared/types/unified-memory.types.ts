@@ -157,6 +157,8 @@ export interface UnifiedRetrievalResult {
 export interface RetrievalOptions {
   types?: MemoryType[];
   maxTokens?: number;
+  sessionId?: string;
+  instanceId?: string;
 }
 
 // ============ Statistics ============

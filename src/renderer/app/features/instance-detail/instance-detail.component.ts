@@ -14,6 +14,7 @@ import {
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ElectronIpcService } from '../../core/services/electron-ipc.service';
+import { DraftService } from '../../core/services/draft.service';
 import { OutputStreamComponent } from './output-stream.component';
 import { ContextBarComponent } from './context-bar.component';
 import { InputPanelComponent } from './input-panel.component';
@@ -70,7 +71,6 @@ import { TodoListComponent } from './todo-list.component';
                     <span class="edit-icon">✏️</span>
                   </h2>
                 }
-                <span class="session-id mono">{{ inst.sessionId }}</span>
               </div>
               <div class="instance-meta">
                 <button
@@ -700,16 +700,26 @@ export class InstanceDetailComponent {
   private store = inject(InstanceStore);
   private settingsStore = inject(SettingsStore);
   private ipc = inject(ElectronIpcService);
+  private draftService = inject(DraftService);
 
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
-  pendingFiles = signal<File[]>([]);
   welcomePendingFiles = signal<File[]>([]);
   welcomeWorkingDirectory = signal<string | null>(null);
   isEditingName = signal(false);
   isCreatingInstance = signal(false);
   isChangingMode = signal(false);
   isTogglingYolo = signal(false);
+  private previousInstanceId: string | null = null;
+
+  // Pending files computed from draft service (persisted per instance)
+  pendingFiles = computed(() => {
+    const inst = this.instance();
+    if (!inst) return [];
+    // Track draft version changes for reactivity
+    this.draftService.version();
+    return this.draftService.getPendingFiles(inst.id);
+  });
 
   // Queue count - computed from store (re-evaluated when instance changes)
   queuedMessageCount = computed(() => {
@@ -727,14 +737,13 @@ export class InstanceDetailComponent {
       }
     });
 
-    // Clear creating flag and pending files when instance changes
+    // Clear creating flag when instance changes
     effect(() => {
       const inst = this.instance();
       if (inst) {
         this.isCreatingInstance.set(false);
+        this.previousInstanceId = inst.id;
       }
-      // Clear pending files when switching instances
-      this.pendingFiles.set([]);
     });
   }
 
@@ -774,18 +783,25 @@ export class InstanceDetailComponent {
     if (!inst) return;
 
     this.store.sendInput(inst.id, message, this.pendingFiles());
-    this.pendingFiles.set([]);
+    this.draftService.clearPendingFiles(inst.id);
   }
 
   onFilesDropped(files: File[]): void {
-    this.pendingFiles.update((current) => [...current, ...files]);
+    const inst = this.instance();
+    if (!inst) return;
+    this.draftService.addPendingFiles(inst.id, files);
   }
 
   onImagesPasted(images: File[]): void {
-    this.pendingFiles.update((current) => [...current, ...images]);
+    const inst = this.instance();
+    if (!inst) return;
+    this.draftService.addPendingFiles(inst.id, images);
   }
 
   async onFilePathDropped(filePath: string): Promise<void> {
+    const inst = this.instance();
+    if (!inst) return;
+
     // File path dropped from file explorer - fetch file content via IPC
     const ipc = (window as any).electronAPI;
     if (!ipc) return;
@@ -808,14 +824,16 @@ export class InstanceDetailComponent {
       const fileName = filePath.split('/').pop() || 'file';
       const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
 
-      this.pendingFiles.update((current) => [...current, file]);
+      this.draftService.addPendingFiles(inst.id, [file]);
     } catch (error) {
       console.error('Failed to load file from path:', error);
     }
   }
 
   onRemoveFile(file: File): void {
-    this.pendingFiles.update((files) => files.filter((f) => f !== file));
+    const inst = this.instance();
+    if (!inst) return;
+    this.draftService.removePendingFile(inst.id, file);
   }
 
   onRestart(): void {
@@ -960,9 +978,12 @@ export class InstanceDetailComponent {
   }
 
   async onAddFiles(): Promise<void> {
+    const inst = this.instance();
+    if (!inst) return;
+
     const files = await this.selectAndLoadFiles();
     if (files.length > 0) {
-      this.pendingFiles.update((current) => [...current, ...files]);
+      this.draftService.addPendingFiles(inst.id, files);
     }
   }
 

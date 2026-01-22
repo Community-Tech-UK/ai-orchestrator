@@ -134,6 +134,30 @@ Provide constructive, specific feedback with examples when possible.`,
     },
     builtin: true,
   },
+  {
+    id: 'retriever',
+    name: 'Retriever',
+    description: 'Fast file discovery and context extraction',
+    mode: 'plan',
+    color: '#0ea5e9', // Sky
+    icon: 'map',
+    systemPrompt: `You are in RETRIEVER MODE. Your job is to quickly locate files, symbols, and relevant snippets.
+
+Rules:
+- Only perform read-only actions
+- Prefer concise outputs with file paths and small excerpts
+- Do not suggest code changes or refactors
+- If a request requires edits, say so and stop`,
+    permissions: {
+      read: 'allow',
+      write: 'deny',
+      bash: 'deny',
+      web: 'deny',
+      task: 'deny',
+    },
+    modelOverride: 'claude-3-5-haiku-20241022',
+    builtin: true,
+  },
 ];
 
 /**

@@ -57,6 +57,16 @@ interface DisplayItem {
                   <span class="message-time">
                     {{ item.response.timestamp | date:'HH:mm:ss' }}
                   </span>
+                  <button
+                    class="copy-message-btn"
+                    (click)="copyMessageContent(item.response.content)"
+                    title="Copy to clipboard"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
                 </div>
                 <div class="message-content">
                   <div class="markdown-content" [innerHTML]="renderMarkdown(item.response.content)"></div>
@@ -76,6 +86,18 @@ interface DisplayItem {
                 <span class="message-time">
                   {{ item.message.timestamp | date:'HH:mm:ss' }}
                 </span>
+                @if (item.message.type === 'user' || item.message.type === 'assistant') {
+                  <button
+                    class="copy-message-btn"
+                    (click)="copyMessageContent(item.message.content)"
+                    title="Copy to clipboard"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                }
               </div>
               <div class="message-content">
                 @if (item.message.type === 'tool_use' || item.message.type === 'tool_result') {
@@ -130,26 +152,61 @@ interface DisplayItem {
 
     .message-user {
       background: var(--primary-color);
-      color: #f8fafc;
+      color: #1a1a1a;
       margin-left: var(--spacing-xl);
 
       .message-type,
       .message-time {
-        color: rgba(248, 250, 252, 0.75);
+        color: rgba(26, 26, 26, 0.7);
       }
 
       .markdown-content {
-        color: inherit;
+        color: #1a1a1a;
+
+        /* Ensure all text elements are black on orange */
+        h1, h2, h3, h4, h5, h6,
+        p, li, strong, em, b, i {
+          color: #1a1a1a;
+        }
+
+        ul, ol {
+          color: #1a1a1a;
+        }
+
+        li::marker {
+          color: #1a1a1a;
+        }
+
+        a {
+          color: #1a1a1a;
+          text-decoration: underline;
+        }
+
+        .inline-code {
+          background: rgba(0, 0, 0, 0.12);
+          color: #1a1a1a;
+          border-color: rgba(0, 0, 0, 0.2);
+        }
       }
 
-      .markdown-content a {
-        color: #f8fafc;
-        text-decoration: underline;
+      /* Text selection highlight on orange background */
+      ::selection {
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
       }
 
-      .inline-code {
-        background: rgba(255, 255, 255, 0.18);
-        color: #f8fafc;
+      ::-moz-selection {
+        background: rgba(0, 0, 0, 0.3);
+        color: #fff;
+      }
+
+      .copy-message-btn {
+        color: rgba(26, 26, 26, 0.6);
+
+        &:hover {
+          color: #1a1a1a;
+          background: rgba(0, 0, 0, 0.1);
+        }
       }
     }
 
@@ -178,8 +235,8 @@ interface DisplayItem {
 
     .message-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      gap: var(--spacing-sm);
       margin-bottom: var(--spacing-xs);
       font-size: 12px;
     }
@@ -194,6 +251,36 @@ interface DisplayItem {
     .message-time {
       font-family: var(--font-mono);
       opacity: 0.5;
+      margin-left: auto;
+    }
+
+    .copy-message-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      opacity: 0;
+      transition: all var(--transition-fast);
+
+      &:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
+      svg {
+        flex-shrink: 0;
+      }
+    }
+
+    .message:hover .copy-message-btn {
+      opacity: 1;
     }
 
     .message-content {
@@ -239,69 +326,26 @@ export class OutputStreamComponent {
   private markdownService = inject(MarkdownService);
 
   /**
-   * Groups consecutive assistant messages into thought-groups.
-   * Shows intermediate messages as "thinking" and the last one as the response.
+   * Shows all messages without grouping - simple 1:1 display.
    */
   displayItems = computed<DisplayItem[]>(() => {
     const messages = this.messages();
     const items: DisplayItem[] = [];
 
-    let i = 0;
-    while (i < messages.length) {
-      const msg = messages[i];
+    // Debug: log all messages to console
+    console.log('[OutputStream] All messages:', messages.map(m => ({
+      type: m.type,
+      contentLength: m.content?.length || 0,
+      contentPreview: m.content?.slice(0, 100) || '',
+      timestamp: m.timestamp,
+    })));
 
-      // If this is an assistant message, check if it's part of a sequence
-      if (msg.type === 'assistant') {
-        const thoughts: string[] = [];
-        let j = i;
-
-        // Collect consecutive assistant messages (also include tool_use/tool_result in the same "turn")
-        while (j < messages.length) {
-          const current = messages[j];
-
-          if (current.type === 'assistant') {
-            // This is a thinking/response message
-            j++;
-          } else if (current.type === 'tool_use' || current.type === 'tool_result') {
-            // Tool messages are part of the same turn, but we display them separately
-            break;
-          } else {
-            // User or other message type - end of this assistant turn
-            break;
-          }
-        }
-
-        // Get all assistant messages in this sequence
-        const assistantMessages = messages.slice(i, j).filter(m => m.type === 'assistant');
-
-        if (assistantMessages.length > 1) {
-          // Multiple assistant messages - group as thoughts + response
-          const thoughtMessages = assistantMessages.slice(0, -1);
-          const responseMessage = assistantMessages[assistantMessages.length - 1];
-
-          items.push({
-            type: 'thought-group',
-            thoughts: thoughtMessages.map(m => m.content).filter(c => c.trim()),
-            response: responseMessage,
-            timestamp: responseMessage.timestamp,
-          });
-        } else if (assistantMessages.length === 1) {
-          // Single assistant message - just show it normally
-          items.push({
-            type: 'message',
-            message: assistantMessages[0],
-          });
-        }
-
-        i = j;
-      } else {
-        // Non-assistant message - show as-is
-        items.push({
-          type: 'message',
-          message: msg,
-        });
-        i++;
-      }
+    for (const msg of messages) {
+      // Show every message as-is
+      items.push({
+        type: 'message',
+        message: msg,
+      });
     }
 
     return items;
@@ -340,6 +384,20 @@ export class OutputStreamComponent {
     if (el) {
       this.markdownService.setupCopyHandlers(el);
     }
+  }
+
+  /**
+   * Copy message content to clipboard
+   */
+  copyMessageContent(content: string): void {
+    if (!content) return;
+
+    navigator.clipboard.writeText(content).then(() => {
+      // Visual feedback could be added here if needed
+      console.log('Message copied to clipboard');
+    }).catch(err => {
+      console.error('Failed to copy message:', err);
+    });
   }
 
   formatType(type: string): string {

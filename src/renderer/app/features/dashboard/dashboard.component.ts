@@ -649,6 +649,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.showSettings.set(false);
         } else if (this.showHistory()) {
           this.showHistory.set(false);
+        } else {
+          // No modals open - interrupt the selected instance if busy
+          const instance = this.store.selectedInstance();
+          if (instance && instance.status === 'busy') {
+            this.store.interruptInstance(instance.id);
+          }
         }
       })
     );

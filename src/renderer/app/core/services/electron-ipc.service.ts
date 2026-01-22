@@ -2867,7 +2867,7 @@ export class ElectronIpcService {
   async unifiedMemoryRetrieve(payload: {
     query: string;
     taskId: string;
-    options?: { types?: string[]; maxTokens?: number };
+    options?: { types?: string[]; maxTokens?: number; sessionId?: string; instanceId?: string };
   }) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.unifiedMemoryRetrieve(payload);

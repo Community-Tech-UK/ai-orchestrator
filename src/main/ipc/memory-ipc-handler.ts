@@ -150,7 +150,11 @@ function registerUnifiedMemoryHandlers(): void {
     IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE,
     async (
       _event,
-      payload: { query: string; taskId: string; options?: { types?: MemoryType[]; maxTokens?: number } }
+      payload: {
+        query: string;
+        taskId: string;
+        options?: { types?: MemoryType[]; maxTokens?: number; sessionId?: string; instanceId?: string };
+      }
     ): Promise<UnifiedRetrievalResult> => {
       return unified.retrieve(payload.query, payload.taskId, payload.options);
     }

@@ -259,7 +259,8 @@ export abstract class BaseCliAdapter extends EventEmitter {
     try {
       // Send SIGINT (equivalent to Ctrl+C in terminal)
       this.process.kill('SIGINT');
-      this.emit('status', 'interrupted');
+      // Note: Don't emit status here - the instance manager handles status updates
+      // after interrupt. The CLI will emit 'waiting_for_input' when it's ready.
       return true;
     } catch (error) {
       console.error('Failed to interrupt process:', error);

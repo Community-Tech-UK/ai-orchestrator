@@ -32,6 +32,7 @@ export interface ClaudeCliSpawnOptions {
   maxTokens?: number;
   yoloMode?: boolean;
   resume?: boolean;
+  forkSession?: boolean; // When resuming, create a new session ID instead of reusing
   allowedTools?: string[];
   disallowedTools?: string[];
   systemPrompt?: string;
@@ -352,6 +353,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     if (this.spawnOptions.resume && this.sessionId) {
       args.push('--resume', this.sessionId);
+      // Fork session creates a new session ID while preserving conversation history
+      if (this.spawnOptions.forkSession) {
+        args.push('--fork-session');
+      }
     } else if (this.sessionId) {
       args.push('--session-id', this.sessionId);
     }

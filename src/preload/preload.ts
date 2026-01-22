@@ -3093,7 +3093,7 @@ const electronAPI = {
   unifiedMemoryRetrieve: (payload: {
     query: string;
     taskId: string;
-    options?: { types?: string[]; maxTokens?: number };
+    options?: { types?: string[]; maxTokens?: number; sessionId?: string; instanceId?: string };
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.UNIFIED_MEMORY_RETRIEVE, payload);
   },

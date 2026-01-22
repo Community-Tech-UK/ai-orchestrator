@@ -151,6 +151,7 @@ export interface InstanceCreateConfig {
   yoloMode?: boolean;
   initialOutputBuffer?: OutputMessage[];  // Pre-populate output buffer (for history restore)
   agentId?: string;  // Agent profile ID (defaults to 'build')
+  modelOverride?: string;  // Optional model override for the instance
 }
 
 export interface InstanceSummary {

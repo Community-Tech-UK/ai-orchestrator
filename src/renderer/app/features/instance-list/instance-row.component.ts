@@ -81,9 +81,6 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
             <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
           }
         </div>
-        <div class="instance-meta">
-          <span class="session-id mono" [title]="'Session ID: ' + instance().sessionId">{{ instance().sessionId.slice(0, 8) }}...</span>
-        </div>
       </div>
 
       <app-context-bar

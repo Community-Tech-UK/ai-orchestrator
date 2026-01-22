@@ -25,6 +25,7 @@ import type {
   RetrievalOptions,
   SessionOutcome,
 } from '../../shared/types/unified-memory.types';
+import type { MemoryEntry } from '../../shared/types/memory-r1.types';
 import { MemoryManagerAgent, getMemoryManager } from '../memory-r1/memory-manager';
 import { RLMContextManager } from '../rlm/context-manager';
 
@@ -102,12 +103,15 @@ export class UnifiedMemoryController extends EventEmitter {
   // ============ Unified Memory Operations ============
 
   async processInput(input: string, sessionId: string, taskId: string): Promise<void> {
+    const taggedInput = this.ensureSessionTag(input, sessionId);
+    const plainInput = this.stripMemoryTags(taggedInput);
+
     // 1. Add to short-term buffer
-    await this.addToShortTerm(input);
+    await this.addToShortTerm(taggedInput);
 
     // 2. Decide if long-term storage needed (Memory-R1)
     if (this.config.trainingStage >= 2) {
-      const decision = await this.memoryR1.decideOperation(this.getShortTermContext(), input, taskId);
+      const decision = await this.memoryR1.decideOperation(this.getShortTermContext(), taggedInput, taskId);
 
       if (decision.operation !== 'NOOP') {
         await this.memoryR1.executeOperation(decision);
@@ -115,7 +119,7 @@ export class UnifiedMemoryController extends EventEmitter {
     }
 
     // 3. Check for pattern emergence
-    await this.detectPatterns(input, sessionId);
+    await this.detectPatterns(plainInput, sessionId);
 
     // 4. Trigger summarization if needed
     if (this.state.shortTerm.currentTokens > this.config.shortTermSummarizeAt) {
@@ -128,6 +132,7 @@ export class UnifiedMemoryController extends EventEmitter {
   async retrieve(query: string, taskId: string, options?: RetrievalOptions): Promise<UnifiedRetrievalResult> {
     const types = options?.types || ['short_term', 'long_term', 'procedural'];
     const maxTokens = options?.maxTokens || this.config.shortTermMaxTokens;
+    const filterTags = this.getFilterTags(options);
 
     const results: UnifiedRetrievalResult = {
       shortTerm: [],
@@ -145,15 +150,19 @@ export class UnifiedMemoryController extends EventEmitter {
 
     // Short-term fetching (recency-based + keyword match)
     if (types.includes('short_term')) {
-      results.shortTerm = this.fetchShortTerm(query, budgets.shortTerm);
+      results.shortTerm = this.fetchShortTerm(query, budgets.shortTerm, filterTags);
       results.totalTokens += this.estimateTokens(results.shortTerm.join(' '));
     }
 
     // Long-term fetching (semantic similarity via Memory-R1)
     if (types.includes('long_term') && this.config.trainingStage >= 2) {
       const entries = await this.memoryR1.retrieve(query, taskId);
-      results.longTerm = entries.map(e => e.content);
-      results.totalTokens += entries.reduce((sum, e) => sum + this.estimateTokens(e.content), 0);
+      const filteredEntries = this.filterEntriesByTags(entries, filterTags, options);
+      results.longTerm = filteredEntries.map(e => this.stripMemoryTags(e.content));
+      results.totalTokens += filteredEntries.reduce(
+        (sum, e) => sum + this.estimateTokens(this.stripMemoryTags(e.content)),
+        0
+      );
     }
 
     // Procedural fetching (matching workflows/strategies)
@@ -183,18 +192,20 @@ export class UnifiedMemoryController extends EventEmitter {
     }
   }
 
-  private fetchShortTerm(query: string, maxTokens: number): string[] {
+  private fetchShortTerm(query: string, maxTokens: number, filterTags: string[]): string[] {
     const queryTerms = query.toLowerCase().split(/\s+/);
     const results: string[] = [];
     let usedTokens = 0;
+    const buffer = this.filterShortTermBuffer(this.state.shortTerm.buffer, filterTags);
 
     // Prioritize recent and keyword-matching entries
-    const scored = this.state.shortTerm.buffer.map((content, index) => {
-      const lowerContent = content.toLowerCase();
+    const scored = buffer.map((content, index) => {
+      const sanitized = this.stripMemoryTags(content);
+      const lowerContent = sanitized.toLowerCase();
       const matches = queryTerms.filter(term => lowerContent.includes(term)).length;
-      const recency = index / this.state.shortTerm.buffer.length; // 0-1
+      const recency = buffer.length > 0 ? index / buffer.length : 0; // 0-1
       return {
-        content,
+        content: sanitized,
         score: matches * 0.6 + recency * 0.4,
       };
     });
@@ -212,14 +223,17 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   getShortTermContext(): string {
-    return this.state.shortTerm.buffer.slice(-10).join('\n\n');
+    return this.state.shortTerm.buffer
+      .slice(-10)
+      .map(entry => this.stripMemoryTags(entry))
+      .join('\n\n');
   }
 
   private async summarizeShortTerm(): Promise<void> {
     // Take oldest 50% of buffer
     const toSummarize = this.state.shortTerm.buffer.splice(0, Math.floor(this.state.shortTerm.buffer.length / 2));
 
-    const content = toSummarize.join('\n\n');
+    const content = toSummarize.map(entry => this.stripMemoryTags(entry)).join('\n\n');
 
     // Call summarization (placeholder - actual impl uses LLM)
     const summary = await this.callSummarizer(content);
@@ -262,7 +276,10 @@ export class UnifiedMemoryController extends EventEmitter {
 
   private extractKeyEvents(): string[] {
     // Extract significant events from short-term buffer
-    return this.state.shortTerm.buffer.filter(b => b.length > 100).slice(-5);
+    return this.state.shortTerm.buffer
+      .filter(b => b.length > 100)
+      .slice(-5)
+      .map(entry => this.stripMemoryTags(entry));
   }
 
   private async extractPatterns(session: SessionMemory): Promise<void> {
@@ -398,6 +415,56 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   // ============ Utilities ============
+
+  private ensureSessionTag(input: string, sessionId: string): string {
+    if (/^\s*\[(?:instance|session):/i.test(input)) {
+      return input;
+    }
+
+    return `[session:${sessionId}] ${input}`;
+  }
+
+  private getFilterTags(options?: RetrievalOptions): string[] {
+    const tags: string[] = [];
+
+    if (options?.instanceId) {
+      tags.push(`[instance:${options.instanceId}]`);
+    }
+
+    if (options?.sessionId) {
+      tags.push(`[session:${options.sessionId}]`);
+    }
+
+    return tags;
+  }
+
+  private filterShortTermBuffer(buffer: string[], tags: string[]): string[] {
+    if (tags.length === 0) return buffer;
+    return buffer.filter(content => this.matchesFilterTags(content, tags));
+  }
+
+  private filterEntriesByTags(
+    entries: MemoryEntry[],
+    tags: string[],
+    options?: RetrievalOptions
+  ): MemoryEntry[] {
+    if (tags.length === 0) return entries;
+
+    return entries.filter(entry => {
+      if (options?.sessionId && entry.sourceSessionId === options.sessionId) {
+        return true;
+      }
+      return this.matchesFilterTags(entry.content, tags);
+    });
+  }
+
+  private matchesFilterTags(content: string, tags: string[]): boolean {
+    return tags.every(tag => content.includes(tag));
+  }
+
+  private stripMemoryTags(content: string): string {
+    return content.replace(/^\s*(\[(?:instance|session):[^\]]+\]\s*)+/i, '').trim();
+  }
 
   private estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
