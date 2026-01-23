@@ -20,6 +20,7 @@ import {
 import { DatePipe } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
 import { MarkdownService } from '../../core/services/markdown.service';
+import { ElectronIpcService } from '../../core/services/electron-ipc.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
 import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
 
@@ -290,6 +291,12 @@ interface DisplayItem {
           a {
             color: #1a1a1a;
             text-decoration: underline;
+            font-weight: 600;
+
+            &:hover {
+              background: rgba(0, 0, 0, 0.1);
+              border-radius: 2px;
+            }
           }
 
           .inline-code {
@@ -299,17 +306,6 @@ interface DisplayItem {
           }
         }
 
-        /* Text selection highlight on orange background */
-        ::selection {
-          background: rgba(0, 0, 0, 0.3);
-          color: #fff;
-        }
-
-        ::-moz-selection {
-          background: rgba(0, 0, 0, 0.3);
-          color: #fff;
-        }
-
         .copy-message-btn {
           color: rgba(26, 26, 26, 0.6);
 
@@ -317,6 +313,19 @@ interface DisplayItem {
             color: #1a1a1a;
             background: rgba(0, 0, 0, 0.1);
           }
+        }
+      }
+
+      /* Text selection for user messages - needs ::ng-deep to pierce shadow DOM */
+      :host ::ng-deep .message-user {
+        *::selection {
+          background: rgba(0, 0, 0, 0.35) !important;
+          color: #fff !important;
+        }
+
+        *::-moz-selection {
+          background: rgba(0, 0, 0, 0.35) !important;
+          color: #fff !important;
         }
       }
 
@@ -438,10 +447,23 @@ interface DisplayItem {
         margin-right: 0;
       }
 
+      /* File path styling - make clickable */
+      :host ::ng-deep .file-path {
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: rgba(var(--primary-rgb), 0.2);
+          border-color: var(--primary-color);
+          text-decoration: underline;
+        }
+      }
+
       .scroll-to-bottom-btn {
-        position: absolute;
+        position: sticky;
         bottom: 20px;
-        right: 20px;
+        align-self: flex-end;
+        margin-top: -40px;
         width: 40px;
         height: 40px;
         border-radius: 50%;
@@ -455,6 +477,7 @@ interface DisplayItem {
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
         transition: all var(--transition-fast);
         z-index: 10;
+        flex-shrink: 0;
 
         &:hover {
           background: var(--primary-color);
@@ -487,6 +510,7 @@ export class OutputStreamComponent {
   private copyResetTimer: number | null = null;
 
   private markdownService = inject(MarkdownService);
+  private ipc = inject(ElectronIpcService);
 
   /**
    * Shows all messages, consolidating streaming messages with the same ID.
@@ -589,11 +613,14 @@ export class OutputStreamComponent {
     el.addEventListener('scroll', () => {
       const scrollPosition = el.scrollTop + el.clientHeight;
       const scrollHeight = el.scrollHeight;
-      const threshold = 100; // Consider "at bottom" if within 100px
+      const autoScrollThreshold = 100; // Consider "at bottom" for auto-scroll if within 100px
+      const buttonShowThreshold = 50; // Show button after scrolling up just 50px
 
-      const isAtBottom = scrollPosition >= scrollHeight - threshold;
+      const isAtBottom = scrollPosition >= scrollHeight - autoScrollThreshold;
+      const shouldShowButton = scrollPosition < scrollHeight - buttonShowThreshold;
+
       this.userScrolledUp = !isAtBottom;
-      this.showScrollToBottom.set(!isAtBottom);
+      this.showScrollToBottom.set(shouldShowButton);
     });
   }
 
@@ -613,13 +640,22 @@ export class OutputStreamComponent {
   }
 
   /**
-   * Setup click handlers for copy buttons
+   * Setup click handlers for copy buttons and file paths
    */
   private setupCopyHandlers(): void {
     const el = this.container()?.nativeElement;
     if (el) {
       this.markdownService.setupCopyHandlers(el);
+      this.markdownService.setupFilePathHandlers(el, (filePath) => this.onFilePathClick(filePath));
     }
+  }
+
+  /**
+   * Handle click on a file path - open the file in the system's default editor
+   */
+  private onFilePathClick(filePath: string): void {
+    console.log('Opening file:', filePath);
+    this.ipc.openPath(filePath);
   }
 
   /**
@@ -705,8 +741,30 @@ export class OutputStreamComponent {
     return message.content || '';
   }
 
+  // Memoization cache for rendered markdown - prevents re-rendering on every CD cycle
+  private markdownCache = new Map<string, ReturnType<MarkdownService['render']>>();
+  private readonly MAX_CACHE_SIZE = 100;
+
   renderMarkdown(content: string): ReturnType<MarkdownService['render']> {
-    return this.markdownService.render(content);
+    if (!content) return '';
+
+    // Check cache first
+    const cached = this.markdownCache.get(content);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    // Render and cache
+    const rendered = this.markdownService.render(content);
+
+    // Manage cache size - remove oldest entries if too large
+    if (this.markdownCache.size >= this.MAX_CACHE_SIZE) {
+      const firstKey = this.markdownCache.keys().next().value;
+      if (firstKey) this.markdownCache.delete(firstKey);
+    }
+
+    this.markdownCache.set(content, rendered);
+    return rendered;
   }
 
   /**

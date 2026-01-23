@@ -213,9 +213,10 @@ export class InstanceManager extends EventEmitter {
    * Start idle instance check timer
    */
   private startIdleCheckTimer(): void {
-    // Check every minute for idle instances
+    // Check every minute for idle instances and zombie processes
     this.idleCheckTimer = setInterval(() => {
       this.checkIdleInstances();
+      this.cleanupZombieProcesses();
     }, 60000);
   }
 
@@ -264,6 +265,73 @@ export class InstanceManager extends EventEmitter {
         `Terminating idle instance ${idleInstances[i].id} due to memory pressure`
       );
       this.terminateInstance(idleInstances[i].id, true);
+    }
+  }
+
+  /**
+   * Force cleanup an adapter when errors occur
+   * This ensures the process is killed and resources are freed
+   */
+  private async forceCleanupAdapter(instanceId: string): Promise<void> {
+    const adapter = this.adapters.get(instanceId);
+    if (!adapter) return;
+
+    console.log(`Force cleaning up adapter for instance ${instanceId}`);
+
+    try {
+      // Force terminate with no grace period
+      await adapter.terminate(false);
+    } catch (error) {
+      console.error(`Error during force cleanup of ${instanceId}:`, error);
+    } finally {
+      // Always remove from the map
+      this.adapters.delete(instanceId);
+    }
+  }
+
+  /**
+   * Check for and clean up zombie/orphaned processes
+   * Called periodically to ensure crashed instances don't leave processes running
+   */
+  private cleanupZombieProcesses(): void {
+    // Check for adapters without corresponding instances or with error/terminated status
+    for (const [instanceId, adapter] of this.adapters.entries()) {
+      const instance = this.instances.get(instanceId);
+
+      // Adapter exists but instance doesn't - orphaned adapter
+      if (!instance) {
+        console.log(`Found orphaned adapter for non-existent instance ${instanceId}, cleaning up`);
+        this.forceCleanupAdapter(instanceId).catch((err) => {
+          console.error(`Failed to cleanup orphaned adapter ${instanceId}:`, err);
+        });
+        continue;
+      }
+
+      // Instance is in error or terminated status but adapter still exists
+      if (instance.status === 'error' || instance.status === 'terminated') {
+        // Check if the adapter's process is still running
+        if (adapter.isRunning()) {
+          console.log(`Found zombie process for ${instance.status} instance ${instanceId}, force killing`);
+          this.forceCleanupAdapter(instanceId).catch((err) => {
+            console.error(`Failed to cleanup zombie process ${instanceId}:`, err);
+          });
+        } else {
+          // Process is gone but adapter is still in map - just remove it
+          this.adapters.delete(instanceId);
+        }
+      }
+    }
+
+    // Also check for instances that claim to have processes but their adapter is gone
+    for (const [instanceId, instance] of this.instances.entries()) {
+      if (instance.processId && !this.adapters.has(instanceId)) {
+        console.log(`Instance ${instanceId} claims PID ${instance.processId} but has no adapter, clearing PID`);
+        instance.processId = null;
+        if (instance.status === 'busy' || instance.status === 'initializing') {
+          instance.status = 'error';
+          this.queueUpdate(instanceId, 'error');
+        }
+      }
     }
   }
 
@@ -943,6 +1011,35 @@ export class InstanceManager extends EventEmitter {
   }
 
   /**
+   * Send a raw input response (for permission prompts, etc.)
+   * This sends a simple string without any message framing
+   */
+  async sendInputResponse(
+    instanceId: string,
+    response: string
+  ): Promise<void> {
+    const adapter = this.adapters.get(instanceId);
+    if (!adapter) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    const instance = this.instances.get(instanceId);
+    if (instance) {
+      instance.lastActivity = Date.now();
+    }
+
+    console.log(`InstanceManager: Sending input response to ${instanceId}: ${response}`);
+
+    // For Claude CLI, send via sendRaw method (if available) or regular sendInput
+    if ('sendRaw' in adapter && typeof (adapter as any).sendRaw === 'function') {
+      await (adapter as any).sendRaw(response);
+    } else {
+      // Fall back to regular sendInput
+      await adapter.sendInput(response);
+    }
+  }
+
+  /**
    * Terminate an instance
    */
   async terminateInstance(
@@ -1289,6 +1386,17 @@ export class InstanceManager extends EventEmitter {
       }
     });
 
+    // Handle input_required events (permission prompts, etc.)
+    adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number }) => {
+      console.log(`Instance ${instanceId} requires input: ${payload.prompt}`);
+      this.emit('instance:input-required', {
+        instanceId,
+        requestId: payload.id,
+        prompt: payload.prompt,
+        timestamp: payload.timestamp
+      });
+    });
+
     adapter.on('error', (error: Error) => {
       const instance = this.instances.get(instanceId);
       if (instance) {
@@ -1297,6 +1405,11 @@ export class InstanceManager extends EventEmitter {
         this.queueUpdate(instanceId, 'error');
       }
       console.error(`Instance ${instanceId} error:`, error);
+
+      // Force terminate the adapter to prevent zombie processes
+      this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
+        console.error(`Failed to cleanup adapter for ${instanceId} after error:`, cleanupErr);
+      });
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {
@@ -1328,12 +1441,26 @@ export class InstanceManager extends EventEmitter {
 
       if (instance.status !== 'terminated') {
         // Unexpected exit - mark as error or terminated
+        const newStatus = code === 0 ? 'terminated' : 'error';
         console.log(
-          `Instance ${instanceId} exited unexpectedly, marking as ${code === 0 ? 'terminated' : 'error'}`
+          `Instance ${instanceId} exited unexpectedly, marking as ${newStatus}`
         );
-        instance.status = code === 0 ? 'terminated' : 'error';
+        instance.status = newStatus;
         instance.processId = null;
         this.queueUpdate(instanceId, instance.status);
+
+        // Clean up the adapter from our map since the process has exited
+        this.adapters.delete(instanceId);
+
+        // Archive crashed/unexpectedly terminated instances to history
+        // (only for root instances with messages)
+        if (!instance.parentId && instance.outputBuffer.length > 0) {
+          const history = getHistoryManager();
+          history.archiveInstance(instance, newStatus === 'error' ? 'error' : 'completed')
+            .catch((err) => {
+              console.error(`Failed to archive crashed instance ${instanceId} to history:`, err);
+            });
+        }
       }
     });
   }

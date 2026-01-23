@@ -62,8 +62,8 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
             </span>
             <span
               class="provider-dot"
-              [style.background-color]="getProviderColor(instance().provider)"
-              [title]="getProviderDisplayName(instance().provider)"
+              [style.background-color]="providerColor()"
+              [title]="providerDisplayName()"
             ></span>
           </div>
           @if (isEditingName()) {
@@ -452,6 +452,32 @@ export class InstanceRowComponent {
     return agentId ? getAgentById(agentId) || getDefaultAgent() : getDefaultAgent();
   });
 
+  // Cached provider values - computed once per instance change instead of every CD cycle
+  providerDisplayName = computed(() => {
+    const provider = this.instance().provider;
+    switch (provider) {
+      case 'claude': return 'Claude';
+      case 'codex': return 'Codex';
+      case 'gemini': return 'Gemini';
+      case 'ollama': return 'Ollama';
+      case 'copilot': return 'GitHub Copilot';
+      default: return 'AI';
+    }
+  });
+
+  providerColor = computed(() => {
+    const provider = this.instance().provider;
+    switch (provider) {
+      case 'claude': return '#D97706';
+      case 'codex': return '#10A37F';
+      case 'gemini': return '#4285F4';
+      case 'ollama': return '#888888';
+      case 'copilot': return '#A855F7';
+      default: return '#888888';
+    }
+  });
+
+  // Keep methods for backwards compat but prefer computed signals
   getProviderDisplayName(provider: string): string {
     switch (provider) {
       case 'claude': return 'Claude';

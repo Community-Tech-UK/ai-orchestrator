@@ -828,6 +828,37 @@ export class IpcMainHandler {
         }
       }
     );
+
+    // Handle input required responses (permission prompts)
+    ipcMain.handle(
+      IPC_CHANNELS.INPUT_REQUIRED_RESPOND,
+      async (
+        event: IpcMainInvokeEvent,
+        payload: { instanceId: string; requestId: string; response: string }
+      ): Promise<IpcResponse> => {
+        try {
+          // Send the response to the CLI via stdin
+          await this.instanceManager.sendInputResponse(
+            payload.instanceId,
+            payload.response
+          );
+
+          return {
+            success: true,
+            data: { requestId: payload.requestId, responded: true }
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'INPUT_REQUIRED_RESPOND_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now()
+            }
+          };
+        }
+      }
+    );
   }
 
   /**
@@ -1071,6 +1102,40 @@ export class IpcMainHandler {
             success: false,
             error: {
               code: 'FILE_GET_STATS_FAILED',
+              message: (error as Error).message,
+              timestamp: Date.now()
+            }
+          };
+        }
+      }
+    );
+
+    // Open file or folder with system default application
+    ipcMain.handle(
+      IPC_CHANNELS.FILE_OPEN_PATH,
+      async (
+        _event: IpcMainInvokeEvent,
+        payload: { path: string }
+      ): Promise<IpcResponse> => {
+        try {
+          const result = await shell.openPath(payload.path);
+          // shell.openPath returns empty string on success, error message on failure
+          if (result) {
+            return {
+              success: false,
+              error: {
+                code: 'FILE_OPEN_FAILED',
+                message: result,
+                timestamp: Date.now()
+              }
+            };
+          }
+          return { success: true };
+        } catch (error) {
+          return {
+            success: false,
+            error: {
+              code: 'FILE_OPEN_FAILED',
               message: (error as Error).message,
               timestamp: Date.now()
             }

@@ -46,6 +46,7 @@ export const IPC_CHANNELS = {
   IMAGE_PASTE: 'image:paste',
   FILE_READ_DIR: 'file:read-dir',
   FILE_GET_STATS: 'file:get-stats',
+  FILE_OPEN_PATH: 'file:open-path',
 
   // App operations
   APP_READY: 'app:ready',
@@ -125,6 +126,10 @@ export const IPC_CHANNELS = {
   USER_ACTION_RESPOND: 'user-action:respond',
   USER_ACTION_LIST: 'user-action:list',
   USER_ACTION_LIST_FOR_INSTANCE: 'user-action:list-for-instance',
+
+  // Input required events (CLI permission prompts, etc.)
+  INPUT_REQUIRED: 'instance:input-required',
+  INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
 
   // VCS operations (Git)
   VCS_IS_REPO: 'vcs:is-repo',

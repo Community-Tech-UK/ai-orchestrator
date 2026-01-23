@@ -574,6 +574,21 @@ export class InstanceStore implements OnDestroy {
       provider,
       model
     });
+
+    // Validate files first
+    if (files && files.length > 0) {
+      const validationErrors = this.validateFiles(files);
+      if (validationErrors.length > 0) {
+        const errorMessage = validationErrors.join('\n');
+        console.error('InstanceStore: File validation failed:', errorMessage);
+        this.state.update((s) => ({
+          ...s,
+          error: `Cannot create instance:\n${errorMessage}`
+        }));
+        return;
+      }
+    }
+
     this.state.update((s) => ({ ...s, loading: true }));
 
     try {
@@ -596,7 +611,7 @@ export class InstanceStore implements OnDestroy {
       this.state.update((s) => ({
         ...s,
         loading: false,
-        error: 'Failed to create instance'
+        error: `Failed to create instance: ${(error as Error).message}`
       }));
     }
   }
@@ -651,11 +666,65 @@ export class InstanceStore implements OnDestroy {
     message: string,
     files?: File[]
   ): Promise<void> {
+    // Validate files first
+    if (files && files.length > 0) {
+      const validationErrors = this.validateFiles(files);
+      if (validationErrors.length > 0) {
+        // Show error message to user instead of crashing
+        const errorMessage = validationErrors.join('\n');
+        console.error('InstanceStore: File validation failed:', errorMessage);
+
+        // Add error message to output buffer
+        this.state.update((current) => {
+          const newMap = new Map(current.instances);
+          const instance = newMap.get(instanceId);
+          if (instance) {
+            const errorOutput: OutputMessage = {
+              id: `error-${Date.now()}`,
+              timestamp: Date.now(),
+              type: 'error',
+              content: `Failed to send message:\n${errorMessage}`
+            };
+            newMap.set(instanceId, {
+              ...instance,
+              outputBuffer: [...instance.outputBuffer, errorOutput]
+            });
+          }
+          return { ...current, instances: newMap };
+        });
+        return;
+      }
+    }
+
     // Convert files to base64 for IPC
-    const attachments =
-      files && files.length > 0
-        ? await Promise.all(files.map((f) => this.fileToAttachment(f)))
-        : undefined;
+    let attachments;
+    try {
+      attachments =
+        files && files.length > 0
+          ? await Promise.all(files.map((f) => this.fileToAttachment(f)))
+          : undefined;
+    } catch (error) {
+      // File conversion failed - show error without crashing
+      console.error('InstanceStore: File conversion failed:', error);
+      this.state.update((current) => {
+        const newMap = new Map(current.instances);
+        const instance = newMap.get(instanceId);
+        if (instance) {
+          const errorOutput: OutputMessage = {
+            id: `error-${Date.now()}`,
+            timestamp: Date.now(),
+            type: 'error',
+            content: `Failed to process attachment: ${(error as Error).message}`
+          };
+          newMap.set(instanceId, {
+            ...instance,
+            outputBuffer: [...instance.outputBuffer, errorOutput]
+          });
+        }
+        return { ...current, instances: newMap };
+      });
+      return;
+    }
 
     // Optimistically update status
     this.state.update((current) => {
@@ -902,13 +971,36 @@ export class InstanceStore implements OnDestroy {
     };
   }
 
+  // Maximum file size for attachments (5MB)
+  private static readonly MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+  /**
+   * Validate files before sending - returns array of error messages for invalid files
+   */
+  validateFiles(files: File[]): string[] {
+    const errors: string[] = [];
+    for (const file of files) {
+      if (file.size > InstanceStore.MAX_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        errors.push(`${file.name} is too large (${sizeMB}MB). Maximum size is 5MB.`);
+      }
+    }
+    return errors;
+  }
+
   private async fileToAttachment(file: File): Promise<{
     name: string;
     type: string;
     size: number;
     data: string;
   }> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      // Validate file size
+      if (file.size > InstanceStore.MAX_FILE_SIZE) {
+        reject(new Error(`File ${file.name} exceeds maximum size of 5MB`));
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         resolve({
@@ -917,6 +1009,9 @@ export class InstanceStore implements OnDestroy {
           size: file.size,
           data: reader.result as string
         });
+      };
+      reader.onerror = () => {
+        reject(new Error(`Failed to read file ${file.name}`));
       };
       reader.readAsDataURL(file);
     });

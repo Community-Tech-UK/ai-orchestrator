@@ -47,6 +47,7 @@ import { UserActionRequestComponent } from './user-action-request.component';
         (filesDropped)="onFilesDropped($event)"
         (imagesPasted)="onImagesPasted($event)"
         (filePathDropped)="onFilePathDropped($event)"
+        (folderDropped)="onFolderDropped($event)"
       >
         <div class="instance-detail">
           <!-- Header -->
@@ -82,10 +83,10 @@ import { UserActionRequestComponent } from './user-action-request.component';
               <div class="instance-meta">
                 <span
                   class="provider-badge"
-                  [style.background-color]="getProviderColor(inst.provider)"
-                  [title]="'Provider: ' + getProviderDisplayName(inst.provider)"
+                  [style.background-color]="providerColor()"
+                  [title]="'Provider: ' + providerDisplayName()"
                 >
-                  {{ getProviderDisplayName(inst.provider) }}
+                  {{ providerDisplayName() }}
                 </span>
                 @if (inst.provider === 'copilot') {
                   <div class="model-selector-inline">
@@ -134,8 +135,8 @@ import { UserActionRequestComponent } from './user-action-request.component';
                   [title]="'Click to change mode (will restart instance)'"
                   (click)="onCycleAgentMode()"
                 >
-                  {{ getAgentModeIcon(inst.agentId) }}
-                  {{ getAgentModeName(inst.agentId) }}
+                  {{ agentModeIcon() }}
+                  {{ agentModeName() }}
                 </button>
                 <span class="separator">•</span>
                 <button
@@ -207,9 +208,6 @@ import { UserActionRequestComponent } from './user-action-request.component';
           <!-- TODO list -->
           <app-todo-list [sessionId]="inst.sessionId" />
 
-          <!-- User action requests (orchestrator -> user) -->
-          <app-user-action-request [instanceId]="inst.id" />
-
           <!-- Output stream -->
           <div class="output-section">
             <app-output-stream
@@ -226,16 +224,21 @@ import { UserActionRequestComponent } from './user-action-request.component';
             }
           </div>
 
+          <!-- User action requests (orchestrator -> user) - positioned just above input -->
+          <app-user-action-request [instanceId]="inst.id" />
+
           <!-- Input panel -->
           <app-input-panel
             [instanceId]="inst.id"
             [disabled]="inst.status === 'terminated'"
             [placeholder]="inputPlaceholder()"
             [pendingFiles]="pendingFiles()"
+            [pendingFolders]="pendingFolders()"
             [queuedCount]="queuedMessageCount()"
             [isBusy]="inst.status === 'busy'"
             (sendMessage)="onSendMessage($event)"
             (removeFile)="onRemoveFile($event)"
+            (removeFolder)="onRemoveFolder($event)"
             (addFiles)="onAddFiles()"
           />
 
@@ -930,11 +933,43 @@ export class InstanceDetailComponent {
     return this.draftService.getPendingFiles(inst.id);
   });
 
+  // Pending folders computed from draft service (persisted per instance)
+  pendingFolders = computed(() => {
+    const inst = this.instance();
+    if (!inst) return [];
+    // Track draft version changes for reactivity
+    this.draftService.version();
+    return this.draftService.getPendingFolders(inst.id);
+  });
+
   // Queue count - computed from store (re-evaluated when instance changes)
   queuedMessageCount = computed(() => {
     const inst = this.instance();
     if (!inst) return 0;
     return this.store.getQueuedMessageCount(inst.id);
+  });
+
+  // Cached provider display values - avoid method calls in templates
+  providerDisplayName = computed(() => {
+    const inst = this.instance();
+    if (!inst) return 'AI';
+    return this.getProviderDisplayName(inst.provider);
+  });
+
+  providerColor = computed(() => {
+    const inst = this.instance();
+    if (!inst) return '#888888';
+    return this.getProviderColor(inst.provider);
+  });
+
+  agentModeIcon = computed(() => {
+    const inst = this.instance();
+    return this.getAgentModeIcon(inst?.agentId);
+  });
+
+  agentModeName = computed(() => {
+    const inst = this.instance();
+    return this.getAgentModeName(inst?.agentId);
   });
 
   constructor() {
@@ -1043,8 +1078,19 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
-    this.store.sendInput(inst.id, message, this.pendingFiles());
+    // Prepend folder paths to the message if any
+    const folders = this.pendingFolders();
+    let finalMessage = message;
+    if (folders.length > 0) {
+      const folderRefs = folders.map(f => `[Folder: ${f}]`).join('\n');
+      finalMessage = folders.length > 0 && message
+        ? `${folderRefs}\n\n${message}`
+        : folderRefs;
+    }
+
+    this.store.sendInput(inst.id, finalMessage, this.pendingFiles());
     this.draftService.clearPendingFiles(inst.id);
+    this.draftService.clearPendingFolders(inst.id);
   }
 
   onFilesDropped(files: File[]): void {
@@ -1057,6 +1103,12 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
     this.draftService.addPendingFiles(inst.id, images);
+  }
+
+  onFolderDropped(folderPath: string): void {
+    const inst = this.instance();
+    if (!inst) return;
+    this.draftService.addPendingFolder(inst.id, folderPath);
   }
 
   async onFilePathDropped(filePath: string): Promise<void> {
@@ -1097,6 +1149,12 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
     this.draftService.removePendingFile(inst.id, file);
+  }
+
+  onRemoveFolder(folder: string): void {
+    const inst = this.instance();
+    if (!inst) return;
+    this.draftService.removePendingFolder(inst.id, folder);
   }
 
   onRestart(): void {

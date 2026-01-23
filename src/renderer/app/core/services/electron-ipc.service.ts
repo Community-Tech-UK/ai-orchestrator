@@ -366,6 +366,15 @@ export class ElectronIpcService {
     return response.success ? (response.data as FileEntry) : null;
   }
 
+  /**
+   * Open a file or folder with the system's default application
+   */
+  async openPath(path: string): Promise<boolean> {
+    if (!this.api) return false;
+    const response = await this.api.openPath(path);
+    return response.success;
+  }
+
   // ============================================
   // History
   // ============================================
@@ -3201,5 +3210,37 @@ export class ElectronIpcService {
   async listUserActionRequestsForInstance(instanceId: string) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.listUserActionRequestsForInstance(instanceId);
+  }
+
+  // ============================================
+  // Input Required (CLI Permission Prompts)
+  // ============================================
+
+  /**
+   * Subscribe to input required events (permission prompts from CLI)
+   */
+  onInputRequired(callback: (payload: {
+    instanceId: string;
+    requestId: string;
+    prompt: string;
+    timestamp: number;
+  }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+
+    return this.api.onInputRequired((payload) => {
+      this.ngZone.run(() => callback(payload));
+    });
+  }
+
+  /**
+   * Respond to an input required event (for permission prompts)
+   */
+  async respondToInputRequired(
+    instanceId: string,
+    requestId: string,
+    response: string
+  ) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.respondToInputRequired(instanceId, requestId, response);
   }
 }

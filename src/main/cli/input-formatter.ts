@@ -70,6 +70,7 @@ export class InputFormatter {
    * Send a raw string to stdin (for non-JSON mode)
    */
   async sendRaw(content: string): Promise<void> {
+    console.log('InputFormatter.sendRaw called:', { content });
     return new Promise((resolve, reject) => {
       const success = this.stdin.write(content + '\n', 'utf-8', (error) => {
         if (error) {

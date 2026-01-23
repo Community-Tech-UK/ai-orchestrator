@@ -22,9 +22,24 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
   standalone: true,
   template: `
     <div class="input-panel">
-      <!-- Pending files preview -->
-      @if (pendingFilePreviews().length > 0) {
+      <!-- Pending files and folders preview -->
+      @if (pendingFilePreviews().length > 0 || pendingFolders().length > 0) {
         <div class="pending-files">
+          <!-- Folder chips -->
+          @for (folder of pendingFolders(); track folder) {
+            <div class="file-chip folder-chip">
+              <span class="file-icon">📁</span>
+              <span class="file-name" [title]="folder">{{ getFolderDisplayName(folder) }}</span>
+              <button
+                class="file-remove"
+                (click)="onRemoveFolder(folder)"
+                title="Remove folder reference"
+              >
+                ×
+              </button>
+            </div>
+          }
+          <!-- File previews -->
           @for (preview of pendingFilePreviews(); track preview.file.name) {
             @if (preview.isImage) {
               <div class="file-preview-card">
@@ -164,6 +179,21 @@ import type { CommandTemplate } from '../../../../shared/types/command.types';
 
     .file-chip:hover {
       border-color: var(--border-color);
+    }
+
+    .folder-chip {
+      background: rgba(var(--primary-rgb), 0.1);
+      border-color: rgba(var(--primary-rgb), 0.3);
+      color: var(--primary-color);
+    }
+
+    .folder-chip:hover {
+      border-color: var(--primary-color);
+      background: rgba(var(--primary-rgb), 0.15);
+    }
+
+    .folder-chip .file-icon {
+      font-size: 16px;
     }
 
     .file-preview-card {
@@ -492,6 +522,7 @@ export class InputPanelComponent implements OnDestroy {
   disabled = input<boolean>(false);
   placeholder = input<string>('Send a message...');
   pendingFiles = input<File[]>([]);
+  pendingFolders = input<string[]>([]);
   queuedCount = input<number>(0);
   isBusy = input<boolean>(false);
 
@@ -518,6 +549,7 @@ export class InputPanelComponent implements OnDestroy {
   sendMessage = output<string>();
   executeCommand = output<{ commandId: string; args: string[] }>();
   removeFile = output<File>();
+  removeFolder = output<string>();
   addFiles = output<void>();
 
   message = signal('');
@@ -584,7 +616,13 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   canSend(): boolean {
-    return this.message().trim().length > 0 || this.pendingFilePreviews().length > 0;
+    return this.message().trim().length > 0 || this.pendingFilePreviews().length > 0 || this.pendingFolders().length > 0;
+  }
+
+  getFolderDisplayName(folderPath: string): string {
+    // Extract just the folder name from the full path
+    const parts = folderPath.split('/').filter(Boolean);
+    return parts[parts.length - 1] || folderPath;
   }
 
   onInput(event: Event): void {
@@ -603,9 +641,24 @@ export class InputPanelComponent implements OnDestroy {
       this.showCommandSuggestions.set(false);
     }
 
-    // Auto-resize textarea
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+    // Auto-resize textarea - debounced via requestAnimationFrame to avoid blocking input
+    this.scheduleTextareaResize(textarea);
+  }
+
+  private resizeScheduled = false;
+  private scheduleTextareaResize(textarea: HTMLTextAreaElement): void {
+    if (this.resizeScheduled) return;
+    this.resizeScheduled = true;
+
+    requestAnimationFrame(() => {
+      this.resizeScheduled = false;
+      // Only set height once to minimize reflow
+      const newHeight = Math.min(textarea.scrollHeight, 200);
+      if (textarea.style.height !== `${newHeight}px`) {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${newHeight}px`;
+      }
+    });
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -732,5 +785,9 @@ export class InputPanelComponent implements OnDestroy {
 
   onAddFiles(): void {
     this.addFiles.emit();
+  }
+
+  onRemoveFolder(folder: string): void {
+    this.removeFolder.emit(folder);
   }
 }

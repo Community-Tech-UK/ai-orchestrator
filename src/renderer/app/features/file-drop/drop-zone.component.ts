@@ -109,6 +109,8 @@ export class DropZoneComponent {
 
   // Output for file paths dragged from file explorer
   filePathDropped = output<string>();
+  // Output for folder paths dropped (directories cannot be attached as files)
+  folderDropped = output<string>();
 
   @HostListener('drop', ['$event'])
   onDrop(event: DragEvent): void {
@@ -117,10 +119,51 @@ export class DropZoneComponent {
     this.isDragOver.set(false);
 
     // Check for native file drop first
+    const items = Array.from(event.dataTransfer?.items || []);
     const files = Array.from(event.dataTransfer?.files || []);
+
     if (files.length > 0) {
-      this.filesDropped.emit(files);
-      return;
+      // Check if any dropped item is a directory
+      // In Electron/Chromium, we can detect directories via webkitGetAsEntry
+      const actualFiles: File[] = [];
+      const folderPaths: string[] = [];
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const file = files[i];
+
+        if (item.webkitGetAsEntry) {
+          const entry = item.webkitGetAsEntry();
+          if (entry?.isDirectory) {
+            // It's a directory - get its path from the File object
+            // In Electron, File objects have a 'path' property
+            const filePath = (file as File & { path?: string }).path;
+            if (filePath) {
+              folderPaths.push(filePath);
+            }
+            continue;
+          }
+        }
+
+        // It's a regular file
+        if (file) {
+          actualFiles.push(file);
+        }
+      }
+
+      // Emit folder paths
+      for (const folderPath of folderPaths) {
+        this.folderDropped.emit(folderPath);
+      }
+
+      // Emit actual files
+      if (actualFiles.length > 0) {
+        this.filesDropped.emit(actualFiles);
+      }
+
+      if (actualFiles.length > 0 || folderPaths.length > 0) {
+        return;
+      }
     }
 
     // Check for file path from file explorer

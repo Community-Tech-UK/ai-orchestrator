@@ -73,9 +73,21 @@ export class MarkdownService {
       `;
     };
 
-    // Custom inline code rendering
+    // Custom inline code rendering - detect file paths and make them clickable
     renderer.codespan = ({ text }: Tokens.Codespan): string => {
-      return `<code class="inline-code">${this.escapeHtml(text)}</code>`;
+      const escapedText = this.escapeHtml(text);
+
+      // Detect absolute file paths (Unix/Mac style starting with /)
+      // Match paths that start with / and contain typical path characters
+      const isFilePath = /^\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+$/.test(text) ||
+                         /^\/[a-zA-Z0-9_\-./]+$/.test(text) && text.includes('/');
+
+      if (isFilePath) {
+        // Make file paths clickable
+        return `<code class="inline-code file-path" data-file-path="${escapedText}" title="Click to open file">${escapedText}</code>`;
+      }
+
+      return `<code class="inline-code">${escapedText}</code>`;
     };
 
     // Custom link rendering with target="_blank" for external links
@@ -180,7 +192,7 @@ export class MarkdownService {
       ALLOWED_ATTR: [
         'href', 'title', 'target', 'rel',
         'class',
-        'data-copy-id', 'data-code-id',
+        'data-copy-id', 'data-code-id', 'data-file-path',
         'src', 'alt', 'width', 'height',
         'viewBox', 'fill', 'stroke', 'stroke-width',
         'x', 'y', 'rx', 'ry', 'd', 'points',
@@ -259,6 +271,24 @@ export class MarkdownService {
       const copyId = button.getAttribute('data-copy-id');
       if (copyId) {
         button.addEventListener('click', () => this.handleCopyClick(copyId));
+      }
+    });
+  }
+
+  /**
+   * Setup click handlers for file path elements in a container
+   */
+  setupFilePathHandlers(container: HTMLElement, onFileClick: (filePath: string) => void): void {
+    const filePaths = container.querySelectorAll('.file-path[data-file-path]');
+    filePaths.forEach((element) => {
+      const filePath = element.getAttribute('data-file-path');
+      if (filePath && !element.hasAttribute('data-handler-attached')) {
+        element.setAttribute('data-handler-attached', 'true');
+        element.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onFileClick(filePath);
+        });
       }
     });
   }

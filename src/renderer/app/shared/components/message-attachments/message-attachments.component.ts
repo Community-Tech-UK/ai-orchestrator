@@ -74,15 +74,16 @@ export interface AttachmentDisplay {
       }
     </div>
 
-    <!-- Image preview modal -->
+    <!-- Image preview modal - rendered via portal to ensure it's above all UI -->
     @if (previewAttachment()) {
       <div
         class="preview-overlay"
         (click)="closePreview()"
         (keydown.escape)="closePreview()"
         tabindex="-1"
-        role="button"
-        aria-label="Close preview"
+        role="dialog"
+        aria-label="Image preview"
+        aria-modal="true"
       >
         <div
           class="preview-content"
@@ -92,11 +93,27 @@ export interface AttachmentDisplay {
         >
           <div class="preview-header">
             <span class="preview-title">{{ previewAttachment()!.name }}</span>
-            <button class="preview-close" (click)="closePreview()" title="Close preview">×</button>
+            <div class="preview-actions">
+              @if (isImage(previewAttachment()!)) {
+                <button
+                  class="preview-action-btn"
+                  (click)="copyImageToClipboard()"
+                  title="Copy image to clipboard"
+                >
+                  📋 Copy
+                </button>
+              }
+              <button class="preview-close" (click)="closePreview()" title="Close preview">×</button>
+            </div>
           </div>
           <div class="preview-body">
             @if (isImage(previewAttachment()!)) {
-              <img [src]="previewAttachment()!.data" [alt]="previewAttachment()!.name" />
+              <img
+                [src]="previewAttachment()!.data"
+                [alt]="previewAttachment()!.name"
+                (contextmenu)="onImageContextMenu($event)"
+                #previewImage
+              />
             } @else if (isText(previewAttachment()!)) {
               <pre class="preview-text">{{ decodeTextContent(previewAttachment()!.data) }}</pre>
             } @else {
@@ -223,12 +240,13 @@ export interface AttachmentDisplay {
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(0, 0, 0, 0.92);
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 1000;
+      z-index: 10000; /* High enough to be above all UI elements */
       padding: 24px;
+      isolation: isolate; /* Create new stacking context */
     }
 
     .preview-content {
@@ -249,6 +267,7 @@ export interface AttachmentDisplay {
       padding: 12px 16px;
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-color);
+      gap: 16px;
     }
 
     .preview-title {
@@ -258,6 +277,36 @@ export interface AttachmentDisplay {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .preview-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .preview-action-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.15s ease;
+
+      &:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        border-color: var(--primary-color);
+      }
     }
 
     .preview-close {
@@ -270,6 +319,7 @@ export interface AttachmentDisplay {
       font-size: 20px;
       color: var(--text-secondary);
       background: transparent;
+      border: none;
       cursor: pointer;
       transition: all 0.15s ease;
 
@@ -397,5 +447,47 @@ export class MessageAttachmentsComponent {
       }
     }
     return data;
+  }
+
+  /**
+   * Handle right-click on image to show native context menu with copy option
+   */
+  onImageContextMenu(event: MouseEvent): void {
+    // Allow default context menu which includes "Copy Image" option in Electron
+    // No need to prevent default - we want the native menu
+  }
+
+  /**
+   * Copy image to clipboard
+   */
+  async copyImageToClipboard(): Promise<void> {
+    const attachment = this.previewAttachment();
+    if (!attachment?.data) return;
+
+    try {
+      // Convert base64 data URL to blob
+      const response = await fetch(attachment.data);
+      const blob = await response.blob();
+
+      // Use Clipboard API to write the image
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          [blob.type]: blob
+        })
+      ]);
+
+      // Show a brief visual feedback (could be enhanced with a toast notification)
+      console.log('Image copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy image to clipboard:', error);
+
+      // Fallback: try to copy as data URL text
+      try {
+        await navigator.clipboard.writeText(attachment.data);
+        console.log('Image data URL copied to clipboard');
+      } catch (fallbackError) {
+        console.error('Fallback copy also failed:', fallbackError);
+      }
+    }
   }
 }

@@ -21,6 +21,9 @@ export class DraftService {
   // Storage for pending files keyed by context
   private pendingFiles = new Map<string, File[]>();
 
+  // Storage for pending folder paths keyed by context
+  private pendingFolders = new Map<string, string[]>();
+
   // Signal to notify when any draft changes (for reactive updates)
   private _draftVersion = signal(0);
 
@@ -125,5 +128,54 @@ export class DraftService {
   hasPendingFiles(contextKey: string): boolean {
     const files = this.pendingFiles.get(contextKey);
     return !!files && files.length > 0;
+  }
+
+  /**
+   * Get pending folder paths for a given context
+   */
+  getPendingFolders(contextKey: string): string[] {
+    return this.pendingFolders.get(contextKey) || [];
+  }
+
+  /**
+   * Add a folder path to pending folders for a context
+   */
+  addPendingFolder(contextKey: string, folderPath: string): void {
+    const existing = this.pendingFolders.get(contextKey) || [];
+    // Avoid duplicates
+    if (!existing.includes(folderPath)) {
+      this.pendingFolders.set(contextKey, [...existing, folderPath]);
+      this._draftVersion.update(v => v + 1);
+    }
+  }
+
+  /**
+   * Remove a folder path from pending folders for a context
+   */
+  removePendingFolder(contextKey: string, folderPath: string): void {
+    const existing = this.pendingFolders.get(contextKey) || [];
+    const filtered = existing.filter(f => f !== folderPath);
+    if (filtered.length > 0) {
+      this.pendingFolders.set(contextKey, filtered);
+    } else {
+      this.pendingFolders.delete(contextKey);
+    }
+    this._draftVersion.update(v => v + 1);
+  }
+
+  /**
+   * Clear pending folders for a context
+   */
+  clearPendingFolders(contextKey: string): void {
+    this.pendingFolders.delete(contextKey);
+    this._draftVersion.update(v => v + 1);
+  }
+
+  /**
+   * Check if there are pending folders for a context
+   */
+  hasPendingFolders(contextKey: string): boolean {
+    const folders = this.pendingFolders.get(contextKey);
+    return !!folders && folders.length > 0;
   }
 }

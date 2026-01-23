@@ -9,7 +9,8 @@ import {
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
-  input
+  input,
+  effect
 } from '@angular/core';
 import { ElectronIpcService } from '../../core/services/electron-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -17,7 +18,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 export interface UserActionRequest {
   id: string;
   instanceId: string;
-  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option';
+  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option' | 'input_required';
   title: string;
   message: string;
   targetMode?: 'build' | 'plan' | 'review';
@@ -136,6 +137,11 @@ export interface UserActionRequest {
       .request-approve_action {
         border-color: #f59e0b;
         box-shadow: 0 4px 16px rgba(245, 158, 11, 0.2);
+      }
+
+      .request-input_required {
+        border-color: #ef4444;
+        box-shadow: 0 4px 16px rgba(239, 68, 68, 0.2);
       }
 
       .request-header {
@@ -263,14 +269,27 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   pendingRequests = signal<UserActionRequest[]>([]);
   isResponding = signal(false);
 
-  private unsubscribe: (() => void) | null = null;
+  private unsubscribeUserAction: (() => void) | null = null;
+  private unsubscribeInputRequired: (() => void) | null = null;
+
+  constructor() {
+    // Reload pending requests when instanceId changes
+    effect(() => {
+      const id = this.instanceId();
+      // Clear and reload when instance changes
+      this.pendingRequests.set([]);
+      if (id) {
+        this.loadPendingRequests();
+      }
+    });
+  }
 
   ngOnInit(): void {
-    // Load existing pending requests
+    // Initial load of pending requests (for cases where instanceId is already set)
     this.loadPendingRequests();
 
-    // Subscribe to new requests
-    this.unsubscribe = this.ipc.onUserActionRequest((request) => {
+    // Subscribe to user action requests (orchestrator commands)
+    this.unsubscribeUserAction = this.ipc.onUserActionRequest((request) => {
       const req = request as UserActionRequest;
       const currentInstanceId = this.instanceId();
 
@@ -279,11 +298,32 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         this.pendingRequests.update((requests) => [...requests, req]);
       }
     });
+
+    // Subscribe to input required events (CLI permission prompts)
+    this.unsubscribeInputRequired = this.ipc.onInputRequired((payload) => {
+      const currentInstanceId = this.instanceId();
+
+      // Only show for this instance
+      if (!currentInstanceId || payload.instanceId === currentInstanceId) {
+        const req: UserActionRequest = {
+          id: payload.requestId,
+          instanceId: payload.instanceId,
+          requestType: 'input_required',
+          title: 'Permission Required',
+          message: payload.prompt,
+          createdAt: payload.timestamp
+        };
+        this.pendingRequests.update((requests) => [...requests, req]);
+      }
+    });
   }
 
   ngOnDestroy(): void {
-    if (this.unsubscribe) {
-      this.unsubscribe();
+    if (this.unsubscribeUserAction) {
+      this.unsubscribeUserAction();
+    }
+    if (this.unsubscribeInputRequired) {
+      this.unsubscribeInputRequired();
     }
   }
 
@@ -313,6 +353,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         return '❓';
       case 'select_option':
         return '📋';
+      case 'input_required':
+        return '🔐';
       default:
         return '📢';
     }
@@ -328,6 +370,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         return 'Approve';
       case 'confirm':
         return 'Confirm';
+      case 'input_required':
+        return 'Allow';
       default:
         return 'Yes';
     }
@@ -356,6 +400,24 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     this.isResponding.set(true);
 
     try {
+      // Handle input_required differently - send raw response to CLI
+      if (request.requestType === 'input_required') {
+        const response = approved ? 'y' : 'n';
+        const result = await this.ipc.respondToInputRequired(
+          request.instanceId,
+          request.id,
+          response
+        );
+
+        if (result.success) {
+          this.pendingRequests.update((requests) =>
+            requests.filter((r) => r.id !== request.id)
+          );
+        }
+        return;
+      }
+
+      // Handle orchestrator user action requests
       const response = await this.ipc.respondToUserAction(
         request.id,
         approved,

@@ -392,6 +392,7 @@ export class InstanceListComponent {
       const hasChildren = childrenIds.length > 0;
       const isExpanded = !collapsed.has(instance.id); // Not in collapsed set = expanded
 
+      // Avoid spread operator - reuse parentChain reference when possible
       result.push({
         instance: {
           ...instance,
@@ -401,7 +402,7 @@ export class InstanceListComponent {
         hasChildren,
         isExpanded,
         isLastChild,
-        parentChain: [...parentChain],
+        parentChain, // Reuse reference directly since we create new array when needed below
       });
 
       // Add children if expanded
@@ -411,12 +412,15 @@ export class InstanceListComponent {
           .filter((c): c is Instance => c !== undefined)
           .sort((a, b) => a.createdAt - b.createdAt);
 
+        // Create new parentChain array once for all children at this level
+        const childParentChain = parentChain.concat(!isLastChild);
+
         children.forEach((child, index) => {
           const isLast = index === children.length - 1;
           addInstance(
             child,
             depth + 1,
-            [...parentChain, !isLastChild],
+            childParentChain,
             isLast
           );
         });

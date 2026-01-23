@@ -34,6 +34,10 @@ const IPC_CHANNELS = {
   USER_ACTION_LIST: 'user-action:list',
   USER_ACTION_LIST_FOR_INSTANCE: 'user-action:list-for-instance',
 
+  // Input required events (CLI permission prompts, etc.)
+  INPUT_REQUIRED: 'instance:input-required',
+  INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
+
   // App
   APP_READY: 'app:ready',
   APP_GET_VERSION: 'app:get-version',
@@ -54,6 +58,7 @@ const IPC_CHANNELS = {
   // File operations
   FILE_READ_DIR: 'file:read-dir',
   FILE_GET_STATS: 'file:get-stats',
+  FILE_OPEN_PATH: 'file:open-path',
 
   // Settings
   SETTINGS_GET_ALL: 'settings:get-all',
@@ -653,6 +658,45 @@ const electronAPI = {
   },
 
   // ============================================
+  // Input Required (CLI Permission Prompts)
+  // ============================================
+
+  /**
+   * Listen for input required events (permission prompts from CLI)
+   */
+  onInputRequired: (callback: (payload: {
+    instanceId: string;
+    requestId: string;
+    prompt: string;
+    timestamp: number;
+  }) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, payload: {
+      instanceId: string;
+      requestId: string;
+      prompt: string;
+      timestamp: number;
+    }) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.INPUT_REQUIRED, handler);
+    return () =>
+      ipcRenderer.removeListener(IPC_CHANNELS.INPUT_REQUIRED, handler);
+  },
+
+  /**
+   * Respond to an input required event (approve/deny permission)
+   */
+  respondToInputRequired: (
+    instanceId: string,
+    requestId: string,
+    response: string
+  ): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+      instanceId,
+      requestId,
+      response
+    });
+  },
+
+  // ============================================
   // App
   // ============================================
 
@@ -764,6 +808,13 @@ const electronAPI = {
    */
   getFileStats: (path: string): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.FILE_GET_STATS, { path });
+  },
+
+  /**
+   * Open a file or folder with the system's default application
+   */
+  openPath: (path: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN_PATH, { path });
   },
 
   // ============================================

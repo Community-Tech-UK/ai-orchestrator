@@ -686,6 +686,18 @@ select {
     border: 1px solid var(--border-color);
   }
 
+  // Clickable file paths
+  .file-path {
+    cursor: pointer;
+    transition: all var(--transition-fast);
+
+    &:hover {
+      background: rgba(var(--primary-rgb), 0.2);
+      border-color: var(--primary-color);
+      text-decoration: underline;
+    }
+  }
+
   // Blockquote
   .md-blockquote {
     margin: 1em 0;

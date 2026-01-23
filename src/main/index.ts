@@ -70,6 +70,12 @@ class ClaudeOrchestratorApp {
       this.windowManager.sendToRenderer('instance:batch-update', updates);
     });
 
+    // Forward input-required events (permission prompts) to renderer
+    this.instanceManager.on('instance:input-required', (payload) => {
+      console.log('Forwarding input-required to renderer:', payload.requestId);
+      this.windowManager.sendToRenderer('instance:input-required', payload);
+    });
+
     // Forward user action requests from orchestrator to renderer
     const orchestration = this.instanceManager.getOrchestrationHandler();
     orchestration.on('user-action-request', (request) => {

@@ -46,6 +46,15 @@ export interface ClaudeCliSpawnOptions {
 }
 
 /**
+ * Input required event payload - for permission prompts and other input requests
+ */
+export interface InputRequiredPayload {
+  id: string;
+  prompt: string;
+  timestamp: number;
+}
+
+/**
  * Events emitted by ClaudeCliAdapter (backward compatible)
  */
 export interface ClaudeCliAdapterEvents {
@@ -55,6 +64,7 @@ export interface ClaudeCliAdapterEvents {
   error: (error: Error) => void;
   exit: (code: number | null, signal: string | null) => void;
   spawned: (pid: number) => void;
+  input_required: (payload: InputRequiredPayload) => void;
 }
 
 /**
@@ -491,6 +501,40 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.emit('status', 'busy' as InstanceStatus);
   }
 
+  /**
+   * Send raw text input (for permission prompts, etc.)
+   * When using stream-json input format, permission responses need to be JSON formatted
+   */
+  async sendRaw(text: string): Promise<void> {
+    if (!this.formatter || !this.formatter.isWritable()) {
+      throw new Error('CLI not ready for input');
+    }
+
+    // When using stream-json input format, all input needs to be in JSON format
+    // For permission prompts (y/n responses), send as a user message
+    const isSimpleYesNo = text === 'y' || text === 'n' || text === 'yes' || text === 'no';
+
+    if (isSimpleYesNo) {
+      // Send permission response as a user message in stream-json format
+      const userMessage = {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: text
+        }
+      };
+      const jsonMessage = JSON.stringify(userMessage);
+      console.log('ClaudeCliAdapter.sendRaw: Sending permission response as user message:', jsonMessage);
+      await this.formatter.sendRaw(jsonMessage);
+    } else {
+      // For non-permission responses, send as raw text
+      console.log('ClaudeCliAdapter.sendRaw: Sending raw text:', text);
+      await this.formatter.sendRaw(text);
+    }
+
+    this.emit('status', 'busy' as InstanceStatus);
+  }
+
   // ============ Private Helper Methods ============
 
   private handleStdout(chunk: Buffer): void {
@@ -706,14 +750,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'input_required':
         this.emit('status', 'waiting_for_input' as InstanceStatus);
-        if (message.prompt) {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: message.timestamp || Date.now(),
-            type: 'system',
-            content: message.prompt
-          });
-        }
+        const inputRequestId = generateId();
+        const prompt = message.prompt || 'Input required';
+        const timestamp = message.timestamp || Date.now();
+
+        // Emit the input_required event for UI to handle
+        this.emit('input_required', {
+          id: inputRequestId,
+          prompt,
+          timestamp
+        });
+
+        // Also emit as system output for visibility in chat
+        this.emit('output', {
+          id: inputRequestId,
+          timestamp,
+          type: 'system',
+          content: prompt,
+          metadata: { requiresInput: true }
+        });
         break;
     }
   }
