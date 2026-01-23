@@ -163,6 +163,28 @@ export const GOOGLE_MODELS = {
 } as const;
 
 /**
+ * GitHub Copilot model identifiers
+ * Note: Copilot provides access to multiple model families
+ * These are the latest models - will be dynamically fetched from CLI at runtime
+ */
+export const COPILOT_MODELS = {
+  // Flagship tier - latest and best
+  CLAUDE_OPUS_45: 'claude-opus-4-5',
+  O3: 'o3',
+  GEMINI_3_PRO: 'gemini-3-pro',
+  GEMINI_25_PRO: 'gemini-2.5-pro',
+  // High performance tier
+  CLAUDE_SONNET_45: 'claude-sonnet-4-5',
+  GPT4O: 'gpt-4o',
+  GEMINI_3_FLASH: 'gemini-3-flash',
+  GEMINI_20_FLASH: 'gemini-2.0-flash',
+  // Fast tier
+  CLAUDE_HAIKU_45: 'claude-haiku-4-5',
+  GPT4O_MINI: 'gpt-4o-mini',
+  GEMINI_20_FLASH_LITE: 'gemini-2.0-flash-lite',
+} as const;
+
+/**
  * Default models for each provider
  */
 export const DEFAULT_MODELS: Record<ProviderType, string> = {

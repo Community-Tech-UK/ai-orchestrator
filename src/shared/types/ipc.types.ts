@@ -55,6 +55,9 @@ export const IPC_CHANNELS = {
   CLI_DETECT_ALL: 'cli:detect-all',
   CLI_CHECK: 'cli:check',
 
+  // Copilot operations
+  COPILOT_LIST_MODELS: 'copilot:list-models',
+
   // Dialog operations
   DIALOG_SELECT_FOLDER: 'dialog:select-folder',
   DIALOG_SELECT_FILES: 'dialog:select-files',
@@ -581,6 +584,7 @@ export interface InstanceCreatePayload {
   yoloMode?: boolean;
   agentId?: string; // Agent profile ID (defaults to 'build')
   provider?: InstanceProvider; // CLI provider (defaults to 'auto')
+  model?: string; // Model override (e.g., for Copilot multi-model support)
 }
 
 export interface InstanceStateUpdatePayload {

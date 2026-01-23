@@ -727,7 +727,7 @@ export class InstanceManager extends EventEmitter {
 
     // Spawn the CLI process
     try {
-      console.log('InstanceManager: Spawning CLI process...');
+      console.log('InstanceManager: Spawning CLI process for provider:', resolvedCliType);
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
@@ -756,7 +756,18 @@ export class InstanceManager extends EventEmitter {
       }
     } catch (error) {
       instance.status = 'error';
-      console.error('InstanceManager: Failed to spawn CLI:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('InstanceManager: Failed to spawn/initialize CLI:', errorMessage);
+      console.error('InstanceManager: Full error:', error);
+
+      // Add error message to output buffer so user can see what went wrong
+      const errorOutput = {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error' as const,
+        content: `Failed to initialize ${getCliDisplayName(resolvedCliType)}: ${errorMessage}`
+      };
+      this.addToOutputBuffer(instance, errorOutput);
     }
 
     // Register with orchestration handler
@@ -809,10 +820,13 @@ export class InstanceManager extends EventEmitter {
     message: string,
     attachments?: any[]
   ): Promise<void> {
+    const instance = this.instances.get(instanceId);
     console.log('InstanceManager: sendInput called', {
       instanceId,
       message: message.substring(0, 50),
       attachmentsCount: attachments?.length ?? 0,
+      instanceStatus: instance?.status,
+      instanceProvider: instance?.provider,
       attachments: attachments?.map((a) => ({
         name: a.name,
         type: a.type,
@@ -826,7 +840,10 @@ export class InstanceManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    const instance = this.instances.get(instanceId);
+    // Check if instance is in error state
+    if (instance?.status === 'error') {
+      throw new Error(`Instance ${instanceId} is in error state and cannot accept input`);
+    }
     let rlmContext: RlmContextInfo | null = null;
     let unifiedMemoryContext: UnifiedMemoryContextInfo | null = null;
     const userMessageId = generateId();
@@ -1323,8 +1340,36 @@ export class InstanceManager extends EventEmitter {
 
   /**
    * Add message to instance output buffer
+   * For streaming messages (with metadata.streaming=true), updates the existing message
+   * with the same ID instead of adding a new one.
    */
   private addToOutputBuffer(instance: Instance, message: OutputMessage): void {
+    // Check if this is a streaming message update
+    const isStreaming = message.metadata && 'streaming' in message.metadata && message.metadata['streaming'] === true;
+
+    if (isStreaming) {
+      // Look for an existing message with the same ID to update
+      const existingIndex = instance.outputBuffer.findIndex(m => m.id === message.id);
+      if (existingIndex >= 0) {
+        // Update the existing message with the accumulated content
+        const accumulatedContent = message.metadata && 'accumulatedContent' in message.metadata
+          ? String(message.metadata['accumulatedContent'])
+          : message.content;
+        instance.outputBuffer[existingIndex] = {
+          ...instance.outputBuffer[existingIndex],
+          content: accumulatedContent,
+          metadata: message.metadata
+        };
+        // Don't run trim/RLM ingestion for streaming updates - just emit for IPC
+        this.emit('instance:output', {
+          instanceId: instance.id,
+          message: instance.outputBuffer[existingIndex]
+        });
+        return;
+      }
+      // First streaming chunk for this message ID - add it normally
+    }
+
     instance.outputBuffer.push(message);
 
     const settings = this.settings.getAll();

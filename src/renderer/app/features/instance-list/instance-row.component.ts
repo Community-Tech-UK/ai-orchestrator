@@ -458,6 +458,7 @@ export class InstanceRowComponent {
       case 'codex': return 'Codex';
       case 'gemini': return 'Gemini';
       case 'ollama': return 'Ollama';
+      case 'copilot': return 'GitHub Copilot';
       default: return 'AI';
     }
   }
@@ -468,6 +469,7 @@ export class InstanceRowComponent {
       case 'codex': return '#10A37F';
       case 'gemini': return '#4285F4';
       case 'ollama': return '#888888';
+      case 'copilot': return '#A855F7'; // Purple for Copilot
       default: return '#888888';
     }
   }

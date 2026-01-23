@@ -19,6 +19,15 @@ export interface FileEntry {
   extension?: string;
 }
 
+/** Copilot model info returned from CLI */
+export interface CopilotModelInfo {
+  id: string;
+  name: string;
+  supportsVision: boolean;
+  contextWindow: number;
+  enabled: boolean;
+}
+
 // Declare the electronAPI on window
 declare global {
   interface Window {
@@ -101,7 +110,8 @@ export class ElectronIpcService {
     initialPrompt?: string;
     yoloMode?: boolean;
     agentId?: string;
-    provider?: 'claude' | 'openai' | 'gemini' | 'auto';
+    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    model?: string;
   }) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.createInstance(config);
@@ -114,6 +124,8 @@ export class ElectronIpcService {
     workingDirectory: string;
     message: string;
     attachments?: FileAttachment[];
+    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    model?: string;
   }) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.createInstanceWithMessage(config);
@@ -293,6 +305,19 @@ export class ElectronIpcService {
   }
 
   // ============================================
+  // Copilot
+  // ============================================
+
+  /**
+   * List available models from Copilot CLI
+   * Queries the CLI dynamically, falls back to defaults if unavailable
+   */
+  async listCopilotModels(): Promise<{ success: boolean; data?: CopilotModelInfo[]; error?: { message: string } }> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.listCopilotModels() as Promise<{ success: boolean; data?: CopilotModelInfo[]; error?: { message: string } }>;
+  }
+
+  // ============================================
   // Dialogs
   // ============================================
 
@@ -423,6 +448,44 @@ export class ElectronIpcService {
   async updateProviderConfig(providerType: string, config: Record<string, unknown>) {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.updateProviderConfig(providerType, config);
+  }
+
+  // ============================================
+  // Settings
+  // ============================================
+
+  /**
+   * Get all settings
+   */
+  async getSettings() {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.getSettings();
+  }
+
+  /**
+   * Set a single setting
+   */
+  async setSetting(key: string, value: unknown) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.setSetting(key, value);
+  }
+
+  /**
+   * Update multiple settings
+   */
+  async updateSettings(settings: Record<string, unknown>) {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.updateSettings(settings);
+  }
+
+  /**
+   * Listen for settings changes
+   */
+  onSettingsChanged(callback: (data: unknown) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onSettingsChanged((data) => {
+      this.ngZone.run(() => callback(data));
+    });
   }
 
   // ============================================

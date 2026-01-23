@@ -15,6 +15,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ElectronIpcService } from '../../core/services/electron-ipc.service';
 import { DraftService } from '../../core/services/draft.service';
+import { ProviderStateService } from '../../core/services/provider-state.service';
 import { OutputStreamComponent } from './output-stream.component';
 import { ContextBarComponent } from './context-bar.component';
 import { InputPanelComponent } from './input-panel.component';
@@ -86,6 +87,44 @@ import { UserActionRequestComponent } from './user-action-request.component';
                 >
                   {{ getProviderDisplayName(inst.provider) }}
                 </span>
+                @if (inst.provider === 'copilot') {
+                  <div class="model-selector-inline">
+                    <button
+                      class="model-btn"
+                      (click)="$event.stopPropagation(); toggleModelDropdown()"
+                      [title]="'Model: ' + selectedCopilotModel()"
+                    >
+                      {{ getModelDisplayName(selectedCopilotModel()) }}
+                      <span class="dropdown-caret">▼</span>
+                    </button>
+                    @if (showModelDropdown()) {
+                      <div class="model-dropdown">
+                        @for (model of copilotModels(); track model.id) {
+                          <button
+                            class="model-option"
+                            [class.selected]="
+                              model.id === selectedCopilotModel()
+                            "
+                            (click)="onSelectCopilotModel(model.id)"
+                          >
+                            {{ model.name }}
+                            @if (model.id === selectedCopilotModel()) {
+                              <span class="check">✓</span>
+                            }
+                          </button>
+                        }
+                      </div>
+                    }
+                  </div>
+                  @if (showModelDropdown()) {
+                    <button
+                      type="button"
+                      class="model-backdrop"
+                      aria-label="Close model menu"
+                      (click)="showModelDropdown.set(false)"
+                    ></button>
+                  }
+                }
                 <span class="separator">•</span>
                 <button
                   class="mode-badge"
@@ -412,6 +451,94 @@ import { UserActionRequestComponent } from './user-action-request.component';
         letter-spacing: 0.08em;
         color: white;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      /* Inline Model Selector for Copilot */
+      .model-selector-inline {
+        position: relative;
+        display: inline-block;
+        margin-left: 6px;
+      }
+
+      .model-btn {
+        padding: 4px 10px;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-radius: 12px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        background: rgba(168, 85, 247, 0.15);
+        color: #a855f7;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .model-btn:hover {
+        background: rgba(168, 85, 247, 0.25);
+        border-color: rgba(168, 85, 247, 0.5);
+      }
+
+      .dropdown-caret {
+        font-size: 8px;
+        opacity: 0.7;
+      }
+
+      .model-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 4px;
+        min-width: 180px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .model-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        background: transparent;
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        cursor: pointer;
+        text-align: left;
+        transition: background var(--transition-fast);
+      }
+
+      .model-option:hover {
+        background: var(--bg-tertiary);
+      }
+
+      .model-option.selected {
+        background: rgba(168, 85, 247, 0.1);
+        color: #a855f7;
+      }
+
+      .model-option .check {
+        color: #a855f7;
+        font-size: 12px;
+      }
+
+      .model-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 999;
       }
 
       /* Mode Badge - Pill style with glow */
@@ -768,6 +895,7 @@ export class InstanceDetailComponent {
   private settingsStore = inject(SettingsStore);
   private ipc = inject(ElectronIpcService);
   private draftService = inject(DraftService);
+  private providerState = inject(ProviderStateService);
 
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
@@ -777,6 +905,20 @@ export class InstanceDetailComponent {
   isCreatingInstance = signal(false);
   isChangingMode = signal(false);
   isTogglingYolo = signal(false);
+  showModelDropdown = signal(false);
+  selectedCopilotModel = signal<string>('claude-sonnet-4-5');
+  copilotModels = signal<{ id: string; name: string }[]>([
+    { id: 'claude-opus-4-5', name: 'Claude Opus 4.5' },
+    { id: 'o3', name: 'OpenAI o3' },
+    { id: 'gemini-3-pro', name: 'Gemini 3 Pro' },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+    { id: 'gpt-4o', name: 'GPT-4o' },
+    { id: 'gemini-3-flash', name: 'Gemini 3 Flash' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' }
+  ]);
   private previousInstanceId: string | null = null;
 
   // Pending files computed from draft service (persisted per instance)
@@ -856,6 +998,8 @@ export class InstanceDetailComponent {
         return 'Gemini';
       case 'ollama':
         return 'Ollama';
+      case 'copilot':
+        return 'Copilot';
       default:
         return 'AI';
     }
@@ -871,9 +1015,28 @@ export class InstanceDetailComponent {
         return '#4285F4';
       case 'ollama':
         return '#888888';
+      case 'copilot':
+        return '#A855F7'; // Purple for Copilot
       default:
         return '#888888';
     }
+  }
+
+  toggleModelDropdown(): void {
+    this.showModelDropdown.update((v) => !v);
+  }
+
+  getModelDisplayName(modelId: string): string {
+    const model = this.copilotModels().find((m) => m.id === modelId);
+    return model?.name || modelId;
+  }
+
+  onSelectCopilotModel(modelId: string): void {
+    this.selectedCopilotModel.set(modelId);
+    this.showModelDropdown.set(false);
+    // TODO: This would ideally update the instance's model setting
+    // For now it just tracks the selection in the UI
+    console.log(`[InstanceDetail] Selected Copilot model: ${modelId}`);
   }
 
   onSendMessage(message: string): void {
@@ -1064,11 +1227,16 @@ export class InstanceDetailComponent {
 
   onWelcomeSendMessage(message: string): void {
     const workingDir = this.welcomeWorkingDirectory() || '.';
+    const provider = this.providerState.getProviderForCreation();
+    const model = this.providerState.getModelForCreation();
+
     this.isCreatingInstance.set(true);
     this.store.createInstanceWithMessage(
       message,
       this.welcomePendingFiles(),
-      workingDir
+      workingDir,
+      provider,
+      model
     );
     this.welcomePendingFiles.set([]);
     // Reset to default for next time

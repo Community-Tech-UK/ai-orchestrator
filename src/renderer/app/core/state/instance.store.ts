@@ -47,7 +47,7 @@ export interface OutputMessage {
   attachments?: FileAttachment[];
 }
 
-export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama';
+export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copilot';
 
 export interface Instance {
   id: string;
@@ -438,6 +438,7 @@ export class InstanceStore implements OnDestroy {
 
   /**
    * Flush pending output messages for an instance
+   * Handles streaming messages by updating existing messages with the same ID
    */
   private flushOutput(instanceId: string): void {
     const pending = this.pendingOutputMessages.get(instanceId);
@@ -453,7 +454,36 @@ export class InstanceStore implements OnDestroy {
       const instance = newMap.get(instanceId);
 
       if (instance) {
-        const outputBuffer = [...instance.outputBuffer, ...pending];
+        // Start with existing messages
+        let outputBuffer = [...instance.outputBuffer];
+
+        // Process each pending message
+        for (const msg of pending) {
+          const isStreaming = msg.metadata && 'streaming' in msg.metadata && msg.metadata['streaming'] === true;
+
+          if (isStreaming) {
+            // For streaming messages, update existing or add new
+            const existingIdx = outputBuffer.findIndex(m => m.id === msg.id);
+            if (existingIdx >= 0) {
+              // Update existing message with accumulated content
+              const accumulatedContent = msg.metadata && 'accumulatedContent' in msg.metadata
+                ? String(msg.metadata['accumulatedContent'])
+                : msg.content;
+              outputBuffer[existingIdx] = {
+                ...outputBuffer[existingIdx],
+                content: accumulatedContent,
+                metadata: msg.metadata
+              };
+            } else {
+              // First chunk of this streaming message
+              outputBuffer.push(msg);
+            }
+          } else {
+            // Regular message - just append
+            outputBuffer.push(msg);
+          }
+        }
+
         // Keep buffer trimmed
         const trimmed =
           outputBuffer.length > 1000 ? outputBuffer.slice(-1000) : outputBuffer;
@@ -502,7 +532,8 @@ export class InstanceStore implements OnDestroy {
     parentId?: string;
     yoloMode?: boolean;
     agentId?: string;
-    provider?: 'claude' | 'openai' | 'gemini' | 'auto';
+    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    model?: string;
   }): Promise<void> {
     console.log('InstanceStore: createInstance called with:', config);
     this.state.update((s) => ({ ...s, loading: true }));
@@ -514,7 +545,8 @@ export class InstanceStore implements OnDestroy {
         parentInstanceId: config.parentId,
         yoloMode: config.yoloMode,
         agentId: config.agentId,
-        provider: config.provider
+        provider: config.provider,
+        model: config.model
       });
       console.log('InstanceStore: createInstance result:', result);
     } catch (error) {
@@ -531,12 +563,16 @@ export class InstanceStore implements OnDestroy {
   async createInstanceWithMessage(
     message: string,
     files?: File[],
-    workingDirectory?: string
+    workingDirectory?: string,
+    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto',
+    model?: string
   ): Promise<void> {
     console.log('InstanceStore: createInstanceWithMessage called with:', {
       message,
       filesCount: files?.length,
-      workingDirectory
+      workingDirectory,
+      provider,
+      model
     });
     this.state.update((s) => ({ ...s, loading: true }));
 
@@ -550,7 +586,9 @@ export class InstanceStore implements OnDestroy {
       const result = await this.ipc.createInstanceWithMessage({
         workingDirectory: workingDirectory || '.',
         message,
-        attachments
+        attachments,
+        provider: provider === 'auto' ? undefined : provider,
+        model
       });
       console.log('InstanceStore: createInstanceWithMessage result:', result);
     } catch (error) {

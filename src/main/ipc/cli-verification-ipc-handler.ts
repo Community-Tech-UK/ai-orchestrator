@@ -9,6 +9,7 @@ import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
 import type { WindowManager } from '../window-manager';
+import { CopilotSdkAdapter, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from '../cli/adapters/copilot-sdk-adapter';
 
 // ============================================
 // Types
@@ -177,6 +178,31 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
             message: (error as Error).message,
             timestamp: Date.now(),
           },
+        };
+      }
+    }
+  );
+
+  // ============================================
+  // Copilot Model Handlers
+  // ============================================
+
+  // List available Copilot models (queries the CLI dynamically)
+  ipcMain.handle(
+    'copilot:list-models',
+    async (): Promise<IpcResponse<CopilotModelInfo[]>> => {
+      try {
+        console.log('[CLI-Verification-IPC] Fetching Copilot models from CLI...');
+        const adapter = new CopilotSdkAdapter();
+        const models = await adapter.listAvailableModels();
+        console.log(`[CLI-Verification-IPC] Fetched ${models.length} models from Copilot CLI`);
+        return { success: true, data: models };
+      } catch (error) {
+        console.error('[CLI-Verification-IPC] Failed to fetch Copilot models:', error);
+        // Return default models as fallback
+        return {
+          success: true,
+          data: COPILOT_DEFAULT_MODELS,
         };
       }
     }

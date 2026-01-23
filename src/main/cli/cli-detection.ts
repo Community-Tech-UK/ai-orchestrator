@@ -35,12 +35,12 @@ export interface DetectionResult {
 /**
  * CLI type identifiers - only CLIs with provider implementations
  */
-export type CliType = 'claude' | 'codex' | 'gemini' | 'ollama';
+export type CliType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'ollama';
 
 /**
  * CLIs that have provider implementations and can be used for verification
  */
-const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'ollama'];
+const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'ollama'];
 
 /**
  * Registry entry for a CLI tool
@@ -118,6 +118,27 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
     alternativePaths: [
       '/usr/local/bin/gemini',
       `${process.env['HOME']}/.local/bin/gemini`
+    ]
+  },
+  copilot: {
+    name: 'copilot',
+    command: 'copilot',
+    displayName: 'GitHub Copilot',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: [
+      'streaming',
+      'tool-use',
+      'file-access',
+      'shell',
+      'multi-turn',
+      'vision',
+      'mcp-servers'
+    ],
+    alternativePaths: [
+      '/usr/local/bin/copilot',
+      `${process.env['HOME']}/.local/bin/copilot`,
+      `${process.env['HOME']}/.npm-global/bin/copilot`
     ]
   },
   ollama: {
@@ -243,8 +264,8 @@ export class CliDetectionService {
    */
   async getDefaultCli(): Promise<CliInfo | null> {
     const result = await this.detectAll();
-    // Prefer claude, then gemini, then codex, then others
-    const priority: CliType[] = ['claude', 'gemini', 'codex', 'ollama'];
+    // Prefer claude, then gemini, then codex, then copilot, then others
+    const priority: CliType[] = ['claude', 'gemini', 'codex', 'copilot', 'ollama'];
     for (const type of priority) {
       const cli = result.available.find((c) => c.name === type);
       if (cli) return cli;

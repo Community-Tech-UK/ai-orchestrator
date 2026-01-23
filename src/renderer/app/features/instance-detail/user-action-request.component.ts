@@ -12,6 +12,7 @@ import {
   input
 } from '@angular/core';
 import { ElectronIpcService } from '../../core/services/electron-ipc.service';
+import { InstanceStore } from '../../core/state/instance.store';
 
 export interface UserActionRequest {
   id: string;
@@ -51,7 +52,7 @@ export interface UserActionRequest {
                 @for (option of request.options; track option.id) {
                   <button
                     class="option-btn"
-                    (click)="onSelectOption(request.id, option.id)"
+                    (click)="onSelectOption(request, option.id)"
                     [disabled]="isResponding()"
                   >
                     {{ option.label }}
@@ -65,14 +66,14 @@ export interface UserActionRequest {
               <div class="request-actions">
                 <button
                   class="btn-reject"
-                  (click)="onReject(request.id)"
+                  (click)="onReject(request)"
                   [disabled]="isResponding()"
                 >
                   Reject
                 </button>
                 <button
                   class="btn-approve"
-                  (click)="onApprove(request.id)"
+                  (click)="onApprove(request)"
                   [disabled]="isResponding()"
                 >
                   {{ getApproveLabel(request) }}
@@ -255,6 +256,7 @@ export interface UserActionRequest {
 })
 export class UserActionRequestComponent implements OnInit, OnDestroy {
   private ipc = inject(ElectronIpcService);
+  private instanceStore = inject(InstanceStore);
 
   instanceId = input<string | null>(null);
 
@@ -331,20 +333,23 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     }
   }
 
-  async onApprove(requestId: string): Promise<void> {
-    await this.respond(requestId, true);
+  async onApprove(request: UserActionRequest): Promise<void> {
+    await this.respond(request, true);
   }
 
-  async onReject(requestId: string): Promise<void> {
-    await this.respond(requestId, false);
+  async onReject(request: UserActionRequest): Promise<void> {
+    await this.respond(request, false);
   }
 
-  async onSelectOption(requestId: string, optionId: string): Promise<void> {
-    await this.respond(requestId, true, optionId);
+  async onSelectOption(
+    request: UserActionRequest,
+    optionId: string
+  ): Promise<void> {
+    await this.respond(request, true, optionId);
   }
 
   private async respond(
-    requestId: string,
+    request: UserActionRequest,
     approved: boolean,
     selectedOption?: string
   ): Promise<void> {
@@ -352,15 +357,25 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
     try {
       const response = await this.ipc.respondToUserAction(
-        requestId,
+        request.id,
         approved,
         selectedOption
       );
 
       if (response.success) {
+        if (
+          approved &&
+          request.requestType === 'switch_mode' &&
+          request.targetMode
+        ) {
+          await this.instanceStore.changeAgentMode(
+            request.instanceId,
+            request.targetMode
+          );
+        }
         // Remove the request from the list
         this.pendingRequests.update((requests) =>
-          requests.filter((r) => r.id !== requestId)
+          requests.filter((r) => r.id !== request.id)
         );
       }
     } catch (error) {

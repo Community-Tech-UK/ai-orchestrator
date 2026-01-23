@@ -44,6 +44,9 @@ const IPC_CHANNELS = {
   CLI_CHECK: 'cli:check',
   CLI_TEST_CONNECTION: 'cli:test-connection',
 
+  // Copilot
+  COPILOT_LIST_MODELS: 'copilot:list-models',
+
   // Dialogs
   DIALOG_SELECT_FOLDER: 'dialog:select-folder',
   DIALOG_SELECT_FILES: 'dialog:select-files',
@@ -458,18 +461,21 @@ const electronAPI = {
     attachments?: unknown[];
     yoloMode?: boolean;
     agentId?: string;
-    provider?: 'claude' | 'openai' | 'gemini' | 'auto';
+    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    model?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.INSTANCE_CREATE, payload);
   },
 
   /**
-   * Create a new Claude instance and immediately send a message
+   * Create a new instance and immediately send a message
    */
   createInstanceWithMessage: (payload: {
     workingDirectory: string;
     message: string;
     attachments?: unknown[];
+    provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+    model?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(
       IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE,
@@ -702,6 +708,18 @@ const electronAPI = {
    */
   testCliConnection: (command: string): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.CLI_TEST_CONNECTION, { command });
+  },
+
+  // ============================================
+  // Copilot
+  // ============================================
+
+  /**
+   * List available models from Copilot CLI
+   * Queries the CLI dynamically, falls back to defaults if unavailable
+   */
+  listCopilotModels: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.COPILOT_LIST_MODELS);
   },
 
   // ============================================

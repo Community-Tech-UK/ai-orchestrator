@@ -479,7 +479,8 @@ export class IpcMainHandler {
             attachments: payload.attachments,
             yoloMode: payload.yoloMode,
             agentId: payload.agentId,
-            provider: payload.provider
+            provider: payload.provider,
+            modelOverride: payload.model
           });
 
           return {
@@ -508,6 +509,8 @@ export class IpcMainHandler {
           workingDirectory: string;
           message: string;
           attachments?: any[];
+          provider?: 'claude' | 'openai' | 'gemini' | 'copilot' | 'auto';
+          model?: string;
         }
       ): Promise<IpcResponse> => {
         try {
@@ -526,7 +529,9 @@ export class IpcMainHandler {
           const instance = await this.instanceManager.createInstance({
             workingDirectory,
             initialPrompt: payload.message,
-            attachments: payload.attachments
+            attachments: payload.attachments,
+            provider: payload.provider,
+            modelOverride: payload.model
           });
 
           return {

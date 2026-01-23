@@ -25,3 +25,6 @@ export { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 
 // Gemini CLI adapter
 export { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
+
+// Copilot SDK adapter
+export { CopilotSdkAdapter, CopilotSdkConfig, CopilotSdkAdapterEvents, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from './copilot-sdk-adapter';

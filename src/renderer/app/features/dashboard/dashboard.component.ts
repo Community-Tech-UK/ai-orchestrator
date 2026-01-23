@@ -31,6 +31,8 @@ import {
   ProviderSelectorComponent,
   ProviderType
 } from '../providers/provider-selector.component';
+import { CopilotModelSelectorComponent } from '../providers/copilot-model-selector.component';
+import { ProviderStateService } from '../../core/services/provider-state.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -45,7 +47,8 @@ import {
     AgentSelectorComponent,
     CommandPaletteComponent,
     FileExplorerComponent,
-    ProviderSelectorComponent
+    ProviderSelectorComponent,
+    CopilotModelSelectorComponent
   ],
   template: `
     @if (cliStore.loading()) {
@@ -243,6 +246,14 @@ import {
 
         <!-- Main content area -->
         <main class="main-content">
+          <!-- Copilot model selector - shown when Copilot is selected and no instance active -->
+          @if (showCopilotModelSelector()) {
+            <div class="copilot-model-overlay">
+              <app-copilot-model-selector
+                (modelSelected)="onModelSelected($event)"
+              />
+            </div>
+          }
           <app-instance-detail />
         </main>
 
@@ -615,6 +626,16 @@ import {
         position: relative;
       }
 
+      /* Copilot model selector overlay */
+      .copilot-model-overlay {
+        position: absolute;
+        top: 180px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        width: 280px;
+      }
+
       .main-content::before {
         content: '';
         position: absolute;
@@ -680,17 +701,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
   agentStore = inject(AgentStore);
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
+  private providerState = inject(ProviderStateService);
 
   showSettings = signal(false);
   showHistory = signal(false);
   showCommandPalette = signal(false);
   showSidebar = signal(true);
-  selectedProvider = signal<ProviderType>('claude');
+  // Use shared provider state so instance-detail can access it
+  selectedProvider = this.providerState.selectedProvider;
+  selectedModel = this.providerState.selectedModel;
 
   // Computed: selected instance's working directory for file explorer
   selectedInstanceWorkingDir = computed(() => {
     const instance = this.store.selectedInstance();
     return instance?.workingDirectory || null;
+  });
+
+  // Computed: show Copilot model selector when Copilot is selected and no active instance
+  showCopilotModelSelector = computed(() => {
+    return this.selectedProvider() === 'copilot' && !this.store.selectedInstance();
   });
 
   // Sidebar resize state - using ViewLayoutService for persistence
@@ -852,17 +881,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
     const settings = this.settingsStore.settings();
     const selectedAgent = this.agentStore.selectedAgent();
     const provider = this.selectedProvider();
+    const model = this.selectedModel();
     this.store.createInstance({
       displayName: `${selectedAgent.name} Instance`,
       workingDirectory: settings.defaultWorkingDirectory || undefined,
       yoloMode: settings.defaultYoloMode,
       agentId: selectedAgent.id,
-      provider: provider === 'auto' ? undefined : provider
+      provider: provider === 'auto' ? undefined : provider,
+      // Pass model when using Copilot
+      model: provider === 'copilot' ? model : undefined
     });
   }
 
   onProviderSelected(provider: ProviderType): void {
-    this.selectedProvider.set(provider);
+    this.providerState.setProvider(provider);
+  }
+
+  onModelSelected(model: string): void {
+    this.providerState.setModel(model);
   }
 
   closeAllInstances(): void {

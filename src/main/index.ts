@@ -14,6 +14,7 @@ class ClaudeOrchestratorApp {
   private windowManager: WindowManager;
   private ipcHandler: IpcMainHandler;
   private instanceManager: InstanceManager;
+  private handlersRegistered = false;
 
   constructor() {
     this.windowManager = new WindowManager();
@@ -29,13 +30,17 @@ class ClaudeOrchestratorApp {
 
     // Register IPC handlers BEFORE creating window
     // (window might call handlers immediately on load)
-    this.ipcHandler.registerHandlers();
+    // Only register once - handlers persist across window recreation
+    if (!this.handlersRegistered) {
+      this.ipcHandler.registerHandlers();
+      this.handlersRegistered = true;
 
-    // Load persisted hook approvals
-    await getHookManager().loadApprovals();
+      // Load persisted hook approvals (only once)
+      await getHookManager().loadApprovals();
 
-    // Set up instance manager event forwarding to renderer
-    this.setupInstanceEventForwarding();
+      // Set up instance manager event forwarding to renderer (only once)
+      this.setupInstanceEventForwarding();
+    }
 
     // Create main window (this loads the renderer which may call IPC)
     await this.windowManager.createMainWindow();

@@ -42,6 +42,7 @@
     "@angular/platform-browser-dynamic": "^21.1.0",
     "@angular/router": "^21.1.0",
     "@anthropic-ai/sdk": "^0.71.2",
+    "@github/copilot-sdk": "^0.1.16",
     "@types/diff": "^7.0.2",
     "@types/dompurify": "^3.0.5",
     "better-sqlite3": "^12.6.2",

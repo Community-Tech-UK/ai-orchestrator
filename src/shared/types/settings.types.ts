@@ -8,7 +8,7 @@
  */
 
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type CliType = 'claude' | 'gemini' | 'openai' | 'auto';
+export type CliType = 'claude' | 'gemini' | 'openai' | 'copilot' | 'auto';
 export type ConfigSource = 'project' | 'user' | 'default';
 
 /**
@@ -19,6 +19,7 @@ export interface AppSettings {
   defaultYoloMode: boolean;
   defaultWorkingDirectory: string;
   defaultCli: CliType;
+  defaultCopilotModel: string; // Model to use when Copilot is selected
   theme: ThemeMode;
 
   // Orchestration
@@ -53,6 +54,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultYoloMode: false,
   defaultWorkingDirectory: '',
   defaultCli: 'auto',
+  defaultCopilotModel: 'claude-sonnet-4-5',
   theme: 'dark',
 
   // Orchestration
@@ -136,7 +138,24 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'auto', label: 'Auto-detect' },
       { value: 'claude', label: 'Claude Code' },
       { value: 'gemini', label: 'Gemini CLI' },
-      { value: 'openai', label: 'OpenAI CLI' }
+      { value: 'openai', label: 'OpenAI CLI' },
+      { value: 'copilot', label: 'GitHub Copilot' }
+    ]
+  },
+  {
+    key: 'defaultCopilotModel',
+    label: 'Default Copilot Model',
+    description: 'Model to use when GitHub Copilot is selected',
+    type: 'select',
+    category: 'general',
+    options: [
+      { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+      { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
+      { value: 'gpt-4o', label: 'GPT-4o' },
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { value: 'o3', label: 'OpenAI o3' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' }
     ]
   },
   {

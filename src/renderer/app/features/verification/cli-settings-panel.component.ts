@@ -806,10 +806,11 @@ export class CliSettingsPanelComponent implements OnInit {
 
   // Available models per CLI
   private modelOptions: Record<string, string[]> = {
-    claude: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku', 'claude-3.5-sonnet'],
-    gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-    codex: ['gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
-    ollama: ['llama3.2:70b', 'llama3.2:8b', 'codellama:34b', 'mistral:7b'],
+    claude: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+    gemini: ['gemini-3-pro', 'gemini-3-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'],
+    codex: ['o3', 'gpt-4o', 'gpt-4o-mini'],
+    ollama: ['llama3.3:70b', 'llama3.2:8b', 'codellama:34b', 'qwen2.5-coder:32b'],
+    copilot: ['claude-opus-4-5', 'o3', 'gemini-3-pro', 'gemini-2.5-pro', 'claude-sonnet-4-5', 'gpt-4o', 'gemini-3-flash', 'gemini-2.0-flash', 'claude-haiku-4-5', 'gpt-4o-mini'],
   };
 
   ngOnInit(): void {
