@@ -740,6 +740,20 @@ select {
   }
 }
 
+// User message links - need to be visible on orange background
+.message-user .markdown-content a {
+  color: #1a1a1a;
+  text-decoration: underline;
+  font-weight: 600;
+  border-bottom: none;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 2px;
+    color: #1a1a1a;
+  }
+}
+
 // ============================================
 // CODE BLOCKS - Enhanced styling
 // ============================================
