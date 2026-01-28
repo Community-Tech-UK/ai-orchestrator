@@ -11,12 +11,13 @@
 import { EventEmitter } from 'events';
 
 export interface EmbeddingConfig {
-  provider: 'ollama' | 'openai' | 'local' | 'auto';
+  provider: 'ollama' | 'openai' | 'voyage' | 'local' | 'auto';
   model?: string;
   dimensions?: number;
   batchSize?: number;
   ollamaHost?: string;
   openaiApiKey?: string;
+  voyageApiKey?: string;
   cacheEnabled?: boolean;
   maxCacheSize?: number;
 }
@@ -51,6 +52,7 @@ export class EmbeddingService extends EventEmitter {
   private cache = new Map<string, CacheEntry>();
   private ollamaAvailable: boolean | null = null;
   private openaiAvailable: boolean | null = null;
+  private voyageAvailable: boolean | null = null;
 
   private constructor(config: Partial<EmbeddingConfig> = {}) {
     super();
@@ -72,6 +74,7 @@ export class EmbeddingService extends EventEmitter {
     // Reset availability checks when config changes
     if (config.ollamaHost) this.ollamaAvailable = null;
     if (config.openaiApiKey) this.openaiAvailable = null;
+    if (config.voyageApiKey) this.voyageAvailable = null;
   }
 
   getConfig(): EmbeddingConfig {
@@ -109,6 +112,9 @@ export class EmbeddingService extends EventEmitter {
           break;
         case 'openai':
           result = await this.embedWithOpenAI(text);
+          break;
+        case 'voyage':
+          result = await this.embedWithVoyage(text);
           break;
         default:
           result = await this.embedWithLocal(text);
@@ -242,6 +248,18 @@ export class EmbeddingService extends EventEmitter {
       }
     }
 
+    // Try Voyage if configured (good for code embeddings)
+    if (this.config.voyageApiKey && this.voyageAvailable !== false) {
+      try {
+        const result = await this.embedWithVoyage(text);
+        this.voyageAvailable = true;
+        return result;
+      } catch (error) {
+        this.voyageAvailable = false;
+        this.emit('provider:unavailable', { provider: 'voyage', error });
+      }
+    }
+
     // Fall back to local
     return this.embedWithLocal(text);
   }
@@ -317,6 +335,60 @@ export class EmbeddingService extends EventEmitter {
       };
     } catch (error) {
       this.emit('error', { provider: 'openai', error });
+      throw error;
+    }
+  }
+
+  /**
+   * Voyage AI embeddings - specialized for code understanding
+   * Uses the voyage-code-2 model which is optimized for code search
+   */
+  private async embedWithVoyage(text: string): Promise<EmbeddingResult> {
+    if (!this.config.voyageApiKey) {
+      throw new Error('Voyage API key not configured');
+    }
+
+    // Use voyage-code-2 for code, or allow custom model
+    const model = this.config.model === 'nomic-embed-text' || !this.config.model
+      ? 'voyage-code-2'
+      : this.config.model;
+
+    try {
+      const response = await fetch('https://api.voyageai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.voyageApiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          input: text,
+          input_type: 'document', // Use 'query' for search queries
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Voyage error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as {
+        data: { embedding: number[] }[];
+        usage?: { total_tokens: number };
+      };
+
+      if (!data.data || !data.data[0] || !data.data[0].embedding) {
+        throw new Error('Invalid Voyage response: missing embedding array');
+      }
+
+      return {
+        embedding: data.data[0].embedding,
+        model,
+        tokens: data.usage?.total_tokens || Math.ceil(text.length / 4),
+        cached: false,
+        provider: 'voyage',
+      };
+    } catch (error) {
+      this.emit('error', { provider: 'voyage', error });
       throw error;
     }
   }
@@ -492,16 +564,49 @@ export class EmbeddingService extends EventEmitter {
   }
 
   /**
+   * Check if Voyage AI is available (requires API key)
+   */
+  async checkVoyageAvailability(): Promise<boolean> {
+    if (!this.config.voyageApiKey) {
+      this.voyageAvailable = false;
+      return false;
+    }
+
+    try {
+      // Voyage doesn't have a simple health endpoint, so we try a minimal embedding
+      const response = await fetch('https://api.voyageai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.voyageApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'voyage-code-2',
+          input: 'test',
+          input_type: 'document',
+        }),
+      });
+      this.voyageAvailable = response.ok;
+      return this.voyageAvailable;
+    } catch {
+      this.voyageAvailable = false;
+      return false;
+    }
+  }
+
+  /**
    * Get current provider status
    */
   getProviderStatus(): {
     ollama: boolean | null;
     openai: boolean | null;
+    voyage: boolean | null;
     local: boolean;
   } {
     return {
       ollama: this.ollamaAvailable,
       openai: this.openaiAvailable,
+      voyage: this.voyageAvailable,
       local: true, // Always available
     };
   }

@@ -19,9 +19,11 @@ import {
 import type {
   OutputMessage,
   ContextUsage,
-  InstanceStatus
+  InstanceStatus,
+  ThinkingContent
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 
 /**
  * Gemini CLI specific configuration
@@ -160,6 +162,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         this.process.stdin.end();
       }
 
+      // Track streaming state for this response - use consistent ID and accumulate content
+      const streamingMessageId = generateId();
+      let accumulatedContent = '';
+
       this.process.stdout?.on('data', (data) => {
         const chunk = data.toString();
         this.outputBuffer += chunk;
@@ -171,23 +177,28 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             const event = JSON.parse(line);
             // Handle Gemini stream-json event types
             // Assistant messages: {"type":"message","role":"assistant","content":"..."}
+            let newContent = '';
             if (
               event.type === 'message' &&
               event.role === 'assistant' &&
               event.content
             ) {
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'assistant',
-                content: event.content
-              } as OutputMessage);
+              newContent = event.content;
             } else if (event.type === 'text' && event.text) {
+              newContent = event.text;
+            }
+
+            if (newContent) {
+              accumulatedContent += newContent;
               this.emit('output', {
-                id: generateId(),
+                id: streamingMessageId,
                 timestamp: Date.now(),
                 type: 'assistant',
-                content: event.text
+                content: newContent,
+                metadata: {
+                  streaming: true,
+                  accumulatedContent
+                }
               } as OutputMessage);
             }
           } catch {
@@ -197,11 +208,16 @@ export class GeminiCliAdapter extends BaseCliAdapter {
               !line.startsWith('{') &&
               !line.includes('YOLO mode')
             ) {
+              accumulatedContent += line;
               this.emit('output', {
-                id: generateId(),
+                id: streamingMessageId,
                 timestamp: Date.now(),
                 type: 'assistant',
-                content: line
+                content: line,
+                metadata: {
+                  streaming: true,
+                  accumulatedContent
+                }
               } as OutputMessage);
             }
           }
@@ -292,20 +308,25 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     }
   }
 
-  parseOutput(raw: string): CliResponse {
+  parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
     const id = this.generateResponseId();
     const toolCalls = this.extractToolCalls(raw);
-    const content =
+    let content =
       this.extractContentFromStreamJson(raw) || this.cleanContent(raw);
     const usage = this.extractUsage(raw);
 
+    // Extract thinking content from the response
+    const extracted = extractThinkingContent(content);
+
     return {
       id,
-      content,
+      content: extracted.response, // Use cleaned response without thinking
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage,
-      raw
+      raw,
+      // Include thinking blocks if found
+      thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined
     };
   }
 
@@ -421,11 +442,14 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   }
 
   private cleanContent(raw: string): string {
-    return raw
+    // Use the shared extractor for consistent handling of thinking content
+    const { response } = extractThinkingContent(raw);
+
+    // Also remove tool blocks and status prefixes
+    return response
       .replace(/```tool\n[\s\S]*?\n```/g, '')
       .replace(/\[Function:\s*\w+\][\s\S]*?\[\/Function\]/g, '')
       .replace(/^\[.*?\]\s*/gm, '') // Remove status prefixes like [INFO], [DEBUG]
-      .replace(/^##\s*Thinking\s*\n[\s\S]*?(?=\n##|\n\n|$)/gim, '') // Remove thinking sections
       .trim();
   }
 

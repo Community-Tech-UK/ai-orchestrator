@@ -56,6 +56,109 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_sections_filepath;
       DROP INDEX IF EXISTS idx_sections_store_name;
     `
+  },
+
+  // Migration 002: Add codebase indexing tables
+  {
+    name: '002_add_codebase_indexing_tables',
+    up: `
+      -- Merkle tree storage for change detection
+      CREATE TABLE IF NOT EXISTS codebase_trees (
+        id TEXT PRIMARY KEY,
+        store_id TEXT NOT NULL,
+        root_path TEXT NOT NULL,
+        tree_blob BLOB NOT NULL,
+        file_count INTEGER NOT NULL,
+        total_size INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (store_id) REFERENCES context_stores(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_codebase_trees_store
+        ON codebase_trees(store_id);
+
+      -- File metadata for dependency tracking
+      CREATE TABLE IF NOT EXISTS file_metadata (
+        id TEXT PRIMARY KEY,
+        store_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        relative_path TEXT NOT NULL,
+        language TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        lines INTEGER NOT NULL,
+        hash TEXT NOT NULL,
+        last_modified INTEGER NOT NULL,
+        is_entry_point INTEGER DEFAULT 0,
+        is_test_file INTEGER DEFAULT 0,
+        is_config_file INTEGER DEFAULT 0,
+        framework TEXT,
+        imports_json TEXT,
+        exports_json TEXT,
+        symbols_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (store_id) REFERENCES context_stores(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_file_metadata_store
+        ON file_metadata(store_id);
+      CREATE INDEX IF NOT EXISTS idx_file_metadata_path
+        ON file_metadata(path);
+      CREATE INDEX IF NOT EXISTS idx_file_metadata_hash
+        ON file_metadata(hash);
+      CREATE INDEX IF NOT EXISTS idx_file_metadata_language
+        ON file_metadata(language);
+
+      -- Search analytics
+      CREATE TABLE IF NOT EXISTS search_events (
+        id TEXT PRIMARY KEY,
+        store_id TEXT NOT NULL,
+        query TEXT NOT NULL,
+        query_hash TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        results_count INTEGER NOT NULL,
+        top_score REAL,
+        clicked_indices TEXT,
+        search_duration_ms INTEGER,
+        hyde_used INTEGER DEFAULT 0,
+        rerank_used INTEGER DEFAULT 0,
+        FOREIGN KEY (store_id) REFERENCES context_stores(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_search_events_store
+        ON search_events(store_id);
+      CREATE INDEX IF NOT EXISTS idx_search_events_timestamp
+        ON search_events(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_search_events_query_hash
+        ON search_events(query_hash);
+    `,
+    down: `
+      DROP TABLE IF EXISTS search_events;
+      DROP TABLE IF EXISTS file_metadata;
+      DROP TABLE IF EXISTS codebase_trees;
+    `
+  },
+
+  // Migration 003: Add FTS5 full-text search table
+  {
+    name: '003_add_fts5_code_search',
+    up: `
+      -- Full-text search table using FTS5
+      CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
+        store_id,
+        section_id,
+        file_path,
+        content,
+        symbols,
+        tokenize = 'porter unicode61'
+      );
+
+      -- Note: Triggers for keeping FTS in sync are handled in application code
+      -- because FTS5 triggers require special handling
+    `,
+    down: `
+      DROP TABLE IF EXISTS code_fts;
+    `
   }
 ];
 

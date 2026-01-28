@@ -80,6 +80,16 @@ export interface UserActionRequest {
                 >
                   Reject
                 </button>
+                @if (request.requestType === 'input_required') {
+                  <button
+                    class="btn-yolo"
+                    (click)="onEnableYolo(request)"
+                    [disabled]="isResponding()"
+                    title="Enable YOLO mode to auto-approve all permissions for this session"
+                  >
+                    ⚡ YOLO
+                  </button>
+                }
                 <button
                   class="btn-approve"
                   (click)="onApprove(request)"
@@ -222,7 +232,8 @@ export interface UserActionRequest {
       }
 
       .btn-reject,
-      .btn-approve {
+      .btn-approve,
+      .btn-yolo {
         padding: var(--spacing-sm) var(--spacing-lg);
         border-radius: var(--radius-md);
         font-family: var(--font-display);
@@ -246,6 +257,22 @@ export interface UserActionRequest {
           background: rgba(var(--error-rgb), 0.1);
           border-color: var(--error-color);
           color: var(--error-color);
+        }
+      }
+
+      .btn-yolo {
+        background: linear-gradient(
+          135deg,
+          #f59e0b 0%,
+          #d97706 100%
+        );
+        border: none;
+        color: #000;
+        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+
+        &:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);
         }
       }
 
@@ -411,6 +438,24 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   async onReject(request: UserActionRequest): Promise<void> {
     await this.respond(request, false);
+  }
+
+  async onEnableYolo(request: UserActionRequest): Promise<void> {
+    this.isResponding.set(true);
+    try {
+      // Toggle YOLO mode for this instance
+      const result = await this.ipc.toggleYoloMode(request.instanceId);
+      if (result.success) {
+        // Remove all pending permission requests for this instance since YOLO is now enabled
+        this.pendingRequests.update((requests) =>
+          requests.filter((r) => r.instanceId !== request.instanceId || r.requestType !== 'input_required')
+        );
+      }
+    } catch (error) {
+      console.error('Failed to enable YOLO mode:', error);
+    } finally {
+      this.isResponding.set(false);
+    }
   }
 
   async onSelectOption(

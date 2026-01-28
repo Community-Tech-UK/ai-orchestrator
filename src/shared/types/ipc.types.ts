@@ -548,6 +548,20 @@ export const IPC_CHANNELS = {
   LLM_SET_CONFIG: 'llm:set-config',
   LLM_GET_STATUS: 'llm:get-status',
 
+  // Codebase Indexing operations
+  CODEBASE_INDEX_STORE: 'codebase:index:store',
+  CODEBASE_INDEX_FILE: 'codebase:index:file',
+  CODEBASE_INDEX_CANCEL: 'codebase:index:cancel',
+  CODEBASE_INDEX_STATUS: 'codebase:index:status',
+  CODEBASE_INDEX_STATS: 'codebase:index:stats',
+  CODEBASE_INDEX_PROGRESS: 'codebase:index:progress',
+  CODEBASE_SEARCH: 'codebase:search',
+  CODEBASE_SEARCH_SYMBOLS: 'codebase:search:symbols',
+  CODEBASE_WATCHER_START: 'codebase:watcher:start',
+  CODEBASE_WATCHER_STOP: 'codebase:watcher:stop',
+  CODEBASE_WATCHER_STATUS: 'codebase:watcher:status',
+  CODEBASE_WATCHER_CHANGES: 'codebase:watcher:changes',
+
   // A/B Testing operations (Phase 6)
   AB_CREATE_EXPERIMENT: 'ab:create-experiment',
   AB_UPDATE_EXPERIMENT: 'ab:update-experiment',

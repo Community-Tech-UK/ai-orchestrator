@@ -90,6 +90,8 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
               [messages]="inst.outputBuffer"
               [instanceId]="inst.id"
               [provider]="inst.provider"
+              [showThinking]="showThinking()"
+              [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
             />
             @if (inst.status === 'busy' || inst.status === 'initializing') {
               <app-activity-status
@@ -282,6 +284,10 @@ export class InstanceDetailComponent {
 
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
+
+  // Settings for thinking display
+  showThinking = this.settingsStore.showThinking;
+  thinkingDefaultExpanded = this.settingsStore.thinkingDefaultExpanded;
   welcomePendingFiles = signal<File[]>([]);
   welcomeWorkingDirectory = signal<string | null>(null);
   isEditingName = signal(false);

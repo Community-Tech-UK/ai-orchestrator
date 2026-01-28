@@ -29,6 +29,8 @@ export class SettingsStore {
   readonly maxChildrenPerParent = computed(() => this._settings().maxChildrenPerParent);
   readonly fontSize = computed(() => this._settings().fontSize);
   readonly showToolMessages = computed(() => this._settings().showToolMessages);
+  readonly showThinking = computed(() => this._settings().showThinking);
+  readonly thinkingDefaultExpanded = computed(() => this._settings().thinkingDefaultExpanded);
   readonly contextWarningThreshold = computed(() => this._settings().contextWarningThreshold);
 
   // Settings metadata for UI

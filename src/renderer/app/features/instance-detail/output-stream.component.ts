@@ -19,6 +19,7 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
+import type { ThinkingContent } from '../../../../shared/types/instance.types';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService } from '../../core/services/ipc';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
@@ -30,7 +31,8 @@ import { ThoughtProcessComponent } from '../../shared/components/thought-process
 interface DisplayItem {
   type: 'message' | 'thought-group';
   message?: OutputMessage;
-  thoughts?: string[];
+  thoughts?: string[];  // Legacy support
+  thinking?: ThinkingContent[]; // Structured thinking content
   response?: OutputMessage;
   timestamp?: number;
 }
@@ -45,11 +47,15 @@ interface DisplayItem {
         @if (item.type === 'thought-group') {
           <!-- Thought group with collapsible thinking section -->
           <div class="thought-group">
-            @if (item.thoughts && item.thoughts.length > 0) {
-              <app-thought-process
-                [thoughts]="item.thoughts"
-                [label]="getThoughtLabel(item.thoughts)"
-              />
+            @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
+              @if (showThinking()) {
+                <app-thought-process
+                  [thoughts]="item.thoughts || []"
+                  [thinkingBlocks]="item.thinking"
+                  [label]="getThoughtLabel(item.thoughts || [])"
+                  [defaultExpanded]="thinkingDefaultExpanded()"
+                />
+              }
             }
             @if (item.response) {
               <div class="message message-assistant">
@@ -499,6 +505,8 @@ export class OutputStreamComponent {
   messages = input.required<OutputMessage[]>();
   instanceId = input.required<string>();
   provider = input<string>('claude');
+  showThinking = input<boolean>(true);
+  thinkingDefaultExpanded = input<boolean>(false);
 
   container = viewChild<ElementRef>('container');
 
@@ -564,11 +572,24 @@ export class OutputStreamComponent {
           }
         });
       } else {
-        // Regular non-streaming message - show as-is
-        items.push({
-          type: 'message',
-          message: msg
-        });
+        // Regular non-streaming message
+        // Check if message has thinking content
+        if (msg.thinking && msg.thinking.length > 0 && msg.type === 'assistant') {
+          // Create a thought-group item with thinking and response
+          items.push({
+            type: 'thought-group',
+            thinking: msg.thinking,
+            thoughts: msg.thinking.map(t => t.content), // Legacy compat
+            response: msg,
+            timestamp: msg.timestamp
+          });
+        } else {
+          // Regular message without thinking
+          items.push({
+            type: 'message',
+            message: msg
+          });
+        }
       }
     }
 

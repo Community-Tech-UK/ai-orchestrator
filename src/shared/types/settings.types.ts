@@ -40,6 +40,8 @@ export interface AppSettings {
   fontSize: number; // 12-20
   contextWarningThreshold: number; // 0-100 percentage
   showToolMessages: boolean;
+  showThinking: boolean; // Display AI thinking process in collapsible panels
+  thinkingDefaultExpanded: boolean; // Show thinking panels expanded instead of collapsed
 
   // Advanced
   customModelOverride: string; // empty = use default
@@ -75,6 +77,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fontSize: 14,
   contextWarningThreshold: 80,
   showToolMessages: true,
+  showThinking: true,
+  thinkingDefaultExpanded: false,
 
   // Advanced
   customModelOverride: '',
@@ -242,6 +246,20 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     key: 'showToolMessages',
     label: 'Show Tool Messages',
     description: 'Display tool use and tool result messages in output',
+    type: 'boolean',
+    category: 'display'
+  },
+  {
+    key: 'showThinking',
+    label: 'Show Thinking/Reasoning',
+    description: 'Display AI thinking process in collapsible panels',
+    type: 'boolean',
+    category: 'display'
+  },
+  {
+    key: 'thinkingDefaultExpanded',
+    label: 'Expand Thinking by Default',
+    description: 'Show thinking panels expanded instead of collapsed',
     type: 'boolean',
     category: 'display'
   },

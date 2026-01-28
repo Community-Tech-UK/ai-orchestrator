@@ -18,6 +18,10 @@
     "test:unit": "vitest",
     "test:unit:run": "vitest run",
     "test:coverage": "vitest --coverage",
+    "bench": "vitest bench",
+    "bench:indexing": "vitest bench src/main/indexing/benchmarks/indexing.bench.ts",
+    "bench:search": "vitest bench src/main/indexing/benchmarks/search.bench.ts",
+    "test:load": "vitest run src/main/indexing/__tests__/load/",
     "lint": "ng lint",
     "postinstall": "node scripts/rebuild-native-modules.js",
     "rebuild:native": "node scripts/rebuild-native-modules.js"

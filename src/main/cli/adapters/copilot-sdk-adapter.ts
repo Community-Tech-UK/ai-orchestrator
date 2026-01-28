@@ -11,9 +11,11 @@ import { pathToFileURL } from 'url';
 import type {
   OutputMessage,
   ContextUsage,
-  InstanceStatus
+  InstanceStatus,
+  ThinkingContent
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 
 // Import SDK types dynamically to handle cases where SDK is not installed
 type CopilotClientType = import('@github/copilot-sdk').CopilotClient;
@@ -288,6 +290,8 @@ export class CopilotSdkAdapter extends EventEmitter {
   // Accumulate streaming content for a single message
   private streamingMessageId: string | null = null;
   private streamingContent = '';
+  // Track reasoning/thinking for the current message
+  private currentMessageReasoning: ThinkingContent[] = [];
 
   private setupEventForwarding(): void {
     if (!this.session) return;
@@ -298,11 +302,24 @@ export class CopilotSdkAdapter extends EventEmitter {
           // Complete message received
           // Only emit if we haven't been streaming (to avoid duplicate content)
           if (!this.hasReceivedStreamingDeltas) {
+            // Also extract any inline thinking from content
+            const extracted = extractThinkingContent(event.data.content);
+            const allThinking = [
+              ...this.currentMessageReasoning,
+              ...extracted.thinking.map(t => ({
+                ...t,
+                timestamp: Date.now()
+              }))
+            ];
+
             const outputMessage: OutputMessage = {
               id: generateId(),
               timestamp: Date.now(),
               type: 'assistant',
-              content: event.data.content
+              content: extracted.response,
+              // Include all thinking blocks
+              thinking: allThinking.length > 0 ? allThinking : undefined,
+              thinkingExtracted: true
             };
             this.emit('output', outputMessage);
           }
@@ -310,6 +327,7 @@ export class CopilotSdkAdapter extends EventEmitter {
           this.hasReceivedStreamingDeltas = false;
           this.streamingMessageId = null;
           this.streamingContent = '';
+          this.currentMessageReasoning = []; // Reset reasoning
           this.emit('status', 'idle' as InstanceStatus);
           break;
 
@@ -322,12 +340,19 @@ export class CopilotSdkAdapter extends EventEmitter {
               this.streamingMessageId = generateId();
             }
             this.streamingContent += event.data.deltaContent;
+
+            // Extract thinking from accumulated content
+            const extracted = extractThinkingContent(this.streamingContent);
+            const allThinking = [...this.currentMessageReasoning, ...extracted.thinking];
+
             this.emit('output', {
               id: this.streamingMessageId,
               timestamp: Date.now(),
               type: 'assistant',
               content: event.data.deltaContent,
-              metadata: { streaming: true, accumulatedContent: this.streamingContent }
+              metadata: { streaming: true, accumulatedContent: extracted.response },
+              thinking: allThinking.length > 0 ? allThinking : undefined,
+              thinkingExtracted: true
             } as OutputMessage);
           }
           break;
@@ -361,9 +386,16 @@ export class CopilotSdkAdapter extends EventEmitter {
           break;
 
         case 'assistant.reasoning':
-          // Don't emit reasoning as visible output - it's internal thinking
-          // Just log it for debugging
-          console.log('[CopilotSdkAdapter] Reasoning:', event.data.content?.substring(0, 100));
+          // Capture reasoning as thinking content (will be included in next message)
+          if (event.data.content) {
+            this.currentMessageReasoning.push({
+              id: generateId(),
+              content: event.data.content,
+              format: 'sdk',
+              timestamp: Date.now()
+            });
+            console.log('[CopilotSdkAdapter] Captured reasoning block, total:', this.currentMessageReasoning.length);
+          }
           break;
 
         case 'assistant.usage':
@@ -486,6 +518,7 @@ export class CopilotSdkAdapter extends EventEmitter {
     this.session = null;
     this.isSpawned = false;
     this.totalTokensUsed = 0;
+    this.currentMessageReasoning = [];
 
     this.emit('exit', 0, null);
   }

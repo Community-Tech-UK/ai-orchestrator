@@ -3,7 +3,7 @@
  */
 
 import type { AgentMode } from '../../../../../shared/types/agent.types';
-import type { FileAttachment } from '../../../../../shared/types/instance.types';
+import type { FileAttachment, ThinkingContent } from '../../../../../shared/types/instance.types';
 
 // ============================================
 // Core Types
@@ -32,6 +32,10 @@ export interface OutputMessage {
   metadata?: Record<string, unknown>;
   /** File attachments for user messages */
   attachments?: FileAttachment[];
+  /** Extracted thinking/reasoning content */
+  thinking?: ThinkingContent[];
+  /** Whether thinking has been extracted from this message */
+  thinkingExtracted?: boolean;
 }
 
 export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copilot';

@@ -16,8 +16,9 @@ import {
   CliToolCall,
   CliUsage,
 } from './base-cli-adapter';
-import type { OutputMessage, ContextUsage, InstanceStatus } from '../../../shared/types/instance.types';
+import type { OutputMessage, ContextUsage, InstanceStatus, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 
 /**
  * Codex CLI specific configuration
@@ -249,21 +250,31 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
   }
 
-  parseOutput(raw: string): CliResponse {
+  parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
     const id = this.generateResponseId();
 
     // Try to parse JSONL output first
-    const content = this.extractContentFromJsonl(raw);
+    let content = this.extractContentFromJsonl(raw);
     const toolCalls = this.extractToolCalls(raw);
     const usage = this.extractUsage(raw);
 
+    // If no JSONL content, use cleaned raw
+    if (!content) {
+      content = this.cleanContent(raw);
+    }
+
+    // Extract thinking content from the response
+    const extracted = extractThinkingContent(content);
+
     return {
       id,
-      content: content || this.cleanContent(raw),
+      content: extracted.response, // Use cleaned response without thinking
       role: 'assistant',
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage,
       raw,
+      // Include thinking blocks if found
+      thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
     };
   }
 
@@ -382,10 +393,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   private cleanContent(raw: string): string {
-    // Remove tool blocks, thinking blocks, etc.
-    return raw
+    // Use the shared extractor for consistent handling of thinking content
+    const { response } = extractThinkingContent(raw);
+
+    // Also remove tool blocks and status lines
+    return response
       .replace(/\[TOOL:\s*\w+\][\s\S]*?\[\/TOOL\]/g, '')
-      .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/g, '')
       .replace(/\[Codex\].*$/gm, '') // Remove status lines
       .trim();
   }
@@ -473,15 +486,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
       };
 
       // Execute the command
-      const response = await this.sendMessage(cliMessage);
+      const response = await this.sendMessage(cliMessage) as CliResponse & { thinking?: ThinkingBlock[] };
 
       // Emit output as OutputMessage for InstanceManager
       if (response.content) {
+        // Convert ThinkingBlock to ThinkingContent for OutputMessage
+        const thinkingContent: ThinkingContent[] | undefined = response.thinking?.map(block => ({
+          id: block.id,
+          content: block.content,
+          format: block.format,
+          timestamp: block.timestamp || Date.now(),
+        }));
+
         const outputMessage: OutputMessage = {
           id: generateId(),
           timestamp: Date.now(),
           type: 'assistant',
           content: response.content,
+          thinking: thinkingContent,
+          thinkingExtracted: true,
         };
         this.emit('output', outputMessage);
       }

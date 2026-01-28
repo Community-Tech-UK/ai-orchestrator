@@ -21,9 +21,11 @@ import type { CliStreamMessage } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
   ContextUsage,
-  InstanceStatus
+  InstanceStatus,
+  ThinkingContent
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import {
   MODEL_PRICING,
   CLAUDE_MODELS
@@ -76,6 +78,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private spawnOptions: ClaudeCliSpawnOptions;
   /** Track pending permission requests to avoid duplicate prompts */
   private pendingPermissions: Set<string> = new Set();
+  /** Track permissions that user has already approved (to avoid re-prompting after retry fails) */
+  private approvedPermissions: Set<string> = new Set();
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     const config: CliAdapterConfig = {
@@ -538,6 +542,22 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       console.log('ClaudeCliAdapter.sendRaw: Cleared pending permission:', permissionKey);
     }
 
+    // Check if this is a permission approval response
+    const isPermissionApproval = text.toLowerCase().includes('permission granted') ||
+                                  text.toLowerCase().includes('allow') ||
+                                  text.toLowerCase().startsWith('y');
+
+    if (isPermissionApproval && permissionKey) {
+      // Track that user approved this permission (prevents re-prompting on retry failure)
+      this.approvedPermissions.add(permissionKey);
+      console.log('ClaudeCliAdapter.sendRaw: Added to approved permissions:', permissionKey);
+
+      // For permission approvals, first try sending 'y' directly to stdin
+      // Claude Code CLI may be waiting for a simple y/n response
+      console.log('ClaudeCliAdapter.sendRaw: Detected permission approval, sending y to stdin');
+      await this.formatter.sendRaw('y');
+    }
+
     // When using stream-json input format, all input needs to be in JSON format
     // Send all text as user messages so Claude can understand the response
     const userMessage = {
@@ -635,20 +655,43 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       case 'assistant':
         const assistantMsg = message as any;
         let assistantContent = '';
+        const thinkingBlocks: ThinkingContent[] = [];
+
         if (assistantMsg.message?.content) {
-          assistantContent = assistantMsg.message.content
-            .filter((block: any) => block.type === 'text' && block.text)
-            .map((block: any) => block.text)
-            .join('');
+          for (const block of assistantMsg.message.content) {
+            // Handle structured thinking blocks from Claude API (extended thinking)
+            if (block.type === 'thinking' && block.thinking) {
+              thinkingBlocks.push({
+                id: generateId(),
+                content: block.thinking,
+                format: 'structured',
+                timestamp: message.timestamp || Date.now()
+              });
+            } else if (block.type === 'text' && block.text) {
+              assistantContent += block.text;
+            }
+          }
         } else if (typeof assistantMsg.content === 'string') {
           assistantContent = assistantMsg.content;
         }
+
+        // Also extract any inline thinking from text content (XML tags, brackets, headers)
+        const extracted = extractThinkingContent(assistantContent);
+        assistantContent = extracted.response;
+        thinkingBlocks.push(...extracted.thinking.map(t => ({
+          ...t,
+          timestamp: message.timestamp || Date.now()
+        })));
+
         if (assistantContent.trim()) {
           this.emit('output', {
             id: generateId(),
             timestamp: message.timestamp || Date.now(),
             type: 'assistant',
-            content: assistantContent
+            content: assistantContent,
+            // Include thinking blocks if any were found
+            thinking: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
+            thinkingExtracted: true
           });
         }
 
@@ -703,6 +746,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // Skip if we already have a pending request for this exact permission
               if (this.pendingPermissions.has(permissionKey)) {
                 console.log('[ClaudeCliAdapter] Skipping duplicate permission prompt for:', permissionKey);
+                break;
+              }
+
+              // Skip if user already approved this permission (retry still failed but don't re-prompt)
+              if (this.approvedPermissions.has(permissionKey)) {
+                console.log('[ClaudeCliAdapter] User already approved this permission, not re-prompting:', permissionKey);
+                console.log('[ClaudeCliAdapter] Permission still failing - Claude Code CLI requires YOLO mode for programmatic approval');
+                // Emit a system message to inform user - only once per permission
+                const hintKey = `hint:${permissionKey}`;
+                if (!this.approvedPermissions.has(hintKey)) {
+                  this.approvedPermissions.add(hintKey);
+                  this.emit('output', {
+                    id: generateId(),
+                    timestamp: Date.now(),
+                    type: 'system',
+                    content: `Permission for "${action} ${path}" requires YOLO mode. Click the ⚡ YOLO button in the header to enable auto-approval for this session.`,
+                    metadata: { permissionHint: true, suggestYolo: true }
+                  });
+                }
                 break;
               }
 

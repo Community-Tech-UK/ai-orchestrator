@@ -276,6 +276,20 @@ const IPC_CHANNELS = {
   SEARCH_CONFIGURE_EXA: 'search:configure-exa',
   SEARCH_GET_INDEX_STATS: 'search:get-index-stats',
 
+  // Codebase Indexing
+  CODEBASE_INDEX_STORE: 'codebase:index:store',
+  CODEBASE_INDEX_FILE: 'codebase:index:file',
+  CODEBASE_INDEX_CANCEL: 'codebase:index:cancel',
+  CODEBASE_INDEX_STATUS: 'codebase:index:status',
+  CODEBASE_INDEX_STATS: 'codebase:index:stats',
+  CODEBASE_INDEX_PROGRESS: 'codebase:index:progress',
+  CODEBASE_SEARCH: 'codebase:search',
+  CODEBASE_SEARCH_SYMBOLS: 'codebase:search:symbols',
+  CODEBASE_WATCHER_START: 'codebase:watcher:start',
+  CODEBASE_WATCHER_STOP: 'codebase:watcher:stop',
+  CODEBASE_WATCHER_STATUS: 'codebase:watcher:status',
+  CODEBASE_WATCHER_CHANGES: 'codebase:watcher:changes',
+
   // Provider Plugins (12.2)
   PLUGINS_DISCOVER: 'plugins:discover',
   PLUGINS_LOAD: 'plugins:load',
@@ -2607,6 +2621,140 @@ const electronAPI = {
    */
   searchGetIndexStats: (): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.SEARCH_GET_INDEX_STATS);
+  },
+
+  // ============================================
+  // Codebase Indexing
+  // ============================================
+
+  /**
+   * Index a codebase (full or incremental)
+   */
+  codebaseIndexStore: (
+    storeId: string,
+    rootPath: string,
+    options?: { force?: boolean; filePatterns?: string[] }
+  ): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_INDEX_STORE, {
+      storeId,
+      rootPath,
+      options
+    });
+  },
+
+  /**
+   * Index a single file
+   */
+  codebaseIndexFile: (storeId: string, filePath: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_INDEX_FILE, {
+      storeId,
+      filePath
+    });
+  },
+
+  /**
+   * Cancel ongoing indexing
+   */
+  codebaseIndexCancel: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_INDEX_CANCEL);
+  },
+
+  /**
+   * Get current indexing status
+   */
+  codebaseIndexStatus: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_INDEX_STATUS);
+  },
+
+  /**
+   * Get index stats for a store
+   */
+  codebaseIndexStats: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_INDEX_STATS, { storeId });
+  },
+
+  /**
+   * Perform hybrid search (BM25 + vector + reranking)
+   */
+  codebaseSearch: (options: {
+    query: string;
+    storeId: string;
+    topK?: number;
+    useHyDE?: boolean;
+    bm25Weight?: number;
+    vectorWeight?: number;
+    minScore?: number;
+    rerank?: boolean;
+    filePatterns?: string[];
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_SEARCH, { options });
+  },
+
+  /**
+   * Search for symbols
+   */
+  codebaseSearchSymbols: (
+    storeId: string,
+    query: string
+  ): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_SEARCH_SYMBOLS, {
+      storeId,
+      query
+    });
+  },
+
+  /**
+   * Start file watcher for a store
+   */
+  codebaseWatcherStart: (storeId: string, rootPath: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_WATCHER_START, {
+      storeId,
+      rootPath
+    });
+  },
+
+  /**
+   * Stop file watcher for a store
+   */
+  codebaseWatcherStop: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_WATCHER_STOP, { storeId });
+  },
+
+  /**
+   * Get watcher status
+   */
+  codebaseWatcherStatus: (storeId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.CODEBASE_WATCHER_STATUS, { storeId });
+  },
+
+  /**
+   * Listen for indexing progress updates
+   */
+  onCodebaseIndexProgress: (
+    callback: (progress: unknown) => void
+  ): (() => void) => {
+    const listener = (_event: IpcRendererEvent, progress: unknown): void => {
+      callback(progress);
+    };
+    ipcRenderer.on(IPC_CHANNELS.CODEBASE_INDEX_PROGRESS, listener);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.CODEBASE_INDEX_PROGRESS, listener);
+    };
+  },
+
+  /**
+   * Listen for watcher change events
+   */
+  onCodebaseWatcherChanges: (
+    callback: (data: unknown) => void
+  ): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: unknown): void => {
+      callback(data);
+    };
+    ipcRenderer.on(IPC_CHANNELS.CODEBASE_WATCHER_CHANGES, listener);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.CODEBASE_WATCHER_CHANGES, listener);
+    };
   },
 
   // ============================================

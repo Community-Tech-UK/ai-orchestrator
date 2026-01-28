@@ -6,6 +6,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.spec.ts', 'src/**/*.test.ts'],
+    exclude: ['src/**/*.bench.ts', 'src/**/*.load.ts'],
     setupFiles: ['src/test-setup.ts'],
     coverage: {
       provider: 'v8',
@@ -14,6 +15,8 @@ export default defineConfig({
       exclude: [
         'src/**/*.spec.ts',
         'src/**/*.test.ts',
+        'src/**/*.bench.ts',
+        'src/**/*.load.ts',
         'src/**/*.types.ts',
         'src/renderer/**/*',
       ],
@@ -23,6 +26,13 @@ export default defineConfig({
       forks: {
         singleFork: true,
       },
+    },
+    // Benchmark configuration (used when running `vitest bench`)
+    benchmark: {
+      include: ['src/**/*.bench.ts'],
+      exclude: ['node_modules'],
+      reporters: ['default'],
+      outputJson: './benchmark-results.json',
     },
   },
   resolve: {

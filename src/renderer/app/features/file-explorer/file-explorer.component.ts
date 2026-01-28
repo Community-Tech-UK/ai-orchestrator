@@ -629,9 +629,13 @@ export class FileExplorerComponent {
   onDragStart(event: DragEvent, node: TreeNode): void {
     if (!event.dataTransfer) return;
 
-    // Set drag data
+    // Set drag data - use different MIME type for files vs folders
     event.dataTransfer.setData('text/plain', node.path);
-    event.dataTransfer.setData('application/x-file-path', node.path);
+    if (node.isDirectory) {
+      event.dataTransfer.setData('application/x-folder-path', node.path);
+    } else {
+      event.dataTransfer.setData('application/x-file-path', node.path);
+    }
     event.dataTransfer.effectAllowed = 'copy';
 
     // Emit for parent components

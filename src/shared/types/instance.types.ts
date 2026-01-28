@@ -75,6 +75,17 @@ export interface ContextUsage {
   costEstimate?: number;
 }
 
+/**
+ * Individual thinking/reasoning block from LLM response
+ */
+export interface ThinkingContent {
+  id: string;
+  content: string;
+  format: 'structured' | 'xml' | 'bracket' | 'header' | 'sdk' | 'unknown';
+  timestamp?: number;
+  tokenCount?: number;
+}
+
 export interface OutputMessage {
   id: string;
   timestamp: number;
@@ -83,6 +94,10 @@ export interface OutputMessage {
   metadata?: Record<string, unknown>;
   /** File attachments for user messages */
   attachments?: FileAttachment[];
+  /** Extracted thinking/reasoning content */
+  thinking?: ThinkingContent[];
+  /** Whether thinking has been extracted from this message */
+  thinkingExtracted?: boolean;
 }
 
 export interface FileAttachment {

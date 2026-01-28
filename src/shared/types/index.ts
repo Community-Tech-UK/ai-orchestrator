@@ -21,3 +21,4 @@ export * from './debate.types';
 export * from './unified-cli-response';
 export * from './verification-ui.types';
 export * from './error-recovery.types';
+export * from './codebase.types';

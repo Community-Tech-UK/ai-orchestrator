@@ -37,7 +37,8 @@ import {
   registerStatsHandlers,
   registerCommandHandlers,
   registerAppHandlers,
-  registerFileHandlers
+  registerFileHandlers,
+  registerCodebaseHandlers
 } from './handlers';
 
 export class IpcMainHandler {
@@ -213,6 +214,9 @@ export class IpcMainHandler {
 
     // Semantic search handlers
     registerSearchHandlers();
+
+    // Codebase indexing handlers
+    registerCodebaseHandlers(this.windowManager);
 
     // Orchestration handlers (Phase 6: Workflows, Hooks, Skills)
     registerOrchestrationHandlers();

@@ -1,5 +1,12 @@
 {
   "compileOnSave": false,
+  "exclude": [
+    "vitest.config.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/**/*.bench.ts",
+    "src/**/*.load.ts"
+  ],
   "compilerOptions": {
     "outDir": "./dist/out-tsc",
     "strict": true,

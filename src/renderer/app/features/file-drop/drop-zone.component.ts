@@ -166,6 +166,13 @@ export class DropZoneComponent {
       }
     }
 
+    // Check for folder path from file explorer (dragged directories)
+    const folderPath = event.dataTransfer?.getData('application/x-folder-path');
+    if (folderPath) {
+      this.folderDropped.emit(folderPath);
+      return;
+    }
+
     // Check for file path from file explorer
     const filePath = event.dataTransfer?.getData('application/x-file-path');
     if (filePath) {
