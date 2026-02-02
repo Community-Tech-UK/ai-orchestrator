@@ -57,7 +57,9 @@ export const IPC_CHANNELS = {
 
   // CLI detection
   CLI_DETECT_ALL: 'cli:detect-all',
+  CLI_DETECT_ONE: 'cli:detect-one',
   CLI_CHECK: 'cli:check',
+  CLI_TEST_CONNECTION: 'cli:test-connection',
 
   // Copilot operations
   COPILOT_LIST_MODELS: 'copilot:list-models',
@@ -236,6 +238,7 @@ export const IPC_CHANNELS = {
   // Cost Tracking (5.3)
   COST_RECORD_USAGE: 'cost:record-usage',
   COST_GET_SUMMARY: 'cost:get-summary',
+  COST_GET_HISTORY: 'cost:get-history',
   COST_GET_SESSION_COST: 'cost:get-session-cost',
   COST_GET_BUDGET: 'cost:get-budget',
   COST_SET_BUDGET: 'cost:set-budget',
@@ -249,49 +252,67 @@ export const IPC_CHANNELS = {
   ARCHIVE_RESTORE: 'archive:restore',
   ARCHIVE_DELETE: 'archive:delete',
   ARCHIVE_LIST: 'archive:list',
+  ARCHIVE_SEARCH: 'archive:search',
   ARCHIVE_GET_META: 'archive:get-meta',
   ARCHIVE_UPDATE_TAGS: 'archive:update-tags',
   ARCHIVE_GET_STATS: 'archive:get-stats',
   ARCHIVE_CLEANUP: 'archive:cleanup',
 
   // Remote Configuration (6.2)
+  REMOTE_CONFIG_FETCH: 'remote-config:fetch',
   REMOTE_CONFIG_FETCH_URL: 'remote-config:fetch-url',
   REMOTE_CONFIG_FETCH_WELL_KNOWN: 'remote-config:fetch-well-known',
   REMOTE_CONFIG_FETCH_GITHUB: 'remote-config:fetch-github',
   REMOTE_CONFIG_DISCOVER_GIT: 'remote-config:discover-git',
+  REMOTE_CONFIG_GET: 'remote-config:get',
   REMOTE_CONFIG_GET_CACHED: 'remote-config:get-cached',
+  REMOTE_CONFIG_SET_SOURCE: 'remote-config:set-source',
+  REMOTE_CONFIG_STATUS: 'remote-config:status',
   REMOTE_CONFIG_CLEAR_CACHE: 'remote-config:clear-cache',
   REMOTE_CONFIG_INVALIDATE: 'remote-config:invalidate',
 
   // External Editor (9.2)
   EDITOR_DETECT: 'editor:detect',
+  EDITOR_OPEN: 'editor:open',
   EDITOR_OPEN_FILE: 'editor:open-file',
   EDITOR_OPEN_FILE_AT_LINE: 'editor:open-file-at-line',
   EDITOR_OPEN_DIRECTORY: 'editor:open-directory',
   EDITOR_SET_PREFERRED: 'editor:set-preferred',
+  EDITOR_SET_DEFAULT: 'editor:set-default',
   EDITOR_GET_PREFERRED: 'editor:get-preferred',
+  EDITOR_GET_DEFAULT: 'editor:get-default',
   EDITOR_GET_AVAILABLE: 'editor:get-available',
 
   // File Watcher (10.1)
   WATCHER_START: 'watcher:start',
   WATCHER_STOP: 'watcher:stop',
   WATCHER_STOP_ALL: 'watcher:stop-all',
+  WATCHER_WATCH: 'watcher:watch',
+  WATCHER_UNWATCH: 'watcher:unwatch',
+  WATCHER_GET_ACTIVE: 'watcher:get-active',
   WATCHER_GET_SESSIONS: 'watcher:get-sessions',
   WATCHER_GET_CHANGES: 'watcher:get-changes',
   WATCHER_CLEAR_BUFFER: 'watcher:clear-buffer',
   WATCHER_FILE_CHANGED: 'watcher:file-changed',
 
   // Structured Logging (13.1)
+  LOG_MESSAGE: 'log:message',
+  LOG_GET_LOGS: 'log:get-logs',
   LOG_GET_RECENT: 'log:get-recent',
   LOG_GET_CONFIG: 'log:get-config',
   LOG_SET_LEVEL: 'log:set-level',
   LOG_SET_SUBSYSTEM_LEVEL: 'log:set-subsystem-level',
+  LOG_CLEAR: 'log:clear',
   LOG_CLEAR_BUFFER: 'log:clear-buffer',
   LOG_EXPORT: 'log:export',
   LOG_GET_SUBSYSTEMS: 'log:get-subsystems',
   LOG_GET_FILES: 'log:get-files',
 
   // Debug Commands (13.2)
+  DEBUG_EXECUTE: 'debug:execute',
+  DEBUG_GET_COMMANDS: 'debug:get-commands',
+  DEBUG_GET_INFO: 'debug:get-info',
+  DEBUG_RUN_DIAGNOSTICS: 'debug:run-diagnostics',
   DEBUG_AGENT: 'debug:agent',
   DEBUG_CONFIG: 'debug:config',
   DEBUG_FILE: 'debug:file',
@@ -304,6 +325,7 @@ export const IPC_CHANNELS = {
 
   // Usage Statistics (14.1)
   STATS_GET: 'stats:get',
+  STATS_GET_STATS: 'stats:get-stats',
   STATS_GET_SESSION: 'stats:get-session',
   STATS_GET_ACTIVE_SESSIONS: 'stats:get-active-sessions',
   STATS_GET_TOOL_USAGE: 'stats:get-tool-usage',
@@ -329,6 +351,7 @@ export const IPC_CHANNELS = {
   PLUGINS_UNLOAD: 'plugins:unload',
   PLUGINS_GET: 'plugins:get',
   PLUGINS_GET_ALL: 'plugins:get-all',
+  PLUGINS_GET_LOADED: 'plugins:get-loaded',
   PLUGINS_GET_META: 'plugins:get-meta',
   PLUGINS_INSTALL: 'plugins:install',
   PLUGINS_UNINSTALL: 'plugins:uninstall',
@@ -387,6 +410,9 @@ export const IPC_CHANNELS = {
 
   // Git Worktree operations (7.1)
   WORKTREE_CREATE: 'worktree:create',
+  WORKTREE_LIST: 'worktree:list',
+  WORKTREE_DELETE: 'worktree:delete',
+  WORKTREE_GET_STATUS: 'worktree:get-status',
   WORKTREE_COMPLETE: 'worktree:complete',
   WORKTREE_PREVIEW_MERGE: 'worktree:preview-merge',
   WORKTREE_MERGE: 'worktree:merge',
@@ -410,6 +436,13 @@ export const IPC_CHANNELS = {
   VERIFY_STARTED: 'verify:started',
   VERIFY_AGENT_RESPONDED: 'verify:agent-responded',
   VERIFY_COMPLETED: 'verify:completed',
+
+  // Verification operations (Phase 8.3 - alternative naming)
+  VERIFICATION_VERIFY_MULTI: 'verification:verify-multi',
+  VERIFICATION_START_CLI: 'verification:start-cli',
+  VERIFICATION_CANCEL: 'verification:cancel',
+  VERIFICATION_GET_ACTIVE: 'verification:get-active',
+  VERIFICATION_GET_RESULT: 'verification:get-result',
 
   // Cascade Supervision operations (7.3)
   SUPERVISION_CREATE_TREE: 'supervision:create-tree',
@@ -451,6 +484,8 @@ export const IPC_CHANNELS = {
   LEARNING_GET_EXPERIENCE: 'learning:get-experience',
   LEARNING_GET_ALL_EXPERIENCES: 'learning:get-all-experiences',
   LEARNING_GET_INSIGHTS: 'learning:get-insights',
+  LEARNING_GET_PATTERNS: 'learning:get-patterns',
+  LEARNING_GET_SUGGESTIONS: 'learning:get-suggestions',
   LEARNING_GET_RECOMMENDATION: 'learning:get-recommendation',
   LEARNING_ENHANCE_PROMPT: 'learning:enhance-prompt',
   LEARNING_GET_STATS: 'learning:get-stats',

@@ -17,13 +17,14 @@ import {
 } from '@angular/core';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { ConsensusHeatmapComponent } from './consensus-heatmap.component';
+import { StreamingTextComponent } from '../../../shared/components/streaming-text/streaming-text.component';
 
 type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 
 @Component({
   selector: 'app-verification-results',
   standalone: true,
-  imports: [ConsensusHeatmapComponent],
+  imports: [ConsensusHeatmapComponent, StreamingTextComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="results-container">
@@ -136,7 +137,11 @@ type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
                 </div>
 
                 <div class="synthesis-content">
-                  {{ r.synthesizedResponse }}
+                  <app-streaming-text
+                    [text]="r.synthesizedResponse || ''"
+                    [isStreaming]="false"
+                    [options]="{ enableMarkdown: true, showCursor: false, autoScroll: false }"
+                  />
                 </div>
               </section>
 
@@ -680,7 +685,6 @@ type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
       .synthesis-content {
         font-size: 15px;
         line-height: 1.7;
-        white-space: pre-wrap;
       }
 
       .agreement-list {
