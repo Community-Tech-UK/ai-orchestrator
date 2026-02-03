@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "declaration": false,
+    "paths": {
+      "@shared/*": ["../../src/shared/*"]
+    }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["dist", "results"]
+}

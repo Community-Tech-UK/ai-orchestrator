@@ -1,0 +1,124 @@
+{
+  "version": "1.0.0",
+  "description": "Benchmark tasks for comparing AI Orchestrator vs vanilla Claude CLI",
+  "tasks": [
+    {
+      "id": "KA-1",
+      "name": "Find all IPC handlers",
+      "category": "known-answer",
+      "complexity": "multi-file",
+      "prompt": "Find all IPC handlers in this codebase. List each handler with its channel name and the file it's defined in.",
+      "workingDirectory": ".",
+      "expectedAnswer": {
+        "patterns": ["ipcMain.handle", "ipcMain.on"],
+        "count": null
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "KA-2",
+      "name": "List singleton services",
+      "category": "known-answer",
+      "complexity": "multi-file",
+      "prompt": "List all singleton services in this codebase that use the getInstance() pattern. For each, provide the class name and file path.",
+      "workingDirectory": ".",
+      "expectedAnswer": {
+        "patterns": ["getInstance"],
+        "files": null
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "KA-3",
+      "name": "Find orchestration-handler imports",
+      "category": "known-answer",
+      "complexity": "multi-file",
+      "prompt": "What files import from orchestration-handler.ts? List each file path.",
+      "workingDirectory": ".",
+      "expectedAnswer": {
+        "patterns": ["orchestration-handler"],
+        "files": null
+      },
+      "timeoutMinutes": 3
+    },
+    {
+      "id": "KA-4",
+      "name": "Find injected bugs",
+      "category": "known-answer",
+      "complexity": "multi-file",
+      "prompt": "There are bugs in this codebase marked with '// BUG:' comments. Find all of them and explain what each bug does wrong.",
+      "workingDirectory": ".",
+      "setupScript": "inject-bugs.ts",
+      "teardownScript": "remove-bugs.ts",
+      "expectedAnswer": {
+        "patterns": ["BUG:"],
+        "count": 3
+      },
+      "timeoutMinutes": 5
+    },
+    {
+      "id": "KA-5",
+      "name": "Trace message to child spawn",
+      "category": "known-answer",
+      "complexity": "large-context",
+      "prompt": "Trace the code path from when a user sends a message in the UI to when a child instance is spawned. List each file and function involved in order.",
+      "workingDirectory": ".",
+      "expectedAnswer": {
+        "files": [
+          "src/renderer",
+          "src/preload",
+          "src/main/ipc",
+          "src/main/instance",
+          "src/main/orchestration"
+        ],
+        "patterns": ["spawn", "child", "IPC"]
+      },
+      "timeoutMinutes": 10
+    },
+    {
+      "id": "RC-1",
+      "name": "Explain model routing",
+      "category": "real-codebase",
+      "complexity": "large-context",
+      "prompt": "Explain how model routing decides which model to use for child tasks. What factors are considered? Where is the routing logic implemented?",
+      "workingDirectory": ".",
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "RC-2",
+      "name": "Child crash handling",
+      "category": "real-codebase",
+      "complexity": "multi-file",
+      "prompt": "What happens if a child instance crashes mid-task? Trace the error handling path and explain what notifications the parent receives.",
+      "workingDirectory": ".",
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "RC-3",
+      "name": "Review fast-path retrieval",
+      "category": "real-codebase",
+      "complexity": "multi-file",
+      "prompt": "Review the fast-path retrieval code for edge cases and potential issues. What happens if the grep command times out? What if the working directory doesn't exist?",
+      "workingDirectory": ".",
+      "timeoutMinutes": 8
+    },
+    {
+      "id": "RC-4",
+      "name": "Adding orchestrator commands",
+      "category": "real-codebase",
+      "complexity": "large-context",
+      "prompt": "How would I add a new orchestrator command called 'pause_child' that pauses a child instance? What files need to be modified and what patterns should I follow?",
+      "workingDirectory": ".",
+      "timeoutMinutes": 10
+    },
+    {
+      "id": "RC-5",
+      "name": "Instance failure modes",
+      "category": "real-codebase",
+      "complexity": "multi-file",
+      "prompt": "What are all the ways an instance can fail in this system? List each failure mode, where it's handled, and what recovery mechanism exists (if any).",
+      "workingDirectory": ".",
+      "timeoutMinutes": 10
+    }
+  ]
+}

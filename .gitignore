@@ -33,3 +33,7 @@ archive/
 # Environment
 .env
 .env.local
+
+# Benchmark results (large, generated data)
+benchmarks/orchestrator-benchmark/results/
+benchmarks/orchestrator-benchmark/dist/
