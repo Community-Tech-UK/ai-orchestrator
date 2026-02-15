@@ -269,6 +269,12 @@ export class InstanceCommunicationManager extends EventEmitter {
    */
   setupAdapterEvents(instanceId: string, adapter: CliAdapter): void {
     adapter.on('output', async (message: OutputMessage) => {
+      // Guard: ignore output events from a replaced adapter
+      const currentAdapter = this.deps.getAdapter(instanceId);
+      if (currentAdapter !== adapter) {
+        return;
+      }
+
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
         // Check circuit breaker for assistant messages
@@ -369,6 +375,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('status', (status: InstanceStatus) => {
+      // Guard: ignore status events from a replaced adapter (e.g., dying
+      // process after interrupt while a new adapter is already set up)
+      const currentAdapter = this.deps.getAdapter(instanceId);
+      if (currentAdapter !== adapter) {
+        return;
+      }
+
       const instance = this.deps.getInstance(instanceId);
       if (instance && instance.status !== status) {
         instance.status = status;
@@ -378,6 +391,12 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('context', (usage: ContextUsage) => {
+      // Guard: ignore context events from a replaced adapter
+      const currentAdapter = this.deps.getAdapter(instanceId);
+      if (currentAdapter !== adapter) {
+        return;
+      }
+
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
         instance.contextUsage = usage;

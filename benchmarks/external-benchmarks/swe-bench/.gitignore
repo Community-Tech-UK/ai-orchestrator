@@ -1,0 +1,30 @@
+# Virtual environment
+venv/
+*.pyc
+__pycache__/
+
+# Data files
+data/
+!data/.gitkeep
+
+# Results and sessions
+results/
+!results/.gitkeep
+
+# Working directory
+workdir/
+!workdir/.gitkeep
+
+# Temporary files
+*.tmp
+*.log
+eval_temp/
+
+# Python cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+Thumbs.db

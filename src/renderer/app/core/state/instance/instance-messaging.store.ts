@@ -97,9 +97,12 @@ export class InstanceMessagingStore {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
 
-    // If instance is busy, queue the message instead of sending immediately
-    if (instance.status === 'busy') {
-      console.log('InstanceMessagingStore: Instance busy, queuing message');
+    // If instance is busy or respawning, queue the message instead of sending immediately
+    if (instance.status === 'busy' || instance.status === 'respawning') {
+      console.log('InstanceMessagingStore: Instance not ready, queuing message', {
+        instanceId,
+        status: instance.status,
+      });
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
         const queue = newMap.get(instanceId) || [];
@@ -157,9 +160,24 @@ export class InstanceMessagingStore {
     const result = await this.ipc.sendInput(instanceId, message, attachments);
     console.log('InstanceMessagingStore: sendInput result', result);
 
-    // If send failed, revert status to idle
+    // If send failed, re-queue the message and revert status
     if (!result.success) {
       console.error('InstanceMessagingStore: sendInput failed', result.error);
+
+      // Re-queue the message at the front so it's retried when the instance is ready
+      console.log('InstanceMessagingStore: Re-queuing failed message at front of queue', {
+        instanceId,
+      });
+      this.stateService.messageQueue.update((currentMap) => {
+        const newMap = new Map(currentMap);
+        const existingQueue = newMap.get(instanceId) || [];
+        newMap.set(instanceId, [{ message, files }, ...existingQueue]);
+        return newMap;
+      });
+
+      // Revert status only if we were the ones who set it to busy.
+      // Don't revert to 'idle' if the instance is in a transitional state
+      // (respawning, error, terminated) — let the main process drive those.
       const instance = this.stateService.getInstance(instanceId);
       if (instance && instance.status === 'busy') {
         this.stateService.updateInstance(instanceId, {
@@ -174,6 +192,19 @@ export class InstanceMessagingStore {
    * Called when instance becomes idle or waiting_for_input
    */
   processMessageQueue(instanceId: string): void {
+    // Double-check the instance is actually ready to receive input.
+    // This guards against premature queue drains from stale or
+    // optimistic status updates (e.g., during respawning).
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) return;
+    if (instance.status !== 'idle' && instance.status !== 'waiting_for_input') {
+      console.log('InstanceMessagingStore: Skipping queue processing, instance not ready', {
+        instanceId,
+        status: instance.status,
+      });
+      return;
+    }
+
     const currentMap = this.stateService.messageQueue();
     const queue = currentMap.get(instanceId);
     if (!queue || queue.length === 0) return;

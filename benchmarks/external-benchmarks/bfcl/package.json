@@ -1,0 +1,23 @@
+{
+  "name": "bfcl-benchmark",
+  "version": "1.0.0",
+  "description": "Berkeley Function Calling Leaderboard benchmark for AI Orchestrator",
+  "type": "module",
+  "scripts": {
+    "setup": "./setup.sh",
+    "test": "npx tsx scorer.test.ts && npx tsx integration.test.ts",
+    "bench": "npx ts-node runner.ts",
+    "bench:quick": "npx ts-node runner.ts --limit 10",
+    "bench:vanilla": "npx ts-node runner.ts --system vanilla",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "benchmark",
+    "function-calling",
+    "bfcl",
+    "llm",
+    "evaluation"
+  ],
+  "author": "",
+  "license": "MIT"
+}

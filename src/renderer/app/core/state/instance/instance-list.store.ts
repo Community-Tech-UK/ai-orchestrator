@@ -177,15 +177,15 @@ export class InstanceListStore {
 
   /**
    * Interrupt an instance (Ctrl+C equivalent)
+   *
+   * NOTE: We intentionally do NOT set an optimistic status here.
+   * The main process sets status to 'respawning' and then 'idle' once
+   * the new CLI process is ready. Setting an optimistic 'waiting_for_input'
+   * would trigger processMessageQueue prematurely, causing sendInput to
+   * fail because the main process rejects messages during respawning.
    */
   async interruptInstance(instanceId: string): Promise<void> {
-    const result = await this.ipc.interruptInstance(instanceId);
-    if (result.success) {
-      // Optimistically update status to waiting_for_input
-      this.stateService.updateInstance(instanceId, {
-        status: 'waiting_for_input' as InstanceStatus,
-      });
-    }
+    await this.ipc.interruptInstance(instanceId);
   }
 
   /**

@@ -38,6 +38,7 @@ import type {
   OutputMessage
 } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import { getPolicyAdapter } from '../observation/policy-adapter';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -318,6 +319,21 @@ export class InstanceLifecycleManager extends EventEmitter {
       const claudeMdSection = claudeMdPrompts.join('\n\n---\n\n');
       systemPrompt = `${claudeMdSection}\n\n---\n\n${systemPrompt}`;
       logger.info('Prepended CLAUDE.md prompts to system prompt', { count: claudeMdPrompts.length });
+    }
+
+    // Inject observation memory context (learned reflections from past sessions)
+    try {
+      const observationContext = await getPolicyAdapter().buildObservationContext(
+        systemPrompt,
+        instance.id,
+        config.initialPrompt
+      );
+      if (observationContext) {
+        systemPrompt = `${observationContext}\n\n---\n\n${systemPrompt}`;
+        logger.info('Injected observation memory context into system prompt');
+      }
+    } catch (err) {
+      logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Resolve CLI provider type

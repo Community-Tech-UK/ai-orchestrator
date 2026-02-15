@@ -16,6 +16,7 @@ import { registerMemoryHandlers } from './memory-ipc-handler';
 import { registerSpecialistHandlers } from './specialist-ipc-handler';
 import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
+import { registerObservationHandlers } from './observation-ipc-handler';
 import { RLMContextManager } from '../rlm/context-manager';
 
 // Import extracted handlers
@@ -253,6 +254,9 @@ export class IpcMainHandler {
 
     // Supervision handlers (Phase 2: Hierarchical Instances)
     registerSupervisionHandlers();
+
+    // Observation memory handlers
+    registerObservationHandlers();
 
     // Recent directories handlers
     registerRecentDirectoriesHandlers();

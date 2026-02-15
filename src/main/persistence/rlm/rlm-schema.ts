@@ -159,6 +159,61 @@ export const MIGRATIONS: Migration[] = [
     down: `
       DROP TABLE IF EXISTS code_fts;
     `
+  },
+
+  // Migration 004: Add observation memory tables
+  {
+    name: '004_add_observation_tables',
+    up: `
+      -- Compressed observations from ObserverAgent
+      CREATE TABLE IF NOT EXISTS observations (
+        id TEXT PRIMARY KEY,
+        summary TEXT NOT NULL,
+        source_ids_json TEXT,
+        instance_ids_json TEXT,
+        themes_json TEXT,
+        key_findings_json TEXT,
+        success_signals INTEGER DEFAULT 0,
+        failure_signals INTEGER DEFAULT 0,
+        timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        ttl INTEGER NOT NULL,
+        promoted INTEGER DEFAULT 0,
+        token_count INTEGER DEFAULT 0,
+        embedding_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_observations_timestamp
+        ON observations(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_observations_promoted
+        ON observations(promoted);
+
+      -- Consolidated reflections from ReflectorAgent
+      CREATE TABLE IF NOT EXISTS reflections (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        insight TEXT NOT NULL,
+        observation_ids_json TEXT,
+        patterns_json TEXT,
+        confidence REAL DEFAULT 0,
+        applicability_json TEXT,
+        created_at INTEGER NOT NULL,
+        ttl INTEGER NOT NULL,
+        usage_count INTEGER DEFAULT 0,
+        effectiveness_score REAL DEFAULT 0,
+        promoted_to_procedural INTEGER DEFAULT 0,
+        embedding_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_reflections_confidence
+        ON reflections(confidence);
+      CREATE INDEX IF NOT EXISTS idx_reflections_effectiveness
+        ON reflections(effectiveness_score);
+    `,
+    down: `
+      DROP TABLE IF EXISTS reflections;
+      DROP TABLE IF EXISTS observations;
+    `
   }
 ];
 

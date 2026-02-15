@@ -36,6 +36,7 @@ import type {
   ContextStage,
   SystemType,
   JudgeScores,
+  QuickEvalConfig,
 } from './types.js';
 
 // Configuration
@@ -43,6 +44,17 @@ const RUNS_PER_CONFIG = 3;
 const CONTEXT_STAGES: ContextStage[] = ['fresh', 'moderate', 'heavy'];
 const SYSTEMS: SystemType[] = ['vanilla', 'orchestrator'];
 const WORKTREE_BASE = '/tmp/bench-worktrees';
+
+/**
+ * Quick eval preset: covers each category (KA, NIAH, RC) with increasing
+ * difficulty, using only fresh + heavy stages and 1 run per config.
+ * Total: 6 tasks × 2 systems × 2 stages × 1 run = 24 runs (~30-45 min)
+ */
+const QUICK_EVAL: QuickEvalConfig = {
+  taskIds: ['KA-1', 'KA-2', 'NIAH-1', 'NIAH-5', 'NIAH-9', 'RC-1'],
+  stages: ['fresh', 'heavy'],
+  runsPerConfig: 1,
+};
 
 interface RunnerOptions {
   taskId?: string;
@@ -54,6 +66,7 @@ interface RunnerOptions {
   skipScoring?: boolean;
   scoreOnly?: boolean;
   noIsolation?: boolean;
+  quick?: boolean;
 }
 
 /**
@@ -83,14 +96,16 @@ function shuffleArray<T>(array: T[]): T[] {
  */
 function generateRunConfigs(
   tasks: BenchmarkTask[],
-  systems: SystemType[]
+  systems: SystemType[],
+  stages: ContextStage[] = CONTEXT_STAGES,
+  runsPerConfig: number = RUNS_PER_CONFIG
 ): RunConfig[] {
   const configs: RunConfig[] = [];
 
   for (const task of tasks) {
     for (const system of systems) {
-      for (const stage of CONTEXT_STAGES) {
-        for (let runNum = 1; runNum <= RUNS_PER_CONFIG; runNum++) {
+      for (const stage of stages) {
+        for (let runNum = 1; runNum <= runsPerConfig; runNum++) {
           configs.push({
             task,
             system,
@@ -216,6 +231,9 @@ function parseArgs(): RunnerOptions {
       case '--no-isolation':
         options.noIsolation = true;
         break;
+      case '--quick':
+        options.quick = true;
+        break;
       case '--help':
         printHelp();
         process.exit(0);
@@ -242,10 +260,12 @@ Options:
   --skip-scoring        Skip scoring/judging after runs complete
   --score-only <session> Score an existing session without re-running
   --no-isolation        Disable git worktree isolation between runs
+  --quick               Quick eval mode (6 tasks, 2 stages, 1 run = 24 runs)
   --help                Show this help message
 
 Examples:
   npx ts-node runner.ts                    # Run full benchmark
+  npx ts-node runner.ts --quick            # Quick eval (~30 min)
   npx ts-node runner.ts --task KA-1        # Run task KA-1 only
   npx ts-node runner.ts --resume benchmark-2026-02-03-12-00-00
   npx ts-node runner.ts --report benchmark-2026-02-03-12-00-00
@@ -293,6 +313,11 @@ async function main(): Promise<void> {
   const suite = loadTaskSuite();
   let tasks = suite.tasks;
 
+  // Apply quick eval filter
+  const quickMode = options.quick && !options.taskId;
+  const activeStages = quickMode ? QUICK_EVAL.stages : CONTEXT_STAGES;
+  const activeRunsPerConfig = quickMode ? QUICK_EVAL.runsPerConfig : RUNS_PER_CONFIG;
+
   if (options.taskId) {
     const task = loadTask(options.taskId);
     if (!task) {
@@ -300,6 +325,13 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     tasks = [task];
+  } else if (quickMode) {
+    tasks = tasks.filter(t => QUICK_EVAL.taskIds.includes(t.id));
+    if (tasks.length === 0) {
+      console.error('No quick eval tasks found in task suite');
+      process.exit(1);
+    }
+    console.log(`[QUICK EVAL] Running ${tasks.length} tasks with ${activeStages.join(', ')} stages, ${activeRunsPerConfig} run(s) each`);
   }
 
   // Initialize or resume session
@@ -326,14 +358,14 @@ async function main(): Promise<void> {
   });
 
   // Generate randomized run order
-  const runConfigs = generateRunConfigs(tasks, systemsToRun);
+  const runConfigs = generateRunConfigs(tasks, systemsToRun, activeStages, activeRunsPerConfig);
   const totalRuns = runConfigs.length;
 
   console.log(`\nPlanned runs: ${totalRuns}`);
   console.log(`Tasks: ${tasks.length}`);
   console.log(`Systems: ${systemsToRun.join(', ')}`);
-  console.log(`Context stages: ${CONTEXT_STAGES.join(', ')}`);
-  console.log(`Runs per config: ${RUNS_PER_CONFIG}`);
+  console.log(`Context stages: ${activeStages.join(', ')}`);
+  console.log(`Runs per config: ${activeRunsPerConfig}`);
   console.log(`Run order: RANDOMIZED (to reduce drift bias)`);
   console.log(`Isolation: ${options.noIsolation ? 'DISABLED' : 'git worktree per run'}\n`);
 
@@ -621,6 +653,7 @@ async function executeBenchmarkRun(
     runNumber,
     output: result.output,
     tokensUsed: result.tokensUsed,
+    tokenBreakdown: result.tokenBreakdown,
     durationMs: result.durationMs,
     startedAt,
     completedAt: Date.now(),
@@ -676,36 +709,52 @@ function printReportSummary(report: import('./types.js').BenchmarkReport): void 
   console.log(`Cost Multiplier: ${summary.avgCostRatio.toFixed(2)}x`);
   console.log();
 
+  console.log('Token Efficiency (tokens per correctness point):');
+  console.log(`  Vanilla:      ${summary.avgTokensPerCorrectVanilla.toLocaleString()}`);
+  console.log(`  Orchestrator: ${summary.avgTokensPerCorrectOrchestrator.toLocaleString()}`);
+  console.log();
+
+  // Show token breakdown if available
+  if (summary.totalTokenBreakdown) {
+    const vb = summary.totalTokenBreakdown.vanilla;
+    const ob = summary.totalTokenBreakdown.orchestrator;
+    console.log('Token Breakdown (totals across all runs):');
+    console.log(`  Vanilla:      input=${vb.inputTokens.toLocaleString()} output=${vb.outputTokens.toLocaleString()} cache_read=${vb.cacheReadTokens.toLocaleString()} cache_write=${vb.cacheWriteTokens.toLocaleString()}`);
+    console.log(`  Orchestrator: input=${ob.inputTokens.toLocaleString()} output=${ob.outputTokens.toLocaleString()} cache_read=${ob.cacheReadTokens.toLocaleString()} cache_write=${ob.cacheWriteTokens.toLocaleString()}`);
+    console.log();
+  }
+
   console.log('Per-Task Results:');
-  console.log('-'.repeat(80));
+  console.log('-'.repeat(100));
   console.log(
     'Task'.padEnd(10) +
-      'Winner'.padEnd(15) +
-      'Vanilla'.padEnd(10) +
-      'Orch'.padEnd(10) +
-      'Cost'.padEnd(8) +
+      'Winner'.padEnd(13) +
+      'V Score'.padEnd(9) +
+      'O Score'.padEnd(9) +
+      'Cost'.padEnd(7) +
+      'V tok/pt'.padEnd(10) +
+      'O tok/pt'.padEnd(10) +
       'Resilience (V/O)'
   );
-  console.log('-'.repeat(80));
+  console.log('-'.repeat(100));
 
   for (const result of report.tasks) {
-    const vanillaAvg =
-      (result.medianScores.vanilla.fresh +
-        result.medianScores.vanilla.moderate +
-        result.medianScores.vanilla.heavy) /
-      3;
-    const orchAvg =
-      (result.medianScores.orchestrator.fresh +
-        result.medianScores.orchestrator.moderate +
-        result.medianScores.orchestrator.heavy) /
-      3;
+    const stages = Object.values(result.medianScores.vanilla);
+    const vanillaAvg = stages.reduce((a, b) => a + b, 0) / stages.length;
+    const orchStages = Object.values(result.medianScores.orchestrator);
+    const orchAvg = orchStages.reduce((a, b) => a + b, 0) / orchStages.length;
+
+    const vTPC = result.tokenEfficiency?.vanilla.tokensPerCorrectPoint ?? 0;
+    const oTPC = result.tokenEfficiency?.orchestrator.tokensPerCorrectPoint ?? 0;
 
     console.log(
       result.taskId.padEnd(10) +
-        result.winner.padEnd(15) +
-        vanillaAvg.toFixed(1).padEnd(10) +
-        orchAvg.toFixed(1).padEnd(10) +
-        `${result.costRatio.toFixed(1)}x`.padEnd(8) +
+        result.winner.padEnd(13) +
+        vanillaAvg.toFixed(1).padEnd(9) +
+        orchAvg.toFixed(1).padEnd(9) +
+        `${result.costRatio.toFixed(1)}x`.padEnd(7) +
+        `${vTPC.toLocaleString()}`.padEnd(10) +
+        `${oTPC.toLocaleString()}`.padEnd(10) +
         `${(result.contextResilience.vanilla * 100).toFixed(0)}%/${(result.contextResilience.orchestrator * 100).toFixed(0)}%`
     );
   }

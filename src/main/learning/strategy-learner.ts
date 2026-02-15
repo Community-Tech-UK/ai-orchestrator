@@ -54,6 +54,22 @@ export class StrategyLearner extends EventEmitter {
     this.outcomeTracker.on('outcome:recorded', (outcome: TaskOutcome) => {
       this.invalidateCacheForTaskType(outcome.taskType);
     });
+
+    // Listen for observation events to invalidate cache (lazy binding)
+    // ObserverAgent may not be initialized yet, so defer the binding
+    setTimeout(() => {
+      import('../observation/observer-agent')
+        .then(({ getObserverAgent }) => {
+          const observer = getObserverAgent();
+          observer.on('observer:observation-created', () => {
+            // Clear entire cache since observations may affect any task type
+            this.recommendationCache.clear();
+          });
+        })
+        .catch(() => {
+          // Observation system not available - graceful degradation
+        });
+    }, 0);
   }
 
   private invalidateCacheForTaskType(taskType: string): void {

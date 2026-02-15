@@ -4,7 +4,7 @@
 
 import { spawn } from 'child_process';
 import { resolve } from 'path';
-import type { BenchmarkTask, ExecutorResult, ContextStage } from '../types.js';
+import type { BenchmarkTask, ExecutorResult, ContextStage, TokenUsageBreakdown } from '../types.js';
 
 export interface VanillaExecutorOptions {
   /** Pre-filled context messages to send before the task */
@@ -26,6 +26,12 @@ export async function executeVanilla(
 
   let output = '';
   let tokensUsed = 0;
+  const tokenBreakdown: TokenUsageBreakdown = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
 
   return new Promise((resolvePromise) => {
     // Spawn claude CLI in print mode for non-interactive execution
@@ -99,7 +105,15 @@ export async function executeVanilla(
                 output += parsed.result + '\n';
               }
               if (parsed.usage) {
-                tokensUsed = (parsed.usage.input_tokens || 0) + (parsed.usage.output_tokens || 0);
+                const inputTok = parsed.usage.input_tokens || 0;
+                const outputTok = parsed.usage.output_tokens || 0;
+                const cacheRead = parsed.usage.cache_read_input_tokens || 0;
+                const cacheWrite = parsed.usage.cache_creation_input_tokens || 0;
+                tokensUsed = inputTok + outputTok;
+                tokenBreakdown.inputTokens = inputTok;
+                tokenBreakdown.outputTokens = outputTok;
+                tokenBreakdown.cacheReadTokens = cacheRead;
+                tokenBreakdown.cacheWriteTokens = cacheWrite;
               }
             }
 
@@ -118,6 +132,7 @@ export async function executeVanilla(
       resolvePromise({
         output: output.trim() || stdout.trim(),
         tokensUsed,
+        tokenBreakdown,
         durationMs,
         error: code !== 0 ? `Exit code: ${code}. Stderr: ${stderr}` : undefined
       });

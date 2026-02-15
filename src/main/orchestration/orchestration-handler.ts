@@ -15,12 +15,15 @@ import {
   ReportErrorCommand,
   GetTaskStatusCommand,
   RequestUserActionCommand,
+  ConsensusQueryCommand,
   parseOrchestratorCommands,
   ORCHESTRATION_MARKER_START,
   ORCHESTRATION_MARKER_END,
   formatCommandResponse,
   generateOrchestrationPrompt
 } from './orchestration-protocol';
+import { getConsensusCoordinator } from './consensus-coordinator';
+import type { ConsensusProviderSpec } from '../../shared/types/consensus.types';
 import { getToolRegistry } from '../tools/tool-registry';
 import { getTaskManager } from './task-manager';
 import { getChildResultStorage } from './child-result-storage';
@@ -350,6 +353,10 @@ export class OrchestrationHandler extends EventEmitter {
 
       case 'get_child_section':
         this.handleGetChildSection(instanceId, command);
+        break;
+
+      case 'consensus_query':
+        this.handleConsensusQuery(instanceId, command);
         break;
     }
   }
@@ -996,6 +1003,70 @@ export class OrchestrationHandler extends EventEmitter {
       error,
       message: error
     });
+  }
+
+  // ============================================
+  // Multi-Model Consensus Handler
+  // ============================================
+
+  /**
+   * Handle consensus_query command from an instance.
+   * Fans out the question to multiple providers and injects the consensus result.
+   */
+  private async handleConsensusQuery(
+    instanceId: string,
+    command: ConsensusQueryCommand
+  ): Promise<void> {
+    const ctx = this.contexts.get(instanceId);
+    if (!ctx) return;
+
+    // Acknowledge the query immediately
+    this.injectResponse(instanceId, 'consensus_query', true, {
+      status: 'dispatching',
+      message: `Consensus query started. Consulting ${command.providers?.length || 'all available'} providers...`
+    });
+
+    try {
+      const coordinator = getConsensusCoordinator();
+
+      // Map requested providers to ConsensusProviderSpec
+      const providers: ConsensusProviderSpec[] | undefined = command.providers?.map(p => ({
+        provider: p,
+      }));
+
+      const result = await coordinator.query(
+        command.question,
+        command.context,
+        {
+          providers,
+          strategy: command.strategy,
+          timeout: command.timeout,
+          workingDirectory: ctx.workingDirectory,
+        }
+      );
+
+      // Inject a concise result to avoid context bloat.
+      // The consensus field already contains the formatted synthesis.
+      const providerSummary = result.responses
+        .map(r => `${r.provider}${r.model ? `/${r.model}` : ''}: ${r.success ? 'ok' : `failed: ${r.error}`} (${r.durationMs}ms)`)
+        .join(', ');
+
+      this.injectResponse(instanceId, 'consensus_query', true, {
+        message: result.consensus,
+        agreement: result.agreement,
+        providers: providerSummary,
+        successCount: result.successCount,
+        failureCount: result.failureCount,
+        totalDurationMs: result.totalDurationMs,
+        dissent: result.dissent.length > 0 ? result.dissent : undefined,
+        edgeCases: result.edgeCases.length > 0 ? result.edgeCases : undefined,
+      });
+    } catch (error) {
+      this.injectResponse(instanceId, 'consensus_query', false, {
+        error: error instanceof Error ? error.message : String(error),
+        message: `Consensus query failed: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
   }
 
   // ============================================

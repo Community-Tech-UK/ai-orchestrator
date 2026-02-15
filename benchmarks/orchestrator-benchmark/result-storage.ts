@@ -4,6 +4,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { niahScoreToCorrectness } from './scorer.js';
 import type {
   BenchmarkRun,
   BenchmarkTask,
@@ -11,6 +12,8 @@ import type {
   BenchmarkReport,
   ContextStage,
   SystemType,
+  TokenUsageBreakdown,
+  TokenEfficiency,
 } from './types.js';
 
 const RESULTS_DIR = join(import.meta.dirname, 'results');
@@ -179,32 +182,81 @@ export function isRunComplete(
 }
 
 /**
+ * Extract a 0-100 score from a benchmark run regardless of task type.
+ */
+function extractRunScore(r: BenchmarkRun): number {
+  if (r.knownAnswerScore) {
+    return r.knownAnswerScore.correctness;
+  }
+  if (r.niahScore) {
+    return niahScoreToCorrectness(r.niahScore);
+  }
+  if (r.judgeScores) {
+    const claude = r.judgeScores.claude;
+    const codex = r.judgeScores.codex;
+    const claudeAvg = (claude.completeness + claude.accuracy + claude.actionability) / 3;
+    const codexAvg = (codex.completeness + codex.accuracy + codex.actionability) / 3;
+    return ((claudeAvg + codexAvg) / 2) * 10; // Scale to 0-100
+  }
+  return 0;
+}
+
+/**
  * Calculate median score from runs
  */
 function medianScore(runs: BenchmarkRun[]): number {
   if (runs.length === 0) return 0;
 
   const scores = runs
-    .map(r => {
-      if (r.knownAnswerScore) {
-        return r.knownAnswerScore.correctness;
-      }
-      if (r.judgeScores) {
-        const claude = r.judgeScores.claude;
-        const codex = r.judgeScores.codex;
-        // Average across judges and dimensions
-        const claudeAvg = (claude.completeness + claude.accuracy + claude.actionability) / 3;
-        const codexAvg = (codex.completeness + codex.accuracy + codex.actionability) / 3;
-        return ((claudeAvg + codexAvg) / 2) * 10; // Scale to 0-100
-      }
-      return 0;
-    })
+    .map(extractRunScore)
     .sort((a, b) => a - b);
 
   const mid = Math.floor(scores.length / 2);
   return scores.length % 2 !== 0
     ? scores[mid]
     : (scores[mid - 1] + scores[mid]) / 2;
+}
+
+/**
+ * Aggregate token breakdowns from a set of runs.
+ */
+function aggregateTokenBreakdown(runs: BenchmarkRun[]): TokenUsageBreakdown {
+  const result: TokenUsageBreakdown = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  for (const r of runs) {
+    if (r.tokenBreakdown) {
+      result.inputTokens += r.tokenBreakdown.inputTokens;
+      result.outputTokens += r.tokenBreakdown.outputTokens;
+      result.cacheReadTokens += r.tokenBreakdown.cacheReadTokens;
+      result.cacheWriteTokens += r.tokenBreakdown.cacheWriteTokens;
+    }
+  }
+  return result;
+}
+
+/**
+ * Calculate token efficiency for a set of runs.
+ */
+function calculateTokenEfficiency(
+  runs: BenchmarkRun[],
+  avgScore: number,
+  baselineTokens?: number
+): TokenEfficiency {
+  const totalTokens = runs.reduce((sum, r) => sum + r.tokensUsed, 0);
+  const avgTokens = runs.length > 0 ? totalTokens / runs.length : 0;
+  const tokensPerCorrectPoint = avgScore > 0 ? avgTokens / avgScore : 0;
+  const costMultiplier = baselineTokens && baselineTokens > 0
+    ? avgTokens / baselineTokens
+    : 1;
+
+  return {
+    tokensPerCorrectPoint: Math.round(tokensPerCorrectPoint),
+    costMultiplier: Math.round(costMultiplier * 100) / 100,
+  };
 }
 
 /**
@@ -273,6 +325,20 @@ export function generateTaskResult(
       ? medianScores.orchestrator.heavy / medianScores.orchestrator.fresh
       : 0;
 
+  // Calculate token efficiency
+  const vanillaRuns = taskRuns.filter(r => r.system === 'vanilla');
+  const orchestratorRuns = taskRuns.filter(r => r.system === 'orchestrator');
+  const vanillaAvgTokens = vanillaRuns.length > 0
+    ? vanillaRuns.reduce((s, r) => s + r.tokensUsed, 0) / vanillaRuns.length
+    : 0;
+
+  const vanillaEfficiency = calculateTokenEfficiency(vanillaRuns, vanillaOverall);
+  const orchestratorEfficiency = calculateTokenEfficiency(
+    orchestratorRuns,
+    orchestratorOverall,
+    vanillaAvgTokens
+  );
+
   return {
     taskId: task.id,
     task,
@@ -283,6 +349,10 @@ export function generateTaskResult(
     contextResilience: {
       vanilla: vanillaResilience,
       orchestrator: orchestratorResilience,
+    },
+    tokenEfficiency: {
+      vanilla: vanillaEfficiency,
+      orchestrator: orchestratorEfficiency,
     },
   };
 }
@@ -313,6 +383,8 @@ export function generateReport(sessionId: string): BenchmarkReport | null {
   let totalCostRatio = 0;
   let totalVanillaResilience = 0;
   let totalOrchestratorResilience = 0;
+  let totalVanillaTPC = 0;
+  let totalOrchestratorTPC = 0;
 
   for (const result of taskResults) {
     if (result.winner === 'orchestrator') orchestratorWins++;
@@ -322,9 +394,23 @@ export function generateReport(sessionId: string): BenchmarkReport | null {
     totalCostRatio += result.costRatio;
     totalVanillaResilience += result.contextResilience.vanilla;
     totalOrchestratorResilience += result.contextResilience.orchestrator;
+
+    if (result.tokenEfficiency) {
+      totalVanillaTPC += result.tokenEfficiency.vanilla.tokensPerCorrectPoint;
+      totalOrchestratorTPC += result.tokenEfficiency.orchestrator.tokensPerCorrectPoint;
+    }
   }
 
   const count = taskResults.length;
+
+  // Aggregate token breakdowns across all runs
+  const allRuns = session.runs;
+  const vanillaBreakdown = aggregateTokenBreakdown(
+    allRuns.filter(r => r.system === 'vanilla')
+  );
+  const orchestratorBreakdown = aggregateTokenBreakdown(
+    allRuns.filter(r => r.system === 'orchestrator')
+  );
 
   // Calculate by complexity
   const complexities: Array<'single-file' | 'multi-file' | 'large-context'> = [
@@ -364,6 +450,8 @@ export function generateReport(sessionId: string): BenchmarkReport | null {
     }
   }
 
+  const hasBreakdowns = vanillaBreakdown.inputTokens > 0 || orchestratorBreakdown.inputTokens > 0;
+
   return {
     startedAt: session.startedAt,
     completedAt: session.completedAt || Date.now(),
@@ -375,6 +463,11 @@ export function generateReport(sessionId: string): BenchmarkReport | null {
       avgCostRatio: totalCostRatio / count,
       avgContextResilienceVanilla: totalVanillaResilience / count,
       avgContextResilienceOrchestrator: totalOrchestratorResilience / count,
+      avgTokensPerCorrectVanilla: Math.round(totalVanillaTPC / count),
+      avgTokensPerCorrectOrchestrator: Math.round(totalOrchestratorTPC / count),
+      totalTokenBreakdown: hasBreakdowns
+        ? { vanilla: vanillaBreakdown, orchestrator: orchestratorBreakdown }
+        : undefined,
     },
     byComplexity,
   };

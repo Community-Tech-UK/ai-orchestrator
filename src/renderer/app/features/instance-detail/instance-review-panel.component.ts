@@ -34,81 +34,85 @@ type ReviewAgent = {
   template: `
     @if (visible()) {
       <div class="panel">
-        <div class="header">
+        <div class="header" role="button" tabindex="0" (click)="expanded.set(!expanded())" (keydown.enter)="expanded.set(!expanded())" (keydown.space)="expanded.set(!expanded()); $event.preventDefault()">
           <div class="title">
-            <span class="icon">🔍</span>
+            <span class="chevron" [class.open]="expanded()">&#9656;</span>
             <span>Review</span>
             @if (sessionStatus(); as s) {
               <span class="badge" [class.running]="s === 'running'">{{ s }}</span>
             }
           </div>
-          <div class="actions">
-            <label class="toggle">
-              <input type="checkbox" [checked]="diffOnly()" (change)="onToggleDiffOnly($event)" />
-              <span>Diff only</span>
-            </label>
-            <button class="btn" (click)="refreshChangedFiles()" [disabled]="busy()">Refresh files</button>
-            <button class="btn primary" (click)="runReview()" [disabled]="busy() || selectedAgentIds().length === 0 || files().length === 0">
-              Run review
-            </button>
-          </div>
-        </div>
-
-        @if (error()) {
-          <div class="error">{{ error() }}</div>
-        }
-
-        <div class="body">
-          <div class="config">
-            <div class="block">
-              <div class="block-title">Agents</div>
-              <div class="agent-list">
-                @for (a of agents(); track a.id) {
-                  <label class="agent">
-                    <input
-                      type="checkbox"
-                      [checked]="selectedAgentSet().has(a.id)"
-                      (change)="toggleAgent(a.id)"
-                      [disabled]="busy()"
-                    />
-                    <span class="agent-name">{{ a.name }}</span>
-                    <span class="agent-desc">{{ a.description }}</span>
-                  </label>
-                }
-                @if (agents().length === 0) {
-                  <div class="muted">No review agents available.</div>
-                }
-              </div>
+          @if (expanded()) {
+            <div class="actions" role="toolbar" tabindex="-1" (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()">
+              <label class="toggle">
+                <input type="checkbox" [checked]="diffOnly()" (change)="onToggleDiffOnly($event)" />
+                <span>Diff only</span>
+              </label>
+              <button class="btn" (click)="refreshChangedFiles()" [disabled]="busy()">Refresh files</button>
+              <button class="btn primary" (click)="runReview()" [disabled]="busy() || selectedAgentIds().length === 0 || files().length === 0">
+                Run review
+              </button>
             </div>
-
-            <div class="block">
-              <div class="block-title">Files</div>
-              <div class="files">
-                @if (files().length === 0) {
-                  <div class="muted">No changed files detected.</div>
-                } @else {
-                  <div class="file-count">{{ files().length }} files</div>
-                  <div class="file-list">
-                    @for (f of files(); track f) {
-                      <div class="file">{{ f }}</div>
-                    }
-                  </div>
-                }
-              </div>
-            </div>
-          </div>
-
-          @if (issues().length > 0) {
-            <app-review-results
-              [issues]="issues()"
-              [score]="summary()"
-              (issueAcknowledged)="acknowledgeIssue($event)"
-              (navigateTo)="openAtLine($event)"
-            />
-          } @else if (sessionStatus() === 'completed') {
-            <div class="muted">No issues found.</div>
           }
         </div>
+
+        @if (expanded()) {
+          @if (error()) {
+            <div class="error">{{ error() }}</div>
+          }
+
+          <div class="body">
+            <div class="config">
+              <div class="block">
+                <div class="block-title">Agents</div>
+                <div class="agent-list">
+                  @for (a of agents(); track a.id) {
+                    <label class="agent">
+                      <input
+                        type="checkbox"
+                        [checked]="selectedAgentSet().has(a.id)"
+                        (change)="toggleAgent(a.id)"
+                        [disabled]="busy()"
+                      />
+                      <span class="agent-name">{{ a.name }}</span>
+                      <span class="agent-desc">{{ a.description }}</span>
+                    </label>
+                  }
+                  @if (agents().length === 0) {
+                    <div class="muted">No review agents available.</div>
+                  }
+                </div>
+              </div>
+
+              <div class="block">
+                <div class="block-title">Files</div>
+                <div class="files">
+                  @if (files().length === 0) {
+                    <div class="muted">No changed files detected.</div>
+                  } @else {
+                    <div class="file-count">{{ files().length }} files</div>
+                    <div class="file-list">
+                      @for (f of files(); track f) {
+                        <div class="file">{{ f }}</div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            </div>
+
+            @if (issues().length > 0) {
+              <app-review-results
+                [issues]="issues()"
+                [score]="summary()"
+                (issueAcknowledged)="acknowledgeIssue($event)"
+                (navigateTo)="openAtLine($event)"
+              />
+            } @else if (sessionStatus() === 'completed') {
+              <div class="muted">No issues found.</div>
+            }
+          </div>
+        }
       </div>
     }
   `,
@@ -130,6 +134,8 @@ type ReviewAgent = {
         padding: 10px 12px;
         background: var(--bg-tertiary);
         border-bottom: 1px solid var(--border-subtle);
+        cursor: pointer;
+        user-select: none;
       }
 
       .title {
@@ -140,8 +146,15 @@ type ReviewAgent = {
         font-weight: 800;
       }
 
-      .icon {
-        font-size: 16px;
+      .chevron {
+        display: inline-block;
+        font-size: 12px;
+        transition: transform 0.15s ease;
+        color: var(--text-muted);
+      }
+
+      .chevron.open {
+        transform: rotate(90deg);
       }
 
       .badge {
@@ -311,9 +324,10 @@ export class InstanceReviewPanelComponent {
 
   selectedAgentIds = computed(() => Array.from(this.selectedAgentSet()));
 
-  /** Panel is only visible when there are changed files or an active/completed review session */
+  /** User must explicitly expand the panel; auto-expand only for active review sessions */
+  expanded = signal(false);
   visible = computed(() =>
-    this.files().length > 0 || this.sessionStatus() !== null
+    this.expanded() || this.sessionStatus() !== null || this.files().length > 0
   );
 
   constructor() {

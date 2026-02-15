@@ -11,6 +11,7 @@ import type {
   GetChildArtifactsCommand,
   GetChildSectionCommand,
 } from '../../shared/types/child-result.types';
+import type { ConsensusStrategy } from '../../shared/types/consensus.types';
 
 export const ORCHESTRATION_MARKER_START = ':::ORCHESTRATOR_COMMAND:::';
 export const ORCHESTRATION_MARKER_END = ':::END_COMMAND:::';
@@ -27,11 +28,13 @@ export type OrchestratorAction =
   | 'report_error'
   | 'get_task_status'
   | 'request_user_action'
-  // New structured result commands
+  // Structured result commands
   | 'report_result'
   | 'get_child_summary'
   | 'get_child_artifacts'
-  | 'get_child_section';
+  | 'get_child_section'
+  // Multi-model consensus
+  | 'consensus_query';
 
 export interface SpawnChildCommand {
   action: 'spawn_child';
@@ -142,6 +145,23 @@ export interface RequestUserActionCommand {
   context?: Record<string, unknown>;
 }
 
+/**
+ * Consensus query - ask multiple AI providers the same question and get synthesized consensus
+ */
+export interface ConsensusQueryCommand {
+  action: 'consensus_query';
+  /** The question or prompt to send to all providers */
+  question: string;
+  /** Context to include with the question */
+  context?: string;
+  /** Which providers to query (default: all available) */
+  providers?: ('claude' | 'codex' | 'gemini' | 'copilot')[];
+  /** Consensus strategy: 'majority' (default), 'weighted', or 'all' (no synthesis, raw responses) */
+  strategy?: ConsensusStrategy;
+  /** Timeout per provider in seconds (default: 60) */
+  timeout?: number;
+}
+
 export type OrchestratorCommand =
   | SpawnChildCommand
   | MessageChildCommand
@@ -154,11 +174,13 @@ export type OrchestratorCommand =
   | ReportErrorCommand
   | GetTaskStatusCommand
   | RequestUserActionCommand
-  // New structured result commands
+  // Structured result commands
   | ReportResultCommand
   | GetChildSummaryCommand
   | GetChildArtifactsCommand
-  | GetChildSectionCommand;
+  | GetChildSectionCommand
+  // Multi-model consensus
+  | ConsensusQueryCommand;
 
 /**
  * Generate the system prompt that explains orchestration capabilities to Claude
@@ -254,7 +276,33 @@ ${ORCHESTRATION_MARKER_END}
 **Model options:** \`${CLAUDE_MODELS.HAIKU}\`, \`${CLAUDE_MODELS.SONNET}\`, \`${CLAUDE_MODELS.OPUS}\`
 (Usually leave unspecified for automatic routing)
 
-**Provider options:** \`claude\`, \`codex\`, \`gemini\`, \`auto\` (default: uses app settings)
+**Provider options:** \`claude\`, \`codex\`, \`gemini\`, \`copilot\`, \`auto\` (default: uses app settings)
+
+### Multi-Model Consensus
+
+When you need high-confidence answers, edge case analysis, or want to validate your reasoning, use \`consensus_query\` to ask multiple AI providers the same question and get a synthesized consensus:
+
+${ORCHESTRATION_MARKER_START}
+{"action": "consensus_query", "question": "What are the security implications of this approach?", "context": "Optional additional context for the question"}
+${ORCHESTRATION_MARKER_END}
+
+**When to use consensus:**
+- Architecture/design decisions where multiple perspectives help
+- Security reviews and edge case identification
+- Validating your analysis when confidence is low
+- Getting diverse perspectives on trade-offs
+
+**When NOT to use consensus:**
+- Simple factual lookups or file reads
+- Tasks where speed matters more than thoroughness
+- When you're already confident in the answer
+
+**Options:**
+- \`providers\`: Array of \`"claude"\`, \`"codex"\`, \`"gemini"\`, \`"copilot"\` (default: all available)
+- \`strategy\`: \`"majority"\` (default), \`"weighted"\`, or \`"all"\` (raw responses, no synthesis)
+- \`timeout\`: Seconds per provider (default: 60)
+
+The response includes: synthesized consensus, agreement score, individual responses, disagreements, and edge cases.
 
 Instance ID: ${instanceId}
 `;
@@ -415,6 +463,8 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
           (cmd as GetChildSectionCommand).section
         )
       );
+    case 'consensus_query':
+      return typeof (cmd as ConsensusQueryCommand).question === 'string';
     default:
       return false;
   }

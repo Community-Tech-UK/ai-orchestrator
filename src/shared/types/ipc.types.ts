@@ -630,6 +630,15 @@ export const IPC_CHANNELS = {
   AB_GET_STATS: 'ab:get-stats',
   AB_CONFIGURE: 'ab:configure',
 
+  // Observation Memory operations
+  OBSERVATION_GET_STATS: 'observation:get-stats',
+  OBSERVATION_GET_REFLECTIONS: 'observation:get-reflections',
+  OBSERVATION_GET_OBSERVATIONS: 'observation:get-observations',
+  OBSERVATION_CONFIGURE: 'observation:configure',
+  OBSERVATION_GET_CONFIG: 'observation:get-config',
+  OBSERVATION_FORCE_REFLECT: 'observation:force-reflect',
+  OBSERVATION_CLEANUP: 'observation:cleanup',
+
   // Recent Directories operations
   RECENT_DIRS_GET: 'recent-dirs:get',
   RECENT_DIRS_ADD: 'recent-dirs:add',

@@ -104,6 +104,8 @@ export interface BenchmarkRun {
 
   /** Total tokens consumed */
   tokensUsed: number;
+  /** Detailed token breakdown (input/output/cache) */
+  tokenBreakdown?: TokenUsageBreakdown;
   /** Wall-clock duration in milliseconds */
   durationMs: number;
   /** Timestamp when run started */
@@ -148,6 +150,11 @@ export interface TaskResult {
     vanilla: number;
     orchestrator: number;
   };
+  /** Token efficiency metrics */
+  tokenEfficiency?: {
+    vanilla: TokenEfficiency;
+    orchestrator: TokenEfficiency;
+  };
 }
 
 export interface BenchmarkReport {
@@ -161,6 +168,15 @@ export interface BenchmarkReport {
     avgCostRatio: number;
     avgContextResilienceVanilla: number;
     avgContextResilienceOrchestrator: number;
+    /** Average tokens per correct answer (vanilla) */
+    avgTokensPerCorrectVanilla: number;
+    /** Average tokens per correct answer (orchestrator) */
+    avgTokensPerCorrectOrchestrator: number;
+    /** Aggregate token breakdown */
+    totalTokenBreakdown?: {
+      vanilla: TokenUsageBreakdown;
+      orchestrator: TokenUsageBreakdown;
+    };
   };
   byComplexity: {
     'multi-file': { orchestratorAvgScore: number; vanillaAvgScore: number };
@@ -169,9 +185,23 @@ export interface BenchmarkReport {
   };
 }
 
+/** Detailed token usage breakdown */
+export interface TokenUsageBreakdown {
+  /** Tokens consumed reading input/context */
+  inputTokens: number;
+  /** Tokens generated as output */
+  outputTokens: number;
+  /** Tokens served from cache (subset of input) */
+  cacheReadTokens: number;
+  /** Tokens written to cache for future use */
+  cacheWriteTokens: number;
+}
+
 export interface ExecutorResult {
   output: string;
   tokensUsed: number;
+  /** Detailed token breakdown when available */
+  tokenBreakdown?: TokenUsageBreakdown;
   durationMs: number;
   error?: string;
 }
@@ -179,4 +209,24 @@ export interface ExecutorResult {
 export interface ContextFillerOptions {
   stage: ContextStage;
   workingDirectory: string;
+}
+
+/** Token efficiency metrics for a task result */
+export interface TokenEfficiency {
+  /** Tokens per percentage point of correctness */
+  tokensPerCorrectPoint: number;
+  /** Cost ratio relative to vanilla baseline */
+  costMultiplier: number;
+  /** For orchestrator: ratio of parent tokens to total (coordination overhead) */
+  coordinationOverhead?: number;
+}
+
+/** Quick eval preset configuration */
+export interface QuickEvalConfig {
+  /** Task IDs to include */
+  taskIds: string[];
+  /** Context stages to test */
+  stages: ContextStage[];
+  /** Number of runs per config */
+  runsPerConfig: number;
 }

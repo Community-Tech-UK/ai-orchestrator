@@ -20,6 +20,8 @@ import type {
   InsightRow,
   VectorRow,
   MigrationRow,
+  ObservationRow,
+  ReflectionRow,
 } from './rlm-database.types';
 
 // Import from decomposed modules
@@ -38,6 +40,7 @@ import * as search from './rlm/rlm-search';
 import * as sessions from './rlm/rlm-sessions';
 import * as learning from './rlm/rlm-learning';
 import * as vectors from './rlm/rlm-vectors';
+import * as observations from './rlm/rlm-observations';
 import * as backup from './rlm/rlm-backup';
 
 // Re-export config type
@@ -376,6 +379,98 @@ export class RLMDatabase extends EventEmitter {
 
   bufferToEmbedding(buffer: Buffer): number[] {
     return vectors.bufferToEmbedding(buffer);
+  }
+
+  // ============================================
+  // Observation Operations (delegated)
+  // ============================================
+
+  addObservation(observation: {
+    id: string;
+    summary: string;
+    sourceIds: string[];
+    instanceIds: string[];
+    themes: string[];
+    keyFindings: string[];
+    successSignals: number;
+    failureSignals: number;
+    timestamp: number;
+    createdAt: number;
+    ttl: number;
+    promoted: boolean;
+    tokenCount: number;
+    embeddingId?: string;
+  }): void {
+    observations.addObservation(this.db, observation);
+  }
+
+  getObservations(options?: {
+    promoted?: boolean;
+    since?: number;
+    limit?: number;
+  }): ObservationRow[] {
+    return observations.getObservations(this.db, options);
+  }
+
+  updateObservation(id: string, updates: {
+    promoted?: boolean;
+    embeddingId?: string;
+  }): void {
+    observations.updateObservation(this.db, id, updates);
+  }
+
+  deleteExpiredObservations(): number {
+    return observations.deleteExpiredObservations(this.db);
+  }
+
+  addReflection(reflection: {
+    id: string;
+    title: string;
+    insight: string;
+    observationIds: string[];
+    patterns: unknown[];
+    confidence: number;
+    applicability: string[];
+    createdAt: number;
+    ttl: number;
+    usageCount: number;
+    effectivenessScore: number;
+    promotedToProcedural: boolean;
+    embeddingId?: string;
+  }): void {
+    observations.addReflection(this.db, reflection);
+  }
+
+  getReflections(options?: {
+    minConfidence?: number;
+    promotedToProcedural?: boolean;
+    since?: number;
+    limit?: number;
+  }): ReflectionRow[] {
+    return observations.getReflections(this.db, options);
+  }
+
+  updateReflection(id: string, updates: {
+    usageCount?: number;
+    effectivenessScore?: number;
+    promotedToProcedural?: boolean;
+    embeddingId?: string;
+  }): void {
+    observations.updateReflection(this.db, id, updates);
+  }
+
+  deleteExpiredReflections(): number {
+    return observations.deleteExpiredReflections(this.db);
+  }
+
+  getObservationStats(): {
+    totalObservations: number;
+    totalReflections: number;
+    promotedReflections: number;
+    averageConfidence: number;
+    averageEffectiveness: number;
+  } {
+    return observations.getObservationStats(this.db);
   }
 
   // ============================================

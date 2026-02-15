@@ -11,6 +11,7 @@ import { InstanceManager } from './instance/instance-manager';
 import { getHookManager } from './hooks/hook-manager';
 import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker } from './orchestration/default-invokers';
 import { getOrchestratorPluginManager } from './plugins/plugin-manager';
+import { getObservationIngestor, getObserverAgent, getReflectorAgent } from './observation';
 
 class AIOrchestratorApp {
   private windowManager: WindowManager;
@@ -49,6 +50,11 @@ class AIOrchestratorApp {
 
       // Load/dispatch plugins (only once)
       getOrchestratorPluginManager().initialize(this.instanceManager);
+
+      // Initialize observation memory subsystem (only once)
+      getObservationIngestor().initialize(this.instanceManager);
+      getObserverAgent();
+      getReflectorAgent();
     }
 
     // Create main window (this loads the renderer which may call IPC)

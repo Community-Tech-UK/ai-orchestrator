@@ -139,6 +139,40 @@ export interface VectorRow {
   created_at: number;
 }
 
+// Observation types
+export interface ObservationRow {
+  id: string;
+  summary: string;
+  source_ids_json: string | null;
+  instance_ids_json: string | null;
+  themes_json: string | null;
+  key_findings_json: string | null;
+  success_signals: number;
+  failure_signals: number;
+  timestamp: number;
+  created_at: number;
+  ttl: number;
+  promoted: number;
+  token_count: number;
+  embedding_id: string | null;
+}
+
+export interface ReflectionRow {
+  id: string;
+  title: string;
+  insight: string;
+  observation_ids_json: string | null;
+  patterns_json: string | null;
+  confidence: number;
+  applicability_json: string | null;
+  created_at: number;
+  ttl: number;
+  usage_count: number;
+  effectiveness_score: number;
+  promoted_to_procedural: number;
+  embedding_id: string | null;
+}
+
 // Migration types
 export interface MigrationRow {
   id: number;
