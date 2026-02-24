@@ -25,6 +25,11 @@ npm run lint                # ESLint check (uses ng lint)
 npm run test                # Run tests (uses vitest)
 ```
 
+## Critical Rules
+
+- **NEVER commit or push** unless the user explicitly asks you to
+- **NEVER modify code on a server** — always make changes locally so we can deploy through the proper pipeline and code does not get out of sync
+
 ## Implementation Requirements
 
 ### After Making Code Changes

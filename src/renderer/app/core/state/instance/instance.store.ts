@@ -161,11 +161,7 @@ export class InstanceStore implements OnDestroy {
       this.outputStore.flushInstanceOutput(update.instanceId);
     }
 
-    // Process queued messages when instance becomes idle or waiting_for_input
-    if (newStatus === 'idle' || newStatus === 'waiting_for_input') {
-      this.messagingStore.processMessageQueue(update.instanceId);
-    }
-
+    // Update state FIRST so processMessageQueue sees the new status
     this.stateService.state.update((current) => {
       const newMap = new Map(current.instances);
       const instance = newMap.get(update.instanceId);
@@ -181,6 +177,12 @@ export class InstanceStore implements OnDestroy {
 
       return { ...current, instances: newMap };
     });
+
+    // Process queued messages AFTER state is updated, so the guard check
+    // inside processMessageQueue sees the new 'idle'/'waiting_for_input' status
+    if (newStatus === 'idle' || newStatus === 'waiting_for_input') {
+      this.messagingStore.processMessageQueue(update.instanceId);
+    }
   }
 
   private applyBatchUpdates(updates: StateUpdate[]): void {
@@ -191,12 +193,9 @@ export class InstanceStore implements OnDestroy {
         this.activityDebouncer.clearActivity(update.instanceId);
         this.outputStore.flushInstanceOutput(update.instanceId);
       }
-      // Process queued messages when instance becomes idle or waiting_for_input
-      if (newStatus === 'idle' || newStatus === 'waiting_for_input') {
-        this.messagingStore.processMessageQueue(update.instanceId);
-      }
     }
 
+    // Update state FIRST so processMessageQueue sees the new statuses
     this.stateService.state.update((current) => {
       const newMap = new Map(current.instances);
 
@@ -214,6 +213,15 @@ export class InstanceStore implements OnDestroy {
 
       return { ...current, instances: newMap };
     });
+
+    // Process queued messages AFTER state is updated, so the guard check
+    // inside processMessageQueue sees the new 'idle'/'waiting_for_input' status
+    for (const update of updates) {
+      const newStatus = update.status as InstanceStatus;
+      if (newStatus === 'idle' || newStatus === 'waiting_for_input') {
+        this.messagingStore.processMessageQueue(update.instanceId);
+      }
+    }
   }
 
   // ============================================

@@ -190,6 +190,7 @@ export class HistoryStore {
     success: boolean;
     instanceId?: string;
     restoredMessages?: unknown[];
+    resumed?: boolean;
     error?: string;
   }> {
     this.state.update(s => ({ ...s, loading: true }));
@@ -197,7 +198,7 @@ export class HistoryStore {
     try {
       const response = await this.ipc.restoreHistory(entryId, workingDirectory) as {
         success: boolean;
-        data?: { instanceId: string; restoredMessages: unknown[] };
+        data?: { instanceId: string; restoredMessages: unknown[]; resumed?: boolean };
         error?: { message: string };
       };
 
@@ -208,6 +209,7 @@ export class HistoryStore {
           success: true,
           instanceId: response.data.instanceId,
           restoredMessages: response.data.restoredMessages,
+          resumed: response.data.resumed ?? true,
         };
       } else {
         return {

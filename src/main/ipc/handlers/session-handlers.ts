@@ -28,6 +28,10 @@ import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
 import { getSessionArchiveManager } from '../../session/session-archive';
+import { generateId } from '../../../shared/utils/id-generator';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('SessionHandlers');
 
 interface SessionHandlersDeps {
   instanceManager: InstanceManager;
@@ -586,6 +590,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   );
 
   // Restore conversation as new instance
+  // Uses a two-phase approach: try --resume first, fall back to fresh instance
   ipcMain.handle(
     IPC_CHANNELS.HISTORY_RESTORE,
     async (
@@ -605,22 +610,114 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           };
         }
 
-        // Create a new instance that resumes the previous session
-        // This allows Claude to have full context of the previous conversation
-        const instance = await instanceManager.createInstance({
-          workingDirectory:
-            payload.workingDirectory || data.entry.workingDirectory,
-          displayName: `${data.entry.displayName} (restored)`,
-          sessionId: data.entry.sessionId, // Use the original session ID
-          resume: true, // Resume the session to restore Claude's context
-          initialOutputBuffer: data.messages // Pre-populate output buffer for display
-        });
+        const workingDir =
+          payload.workingDirectory || data.entry.workingDirectory;
+        const displayName = `${data.entry.displayName} (restored)`;
+        let resumeFailed = false;
 
-        return {
-          success: true,
-          data: {
+        // Phase 1: Try to resume the CLI session
+        try {
+          const instance = await instanceManager.createInstance({
+            workingDirectory: workingDir,
+            displayName,
+            sessionId: data.entry.sessionId,
+            resume: true,
+            initialOutputBuffer: data.messages
+          });
+
+          // Give the process a brief moment to fail if session ID is invalid.
+          // Claude CLI exits almost immediately on invalid --resume.
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Check if the process is still alive
+          const currentInstance = instanceManager.getInstance(instance.id);
+          if (
+            currentInstance &&
+            currentInstance.status !== 'error' &&
+            currentInstance.status !== 'terminated'
+          ) {
+            // Resume succeeded
+            logger.info('History restore: CLI session resumed successfully', {
+              instanceId: instance.id,
+              sessionId: data.entry.sessionId
+            });
+            return {
+              success: true,
+              data: {
+                instanceId: instance.id,
+                restoredMessages: data.messages,
+                resumed: true
+              }
+            };
+          }
+
+          // Process died — fall through to fallback
+          resumeFailed = true;
+          logger.warn('History restore: CLI session resume failed, falling back to fresh instance', {
             instanceId: instance.id,
-            restoredMessages: data.messages
+            sessionId: data.entry.sessionId,
+            status: currentInstance?.status
+          });
+
+          // Clean up the failed instance.
+          // Clear outputBuffer so archiveInstance() skips it (it checks length === 0).
+          if (currentInstance) {
+            currentInstance.outputBuffer = [];
+          }
+          try {
+            await instanceManager.terminateInstance(instance.id, false);
+          } catch {
+            // Ignore cleanup errors
+          }
+        } catch (err) {
+          // createInstance itself threw — fall through to fallback
+          resumeFailed = true;
+          logger.warn('History restore: createInstance with resume threw', {
+            error: err instanceof Error ? err.message : String(err)
+          });
+        }
+
+        // Phase 2: Fallback — create fresh instance with messages as display context
+        if (resumeFailed) {
+          const instance = await instanceManager.createInstance({
+            workingDirectory: workingDir,
+            displayName,
+            initialOutputBuffer: data.messages
+            // No resume, no sessionId — fresh session
+          });
+
+          // Add a system message informing the user that CLI context was lost
+          const systemMessage = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system' as const,
+            content:
+              'Previous CLI session could not be restored. Your conversation history is displayed above, but Claude does not have this context. You may need to re-summarize what you were working on.'
+          };
+          instance.outputBuffer.push(systemMessage);
+
+          logger.info('History restore: created fresh instance with restored messages', {
+            instanceId: instance.id,
+            messageCount: data.messages.length
+          });
+
+          return {
+            success: true,
+            data: {
+              instanceId: instance.id,
+              restoredMessages: data.messages,
+              resumed: false
+            }
+          };
+        }
+
+        // Should not reach here, but satisfy TypeScript
+        return {
+          success: false,
+          error: {
+            code: 'HISTORY_RESTORE_FAILED',
+            message: 'Unexpected state in restore handler',
+            timestamp: Date.now()
           }
         };
       } catch (error) {

@@ -285,6 +285,14 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
+        // Sync CLI-assigned session ID back to instance for accurate history archiving.
+        // The adapter receives the real CLI session ID via system messages (session_id field),
+        // which may differ from the orchestrator-generated UUID after forks/interrupts.
+        const cliSessionId = adapter.getSessionId();
+        if (cliSessionId && cliSessionId !== instance.sessionId) {
+          instance.sessionId = cliSessionId;
+        }
+
         // Check circuit breaker for assistant messages
         if (message.type === 'assistant') {
           const hasContent = !!(message.content && message.content.trim());

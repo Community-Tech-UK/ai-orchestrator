@@ -4,12 +4,10 @@
 
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import type {
-  ArtifactType,
-  ArtifactSeverity,
   ReportResultCommand,
   GetChildSummaryCommand,
   GetChildArtifactsCommand,
-  GetChildSectionCommand,
+  GetChildSectionCommand
 } from '../../shared/types/child-result.types';
 import type { ConsensusStrategy } from '../../shared/types/consensus.types';
 
@@ -82,12 +80,12 @@ export interface ReportTaskCompleteCommand {
   success: boolean;
   summary: string;
   data?: Record<string, unknown>;
-  artifacts?: Array<{
+  artifacts?: {
     type: 'file' | 'data' | 'url';
     path?: string;
     name: string;
     description?: string;
-  }>;
+  }[];
   recommendations?: string[];
 }
 
@@ -117,11 +115,11 @@ export interface GetTaskStatusCommand {
  * Request types that can be sent to the user
  */
 export type UserActionRequestType =
-  | 'switch_mode'      // Request to switch from plan to build mode (or vice versa)
-  | 'approve_action'   // Request approval for a specific action
-  | 'confirm'          // Generic confirmation request
-  | 'select_option'    // Request user to select from options
-  | 'ask_questions';   // Ask user free-form questions (renders text inputs)
+  | 'switch_mode' // Request to switch from plan to build mode (or vice versa)
+  | 'approve_action' // Request approval for a specific action
+  | 'confirm' // Generic confirmation request
+  | 'select_option' // Request user to select from options
+  | 'ask_questions'; // Ask user free-form questions (renders text inputs)
 
 /**
  * Request user action command - asks the user to approve/confirm something
@@ -137,11 +135,11 @@ export interface RequestUserActionCommand {
   /** For switch_mode: the target mode */
   targetMode?: 'build' | 'plan' | 'review';
   /** For select_option: available options */
-  options?: Array<{
+  options?: {
     id: string;
     label: string;
     description?: string;
-  }>;
+  }[];
   /** For ask_questions: list of questions to ask the user (renders text inputs) */
   questions?: string[];
   /** Additional context/metadata */
@@ -188,50 +186,46 @@ export type OrchestratorCommand =
 /**
  * Generate the system prompt that explains orchestration capabilities to Claude
  */
-export function generateOrchestrationPrompt(instanceId: string, currentModel?: string): string {
+export function generateOrchestrationPrompt(
+  instanceId: string,
+  currentModel?: string
+): string {
   const modelIdentity = currentModel
     ? `You are currently running as **${currentModel}**.\n\n`
     : '';
-  return `## 🎭 You Are an Orchestrator
+  return `## You Are an Orchestrator
 
-${modelIdentity}You are a **parent instance** in AI Orchestrator. You can spawn and manage child AI instances for parallel work.
+${modelIdentity}You are a **parent instance** in AI Orchestrator. You spawn and manage child AI instances for parallel work.
 
-### When to Spawn Children
-- **Truly parallel work**: Multiple independent tasks that can run simultaneously (e.g., analyzing 3 unrelated modules at once)
-- **Specialized focus**: When a subtask needs completely different expertise (e.g., security audit while you do architecture review)
+### Delegation Rules
+
+**Spawn children ONLY when:**
+- You have 2+ independent tasks that benefit from parallel execution
+- A subtask needs specialized focus (e.g., security audit while you do architecture review)
 
 **Do NOT spawn children for:**
-- Sequential analysis (tracing dependencies, following call chains, understanding data flow)
-- Single-file or few-file tasks — read the files yourself
-- Tasks where you need to synthesize information across steps (children can't see each other's work)
-- Simple file reading — you can read files directly, it's cheaper than spawning a child
+- Sequential analysis, dependency tracing, or cross-step synthesis
+- Single-file or few-file tasks — read files yourself
+- Simple file reading — always cheaper to do directly
 
-### Managing Children
-- Children automatically receive your recent conversation context (last 10 messages)
-- For additional context, include it in the task description
-- Check progress with \`get_child_output\` (returns last 100 messages by default)
-- **Always terminate children when done**
+**On failure:** If a child errors or times out, retry once. If it fails again, do the work directly.
 
-### Context Management
-Your context window is finite. To work efficiently:
-- **Read files directly** for most tasks — spawning children for file reads wastes tokens.
-- **Only delegate** when you have genuinely independent parallel subtasks.
-- **Use structured results**: Prefer \`get_child_summary\` over \`get_child_output\`.
-- **Summarize, don't copy**: Have children summarize findings rather than returning full contents.
-- If the system warns about context usage, consider summarizing your findings so far.
-- If context overflows, the system will compact and retry — follow the guidance provided.
+### Child Lifecycle
 
-### Intelligent Model Routing
-Children are automatically routed to the optimal model based on task complexity:
-- **Simple tasks** (file lookups, status checks) → Haiku (fast, cost-effective)
-- **Moderate tasks** (standard development) → Sonnet (balanced)
-- **Complex tasks** (architecture, security analysis) → Opus (most capable)
+- Children receive your recent conversation context (last 10 messages). Include additional context in the task description if needed.
+- Always terminate children when done.
+- Prefer \`get_child_summary\` over \`get_child_output\` to avoid context overflow.
 
-You can override this by specifying a \`model\` parameter, but automatic routing typically saves 40-85% on costs.
+### Model Routing
+
+Children are auto-routed by complexity. Specify \`model\` to override.
+- **Simple** (lookups, status checks) → Haiku
+- **Moderate** (standard dev) → Sonnet
+- **Complex** (architecture, security) → Opus
 
 ### Commands
 
-Format:
+All commands use this format:
 ${ORCHESTRATION_MARKER_START}
 {"action": "command_name", ...params}
 ${ORCHESTRATION_MARKER_END}
@@ -242,77 +236,48 @@ ${ORCHESTRATION_MARKER_END}
 | message_child | childId, message |
 | get_children | (none) |
 | terminate_child | childId |
-| request_user_action | requestType, title, message, targetMode?, options? |
 | call_tool | toolId, args? |
 
-### Retrieving Child Results (Context-Safe)
+### Retrieving Child Results
 
-Children report structured results that are stored externally. Use these commands to retrieve them without context overflow:
+Always prefer structured retrieval over raw output:
 
 | Command | Parameters | Returns |
 |---------|------------|---------|
 | get_child_summary | childId | Summary + artifact count (~300 tokens) |
 | get_child_artifacts | childId, types?, severity?, limit? | Structured findings |
 | get_child_section | childId, section | "conclusions", "decisions", "artifacts", or "full" |
-| get_child_output | childId, lastN? | Raw output (⚠️ can be large!) |
+| get_child_output | childId, lastN? | Raw output (can be large — use as last resort) |
 
-**Recommended workflow:**
-1. Wait for child to complete (reports automatically)
-2. Use \`get_child_summary\` first to see what they found
-3. Use \`get_child_artifacts\` if you need specific findings
-4. Only use \`get_child_output\` or \`get_child_section\` with "full" if you need the complete transcript
+### User Interaction
 
-### Requesting User Actions
+Use \`request_user_action\` for approvals, mode switches, and questions:
 
-When you need user approval or want to switch modes, use \`request_user_action\`:
+| requestType | Use for | Extra params |
+|-------------|---------|--------------|
+| switch_mode | Switching plan/build/review mode | targetMode |
+| approve_action | Confirming a specific action | — |
+| ask_questions | Getting user input | questions[] |
 
-**Switch to Build Mode (from Plan mode):**
+Example:
 ${ORCHESTRATION_MARKER_START}
-{"action": "request_user_action", "requestType": "switch_mode", "targetMode": "build", "title": "Ready to Implement", "message": "Planning complete. Switch to build mode to begin implementation?"}
+{"action": "request_user_action", "requestType": "ask_questions", "title": "Clarifying Questions", "message": "I need some information:", "questions": ["What framework?", "What database?"]}
 ${ORCHESTRATION_MARKER_END}
-
-**Request Approval:**
-${ORCHESTRATION_MARKER_START}
-{"action": "request_user_action", "requestType": "approve_action", "title": "Confirm Action", "message": "Description of what you want to do"}
-${ORCHESTRATION_MARKER_END}
-
-**Ask User Questions (renders text inputs for each question):**
-${ORCHESTRATION_MARKER_START}
-{"action": "request_user_action", "requestType": "ask_questions", "title": "Clarifying Questions", "message": "I need some information before proceeding:", "questions": ["What framework should we use?", "What database do you prefer?"]}
-${ORCHESTRATION_MARKER_END}
-
-**Model options:** \`${CLAUDE_MODELS.HAIKU}\`, \`${CLAUDE_MODELS.SONNET}\`, \`${CLAUDE_MODELS.OPUS}\`
-(Usually leave unspecified for automatic routing)
-
-**Provider options:** \`claude\`, \`codex\`, \`gemini\`, \`copilot\`, \`auto\` (default: uses app settings)
 
 ### Multi-Model Consensus
 
-When you need high-confidence answers, edge case analysis, or want to validate your reasoning, use \`consensus_query\` to ask multiple AI providers the same question and get a synthesized consensus:
+Use \`consensus_query\` when you need high-confidence answers or want to validate reasoning across multiple AI providers. Do NOT use for simple lookups or when already confident.
 
 ${ORCHESTRATION_MARKER_START}
-{"action": "consensus_query", "question": "What are the security implications of this approach?", "context": "Optional additional context for the question"}
+{"action": "consensus_query", "question": "Your question here", "context": "Optional context"}
 ${ORCHESTRATION_MARKER_END}
 
-**When to use consensus:**
-- Architecture/design decisions where multiple perspectives help
-- Security reviews and edge case identification
-- Validating your analysis when confidence is low
-- Getting diverse perspectives on trade-offs
+Options: \`providers\` (default: all), \`strategy\` ("majority"|"weighted"|"all"), \`timeout\` (seconds, default: 60)
 
-**When NOT to use consensus:**
-- Simple factual lookups or file reads
-- Tasks where speed matters more than thoroughness
-- When you're already confident in the answer
-
-**Options:**
-- \`providers\`: Array of \`"claude"\`, \`"codex"\`, \`"gemini"\`, \`"copilot"\` (default: all available)
-- \`strategy\`: \`"majority"\` (default), \`"weighted"\`, or \`"all"\` (raw responses, no synthesis)
-- \`timeout\`: Seconds per provider (default: 60)
-
-The response includes: synthesized consensus, agreement score, individual responses, disagreements, and edge cases.
-
-Instance ID: ${instanceId}
+---
+**Models:** \`${CLAUDE_MODELS.HAIKU}\`, \`${CLAUDE_MODELS.SONNET}\`, \`${CLAUDE_MODELS.OPUS}\` (leave unspecified for auto-routing)
+**Providers:** \`claude\`, \`codex\`, \`gemini\`, \`copilot\`, \`auto\` (default)
+**Instance ID:** ${instanceId}
 `;
 }
 
