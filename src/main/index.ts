@@ -9,7 +9,7 @@ import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
 import { InstanceManager } from './instance/instance-manager';
 import { getHookManager } from './hooks/hook-manager';
-import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker } from './orchestration/default-invokers';
+import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker } from './orchestration/default-invokers';
 import { getOrchestratorPluginManager } from './plugins/plugin-manager';
 import { getObservationIngestor, getObserverAgent, getReflectorAgent } from './observation';
 
@@ -47,6 +47,7 @@ class AIOrchestratorApp {
       // Wire up default multi-agent invokers (only once)
       registerDefaultMultiVerifyInvoker(this.instanceManager);
       registerDefaultReviewInvoker(this.instanceManager);
+      registerDefaultDebateInvoker(this.instanceManager);
 
       // Load/dispatch plugins (only once)
       getOrchestratorPluginManager().initialize(this.instanceManager);
