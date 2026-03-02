@@ -18,6 +18,7 @@ import { getProviderRegistry } from '../providers/provider-registry';
 import { BaseProvider } from '../providers/provider-interface';
 import { selectPersonalities, PERSONALITY_PROMPTS } from './personalities';
 import { generateId } from '../../shared/utils/id-generator';
+import { estimateTokens } from '@shared/utils/token-counter';
 
 /**
  * Configuration for CLI-based verification
@@ -459,8 +460,8 @@ export class CliVerificationCoordinator extends EventEmitter {
       // If no token count from context event, estimate from content length
       // Rough estimate: ~4 characters per token for English text
       if (tokens === 0 && responseContent.length > 0) {
-        const promptTokens = Math.ceil(fullPrompt.length / 4);
-        const responseTokens = Math.ceil(responseContent.length / 4);
+        const promptTokens = estimateTokens(fullPrompt);
+        const responseTokens = estimateTokens(responseContent);
         tokens = promptTokens + responseTokens;
       }
 

@@ -27,6 +27,7 @@ import type {
   CritiqueSeverity,
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
+import { estimateTokens } from '@shared/utils/token-counter';
 
 const logger = getLogger('DebateCoordinator');
 
@@ -805,7 +806,7 @@ Provide your synthesis:`;
     let tokens = 0;
     for (const round of debate.rounds) {
       for (const contribution of round.contributions) {
-        tokens += Math.ceil(contribution.content.length / 4);
+        tokens += estimateTokens(contribution.content);
       }
     }
     return tokens;
