@@ -5,13 +5,14 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  LspPositionPayload,
-  LspFindReferencesPayload,
-  LspFilePayload,
-  LspWorkspaceSymbolPayload
-} from '../../../shared/types/ipc.types';
 import { getLspManager } from '../../workspace/lsp-manager';
+import {
+  validateIpcPayload,
+  LspPositionPayloadSchema,
+  LspFindReferencesPayloadSchema,
+  LspFilePayloadSchema,
+  LspWorkspaceSymbolPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 
 export function registerLspHandlers(): void {
   const lsp = getLspManager();
@@ -66,14 +67,15 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_GO_TO_DEFINITION,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspPositionPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(LspPositionPayloadSchema, payload, 'LSP_GO_TO_DEFINITION');
         const locations = await lsp.goToDefinition(
-          payload.filePath,
-          payload.line,
-          payload.character
+          validated.filePath,
+          validated.line,
+          validated.character
         );
         return {
           success: true,
@@ -96,15 +98,16 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_FIND_REFERENCES,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspFindReferencesPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(LspFindReferencesPayloadSchema, payload, 'LSP_FIND_REFERENCES');
         const locations = await lsp.findReferences(
-          payload.filePath,
-          payload.line,
-          payload.character,
-          payload.includeDeclaration ?? true
+          validated.filePath,
+          validated.line,
+          validated.character,
+          validated.includeDeclaration ?? true
         );
         return {
           success: true,
@@ -127,14 +130,15 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_HOVER,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspPositionPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(LspPositionPayloadSchema, payload, 'LSP_HOVER');
         const hover = await lsp.hover(
-          payload.filePath,
-          payload.line,
-          payload.character
+          validated.filePath,
+          validated.line,
+          validated.character
         );
         return {
           success: true,
@@ -157,11 +161,12 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_DOCUMENT_SYMBOLS,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspFilePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const symbols = await lsp.getDocumentSymbols(payload.filePath);
+        const validated = validateIpcPayload(LspFilePayloadSchema, payload, 'LSP_DOCUMENT_SYMBOLS');
+        const symbols = await lsp.getDocumentSymbols(validated.filePath);
         return {
           success: true,
           data: symbols
@@ -183,13 +188,14 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_WORKSPACE_SYMBOLS,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspWorkspaceSymbolPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(LspWorkspaceSymbolPayloadSchema, payload, 'LSP_WORKSPACE_SYMBOLS');
         const symbols = await lsp.workspaceSymbol(
-          payload.query,
-          payload.rootPath
+          validated.query,
+          validated.rootPath ?? ''
         );
         return {
           success: true,
@@ -212,11 +218,12 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_DIAGNOSTICS,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspFilePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const diagnostics = await lsp.getDiagnostics(payload.filePath);
+        const validated = validateIpcPayload(LspFilePayloadSchema, payload, 'LSP_DIAGNOSTICS');
+        const diagnostics = await lsp.getDiagnostics(validated.filePath);
         return {
           success: true,
           data: diagnostics
@@ -238,11 +245,12 @@ export function registerLspHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.LSP_IS_AVAILABLE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: LspFilePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const available = lsp.isAvailableForFile(payload.filePath);
+        const validated = validateIpcPayload(LspFilePayloadSchema, payload, 'LSP_IS_AVAILABLE');
+        const available = lsp.isAvailableForFile(validated.filePath);
         return {
           success: true,
           data: { available }

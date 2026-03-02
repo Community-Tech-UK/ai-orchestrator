@@ -6,10 +6,6 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type {
-  CodebaseIndexStorePayload,
-  CodebaseIndexFilePayload,
-  CodebaseSearchPayload,
-  CodebaseWatcherPayload,
   IndexingProgress,
   IndexingStats,
   IndexStats,
@@ -21,6 +17,8 @@ import {
   CodebaseIndexStorePayloadSchema,
   CodebaseIndexFilePayloadSchema,
   CodebaseWatcherPayloadSchema,
+  CodebaseSearchPayloadSchema,
+  CodebaseSearchSymbolsPayloadSchema,
   StoreIdSchema,
 } from '../../../shared/validation/ipc-schemas';
 import { z } from 'zod';
@@ -72,7 +70,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_INDEX_STORE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: CodebaseIndexStorePayload
+      payload: unknown
     ): Promise<IpcResponse<IndexingStats>> => {
       try {
         const validated = validateIpcPayload(CodebaseIndexStorePayloadSchema, payload, 'CODEBASE_INDEX_STORE');
@@ -100,7 +98,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_INDEX_FILE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: CodebaseIndexFilePayload
+      payload: unknown
     ): Promise<IpcResponse<void>> => {
       try {
         const validated = validateIpcPayload(CodebaseIndexFilePayloadSchema, payload, 'CODEBASE_INDEX_FILE');
@@ -196,10 +194,11 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_SEARCH,
     async (
       _event: IpcMainInvokeEvent,
-      payload: CodebaseSearchPayload
+      payload: unknown
     ): Promise<IpcResponse<HybridSearchResult[]>> => {
       try {
-        const results = await searchService.search(payload.options);
+        const validated = validateIpcPayload(CodebaseSearchPayloadSchema, payload, 'CODEBASE_SEARCH');
+        const results = await searchService.search(validated.options);
         return { success: true, data: results };
       } catch (error) {
         return {
@@ -219,13 +218,14 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_SEARCH_SYMBOLS,
     async (
       _event: IpcMainInvokeEvent,
-      payload: { storeId: string; query: string }
+      payload: unknown
     ): Promise<IpcResponse<HybridSearchResult[]>> => {
       try {
+        const validated = validateIpcPayload(CodebaseSearchSymbolsPayloadSchema, payload, 'CODEBASE_SEARCH_SYMBOLS');
         // For symbol search, use hybrid search with BM25 boosting for symbols
         const results = await searchService.search({
-          query: payload.query,
-          storeId: payload.storeId,
+          query: validated.query,
+          storeId: validated.storeId,
           topK: 20,
           bm25Weight: 0.7,  // Favor keyword matching for symbols
           vectorWeight: 0.3,
@@ -254,7 +254,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_WATCHER_START,
     async (
       _event: IpcMainInvokeEvent,
-      payload: CodebaseWatcherPayload
+      payload: unknown
     ): Promise<IpcResponse<void>> => {
       try {
         const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_START');
@@ -290,7 +290,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_WATCHER_STOP,
     async (
       _event: IpcMainInvokeEvent,
-      payload: CodebaseWatcherPayload
+      payload: unknown
     ): Promise<IpcResponse<void>> => {
       try {
         const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_STOP');
@@ -314,7 +314,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     IPC_CHANNELS.CODEBASE_WATCHER_STATUS,
     async (
       _event: IpcMainInvokeEvent,
-      payload: CodebaseWatcherPayload
+      payload: unknown
     ): Promise<IpcResponse<WatcherStatus>> => {
       try {
         const validated = validateIpcPayload(CodebaseWatcherPayloadSchema, payload, 'CODEBASE_WATCHER_STATUS');
