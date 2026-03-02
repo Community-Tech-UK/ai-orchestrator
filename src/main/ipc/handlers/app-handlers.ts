@@ -3,11 +3,20 @@
  * Handles app readiness, version info, dialogs, and file system operations
  */
 
-import { ipcMain, IpcMainInvokeEvent, dialog, shell } from 'electron';
+import { ipcMain, dialog, shell } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { WindowManager } from '../../window-manager';
-import * as fs from 'fs';
-import * as path from 'path';
+import { validatedHandler } from '../validated-handler';
+import { validatePath } from '../../security/path-validator';
+import {
+  AppOpenDocsPayloadSchema,
+  DialogSelectFilesPayloadSchema,
+  FileGetStatsPayloadSchema,
+  FileOpenPathPayloadSchema,
+  FileReadDirPayloadSchema,
+  FileReadTextPayloadSchema,
+  FileWriteTextPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 
 interface AppHandlerDependencies {
   windowManager: WindowManager;
@@ -15,9 +24,9 @@ interface AppHandlerDependencies {
 }
 
 export function registerAppHandlers(deps: AppHandlerDependencies): void {
-  const { windowManager, getIpcAuthToken } = deps;
+  const { getIpcAuthToken } = deps;
 
-  // App ready signal
+  // App ready signal — no payload, keep plain
   ipcMain.handle(IPC_CHANNELS.APP_READY, async (): Promise<IpcResponse> => {
     return {
       success: true,
@@ -29,7 +38,7 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
     };
   });
 
-  // Get app version
+  // Get app version — no payload, keep plain
   ipcMain.handle(
     IPC_CHANNELS.APP_GET_VERSION,
     async (): Promise<IpcResponse> => {
@@ -43,23 +52,22 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
   // Open a documentation file
   ipcMain.handle(
     IPC_CHANNELS.APP_OPEN_DOCS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { filename: string }
-    ): Promise<IpcResponse> => {
-      try {
-        const path = await import('path');
+    validatedHandler(
+      IPC_CHANNELS.APP_OPEN_DOCS,
+      AppOpenDocsPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        const nodePath = await import('path');
         const { app } = await import('electron');
         const fs = await import('fs');
 
         // Try multiple possible locations for docs
         const possiblePaths = [
           // Development: relative to project root
-          path.join(process.cwd(), 'docs', payload.filename),
+          nodePath.join(process.cwd(), 'docs', payload.filename),
           // Packaged app: in resources
-          path.join(app.getAppPath(), 'docs', payload.filename),
+          nodePath.join(app.getAppPath(), 'docs', payload.filename),
           // Alternative packaged location
-          path.join(__dirname, '../../docs', payload.filename)
+          nodePath.join(__dirname, '../../docs', payload.filename)
         ];
 
         // Find first existing path
@@ -94,23 +102,14 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
           };
         }
         return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'FILE_OPEN_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 
   // Note: CLI detection handlers (cli:detect-all, cli:detect-one, cli:test-connection)
   // are registered in cli-verification-ipc-handler.ts with more complete implementation
 
-  // Open folder selection dialog
+  // Open folder selection dialog — no payload, keep plain
   ipcMain.handle(
     IPC_CHANNELS.DIALOG_SELECT_FOLDER,
     async (): Promise<IpcResponse> => {
@@ -145,17 +144,13 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
     }
   );
 
-  // Open file selection dialog
+  // Open file selection dialog — optional payload
   ipcMain.handle(
     IPC_CHANNELS.DIALOG_SELECT_FILES,
-    async (
-      _event,
-      options?: {
-        multiple?: boolean;
-        filters?: { name: string; extensions: string[] }[];
-      }
-    ): Promise<IpcResponse> => {
-      try {
+    validatedHandler(
+      IPC_CHANNELS.DIALOG_SELECT_FILES,
+      DialogSelectFilesPayloadSchema,
+      async (options): Promise<IpcResponse> => {
         const properties: ('openFile' | 'multiSelections')[] = ['openFile'];
         if (options?.multiple) {
           properties.push('multiSelections');
@@ -203,29 +198,19 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
           success: true,
           data: result.filePaths
         };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'DIALOG_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 
   // Read directory contents
   ipcMain.handle(
     IPC_CHANNELS.FILE_READ_DIR,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { path: string; includeHidden?: boolean }
-    ): Promise<IpcResponse> => {
-      try {
+    validatedHandler(
+      IPC_CHANNELS.FILE_READ_DIR,
+      FileReadDirPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
         const fs = await import('fs/promises');
-        const path = await import('path');
+        const nodePath = await import('path');
 
         const entries = await fs.readdir(payload.path, {
           withFileTypes: true
@@ -240,7 +225,7 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
               return true;
             })
             .map(async (entry) => {
-              const fullPath = path.join(payload.path, entry.name);
+              const fullPath = nodePath.join(payload.path, entry.name);
               let stats;
               try {
                 stats = await fs.stat(fullPath);
@@ -257,7 +242,7 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
                 size: stats.size,
                 modifiedAt: stats.mtimeMs,
                 extension: entry.isFile()
-                  ? path.extname(entry.name).slice(1)
+                  ? nodePath.extname(entry.name).slice(1)
                   : undefined
               };
             })
@@ -275,36 +260,26 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
           success: true,
           data: filtered
         };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'FILE_READ_DIR_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 
   // Get file stats
   ipcMain.handle(
     IPC_CHANNELS.FILE_GET_STATS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { path: string }
-    ): Promise<IpcResponse> => {
-      try {
+    validatedHandler(
+      IPC_CHANNELS.FILE_GET_STATS,
+      FileGetStatsPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
         const fs = await import('fs/promises');
-        const path = await import('path');
+        const nodePath = await import('path');
 
         const stats = await fs.stat(payload.path);
 
         return {
           success: true,
           data: {
-            name: path.basename(payload.path),
+            name: nodePath.basename(payload.path),
             path: payload.path,
             isDirectory: stats.isDirectory(),
             isSymlink: stats.isSymbolicLink(),
@@ -312,38 +287,40 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
             modifiedAt: stats.mtimeMs,
             createdAt: stats.birthtimeMs,
             extension: stats.isFile()
-              ? path.extname(payload.path).slice(1)
+              ? nodePath.extname(payload.path).slice(1)
               : undefined
           }
         };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'FILE_GET_STATS_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 
-  // Read file content as text (bounded)
+  // Read file content as text (bounded) — with path validation
   ipcMain.handle(
     IPC_CHANNELS.FILE_READ_TEXT,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { path: string; maxBytes?: number }
-    ): Promise<IpcResponse> => {
-      try {
+    validatedHandler(
+      IPC_CHANNELS.FILE_READ_TEXT,
+      FileReadTextPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        const pathResult = validatePath(payload.path);
+        if (!pathResult.valid) {
+          return {
+            success: false,
+            error: {
+              code: 'PATH_VALIDATION_FAILED',
+              message: pathResult.error!,
+              timestamp: Date.now()
+            }
+          };
+        }
+
         const fs = await import('fs/promises');
 
         const maxBytes = Math.max(
           1,
           Math.min(payload.maxBytes ?? 512 * 1024, 5 * 1024 * 1024)
         );
-        const buf = await fs.readFile(payload.path);
+        const buf = await fs.readFile(pathResult.resolved);
         const truncated = buf.byteLength > maxBytes;
         const contentBuf = truncated ? buf.subarray(0, maxBytes) : buf;
 
@@ -356,61 +333,53 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
             size: buf.byteLength
           }
         };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'FILE_READ_TEXT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 
-  // Write file content as text
+  // Write file content as text — with path validation
   ipcMain.handle(
     IPC_CHANNELS.FILE_WRITE_TEXT,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { path: string; content: string; createDirs?: boolean }
-    ): Promise<IpcResponse> => {
-      try {
-        const fs = await import('fs/promises');
-        const path = await import('path');
-
-        if (payload.createDirs) {
-          await fs.mkdir(path.dirname(payload.path), { recursive: true });
+    validatedHandler(
+      IPC_CHANNELS.FILE_WRITE_TEXT,
+      FileWriteTextPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        const pathResult = validatePath(payload.path);
+        if (!pathResult.valid) {
+          return {
+            success: false,
+            error: {
+              code: 'PATH_VALIDATION_FAILED',
+              message: pathResult.error!,
+              timestamp: Date.now()
+            }
+          };
         }
 
-        await fs.writeFile(payload.path, payload.content ?? '', 'utf-8');
+        const fs = await import('fs/promises');
+        const nodePath = await import('path');
+
+        if (payload.createDirs) {
+          await fs.mkdir(nodePath.dirname(pathResult.resolved), { recursive: true });
+        }
+
+        await fs.writeFile(pathResult.resolved, payload.content ?? '', 'utf-8');
         const bytesWritten = Buffer.byteLength(payload.content ?? '', 'utf-8');
         return {
           success: true,
           data: { path: payload.path, bytesWritten }
         };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'FILE_WRITE_TEXT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 
   // Open file or folder with system default application
   ipcMain.handle(
     IPC_CHANNELS.FILE_OPEN_PATH,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { path: string }
-    ): Promise<IpcResponse> => {
-      try {
+    validatedHandler(
+      IPC_CHANNELS.FILE_OPEN_PATH,
+      FileOpenPathPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
         const result = await shell.openPath(payload.path);
         // shell.openPath returns empty string on success, error message on failure
         if (result) {
@@ -424,16 +393,7 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
           };
         }
         return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'FILE_OPEN_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
       }
-    }
+    )
   );
 }

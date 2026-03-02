@@ -719,6 +719,44 @@ export const BashCommandPayloadSchema = z.object({
   command: z.string().min(1).max(100_000),
 });
 
+// ============ App / File Handler Payloads ============
+
+export const AppOpenDocsPayloadSchema = z.object({
+  filename: z.string().min(1).max(500),
+});
+
+export const DialogSelectFilesPayloadSchema = z.object({
+  multiple: z.boolean().optional(),
+  filters: z.array(z.object({
+    name: z.string().min(1).max(200),
+    extensions: z.array(z.string().max(20)).max(50),
+  })).max(20).optional(),
+}).optional();
+
+export const FileReadDirPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+  includeHidden: z.boolean().optional(),
+});
+
+export const FileGetStatsPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+});
+
+export const FileReadTextPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+  maxBytes: z.number().int().min(1).max(5_242_880).optional(),
+});
+
+export const FileWriteTextPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+  content: z.string().max(50_000_000),
+  createDirs: z.boolean().optional(),
+});
+
+export const FileOpenPathPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+});
+
 // ============ Validation Helper ============
 
 /**
