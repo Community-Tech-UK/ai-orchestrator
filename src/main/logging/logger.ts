@@ -5,9 +5,23 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { app } from 'electron';
 import { EventEmitter } from 'events';
+
+/**
+ * Safely get the Electron app userData path.
+ * Returns undefined if Electron is not available (e.g., in tests).
+ */
+function getElectronUserDataPath(): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require('electron');
+    return app?.getPath?.('userData');
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Log levels (in order of severity)
@@ -150,12 +164,21 @@ export class LogManager extends EventEmitter {
   constructor(config: Partial<LoggerConfig> = {}) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
-    this.logFile = path.join(
-      this.config.logDirectory || app.getPath('userData'),
-      'logs',
-      'app.log'
-    );
-    this.ensureLogDirectory();
+
+    const baseDir = this.config.logDirectory
+      || getElectronUserDataPath()
+      || path.join(os.tmpdir(), 'claude-orchestrator');
+
+    // Disable file logging when running outside Electron (tests)
+    if (!this.config.logDirectory && !getElectronUserDataPath()) {
+      this.config.enableFile = false;
+    }
+
+    this.logFile = path.join(baseDir, 'logs', 'app.log');
+
+    if (this.config.enableFile) {
+      this.ensureLogDirectory();
+    }
   }
 
   /**
