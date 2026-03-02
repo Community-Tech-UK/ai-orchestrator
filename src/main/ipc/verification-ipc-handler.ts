@@ -6,27 +6,23 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
-import type {
-  WorktreeCreatePayload,
-  WorktreeCompletePayload,
-  WorktreePreviewMergePayload,
-  WorktreeMergePayload,
-  WorktreeCleanupPayload,
-  WorktreeAbandonPayload,
-  WorktreeGetSessionPayload,
-  WorktreeDetectConflictsPayload,
-  WorktreeSyncPayload,
-  VerifyStartPayload,
-  VerifyGetResultPayload,
-  VerifyGetActivePayload,
-  VerifyCancelPayload,
-  VerifyConfigurePayload,
-} from '../../shared/types/ipc.types';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
 import { getAllPersonalities, getPersonalityDescription } from '../orchestration/personalities';
-import type { MergeStrategy, WorktreeConfig } from '../../shared/types/worktree.types';
+import type { MergeStrategy } from '../../shared/types/worktree.types';
 import type { VerificationConfig, PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
+import {
+  validateIpcPayload,
+  WorktreeCreatePayloadSchema,
+  WorktreeSessionPayloadSchema,
+  WorktreeMergePayloadSchema,
+  WorktreeAbandonPayloadSchema,
+  WorktreeDetectConflictsPayloadSchema,
+  VerifyStartPayloadSchema,
+  VerifyGetResultPayloadSchema,
+  VerifyCancelPayloadSchema,
+  VerifyConfigurePayloadSchema,
+} from '../../shared/validation/ipc-schemas';
 
 export function registerVerificationHandlers(): void {
   // ============================================
@@ -37,17 +33,18 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_CREATE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeCreatePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(WorktreeCreatePayloadSchema, payload, 'WORKTREE_CREATE');
         const options = {
-          baseBranch: payload.baseBranch,
-          ...payload.config,
+          baseBranch: validated.baseBranch,
+          ...validated.config,
         };
         const session = await getWorktreeManager().createWorktree(
-          payload.instanceId,
-          payload.taskDescription,
+          validated.instanceId,
+          validated.taskDescription,
           options
         );
         return { success: true, data: session };
@@ -68,11 +65,12 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_COMPLETE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeCompletePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const session = await getWorktreeManager().completeWorktree(payload.sessionId);
+        const validated = validateIpcPayload(WorktreeSessionPayloadSchema, payload, 'WORKTREE_COMPLETE');
+        const session = await getWorktreeManager().completeWorktree(validated.sessionId);
         return { success: true, data: session };
       } catch (error) {
         return {
@@ -91,11 +89,12 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_PREVIEW_MERGE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreePreviewMergePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const preview = await getWorktreeManager().previewMerge(payload.sessionId);
+        const validated = validateIpcPayload(WorktreeSessionPayloadSchema, payload, 'WORKTREE_PREVIEW_MERGE');
+        const preview = await getWorktreeManager().previewMerge(validated.sessionId);
         return { success: true, data: preview };
       } catch (error) {
         return {
@@ -114,16 +113,17 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_MERGE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeMergePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(WorktreeMergePayloadSchema, payload, 'WORKTREE_MERGE');
         const options = {
-          strategy: payload.strategy as MergeStrategy | undefined,
-          commitMessage: payload.commitMessage,
+          strategy: validated.strategy as MergeStrategy | undefined,
+          commitMessage: validated.commitMessage,
         };
         const result = await getWorktreeManager().mergeWorktree(
-          payload.sessionId,
+          validated.sessionId,
           options
         );
         return { success: true, data: result };
@@ -144,11 +144,12 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_CLEANUP,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeCleanupPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await getWorktreeManager().cleanupWorktree(payload.sessionId);
+        const validated = validateIpcPayload(WorktreeSessionPayloadSchema, payload, 'WORKTREE_CLEANUP');
+        await getWorktreeManager().cleanupWorktree(validated.sessionId);
         return { success: true, data: null };
       } catch (error) {
         return {
@@ -167,13 +168,14 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_ABANDON,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeAbandonPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(WorktreeAbandonPayloadSchema, payload, 'WORKTREE_ABANDON');
         const session = await getWorktreeManager().abandonWorktree(
-          payload.sessionId,
-          payload.reason
+          validated.sessionId,
+          validated.reason
         );
         return { success: true, data: session };
       } catch (error) {
@@ -193,17 +195,18 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_GET_SESSION,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeGetSessionPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const session = getWorktreeManager().getSession(payload.sessionId);
+        const validated = validateIpcPayload(WorktreeSessionPayloadSchema, payload, 'WORKTREE_GET_SESSION');
+        const session = getWorktreeManager().getSession(validated.sessionId);
         if (!session) {
           return {
             success: false,
             error: {
               code: 'WORKTREE_SESSION_NOT_FOUND',
-              message: `Worktree session not found: ${payload.sessionId}`,
+              message: `Worktree session not found: ${validated.sessionId}`,
               timestamp: Date.now(),
             },
           };
@@ -246,12 +249,13 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_DETECT_CONFLICTS,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeDetectConflictsPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(WorktreeDetectConflictsPayloadSchema, payload, 'WORKTREE_DETECT_CONFLICTS');
         // Get the first session to detect conflicts for
-        const sessionId = payload.sessionIds[0];
+        const sessionId = validated.sessionIds[0];
         if (!sessionId) {
           return { success: true, data: [] };
         }
@@ -291,11 +295,12 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.WORKTREE_SYNC,
     async (
-      event: IpcMainInvokeEvent,
-      payload: WorktreeSyncPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await getWorktreeManager().syncWithRemote(payload.sessionId);
+        const validated = validateIpcPayload(WorktreeSessionPayloadSchema, payload, 'WORKTREE_SYNC');
+        await getWorktreeManager().syncWithRemote(validated.sessionId);
         return { success: true, data: null };
       } catch (error) {
         return {
@@ -318,34 +323,35 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.VERIFY_START,
     async (
-      event: IpcMainInvokeEvent,
-      payload: VerifyStartPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(VerifyStartPayloadSchema, payload, 'VERIFY_START');
         const config: Partial<VerificationConfig> = {};
-        if (payload.config) {
-          if (payload.config.minAgents) config.agentCount = payload.config.minAgents;
-          if (payload.config.synthesisStrategy) {
-            config.synthesisStrategy = payload.config.synthesisStrategy as SynthesisStrategy;
+        if (validated.config) {
+          if (validated.config.minAgents) config.agentCount = validated.config.minAgents;
+          if (validated.config.synthesisStrategy) {
+            config.synthesisStrategy = validated.config.synthesisStrategy as SynthesisStrategy;
           }
-          if (payload.config.personalities) {
-            config.personalities = payload.config.personalities as PersonalityType[];
+          if (validated.config.personalities) {
+            config.personalities = validated.config.personalities as PersonalityType[];
           }
-          if (payload.config.confidenceThreshold) {
-            config.confidenceThreshold = payload.config.confidenceThreshold;
+          if (validated.config.confidenceThreshold) {
+            config.confidenceThreshold = validated.config.confidenceThreshold;
           }
-          if (payload.config.timeoutMs) config.timeout = payload.config.timeoutMs;
-          if (payload.config.maxDebateRounds) {
-            config.maxDebateRounds = payload.config.maxDebateRounds;
+          if (validated.config.timeoutMs) config.timeout = validated.config.timeoutMs;
+          if (validated.config.maxDebateRounds) {
+            config.maxDebateRounds = validated.config.maxDebateRounds;
           }
         }
 
         const verificationId = await getMultiVerifyCoordinator().startVerification(
-          payload.instanceId,
-          payload.prompt,
+          validated.instanceId,
+          validated.prompt,
           config,
-          payload.context,
-          payload.taskType
+          validated.context,
+          validated.taskType
         );
         const result = { verificationId };
         return { success: true, data: result };
@@ -366,17 +372,18 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.VERIFY_GET_RESULT,
     async (
-      event: IpcMainInvokeEvent,
-      payload: VerifyGetResultPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const result = getMultiVerifyCoordinator().getResult(payload.verificationId);
+        const validated = validateIpcPayload(VerifyGetResultPayloadSchema, payload, 'VERIFY_GET_RESULT');
+        const result = getMultiVerifyCoordinator().getResult(validated.verificationId);
         if (!result) {
           return {
             success: false,
             error: {
               code: 'VERIFY_RESULT_NOT_FOUND',
-              message: `Verification result not found: ${payload.verificationId}`,
+              message: `Verification result not found: ${validated.verificationId}`,
               timestamp: Date.now(),
             },
           };
@@ -398,10 +405,7 @@ export function registerVerificationHandlers(): void {
   // Get active verifications
   ipcMain.handle(
     IPC_CHANNELS.VERIFY_GET_ACTIVE,
-    async (
-      event: IpcMainInvokeEvent,
-      payload?: VerifyGetActivePayload
-    ): Promise<IpcResponse> => {
+    async (): Promise<IpcResponse> => {
       try {
         const active = getMultiVerifyCoordinator().getActiveVerifications();
         return { success: true, data: active };
@@ -422,11 +426,12 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.VERIFY_CANCEL,
     async (
-      event: IpcMainInvokeEvent,
-      payload: VerifyCancelPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        getMultiVerifyCoordinator().cancelVerification(payload.verificationId);
+        const validated = validateIpcPayload(VerifyCancelPayloadSchema, payload, 'VERIFY_CANCEL');
+        getMultiVerifyCoordinator().cancelVerification(validated.verificationId);
         return { success: true, data: null };
       } catch (error) {
         return {
@@ -468,19 +473,20 @@ export function registerVerificationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.VERIFY_CONFIGURE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: VerifyConfigurePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(VerifyConfigurePayloadSchema, payload, 'VERIFY_CONFIGURE');
         const config: Partial<VerificationConfig> = {};
-        if (payload.config.minAgents) config.agentCount = payload.config.minAgents;
-        if (payload.config.synthesisStrategy) {
-          config.synthesisStrategy = payload.config.synthesisStrategy as SynthesisStrategy;
+        if (validated.config.minAgents) config.agentCount = validated.config.minAgents;
+        if (validated.config.synthesisStrategy) {
+          config.synthesisStrategy = validated.config.synthesisStrategy as SynthesisStrategy;
         }
-        if (payload.config.confidenceThreshold) {
-          config.confidenceThreshold = payload.config.confidenceThreshold;
+        if (validated.config.confidenceThreshold) {
+          config.confidenceThreshold = validated.config.confidenceThreshold;
         }
-        if (payload.config.timeoutMs) config.timeout = payload.config.timeoutMs;
+        if (validated.config.timeoutMs) config.timeout = validated.config.timeoutMs;
 
         getMultiVerifyCoordinator().setDefaultConfig(config);
         return { success: true, data: config };

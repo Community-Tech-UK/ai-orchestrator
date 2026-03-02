@@ -5,6 +5,11 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import * as crypto from 'crypto';
+import {
+  validateIpcPayload,
+  UserActionRequestPayloadSchema,
+  MemoryLoadHistoryPayloadSchema,
+} from '../../shared/validation/ipc-schemas';
 import { InstanceManager } from '../instance/instance-manager';
 import { WindowManager } from '../window-manager';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
@@ -254,15 +259,11 @@ export class IpcMainHandler {
     ipcMain.handle(
       IPC_CHANNELS.USER_ACTION_REQUEST,
       async (
-        event: IpcMainInvokeEvent,
-        payload: {
-          instanceId: string;
-          action: string;
-          description: string;
-          metadata?: Record<string, unknown>;
-        }
+        _event: IpcMainInvokeEvent,
+        payload: unknown
       ): Promise<IpcResponse> => {
         try {
+          const validated = validateIpcPayload(UserActionRequestPayloadSchema, payload, 'USER_ACTION_REQUEST');
           // Forward the permission request to the renderer
           // The renderer will show a UI prompt and send back the response
           const mainWindow = this.windowManager.getMainWindow();
@@ -296,10 +297,10 @@ export class IpcMainHandler {
             // Send request to renderer
             mainWindow.webContents.send(IPC_CHANNELS.USER_ACTION_REQUEST, {
               requestId,
-              instanceId: payload.instanceId,
-              action: payload.action,
-              description: payload.description,
-              metadata: payload.metadata
+              instanceId: validated.instanceId,
+              action: validated.action,
+              description: validated.description,
+              metadata: validated.metadata
             });
 
             // Timeout after 5 minutes
@@ -373,13 +374,14 @@ export class IpcMainHandler {
     ipcMain.handle(
       IPC_CHANNELS.MEMORY_LOAD_HISTORY,
       async (
-        event: IpcMainInvokeEvent,
-        payload: { instanceId: string; limit?: number }
+        _event: IpcMainInvokeEvent,
+        payload: unknown
       ): Promise<IpcResponse> => {
         try {
+          const validated = validateIpcPayload(MemoryLoadHistoryPayloadSchema, payload, 'MEMORY_LOAD_HISTORY');
           const messages = await this.instanceManager.loadHistoricalOutput(
-            payload.instanceId,
-            payload.limit
+            validated.instanceId,
+            validated.limit
           );
           return {
             success: true,
