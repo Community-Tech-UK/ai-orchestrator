@@ -177,31 +177,11 @@ export class EmbeddingService extends EventEmitter {
   // ============ Simple TF-IDF Embeddings ============
 
   private async getSimpleEmbeddings(texts: string[]): Promise<number[][]> {
-    // Check cache for each text, compute only missing ones
-    const results: number[][] = [];
-    const uncachedTexts: { index: number; text: string }[] = [];
-
-    for (let i = 0; i < texts.length; i++) {
-      const cached = this.getFromCache(texts[i]);
-      if (cached) {
-        results[i] = cached;
-      } else {
-        uncachedTexts.push({ index: i, text: texts[i] });
-      }
-    }
-
-    if (uncachedTexts.length > 0) {
-      // Build vocabulary with uncached texts
-      this.updateVocabulary(uncachedTexts.map(u => u.text));
-
-      for (const { index, text } of uncachedTexts) {
-        const embedding = this.textToTfIdfVector(text);
-        this.addToCache(text, embedding);
-        results[index] = embedding;
-      }
-    }
-
-    return results;
+    // TF-IDF vectors have variable dimensions (vocabulary grows over time),
+    // so caching is unsafe — cached vectors would have stale dimensions.
+    // Cache is only valid for fixed-dimension embeddings (OpenAI, local models).
+    this.updateVocabulary(texts);
+    return texts.map(text => this.textToTfIdfVector(text));
   }
 
   private updateVocabulary(texts: string[]): void {
