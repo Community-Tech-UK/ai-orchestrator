@@ -11,6 +11,9 @@ import {
   CircuitBreakerConfig,
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
 } from './circuit-breaker';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SupervisorNode');
 import type {
   SupervisorConfig,
   SupervisorNode as SupervisorNodeType,
@@ -359,7 +362,7 @@ export class SupervisorNodeManager extends EventEmitter {
         break;
 
       case 'simple-one':
-        console.warn(`Worker ${failedWorker.name} failed (simple-one strategy): ${error}`);
+        logger.warn('Worker failed (simple-one strategy)', { workerName: failedWorker.name, error });
         this.emit('worker:logged-failure', { supervisorId: this.id, worker: failedWorker, error });
         break;
     }
@@ -476,7 +479,7 @@ export class SupervisorNodeManager extends EventEmitter {
         break;
 
       case 'ignore':
-        console.warn(`Supervisor ${this.name} exhausted restarts for ${worker.name}`);
+        logger.warn('Exhausted restarts for worker', { supervisorName: this.name, workerName: worker.name });
         break;
 
       case 'restart':

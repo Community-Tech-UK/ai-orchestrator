@@ -14,6 +14,9 @@ import { RLMSession, ContextQueryResult } from '../../shared/types/rlm.types';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { LLMService, getLLMService } from './llm-service';
 import { getTokenCounter, TokenCounter } from './token-counter';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SessionCompactor');
 
 // Database interface for raw SQL access
 interface SQLiteDatabase {
@@ -137,7 +140,7 @@ export class SessionCompactor extends EventEmitter {
       this.ensureArchiveTables();
       this.emit('initialized');
     } catch (error) {
-      console.error('[SessionCompactor] Failed to initialize:', error);
+      logger.error('Failed to initialize', error instanceof Error ? error : undefined);
       this.emit('error', { phase: 'initialization', error });
     }
   }
@@ -183,12 +186,9 @@ export class SessionCompactor extends EventEmitter {
           ON session_compaction_summaries(session_id);
       `);
 
-      console.log('[SessionCompactor] Archive tables ensured');
+      logger.info('Archive tables ensured');
     } catch (error) {
-      console.warn(
-        '[SessionCompactor] Could not create archive tables:',
-        error
-      );
+      logger.warn('Could not create archive tables', { error });
     }
   }
 
@@ -242,9 +242,7 @@ export class SessionCompactor extends EventEmitter {
       };
     }
 
-    console.log(
-      `[SessionCompactor] Compacting session ${session.id}: archiving ${turnsToArchive} turns`
-    );
+    logger.info('Compacting session', { sessionId: session.id, turnsToArchive });
     this.emit('compaction:started', { sessionId: session.id, turnsToArchive });
 
     try {
@@ -311,7 +309,7 @@ export class SessionCompactor extends EventEmitter {
 
       return result;
     } catch (error) {
-      console.error('[SessionCompactor] Compaction failed:', error);
+      logger.error('Compaction failed', error instanceof Error ? error : undefined);
       this.emit('compaction:failed', { sessionId: session.id, error });
 
       return {
@@ -488,7 +486,7 @@ ${turnContent}`,
       this.archivedTurns.set(sessionId, archived);
       return archived;
     } catch (error) {
-      console.error('[SessionCompactor] Failed to load archived turns:', error);
+      logger.error('Failed to load archived turns', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -530,10 +528,7 @@ ${turnContent}`,
       this.sessionSummaries.set(sessionId, summaries);
       return summaries;
     } catch (error) {
-      console.error(
-        '[SessionCompactor] Failed to load compaction summaries:',
-        error
-      );
+      logger.error('Failed to load compaction summaries', error instanceof Error ? error : undefined);
       return [];
     }
   }

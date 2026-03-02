@@ -20,6 +20,9 @@ import type {
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { VectorStore, getVectorStore } from '../rlm/vector-store';
 import { ContextSectionRow } from '../persistence/rlm-database.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('EpisodicRlmStore');
 
 export interface EpisodicRLMStoreConfig {
   memoryCacheSize: number;
@@ -122,7 +125,7 @@ export class EpisodicRLMStore extends EventEmitter {
       this.initialized = true;
       this.emit('initialized', { success: true });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Init failed:', error);
+      logger.error('Init failed', error instanceof Error ? error : undefined);
       this.emit('initialized', { success: false, error });
     }
   }
@@ -165,7 +168,7 @@ export class EpisodicRLMStore extends EventEmitter {
         patterns: patternsLoaded
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Load failed:', error);
+      logger.error('Load failed', error instanceof Error ? error : undefined);
     }
   }
 
@@ -186,7 +189,7 @@ export class EpisodicRLMStore extends EventEmitter {
         depth: 0
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Failed to persist session:', error);
+      logger.error('Failed to persist session', error instanceof Error ? error : undefined);
     }
 
     try {
@@ -196,7 +199,7 @@ export class EpisodicRLMStore extends EventEmitter {
         timestamp: session.timestamp
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Failed to index session:', error);
+      logger.error('Failed to index session', error instanceof Error ? error : undefined);
     }
 
     this.sessionCache.set(session.sessionId, session);
@@ -287,7 +290,7 @@ export class EpisodicRLMStore extends EventEmitter {
       }
       return results;
     } catch (error) {
-      console.error('[EpisodicRLMStore] Session search failed:', error);
+      logger.error('Session search failed', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -336,7 +339,7 @@ export class EpisodicRLMStore extends EventEmitter {
         depth: 0
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Failed to persist pattern:', error);
+      logger.error('Failed to persist pattern', error instanceof Error ? error : undefined);
     }
 
     try {
@@ -346,7 +349,7 @@ export class EpisodicRLMStore extends EventEmitter {
         usageCount: pattern.usageCount
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Failed to index pattern:', error);
+      logger.error('Failed to index pattern', error instanceof Error ? error : undefined);
     }
 
     this.patternCache.set(pattern.id, pattern);
@@ -372,7 +375,7 @@ export class EpisodicRLMStore extends EventEmitter {
         depth: 0
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Failed to update pattern:', error);
+      logger.error('Failed to update pattern', error instanceof Error ? error : undefined);
     }
 
     try {
@@ -383,7 +386,7 @@ export class EpisodicRLMStore extends EventEmitter {
         usageCount: pattern.usageCount
       });
     } catch (error) {
-      console.error('[EpisodicRLMStore] Failed to re-index pattern:', error);
+      logger.error('Failed to re-index pattern', error instanceof Error ? error : undefined);
     }
 
     this.patternCache.set(pattern.id, pattern);
@@ -468,7 +471,7 @@ export class EpisodicRLMStore extends EventEmitter {
       }
       return results;
     } catch (error) {
-      console.error('[EpisodicRLMStore] Pattern search failed:', error);
+      logger.error('Pattern search failed', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -557,7 +560,7 @@ export class EpisodicRLMStore extends EventEmitter {
         this.vectorStore.removeSection(sectionId);
         this.patternCache.delete(pattern.id);
       } catch (error) {
-        console.error('[EpisodicRLMStore] Failed to remove pattern:', error);
+        logger.error('Failed to remove pattern', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -590,10 +593,7 @@ export class EpisodicRLMStore extends EventEmitter {
             this.vectorStore.removeSection(sectionId);
             this.patternCache.delete(pattern.id);
           } catch (error) {
-            console.error(
-              '[EpisodicRLMStore] Failed to remove decayed pattern:',
-              error
-            );
+            logger.error('Failed to remove decayed pattern', error instanceof Error ? error : undefined);
           }
         } else {
           await this.updatePattern(pattern);
@@ -614,10 +614,7 @@ export class EpisodicRLMStore extends EventEmitter {
           this.vectorStore.removeSection(section.id);
           this.sessionCache.delete(session.sessionId);
         } catch (error) {
-          console.error(
-            '[EpisodicRLMStore] Failed to archive old session:',
-            error
-          );
+          logger.error('Failed to archive old session', error instanceof Error ? error : undefined);
         }
       }
     }
@@ -747,7 +744,7 @@ export class EpisodicRLMStore extends EventEmitter {
         this.db.removeSection(section.id);
         this.vectorStore.removeSection(section.id);
       } catch (error) {
-        console.error('[EpisodicRLMStore] Failed to clear section:', error);
+        logger.error('Failed to clear section', error instanceof Error ? error : undefined);
       }
     }
     this.sessionCache.clear();

@@ -7,6 +7,9 @@
 import { EventEmitter } from 'events';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { EmbeddingService, getEmbeddingService } from './embedding-service';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('VectorStore');
 
 export interface VectorEntry {
   id: string;
@@ -105,7 +108,7 @@ export class VectorStore extends EventEmitter {
         vectors: this.vectorCache.size,
       });
     } catch (error) {
-      console.error('[VectorStore] Failed to load from persistence:', error);
+      logger.error('Failed to load from persistence', error instanceof Error ? error : undefined);
       this.emit('error', { operation: 'load', error });
     }
   }
@@ -155,7 +158,7 @@ export class VectorStore extends EventEmitter {
         metadata: entry.metadata,
       });
     } catch (error) {
-      console.error('[VectorStore] Failed to persist vector:', error);
+      logger.error('Failed to persist vector', error instanceof Error ? error : undefined);
     }
 
     this.emit('section:indexed', { sectionId, storeId, dimensions: entry.embedding.length });
@@ -181,7 +184,7 @@ export class VectorStore extends EventEmitter {
         try {
           this.db.deleteVector(sectionId);
         } catch (error) {
-          console.error('[VectorStore] Failed to delete vector:', error);
+          logger.error('Failed to delete vector', error instanceof Error ? error : undefined);
         }
 
         this.emit('section:removed', { sectionId });
@@ -339,7 +342,7 @@ export class VectorStore extends EventEmitter {
           });
         }
       } catch (error) {
-        console.error(`[VectorStore] Failed to index section ${section.id}:`, error);
+        logger.error('Failed to index section', error instanceof Error ? error : undefined, { sectionId: section.id });
       }
     }
 
@@ -361,7 +364,7 @@ export class VectorStore extends EventEmitter {
         try {
           this.db.deleteVector(entry.sectionId);
         } catch (error) {
-          console.error('[VectorStore] Failed to delete vector:', error);
+          logger.error('Failed to delete vector', error instanceof Error ? error : undefined);
         }
       }
     }

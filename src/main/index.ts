@@ -12,6 +12,9 @@ import { getHookManager } from './hooks/hook-manager';
 import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker } from './orchestration/default-invokers';
 import { getOrchestratorPluginManager } from './plugins/plugin-manager';
 import { getObservationIngestor, getObserverAgent, getReflectorAgent } from './observation';
+import { getLogger } from './logging/logger';
+
+const logger = getLogger('App');
 
 class AIOrchestratorApp {
   private windowManager: WindowManager;
@@ -29,7 +32,7 @@ class AIOrchestratorApp {
   }
 
   async initialize(): Promise<void> {
-    console.log('Initializing AI Orchestrator...');
+    logger.info('Initializing AI Orchestrator');
 
     // Register IPC handlers BEFORE creating window
     // (window might call handlers immediately on load)
@@ -61,7 +64,7 @@ class AIOrchestratorApp {
     // Create main window (this loads the renderer which may call IPC)
     await this.windowManager.createMainWindow();
 
-    console.log('AI Orchestrator initialized');
+    logger.info('AI Orchestrator initialized');
   }
 
   private setupInstanceEventForwarding(): void {
@@ -88,18 +91,15 @@ class AIOrchestratorApp {
 
     // Forward input-required events (permission prompts) to renderer
     this.instanceManager.on('instance:input-required', (payload) => {
-      console.log('=== [MainApp] FORWARDING INPUT_REQUIRED TO RENDERER ===');
-      console.log('[MainApp] Payload:', JSON.stringify(payload, null, 2));
-      console.log('[MainApp] WindowManager ready:', !!this.windowManager);
+      logger.info('Forwarding input-required to renderer', { payload, windowManagerReady: !!this.windowManager });
       this.windowManager.sendToRenderer('instance:input-required', payload);
-      console.log('[MainApp] sendToRenderer called for instance:input-required');
-      console.log('=== [MainApp] FORWARD COMPLETE ===');
+      logger.info('Forward complete for instance:input-required');
     });
 
     // Forward user action requests from orchestrator to renderer
     const orchestration = this.instanceManager.getOrchestrationHandler();
     orchestration.on('user-action-request', (request) => {
-      console.log('Forwarding user action request to renderer:', request.id);
+      logger.info('Forwarding user action request to renderer', { requestId: request.id });
       this.windowManager.sendToRenderer('user-action:request', request);
 
       // Notify the user for all request types so questions don't get lost
@@ -130,7 +130,7 @@ class AIOrchestratorApp {
   }
 
   cleanup(): void {
-    console.log('Cleaning up...');
+    logger.info('Cleaning up');
     this.instanceManager.terminateAll();
   }
 }
@@ -175,9 +175,9 @@ app.on('before-quit', () => {
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
+  logger.error('Uncaught exception', error instanceof Error ? error : undefined);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason, _promise) => {
+  logger.error('Unhandled rejection', reason instanceof Error ? reason : undefined, { reason: String(reason) });
 });

@@ -5,6 +5,7 @@
  */
 
 import { RLMContextManager } from '../rlm/context-manager';
+import { getLogger } from '../logging/logger';
 import { getUnifiedMemory } from '../memory';
 import { getSettingsManager } from '../core/config/settings-manager';
 import {
@@ -31,6 +32,8 @@ import type {
   RankedSection,
   UnifiedMemoryContextInfo
 } from './instance-types';
+
+const logger = getLogger('InstanceContext');
 
 /**
  * Configuration for context building
@@ -139,20 +142,16 @@ export class InstanceContextManager {
     try {
       const rlmStore = this.rlm.createStore(instance.sessionId);
       this.instanceRlmStores.set(instance.id, rlmStore.id);
-      console.log(
-        `[RLM] Created store ${rlmStore.id} for session ${instance.sessionId}`
-      );
+      logger.info('Created RLM store for session', { storeId: rlmStore.id, sessionId: instance.sessionId });
 
       const rlmSession = await this.rlm.startSession(
         rlmStore.id,
         instance.sessionId
       );
       this.instanceRlmSessions.set(instance.id, rlmSession.id);
-      console.log(
-        `[RLM] Started session ${rlmSession.id} for session ${instance.sessionId}`
-      );
+      logger.info('Started RLM session', { rlmSessionId: rlmSession.id, sessionId: instance.sessionId });
     } catch (error) {
-      console.error('[RLM] Failed to initialize RLM for instance:', error);
+      logger.error('Failed to initialize RLM for instance', error instanceof Error ? error : undefined);
     }
   }
 
@@ -164,14 +163,9 @@ export class InstanceContextManager {
     if (rlmSessionId) {
       try {
         this.rlm.endSession(rlmSessionId);
-        console.log(
-          `[RLM] Ended session ${rlmSessionId} for instance ${instanceId}`
-        );
+        logger.info('Ended RLM session', { rlmSessionId, instanceId });
       } catch (error) {
-        console.error(
-          `[RLM] Failed to end session for ${instanceId}:`,
-          error
-        );
+        logger.error('Failed to end RLM session', error instanceof Error ? error : undefined, { instanceId });
       }
       this.instanceRlmSessions.delete(instanceId);
     }
@@ -205,7 +199,7 @@ export class InstanceContextManager {
    * @param instance The instance object (for buffer access)
    */
   async compactContext(instanceId: string, instance: Instance): Promise<void> {
-    console.log(`[ContextCompaction] Starting compaction for instance ${instanceId}`);
+    logger.info('Starting context compaction', { instanceId });
 
     const rlmSessionId = this.instanceRlmSessions.get(instanceId);
     const rlmStoreId = this.instanceRlmStores.get(instanceId);
@@ -229,30 +223,30 @@ export class InstanceContextManager {
               }
             };
             await this.rlm.executeQuery(rlmSessionId, query);
-            console.log(`[ContextCompaction] Summarized ${sectionsToSummarize.length} RLM sections for ${instanceId}`);
+            logger.info('Summarized RLM sections during compaction', { instanceId, sectionCount: sectionsToSummarize.length });
           }
         }
       } catch (error) {
-        console.warn(`[ContextCompaction] RLM summarization failed for ${instanceId}:`, error);
+        logger.warn('RLM summarization failed during compaction, continuing', { instanceId });
         // Continue with other compaction strategies
       }
     }
 
     // 2. Clear JIT cache for this instance
     this.cleanupInstanceJIT(instanceId);
-    console.log(`[ContextCompaction] JIT cache cleared for ${instanceId}`);
+    logger.info('JIT cache cleared during compaction', { instanceId });
 
     // 3. Trim the output buffer to keep only recent messages
     const maxRecentMessages = 50; // Keep last 50 messages
     if (instance.outputBuffer.length > maxRecentMessages) {
       const trimCount = instance.outputBuffer.length - maxRecentMessages;
-      console.log(`[ContextCompaction] Trimming ${trimCount} older messages from buffer for ${instanceId}`);
+      logger.info('Trimming older messages from buffer during compaction', { instanceId, trimCount });
 
       // Keep only the most recent messages
       instance.outputBuffer = instance.outputBuffer.slice(-maxRecentMessages);
     }
 
-    console.log(`[ContextCompaction] Compaction complete for ${instanceId}`);
+    logger.info('Context compaction complete', { instanceId });
   }
 
   // ============================================
@@ -269,9 +263,7 @@ export class InstanceContextManager {
     // Skip context injection entirely when context is critically high
     const criticalThreshold = isChildInstance ? 95 : 90;
     if (usagePct >= criticalThreshold) {
-      console.log(
-        `[ContextBudget] Skipping context injection: usage at ${usagePct}%`
-      );
+      logger.info('Skipping context injection due to high usage', { usagePct });
       return {
         totalTokens: 0,
         rlmMaxTokens: 0,
@@ -457,10 +449,7 @@ export class InstanceContextManager {
               : 'lexical'
       };
     } catch (error) {
-      console.error(
-        `[RLM] Failed to retrieve context for instance ${instanceId}:`,
-        error
-      );
+      logger.error('Failed to retrieve RLM context', error instanceof Error ? error : undefined, { instanceId });
       return null;
     }
   }
@@ -537,10 +526,7 @@ export class InstanceContextManager {
         durationMs: Date.now() - startTime
       };
     } catch (error) {
-      console.error(
-        `[UnifiedMemory] Failed to retrieve context for instance ${instance.id}:`,
-        error
-      );
+      logger.error('Failed to retrieve unified memory context', error instanceof Error ? error : undefined, { instanceId: instance.id });
       return null;
     }
   }
@@ -635,10 +621,7 @@ export class InstanceContextManager {
         this.maybeSummarizeToolOutput(instanceId, store, newSections);
       }
     } catch (error) {
-      console.error(
-        `[RLM] Failed to ingest message for instance ${instanceId}:`,
-        error
-      );
+      logger.error('Failed to ingest message into RLM', error instanceof Error ? error : undefined, { instanceId });
     }
   }
 
@@ -660,14 +643,9 @@ export class InstanceContextManager {
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
       }
-      console.log(
-        `[RLM] Completed ingesting ${messages.length} initial messages for instance ${instance.id}`
-      );
+      logger.info('Completed ingesting initial messages', { instanceId: instance.id, messageCount: messages.length });
     } catch (error) {
-      console.error(
-        `[RLM] Failed to ingest initial output for instance ${instance.id}:`,
-        error
-      );
+      logger.error('Failed to ingest initial output', error instanceof Error ? error : undefined, { instanceId: instance.id });
     }
   }
 
@@ -684,10 +662,7 @@ export class InstanceContextManager {
     this.unifiedMemory
       .processInput(taggedContent, instance.sessionId, message.id)
       .catch((error) => {
-        console.error(
-          `[UnifiedMemory] Failed to ingest message for instance ${instance.id}:`,
-          error
-        );
+        logger.error('Failed to ingest message into unified memory', error instanceof Error ? error : undefined, { instanceId: instance.id });
       });
   }
 
@@ -1163,10 +1138,7 @@ export class InstanceContextManager {
     };
 
     this.rlm.executeQuery(sessionId, query).catch((error) => {
-      console.error(
-        `[RLM] Failed to summarize tool output for instance ${instanceId}:`,
-        error
-      );
+      logger.error('Failed to summarize tool output', error instanceof Error ? error : undefined, { instanceId });
     });
   }
 

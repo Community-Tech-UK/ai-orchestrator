@@ -10,6 +10,9 @@
 
 import { EventEmitter } from 'events';
 import { ProviderType, ProviderStatus, ProviderCapabilities } from '../../shared/types/provider.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('FailoverManager');
 import { CircuitBreaker, CircuitBreakerRegistry, CircuitState } from '../core/circuit-breaker';
 import { ErrorRecoveryManager } from '../core/error-recovery';
 import { ClassifiedError, ErrorCategory } from '../../shared/types/error-recovery.types';
@@ -186,7 +189,7 @@ export class FailoverManager extends EventEmitter {
 
     this.healthCheckTimer = setInterval(() => {
       this.checkAllProviderHealth().catch((err) => {
-        console.error('Health check failed:', err);
+        logger.error('Health check failed', err instanceof Error ? err : undefined);
       });
     }, this.config.healthCheckIntervalMs);
 

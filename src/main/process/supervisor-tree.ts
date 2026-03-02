@@ -10,6 +10,9 @@
 import { EventEmitter } from 'events';
 import { SupervisorNodeManager, SupervisorNodeConfig, DEFAULT_NODE_CONFIG } from './supervisor-node';
 import { getCircuitBreakerRegistry } from './circuit-breaker';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SupervisorTree');
 import type {
   SupervisionTree,
   SupervisorNode,
@@ -110,7 +113,7 @@ export class SupervisorTree extends EventEmitter {
     this.setupEventForwarding();
     this.startHealthMonitoring();
 
-    console.log('[SupervisorTree] Initialized root supervisor');
+    logger.info('Initialized root supervisor');
     this.emit('tree:initialized');
   }
 
@@ -253,7 +256,7 @@ export class SupervisorTree extends EventEmitter {
 
     this.instances.set(instanceId, registration);
 
-    console.log(`[SupervisorTree] Registered instance ${instanceId} (parent: ${parentId || 'root'})`);
+    logger.info('Registered instance', { instanceId, parent: parentId || 'root' });
     this.emit('instance:registered', registration);
 
     return {
@@ -307,7 +310,7 @@ export class SupervisorTree extends EventEmitter {
     }
 
     this.instances.delete(instanceId);
-    console.log(`[SupervisorTree] Unregistered instance ${instanceId}`);
+    logger.info('Unregistered instance', { instanceId });
     this.emit('instance:unregistered', { instanceId, terminationPolicy: registration.terminationPolicy });
   }
 
@@ -553,7 +556,7 @@ export class SupervisorTree extends EventEmitter {
     this.workerToInstance.clear();
     this.instanceToWorker.clear();
 
-    console.log('[SupervisorTree] Shutdown complete');
+    logger.info('Shutdown complete');
     this.emit('tree:shutdown');
   }
 

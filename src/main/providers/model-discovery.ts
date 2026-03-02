@@ -11,6 +11,9 @@
 import * as https from 'https';
 import * as http from 'http';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('ModelDiscovery');
 
 export interface DiscoveredModel {
   id: string;
@@ -101,10 +104,10 @@ export class ModelDiscoveryService {
           models = await this.discoverOllamaModels(config);
           break;
         default:
-          console.warn(`Unknown provider type: ${config.type}`);
+          logger.warn('Unknown provider type', { providerType: config.type });
       }
     } catch (error) {
-      console.error(`Failed to discover models for ${config.type}:`, error);
+      logger.error('Failed to discover models', error instanceof Error ? error : undefined, { providerType: config.type });
       // Return cached data if available, even if expired
       if (cached) {
         return cached.models;
@@ -335,7 +338,7 @@ export class ModelDiscoveryService {
 
       return models;
     } catch (error) {
-      console.error('Failed to discover OpenAI models:', error);
+      logger.error('Failed to discover OpenAI models', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -430,7 +433,7 @@ export class ModelDiscoveryService {
           lastChecked: Date.now(),
         }));
     } catch (error) {
-      console.error('Failed to discover Google models:', error);
+      logger.error('Failed to discover Google models', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -474,7 +477,7 @@ export class ModelDiscoveryService {
         lastChecked: Date.now(),
       }));
     } catch (error) {
-      console.error('Failed to discover Mistral models:', error);
+      logger.error('Failed to discover Mistral models', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -519,7 +522,7 @@ export class ModelDiscoveryService {
         lastChecked: Date.now(),
       }));
     } catch (error) {
-      console.error('Failed to discover Groq models:', error);
+      logger.error('Failed to discover Groq models', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -560,7 +563,7 @@ export class ModelDiscoveryService {
         lastChecked: Date.now(),
       }));
     } catch (error) {
-      console.error('Failed to discover Ollama models:', error);
+      logger.error('Failed to discover Ollama models', error instanceof Error ? error : undefined);
       return [];
     }
   }

@@ -18,6 +18,9 @@ import type {
 } from './context.types';
 import { cosineSimilarity } from './context.utils';
 import { bloomMightContain } from './context-cache';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('ContextSearch');
 
 /**
  * Dependencies for search operations
@@ -48,10 +51,7 @@ export function executeGrep(
   try {
     regex = new RegExp(pattern, 'gi');
   } catch (error) {
-    console.warn(
-      '[RLM] Invalid regex pattern, falling back to literal search:',
-      error
-    );
+    logger.warn('Invalid regex pattern, falling back to literal search', { error });
     const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     regex = new RegExp(escaped, 'gi');
   }
@@ -213,10 +213,7 @@ export async function executeSemanticSearch(
             });
           }
         } catch (hydeError) {
-          console.warn(
-            '[RLM] HyDE failed, using direct query embedding:',
-            hydeError
-          );
+          logger.warn('HyDE failed, using direct query embedding', { error: hydeError });
         }
       }
 
@@ -259,10 +256,7 @@ export async function executeSemanticSearch(
         };
       }
     } catch (error) {
-      console.error(
-        '[RLM] Semantic search failed, falling back to keyword search:',
-        error
-      );
+      logger.error('Semantic search failed, falling back to keyword search', error instanceof Error ? error : undefined);
     }
   }
 

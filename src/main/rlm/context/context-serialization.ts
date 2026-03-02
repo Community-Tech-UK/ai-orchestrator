@@ -11,6 +11,9 @@ import type { RLMDatabase } from '../../persistence/rlm-database';
 import type { ExportedStore, ImportStoreOptions } from './context.types';
 import { generateId } from './context.utils';
 import { createSearchIndex } from './context-cache';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('ContextSerialization');
 
 /**
  * Dependencies for serialization operations
@@ -131,7 +134,7 @@ export function importStore(
         instanceId
       });
     } catch (error) {
-      console.error('[RLM] Failed to persist imported store:', error);
+      logger.error('Failed to persist imported store', error instanceof Error ? error : undefined);
     }
   }
 

@@ -10,6 +10,9 @@ import * as vm from 'vm';
 import { app } from 'electron';
 import { EventEmitter } from 'events';
 import type { ProviderType, ProviderConfig, ProviderCapabilities, ModelInfo } from '../../shared/types/provider.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('ProviderPlugins');
 
 /**
  * Provider plugin interface that custom providers must implement
@@ -141,7 +144,7 @@ export class ProviderPluginsManager extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error('Failed to discover plugins:', error);
+      logger.error('Failed to discover plugins', error instanceof Error ? error : undefined);
     }
 
     return metas;
@@ -260,9 +263,9 @@ export class ProviderPluginsManager extends EventEmitter {
   private createPluginContext(sandbox: boolean): vm.Context {
     const baseContext: Record<string, unknown> = {
       console: {
-        log: (...args: unknown[]) => console.log('[Plugin]', ...args),
-        error: (...args: unknown[]) => console.error('[Plugin]', ...args),
-        warn: (...args: unknown[]) => console.warn('[Plugin]', ...args),
+        log: (...args: unknown[]) => logger.info('Plugin log', { args }),
+        error: (...args: unknown[]) => logger.error('Plugin error', undefined, { args }),
+        warn: (...args: unknown[]) => logger.warn('Plugin warn', { args }),
       },
       module: { exports: {} },
       exports: {},
@@ -318,7 +321,7 @@ export class ProviderPluginsManager extends EventEmitter {
     try {
       await plugin.dispose();
     } catch (error) {
-      console.error(`Error disposing plugin ${pluginId}:`, error);
+      logger.error('Error disposing plugin', error instanceof Error ? error : undefined, { pluginId });
     }
 
     this.plugins.delete(pluginId);
@@ -388,7 +391,7 @@ export class ProviderPluginsManager extends EventEmitter {
       try {
         fs.unlinkSync(meta.filePath);
       } catch (error) {
-        console.error(`Failed to delete plugin file: ${error}`);
+        logger.error('Failed to delete plugin file', error instanceof Error ? error : undefined, { filePath: meta.filePath });
       }
       this.pluginMeta.delete(pluginId);
     }

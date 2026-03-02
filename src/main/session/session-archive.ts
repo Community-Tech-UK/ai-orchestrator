@@ -8,6 +8,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SessionArchive');
 
 /**
  * Archived session metadata

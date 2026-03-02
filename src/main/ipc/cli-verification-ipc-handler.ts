@@ -4,6 +4,7 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { getLogger } from '../logging/logger';
 import { IpcResponse } from '../../shared/types/ipc.types';
 import { CliDetectionService, CliType } from '../cli/cli-detection';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
@@ -22,6 +23,8 @@ import {
   CliVerificationCancelPayloadSchema,
 } from '../../shared/validation/ipc-schemas';
 
+
+const logger = getLogger('CliVerification');
 
 // ============================================
 // Handler Registration
@@ -42,7 +45,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(channel, data);
     } else {
-      console.warn(`[CLI-Verification-IPC] Cannot send ${channel}: no main window available`);
+      logger.warn('Cannot send to renderer: no main window available', { channel });
     }
   };
 
@@ -169,13 +172,13 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
     'copilot:list-models',
     async (): Promise<IpcResponse<CopilotModelInfo[]>> => {
       try {
-        console.log('[CLI-Verification-IPC] Fetching Copilot models from CLI...');
+        logger.info('Fetching Copilot models from CLI');
         const adapter = new CopilotSdkAdapter();
         const models = await adapter.listAvailableModels();
-        console.log(`[CLI-Verification-IPC] Fetched ${models.length} models from Copilot CLI`);
+        logger.info('Fetched Copilot models from CLI', { count: models.length });
         return { success: true, data: models };
       } catch (error) {
-        console.error('[CLI-Verification-IPC] Failed to fetch Copilot models:', error);
+        logger.error('Failed to fetch Copilot models', error instanceof Error ? error : undefined);
         // Return default models as fallback
         return {
           success: true,
@@ -201,7 +204,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
         const validated = validateIpcPayload(ProviderListModelsPayloadSchema, payload, 'provider:list-models');
         const provider = validated.provider;
 
-        console.log(`[CLI-Verification-IPC] Listing models for provider: ${provider}`);
+        logger.info('Listing models for provider', { provider });
 
         // Copilot: dynamic listing via SDK
         if (provider === 'copilot') {
@@ -215,17 +218,17 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
                 name: m.name,
                 tier: classifyCopilotModelTier(m.id),
               }));
-            console.log(`[CLI-Verification-IPC] Fetched ${models.length} Copilot models dynamically`);
+            logger.info('Fetched Copilot models dynamically', { count: models.length });
             return { success: true, data: models };
           } catch {
             // Fall through to static list
-            console.warn('[CLI-Verification-IPC] Dynamic Copilot model fetch failed, using static list');
+            logger.warn('Dynamic Copilot model fetch failed, using static list');
           }
         }
 
         // All other providers (and Copilot fallback): use static lists
         const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
-        console.log(`[CLI-Verification-IPC] Returning ${staticModels.length} static models for ${provider}`);
+        logger.info('Returning static models for provider', { provider, count: staticModels.length });
         return { success: true, data: staticModels };
       } catch (error) {
         return {
@@ -256,11 +259,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(CliVerificationStartPayloadSchema, payload, 'verification:start-cli');
-        console.log('[CLI-Verification-IPC] Starting verification with payload:', {
-          id: validated.id,
-          promptLength: validated.prompt?.length,
-          config: validated.config,
-        });
+        logger.info('Starting verification', { id: validated.id, promptLength: validated.prompt?.length, config: validated.config });
 
         const config: CliVerificationConfig = {
           agentCount: validated.config.agentCount || 3,
@@ -286,7 +285,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
             result,
           });
         }).catch((error) => {
-          console.error('[CLI-Verification-IPC] Verification error:', error);
+          logger.error('Verification error', error instanceof Error ? error : undefined);
           sendToRenderer('verification:error', {
             sessionId: validated.id,
             error: (error as Error).message,
@@ -295,7 +294,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
 
         return { success: true, data: { verificationId: validated.id } };
       } catch (error) {
-        console.error('[CLI-Verification-IPC] Failed to start verification:', error);
+        logger.error('Failed to start verification', error instanceof Error ? error : undefined);
         return {
           success: false,
           error: {
@@ -389,16 +388,16 @@ function setupCoordinatorEvents(
   coordinator: ReturnType<typeof getCliVerificationCoordinator>,
   sendToRenderer: SendToRenderer
 ): void {
-  console.log('[CLI-Verification-IPC] Setting up coordinator event forwarding');
+  logger.info('Setting up coordinator event forwarding');
 
   // Forward verification events to renderer
   coordinator.on('verification:started', (data) => {
-    console.log('[CLI-Verification-IPC] Forwarding verification:started', data);
+    logger.info('Forwarding verification:started', { data });
     sendToRenderer('verification:started', data);
   });
 
   coordinator.on('verification:agents-launching', (data) => {
-    console.log('[CLI-Verification-IPC] Forwarding verification:agents-launching', data);
+    logger.info('Forwarding verification:agents-launching', { requestId: data.requestId, agentCount: data.agents?.length });
     // Forward individual agent starts
     // IMPORTANT: agentId format must match coordinator's format in runAgent()
     // Coordinator uses: `${request.id}-${agent.name.toLowerCase().replace(/\s+/g, '-')}-${index}`
@@ -412,7 +411,7 @@ function setupCoordinatorEvents(
         type: agent.type,
         personality: agent.personality,
       };
-      console.log('[CLI-Verification-IPC] Sending verification:agent-start', payload);
+      logger.info('Sending verification:agent-start', payload);
       sendToRenderer('verification:agent-start', payload);
     }
   });
@@ -432,7 +431,7 @@ function setupCoordinatorEvents(
       agentId: data.agentId,
       chunk: data.content,
     };
-    console.log('[CLI-Verification-IPC] Sending verification:agent-stream (agentId:', data.agentId, ', chunk length:', (data.content || '').length, ')');
+    logger.info('Sending verification:agent-stream', { agentId: data.agentId, chunkLength: (data.content || '').length });
     sendToRenderer('verification:agent-stream', payload);
   });
 
@@ -455,14 +454,14 @@ function setupCoordinatorEvents(
         error: data.error,
       },
     };
-    console.log('[CLI-Verification-IPC] Sending verification:agent-complete', { agentId: data.agentId, success: data.success, responseLength: finalContent.length });
+    logger.info('Sending verification:agent-complete', { agentId: data.agentId, success: data.success, responseLength: finalContent.length });
     sendToRenderer('verification:agent-complete', payload);
     // Clean up tracked content
     agentContent.delete(data.agentId);
   });
 
   coordinator.on('verification:completed', (result) => {
-    console.log('[CLI-Verification-IPC] Sending verification:complete', { sessionId: result.id, hasResult: !!result });
+    logger.info('Sending verification:complete', { sessionId: result.id, hasResult: !!result });
     sendToRenderer('verification:complete', {
       sessionId: result.id,
       result,
@@ -470,7 +469,7 @@ function setupCoordinatorEvents(
   });
 
   coordinator.on('verification:error', (data) => {
-    console.log('[CLI-Verification-IPC] Sending verification:error', { sessionId: data.requestId, error: data.error?.message });
+    logger.info('Sending verification:error', { sessionId: data.requestId, error: data.error?.message });
     sendToRenderer('verification:error', {
       sessionId: data.requestId,
       error: data.error?.message || 'Unknown error',

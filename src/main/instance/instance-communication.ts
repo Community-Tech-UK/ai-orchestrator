@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory';
 import { getHookManager } from '../hooks/hook-manager';
 import { getErrorRecoveryManager } from '../core/error-recovery';
@@ -43,6 +44,8 @@ interface CircuitBreakerState {
   lastResponseTimestamp: number;
   isTripped: boolean;
 }
+
+const logger = getLogger('InstanceCommunication');
 
 const CIRCUIT_BREAKER_CONFIG = {
   maxConsecutiveEmpty: 3,          // Trip after 3 consecutive empty responses
@@ -98,7 +101,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     // Check if we should reset after timeout
     if (state.isTripped && (now - state.lastResponseTimestamp) > CIRCUIT_BREAKER_CONFIG.resetTimeoutMs) {
-      console.log(`[CircuitBreaker] Resetting tripped circuit for ${instanceId} after timeout`);
+      logger.info('Resetting tripped circuit after timeout', { instanceId });
       state.isTripped = false;
       state.consecutiveEmptyResponses = 0;
     }
@@ -106,13 +109,13 @@ export class InstanceCommunicationManager extends EventEmitter {
     // If circuit is tripped, check cooldown
     if (state.isTripped) {
       if ((now - state.lastResponseTimestamp) < CIRCUIT_BREAKER_CONFIG.cooldownMs) {
-        console.log(`[CircuitBreaker] Circuit tripped for ${instanceId}, in cooldown period`);
+        logger.info('Circuit tripped, in cooldown period', { instanceId });
         return false;
       }
       // Cooldown expired, allow one retry
       state.isTripped = false;
       state.consecutiveEmptyResponses = 0;
-      console.log(`[CircuitBreaker] Cooldown expired for ${instanceId}, allowing retry`);
+      logger.info('Cooldown expired, allowing retry', { instanceId });
     }
 
     state.lastResponseTimestamp = now;
@@ -125,10 +128,10 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     // Empty response
     state.consecutiveEmptyResponses++;
-    console.log(`[CircuitBreaker] Empty response #${state.consecutiveEmptyResponses} for ${instanceId}`);
+    logger.info('Empty response recorded', { instanceId, count: state.consecutiveEmptyResponses });
 
     if (state.consecutiveEmptyResponses >= CIRCUIT_BREAKER_CONFIG.maxConsecutiveEmpty) {
-      console.warn(`[CircuitBreaker] TRIPPED for ${instanceId} after ${state.consecutiveEmptyResponses} consecutive empty responses`);
+      logger.warn('Circuit breaker tripped after consecutive empty responses', { instanceId, consecutiveEmptyResponses: state.consecutiveEmptyResponses });
       state.isTripped = true;
       return false;
     }
@@ -152,7 +155,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (state) {
       state.isTripped = false;
       state.consecutiveEmptyResponses = 0;
-      console.log(`[CircuitBreaker] Manually reset for ${instanceId}`);
+      logger.info('Circuit breaker manually reset', { instanceId });
     }
   }
 
@@ -179,15 +182,15 @@ export class InstanceCommunicationManager extends EventEmitter {
     attachments?: any[],
     contextBlock?: string | null
   ): Promise<void> {
-    console.log(`[InstanceCommunicationManager] sendInput called for ${instanceId}`);
+    logger.info('sendInput called', { instanceId });
     const instance = this.deps.getInstance(instanceId);
     const adapter = this.deps.getAdapter(instanceId);
 
-    console.log(`[InstanceCommunicationManager] Instance exists: ${!!instance}, Adapter exists: ${!!adapter}, Status: ${instance?.status}`);
+    logger.info('sendInput state check', { instanceId, instanceExists: !!instance, adapterExists: !!adapter, status: instance?.status });
 
     // Check instance exists first
     if (!instance) {
-      console.error(`[InstanceCommunicationManager] Instance ${instanceId} not found in state`);
+      logger.error('Instance not found in state', undefined, { instanceId });
       throw new Error(`Instance ${instanceId} not found`);
     }
 
@@ -206,7 +209,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     // Now check adapter
     if (!adapter) {
-      console.error(`[InstanceCommunicationManager] No adapter found for ${instanceId} (status: ${instance.status})`);
+      logger.error('No adapter found for instance', undefined, { instanceId, status: instance.status });
       // Instance exists but adapter is missing - this is a bug state
       // Mark instance as error to prevent further confusion
       instance.status = 'error';
@@ -219,9 +222,9 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     const finalMessage = contextBlock ? `${contextBlock}\n\n${message}` : message;
 
-    console.log('InstanceCommunicationManager: Sending message to adapter...');
+    logger.info('Sending message to adapter');
     await adapter.sendInput(finalMessage, attachments);
-    console.log('InstanceCommunicationManager: Message sent to adapter');
+    logger.info('Message sent to adapter');
   }
 
   /**
@@ -249,9 +252,9 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     instance.lastActivity = Date.now();
 
-    console.log(`InstanceCommunicationManager: Sending input response to ${instanceId}: ${response}`);
+    logger.info('Sending input response', { instanceId, response });
     if (permissionKey) {
-      console.log(`InstanceCommunicationManager: Permission key: ${permissionKey}`);
+      logger.info('Using permission key', { instanceId, permissionKey });
     }
 
     if ('sendRaw' in adapter && typeof (adapter as any).sendRaw === 'function') {
@@ -317,7 +320,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
           if (!circuitOk) {
             // Circuit tripped - attempt context compaction
-            console.warn(`[InstanceCommunicationManager] Circuit breaker tripped for ${instanceId}, attempting context compaction`);
+            logger.warn('Circuit breaker tripped, attempting context compaction', { instanceId });
 
             // Add warning message
             const warningMessage: OutputMessage = {
@@ -346,7 +349,7 @@ export class InstanceCommunicationManager extends EventEmitter {
                 this.addToOutputBuffer(instance, recoveryMessage);
                 this.emit('output', { instanceId, message: recoveryMessage });
               } catch (compactErr) {
-                console.error(`[InstanceCommunicationManager] Compaction failed during circuit breaker recovery:`, compactErr);
+                logger.error('Compaction failed during circuit breaker recovery', compactErr instanceof Error ? compactErr : undefined, { instanceId });
               }
             }
 
@@ -369,7 +372,7 @@ export class InstanceCommunicationManager extends EventEmitter {
               workingDirectory: instance.workingDirectory,
             });
           } catch (err) {
-            console.error(`[InstanceCommunicationManager] PreToolUse hook error:`, err);
+            logger.error('PreToolUse hook error', err instanceof Error ? err : undefined, { instanceId });
           }
         }
 
@@ -386,10 +389,10 @@ export class InstanceCommunicationManager extends EventEmitter {
             });
             // Log warning if tool result was an error
             if (isError) {
-              console.warn(`[InstanceCommunicationManager] Tool execution reported an error for ${instanceId}`);
+              logger.warn('Tool execution reported an error', { instanceId });
             }
           } catch (err) {
-            console.error(`[InstanceCommunicationManager] PostToolUse hook error:`, err);
+            logger.error('PostToolUse hook error', err instanceof Error ? err : undefined, { instanceId });
           }
         }
 
@@ -436,9 +439,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
-      console.log('=== [InstanceCommunicationManager] INPUT_REQUIRED EVENT RECEIVED ===');
-      console.log('[InstanceCommunicationManager] Instance ID:', instanceId);
-      console.log('[InstanceCommunicationManager] Payload:', JSON.stringify(payload, null, 2));
+      logger.info('INPUT_REQUIRED event received', { instanceId, payload });
 
       this.emit('input-required', {
         instanceId,
@@ -448,18 +449,18 @@ export class InstanceCommunicationManager extends EventEmitter {
         metadata: payload.metadata
       });
 
-      console.log('[InstanceCommunicationManager] input-required event emitted');
+      logger.info('input-required event emitted', { instanceId });
     });
 
     adapter.on('error', async (error: Error) => {
       const instance = this.deps.getInstance(instanceId);
-      console.error(`Instance ${instanceId} error (status: ${instance?.status}):`, error);
+      logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
       if (instance) {
         // Check if this is a context overflow error
         const classified = getErrorRecoveryManager().classifyError(error);
         if (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context')) {
-          console.log(`[InstanceCommunicationManager] Context overflow detected for ${instanceId}, attempting compaction...`);
+          logger.info('Context overflow detected, attempting compaction', { instanceId });
 
           // Add a system message to inform the user
           const compactingMessage: OutputMessage = {
@@ -476,14 +477,14 @@ export class InstanceCommunicationManager extends EventEmitter {
           if (this.deps.compactContext) {
             try {
               await this.deps.compactContext(instanceId);
-              console.log(`[InstanceCommunicationManager] Context compaction completed for ${instanceId}`);
+              logger.info('Context compaction completed', { instanceId });
 
               // Reset warning so it can fire again after compaction
               this.contextWarningIssued.delete(instanceId);
 
               // Check if we already retried once — prevent infinite loop
               if (this.contextOverflowRetried.has(instanceId)) {
-                console.warn(`[InstanceCommunicationManager] Already retried after overflow for ${instanceId}, skipping retry`);
+                logger.warn('Already retried after overflow, skipping retry', { instanceId });
                 const idleMessage: OutputMessage = {
                   id: generateId(),
                   timestamp: Date.now(),
@@ -532,7 +533,7 @@ export class InstanceCommunicationManager extends EventEmitter {
                 this.deps.queueUpdate(instanceId, 'busy');
 
                 retryAdapter.sendInput(retryMessage, lastMsg.attachments).catch(retryErr => {
-                  console.error(`[InstanceCommunicationManager] Retry after compaction failed for ${instanceId}:`, retryErr);
+                  logger.error('Retry after compaction failed', retryErr instanceof Error ? retryErr : undefined, { instanceId });
                   instance.status = 'idle';
                   this.deps.queueUpdate(instanceId, 'idle');
                 });
@@ -553,11 +554,11 @@ export class InstanceCommunicationManager extends EventEmitter {
               this.deps.queueUpdate(instanceId, 'idle');
               return;
             } catch (compactErr) {
-              console.error(`[InstanceCommunicationManager] Context compaction failed for ${instanceId}:`, compactErr);
+              logger.error('Context compaction failed', compactErr instanceof Error ? compactErr : undefined, { instanceId });
               // Fall through to normal error handling
             }
           } else {
-            console.warn(`[InstanceCommunicationManager] No compactContext handler available for ${instanceId}`);
+            logger.warn('No compactContext handler available', { instanceId });
           }
         }
 
@@ -580,22 +581,20 @@ export class InstanceCommunicationManager extends EventEmitter {
 
           // Only force cleanup if not respawning - during respawn the lifecycle manager handles cleanup
           this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
-            console.error(`Failed to cleanup adapter for ${instanceId} after error:`, cleanupErr);
+            logger.error('Failed to cleanup adapter after error', cleanupErr instanceof Error ? cleanupErr : undefined, { instanceId });
           });
         } else {
-          console.log(`Instance ${instanceId} error during respawning - skipping force cleanup, letting lifecycle handle it`);
+          logger.info('Instance error during respawning - skipping force cleanup, letting lifecycle handle it', { instanceId });
         }
       }
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {
-      console.log(
-        `Adapter exit event for instance ${instanceId}: code=${code}, signal=${signal}`
-      );
+      logger.info('Adapter exit event', { instanceId, code, signal });
 
       const instance = this.deps.getInstance(instanceId);
       if (!instance) {
-        console.log(`Adapter exit event for ${instanceId} but instance not found - ignoring`);
+        logger.info('Adapter exit event but instance not found - ignoring', { instanceId });
         return;
       }
 
@@ -603,25 +602,18 @@ export class InstanceCommunicationManager extends EventEmitter {
       // If not, a new adapter has been set (e.g., during YOLO toggle) and we should
       // not delete it or modify instance state
       const currentAdapter = this.deps.getAdapter(instanceId);
-      console.log(`Adapter exit check: currentAdapter=${currentAdapter ? 'exists' : 'undefined'}, adapter=${adapter ? 'exists' : 'undefined'}, same=${currentAdapter === adapter}`);
+      logger.info('Adapter exit check', { instanceId, currentAdapterExists: !!currentAdapter, adapterExists: !!adapter, isSameAdapter: currentAdapter === adapter });
       if (currentAdapter !== adapter) {
-        console.log(
-          `Adapter exit event for ${instanceId} but adapter has been replaced - ignoring`
-        );
+        logger.info('Adapter exit event but adapter has been replaced - ignoring', { instanceId });
         return;
       }
 
       // Check if this was an interrupted instance that needs respawning
       if (this.interruptedInstances.has(instanceId)) {
-        console.log(
-          `Instance ${instanceId} was interrupted, will respawn with --resume`
-        );
+        logger.info('Instance was interrupted, will respawn with --resume', { instanceId });
         this.interruptedInstances.delete(instanceId);
         this.deps.onInterruptedExit(instanceId).catch((err) => {
-          console.error(
-            `Failed to respawn instance ${instanceId} after interrupt:`,
-            err
-          );
+          logger.error('Failed to respawn instance after interrupt', err instanceof Error ? err : undefined, { instanceId });
           instance.status = 'error';
           instance.processId = null;
           this.deps.queueUpdate(instanceId, 'error');
@@ -631,9 +623,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       if (instance.status !== 'terminated') {
         const newStatus = code === 0 ? 'terminated' : 'error';
-        console.log(
-          `Instance ${instanceId} exited unexpectedly, marking as ${newStatus}`
-        );
+        logger.info('Instance exited unexpectedly', { instanceId, newStatus });
         instance.status = newStatus;
         instance.processId = null;
         this.deps.queueUpdate(instanceId, instance.status);
@@ -720,10 +710,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           instance.outputBuffer.length - bufferSize
         );
         this.outputStorage.storeMessages(instance.id, overflow).catch((err) => {
-          console.error(
-            `Failed to store output to disk for ${instance.id}:`,
-            err
-          );
+          logger.error('Failed to store output to disk', err instanceof Error ? err : undefined, { instanceId: instance.id });
         });
       }
 
@@ -780,7 +767,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     ].join('\n');
 
     adapter.sendInput(guidance).catch(err => {
-      console.error(`[InstanceCommunicationManager] Failed to send context warning to ${instanceId}:`, err);
+      logger.error('Failed to send context warning', err instanceof Error ? err : undefined, { instanceId });
     });
   }
 
@@ -795,12 +782,12 @@ export class InstanceCommunicationManager extends EventEmitter {
     const adapter = this.deps.getAdapter(instanceId);
     if (!adapter) return;
 
-    console.log(`Force cleaning up adapter for instance ${instanceId}`);
+    logger.info('Force cleaning up adapter', { instanceId });
 
     try {
       await adapter.terminate(false);
     } catch (error) {
-      console.error(`Error during force cleanup of ${instanceId}:`, error);
+      logger.error('Error during force cleanup', error instanceof Error ? error : undefined, { instanceId });
     } finally {
       this.deps.deleteAdapter(instanceId);
     }

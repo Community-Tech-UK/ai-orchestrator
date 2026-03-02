@@ -14,6 +14,9 @@ import type {
 } from '../../../shared/types/rlm.types';
 import type { RLMDatabase } from '../../persistence/rlm-database';
 import { generateId } from './context.utils';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('ContextSession');
 
 /**
  * Dependencies for session operations
@@ -62,7 +65,7 @@ export function startSession(
         estimatedDirectTokens: session.estimatedDirectTokens
       });
     } catch (error) {
-      console.error('[RLM] Failed to persist session:', error);
+      logger.error('Failed to persist session', error instanceof Error ? error : undefined);
     }
   }
 
@@ -91,7 +94,7 @@ export function endSession(
     try {
       deps.db.endSession(sessionId);
     } catch (error) {
-      console.error('[RLM] Failed to end session in database:', error);
+      logger.error('Failed to end session in database', error instanceof Error ? error : undefined);
     }
   }
 
@@ -127,7 +130,7 @@ export function updateSessionAfterQuery(
         accessCount: store.accessCount
       });
     } catch (error) {
-      console.error('[RLM] Failed to persist session update:', error);
+      logger.error('Failed to persist session update', error instanceof Error ? error : undefined);
     }
   }
 }

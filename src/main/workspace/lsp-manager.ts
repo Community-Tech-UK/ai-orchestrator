@@ -16,6 +16,9 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as readline from 'readline';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('LspManager');
 
 // ============================================
 // Types
@@ -177,10 +180,10 @@ export class LspManager extends EventEmitter {
       try {
         execFileSync('which', [server.command], { encoding: 'utf-8', timeout: 5000 });
         this.availableServers.set(server.id, true);
-        console.log(`LSP server available: ${server.name}`);
+        logger.info('LSP server available', { serverName: server.name });
       } catch {
         this.availableServers.set(server.id, false);
-        console.log(`LSP server not available: ${server.name} (${server.command})`);
+        logger.info('LSP server not available', { serverName: server.name, command: server.command });
       }
     }
   }
@@ -282,7 +285,7 @@ export class LspManager extends EventEmitter {
 
       return client;
     } catch (error) {
-      console.error(`Failed to start LSP server ${server.id}:`, error);
+      logger.error('Failed to start LSP server', error instanceof Error ? error : undefined, { serverId: server.id });
       return null;
     }
   }
@@ -332,13 +335,13 @@ export class LspManager extends EventEmitter {
           const message = JSON.parse(body);
           this.handleMessage(client, message);
         } catch (e) {
-          console.error('Failed to parse LSP message:', e);
+          logger.error('Failed to parse LSP message', e instanceof Error ? e : undefined);
         }
       }
     });
 
     client.process.stderr!.on('data', (data: Buffer) => {
-      console.error(`LSP ${client.serverId} stderr:`, data.toString());
+      logger.error('LSP stderr', undefined, { serverId: client.serverId, output: data.toString() });
     });
 
     client.process.on('exit', (code) => {
@@ -388,7 +391,7 @@ export class LspManager extends EventEmitter {
 
       case 'window/logMessage':
       case 'window/showMessage':
-        console.log(`LSP ${client.serverId}: ${params.message}`);
+        logger.info('LSP server message', { serverId: client.serverId, message: params.message });
         break;
     }
   }
@@ -524,7 +527,7 @@ export class LspManager extends EventEmitter {
         range: loc.range || loc.targetRange,
       }));
     } catch (error) {
-      console.error('Definition request failed:', error);
+      logger.error('Definition request failed', error instanceof Error ? error : undefined);
       return null;
     }
   }
@@ -547,7 +550,7 @@ export class LspManager extends EventEmitter {
 
       return result || [];
     } catch (error) {
-      console.error('References request failed:', error);
+      logger.error('References request failed', error instanceof Error ? error : undefined);
       return null;
     }
   }
@@ -583,7 +586,7 @@ export class LspManager extends EventEmitter {
         range: result.range,
       };
     } catch (error) {
-      console.error('Hover request failed:', error);
+      logger.error('Hover request failed', error instanceof Error ? error : undefined);
       return null;
     }
   }
@@ -626,7 +629,7 @@ export class LspManager extends EventEmitter {
         }
       });
     } catch (error) {
-      console.error('Document symbols request failed:', error);
+      logger.error('Document symbols request failed', error instanceof Error ? error : undefined);
       return null;
     }
   }
@@ -674,7 +677,7 @@ export class LspManager extends EventEmitter {
         containerName: s.containerName,
       }));
     } catch (error) {
-      console.error('Workspace symbol request failed:', error);
+      logger.error('Workspace symbol request failed', error instanceof Error ? error : undefined);
       return null;
     }
   }

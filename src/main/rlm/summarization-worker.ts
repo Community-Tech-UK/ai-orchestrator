@@ -16,6 +16,9 @@ import * as crypto from 'crypto';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { LLMService, getLLMService } from './llm-service';
 import { getTokenCounter, TokenCounter } from './token-counter';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SummarizationWorker');
 
 // Database interface for raw SQL access
 interface SQLiteDatabase {
@@ -140,7 +143,7 @@ export class SummarizationWorker extends EventEmitter {
 
       this.emit('initialized', { config: this.config });
     } catch (error) {
-      console.error('[SummarizationWorker] Failed to initialize:', error);
+      logger.error('Failed to initialize', error instanceof Error ? error : undefined);
       this.emit('error', { phase: 'initialization', error });
     }
   }
@@ -167,16 +170,11 @@ export class SummarizationWorker extends EventEmitter {
           ALTER TABLE context_sections ADD COLUMN summary_priority INTEGER DEFAULT 0;
           ALTER TABLE context_sections ADD COLUMN last_summary_attempt INTEGER;
         `);
-        console.log(
-          '[SummarizationWorker] Added pending_summary columns to context_sections'
-        );
+        logger.info('Added pending_summary columns to context_sections');
       }
     } catch (error) {
       // Columns might already exist or table doesn't exist yet
-      console.warn(
-        '[SummarizationWorker] Could not add summary columns:',
-        error
-      );
+      logger.warn('Could not add summary columns', { error });
     }
   }
 
@@ -185,16 +183,16 @@ export class SummarizationWorker extends EventEmitter {
    */
   start(): void {
     if (!this.config.enabled) {
-      console.log('[SummarizationWorker] Worker is disabled');
+      logger.info('Worker is disabled');
       return;
     }
 
     if (this.scanTimer) {
-      console.log('[SummarizationWorker] Worker already running');
+      logger.info('Worker already running');
       return;
     }
 
-    console.log('[SummarizationWorker] Starting with config:', {
+    logger.info('Starting with config', {
       scanInterval: this.config.scanInterval,
       batchSize: this.config.batchSize,
       minTokensForSummary: this.config.minTokensForSummary
@@ -229,7 +227,7 @@ export class SummarizationWorker extends EventEmitter {
     }
 
     if (this.isProcessing) {
-      console.log('[SummarizationWorker] Scan skipped - already processing');
+      logger.info('Scan skipped - already processing');
       return;
     }
 
@@ -245,9 +243,7 @@ export class SummarizationWorker extends EventEmitter {
         return;
       }
 
-      console.log(
-        `[SummarizationWorker] Found ${pendingSections.length} sections needing summarization`
-      );
+      logger.info('Found sections needing summarization', { count: pendingSections.length });
 
       // Process in batches
       const batch = pendingSections.slice(0, this.config.batchSize);
@@ -258,7 +254,7 @@ export class SummarizationWorker extends EventEmitter {
         found: pendingSections.length
       });
     } catch (error) {
-      console.error('[SummarizationWorker] Scan failed:', error);
+      logger.error('Scan failed', error instanceof Error ? error : undefined);
       this.emit('error', { phase: 'scan', error });
     } finally {
       this.isProcessing = false;
@@ -331,10 +327,7 @@ export class SummarizationWorker extends EventEmitter {
         })
         .filter((s: PendingSection) => s.content && s.content.length > 0);
     } catch (error) {
-      console.error(
-        '[SummarizationWorker] Failed to find pending sections:',
-        error
-      );
+      logger.error('Failed to find pending sections', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -361,9 +354,7 @@ export class SummarizationWorker extends EventEmitter {
       section.tokens * this.config.targetCompressionRatio
     );
 
-    console.log(
-      `[SummarizationWorker] Summarizing "${section.name}" (${section.tokens} -> ~${targetTokens} tokens)`
-    );
+    logger.info('Summarizing section', { name: section.name, tokens: section.tokens, targetTokens });
 
     try {
       // Mark as being processed
@@ -398,10 +389,7 @@ export class SummarizationWorker extends EventEmitter {
         compressionRatio: summaryTokens / section.tokens
       });
     } catch (error) {
-      console.error(
-        `[SummarizationWorker] Failed to summarize section ${section.id}:`,
-        error
-      );
+      logger.error('Failed to summarize section', error instanceof Error ? error : undefined, { sectionId: section.id });
       this.stats.totalFailed++;
       this.markSectionPending(section.id, false, Date.now());
 
@@ -451,7 +439,7 @@ export class SummarizationWorker extends EventEmitter {
       `
       ).run(summaryId, original.id);
     } catch (error) {
-      console.error('[SummarizationWorker] Failed to store summary:', error);
+      logger.error('Failed to store summary', error instanceof Error ? error : undefined);
       throw error;
     }
   }
@@ -476,10 +464,7 @@ export class SummarizationWorker extends EventEmitter {
       `
       ).run(pending ? 1 : 0, attemptTime || null, sectionId);
     } catch (error) {
-      console.error(
-        '[SummarizationWorker] Failed to mark section pending:',
-        error
-      );
+      logger.error('Failed to mark section pending', error instanceof Error ? error : undefined);
     }
   }
 
@@ -554,7 +539,7 @@ export class SummarizationWorker extends EventEmitter {
 
       this.emit('section:queued', { sectionId });
     } catch (error) {
-      console.error('[SummarizationWorker] Failed to queue section:', error);
+      logger.error('Failed to queue section', error instanceof Error ? error : undefined);
     }
   }
 }

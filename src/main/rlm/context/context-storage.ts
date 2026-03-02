@@ -24,6 +24,9 @@ import {
   splitContent
 } from './context.utils';
 import { updateSearchIndex, createSearchIndex } from './context-cache';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('ContextStorage');
 
 /**
  * Dependencies for storage operations
@@ -77,7 +80,7 @@ export function createStore(
         instanceId: store.instanceId
       });
     } catch (error) {
-      console.error('[RLM] Failed to persist store:', error);
+      logger.error('Failed to persist store', error instanceof Error ? error : undefined);
     }
   }
 
@@ -153,7 +156,7 @@ export function addSection(
       // Also index the section for search
       deps.db.indexSection(store.id, section.id, section.content);
     } catch (error) {
-      console.error('[RLM] Failed to persist section:', error);
+      logger.error('Failed to persist section', error instanceof Error ? error : undefined);
     }
   }
 
@@ -172,8 +175,8 @@ export function addSection(
         filePath: section.filePath,
         language: section.language
       })
-      .catch((error) => {
-        console.error('[RLM] Failed to add vector for section:', error);
+      .catch((error: unknown) => {
+        logger.error('Failed to add vector for section', error instanceof Error ? error : undefined);
       });
   }
 
@@ -238,7 +241,7 @@ function addLargeSection(
         });
         deps.db.indexSection(store.id, chunkSection.id, chunkSection.content);
       } catch (error) {
-        console.error('[RLM] Failed to persist chunk section:', error);
+        logger.error('Failed to persist chunk section', error instanceof Error ? error : undefined);
       }
     }
 
@@ -251,8 +254,8 @@ function addLargeSection(
           filePath: chunkSection.filePath,
           language: chunkSection.language
         })
-        .catch((error) => {
-          console.error('[RLM] Failed to add vector for chunk section:', error);
+        .catch((error: unknown) => {
+          logger.error('Failed to add vector for chunk section', error instanceof Error ? error : undefined);
         });
     }
 
@@ -326,7 +329,7 @@ export async function addSectionsBatch(
           content: section.content
         });
       } catch (error) {
-        console.error('[RLM] Failed to persist batch section:', error);
+        logger.error('Failed to persist batch section', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -347,7 +350,7 @@ export async function addSectionsBatch(
       try {
         deps.db.indexSection(store.id, section.id, section.content);
       } catch (error) {
-        console.error('[RLM] Failed to index batch section:', error);
+        logger.error('Failed to index batch section', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -360,7 +363,7 @@ export async function addSectionsBatch(
         addedSections.map((s) => ({ id: s.id, content: s.content }))
       );
     } catch (error) {
-      console.error('[RLM] Failed to batch index vectors:', error);
+      logger.error('Failed to batch index vectors', error instanceof Error ? error : undefined);
     }
   }
 
@@ -390,7 +393,7 @@ export function removeSection(
     try {
       deps.db.removeSection(sectionId);
     } catch (error) {
-      console.error('[RLM] Failed to remove section from database:', error);
+      logger.error('Failed to remove section from database', error instanceof Error ? error : undefined);
     }
   }
 
@@ -399,7 +402,7 @@ export function removeSection(
     try {
       deps.vectorStore.removeSection(sectionId);
     } catch (error) {
-      console.error('[RLM] Failed to remove section from vector store:', error);
+      logger.error('Failed to remove section from vector store', error instanceof Error ? error : undefined);
     }
   }
 
@@ -428,7 +431,7 @@ export function deleteStore(
     try {
       deps.db.deleteStore(storeId);
     } catch (error) {
-      console.error('[RLM] Failed to delete store from database:', error);
+      logger.error('Failed to delete store from database', error instanceof Error ? error : undefined);
     }
   }
 
@@ -437,7 +440,7 @@ export function deleteStore(
     try {
       deps.vectorStore.clearStore(storeId);
     } catch (error) {
-      console.error('[RLM] Failed to clear vectors for store:', error);
+      logger.error('Failed to clear vectors for store', error instanceof Error ? error : undefined);
     }
   }
 
@@ -520,7 +523,7 @@ export function persistSummary(
 
     return summarySection;
   } catch (error) {
-    console.error('[RLM] Failed to persist summary:', error);
+    logger.error('Failed to persist summary', error instanceof Error ? error : undefined);
     return null;
   }
 }

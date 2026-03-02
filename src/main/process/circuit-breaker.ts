@@ -7,6 +7,9 @@
 
 import { EventEmitter } from 'events';
 import type { CircuitBreakerState, CircuitBreakerStatus } from '../../shared/types/supervision.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('CircuitBreaker');
 
 export interface CircuitBreakerConfig {
   /** Maximum failures before opening the circuit */
@@ -139,7 +142,7 @@ export class CircuitBreaker extends EventEmitter {
 
     // Check rate limit
     if (this.restartTimestamps.length >= this.config.maxRestartsPerMinute) {
-      console.warn(`[CircuitBreaker:${this.id}] Restart rate limit exceeded (${this.restartTimestamps.length}/${this.config.maxRestartsPerMinute} per ${this.config.rateLimitWindowMs}ms)`);
+      logger.warn('Restart rate limit exceeded', { id: this.id, count: this.restartTimestamps.length, max: this.config.maxRestartsPerMinute, windowMs: this.config.rateLimitWindowMs });
       this.emit('rate-limit-exceeded', { id: this.id, count: this.restartTimestamps.length });
       return false;
     }
@@ -228,7 +231,7 @@ export class CircuitBreaker extends EventEmitter {
         break;
     }
 
-    console.log(`[CircuitBreaker:${this.id}] State transition: ${previousStatus} -> ${newStatus}`);
+    logger.info('State transition', { id: this.id, previousStatus, newStatus });
     this.emit('state-change', {
       id: this.id,
       previousStatus,

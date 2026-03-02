@@ -9,6 +9,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { glob } from 'glob';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('IndexingService');
 import type {
   IndexingConfig,
   IndexingProgress,
@@ -362,7 +365,7 @@ export class CodebaseIndexingService extends EventEmitter {
         Date.now()
       );
     } catch (error) {
-      console.error('Failed to save merkle tree:', error);
+      logger.error('Failed to save merkle tree', error instanceof Error ? error : undefined);
     }
   }
 
@@ -515,7 +518,7 @@ export class CodebaseIndexingService extends EventEmitter {
         Date.now()
       );
     } catch (error) {
-      console.error('Failed to save file metadata:', error);
+      logger.error('Failed to save file metadata', error instanceof Error ? error : undefined);
     }
   }
 
@@ -541,7 +544,7 @@ export class CodebaseIndexingService extends EventEmitter {
 
         this.emitProgress();
       } catch (error) {
-        console.error(`Failed to embed chunk from ${chunk.filePath}:`, error);
+        logger.error('Failed to embed chunk', error instanceof Error ? error : undefined, { filePath: chunk.filePath });
       }
     }
   }
@@ -577,7 +580,7 @@ export class CodebaseIndexingService extends EventEmitter {
       `);
       metaStmt.run(storeId, filePath);
     } catch (error) {
-      console.error(`Failed to remove file from index: ${filePath}`, error);
+      logger.error('Failed to remove file from index', error instanceof Error ? error : undefined, { filePath });
     }
   }
 

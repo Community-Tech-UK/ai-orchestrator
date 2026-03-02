@@ -8,6 +8,9 @@
 import { EventEmitter } from 'events';
 import * as net from 'net';
 import { generateId } from '../../shared/utils/id-generator';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('PermissionIpcServer');
 
 export interface PermissionRequestPayload {
   type: 'permission_request';
@@ -53,7 +56,7 @@ export class PermissionIpcServer extends EventEmitter {
   async start(): Promise<number> {
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
-        console.log(`[PermissionIPC] Client connected for instance ${this.instanceId}`);
+        logger.info('Client connected', { instanceId: this.instanceId });
         this.client = socket;
         this.emit('client:connected');
 
@@ -62,19 +65,19 @@ export class PermissionIpcServer extends EventEmitter {
         });
 
         socket.on('close', () => {
-          console.log(`[PermissionIPC] Client disconnected for instance ${this.instanceId}`);
+          logger.info('Client disconnected', { instanceId: this.instanceId });
           this.client = null;
           this.emit('client:disconnected');
         });
 
         socket.on('error', (error) => {
-          console.error(`[PermissionIPC] Socket error for instance ${this.instanceId}:`, error);
+          logger.error('Socket error', error instanceof Error ? error : undefined, { instanceId: this.instanceId });
           this.emit('error', error);
         });
       });
 
       this.server.on('error', (error) => {
-        console.error(`[PermissionIPC] Server error for instance ${this.instanceId}:`, error);
+        logger.error('Server error', error instanceof Error ? error : undefined, { instanceId: this.instanceId });
         reject(error);
       });
 
@@ -83,7 +86,7 @@ export class PermissionIpcServer extends EventEmitter {
         const address = this.server?.address();
         if (address && typeof address === 'object') {
           this.port = address.port;
-          console.log(`[PermissionIPC] Server listening on port ${this.port} for instance ${this.instanceId}`);
+          logger.info('Server listening', { port: this.port, instanceId: this.instanceId });
           resolve(this.port);
         } else {
           reject(new Error('Failed to get server address'));
@@ -110,7 +113,7 @@ export class PermissionIpcServer extends EventEmitter {
         const message = JSON.parse(line);
         this.handleMessage(message);
       } catch (error) {
-        console.error('[PermissionIPC] Error parsing message:', error);
+        logger.error('Error parsing message', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -122,7 +125,7 @@ export class PermissionIpcServer extends EventEmitter {
     const payload = message as PermissionRequestPayload;
 
     if (payload.type === 'permission_request') {
-      console.log(`[PermissionIPC] Permission request for ${payload.toolName} from instance ${payload.instanceId}`);
+      logger.info('Permission request received', { toolName: payload.toolName, instanceId: payload.instanceId });
 
       // Create a respond function that sends the response back to the client
       const respond = (response: PermissionResponsePayload['response']) => {
@@ -141,7 +144,7 @@ export class PermissionIpcServer extends EventEmitter {
    */
   sendResponse(requestId: string, response: PermissionResponsePayload['response']): boolean {
     if (!this.client?.writable) {
-      console.error('[PermissionIPC] Cannot send response - no client connected');
+      logger.error('Cannot send response - no client connected');
       return false;
     }
 
@@ -152,7 +155,7 @@ export class PermissionIpcServer extends EventEmitter {
     };
 
     this.client.write(JSON.stringify(payload) + '\n');
-    console.log(`[PermissionIPC] Sent permission response for request ${requestId}: ${response.behavior}`);
+    logger.info('Sent permission response', { requestId, behavior: response.behavior });
     return true;
   }
 
@@ -182,7 +185,7 @@ export class PermissionIpcServer extends EventEmitter {
 
       if (this.server) {
         this.server.close(() => {
-          console.log(`[PermissionIPC] Server stopped for instance ${this.instanceId}`);
+          logger.info('Server stopped', { instanceId: this.instanceId });
           this.server = null;
           resolve();
         });

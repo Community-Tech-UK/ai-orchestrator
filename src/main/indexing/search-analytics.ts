@@ -17,6 +17,9 @@ import type {
   SearchMetrics,
   QueryPattern,
 } from '../../shared/types/codebase.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SearchAnalytics');
 
 // ============================================================================
 // Types
@@ -107,7 +110,7 @@ export class SearchAnalytics {
 
       return id;
     } catch (error) {
-      console.error('Failed to log search event:', error);
+      logger.error('Failed to log search event', error instanceof Error ? error : undefined);
       return id;
     }
   }
@@ -136,7 +139,7 @@ export class SearchAnalytics {
       `);
       updateStmt.run(JSON.stringify(clicked), searchId);
     } catch (error) {
-      console.error('Failed to record click:', error);
+      logger.error('Failed to record click', error instanceof Error ? error : undefined);
     }
   }
 
@@ -186,7 +189,7 @@ export class SearchAnalytics {
         avgSearchDuration: row.avg_duration || 0,
       };
     } catch (error) {
-      console.error('Failed to get metrics:', error);
+      logger.error('Failed to get metrics', error instanceof Error ? error : undefined);
       return {
         totalSearches: 0,
         avgResultScore: 0,
@@ -242,7 +245,7 @@ export class SearchAnalytics {
         successRate: row.success_rate || 0,
       }));
     } catch (error) {
-      console.error('Failed to get query patterns:', error);
+      logger.error('Failed to get query patterns', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -275,7 +278,7 @@ export class SearchAnalytics {
         rerankUsed: row.rerank_used === 1,
       }));
     } catch (error) {
-      console.error('Failed to get recent searches:', error);
+      logger.error('Failed to get recent searches', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -294,7 +297,7 @@ export class SearchAnalytics {
       const result = stmt.run(cutoff);
       return result.changes;
     } catch (error) {
-      console.error('Failed to cleanup old events:', error);
+      logger.error('Failed to cleanup old events', error instanceof Error ? error : undefined);
       return 0;
     }
   }
@@ -327,7 +330,7 @@ export class SearchAnalytics {
 
       return result;
     } catch (error) {
-      console.error('Failed to get HyDE effectiveness:', error);
+      logger.error('Failed to get HyDE effectiveness', error instanceof Error ? error : undefined);
       return { withHyDE: 0, withoutHyDE: 0 };
     }
   }
@@ -378,7 +381,7 @@ export class SearchAnalytics {
       createQueryIndexStmt.run();
     } catch (error) {
       // Table might already exist
-      console.debug('Search events table setup:', error);
+      logger.debug('Search events table setup', { error: error instanceof Error ? error.message : String(error) });
     }
   }
 

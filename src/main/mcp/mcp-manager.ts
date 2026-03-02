@@ -10,6 +10,9 @@
 
 import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('McpManager');
 import {
   McpServerConfig,
   McpTool,
@@ -103,7 +106,7 @@ export class McpManager extends EventEmitter {
     // Auto-connect if configured
     if (config.autoConnect) {
       this.connect(config.id).catch((err) => {
-        console.error(`Failed to auto-connect to MCP server ${config.id}:`, err);
+        logger.error('Failed to auto-connect to MCP server', err instanceof Error ? err : undefined, { serverId: config.id });
       });
     }
   }
@@ -424,7 +427,7 @@ export class McpManager extends EventEmitter {
         const message = JSON.parse(line);
         this.handleMessage(connection, message);
       } catch {
-        console.error('Failed to parse MCP message:', line);
+        logger.error('Failed to parse MCP message', undefined, { line });
       }
     }
   }
@@ -465,13 +468,13 @@ export class McpManager extends EventEmitter {
   ): void {
     switch (notification.method) {
       case 'notifications/tools/list_changed':
-        this.listTools(connection).catch(console.error);
+        this.listTools(connection).catch((err) => logger.error('Failed to refresh tools list', err instanceof Error ? err : undefined));
         break;
       case 'notifications/resources/list_changed':
-        this.listResources(connection).catch(console.error);
+        this.listResources(connection).catch((err) => logger.error('Failed to refresh resources list', err instanceof Error ? err : undefined));
         break;
       case 'notifications/prompts/list_changed':
-        this.listPrompts(connection).catch(console.error);
+        this.listPrompts(connection).catch((err) => logger.error('Failed to refresh prompts list', err instanceof Error ? err : undefined));
         break;
       case 'notifications/message':
         const params = notification.params as { level: string; logger?: string; data: string };
@@ -595,7 +598,7 @@ export class McpManager extends EventEmitter {
 
       this.emit('tools:updated', this.getTools());
     } catch (error) {
-      console.error('Failed to list tools:', error);
+      logger.error('Failed to list tools', error instanceof Error ? error : undefined);
     }
   }
 
@@ -623,7 +626,7 @@ export class McpManager extends EventEmitter {
 
       this.emit('resources:updated', this.getResources());
     } catch (error) {
-      console.error('Failed to list resources:', error);
+      logger.error('Failed to list resources', error instanceof Error ? error : undefined);
     }
   }
 
@@ -650,7 +653,7 @@ export class McpManager extends EventEmitter {
 
       this.emit('prompts:updated', this.getPrompts());
     } catch (error) {
-      console.error('Failed to list prompts:', error);
+      logger.error('Failed to list prompts', error instanceof Error ? error : undefined);
     }
   }
 

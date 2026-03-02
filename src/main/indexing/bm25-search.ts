@@ -13,6 +13,9 @@ import type {
   BM25SearchOptions,
   BM25SearchResult,
 } from '../../shared/types/codebase.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('Bm25Search');
 
 // ============================================================================
 // BM25Search Class
@@ -86,7 +89,7 @@ export class BM25Search {
         snippet: row.snippet,
       }));
     } catch (error) {
-      console.error('BM25 search error:', error);
+      logger.error('BM25 search error', error instanceof Error ? error : undefined);
       return [];
     }
   }
@@ -112,7 +115,7 @@ export class BM25Search {
       const stmt = this.db.prepare(sql);
       stmt.run(storeId, sectionId, filePath, content, symbols.join(' '));
     } catch (error) {
-      console.error('Failed to add document to FTS index:', error);
+      logger.error('Failed to add document to FTS index', error instanceof Error ? error : undefined);
     }
   }
 
@@ -126,7 +129,7 @@ export class BM25Search {
       const stmt = this.db.prepare(sql);
       stmt.run(sectionId);
     } catch (error) {
-      console.error('Failed to remove document from FTS index:', error);
+      logger.error('Failed to remove document from FTS index', error instanceof Error ? error : undefined);
     }
   }
 
@@ -140,7 +143,7 @@ export class BM25Search {
       const stmt = this.db.prepare(sql);
       stmt.run(storeId);
     } catch (error) {
-      console.error('Failed to clear store from FTS index:', error);
+      logger.error('Failed to clear store from FTS index', error instanceof Error ? error : undefined);
     }
   }
 
@@ -153,7 +156,7 @@ export class BM25Search {
       const stmt = this.db.prepare(`INSERT INTO code_fts(code_fts) VALUES('optimize')`);
       stmt.run();
     } catch (error) {
-      console.error('Failed to rebuild FTS index:', error);
+      logger.error('Failed to rebuild FTS index', error instanceof Error ? error : undefined);
     }
   }
 
