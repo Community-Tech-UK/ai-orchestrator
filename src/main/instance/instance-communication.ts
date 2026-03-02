@@ -8,7 +8,8 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getOutputStorageManager } from '../memory';
 import { getHookManager } from '../hooks/hook-manager';
-import { classifyError, CliError } from '../cli/cli-error-handler';
+import { getErrorRecoveryManager } from '../core/error-recovery';
+import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import type {
   Instance,
   InstanceStatus,
@@ -456,8 +457,8 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       if (instance) {
         // Check if this is a context overflow error
-        const errorType = classifyError(error);
-        if (errorType === CliError.CONTEXT_OVERFLOW) {
+        const classified = getErrorRecoveryManager().classifyError(error);
+        if (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context')) {
           console.log(`[InstanceCommunicationManager] Context overflow detected for ${instanceId}, attempting compaction...`);
 
           // Add a system message to inform the user

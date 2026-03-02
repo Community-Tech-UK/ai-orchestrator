@@ -3,9 +3,9 @@
  *
  * Comprehensive error handling with:
  * - Error classification (transient vs permanent)
- * - Tiered degradation (FULL → CORE → BASIC → MINIMAL)
  * - Session recovery from checkpoints
  * - Automatic retry with exponential backoff
+ * - Consecutive failure tracking
  */
 
 import { EventEmitter } from 'events';
@@ -182,12 +182,69 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       /SIGTERM/i,
       /process.?terminated/i,
       /spawn/i,
+      /crash/i,
+      /killed/i,
     ],
     category: ErrorCategory.TRANSIENT,
     severity: ErrorSeverity.ERROR,
     recoverable: true,
     retryAfterMs: 2000,
     userMessageTemplate: 'CLI process ended unexpectedly. Restarting...',
+  },
+  // CLI not installed
+  {
+    name: 'cli_not_installed',
+    messagePatterns: [
+      /not found/i,
+      /not installed/i,
+      /command not found/i,
+      /ENOENT/i,
+    ],
+    category: ErrorCategory.PERMANENT,
+    severity: ErrorSeverity.CRITICAL,
+    recoverable: false,
+    userMessageTemplate: 'CLI not installed. Please install the required CLI tool.',
+  },
+  // Parse errors
+  {
+    name: 'parse_error',
+    messagePatterns: [
+      /parse error/i,
+      /unexpected token/i,
+      /invalid json/i,
+      /JSON\.parse/i,
+    ],
+    category: ErrorCategory.PERMANENT,
+    severity: ErrorSeverity.WARNING,
+    recoverable: false,
+    userMessageTemplate: 'Failed to parse CLI output.',
+  },
+  // Permission denied
+  {
+    name: 'permission_denied',
+    messagePatterns: [
+      /EACCES/i,
+      /EPERM/i,
+    ],
+    category: ErrorCategory.PERMANENT,
+    severity: ErrorSeverity.ERROR,
+    recoverable: false,
+    userMessageTemplate: 'Permission denied. Please check file/CLI permissions.',
+  },
+  // Invalid input
+  {
+    name: 'invalid_input',
+    messagePatterns: [
+      /invalid input/i,
+      /bad request/i,
+      /validation failed/i,
+      /400/,
+    ],
+    codePatterns: [400, 'invalid_request_error'],
+    category: ErrorCategory.PERMANENT,
+    severity: ErrorSeverity.WARNING,
+    recoverable: false,
+    userMessageTemplate: 'Invalid input provided.',
   },
 ];
 
@@ -201,14 +258,12 @@ export class ErrorRecoveryManager extends EventEmitter {
   private static instance: ErrorRecoveryManager | null = null;
 
   private config: ErrorRecoveryConfig;
-  private currentTier: DegradationTier = DegradationTier.FULL;
   private consecutiveFailures: number = 0;
   private lastFailureTime: number = 0;
   private activePlans: Map<string, RecoveryPlan> = new Map();
   private checkpoints: Map<string, SessionCheckpoint[]> = new Map();
   private errorHistory: ClassifiedError[] = [];
   private readonly maxErrorHistory = 100;
-  private degradationTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
     super();
@@ -220,6 +275,13 @@ export class ErrorRecoveryManager extends EventEmitter {
       ErrorRecoveryManager.instance = new ErrorRecoveryManager();
     }
     return ErrorRecoveryManager.instance;
+  }
+
+  static _resetForTesting(): void {
+    if (ErrorRecoveryManager.instance) {
+      ErrorRecoveryManager.instance.destroy();
+    }
+    ErrorRecoveryManager.instance = null;
   }
 
   /**
@@ -244,10 +306,10 @@ export class ErrorRecoveryManager extends EventEmitter {
   }
 
   /**
-   * Get current degradation tier
+   * Get consecutive failure count
    */
-  getCurrentTier(): DegradationTier {
-    return this.currentTier;
+  getConsecutiveFailures(): number {
+    return this.consecutiveFailures;
   }
 
   /**
@@ -335,14 +397,6 @@ export class ErrorRecoveryManager extends EventEmitter {
       this.consecutiveFailures = 1;
     }
     this.lastFailureTime = now;
-
-    // Check if degradation is needed
-    if (
-      this.config.degradation.autoDegrade &&
-      this.consecutiveFailures >= this.config.degradation.failuresBeforeDegrade
-    ) {
-      this.degrade(error.userMessage);
-    }
   }
 
   /**
@@ -533,7 +587,6 @@ export class ErrorRecoveryManager extends EventEmitter {
     if (success) {
       plan.status = 'succeeded';
       this.consecutiveFailures = 0; // Reset on success
-      this.scheduleUpgrade(); // Try to restore higher tier
       this.emitEvent({ type: 'recovery_completed', plan, success: true });
     }
   }
@@ -550,108 +603,6 @@ export class ErrorRecoveryManager extends EventEmitter {
   }
 
   /**
-   * Degrade to a lower tier
-   */
-  degrade(reason: string): void {
-    const tiers = [
-      DegradationTier.FULL,
-      DegradationTier.CORE,
-      DegradationTier.BASIC,
-      DegradationTier.MINIMAL,
-    ];
-
-    const currentIndex = tiers.indexOf(this.currentTier);
-    const minIndex = tiers.indexOf(this.config.degradation.minimumTier);
-
-    if (currentIndex < minIndex) {
-      const newTier = tiers[currentIndex + 1]!;
-      const oldTier = this.currentTier;
-      this.currentTier = newTier;
-
-      this.emitEvent({
-        type: 'degradation_started',
-        fromTier: oldTier,
-        toTier: newTier,
-        reason,
-      });
-
-      // Schedule upgrade attempt
-      this.scheduleUpgrade();
-    }
-  }
-
-  /**
-   * Try to upgrade to a higher tier
-   */
-  upgrade(): boolean {
-    const tiers = [
-      DegradationTier.FULL,
-      DegradationTier.CORE,
-      DegradationTier.BASIC,
-      DegradationTier.MINIMAL,
-    ];
-
-    const currentIndex = tiers.indexOf(this.currentTier);
-    if (currentIndex > 0) {
-      const newTier = tiers[currentIndex - 1]!;
-      const oldTier = this.currentTier;
-      this.currentTier = newTier;
-
-      this.emitEvent({
-        type: 'degradation_restored',
-        fromTier: oldTier,
-        toTier: newTier,
-      });
-
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Force set tier (for testing or manual override)
-   */
-  setTier(tier: DegradationTier): void {
-    const oldTier = this.currentTier;
-    this.currentTier = tier;
-
-    if (tier > oldTier) {
-      this.emitEvent({
-        type: 'degradation_started',
-        fromTier: oldTier,
-        toTier: tier,
-        reason: 'manual',
-      });
-    } else if (tier < oldTier) {
-      this.emitEvent({
-        type: 'degradation_restored',
-        fromTier: oldTier,
-        toTier: tier,
-      });
-    }
-  }
-
-  /**
-   * Schedule an upgrade attempt
-   */
-  private scheduleUpgrade(): void {
-    if (this.degradationTimer) {
-      clearTimeout(this.degradationTimer);
-    }
-
-    if (this.currentTier !== DegradationTier.FULL) {
-      this.degradationTimer = setTimeout(() => {
-        if (this.consecutiveFailures === 0) {
-          this.upgrade();
-        } else {
-          this.scheduleUpgrade(); // Try again later
-        }
-      }, this.config.degradation.upgradeDelayMs);
-    }
-  }
-
-  /**
    * Create a checkpoint for a session
    */
   createCheckpoint(
@@ -664,7 +615,7 @@ export class ErrorRecoveryManager extends EventEmitter {
       sessionId,
       createdAt: Date.now(),
       type,
-      degradationTier: this.currentTier,
+      degradationTier: DegradationTier.FULL,
       ...state,
     };
 
@@ -748,20 +699,6 @@ export class ErrorRecoveryManager extends EventEmitter {
   }
 
   /**
-   * Check if a specific feature is available at current tier
-   */
-  isFeatureAvailable(feature: TierFeature): boolean {
-    return TIER_FEATURES[this.currentTier].includes(feature);
-  }
-
-  /**
-   * Get available features for current tier
-   */
-  getAvailableFeatures(): TierFeature[] {
-    return [...TIER_FEATURES[this.currentTier]];
-  }
-
-  /**
    * Emit a typed event
    */
   private emitEvent(event: ErrorRecoveryEvent): void {
@@ -773,16 +710,11 @@ export class ErrorRecoveryManager extends EventEmitter {
    * Reset state (for testing)
    */
   reset(): void {
-    this.currentTier = DegradationTier.FULL;
     this.consecutiveFailures = 0;
     this.lastFailureTime = 0;
     this.activePlans.clear();
     this.checkpoints.clear();
     this.errorHistory = [];
-    if (this.degradationTimer) {
-      clearTimeout(this.degradationTimer);
-      this.degradationTimer = null;
-    }
   }
 
   /**
@@ -796,48 +728,74 @@ export class ErrorRecoveryManager extends EventEmitter {
 }
 
 /**
- * Features available per tier
+ * Convenience getter for the ErrorRecoveryManager singleton
  */
-export type TierFeature =
-  | 'file_read'
-  | 'file_write'
-  | 'bash_execution'
-  | 'network_requests'
-  | 'subprocess_spawn'
-  | 'memory_persistence'
-  | 'context_expansion'
-  | 'multi_model'
-  | 'child_instances'
-  | 'tool_execution';
+export function getErrorRecoveryManager(): ErrorRecoveryManager {
+  return ErrorRecoveryManager.getInstance();
+}
 
-const TIER_FEATURES: Record<DegradationTier, TierFeature[]> = {
-  [DegradationTier.FULL]: [
-    'file_read',
-    'file_write',
-    'bash_execution',
-    'network_requests',
-    'subprocess_spawn',
-    'memory_persistence',
-    'context_expansion',
-    'multi_model',
-    'child_instances',
-    'tool_execution',
-  ],
-  [DegradationTier.CORE]: [
-    'file_read',
-    'file_write',
-    'bash_execution',
-    'memory_persistence',
-    'tool_execution',
-  ],
-  [DegradationTier.BASIC]: [
-    'file_read',
-    'file_write',
-    'memory_persistence',
-  ],
-  [DegradationTier.MINIMAL]: [
-    'file_read',
-  ],
-};
+/**
+ * Retry options for the withRetry helper
+ */
+export interface WithRetryOptions {
+  maxRetries?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+  backoffMultiplier?: number;
+  retryCondition?: (error: ClassifiedError) => boolean;
+  source?: string;
+}
+
+/**
+ * Execute an async function with retry and exponential backoff.
+ * Uses ErrorRecoveryManager for error classification.
+ */
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: WithRetryOptions = {}
+): Promise<T> {
+  const {
+    maxRetries = 3,
+    initialDelayMs = 1000,
+    maxDelayMs = 30000,
+    backoffMultiplier = 2,
+    retryCondition,
+    source,
+  } = options;
+
+  const recovery = getErrorRecoveryManager();
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error as Error;
+      const classified = recovery.classifyError(lastError, source);
+
+      // Don't retry non-recoverable errors
+      if (!classified.recoverable) {
+        throw lastError;
+      }
+
+      // Check custom retry condition
+      if (retryCondition && !retryCondition(classified)) {
+        throw lastError;
+      }
+
+      // Don't wait after the last attempt
+      if (attempt < maxRetries) {
+        const baseDelay = initialDelayMs * Math.pow(backoffMultiplier, attempt);
+        const cappedDelay = Math.min(baseDelay, maxDelayMs);
+        // Add jitter (±20%)
+        const jitter = cappedDelay * 0.2 * (Math.random() * 2 - 1);
+        const delay = Math.round(cappedDelay + jitter);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Max retries exceeded');
+}
 
 export default ErrorRecoveryManager;

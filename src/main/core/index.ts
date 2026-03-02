@@ -6,7 +6,7 @@
  */
 
 // Error Recovery
-export { ErrorRecoveryManager, type TierFeature } from './error-recovery';
+export { ErrorRecoveryManager, getErrorRecoveryManager, retryWithBackoff, type WithRetryOptions } from './error-recovery';
 export { RetryManager, retryOperation, withRetry, type RetryOptions, type RetryResult } from './retry-manager';
 
 // Circuit Breaker
