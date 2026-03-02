@@ -27,6 +27,9 @@ import { getVerificationCache, type VerificationCache } from './verification-cac
 import { getConfidenceAnalyzer, type ConfidenceAnalyzer } from './confidence-analyzer';
 import { getEmbeddingService as getOrchestrationEmbeddingService, type EmbeddingService, type SemanticClusterConfig, type ResponseCluster } from './embedding-service';
 import { getLogger } from '../logging/logger';
+import { createCliAdapter, resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
+import { getSettingsManager } from '../core/config/settings-manager';
 
 const logger = getLogger('MultiVerifyCoordinator');
 
@@ -886,19 +889,35 @@ Create a synthesized response that:
 
 Provide your synthesized response:`;
 
-    // Emit event for synthesis agent
-    return new Promise((resolve) => {
-      this.emit('verification:synthesize', {
-        requestId: request.id,
-        prompt: synthesisPrompt,
-        callback: (response: string) => {
-          resolve({
-            synthesizedResponse: response,
-            confidence: Math.min(0.9, analysis.consensusStrength + 0.15),
-          });
-        },
-      });
-    });
+    // Direct CLI invocation for synthesis (replaces event-based callback)
+    const settings = getSettingsManager();
+    const defaultCli = settings.getAll().defaultCli;
+    const cliType = await resolveCliType('auto', defaultCli);
+
+    const spawnOptions: UnifiedSpawnOptions = {
+      workingDirectory: process.cwd(),
+      systemPrompt: 'You are a synthesis agent that combines multiple perspectives into a single coherent response.',
+      yoloMode: false,
+      timeout: 300000,
+    };
+
+    const adapter = createCliAdapter(cliType, spawnOptions);
+    try {
+      const sendMessage = (adapter as any).sendMessage?.bind(adapter) as ((m: CliMessage) => Promise<CliResponse>) | undefined;
+      if (!sendMessage) {
+        throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+      }
+
+      const cliResponse = await sendMessage({ role: 'user', content: synthesisPrompt });
+      return {
+        synthesizedResponse: cliResponse.content,
+        confidence: Math.min(0.9, analysis.consensusStrength + 0.15),
+      };
+    } finally {
+      if (typeof (adapter as any).terminate === 'function') {
+        try { (adapter as any).terminate(); } catch { /* cleanup */ }
+      }
+    }
   }
 
   // ============ Debate Strategy ============
