@@ -12,6 +12,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { app } from 'electron';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SnapshotManager');
 
 // ============================================
 // Types
@@ -110,7 +113,7 @@ export class SnapshotManager {
         }
       }
     } catch (error) {
-      console.error('Failed to load snapshot index:', error);
+      logger.error('Failed to load snapshot index', error instanceof Error ? error : undefined);
     }
   }
 
@@ -126,7 +129,7 @@ export class SnapshotManager {
       };
       fs.writeFileSync(this.indexFile, JSON.stringify(data, null, 2));
     } catch (error) {
-      console.error('Failed to save snapshot index:', error);
+      logger.error('Failed to save snapshot index', error instanceof Error ? error : undefined);
     }
   }
 
@@ -276,7 +279,7 @@ export class SnapshotManager {
 
       return id;
     } catch (error) {
-      console.error('Failed to take snapshot:', error);
+      logger.error('Failed to take snapshot', error instanceof Error ? error : undefined);
       return null;
     }
   }

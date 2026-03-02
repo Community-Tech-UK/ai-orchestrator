@@ -8,6 +8,7 @@
 
 import ElectronStore from 'electron-store';
 import * as crypto from 'crypto';
+import { getLogger } from '../logging/logger';
 import type { VerificationResult } from '../../shared/types/verification.types';
 
 /**
@@ -61,6 +62,8 @@ interface Store<T> {
   set(object: Partial<T>): void;
   clear(): void;
 }
+
+const logger = getLogger('VerificationCache');
 
 export class VerificationCache {
   private static instance: VerificationCache;
@@ -128,11 +131,7 @@ export class VerificationCache {
 
     // Cache hit
     this.incrementHits();
-    console.log(
-      `[VerificationCache] Cache hit for ${promptHash.slice(0, 8)}... ` +
-        `(age: ${Math.round((now - cached.timestamp) / 1000)}s, ` +
-        `expires in: ${Math.round((cached.expiresAt - now) / 1000)}s)`
-    );
+    logger.info('Cache hit', { promptHash: promptHash.slice(0, 8), ageSeconds: Math.round((now - cached.timestamp) / 1000), expiresInSeconds: Math.round((cached.expiresAt - now) / 1000) });
 
     return cached;
   }
@@ -167,9 +166,7 @@ export class VerificationCache {
       for (const [hash] of toRemove) {
         delete verifications[hash];
       }
-      console.log(
-        `[VerificationCache] Evicted ${toRemove.length} old entries (max size: ${this.config.maxCacheSize})`
-      );
+      logger.info('Evicted old cache entries', { evictedCount: toRemove.length, maxCacheSize: this.config.maxCacheSize });
     }
 
     // Add new entry
@@ -185,11 +182,7 @@ export class VerificationCache {
       totalCached: metadata.totalCached + 1,
     });
 
-    console.log(
-      `[VerificationCache] Cached verification ${result.id} ` +
-        `(hash: ${promptHash.slice(0, 8)}..., ttl: ${Math.round(ttl / 1000)}s, ` +
-        `${result.responses.length} agents, ${result.totalTokens} tokens)`
-    );
+    logger.info('Cached verification result', { resultId: result.id, promptHash: promptHash.slice(0, 8), ttlSeconds: Math.round(ttl / 1000), agentCount: result.responses.length, totalTokens: result.totalTokens });
   }
 
   /**
@@ -201,7 +194,7 @@ export class VerificationCache {
     if (verifications[promptHash]) {
       delete verifications[promptHash];
       this.store.set('verifications', verifications);
-      console.log(`[VerificationCache] Invalidated cache entry ${promptHash.slice(0, 8)}...`);
+      logger.info('Invalidated cache entry', { promptHash: promptHash.slice(0, 8) });
     }
   }
 
@@ -227,7 +220,7 @@ export class VerificationCache {
         ...metadata,
         lastPruned: now,
       });
-      console.log(`[VerificationCache] Pruned ${pruned} expired entries`);
+      logger.info('Pruned expired cache entries', { prunedCount: pruned });
     }
 
     return pruned;
@@ -238,7 +231,7 @@ export class VerificationCache {
    */
   async clear(): Promise<void> {
     this.store.set('verifications', {});
-    console.log('[VerificationCache] Cleared all cached verifications');
+    logger.info('Cleared all cached verifications');
   }
 
   /**
@@ -284,7 +277,7 @@ export class VerificationCache {
     this.pruneTimer = setInterval(
       () => {
         this.pruneExpired().catch((err) => {
-          console.error('[VerificationCache] Auto-prune failed:', err);
+          logger.error('Auto-prune failed', err instanceof Error ? err : undefined);
         });
       },
       this.config.pruneInterval

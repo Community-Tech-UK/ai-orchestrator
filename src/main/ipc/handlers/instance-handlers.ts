@@ -4,6 +4,7 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import {
   InstanceCreatePayloadSchema,
@@ -23,6 +24,8 @@ import {
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
+
+const logger = getLogger('InstanceHandlers');
 
 /**
  * Serialize instance for IPC response
@@ -169,7 +172,7 @@ export function registerInstanceHandlers(deps: {
           'INSTANCE_SEND_INPUT'
         );
 
-        console.log('IPC INSTANCE_SEND_INPUT received:', {
+        logger.info('IPC INSTANCE_SEND_INPUT received', {
           instanceId: validatedPayload.instanceId,
           messageLength: validatedPayload.message?.length,
           attachmentsCount: validatedPayload.attachments?.length ?? 0,

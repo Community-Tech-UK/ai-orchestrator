@@ -16,6 +16,9 @@ import { EventEmitter } from 'events';
 import type { Instance } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SessionContinuity');
 
 /**
  * Session snapshot for point-in-time restoration
@@ -185,7 +188,7 @@ export class SessionContinuityManager extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error('Failed to load session states:', error);
+      logger.error('Failed to load session states', error instanceof Error ? error : undefined);
     }
   }
 
@@ -335,7 +338,7 @@ export class SessionContinuityManager extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error('Failed to list snapshots:', error);
+      logger.error('Failed to list snapshots', error instanceof Error ? error : undefined);
     }
 
     return snapshots.sort((a, b) => b.timestamp - a.timestamp);
@@ -590,7 +593,7 @@ export class SessionContinuityManager extends EventEmitter {
       this.writePayload(stateFile, state);
       this.emit('state:saved', { instanceId });
     } catch (error) {
-      console.error('Failed to save session state:', error);
+      logger.error('Failed to save session state', error instanceof Error ? error : undefined, { instanceId });
       this.emit('state:save-error', { instanceId, error });
     }
   }
@@ -616,7 +619,7 @@ export class SessionContinuityManager extends EventEmitter {
       const raw = fs.readFileSync(filePath, 'utf-8');
       return this.deserializePayload<T>(raw);
     } catch (error) {
-      console.error('Failed to read continuity payload:', error);
+      logger.error('Failed to read continuity payload', error instanceof Error ? error : undefined);
       return null;
     }
   }
@@ -659,7 +662,7 @@ export class SessionContinuityManager extends EventEmitter {
       // Fallback to legacy plain JSON
       return parsed as unknown as T;
     } catch (error) {
-      console.error('Failed to decrypt continuity payload:', error);
+      logger.error('Failed to decrypt continuity payload', error instanceof Error ? error : undefined);
       return null;
     }
   }

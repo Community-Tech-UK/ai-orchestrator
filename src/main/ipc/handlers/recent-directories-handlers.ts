@@ -4,6 +4,7 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getRecentDirectoriesManager } from '../../core/config/recent-directories-manager';
 import {
@@ -15,6 +16,8 @@ import {
   RecentDirsClearPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 import { getSettingsManager } from '../../core/config/settings-manager';
+
+const logger = getLogger('RecentDirectoriesHandlers');
 
 export function registerRecentDirectoriesHandlers(): void {
   const manager = getRecentDirectoriesManager();
@@ -42,7 +45,7 @@ export function registerRecentDirectoriesHandlers(): void {
       }
     });
   } catch (error) {
-    console.warn('[RecentDirectories] Failed to initialize from settings:', error);
+    logger.warn('Failed to initialize from settings', { error: String(error) });
   }
 
   // Get recent directories

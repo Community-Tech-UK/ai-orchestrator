@@ -8,6 +8,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SemanticSearch');
 
 /**
  * Search result item
@@ -104,7 +107,7 @@ export class SemanticSearchManager {
           return exaResults;
         }
       } catch (error) {
-        console.warn('Exa search failed, falling back to local search:', error);
+        logger.warn('Exa search failed, falling back to local search', { error: error instanceof Error ? error.message : String(error) });
       }
     }
 

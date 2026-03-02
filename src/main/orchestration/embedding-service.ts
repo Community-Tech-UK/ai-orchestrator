@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import type { AgentResponse } from '../../shared/types/verification.types';
 import { STORAGE_LIMITS } from '../../shared/constants/limits';
 
@@ -28,6 +29,7 @@ export interface EmbeddingCacheEntry {
 
 export class EmbeddingService extends EventEmitter {
   private static instance: EmbeddingService;
+  private logger = getLogger('EmbeddingService');
   private cache = new Map<string, EmbeddingCacheEntry>();
   private vocabulary = new Map<string, number>();
   private documentFrequency = new Map<string, number>();
@@ -309,7 +311,7 @@ export class EmbeddingService extends EventEmitter {
   private async getOpenAIEmbeddings(texts: string[]): Promise<number[][]> {
     // Placeholder - would call OpenAI embeddings API
     // For now, fall back to simple embeddings
-    console.warn('[EmbeddingService] OpenAI embeddings not implemented, using simple embeddings');
+    this.logger.warn('OpenAI embeddings not implemented, using simple embeddings');
     return this.getSimpleEmbeddings(texts);
   }
 
@@ -318,7 +320,7 @@ export class EmbeddingService extends EventEmitter {
   private async getLocalEmbeddings(texts: string[]): Promise<number[][]> {
     // Placeholder - would use a local embedding model
     // For now, fall back to simple embeddings
-    console.warn('[EmbeddingService] Local embeddings not implemented, using simple embeddings');
+    this.logger.warn('Local embeddings not implemented, using simple embeddings');
     return this.getSimpleEmbeddings(texts);
   }
 

@@ -14,6 +14,9 @@
 
 import { EventEmitter } from 'events';
 import { getRLMDatabase, RLMDatabase } from '../persistence/rlm-database';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('PreferenceStore');
 
 // ============================================
 // Type Definitions
@@ -168,7 +171,7 @@ export class PreferenceStore extends EventEmitter {
       this.loadFromPersistence();
       this.emit('persistence:initialized', { success: true });
     } catch (error) {
-      console.error('[PreferenceStore] Failed to initialize persistence:', error);
+      logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
       this.persistenceEnabled = false;
       this.emit('persistence:initialized', { success: false, error });
     }
@@ -241,7 +244,7 @@ export class PreferenceStore extends EventEmitter {
 
       this.emit('persistence:loaded', { count: rows.length });
     } catch (error) {
-      console.error('[PreferenceStore] Failed to load from persistence:', error);
+      logger.error('Failed to load from persistence', error instanceof Error ? error : undefined);
     }
   }
 
@@ -289,7 +292,7 @@ export class PreferenceStore extends EventEmitter {
         JSON.stringify(preference.metadata)
       );
     } catch (error) {
-      console.error('[PreferenceStore] Failed to persist preference:', error);
+      logger.error('Failed to persist preference', error instanceof Error ? error : undefined);
     }
   }
 
@@ -303,7 +306,7 @@ export class PreferenceStore extends EventEmitter {
       const stmt = dbInternal.prepare(`DELETE FROM preferences WHERE key = ?`);
       stmt.run(key);
     } catch (error) {
-      console.error('[PreferenceStore] Failed to delete preference from DB:', error);
+      logger.error('Failed to delete preference from DB', error instanceof Error ? error : undefined);
     }
   }
 
@@ -579,7 +582,7 @@ export class PreferenceStore extends EventEmitter {
         });
         imported++;
       } catch (error) {
-        console.error(`[PreferenceStore] Failed to import preference "${pref.key}":`, error);
+        logger.error('Failed to import preference', error instanceof Error ? error : undefined, { key: pref.key });
       }
     }
 

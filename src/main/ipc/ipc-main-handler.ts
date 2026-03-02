@@ -5,6 +5,7 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import * as crypto from 'crypto';
+import { getLogger } from '../logging/logger';
 import {
   validateIpcPayload,
   UserActionRequestPayloadSchema,
@@ -49,6 +50,8 @@ import {
   registerRecentDirectoriesHandlers,
   registerEcosystemHandlers
 } from './handlers';
+
+const logger = getLogger('IpcMainHandler');
 
 export class IpcMainHandler {
   private instanceManager: InstanceManager;
@@ -247,7 +250,7 @@ export class IpcMainHandler {
     this.setupMemoryEventForwarding();
     this.setupRlmEventForwarding();
 
-    console.log('IPC handlers registered');
+    logger.info('IPC handlers registered');
   }
 
   /**

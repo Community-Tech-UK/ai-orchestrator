@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { getLogger } from '../logging/logger';
 import type { HookEvent } from '../../shared/types/hook.types';
 import {
   HookExecutor,
@@ -39,6 +40,8 @@ export interface HookManagerConfig {
   defaultTimeout: number;
   stopOnFirstFailure: boolean;
 }
+
+const logger = getLogger('HookManager');
 
 export class HookManager extends EventEmitter {
   private static instance: HookManager;
@@ -420,7 +423,7 @@ export class HookManager extends EventEmitter {
       );
       this.emit('approvals:saved', { count: approvedIds.length });
     } catch (error) {
-      console.error('Failed to save hook approvals:', error);
+      logger.error('Failed to save hook approvals', error instanceof Error ? error : undefined);
       this.emit('approvals:save-error', { error: (error as Error).message });
     }
   }
@@ -448,7 +451,7 @@ export class HookManager extends EventEmitter {
       }
       this.emit('approvals:loaded', { total: approvedIds.size, applied });
     } catch (error) {
-      console.error('Failed to load hook approvals:', error);
+      logger.error('Failed to load hook approvals', error instanceof Error ? error : undefined);
       this.emit('approvals:load-error', { error: (error as Error).message });
     }
   }
@@ -466,7 +469,7 @@ export class HookManager extends EventEmitter {
       await this.saveApprovals();
       this.emit('approvals:cleared');
     } catch (error) {
-      console.error('Failed to clear hook approvals:', error);
+      logger.error('Failed to clear hook approvals', error instanceof Error ? error : undefined);
       this.emit('approvals:clear-error', { error: (error as Error).message });
     }
   }

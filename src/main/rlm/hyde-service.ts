@@ -109,6 +109,10 @@ Rules:
 - Don't explain what you're doing, just write the hypothetical matching content`
 };
 
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('HyDEService');
+
 export class HyDEService extends EventEmitter {
   private static instance: HyDEService;
   private config: HyDEConfig;
@@ -240,7 +244,7 @@ export class HyDEService extends EventEmitter {
         query
       };
     } catch (error) {
-      console.error('[HyDE] Failed to generate hypothetical document:', error);
+      logger.error('Failed to generate hypothetical document', error instanceof Error ? error : undefined, { query });
       this.emit('error', { query, error });
 
       // Fall back to direct embedding on error
@@ -392,7 +396,7 @@ Generate a hypothetical document that would perfectly match this query:`;
           config.anthropicApiKey
         );
       } catch (error) {
-        console.warn('[HyDE] Anthropic call failed:', error);
+        logger.warn('Anthropic call failed', { error: String(error) });
       }
     }
 
@@ -405,7 +409,7 @@ Generate a hypothetical document that would perfectly match this query:`;
           config.openaiApiKey
         );
       } catch (error) {
-        console.warn('[HyDE] OpenAI call failed:', error);
+        logger.warn('OpenAI call failed', { error: String(error) });
       }
     }
 
@@ -417,7 +421,7 @@ Generate a hypothetical document that would perfectly match this query:`;
         config.ollamaHost || 'http://localhost:11434'
       );
     } catch (error) {
-      console.warn('[HyDE] Ollama call failed:', error);
+      logger.warn('Ollama call failed', { error: String(error) });
     }
 
     // Fall back to simple query expansion

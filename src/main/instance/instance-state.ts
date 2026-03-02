@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type {
   Instance,
@@ -14,6 +15,8 @@ import type {
   BatchUpdatePayload
 } from '../../shared/types/ipc.types';
 import { LIMITS } from '../../shared/constants/limits';
+
+const logger = getLogger('InstanceState');
 
 export class InstanceStateManager extends EventEmitter {
   private instances: Map<string, Instance> = new Map();
@@ -108,17 +111,16 @@ export class InstanceStateManager extends EventEmitter {
    * Store an adapter
    */
   setAdapter(instanceId: string, adapter: CliAdapter): void {
-    console.log(`[InstanceStateManager] setAdapter called for ${instanceId}`);
+    logger.debug('setAdapter called', { instanceId });
     this.adapters.set(instanceId, adapter);
-    console.log(`[InstanceStateManager] Adapter stored, map size: ${this.adapters.size}`);
+    logger.debug('Adapter stored', { instanceId, adapterCount: this.adapters.size });
   }
 
   /**
    * Remove an adapter
    */
   deleteAdapter(instanceId: string): boolean {
-    console.log(`[InstanceStateManager] deleteAdapter called for ${instanceId}`);
-    console.trace('[InstanceStateManager] deleteAdapter stack trace');
+    logger.debug('deleteAdapter called', { instanceId });
     return this.adapters.delete(instanceId);
   }
 

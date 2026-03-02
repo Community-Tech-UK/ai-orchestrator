@@ -236,7 +236,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     try {
       getPermissionManager().loadProjectRules(resolvedWorkingDir);
     } catch {
-      // ignore
+      /* intentionally ignored: project rules are optional and failure should not block instance creation */
     }
 
     // Resolve termination policy

@@ -9,6 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { getLogger } from '../logging/logger';
 import type {
   MerkleNode,
   MerkleTreeConfig,
@@ -32,6 +33,8 @@ interface SerializedMerkleNode {
 // ============================================================================
 // MerkleTreeManager Class
 // ============================================================================
+
+const logger = getLogger('MerkleTree');
 
 export class MerkleTreeManager {
   private config: MerkleTreeConfig;
@@ -197,7 +200,7 @@ export class MerkleTreeManager {
             return await this.buildNodeRecursive(childPath, rootPath);
           } catch (error) {
             // Skip files that can't be read (permissions, broken symlinks, etc.)
-            console.warn(`Skipping ${childPath}: ${error}`);
+            logger.warn('Skipping file due to read error', { childPath, error: String(error) });
             return null;
           }
         })

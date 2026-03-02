@@ -18,6 +18,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import type {
   ContextStore,
   ContextSection,
@@ -80,6 +81,8 @@ import {
   // Utilities
   estimateTokens as defaultEstimateTokens
 } from './context';
+
+const logger = getLogger('RLMContextManager');
 
 export class RLMContextManager extends EventEmitter {
   private static instance: RLMContextManager;
@@ -168,7 +171,7 @@ export class RLMContextManager extends EventEmitter {
       this.setupLLMHandlers();
       this.emit('persistence:initialized', { success: true });
     } catch (error) {
-      console.error('[RLM] Failed to initialize persistence:', error);
+      logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
       this.persistenceEnabled = false;
       this.emit('persistence:initialized', { success: false, error });
     }
@@ -194,7 +197,7 @@ export class RLMContextManager extends EventEmitter {
           });
           request.callback(summary);
         } catch (error) {
-          console.error('[RLM] LLM summarization failed:', error);
+          logger.error('LLM summarization failed', error instanceof Error ? error : undefined);
         }
       }
     );
@@ -229,7 +232,7 @@ export class RLMContextManager extends EventEmitter {
 
           request.callback(response, tokens);
         } catch (error) {
-          console.error('[RLM] LLM sub-query failed:', error);
+          logger.error('LLM sub-query failed', error instanceof Error ? error : undefined);
           request.callback('[Sub-query failed]', { input: 0, output: 0 });
         }
       }
@@ -461,7 +464,7 @@ export class RLMContextManager extends EventEmitter {
           return content;
         }
       } catch (error) {
-        console.error('[RLM] Failed to lazy load section content:', error);
+        logger.error('Failed to lazy load section content', error instanceof Error ? error : undefined);
       }
     }
 

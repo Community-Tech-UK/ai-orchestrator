@@ -7,12 +7,15 @@
  */
 
 import type { InstanceManager } from '../instance/instance-manager';
+import { getLogger } from '../logging/logger';
 import { getMultiVerifyCoordinator } from './multi-verify-coordinator';
 import { getReviewCoordinator } from '../agents/review-coordinator';
 import { getDebateCoordinator } from './debate-coordinator';
 import { createCliAdapter, resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
+
+const logger = getLogger('DefaultInvokers');
 
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as any).sendMessage === 'function';
@@ -176,7 +179,7 @@ export function registerDefaultDebateInvoker(_instanceManager: InstanceManager):
       } catch (err) {
         // Debate callbacks don't have an error parameter — the Promise will
         // time out on the coordinator side if no callback is invoked.
-        console.error(`[DebateInvoker] Error handling ${eventName}:`, err);
+        logger.error('Error handling debate event', err instanceof Error ? err : undefined, { eventName });
       } finally {
         if (adapter && typeof (adapter as any).terminate === 'function') {
           try { (adapter as any).terminate(); } catch { /* cleanup */ }

@@ -248,7 +248,7 @@ export class ConsensusCoordinator extends EventEmitter {
         try {
           await adapter.terminate(false);
         } catch {
-          // Ignore cleanup errors
+          /* intentionally ignored: adapter cleanup errors should not mask the original result */
         }
       }
     }

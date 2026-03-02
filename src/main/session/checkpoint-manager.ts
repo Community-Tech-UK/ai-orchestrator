@@ -24,6 +24,9 @@ import {
   getSessionContinuityManager,
   SessionSnapshot,
 } from './session-continuity';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('CheckpointManager');
 
 /**
  * Transaction log entry
@@ -232,7 +235,7 @@ export class CheckpointManager extends EventEmitter {
   commitTransaction(transactionId: string, additionalDetails?: Record<string, unknown>): void {
     const entry = this.pendingTransactions.get(transactionId);
     if (!entry) {
-      console.warn(`Transaction ${transactionId} not found`);
+      logger.warn('Transaction not found', { transactionId });
       return;
     }
 
@@ -265,7 +268,7 @@ export class CheckpointManager extends EventEmitter {
   rollbackTransaction(transactionId: string, error?: Error): void {
     const entry = this.pendingTransactions.get(transactionId);
     if (!entry) {
-      console.warn(`Transaction ${transactionId} not found`);
+      logger.warn('Transaction not found', { transactionId });
       return;
     }
 
@@ -593,7 +596,7 @@ export class CheckpointManager extends EventEmitter {
       // Rotate if needed
       this.rotateLogFiles();
     } catch (error) {
-      console.error('Failed to persist transaction log:', error);
+      logger.error('Failed to persist transaction log', error instanceof Error ? error : undefined);
     }
   }
 
@@ -621,7 +624,7 @@ export class CheckpointManager extends EventEmitter {
         totalSize -= stat.size;
       }
     } catch (error) {
-      console.error('Failed to rotate log files:', error);
+      logger.error('Failed to rotate log files', error instanceof Error ? error : undefined);
     }
   }
 

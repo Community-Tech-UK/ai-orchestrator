@@ -3,6 +3,7 @@
  */
 
 import { spawn } from 'child_process';
+import { getLogger } from '../logging/logger';
 import { OrchestrationHandler } from '../orchestration/orchestration-handler';
 import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
@@ -42,6 +43,8 @@ export interface OrchestrationDependencies {
   terminateInstance: (instanceId: string, graceful: boolean) => Promise<void>;
   getAdapter: (id: string) => any;
 }
+
+const logger = getLogger('InstanceOrchestration');
 
 export class InstanceOrchestrationManager {
   private orchestration: OrchestrationHandler;
@@ -116,9 +119,7 @@ export class InstanceOrchestrationManager {
           settings.maxTotalInstances > 0 &&
           this.deps.getInstanceCount() >= settings.maxTotalInstances
         ) {
-          console.log(
-            `Cannot spawn child: max total instances (${settings.maxTotalInstances}) reached`
-          );
+          logger.info('Cannot spawn child: max total instances reached', { maxTotalInstances: settings.maxTotalInstances });
           this.orchestration.notifyError(
             parentId,
             `Cannot spawn child: maximum total instances (${settings.maxTotalInstances}) reached`
@@ -131,9 +132,7 @@ export class InstanceOrchestrationManager {
           settings.maxChildrenPerParent > 0 &&
           parent.childrenIds.length >= settings.maxChildrenPerParent
         ) {
-          console.log(
-            `Cannot spawn child: max children per parent (${settings.maxChildrenPerParent}) reached`
-          );
+          logger.info('Cannot spawn child: max children per parent reached', { maxChildrenPerParent: settings.maxChildrenPerParent });
           this.orchestration.notifyError(
             parentId,
             `Cannot spawn child: maximum children per parent (${settings.maxChildrenPerParent}) reached`
@@ -143,7 +142,7 @@ export class InstanceOrchestrationManager {
 
         // Check if parent is already a child (nested orchestration)
         if (!settings.allowNestedOrchestration && parent.depth > 0) {
-          console.log('Cannot spawn child: nested orchestration is disabled');
+          logger.info('Cannot spawn child: nested orchestration is disabled');
           this.orchestration.notifyError(
             parentId,
             'Cannot spawn child: nested orchestration is not allowed'
@@ -166,16 +165,12 @@ export class InstanceOrchestrationManager {
             childAgentId
           );
 
-          console.log(
-            `[ModelRouting] Child task routed to ${routingDecision.model} (${routingDecision.complexity}, ${routingDecision.confidence.toFixed(2)} confidence): ${routingDecision.reason}`
-          );
+          logger.info('Child task routed', { model: routingDecision.model, complexity: routingDecision.complexity, confidence: routingDecision.confidence, reason: routingDecision.reason });
           if (
             routingDecision.estimatedSavingsPercent &&
             routingDecision.estimatedSavingsPercent > 0
           ) {
-            console.log(
-              `[ModelRouting] Estimated cost savings: ${routingDecision.estimatedSavingsPercent}%`
-            );
+            logger.info('Estimated cost savings from model routing', { savingsPercent: routingDecision.estimatedSavingsPercent });
           }
 
           const child = await this.deps.createChildInstance(parentId, command, routingDecision);
@@ -187,7 +182,7 @@ export class InstanceOrchestrationManager {
             routingDecision
           );
         } catch (error) {
-          console.error('Failed to spawn child:', error);
+          logger.error('Failed to spawn child', error instanceof Error ? error : undefined);
           this.orchestration.notifyError(
             parentId,
             `Failed to spawn child: ${error}`
@@ -204,7 +199,7 @@ export class InstanceOrchestrationManager {
           await this.deps.sendInput(command.childId, command.message);
           this.orchestration.notifyMessageSent(parentId, command.childId);
         } catch (error) {
-          console.error('Failed to message child:', error);
+          logger.error('Failed to message child', error instanceof Error ? error : undefined);
         }
       }
     );
@@ -245,7 +240,7 @@ export class InstanceOrchestrationManager {
           await this.deps.terminateInstance(command.childId, true);
           this.orchestration.notifyChildTerminated(parentId, command.childId);
         } catch (error) {
-          console.error('Failed to terminate child:', error);
+          logger.error('Failed to terminate child', error instanceof Error ? error : undefined);
         }
       }
     );
@@ -336,7 +331,7 @@ export class InstanceOrchestrationManager {
             try {
               await adapter.sendInput(response);
             } catch (err) {
-              console.error(`[Orchestration] Failed to inject response to ${instanceId}:`, err);
+              logger.error('Failed to inject response to instance', err instanceof Error ? err : undefined, { instanceId });
             }
           });
           this.writeQueues.set(instanceId, next);
@@ -388,7 +383,7 @@ export class InstanceOrchestrationManager {
             });
           }
         } catch (error) {
-          console.error('[ChildResultStorage] Failed to store result:', error);
+          logger.error('Failed to store child result', error instanceof Error ? error : undefined);
           callback(null);
         }
       }
@@ -629,10 +624,7 @@ export class InstanceOrchestrationManager {
       });
       return true;
     } catch (error) {
-      console.warn(
-        '[FastPath] Retrieval failed, falling back to child instance:',
-        error
-      );
+      logger.warn('Fast-path retrieval failed, falling back to child instance', { error: String(error) });
       return false;
     }
   }
@@ -860,10 +852,7 @@ export class InstanceOrchestrationManager {
         errorMessage: success ? undefined : error?.message
       });
     } catch (recordError) {
-      console.error(
-        `[Learning] Failed to record outcome for task ${task?.taskId || 'unknown'}:`,
-        recordError
-      );
+      logger.error('Failed to record outcome for task', recordError instanceof Error ? recordError : undefined, { taskId: task?.taskId || 'unknown' });
     }
 
     this.unifiedMemory.recordTaskOutcome(

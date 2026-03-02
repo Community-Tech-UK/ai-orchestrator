@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import {
   OrchestratorCommand,
   SpawnChildCommand,
@@ -141,6 +142,8 @@ export interface CompletedChildSummary {
   conclusions: string[];
 }
 
+const logger = getLogger('OrchestrationHandler');
+
 export class OrchestrationHandler extends EventEmitter {
   private contexts = new Map<string, OrchestrationContext>();
   private pendingUserActions = new Map<string, UserActionRequest>();
@@ -266,7 +269,7 @@ export class OrchestrationHandler extends EventEmitter {
       // Use the validated parser to avoid executing malformed commands.
       const parsedCommands = parseOrchestratorCommands(`${start}\n${jsonStr}\n${end}`);
       if (parsedCommands.length === 0) {
-        console.warn('Failed to parse orchestrator command (streaming): invalid command shape');
+        logger.warn('Failed to parse orchestrator command (streaming): invalid command shape');
       } else {
         for (const cmd of parsedCommands) this.executeCommand(instanceId, cmd);
       }
@@ -287,13 +290,11 @@ export class OrchestrationHandler extends EventEmitter {
   ): void {
     const ctx = this.contexts.get(instanceId);
     if (!ctx) {
-      console.warn(`No orchestration context for instance ${instanceId}`);
+      logger.warn('No orchestration context for instance', { instanceId });
       return;
     }
 
-    console.log(
-      `Orchestrator: Executing ${command.action} from instance ${instanceId}`
-    );
+    logger.info('Executing orchestrator command', { action: command.action, instanceId });
 
     switch (command.action) {
       case 'spawn_child':
@@ -609,7 +610,7 @@ export class OrchestrationHandler extends EventEmitter {
   ): void {
     const ctx = this.contexts.get(childId);
     if (!ctx || !ctx.parentId) {
-      console.warn(`No parent for child ${childId} to report completion to`);
+      logger.warn('No parent for child to report completion to', { childId });
       return;
     }
 
@@ -769,7 +770,7 @@ export class OrchestrationHandler extends EventEmitter {
     // input keeps the LLM blocked until the user actually responds. The real
     // response is injected by respondToUserAction() once the user answers.
 
-    console.log(`Orchestrator: User action request ${requestId} created for instance ${instanceId}`);
+    logger.info('User action request created', { requestId, instanceId });
   }
 
   /**
@@ -782,7 +783,7 @@ export class OrchestrationHandler extends EventEmitter {
   ): void {
     const request = this.pendingUserActions.get(requestId);
     if (!request) {
-      console.warn(`No pending user action request found: ${requestId}`);
+      logger.warn('No pending user action request found', { requestId });
       return;
     }
 
@@ -793,7 +794,7 @@ export class OrchestrationHandler extends EventEmitter {
       try {
         waiter(approved, selectedOption);
       } catch {
-        // ignore
+        /* intentionally ignored: waiter callback errors should not block the response flow */
       }
     }
 
@@ -812,7 +813,7 @@ export class OrchestrationHandler extends EventEmitter {
       });
     }
 
-    console.log(`Orchestrator: User action ${requestId} ${approved ? 'approved' : 'rejected'}`);
+    logger.info('User action responded', { requestId, approved });
   }
 
   /**
@@ -1079,7 +1080,7 @@ export class OrchestrationHandler extends EventEmitter {
   private handleReportResult(childId: string, command: ReportResultCommand): void {
     const ctx = this.contexts.get(childId);
     if (!ctx || !ctx.parentId) {
-      console.warn(`No parent for child ${childId} to report result to`);
+      logger.warn('No parent for child to report result to', { childId });
       return;
     }
 

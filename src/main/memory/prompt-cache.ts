@@ -9,6 +9,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import type {
   CacheControl,
   CacheableTextBlock,
@@ -23,6 +24,8 @@ import {
 } from '../../shared/types/api-features.types';
 import { getTokenCounter, TokenCounter } from '../rlm/token-counter';
 import { getMetricsCollector } from '../learning/metrics-collector';
+
+const logger = getLogger('PromptCache');
 
 // ============================================
 // Types
@@ -165,7 +168,7 @@ export class PromptCacheManager extends EventEmitter {
   configureForModel(model: string): void {
     if (!supportsPromptCaching(model)) {
       this.config.enabled = false;
-      console.warn(`[PromptCache] Model ${model} does not support prompt caching`);
+      logger.warn('Model does not support prompt caching', { model });
       return;
     }
 

@@ -10,6 +10,9 @@
 
 import { EventEmitter } from 'events';
 import { getRLMDatabase, RLMDatabase } from '../persistence/rlm-database';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('ABTesting');
 
 // ============================================
 // Types
@@ -151,7 +154,7 @@ export class ABTestingEngine extends EventEmitter {
       this.db = getRLMDatabase();
       this.loadFromPersistence();
     } catch (error) {
-      console.error('[ABTesting] Failed to initialize persistence:', error);
+      logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
     }
   }
 
@@ -202,7 +205,7 @@ export class ABTestingEngine extends EventEmitter {
         outcomes: Array.from(this.outcomes.values()).reduce((sum, arr) => sum + arr.length, 0),
       });
     } catch (error) {
-      console.error('[ABTesting] Failed to load from persistence:', error);
+      logger.error('Failed to load from persistence', error instanceof Error ? error : undefined);
     }
   }
 
@@ -219,7 +222,7 @@ export class ABTestingEngine extends EventEmitter {
         metadata: experiment as unknown as Record<string, unknown>,
       });
     } catch (error) {
-      console.error('[ABTesting] Failed to persist experiment:', error);
+      logger.error('Failed to persist experiment', error instanceof Error ? error : undefined);
     }
   }
 
@@ -240,7 +243,7 @@ export class ABTestingEngine extends EventEmitter {
         },
       });
     } catch (error) {
-      console.error('[ABTesting] Failed to persist outcome:', error);
+      logger.error('Failed to persist outcome', error instanceof Error ? error : undefined);
     }
   }
 

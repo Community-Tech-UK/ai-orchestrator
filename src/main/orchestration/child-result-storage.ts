@@ -10,6 +10,9 @@ import { app } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { LLMService } from '../rlm/llm-service';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('ChildResultStorage');
 import type {
   ChildResult,
   ChildResultSummary,
@@ -71,9 +74,9 @@ export class ChildResultStorage {
       await fs.mkdir(this.config.storagePath, { recursive: true });
       await this.loadIndex();
       this.initialized = true;
-      console.log(`[ChildResultStorage] Initialized at ${this.config.storagePath}`);
+      logger.info('Initialized', { storagePath: this.config.storagePath });
     } catch (error) {
-      console.error('[ChildResultStorage] Failed to initialize:', error);
+      logger.error('Failed to initialize', error instanceof Error ? error : undefined);
       throw error;
     }
   }
@@ -152,10 +155,13 @@ export class ChildResultStorage {
     // Save index
     await this.saveIndex();
 
-    console.log(
-      `[ChildResultStorage] Stored result ${resultId} for child ${childId} ` +
-        `(${artifacts.length} artifacts, ${summaryTokens} summary tokens, ${fullTranscriptTokens} full tokens)`
-    );
+    logger.info('Stored result', {
+      resultId,
+      childId,
+      artifactCount: artifacts.length,
+      summaryTokens,
+      fullTranscriptTokens,
+    });
 
     return result;
   }
@@ -367,7 +373,7 @@ export class ChildResultStorage {
 
     if (cleaned > 0) {
       await this.saveIndex();
-      console.log(`[ChildResultStorage] Cleaned up ${cleaned} old results`);
+      logger.info('Cleaned up old results', { count: cleaned });
     }
 
     return cleaned;
@@ -413,7 +419,7 @@ export class ChildResultStorage {
       await fs.unlink(path.join(this.config.storagePath, `${resultId}.json`));
       await fs.unlink(path.join(this.config.storagePath, `${resultId}-transcript.json`));
     } catch {
-      // Ignore file not found errors
+      /* intentionally ignored: files may not exist if result was never written */
     }
   }
 

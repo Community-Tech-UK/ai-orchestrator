@@ -8,6 +8,9 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as chokidar from 'chokidar';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('FileWatcher');
 
 /**
  * File change event types
@@ -174,7 +177,7 @@ export class FileWatcherManager extends EventEmitter {
         }
       }
     } catch (error) {
-      console.error('Failed to parse .gitignore:', error);
+      logger.error('Failed to parse .gitignore', error instanceof Error ? error : undefined);
     }
 
     return patterns;

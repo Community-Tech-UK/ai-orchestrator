@@ -15,6 +15,9 @@
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('HabitTracker');
 
 // ============ Interfaces ============
 
@@ -127,7 +130,7 @@ export class HabitTracker extends EventEmitter {
       this.loadFromPersistence();
       this.emit('persistence:initialized', { success: true });
     } catch (error) {
-      console.error('[HabitTracker] Failed to initialize persistence:', error);
+      logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
       this.persistenceEnabled = false;
       this.emit('persistence:initialized', { success: false, error });
     }
@@ -276,7 +279,7 @@ export class HabitTracker extends EventEmitter {
           fullAction.metadata ? JSON.stringify(fullAction.metadata) : null
         );
       } catch (error) {
-        console.error('[HabitTracker] Failed to persist action:', error);
+        logger.error('Failed to persist action', error instanceof Error ? error : undefined);
       }
     }
 
@@ -634,7 +637,7 @@ export class HabitTracker extends EventEmitter {
         const stmt = db.prepare(`DELETE FROM user_actions WHERE timestamp < ?`);
         stmt.run(cutoff);
       } catch (error) {
-        console.error('[HabitTracker] Failed to prune old actions:', error);
+        logger.error('Failed to prune old actions', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -695,7 +698,7 @@ export class HabitTracker extends EventEmitter {
         habit.firstObserved
       );
     } catch (error) {
-      console.error('[HabitTracker] Failed to persist habit:', error);
+      logger.error('Failed to persist habit', error instanceof Error ? error : undefined);
     }
   }
 
@@ -707,7 +710,7 @@ export class HabitTracker extends EventEmitter {
       const stmt = db.prepare(`DELETE FROM user_habits WHERE id = ?`);
       stmt.run(habitId);
     } catch (error) {
-      console.error('[HabitTracker] Failed to delete habit:', error);
+      logger.error('Failed to delete habit', error instanceof Error ? error : undefined);
     }
   }
 

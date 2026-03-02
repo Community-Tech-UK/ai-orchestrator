@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import {
   VerificationConfig,
   VerificationRequest,
@@ -75,6 +76,8 @@ interface ActiveSession {
   providers: Map<string, BaseProvider>;
   cancelled: boolean;
 }
+
+const logger = getLogger('CliVerification');
 
 export class CliVerificationCoordinator extends EventEmitter {
   private static instance: CliVerificationCoordinator;
@@ -498,7 +501,7 @@ export class CliVerificationCoordinator extends EventEmitter {
           session.providers.delete(agentId);
         }
       } catch {
-        // Ignore cleanup errors
+        /* intentionally ignored: provider cleanup errors should not block error reporting */
       }
 
       // Emit agent complete event with error
@@ -850,7 +853,7 @@ State your overall confidence in your response (0-100%): X%`;
             });
           } catch (error) {
             // Log but don't fail the cancellation
-            console.error(`Failed to terminate agent ${agentId}:`, error);
+            logger.error('Failed to terminate agent', error instanceof Error ? error : undefined, { agentId });
           }
         })()
       );

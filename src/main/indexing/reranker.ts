@@ -11,6 +11,7 @@ import type {
   HybridSearchResult,
 } from '../../shared/types/codebase.types';
 import { DEFAULT_RERANKER_CONFIG } from './config';
+import { getLogger } from '../logging/logger';
 
 // ============================================================================
 // Types
@@ -25,6 +26,8 @@ interface RerankRequest {
 // ============================================================================
 // CrossEncoderReranker Class
 // ============================================================================
+
+const logger = getLogger('Reranker');
 
 export class CrossEncoderReranker {
   private config: RerankerConfig;
@@ -114,7 +117,7 @@ export class CrossEncoderReranker {
 
   private async rerankWithCohere(request: RerankRequest): Promise<RerankResult[]> {
     if (!this.config.apiKey) {
-      console.warn('Cohere API key not configured, falling back to local reranking');
+      logger.warn('Cohere API key not configured, falling back to local reranking');
       return this.rerankWithLocal(request);
     }
 
@@ -146,14 +149,14 @@ export class CrossEncoderReranker {
         score: r.relevance_score,
       }));
     } catch (error) {
-      console.error('Cohere reranking failed:', error);
+      logger.error('Cohere reranking failed', error instanceof Error ? error : undefined);
       return this.rerankWithLocal(request);
     }
   }
 
   private async rerankWithVoyage(request: RerankRequest): Promise<RerankResult[]> {
     if (!this.config.apiKey) {
-      console.warn('Voyage API key not configured, falling back to local reranking');
+      logger.warn('Voyage API key not configured, falling back to local reranking');
       return this.rerankWithLocal(request);
     }
 
@@ -185,7 +188,7 @@ export class CrossEncoderReranker {
         score: r.relevance_score,
       }));
     } catch (error) {
-      console.error('Voyage reranking failed:', error);
+      logger.error('Voyage reranking failed', error instanceof Error ? error : undefined);
       return this.rerankWithLocal(request);
     }
   }

@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import { generateChildPrompt } from '../orchestration/orchestration-protocol';
 import { parseCommandString, resolveTemplate } from '../../shared/types/command.types';
 import { getCommandManager } from '../commands/command-manager';
@@ -38,6 +39,8 @@ import { InstancePersistenceManager } from './instance-persistence';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
+
+const logger = getLogger('InstanceManager');
 
 // Singleton instance
 let instanceManager: InstanceManager | null = null;
@@ -144,7 +147,7 @@ export class InstanceManager extends EventEmitter {
     // Start periodic task timeout checking
     getTaskManager().startTimeoutChecker(15000, async (timedOut) => {
       for (const task of timedOut) {
-        console.warn(`[TaskManager] Task ${task.taskId} timed out (child: ${task.childId})`);
+        logger.warn('Task timed out', { taskId: task.taskId, childId: task.childId });
         try {
           const orchestration = this.orchestrationMgr.getOrchestrationHandler();
           await orchestration.notifyError(
@@ -152,7 +155,7 @@ export class InstanceManager extends EventEmitter {
             `Child task "${task.task}" timed out after ${Math.round((task.timeout || 0) / 1000)}s`
           );
         } catch (err) {
-          console.error(`[TaskManager] Failed to notify parent ${task.parentId} about timed out task ${task.taskId}:`, err);
+          logger.error('Failed to notify parent about timed out task', err instanceof Error ? err : undefined, { parentId: task.parentId, taskId: task.taskId });
         }
       }
     });
@@ -183,8 +186,7 @@ export class InstanceManager extends EventEmitter {
     // Communication events
     this.communication.on('output', (payload) => this.emit('instance:output', payload));
     this.communication.on('input-required', (payload) => {
-      console.log('=== [InstanceManager] INPUT-REQUIRED EVENT RECEIVED ===');
-      console.log('[InstanceManager] Payload:', JSON.stringify(payload, null, 2));
+      logger.info('Input-required event received', { payload });
       void this.handleInputRequired(payload);
     });
 
@@ -308,7 +310,7 @@ export class InstanceManager extends EventEmitter {
     try {
       getPermissionManager().loadProjectRules(workingDirectory);
     } catch {
-      // ignore
+      /* intentionally ignored: project rules are optional */
     }
 
     const meta = payload.metadata || {};
@@ -352,7 +354,7 @@ export class InstanceManager extends EventEmitter {
         try {
           await this.sendInputResponse(payload.instanceId, response, permissionKey);
         } catch {
-          // ignore
+          /* intentionally ignored: auto-response send failure is non-critical */
         }
 
         // Add an explicit system note so the user isn't left with an unrespondable prompt.
@@ -374,7 +376,7 @@ export class InstanceManager extends EventEmitter {
 
     // Default behavior: forward to renderer and let the user decide.
     this.emit('instance:input-required', payload);
-    console.log('[InstanceManager] instance:input-required event emitted');
+    logger.info('instance:input-required event emitted');
   }
 
   recordInputRequiredPermissionDecision(params: {
@@ -390,7 +392,7 @@ export class InstanceManager extends EventEmitter {
     try {
       getPermissionManager().recordUserDecision(params.instanceId, req, params.action, params.scope);
     } catch {
-      // ignore
+      /* intentionally ignored: recording user decision failure is non-critical */
     }
   }
 
@@ -513,15 +515,11 @@ export class InstanceManager extends EventEmitter {
     ]);
 
     if (rlmContext) {
-      console.log(
-        `[RLM] Injected context for instance ${instanceId}: ${rlmContext.tokens} tokens, ${rlmContext.sectionsAccessed.length} sections, ${rlmContext.durationMs}ms`
-      );
+      logger.info('RLM context injected', { instanceId, tokens: rlmContext.tokens, sections: rlmContext.sectionsAccessed.length, durationMs: rlmContext.durationMs });
     }
 
     if (unifiedMemoryContext) {
-      console.log(
-        `[UnifiedMemory] Injected context for instance ${instanceId}: ${unifiedMemoryContext.tokens} tokens, ${unifiedMemoryContext.longTermCount} long-term, ${unifiedMemoryContext.proceduralCount} procedural, ${unifiedMemoryContext.durationMs}ms`
-      );
+      logger.info('UnifiedMemory context injected', { instanceId, tokens: unifiedMemoryContext.tokens, longTermCount: unifiedMemoryContext.longTermCount, proceduralCount: unifiedMemoryContext.proceduralCount, durationMs: unifiedMemoryContext.durationMs });
     }
 
     // Build metadata for user message
@@ -846,7 +844,7 @@ export class InstanceManager extends EventEmitter {
           child.createdAt
         );
       } catch (err) {
-        console.error(`[ChildExit] Failed to auto-capture result for ${childId}:`, err);
+        logger.error('Failed to auto-capture result for child', err instanceof Error ? err : undefined, { childId });
       }
     }
 
@@ -862,7 +860,7 @@ export class InstanceManager extends EventEmitter {
         };
       }
     } catch (err) {
-      console.error(`[ChildExit] Failed to get child summary for ${childId}:`, err);
+      logger.error('Failed to get child summary', err instanceof Error ? err : undefined, { childId });
     }
 
     // 3. Add system notification to parent's UI output buffer
@@ -907,9 +905,7 @@ export class InstanceManager extends EventEmitter {
       resultData
     );
 
-    console.log(
-      `[ChildExit] Child ${childId} exited (code=${exitCode}), parent ${child.parentId} notified (${remainingChildren} remaining)`
-    );
+    logger.info('Child exited, parent notified', { childId, exitCode, parentId: child.parentId, remainingChildren });
 
     // 6. If all children are done, inject synthesis prompt to parent CLI
     if (remainingChildren === 0) {
@@ -940,9 +936,7 @@ export class InstanceManager extends EventEmitter {
 
       if (summaries.length > 0) {
         orchestration.notifyAllChildrenCompleted(child.parentId, summaries);
-        console.log(
-          `[ChildExit] All ${summaries.length} children completed for parent ${child.parentId}, synthesis prompt injected`
-        );
+        logger.info('All children completed, synthesis prompt injected', { parentId: child.parentId, childCount: summaries.length });
       }
     }
   }

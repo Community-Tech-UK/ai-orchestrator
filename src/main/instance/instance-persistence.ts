@@ -3,6 +3,7 @@
  */
 
 import { getOutputStorageManager } from '../memory';
+import { getLogger } from '../logging/logger';
 import type {
   Instance,
   InstanceCreateConfig,
@@ -18,6 +19,8 @@ export interface PersistenceDependencies {
   getInstance: (id: string) => Instance | undefined;
   createInstance: (config: InstanceCreateConfig) => Promise<Instance>;
 }
+
+const logger = getLogger('InstancePersistence');
 
 export class InstancePersistenceManager {
   private outputStorage = getOutputStorageManager();
@@ -87,9 +90,7 @@ export class InstancePersistenceManager {
       initialOutputBuffer: forkedMessages
     });
 
-    console.log(
-      `Forked instance ${sourceInstance.id} at message ${forkIndex} -> ${forkedInstance.id}`
-    );
+    logger.info('Instance forked', { sourceId: sourceInstance.id, forkIndex, forkedId: forkedInstance.id });
 
     return forkedInstance;
   }
@@ -198,9 +199,7 @@ export class InstancePersistenceManager {
       initialOutputBuffer: session.messages
     });
 
-    console.log(
-      `Imported session with ${session.messages.length} messages -> ${instance.id}`
-    );
+    logger.info('Session imported', { messageCount: session.messages.length, instanceId: instance.id });
 
     return instance;
   }

@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { getLogger } from '../logging/logger';
 import type {
   FileMetadata,
   ImportInfo,
@@ -147,6 +148,8 @@ const FRAMEWORK_PATTERNS: Array<{ pattern: RegExp; framework: FrameworkType }> =
 // MetadataExtractor Class
 // ============================================================================
 
+const logger = getLogger('MetadataExtractor');
+
 export class MetadataExtractor {
   async extractFileMetadata(filePath: string, content?: string): Promise<FileMetadata> {
     const absolutePath = path.resolve(filePath);
@@ -210,7 +213,7 @@ export class MetadataExtractor {
           try {
             return await this.extractFileMetadata(file);
           } catch (error) {
-            console.warn(`Failed to extract metadata from ${file}:`, error);
+            logger.warn('Failed to extract metadata from file', { file, error: String(error) });
             return null;
           }
         })

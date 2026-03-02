@@ -17,6 +17,7 @@
 
 import { EventEmitter } from 'events';
 import { getRLMDatabase, RLMDatabase } from '../persistence/rlm-database';
+import { getLogger } from '../logging/logger';
 import type {
   SessionMetrics,
   MetricsReport,
@@ -32,6 +33,8 @@ import type {
 // ============================================
 // Default Configuration
 // ============================================
+
+const logger = getLogger('MetricsCollector');
 
 const DEFAULT_CONFIG: MetricsCollectorConfig = {
   enabled: true,
@@ -95,7 +98,7 @@ export class MetricsCollector extends EventEmitter {
       this.db = getRLMDatabase();
       this.loadFromPersistence();
     } catch (error) {
-      console.error('[MetricsCollector] Failed to initialize persistence:', error);
+      logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
     }
   }
 
@@ -137,7 +140,7 @@ export class MetricsCollector extends EventEmitter {
         baselines: this.baselines.size,
       });
     } catch (error) {
-      console.error('[MetricsCollector] Failed to load from persistence:', error);
+      logger.error('Failed to load from persistence', error instanceof Error ? error : undefined);
     }
   }
 
@@ -154,7 +157,7 @@ export class MetricsCollector extends EventEmitter {
         metadata: session as unknown as Record<string, unknown>,
       });
     } catch (error) {
-      console.error('[MetricsCollector] Failed to persist session:', error);
+      logger.error('Failed to persist session', error instanceof Error ? error : undefined);
     }
   }
 
@@ -171,7 +174,7 @@ export class MetricsCollector extends EventEmitter {
         metadata: baseline as unknown as Record<string, unknown>,
       });
     } catch (error) {
-      console.error('[MetricsCollector] Failed to persist baseline:', error);
+      logger.error('Failed to persist baseline', error instanceof Error ? error : undefined);
     }
   }
 
@@ -510,7 +513,7 @@ export class MetricsCollector extends EventEmitter {
     const report = this.generateReport(startDate, endDate);
 
     if (report.sessionCount === 0) {
-      console.warn('[MetricsCollector] No sessions found for baseline');
+      logger.warn('No sessions found for baseline');
       return null;
     }
 

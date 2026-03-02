@@ -25,6 +25,9 @@ import {
   TaskTypeStats,
 } from '../../shared/types/self-improvement.types';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('OutcomeTracker');
 
 export class OutcomeTracker extends EventEmitter {
   private static instance: OutcomeTracker;
@@ -70,7 +73,7 @@ export class OutcomeTracker extends EventEmitter {
       this.loadFromPersistence();
       this.emit('persistence:initialized', { success: true });
     } catch (error) {
-      console.error('[OutcomeTracker] Failed to initialize persistence:', error);
+      logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
       this.persistenceEnabled = false;
       this.emit('persistence:initialized', { success: false, error });
     }
@@ -214,7 +217,7 @@ export class OutcomeTracker extends EventEmitter {
           },
         });
       } catch (error) {
-        console.error('[OutcomeTracker] Failed to persist outcome:', error);
+        logger.error('Failed to persist outcome', error instanceof Error ? error : undefined);
       }
     }
 
@@ -345,7 +348,7 @@ export class OutcomeTracker extends EventEmitter {
               sampleSize: existing.sampleSize,
             });
           } catch (error) {
-            console.error('[OutcomeTracker] Failed to persist pattern:', error);
+            logger.error('Failed to persist pattern', error instanceof Error ? error : undefined);
           }
         }
       } else {
@@ -362,7 +365,7 @@ export class OutcomeTracker extends EventEmitter {
               sampleSize: pattern.sampleSize,
             });
           } catch (error) {
-            console.error('[OutcomeTracker] Failed to persist new pattern:', error);
+            logger.error('Failed to persist new pattern', error instanceof Error ? error : undefined);
           }
         }
       }
@@ -436,7 +439,7 @@ export class OutcomeTracker extends EventEmitter {
           examplePrompts: experience.examplePrompts.map(e => e.prompt.slice(0, 200)),
         });
       } catch (error) {
-        console.error('[OutcomeTracker] Failed to persist experience:', error);
+        logger.error('Failed to persist experience', error instanceof Error ? error : undefined);
       }
     }
   }
@@ -494,7 +497,7 @@ export class OutcomeTracker extends EventEmitter {
           supportingPatterns: insight.evidence,
         });
       } catch (error) {
-        console.error('[OutcomeTracker] Failed to persist insight:', error);
+        logger.error('Failed to persist insight', error instanceof Error ? error : undefined);
       }
     }
 

@@ -15,6 +15,7 @@ import { DEFAULT_SEARCH_CONFIG } from './config';
 import { BM25Search, getBM25Search } from './bm25-search';
 import { VectorStore, getVectorStore } from '../rlm/vector-store';
 import { HyDEService, getHyDEService } from '../rlm/hyde-service';
+import { getLogger } from '../logging/logger';
 
 // ============================================================================
 // Types
@@ -38,6 +39,8 @@ interface RankedResult {
 // ============================================================================
 // HybridSearchService Class
 // ============================================================================
+
+const logger = getLogger('HybridSearch');
 
 export class HybridSearchService {
   private db: Database.Database;
@@ -158,7 +161,7 @@ export class HybridSearchService {
           searchEmbedding = hydeResult.embedding;
         }
       } catch (error) {
-        console.warn('HyDE generation failed, using original query:', error);
+        logger.warn('HyDE generation failed, using original query', { error: String(error) });
       }
     }
 

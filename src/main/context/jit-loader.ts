@@ -12,6 +12,9 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('JITLoader');
 
 /**
  * Types of context resources that can be loaded JIT
@@ -480,7 +483,7 @@ export class JITContextLoader extends EventEmitter {
         source: result.source || 'disk',
       };
     } catch (error) {
-      console.error(`[JIT] Failed to load ${identifier.id}:`, error);
+      logger.error('Failed to load resource', error instanceof Error ? error : undefined, { id: identifier.id });
       return null;
     }
   }
@@ -537,7 +540,7 @@ export class JITContextLoader extends EventEmitter {
         source,
       };
     } catch (error) {
-      console.error(`[JIT] Default load failed for ${identifier.id}:`, error);
+      logger.error('Default load failed for resource', error instanceof Error ? error : undefined, { id: identifier.id });
       return null;
     }
   }
@@ -722,7 +725,7 @@ export class FileSystemLoader implements ResourceLoader {
 
       return { content, source };
     } catch (error) {
-      console.error(`[FileSystemLoader] Failed to load ${identifier.path}:`, error);
+      logger.error('Failed to load file', error instanceof Error ? error : undefined, { path: identifier.path });
       return null;
     }
   }
@@ -748,7 +751,7 @@ export class MemoryStoreLoader implements ResourceLoader {
 
       return { content, source: 'memory' };
     } catch (error) {
-      console.error(`[MemoryStoreLoader] Failed to load ${identifier.path}:`, error);
+      logger.error('Failed to load from memory store', error instanceof Error ? error : undefined, { path: identifier.path });
       return null;
     }
   }

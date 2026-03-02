@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import {
   WorkflowTemplate,
   WorkflowExecution,
@@ -15,6 +16,8 @@ import {
   createWorkflowExecution,
 } from '../../shared/types/workflow.types';
 import { builtInTemplates } from './templates';
+
+const logger = getLogger('WorkflowManager');
 
 export class WorkflowManager extends EventEmitter {
   private static instance: WorkflowManager;
@@ -91,7 +94,7 @@ export class WorkflowManager extends EventEmitter {
       // Defer agent launch to allow event listeners to be set up
       setImmediate(() => {
         this.launchPhaseAgents(execution, firstPhase).catch((err) => {
-          console.error('Error launching phase agents:', err);
+          logger.error('Error launching phase agents', err instanceof Error ? err : undefined);
         });
       });
     }
@@ -200,7 +203,7 @@ export class WorkflowManager extends EventEmitter {
 
     // Continue to complete phase
     this.completePhase(executionId).catch((err) => {
-      console.error('Error completing phase after gate satisfaction:', err);
+      logger.error('Error completing phase after gate satisfaction', err instanceof Error ? err : undefined);
     });
 
     return execution;

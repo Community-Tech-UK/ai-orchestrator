@@ -3,6 +3,9 @@
  */
 
 import { detectSecretsInKeyValue, SecretType } from './secret-detector';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('EnvFilter');
 
 /**
  * Environment variable filter configuration
@@ -269,11 +272,10 @@ export function getSafeEnv(
 export function logBlockedEnvVars(blocked: FilterResult[]): void {
   if (blocked.length === 0) return;
 
-  console.log(`[EnvFilter] Blocked ${blocked.length} environment variable(s):`);
-  for (const result of blocked) {
-    const secretInfo = result.secretType ? ` (detected: ${result.secretType})` : '';
-    console.log(`  - ${result.name}: ${result.reason}${secretInfo}`);
-  }
+  logger.info('Blocked environment variables', {
+    count: blocked.length,
+    variables: blocked.map(r => ({ name: r.name, reason: r.reason, secretType: r.secretType })),
+  });
 }
 
 /**

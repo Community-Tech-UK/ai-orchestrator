@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import type {
   ContextQueryResult,
   RLMSession,
@@ -186,6 +187,8 @@ export type SmartCompactionEvent =
  *
  * Provides intelligent, threshold-based context compaction.
  */
+const logger = getLogger('SmartCompaction');
+
 export class SmartCompactionManager extends EventEmitter {
   private static instance: SmartCompactionManager | null = null;
 
@@ -228,7 +231,7 @@ export class SmartCompactionManager extends EventEmitter {
       this.llmService = getLLMService();
       this.baseCompactor.initialize();
     } catch (error) {
-      console.warn('[SmartCompaction] LLM service not available:', error);
+      logger.warn('LLM service not available', { error: String(error) });
     }
   }
 
@@ -301,7 +304,7 @@ export class SmartCompactionManager extends EventEmitter {
 
         // Handle early warning asynchronously (don't block)
         this.handleEarlyWarning(session).catch((error) => {
-          console.warn('[SmartCompaction] Early warning handling failed:', error);
+          logger.warn('Early warning handling failed', { error: String(error) });
         });
       }
     } else {
@@ -397,7 +400,7 @@ export class SmartCompactionManager extends EventEmitter {
 
         plan.preSummaries.set(classification.id, summary);
       } catch (error) {
-        console.warn(`[SmartCompaction] Failed to pre-generate summary for ${classification.id}:`, error);
+        logger.warn('Failed to pre-generate summary for classification', { classificationId: classification.id, error: String(error) });
       }
     });
 

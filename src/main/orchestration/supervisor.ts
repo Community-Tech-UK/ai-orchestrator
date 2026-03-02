@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
 import {
   SupervisionTree,
   SupervisorNode,
@@ -22,6 +23,8 @@ import {
   isWorkerNode,
   isSupervisorNode,
 } from '../../shared/types/supervision.types';
+
+const logger = getLogger('Supervisor');
 
 export class Supervisor extends EventEmitter {
   private static instance: Supervisor;
@@ -368,7 +371,7 @@ export class Supervisor extends EventEmitter {
           }
           child.status = 'stopped';
         } catch {
-          // Ignore stop errors
+          /* intentionally ignored: stop errors during supervision restart/shutdown are non-critical */
         }
       }
     }
@@ -422,7 +425,7 @@ export class Supervisor extends EventEmitter {
           }
           worker.status = 'stopped';
         } catch {
-          // Ignore stop errors
+          /* intentionally ignored: stop errors during supervision restart/shutdown are non-critical */
         }
       }
     }
@@ -449,7 +452,7 @@ export class Supervisor extends EventEmitter {
 
   private logFailure(tree: SupervisionTree, supervisor: SupervisorNode, worker: WorkerNode, error: string): void {
     // For simple-one strategy, just log and don't restart
-    console.warn(`Worker ${worker.name} failed (simple-one strategy): ${error}`);
+    logger.warn('Worker failed (simple-one strategy)', { workerName: worker.name, error });
     this.emit('worker:logged-failure', { tree, supervisor, worker, error });
   }
 
@@ -487,7 +490,7 @@ export class Supervisor extends EventEmitter {
               }
               child.status = 'stopped';
             } catch {
-              // Ignore stop errors
+              /* intentionally ignored: stop errors during supervision restart/shutdown are non-critical */
             }
           }
         }
@@ -497,7 +500,7 @@ export class Supervisor extends EventEmitter {
 
       case 'ignore':
         // Just log and continue
-        console.warn(`Supervisor ${supervisor.name} exhausted restarts for ${worker.name}`);
+        logger.warn('Supervisor exhausted restarts for worker', { supervisorName: supervisor.name, workerName: worker.name });
         break;
 
       case 'restart':

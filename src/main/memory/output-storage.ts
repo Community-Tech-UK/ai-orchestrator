@@ -11,6 +11,9 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import { promisify } from 'util';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('OutputStorage');
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -128,7 +131,7 @@ export class OutputStorageManager {
           return allMessages.slice(0, limit);
         }
       } catch (error) {
-        console.error(`Failed to load chunk ${i} for instance ${instanceId}:`, error);
+        logger.error('Failed to load chunk', error instanceof Error ? error : undefined, { chunkIndex: i, instanceId });
       }
     }
 
@@ -251,12 +254,12 @@ export class OutputStorageManager {
             const index: StorageIndex = JSON.parse(data);
             this.indices.set(dir, index);
           } catch (error) {
-            console.error(`Failed to load index for ${dir}:`, error);
+            logger.error('Failed to load index', error instanceof Error ? error : undefined, { dir });
           }
         }
       }
     } catch (error) {
-      console.error('Failed to load storage indices:', error);
+      logger.error('Failed to load storage indices', error instanceof Error ? error : undefined);
     }
   }
 

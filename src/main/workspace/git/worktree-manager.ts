@@ -21,6 +21,9 @@ import {
   createDefaultWorktreeConfig,
   sanitizeBranchName,
 } from '../../../shared/types/worktree.types';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('WorktreeManager');
 
 const execAsync = promisify(exec);
 
@@ -138,7 +141,7 @@ export class WorktreeManager extends EventEmitter {
       try {
         await this.cleanupWorktree(session.id);
       } catch {
-        // Ignore cleanup errors
+        /* intentionally ignored: cleanup errors should not mask the original error */
       }
 
       throw error;
@@ -170,11 +173,11 @@ export class WorktreeManager extends EventEmitter {
           try {
             await fs.copyFile(srcPath, destPath);
           } catch {
-            // File doesn't exist, skip
+            /* intentionally ignored: config file may not exist at source path */
           }
         }
       } catch {
-        // Pattern match failed, skip
+        /* intentionally ignored: glob pattern may not match any files */
       }
     }
   }
@@ -192,7 +195,7 @@ export class WorktreeManager extends EventEmitter {
       const err = error as { code?: string; message?: string };
       if (err.code !== 'ENOENT') {
         // Log but don't fail - installation issues shouldn't block worktree
-        console.warn(`Dependency installation warning in ${worktreePath}:`, err.message);
+        logger.warn('Dependency installation warning', { worktreePath, message: err.message });
       }
     }
   }
@@ -407,7 +410,7 @@ export class WorktreeManager extends EventEmitter {
       try {
         await execAsync(`git pull --ff-only`, { cwd: repoRoot });
       } catch {
-        // Pull failed (possibly no remote), continue
+        /* intentionally ignored: pull may fail if no remote is configured */
       }
 
       // Perform merge based on strategy
@@ -466,7 +469,7 @@ export class WorktreeManager extends EventEmitter {
       try {
         await execAsync('git merge --abort', { cwd: repoRoot });
       } catch {
-        // Ignore abort errors
+        /* intentionally ignored: merge abort may fail if no merge is in progress */
       }
 
       const err = error as { message?: string };

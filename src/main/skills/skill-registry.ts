@@ -15,6 +15,9 @@ import {
   estimateTokens,
   calculateMatchConfidence,
 } from '../../shared/types/skill.types';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('SkillRegistry');
 
 export class SkillRegistry extends EventEmitter {
   private static instance: SkillRegistry;
@@ -72,7 +75,7 @@ export class SkillRegistry extends EventEmitter {
         }
       } catch (error) {
         // Path doesn't exist or can't be read, skip
-        console.warn(`Could not scan skill path ${searchPath}:`, error);
+        logger.warn('Could not scan skill path', { searchPath, error: error instanceof Error ? error.message : String(error) });
       }
     }
 
@@ -97,7 +100,7 @@ export class SkillRegistry extends EventEmitter {
         skillMdPath = p;
         break;
       } catch {
-        // Try next path
+        /* intentionally ignored: file not found at this path, trying next candidate */
       }
     }
 
@@ -107,7 +110,7 @@ export class SkillRegistry extends EventEmitter {
 
     const metadata = parseSkillFrontmatter(content);
     if (!metadata) {
-      console.warn(`Invalid skill at ${skillPath}: missing or invalid frontmatter`);
+      logger.warn('Invalid skill: missing or invalid frontmatter', { skillPath });
       return null;
     }
 

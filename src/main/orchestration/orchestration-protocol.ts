@@ -3,6 +3,7 @@
  */
 
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
+import { getLogger } from '../logging/logger';
 import type {
   ReportResultCommand,
   GetChildSummaryCommand,
@@ -10,6 +11,8 @@ import type {
   GetChildSectionCommand
 } from '../../shared/types/child-result.types';
 import type { ConsensusStrategy } from '../../shared/types/consensus.types';
+
+const logger = getLogger('OrchestrationProtocol');
 
 export const ORCHESTRATION_MARKER_START = ':::ORCHESTRATOR_COMMAND:::';
 export const ORCHESTRATION_MARKER_END = ':::END_COMMAND:::';
@@ -368,7 +371,7 @@ export function parseOrchestratorCommands(text: string): OrchestratorCommand[] {
         commands.push(command);
       }
     } catch (e) {
-      console.warn('Failed to parse orchestrator command:', e);
+      logger.warn('Failed to parse orchestrator command', { error: String(e) });
     }
   }
 
