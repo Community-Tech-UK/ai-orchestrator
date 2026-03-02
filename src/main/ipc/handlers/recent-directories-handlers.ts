@@ -4,16 +4,16 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
-import {
-  IPC_CHANNELS,
-  IpcResponse,
-  RecentDirsGetPayload,
-  RecentDirsAddPayload,
-  RecentDirsRemovePayload,
-  RecentDirsPinPayload,
-  RecentDirsClearPayload
-} from '../../../shared/types/ipc.types';
+import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getRecentDirectoriesManager } from '../../core/config/recent-directories-manager';
+import {
+  validateIpcPayload,
+  RecentDirsGetPayloadSchema,
+  RecentDirsAddPayloadSchema,
+  RecentDirsRemovePayloadSchema,
+  RecentDirsPinPayloadSchema,
+  RecentDirsClearPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 import { getSettingsManager } from '../../core/config/settings-manager';
 
 export function registerRecentDirectoriesHandlers(): void {
@@ -50,13 +50,14 @@ export function registerRecentDirectoriesHandlers(): void {
     IPC_CHANNELS.RECENT_DIRS_GET,
     async (
       _event: IpcMainInvokeEvent,
-      payload?: RecentDirsGetPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(RecentDirsGetPayloadSchema, payload, 'RECENT_DIRS_GET');
         const entries = manager.getDirectories({
-          limit: payload?.limit,
-          sortBy: payload?.sortBy,
-          includePinned: payload?.includePinned
+          limit: validated?.limit,
+          sortBy: validated?.sortBy,
+          includePinned: validated?.includePinned
         });
 
         return {
@@ -81,21 +82,11 @@ export function registerRecentDirectoriesHandlers(): void {
     IPC_CHANNELS.RECENT_DIRS_ADD,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RecentDirsAddPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        if (!payload?.path) {
-          return {
-            success: false,
-            error: {
-              code: 'INVALID_PAYLOAD',
-              message: 'Path is required',
-              timestamp: Date.now()
-            }
-          };
-        }
-
-        const entry = manager.addDirectory(payload.path);
+        const validated = validateIpcPayload(RecentDirsAddPayloadSchema, payload, 'RECENT_DIRS_ADD');
+        const entry = manager.addDirectory(validated.path);
 
         return {
           success: true,
@@ -119,21 +110,11 @@ export function registerRecentDirectoriesHandlers(): void {
     IPC_CHANNELS.RECENT_DIRS_REMOVE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RecentDirsRemovePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        if (!payload?.path) {
-          return {
-            success: false,
-            error: {
-              code: 'INVALID_PAYLOAD',
-              message: 'Path is required',
-              timestamp: Date.now()
-            }
-          };
-        }
-
-        const removed = manager.removeDirectory(payload.path);
+        const validated = validateIpcPayload(RecentDirsRemovePayloadSchema, payload, 'RECENT_DIRS_REMOVE');
+        const removed = manager.removeDirectory(validated.path);
 
         return {
           success: true,
@@ -157,21 +138,11 @@ export function registerRecentDirectoriesHandlers(): void {
     IPC_CHANNELS.RECENT_DIRS_PIN,
     async (
       _event: IpcMainInvokeEvent,
-      payload: RecentDirsPinPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        if (!payload?.path) {
-          return {
-            success: false,
-            error: {
-              code: 'INVALID_PAYLOAD',
-              message: 'Path is required',
-              timestamp: Date.now()
-            }
-          };
-        }
-
-        const pinned = manager.pinDirectory(payload.path, payload.pinned);
+        const validated = validateIpcPayload(RecentDirsPinPayloadSchema, payload, 'RECENT_DIRS_PIN');
+        const pinned = manager.pinDirectory(validated.path, validated.pinned);
 
         return {
           success: true,
@@ -195,10 +166,11 @@ export function registerRecentDirectoriesHandlers(): void {
     IPC_CHANNELS.RECENT_DIRS_CLEAR,
     async (
       _event: IpcMainInvokeEvent,
-      payload?: RecentDirsClearPayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        manager.clearAll(payload?.keepPinned !== false);
+        const validated = validateIpcPayload(RecentDirsClearPayloadSchema, payload, 'RECENT_DIRS_CLEAR');
+        manager.clearAll(validated?.keepPinned !== false);
 
         return {
           success: true,

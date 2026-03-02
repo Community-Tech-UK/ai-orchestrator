@@ -5,14 +5,15 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  McpServerPayload,
-  McpAddServerPayload,
-  McpCallToolPayload,
-  McpReadResourcePayload,
-  McpGetPromptPayload
-} from '../../../shared/types/ipc.types';
 import { getMcpManager } from '../../mcp/mcp-manager';
+import {
+  validateIpcPayload,
+  McpServerPayloadSchema,
+  McpAddServerPayloadSchema,
+  McpCallToolPayloadSchema,
+  McpReadResourcePayloadSchema,
+  McpGetPromptPayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
 import { WindowManager } from '../../window-manager';
 
@@ -120,20 +121,21 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_ADD_SERVER,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpAddServerPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(McpAddServerPayloadSchema, payload, 'MCP_ADD_SERVER');
         mcp.addServer({
-          id: payload.id,
-          name: payload.name,
-          description: payload.description,
-          transport: payload.transport,
-          command: payload.command,
-          args: payload.args,
-          env: payload.env,
-          url: payload.url,
-          autoConnect: payload.autoConnect
+          id: validated.id,
+          name: validated.name,
+          description: validated.description,
+          transport: validated.transport,
+          command: validated.command,
+          args: validated.args,
+          env: validated.env,
+          url: validated.url,
+          autoConnect: validated.autoConnect
         });
         return { success: true };
       } catch (error) {
@@ -153,11 +155,12 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_REMOVE_SERVER,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpServerPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await mcp.removeServer(payload.serverId);
+        const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_REMOVE_SERVER');
+        await mcp.removeServer(validated.serverId);
         return { success: true };
       } catch (error) {
         return {
@@ -176,11 +179,12 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_CONNECT,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpServerPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await mcp.connect(payload.serverId);
+        const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_CONNECT');
+        await mcp.connect(validated.serverId);
         return { success: true };
       } catch (error) {
         return {
@@ -199,11 +203,12 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_DISCONNECT,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpServerPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await mcp.disconnect(payload.serverId);
+        const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_DISCONNECT');
+        await mcp.disconnect(validated.serverId);
         return { success: true };
       } catch (error) {
         return {
@@ -222,11 +227,12 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_RESTART,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpServerPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await mcp.restart(payload.serverId);
+        const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_RESTART');
+        await mcp.restart(validated.serverId);
         return { success: true };
       } catch (error) {
         return {
@@ -314,14 +320,15 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_CALL_TOOL,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpCallToolPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(McpCallToolPayloadSchema, payload, 'MCP_CALL_TOOL');
         const result = await mcp.callTool({
-          serverId: payload.serverId,
-          toolName: payload.toolName,
-          arguments: payload.arguments
+          serverId: validated.serverId,
+          toolName: validated.toolName,
+          arguments: validated.arguments ?? {}
         });
         return {
           success: result.success,
@@ -351,13 +358,14 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_READ_RESOURCE,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpReadResourcePayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(McpReadResourcePayloadSchema, payload, 'MCP_READ_RESOURCE');
         const result = await mcp.readResource({
-          serverId: payload.serverId,
-          uri: payload.uri
+          serverId: validated.serverId,
+          uri: validated.uri
         });
         return {
           success: result.success,
@@ -387,14 +395,15 @@ export function registerMcpHandlers(deps: {
   ipcMain.handle(
     IPC_CHANNELS.MCP_GET_PROMPT,
     async (
-      event: IpcMainInvokeEvent,
-      payload: McpGetPromptPayload
+      _event: IpcMainInvokeEvent,
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(McpGetPromptPayloadSchema, payload, 'MCP_GET_PROMPT');
         const result = await mcp.getPrompt({
-          serverId: payload.serverId,
-          promptName: payload.promptName,
-          arguments: payload.arguments
+          serverId: validated.serverId,
+          promptName: validated.promptName,
+          arguments: validated.arguments
         });
         return {
           success: result.success,

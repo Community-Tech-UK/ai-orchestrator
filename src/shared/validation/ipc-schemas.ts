@@ -1035,7 +1035,7 @@ export const SupervisionHandleFailurePayloadSchema = z.object({
 
 export const RecentDirsGetPayloadSchema = z.object({
   limit: z.number().int().min(1).max(1000).optional(),
-  sortBy: z.enum(['recent', 'frequent', 'pinned']).optional(),
+  sortBy: z.enum(['lastAccessed', 'frequency', 'alphabetical']).optional(),
   includePinned: z.boolean().optional(),
 }).optional();
 

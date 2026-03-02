@@ -5,16 +5,13 @@
 
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import type {
-  SupervisionCreateTreePayload,
-  SupervisionAddWorkerPayload,
-  SupervisionStartWorkerPayload,
-  SupervisionStopWorkerPayload,
-  SupervisionHandleFailurePayload,
-  SupervisionGetTreePayload,
-  SupervisionGetHealthPayload
-} from '../../../shared/types/ipc.types';
 import { getSupervisorTree } from '../../process';
+import {
+  validateIpcPayload,
+  SupervisionCreateTreePayloadSchema,
+  SupervisionGetTreePayloadSchema,
+  SupervisionHandleFailurePayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
 import { getCircuitBreakerRegistry } from '../../process/circuit-breaker';
 
 export function registerSupervisionHandlers(): void {
@@ -29,28 +26,29 @@ export function registerSupervisionHandlers(): void {
     IPC_CHANNELS.SUPERVISION_CREATE_TREE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: SupervisionCreateTreePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SupervisionCreateTreePayloadSchema, payload, 'SUPERVISION_CREATE_TREE');
         // Configure the tree if config provided
-        if (payload.config) {
+        if (validated.config) {
           supervisorTree.configure({
             nodeConfig: {
-              strategy: payload.config.strategy,
-              maxRestarts: payload.config.maxRestarts,
-              maxTime: payload.config.maxTime,
-              onExhausted: payload.config.onExhausted,
-              backoff: payload.config.backoff ? {
-                minDelayMs: payload.config.backoff.minDelayMs || 100,
-                maxDelayMs: payload.config.backoff.maxDelayMs || 30000,
-                factor: payload.config.backoff.factor || 2,
-                jitter: payload.config.backoff.jitter ?? true,
+              strategy: validated.config.strategy,
+              maxRestarts: validated.config.maxRestarts,
+              maxTime: validated.config.maxTime,
+              onExhausted: validated.config.onExhausted,
+              backoff: validated.config.backoff ? {
+                minDelayMs: validated.config.backoff.minDelayMs || 100,
+                maxDelayMs: validated.config.backoff.maxDelayMs || 30000,
+                factor: validated.config.backoff.factor || 2,
+                jitter: validated.config.backoff.jitter ?? true,
                 resetAfterMs: 5000,
               } : undefined,
-              healthCheck: payload.config.healthCheck ? {
-                intervalMs: payload.config.healthCheck.intervalMs || 30000,
-                timeoutMs: payload.config.healthCheck.timeoutMs || 5000,
-                unhealthyThreshold: payload.config.healthCheck.unhealthyThreshold || 3,
+              healthCheck: validated.config.healthCheck ? {
+                intervalMs: validated.config.healthCheck.intervalMs || 30000,
+                timeoutMs: validated.config.healthCheck.timeoutMs || 5000,
+                unhealthyThreshold: validated.config.healthCheck.unhealthyThreshold || 3,
               } : undefined,
             },
           });
@@ -81,25 +79,26 @@ export function registerSupervisionHandlers(): void {
     IPC_CHANNELS.SUPERVISION_GET_TREE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: SupervisionGetTreePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
+        const validated = validateIpcPayload(SupervisionGetTreePayloadSchema, payload, 'SUPERVISION_GET_TREE');
         // Get registration for specific instance
-        if (payload.instanceId) {
-          const registration = supervisorTree.getInstanceRegistration(payload.instanceId);
+        if (validated.instanceId) {
+          const registration = supervisorTree.getInstanceRegistration(validated.instanceId);
           if (!registration) {
             return {
               success: false,
               error: {
                 code: 'INSTANCE_NOT_FOUND',
-                message: `Instance ${payload.instanceId} not found in supervision tree`,
+                message: `Instance ${validated.instanceId} not found in supervision tree`,
                 timestamp: Date.now(),
               },
             };
           }
 
-          const children = supervisorTree.getChildInstances(payload.instanceId);
-          const descendants = supervisorTree.getAllDescendants(payload.instanceId);
+          const children = supervisorTree.getChildInstances(validated.instanceId);
+          const descendants = supervisorTree.getAllDescendants(validated.instanceId);
 
           return {
             success: true,
@@ -160,10 +159,7 @@ export function registerSupervisionHandlers(): void {
   // Get health status
   ipcMain.handle(
     IPC_CHANNELS.SUPERVISION_GET_HEALTH,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: SupervisionGetHealthPayload
-    ): Promise<IpcResponse> => {
+    async (): Promise<IpcResponse> => {
       try {
         const stats = supervisorTree.getTreeStats();
         const circuitBreakerStates = circuitBreakerRegistry.getAllMetrics();
@@ -193,15 +189,16 @@ export function registerSupervisionHandlers(): void {
     IPC_CHANNELS.SUPERVISION_HANDLE_FAILURE,
     async (
       _event: IpcMainInvokeEvent,
-      payload: SupervisionHandleFailurePayload
+      payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        await supervisorTree.handleInstanceFailure(payload.childInstanceId, payload.error);
+        const validated = validateIpcPayload(SupervisionHandleFailurePayloadSchema, payload, 'SUPERVISION_HANDLE_FAILURE');
+        await supervisorTree.handleInstanceFailure(validated.childInstanceId, validated.error);
 
         return {
           success: true,
           data: {
-            message: `Failure handled for instance ${payload.childInstanceId}`,
+            message: `Failure handled for instance ${validated.childInstanceId}`,
           },
         };
       } catch (error) {
