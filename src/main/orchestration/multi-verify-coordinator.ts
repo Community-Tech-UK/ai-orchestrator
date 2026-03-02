@@ -538,32 +538,47 @@ Brief summary of your reasoning approach.`;
       };
     }
 
-    // Semantic clustering of key points (simplified version)
-    const pointClusters = this.clusterKeyPoints(validResponses);
-
-    // Find agreements (points mentioned by multiple agents)
+    // Cluster key points — use semantic clustering when configured, fallback to bag-of-words
     const agreements: AgreementPoint[] = [];
     const uniqueInsights: UniqueInsight[] = [];
 
-    for (const [, sources] of pointClusters) {
-      if (sources.length >= 2) {
-        agreements.push({
-          point: sources[0].point.content,
-          category: sources[0].point.category,
-          agentIds: sources.map((s) => s.agentId),
-          strength: sources.length / validResponses.length,
-          combinedConfidence: sources.reduce((sum, s) => sum + s.point.confidence, 0) / sources.length,
-        });
-      } else if (sources.length === 1 && sources[0].point.confidence >= (config.confidenceThreshold || 0.6)) {
-        uniqueInsights.push({
-          point: sources[0].point.content,
-          category: sources[0].point.category,
-          agentId: sources[0].agentId,
-          confidence: sources[0].point.confidence,
-          value: sources[0].point.confidence >= 0.8 ? 'high' : sources[0].point.confidence >= 0.6 ? 'medium' : 'low',
-          reasoning: 'Unique insight from single agent with high confidence',
-        });
+    if (config.useSemanticClustering !== false) {
+      try {
+        const semanticClusters = await this.clusterResponsesSemantically(validResponses);
+        for (const cluster of semanticClusters) {
+          const agentIds = cluster.members.map(m => m.agentId);
+          const uniqueAgentIds = [...new Set(agentIds)];
+          if (uniqueAgentIds.length >= 2) {
+            const representativeResponse = cluster.members[0].response;
+            const firstPoint = representativeResponse.keyPoints[0];
+            agreements.push({
+              point: representativeResponse.response.substring(0, 200),
+              category: firstPoint?.category || 'general',
+              agentIds: uniqueAgentIds,
+              strength: uniqueAgentIds.length / validResponses.length,
+              combinedConfidence: cluster.averageSimilarity,
+            });
+          } else if (uniqueAgentIds.length === 1) {
+            const member = cluster.members[0];
+            const firstPoint = member.response.keyPoints[0];
+            if (member.similarity >= (config.confidenceThreshold || 0.6)) {
+              uniqueInsights.push({
+                point: member.response.response.substring(0, 200),
+                category: firstPoint?.category || 'general',
+                agentId: member.agentId,
+                confidence: member.similarity,
+                value: member.similarity >= 0.8 ? 'high' : member.similarity >= 0.6 ? 'medium' : 'low',
+                reasoning: 'Unique insight from single agent with high confidence',
+              });
+            }
+          }
+        }
+      } catch {
+        // Fallback to bag-of-words on embedding failure
+        this.extractAgreementsFromKeyPoints(validResponses, config, agreements, uniqueInsights);
       }
+    } else {
+      this.extractAgreementsFromKeyPoints(validResponses, config, agreements, uniqueInsights);
     }
 
     // Detect disagreements (agents with opposing positions on same topic)
@@ -619,7 +634,7 @@ Brief summary of your reasoning approach.`;
   /**
    * Enhanced response clustering using semantic embeddings
    */
-  async clusterResponsesSemanticaly(
+  async clusterResponsesSemantically(
     responses: AgentResponse[],
     config?: Partial<SemanticClusterConfig>
   ): Promise<ResponseCluster[]> {
@@ -630,6 +645,35 @@ Brief summary of your reasoning approach.`;
     };
 
     return this.embeddingService.clusterResponses(responses, clusterConfig);
+  }
+
+  private extractAgreementsFromKeyPoints(
+    responses: AgentResponse[],
+    config: VerificationConfig,
+    agreements: AgreementPoint[],
+    uniqueInsights: UniqueInsight[]
+  ): void {
+    const pointClusters = this.clusterKeyPoints(responses);
+    for (const [, sources] of pointClusters) {
+      if (sources.length >= 2) {
+        agreements.push({
+          point: sources[0].point.content,
+          category: sources[0].point.category,
+          agentIds: sources.map((s) => s.agentId),
+          strength: sources.length / responses.length,
+          combinedConfidence: sources.reduce((sum, s) => sum + s.point.confidence, 0) / sources.length,
+        });
+      } else if (sources.length === 1 && sources[0].point.confidence >= (config.confidenceThreshold || 0.6)) {
+        uniqueInsights.push({
+          point: sources[0].point.content,
+          category: sources[0].point.category,
+          agentId: sources[0].agentId,
+          confidence: sources[0].point.confidence,
+          value: sources[0].point.confidence >= 0.8 ? 'high' : sources[0].point.confidence >= 0.6 ? 'medium' : 'low',
+          reasoning: 'Unique insight from single agent with high confidence',
+        });
+      }
+    }
   }
 
   private detectDisagreements(responses: AgentResponse[]): DisagreementPoint[] {

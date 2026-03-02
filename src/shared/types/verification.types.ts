@@ -40,6 +40,7 @@ export interface VerificationConfig {
   confidenceThreshold?: number; // Minimum confidence to include in synthesis
   maxDebateRounds?: number; // For debate strategy
   healthConfig?: AgentHealthConfig; // Agent health and retry configuration
+  useSemanticClustering?: boolean; // Use embedding-based clustering (default: true)
 }
 
 export interface VerificationRequest {
