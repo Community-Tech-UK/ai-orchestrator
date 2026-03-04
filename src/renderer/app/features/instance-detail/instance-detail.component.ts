@@ -597,25 +597,26 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst || !window.electronAPI) return;
 
-    const files: File[] = [];
-    for (const filePath of filePaths) {
-      try {
-        const stats = await window.electronAPI.getFileStats(filePath);
-        if (!stats.success || !stats.data) continue;
+    const results = await Promise.allSettled(
+      filePaths.map(async (filePath) => {
+        const stats = await window.electronAPI!.getFileStats(filePath);
+        if (!stats.success || !stats.data) return null;
         const data = stats.data as { isDirectory?: boolean };
-        if (data.isDirectory) continue;
+        if (data.isDirectory) return null;
 
         const response = await fetch(`file://${filePath}`);
         const blob = await response.blob();
         const fileName = filePath.split('/').pop() || 'file';
-        const file = new File([blob], fileName, {
+        return new File([blob], fileName, {
           type: blob.type || 'application/octet-stream',
         });
-        files.push(file);
-      } catch (error) {
-        console.warn('Failed to load file from path:', filePath, error);
-      }
-    }
+      })
+    );
+
+    const files = results
+      .filter((r): r is PromiseFulfilledResult<File | null> => r.status === 'fulfilled')
+      .map(r => r.value)
+      .filter((f): f is File => f !== null);
 
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);

@@ -595,6 +595,9 @@ export class FileExplorerComponent {
 
   @HostListener('keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
+    // Don't handle keyboard shortcuts when collapsed
+    if (this.isCollapsed()) return;
+
     // Cmd/Ctrl+A: select all visible files
     if ((event.metaKey || event.ctrlKey) && event.key === 'a') {
       event.preventDefault();
