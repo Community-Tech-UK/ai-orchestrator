@@ -88,12 +88,13 @@ interface TreeNode extends FileEntry {
                 class="tree-node"
                 [class.is-directory]="node.isDirectory"
                 [class.is-expanded]="node.isExpanded"
+                [class.is-selected]="!node.isDirectory && selectedFiles().has(node.path)"
                 [style.padding-left.px]="8 + node.depth * 16"
                 draggable="true"
                 (dragstart)="onDragStart($event, node)"
-                (click)="onNodeClick(node)"
-                (keydown.enter)="onNodeClick(node)"
-                (keydown.space)="onNodeClick(node)"
+                (click)="onNodeClick(node, $event)"
+                (keydown.enter)="onNodeClick(node, $event)"
+                (keydown.space)="onNodeClick(node, $event)"
                 tabindex="0"
                 role="button"
               >
@@ -369,6 +370,15 @@ interface TreeNode extends FileEntry {
       background: rgba(var(--secondary-rgb), 0.15);
     }
 
+    .tree-node.is-selected {
+      background: rgba(var(--secondary-rgb), 0.2);
+      color: var(--text-primary);
+    }
+
+    .tree-node.is-selected:hover {
+      background: rgba(var(--secondary-rgb), 0.3);
+    }
+
     .expand-icon {
       width: 12px;
       font-size: 8px;
@@ -474,12 +484,16 @@ export class FileExplorerComponent {
           // Reset and load the new root directory
           this.treeData.set(new Map());
           this.expandedPaths.set(new Set());
+          this.selectedFiles.set(new Set());
+          this.lastClickedFile.set(null);
           this.loadDirectory(path, true);
         }
       } else {
         // Clear the file explorer when no path is provided
         this.rootPath.set(null);
         this.treeData.set(new Map());
+        this.selectedFiles.set(new Set());
+        this.lastClickedFile.set(null);
       }
     });
   }
@@ -493,6 +507,10 @@ export class FileExplorerComponent {
   showHidden = signal(false);
   isLoading = signal(false);
   error = signal<string | null>(null);
+
+  // Selection state
+  selectedFiles = signal<Set<string>>(new Set());
+  private lastClickedFile = signal<string | null>(null);
 
   // Resize state - using ViewLayoutService for persistence
   explorerWidth = signal(this.viewLayoutService.fileExplorerWidth);
@@ -574,6 +592,28 @@ export class FileExplorerComponent {
     }
   }
 
+  @HostListener('keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent): void {
+    // Cmd/Ctrl+A: select all visible files
+    if ((event.metaKey || event.ctrlKey) && event.key === 'a') {
+      event.preventDefault();
+      event.stopPropagation();
+      const allFilePaths = this.flattenedTree()
+        .filter(n => !n.isDirectory)
+        .map(n => n.path);
+      this.selectedFiles.set(new Set(allFilePaths));
+    }
+
+    // Escape: clear selection
+    if (event.key === 'Escape') {
+      if (this.selectedFiles().size > 0) {
+        event.stopPropagation();
+        this.selectedFiles.set(new Set());
+        this.lastClickedFile.set(null);
+      }
+    }
+  }
+
   async onSelectRoot(): Promise<void> {
     const folder = await this.ipc.selectFolder();
     if (folder) {
@@ -601,33 +641,82 @@ export class FileExplorerComponent {
     this.refresh();
   }
 
-  async onNodeClick(node: TreeNode): Promise<void> {
-    if (!node.isDirectory) return;
+  async onNodeClick(node: TreeNode, event?: MouseEvent | KeyboardEvent): Promise<void> {
+    if (node.isDirectory) {
+      // Directories: expand/collapse only (no selection)
+      const expanded = this.expandedPaths();
+      if (expanded.has(node.path)) {
+        this.expandedPaths.update(set => {
+          const newSet = new Set(set);
+          newSet.delete(node.path);
+          return newSet;
+        });
+      } else {
+        this.expandedPaths.update(set => {
+          const newSet = new Set(set);
+          newSet.add(node.path);
+          return newSet;
+        });
 
-    const expanded = this.expandedPaths();
-    if (expanded.has(node.path)) {
-      // Collapse
-      this.expandedPaths.update(set => {
-        const newSet = new Set(set);
-        newSet.delete(node.path);
-        return newSet;
-      });
-    } else {
-      // Expand and load if needed
-      this.expandedPaths.update(set => {
-        const newSet = new Set(set);
-        newSet.add(node.path);
-        return newSet;
-      });
-
-      // Load children if not already loaded
-      // Check both the tree map (for loaded data) and the node itself
-      const tree = this.treeData();
-      const loadedNode = tree.get(node.path);
-      if (!loadedNode?.children) {
-        await this.loadDirectory(node.path);
+        const tree = this.treeData();
+        const loadedNode = tree.get(node.path);
+        if (!loadedNode?.children) {
+          await this.loadDirectory(node.path);
+        }
       }
+      return;
     }
+
+    // Files: handle selection
+    const isMetaKey = event instanceof MouseEvent && (event.metaKey || event.ctrlKey);
+    const isShiftKey = event instanceof MouseEvent && event.shiftKey;
+
+    if (isShiftKey && this.lastClickedFile()) {
+      // Shift+Click: range select
+      this.rangeSelect(node.path);
+    } else if (isMetaKey) {
+      // Cmd/Ctrl+Click: toggle single file
+      this.selectedFiles.update(set => {
+        const newSet = new Set(set);
+        if (newSet.has(node.path)) {
+          newSet.delete(node.path);
+        } else {
+          newSet.add(node.path);
+        }
+        return newSet;
+      });
+      this.lastClickedFile.set(node.path);
+    } else {
+      // Plain click: select only this file
+      this.selectedFiles.set(new Set([node.path]));
+      this.lastClickedFile.set(node.path);
+    }
+  }
+
+  private rangeSelect(toPath: string): void {
+    const fromPath = this.lastClickedFile();
+    if (!fromPath) {
+      this.selectedFiles.set(new Set([toPath]));
+      this.lastClickedFile.set(toPath);
+      return;
+    }
+
+    const visibleFiles = this.flattenedTree().filter(n => !n.isDirectory);
+    const fromIndex = visibleFiles.findIndex(n => n.path === fromPath);
+    const toIndex = visibleFiles.findIndex(n => n.path === toPath);
+
+    if (fromIndex === -1 || toIndex === -1) {
+      this.selectedFiles.set(new Set([toPath]));
+      this.lastClickedFile.set(toPath);
+      return;
+    }
+
+    const start = Math.min(fromIndex, toIndex);
+    const end = Math.max(fromIndex, toIndex);
+    const rangePaths = visibleFiles.slice(start, end + 1).map(n => n.path);
+
+    this.selectedFiles.set(new Set(rangePaths));
+    // Keep lastClickedFile as the anchor (don't update it)
   }
 
   onDragStart(event: DragEvent, node: TreeNode): void {
