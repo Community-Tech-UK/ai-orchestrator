@@ -500,6 +500,7 @@ export class FileExplorerComponent {
 
   // Outputs - emit file paths when dragged
   fileDragged = output<{ path: string; name: string; isDirectory: boolean }>();
+  filesDragged = output<{ paths: string[]; names: string[] }>();
 
   // State
   isCollapsed = signal(true);  // Start collapsed by default
@@ -722,21 +723,60 @@ export class FileExplorerComponent {
   onDragStart(event: DragEvent, node: TreeNode): void {
     if (!event.dataTransfer) return;
 
-    // Set drag data - use different MIME type for files vs folders
-    event.dataTransfer.setData('text/plain', node.path);
+    // If dragging a directory, use existing single-drag behavior
     if (node.isDirectory) {
+      event.dataTransfer.setData('text/plain', node.path);
       event.dataTransfer.setData('application/x-folder-path', node.path);
-    } else {
-      event.dataTransfer.setData('application/x-file-path', node.path);
+      event.dataTransfer.effectAllowed = 'copy';
+      this.fileDragged.emit({
+        path: node.path,
+        name: node.name,
+        isDirectory: true,
+      });
+      return;
     }
+
+    // If dragging an unselected file, clear selection and drag just that file
+    const selected = this.selectedFiles();
+    if (!selected.has(node.path)) {
+      this.selectedFiles.set(new Set([node.path]));
+      this.lastClickedFile.set(node.path);
+    }
+
+    // Gather all selected file paths
+    const currentSelected = this.selectedFiles();
+    const selectedNodes = this.flattenedTree().filter(
+      n => !n.isDirectory && currentSelected.has(n.path)
+    );
+    const paths = selectedNodes.map(n => n.path);
+    const names = selectedNodes.map(n => n.name);
+
+    // Set drag data
+    event.dataTransfer.setData('text/plain', paths.join('\n'));
+    event.dataTransfer.setData('application/x-file-path', paths[0]);
+    event.dataTransfer.setData('application/x-file-paths', JSON.stringify(paths));
     event.dataTransfer.effectAllowed = 'copy';
 
-    // Emit for parent components
+    // Custom drag image with count badge for multi-file
+    if (paths.length > 1) {
+      const dragEl = document.createElement('div');
+      dragEl.style.cssText = 'position:absolute;top:-1000px;left:-1000px;padding:6px 12px;background:#1a1a2e;color:#e0e0e0;border:1px solid rgba(100,100,255,0.3);border-radius:6px;font-family:monospace;font-size:12px;white-space:nowrap;';
+      dragEl.textContent = `${paths.length} files`;
+      document.body.appendChild(dragEl);
+      event.dataTransfer.setDragImage(dragEl, 0, 0);
+      // Clean up after drag starts
+      requestAnimationFrame(() => document.body.removeChild(dragEl));
+    }
+
+    // Emit outputs for parent components
     this.fileDragged.emit({
-      path: node.path,
-      name: node.name,
-      isDirectory: node.isDirectory,
+      path: paths[0],
+      name: names[0],
+      isDirectory: false,
     });
+    if (paths.length > 0) {
+      this.filesDragged.emit({ paths, names });
+    }
   }
 
   getFileIcon(node: TreeNode): string {
