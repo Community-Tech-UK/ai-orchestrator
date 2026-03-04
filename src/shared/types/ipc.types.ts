@@ -467,6 +467,16 @@ export const IPC_CHANNELS = {
   VERIFICATION_GET_ACTIVE: 'verification:get-active',
   VERIFICATION_GET_RESULT: 'verification:get-result',
 
+  // Verification (streaming events)
+  VERIFICATION_AGENT_START: 'verification:agent-start',
+  VERIFICATION_AGENT_STREAM: 'verification:agent-stream',
+  VERIFICATION_AGENT_COMPLETE: 'verification:agent-complete',
+  VERIFICATION_AGENT_ERROR: 'verification:agent-error',
+  VERIFICATION_ROUND_PROGRESS: 'verification:round-progress',
+  VERIFICATION_CONSENSUS_UPDATE: 'verification:consensus-update',
+  VERIFICATION_COMPLETE: 'verification:complete',
+  VERIFICATION_ERROR: 'verification:error',
+
   // Cascade Supervision operations (7.3)
   SUPERVISION_CREATE_TREE: 'supervision:create-tree',
   SUPERVISION_ADD_WORKER: 'supervision:add-worker',
@@ -504,6 +514,11 @@ export const IPC_CHANNELS = {
   RLM_RECORD_OUTCOME: 'rlm:record-outcome',
   RLM_GET_PATTERNS: 'rlm:get-patterns',
   RLM_GET_STRATEGY_SUGGESTIONS: 'rlm:get-strategy-suggestions',
+
+  // RLM analytics
+  RLM_GET_TOKEN_SAVINGS_HISTORY: 'rlm:get-token-savings-history',
+  RLM_GET_QUERY_STATS: 'rlm:get-query-stats',
+  RLM_GET_STORAGE_STATS: 'rlm:get-storage-stats',
 
   // Self-Improvement operations (8.2)
   LEARNING_RECORD_OUTCOME: 'learning:record-outcome',
@@ -571,6 +586,7 @@ export const IPC_CHANNELS = {
   DEBATE_RESUME: 'debate:resume',
   DEBATE_STOP: 'debate:stop',
   DEBATE_INTERVENE: 'debate:intervene',
+  DEBATE_EVENT: 'debate:event',
 
   // Training operations (GRPO)
   TRAINING_RECORD_OUTCOME: 'training:record-outcome',
@@ -580,6 +596,17 @@ export const IPC_CHANNELS = {
   TRAINING_GET_TREND: 'training:get-trend',
   TRAINING_GET_TOP_STRATEGIES: 'training:get-top-strategies',
   TRAINING_CONFIGURE: 'training:configure',
+
+  // Training (extended)
+  TRAINING_GET_REWARD_DATA: 'training:get-reward-data',
+  TRAINING_GET_ADVANTAGE_DATA: 'training:get-advantage-data',
+  TRAINING_GET_STRATEGIES: 'training:get-strategies',
+  TRAINING_GET_AGENT_PERFORMANCE: 'training:get-agent-performance',
+  TRAINING_GET_PATTERNS: 'training:get-patterns',
+  TRAINING_GET_INSIGHTS: 'training:get-insights',
+  TRAINING_APPLY_INSIGHT: 'training:apply-insight',
+  TRAINING_DISMISS_INSIGHT: 'training:dismiss-insight',
+  TRAINING_UPDATE_CONFIG: 'training:update-config',
 
   // Specialist operations (7.4)
   SPECIALIST_LIST: 'specialist:list',
