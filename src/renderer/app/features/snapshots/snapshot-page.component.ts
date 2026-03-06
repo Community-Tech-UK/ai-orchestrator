@@ -6,6 +6,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnDestroy,
   OnInit,
   computed,
@@ -13,10 +14,13 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { SnapshotIpcService } from '../../core/services/ipc/snapshot-ipc.service';
+import { SessionShareIpcService } from '../../core/services/ipc/session-share-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { DiffViewerComponent } from '../../shared/components/diff-viewer/diff-viewer.component';
+import type { SessionShareAttachment, SessionShareBundle } from '../../../../shared/types/session-share.types';
 
 interface SnapshotSession {
   id: string;
@@ -122,6 +126,14 @@ interface SnapshotDiff {
           (click)="loadSessions(selectedInstanceId())"
         >
           Load Sessions
+        </button>
+        <button
+          class="btn"
+          type="button"
+          [disabled]="!selectedInstanceId().trim()"
+          (click)="openReplay()"
+        >
+          Open Replay & Share
         </button>
       </div>
 
@@ -231,6 +243,121 @@ interface SnapshotDiff {
           }
         </div>
 
+      </div>
+
+      <div class="columns evidence-columns">
+        <div class="panel panel-left">
+          <div class="panel-header">
+            Evidence & Review Artifacts
+            <span class="panel-header-sub">— {{ evidenceBundle()?.artifacts?.length || 0 }}</span>
+          </div>
+
+          @if (loadingEvidence()) {
+            <div class="empty-hint">Loading evidence preview…</div>
+          } @else if (!selectedInstanceId().trim()) {
+            <div class="empty-hint">Enter an instance ID to inspect replay artifacts for that run.</div>
+          } @else if (!evidenceBundle()?.artifacts?.length) {
+            <div class="empty-hint">No structured review artifacts were recorded for this instance.</div>
+          } @else {
+            <ul class="item-list">
+              @for (artifact of evidenceBundle()!.artifacts; track artifact.id) {
+                <li class="item-row evidence-row">
+                  <div class="item-main">
+                    <span class="item-badge">{{ artifact.type }}</span>
+                    <span class="item-name" title="{{ artifact.title }}">{{ artifact.title }}</span>
+                  </div>
+                  @if (artifact.fileLabel) {
+                    <div class="item-meta">
+                      <span>{{ artifact.fileLabel }}</span>
+                      <span>{{ formatDate(artifact.timestamp) }}</span>
+                    </div>
+                  } @else {
+                    <div class="item-meta">
+                      <span>{{ formatDate(artifact.timestamp) }}</span>
+                    </div>
+                  }
+                  <pre class="evidence-preview">{{ artifact.content }}</pre>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        <div class="panel panel-center">
+          <div class="panel-header">
+            Embedded Attachments
+            <span class="panel-header-sub">— {{ evidenceBundle()?.attachments?.length || 0 }}</span>
+          </div>
+
+          @if (loadingEvidence()) {
+            <div class="empty-hint">Loading attachments…</div>
+          } @else if (!evidenceBundle()?.attachments?.length) {
+            <div class="empty-hint">No embedded evidence files were included in the share preview.</div>
+          } @else {
+            <ul class="item-list">
+              @for (attachment of evidenceBundle()!.attachments; track attachment.id) {
+                <li class="item-row evidence-row">
+                  <div class="item-main">
+                    <span class="item-badge">{{ attachment.kind }}</span>
+                    <span class="item-name" title="{{ attachment.title }}">{{ attachment.title }}</span>
+                  </div>
+                  <div class="item-meta">
+                    <span>{{ attachment.sourcePathLabel || attachment.fileName || 'Attachment' }}</span>
+                    <span>{{ formatAttachmentMeta(attachment) }}</span>
+                  </div>
+                  @if (attachment.embeddedBase64 && attachment.mediaType?.startsWith('image/')) {
+                    <img class="attachment-image" [src]="toDataUrl(attachment)" [alt]="attachment.title" />
+                  } @else if (attachment.embeddedText) {
+                    <pre class="evidence-preview">{{ attachment.embeddedText }}</pre>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        <div class="panel panel-right">
+          <div class="panel-header">
+            Replay Summary
+            <span class="panel-header-sub">
+              — {{ evidenceBundle()?.summary?.continuitySnapshotCount || 0 }} continuity /
+              {{ evidenceBundle()?.summary?.fileSnapshotSessionCount || 0 }} file sessions
+            </span>
+          </div>
+
+          @if (!evidenceBundle()) {
+            <div class="empty-hint">Load an instance to inspect its replay summary and redaction warnings.</div>
+          } @else {
+            <div class="evidence-summary">
+              <div class="summary-card">
+                <span class="field-label">Messages</span>
+                <strong>{{ evidenceBundle()!.summary.totalMessages }}</strong>
+              </div>
+              <div class="summary-card">
+                <span class="field-label">Artifacts</span>
+                <strong>{{ evidenceBundle()!.summary.artifactCount }}</strong>
+              </div>
+              <div class="summary-card">
+                <span class="field-label">Attachments</span>
+                <strong>{{ evidenceBundle()!.summary.attachmentCount }}</strong>
+              </div>
+              <div class="summary-card">
+                <span class="field-label">Redactions</span>
+                <strong>{{ evidenceBundle()!.summary.redactedContentCount }}</strong>
+              </div>
+            </div>
+
+            @if (evidenceBundle()!.warnings.length) {
+              <ul class="warning-list">
+                @for (warning of evidenceBundle()!.warnings; track warning) {
+                  <li>{{ warning }}</li>
+                }
+              </ul>
+            } @else {
+              <div class="empty-hint">No redaction or artifact warnings were reported for this replay preview.</div>
+            }
+          }
+        </div>
       </div>
 
       <!-- Confirmation Overlay -->
@@ -522,6 +649,11 @@ interface SnapshotDiff {
       overflow: auto;
     }
 
+    .evidence-columns {
+      flex: 0 0 auto;
+      min-height: 18rem;
+    }
+
     /* ---- Item Lists ---- */
 
     .item-list {
@@ -621,6 +753,57 @@ interface SnapshotDiff {
       margin-top: var(--spacing-md);
     }
 
+    .evidence-row {
+      gap: var(--spacing-xs);
+      cursor: default;
+    }
+
+    .evidence-preview {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--text-secondary);
+    }
+
+    .attachment-image {
+      width: 100%;
+      max-height: 18rem;
+      object-fit: contain;
+      border-radius: var(--radius-sm);
+      background: var(--bg-primary);
+    }
+
+    .evidence-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--spacing-sm);
+      padding: var(--spacing-md);
+    }
+
+    .summary-card {
+      display: grid;
+      gap: 0.25rem;
+      padding: var(--spacing-sm);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--bg-primary);
+    }
+
+    .summary-card strong {
+      font-size: 1rem;
+      color: var(--primary-color);
+    }
+
+    .warning-list {
+      margin: 0;
+      padding: 0 var(--spacing-lg) var(--spacing-md) 1.5rem;
+      color: #fbbf24;
+      display: grid;
+      gap: 0.35rem;
+    }
+
     /* ---- Confirmation Overlay ---- */
 
     .confirm-overlay {
@@ -711,8 +894,11 @@ interface SnapshotDiff {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SnapshotPageComponent implements OnInit, OnDestroy {
+  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly snapshotIpc = inject(SnapshotIpcService);
+  private readonly sessionShareIpc = inject(SessionShareIpcService);
 
   // ---- State signals ----
 
@@ -725,9 +911,11 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
 
   readonly stats = signal<SnapshotStats | null>(null);
   readonly currentDiff = signal<SnapshotDiff | null>(null);
+  readonly evidenceBundle = signal<SessionShareBundle | null>(null);
 
   readonly loading = signal(false);
   readonly loadingDiff = signal(false);
+  readonly loadingEvidence = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly infoMessage = signal<string | null>(null);
 
@@ -752,6 +940,20 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
     () => this.selectedSessionId() !== null
   );
 
+  constructor() {
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((query) => {
+        const instanceId = query.get('instanceId')?.trim() || '';
+        if (!instanceId || instanceId === this.selectedInstanceId().trim()) {
+          return;
+        }
+
+        this.selectedInstanceId.set(instanceId);
+        void this.loadSessions(instanceId);
+      });
+  }
+
   // ---- Lifecycle ----
 
   async ngOnInit(): Promise<void> {
@@ -775,6 +977,17 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
     this.selectedInstanceId.set(target.value);
   }
 
+  openReplay(): void {
+    const instanceId = this.selectedInstanceId().trim();
+    if (!instanceId) {
+      return;
+    }
+
+    void this.router.navigate(['/replay'], {
+      queryParams: { instanceId },
+    });
+  }
+
   async refresh(): Promise<void> {
     this.clearMessages();
     await this.loadStats();
@@ -788,18 +1001,24 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
     if (!instanceId.trim()) return;
     this.clearMessages();
     this.loading.set(true);
+    this.loadingEvidence.set(true);
     this.sessions.set([]);
     this.snapshots.set([]);
     this.selectedSessionId.set(null);
     this.selectedSnapshotId.set(null);
     this.currentDiff.set(null);
+    this.evidenceBundle.set(null);
 
     try {
       const response = await this.snapshotIpc.snapshotGetSessions(instanceId.trim());
       const data = this.unwrapData<SnapshotSession[]>(response, []);
       this.sessions.set(data);
+      await this.loadEvidence(instanceId.trim());
     } finally {
       this.loading.set(false);
+      if (this.loadingEvidence() && !this.evidenceBundle()) {
+        this.loadingEvidence.set(false);
+      }
     }
   }
 
@@ -914,16 +1133,35 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  formatDate(dateStr?: string): string {
-    if (!dateStr) return '—';
+  formatDate(dateValue?: string | number): string {
+    if (dateValue == null || dateValue === '') return '—';
     try {
-      return new Date(dateStr).toLocaleString(undefined, {
+      const normalized =
+        typeof dateValue === 'string' && /^\d+$/.test(dateValue)
+          ? Number(dateValue)
+          : dateValue;
+      return new Date(normalized).toLocaleString(undefined, {
         dateStyle: 'short',
         timeStyle: 'short',
       });
     } catch {
-      return dateStr;
+      return String(dateValue);
     }
+  }
+
+  formatAttachmentMeta(attachment: SessionShareAttachment): string {
+    const parts: string[] = [];
+    if (attachment.size != null) {
+      parts.push(this.formatBytes(attachment.size));
+    }
+    if (attachment.timestamp) {
+      parts.push(this.formatDate(attachment.timestamp));
+    }
+    return parts.join(' · ') || 'Attachment';
+  }
+
+  toDataUrl(attachment: SessionShareAttachment): string {
+    return `data:${attachment.mediaType || 'application/octet-stream'};base64,${attachment.embeddedBase64}`;
   }
 
   // ---- Private helpers ----
@@ -986,6 +1224,24 @@ export class SnapshotPageComponent implements OnInit, OnDestroy {
   private clearMessages(): void {
     this.errorMessage.set(null);
     this.infoMessage.set(null);
+  }
+
+  private async loadEvidence(instanceId: string): Promise<void> {
+    this.loadingEvidence.set(true);
+
+    try {
+      const response = await this.sessionShareIpc.previewForInstance(instanceId);
+      if (!response.success || !response.data) {
+        this.evidenceBundle.set(null);
+        return;
+      }
+
+      this.evidenceBundle.set(response.data as SessionShareBundle);
+    } catch {
+      this.evidenceBundle.set(null);
+    } finally {
+      this.loadingEvidence.set(false);
+    }
   }
 
   private unwrapData<T>(response: IpcResponse, fallback: T): T {

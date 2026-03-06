@@ -9,6 +9,10 @@
 
 import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
+import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
+import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
+import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
+import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
 
 interface PermissionsApi {
   permissionGetPendingBatch?: () => Promise<{ success: boolean; data?: { requests?: unknown[] } }>;
@@ -58,9 +62,95 @@ interface PermissionStats {
 @Component({
   selector: 'app-permissions-settings-tab',
   standalone: true,
-  imports: [],
+  imports: [TaskPreflightCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <div class="section">
+      <div class="section-header">
+        <h4>Permission Preset</h4>
+        <div class="header-actions">
+          <button class="btn-secondary" (click)="loadPermissionPreset()" [disabled]="loading()">
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <p class="section-description">
+        Choose how unmatched filesystem and network actions are handled before a rule or user decision applies.
+      </p>
+
+      <div class="preset-row">
+        <label class="preset-field">
+          <span>Default preset</span>
+          <select
+            class="scope-select"
+            [value]="permissionPreset()"
+            (change)="updatePermissionPreset($any($event.target).value)"
+          >
+            <option value="allow">Allow by default</option>
+            <option value="ask">Ask before action</option>
+            <option value="deny">Deny by default</option>
+          </select>
+        </label>
+
+        <div class="preset-meta">
+          <span class="stat-label">Current mode</span>
+          <strong>{{ permissionPreset() }}</strong>
+        </div>
+      </div>
+
+      @if (defaultWorkspacePreflight()) {
+        <div class="preflight-wrapper">
+          <app-task-preflight-card
+            [report]="defaultWorkspacePreflight()"
+            [loading]="presetLoading()"
+            title="Default Workspace Preflight"
+            subtitle="How the current preset and workspace defaults will affect a typical repo-backed task."
+            emptyMessage="Set a default working directory to inspect workspace readiness here."
+          />
+        </div>
+      } @else if (store.defaultWorkingDirectory()) {
+        <div class="preflight-wrapper">
+          <app-task-preflight-card
+            [report]="defaultWorkspacePreflight()"
+            [loading]="presetLoading()"
+            title="Default Workspace Preflight"
+            subtitle="How the current preset and workspace defaults will affect a typical repo-backed task."
+            emptyMessage="Checking the configured default workspace."
+          />
+        </div>
+      } @else {
+        <p class="section-description">Set a default working directory in general settings to preview policy impact here.</p>
+      }
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h4>Browser Automation Permissions</h4>
+      </div>
+
+      <p class="section-description">
+        Browser automation uses an MCP server plus a local browser runtime. Expect broader filesystem
+        and network access than a normal read-only tool flow, especially when the browser is launched
+        with a reusable profile or remote debugging enabled.
+      </p>
+
+      <div class="permission-guidance">
+        <div class="guidance-card">
+          <strong>Use a separate browser profile</strong>
+          <span>Keep authenticated sessions isolated from your personal Chrome profile.</span>
+        </div>
+        <div class="guidance-card">
+          <strong>Prefer scoped MCP approvals</strong>
+          <span>Grant session-level approval first, then promote to a persistent rule only after review.</span>
+        </div>
+        <div class="guidance-card">
+          <strong>Verify the MCP source</strong>
+          <span>Only approve browser servers you recognize, since they can navigate, click, and inspect page content.</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Pending Batch Permissions Section -->
     <div class="section">
       <div class="section-header">
@@ -310,6 +400,60 @@ interface PermissionStats {
         color: var(--text-secondary);
         margin: 0 0 var(--spacing-md);
         line-height: 1.4;
+      }
+
+      .preset-row {
+        display: flex;
+        gap: var(--spacing-md);
+        align-items: end;
+        margin-bottom: var(--spacing-md);
+      }
+
+      .preset-field,
+      .preset-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .preset-field {
+        min-width: 220px;
+      }
+
+      .preset-field span {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .preset-meta strong {
+        color: var(--text-primary);
+        text-transform: uppercase;
+      }
+
+      .preflight-wrapper {
+        margin-top: var(--spacing-sm);
+      }
+
+      .permission-guidance {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--spacing-sm);
+      }
+
+      .guidance-card {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: var(--spacing-sm);
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+
+      .guidance-card strong {
+        color: var(--text-primary);
       }
 
       .loading-state,
@@ -656,16 +800,33 @@ interface PermissionStats {
         opacity: 0.5;
         cursor: not-allowed;
       }
+
+      @media (max-width: 900px) {
+        .permission-guidance,
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .preset-row {
+          display: grid;
+          grid-template-columns: 1fr;
+        }
+      }
     `,
   ],
 })
 export class PermissionsSettingsTabComponent {
   store = inject(SettingsStore);
+  private readonly securityIpc = inject(SecurityIpcService);
+  private readonly taskIpc = inject(TaskIpcService);
 
   loading = signal(false);
+  presetLoading = signal(false);
   pendingPermissions = signal<PendingPermission[]>([]);
   learnedPatterns = signal<LearnedPattern[]>([]);
   batchScope = signal<'once' | 'session' | 'always'>('session');
+  permissionPreset = signal<'allow' | 'ask' | 'deny'>('ask');
+  defaultWorkspacePreflight = signal<TaskPreflightReport | null>(null);
 
   stats = signal<PermissionStats>({
     totalPatterns: 0,
@@ -689,6 +850,20 @@ export class PermissionsSettingsTabComponent {
         void this.loadAll();
       }
     });
+
+    effect(() => {
+      const workingDirectory = this.store.defaultWorkingDirectory();
+      if (!this.initialized) {
+        return;
+      }
+
+      if (!workingDirectory) {
+        this.defaultWorkspacePreflight.set(null);
+        return;
+      }
+
+      void this.refreshDefaultWorkspacePreflight();
+    });
   }
 
   async loadAll(): Promise<void> {
@@ -696,7 +871,21 @@ export class PermissionsSettingsTabComponent {
       this.loadPendingPermissions(),
       this.loadLearnedPatterns(),
       this.loadStats(),
+      this.loadPermissionPreset(),
     ]);
+  }
+
+  async loadPermissionPreset(): Promise<void> {
+    this.presetLoading.set(true);
+    try {
+      const response = await this.securityIpc.securityGetPermissionConfig();
+      if (response.success && response.data?.config) {
+        this.permissionPreset.set(response.data.config.defaultAction);
+      }
+      await this.refreshDefaultWorkspacePreflight();
+    } finally {
+      this.presetLoading.set(false);
+    }
   }
 
   async loadPendingPermissions(): Promise<void> {
@@ -851,5 +1040,43 @@ export class PermissionsSettingsTabComponent {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  async updatePermissionPreset(value: 'allow' | 'ask' | 'deny'): Promise<void> {
+    this.presetLoading.set(true);
+    try {
+      const response = await this.securityIpc.securitySetPermissionPreset(value);
+      if (response.success && response.data?.config) {
+        this.permissionPreset.set(response.data.config.defaultAction);
+        await this.loadStats();
+        await this.refreshDefaultWorkspacePreflight();
+      }
+    } finally {
+      this.presetLoading.set(false);
+    }
+  }
+
+  private async refreshDefaultWorkspacePreflight(): Promise<void> {
+    const workingDirectory = this.store.defaultWorkingDirectory()?.trim();
+    if (!workingDirectory) {
+      this.defaultWorkspacePreflight.set(null);
+      this.presetLoading.set(false);
+      return;
+    }
+
+    const response = await this.taskIpc.taskGetPreflight({
+      workingDirectory,
+      surface: 'repo-job',
+      taskType: 'default-workspace',
+      requiresWrite: true,
+      requiresNetwork: true,
+    });
+
+    if (response.success && response.data) {
+      this.defaultWorkspacePreflight.set(response.data);
+      return;
+    }
+
+    this.defaultWorkspacePreflight.set(null);
   }
 }

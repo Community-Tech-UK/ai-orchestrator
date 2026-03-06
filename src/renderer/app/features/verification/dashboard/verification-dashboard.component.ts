@@ -24,6 +24,7 @@ import { Router } from '@angular/router';
 import { VerificationStore } from '../../../core/state/verification.store';
 import { CliStore } from '../../../core/state/cli.store';
 import { ElectronIpcService } from '../../../core/services/ipc';
+import { TaskIpcService } from '../../../core/services/ipc/task-ipc.service';
 import { DraftService, VERIFICATION_DRAFT_KEY } from '../../../core/services/draft.service';
 import { AgentCardComponent } from '../shared/components/agent-card.component';
 import { AgentConfigPanelComponent } from '../config/agent-config-panel.component';
@@ -32,6 +33,8 @@ import { VerificationResultsComponent } from '../results/verification-results.co
 import { DropZoneComponent } from '../../file-drop/drop-zone.component';
 import type { CliType } from '../../../../../shared/types/unified-cli-response';
 import type { SynthesisStrategy } from '../../../../../shared/types/verification.types';
+import type { TaskPreflightReport } from '../../../../../shared/types/task-preflight.types';
+import { TaskPreflightCardComponent } from '../../../shared/components/task-preflight-card.component';
 
 @Component({
   selector: 'app-verification-dashboard',
@@ -43,6 +46,7 @@ import type { SynthesisStrategy } from '../../../../../shared/types/verification
     VerificationMonitorComponent,
     VerificationResultsComponent,
     DropZoneComponent,
+    TaskPreflightCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -170,6 +174,15 @@ import type { SynthesisStrategy } from '../../../../../shared/types/verification
                     }
                   </div>
                   <span class="form-hint">Agents will analyze code in this directory</span>
+                  <div class="preflight-wrapper">
+                    <app-task-preflight-card
+                      [report]="preflight()"
+                      [loading]="preflightLoading()"
+                      title="Verification Preflight"
+                      subtitle="Checks the selected workspace for instruction, permission, and network readiness."
+                      emptyMessage="Pick a working directory to inspect verification readiness."
+                    />
+                  </div>
                 </div>
 
                 <div class="form-group">
@@ -833,6 +846,10 @@ You can write detailed, multi-line prompts here. The textarea will expand as nee
       margin-top: 4px;
     }
 
+    .preflight-wrapper {
+      margin-top: 12px;
+    }
+
     .prompt-actions {
       display: flex;
       justify-content: space-between;
@@ -1134,6 +1151,7 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
   private router = inject(Router);
   private draftService = inject(DraftService);
   private ipc = inject(ElectronIpcService);
+  private taskIpc = inject(TaskIpcService);
   store = inject(VerificationStore);
   cliStore = inject(CliStore);
 
@@ -1144,6 +1162,8 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
   promptInput = '';
   selectedStrategy: SynthesisStrategy = 'debate';
   workingDirectory = signal<string | null>(null);
+  preflight = signal<TaskPreflightReport | null>(null);
+  preflightLoading = signal(false);
   pendingFiles = signal<File[]>([]);
   private filePreviewUrls = new Map<File, string>();
 
@@ -1304,11 +1324,13 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
     const folder = await this.ipc.selectFolder();
     if (folder) {
       this.workingDirectory.set(folder);
+      await this.refreshPreflight();
     }
   }
 
   clearWorkingDirectory(): void {
     this.workingDirectory.set(null);
+    this.preflight.set(null);
   }
 
   // ============================================
@@ -1349,6 +1371,8 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
     return (
       this.promptInput.trim().length > 0 &&
       this.validSelectedAgents().length >= 2 &&
+      (!this.workingDirectory() || !this.preflightLoading()) &&
+      (!this.workingDirectory() || (this.preflight()?.blockers.length || 0) === 0) &&
       !this.store.isRunning()
     );
   }
@@ -1356,6 +1380,7 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
   onStrategyChange(strategy: SynthesisStrategy): void {
     // Persist to localStorage immediately when user changes strategy
     this.store.setDefaultConfig({ synthesisStrategy: strategy });
+    void this.refreshPreflight();
   }
 
   async startVerification(): Promise<void> {
@@ -1487,5 +1512,33 @@ export class VerificationDashboardComponent implements OnDestroy, AfterViewInit 
     if (file.type.includes('text')) return '📝';
     if (file.type.includes('json') || file.type.includes('javascript')) return '📋';
     return '📎';
+  }
+
+  private async refreshPreflight(): Promise<void> {
+    const workingDirectory = this.workingDirectory()?.trim();
+    if (!workingDirectory) {
+      this.preflight.set(null);
+      this.preflightLoading.set(false);
+      return;
+    }
+
+    this.preflightLoading.set(true);
+    try {
+      const response = await this.taskIpc.taskGetPreflight({
+        workingDirectory,
+        surface: 'verification',
+        taskType: `verification:${this.selectedStrategy}`,
+        requiresNetwork: true,
+      });
+
+      if (response.success && response.data) {
+        this.preflight.set(response.data);
+        return;
+      }
+
+      this.preflight.set(null);
+    } finally {
+      this.preflightLoading.set(false);
+    }
   }
 }

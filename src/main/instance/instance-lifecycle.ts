@@ -40,6 +40,7 @@ import type {
 } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { getPolicyAdapter } from '../observation/policy-adapter';
+import { resolveInstructionStack } from '../core/config/instruction-resolver';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -200,32 +201,6 @@ export class InstanceLifecycleManager extends EventEmitter {
   // ============================================
 
   /**
-   * Parse frontmatter from instruction markdown file
-   */
-  private parseClaudeMdFrontmatter(content: string): Record<string, string> {
-    const metadata: Record<string, string> = {};
-
-    // Parse YAML frontmatter
-    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    if (frontmatterMatch) {
-      const frontmatter = frontmatterMatch[1];
-
-      // Simple YAML parsing
-      const lines = frontmatter.split('\n');
-      for (const line of lines) {
-        const [key, ...valueParts] = line.split(':');
-        const value = valueParts.join(':').trim();
-
-        if (key && value) {
-          metadata[key.trim()] = value;
-        }
-      }
-    }
-
-    return metadata;
-  }
-
-  /**
    * Load instruction hierarchy with backward compatibility:
    * 1) ~/.orchestrator/INSTRUCTIONS.md
    * 2) ~/.claude/CLAUDE.md (legacy)
@@ -233,36 +208,23 @@ export class InstanceLifecycleManager extends EventEmitter {
    * 4) <workDir>/.claude/CLAUDE.md (legacy)
    */
   private async loadPromptHierarchy(workDir: string): Promise<string[]> {
-    const prompts: string[] = [];
+    const resolution = await resolveInstructionStack({
+      workingDirectory: workDir,
+    });
 
-    const homeDir = app.getPath('home');
-    const candidates: Array<{ filePath: string; label: string }> = [
-      { filePath: path.join(homeDir, '.orchestrator', 'INSTRUCTIONS.md'), label: 'global instructions' },
-      { filePath: path.join(homeDir, '.claude', 'CLAUDE.md'), label: 'global CLAUDE.md (legacy)' },
-      { filePath: path.join(workDir, '.orchestrator', 'INSTRUCTIONS.md'), label: 'project instructions' },
-      { filePath: path.join(workDir, '.claude', 'CLAUDE.md'), label: 'project CLAUDE.md (legacy)' },
-    ];
-
-    for (const candidate of candidates) {
-      try {
-        const content = await fs.readFile(candidate.filePath, 'utf-8');
-        const contentWithoutFrontmatter = content.replace(/^---\n[\s\S]*?\n---\n/, '');
-        if (contentWithoutFrontmatter.trim()) {
-          prompts.push(contentWithoutFrontmatter.trim());
-          logger.debug('Loaded instruction prompt', {
-            label: candidate.label,
-            path: candidate.filePath,
-          });
-        }
-      } catch {
-        logger.debug('Instruction file not found (optional)', {
-          label: candidate.label,
-          path: candidate.filePath,
-        });
-      }
+    for (const source of resolution.sources) {
+      logger.debug('Resolved instruction source for instance prompt', {
+        path: source.path,
+        label: source.label,
+        loaded: source.loaded,
+        applied: source.applied,
+        reason: source.reason,
+      });
     }
 
-    return prompts;
+    return resolution.mergedContent
+      ? resolution.mergedContent.split('\n\n---\n\n')
+      : [];
   }
 
   // ============================================

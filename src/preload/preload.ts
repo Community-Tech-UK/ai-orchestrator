@@ -120,6 +120,10 @@ const IPC_CHANNELS = {
   SESSION_COPY_TO_CLIPBOARD: 'session:copy-to-clipboard',
   SESSION_SAVE_TO_FILE: 'session:save-to-file',
   SESSION_REVEAL_FILE: 'session:reveal-file',
+  SESSION_SHARE_PREVIEW: 'session:share-preview',
+  SESSION_SHARE_SAVE: 'session:share-save',
+  SESSION_SHARE_LOAD: 'session:share-load',
+  SESSION_SHARE_REPLAY: 'session:share-replay',
 
   // Command operations
   COMMAND_LIST: 'command:list',
@@ -134,6 +138,8 @@ const IPC_CHANNELS = {
   CONFIG_SAVE_PROJECT: 'config:save-project',
   CONFIG_CREATE_PROJECT: 'config:create-project',
   CONFIG_FIND_PROJECT: 'config:find-project',
+  INSTRUCTIONS_RESOLVE: 'instructions:resolve',
+  INSTRUCTIONS_CREATE_DRAFT: 'instructions:create-draft',
 
   // Plan mode operations
   PLAN_MODE_ENTER: 'plan:enter',
@@ -192,6 +198,7 @@ const IPC_CHANNELS = {
   MCP_READ_RESOURCE: 'mcp:read-resource',
   MCP_GET_PROMPT: 'mcp:get-prompt',
   MCP_GET_PRESETS: 'mcp:get-presets',
+  MCP_GET_BROWSER_AUTOMATION_HEALTH: 'mcp:get-browser-automation-health',
   MCP_STATE_CHANGED: 'mcp:state-changed',
   MCP_SERVER_STATUS_CHANGED: 'mcp:server-status-changed',
 
@@ -224,6 +231,15 @@ const IPC_CHANNELS = {
   TASK_GET_BY_CHILD: 'task:get-by-child',
   TASK_CANCEL: 'task:cancel',
   TASK_GET_QUEUE: 'task:get-queue',
+  TASK_GET_PREFLIGHT: 'task:get-preflight',
+
+  // Background repo jobs
+  REPO_JOB_SUBMIT: 'repo-job:submit',
+  REPO_JOB_LIST: 'repo-job:list',
+  REPO_JOB_GET: 'repo-job:get',
+  REPO_JOB_CANCEL: 'repo-job:cancel',
+  REPO_JOB_RERUN: 'repo-job:rerun',
+  REPO_JOB_GET_STATS: 'repo-job:get-stats',
 
   // Security - Secret detection & redaction
   SECURITY_DETECT_SECRETS: 'security:detect-secrets',
@@ -231,11 +247,19 @@ const IPC_CHANNELS = {
   SECURITY_CHECK_FILE: 'security:check-file',
   SECURITY_GET_AUDIT_LOG: 'security:get-audit-log',
   SECURITY_CLEAR_AUDIT_LOG: 'security:clear-audit-log',
+  SECURITY_GET_PERMISSION_CONFIG: 'security:get-permission-config',
+  SECURITY_SET_PERMISSION_PRESET: 'security:set-permission-preset',
 
   // Security - Environment filtering
   SECURITY_GET_SAFE_ENV: 'security:get-safe-env',
   SECURITY_CHECK_ENV_VAR: 'security:check-env-var',
   SECURITY_GET_ENV_FILTER_CONFIG: 'security:get-env-filter-config',
+
+  // Remote observer
+  REMOTE_OBSERVER_GET_STATUS: 'remote-observer:get-status',
+  REMOTE_OBSERVER_START: 'remote-observer:start',
+  REMOTE_OBSERVER_STOP: 'remote-observer:stop',
+  REMOTE_OBSERVER_ROTATE_TOKEN: 'remote-observer:rotate-token',
 
   // Cost Tracking (5.3)
   COST_RECORD_USAGE: 'cost:record-usage',
@@ -1534,6 +1558,47 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.SESSION_REVEAL_FILE, { filePath });
   },
 
+  /**
+   * Build an in-memory redacted share bundle for an instance or history entry
+   */
+  sessionSharePreview: (payload: {
+    instanceId?: string;
+    entryId?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SESSION_SHARE_PREVIEW, payload);
+  },
+
+  /**
+   * Save a redacted share bundle to disk
+   */
+  sessionShareSave: (payload: {
+    instanceId?: string;
+    entryId?: string;
+    filePath?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SESSION_SHARE_SAVE, payload);
+  },
+
+  /**
+   * Load a previously saved share bundle from disk
+   */
+  sessionShareLoad: (payload: {
+    filePath: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SESSION_SHARE_LOAD, payload);
+  },
+
+  /**
+   * Replay a saved share bundle into a new local instance
+   */
+  sessionShareReplay: (payload: {
+    filePath: string;
+    workingDirectory: string;
+    displayName?: string;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SESSION_SHARE_REPLAY, payload);
+  },
+
   // ============================================
   // Command Operations
   // ============================================
@@ -1642,6 +1707,32 @@ const electronAPI = {
    */
   findProjectConfig: (startDir: string): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.CONFIG_FIND_PROJECT, { startDir });
+  },
+
+  /**
+   * Resolve the active instruction stack for a working directory and optional context files.
+   */
+  instructionsResolve: (
+    workingDirectory: string,
+    contextPaths?: string[],
+  ): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.INSTRUCTIONS_RESOLVE, {
+      workingDirectory,
+      contextPaths,
+    });
+  },
+
+  /**
+   * Generate a migration draft for `.orchestrator/INSTRUCTIONS.md`.
+   */
+  instructionsCreateDraft: (
+    workingDirectory: string,
+    contextPaths?: string[],
+  ): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.INSTRUCTIONS_CREATE_DRAFT, {
+      workingDirectory,
+      contextPaths,
+    });
   },
 
   // ============================================
@@ -2125,6 +2216,13 @@ const electronAPI = {
   },
 
   /**
+   * Get browser automation readiness diagnostics
+   */
+  mcpGetBrowserAutomationHealth: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_BROWSER_AUTOMATION_HEALTH);
+  },
+
+  /**
    * Listen for MCP state changes (tools, resources, prompts updated)
    */
   onMcpStateChanged: (
@@ -2366,6 +2464,56 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.TASK_GET_QUEUE);
   },
 
+  taskGetPreflight: (payload: {
+    workingDirectory: string;
+    surface: 'repo-job' | 'workflow' | 'worktree' | 'verification';
+    taskType?: string;
+    requiresWrite?: boolean;
+    requiresNetwork?: boolean;
+    requiresBrowser?: boolean;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_GET_PREFLIGHT, payload);
+  },
+
+  repoJobSubmit: (payload: {
+    type: 'pr-review' | 'issue-implementation' | 'repo-health-audit';
+    workingDirectory: string;
+    issueOrPrUrl?: string;
+    title?: string;
+    description?: string;
+    baseBranch?: string;
+    branchRef?: string;
+    workflowTemplateId?: string;
+    useWorktree?: boolean;
+    browserEvidence?: boolean;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REPO_JOB_SUBMIT, payload);
+  },
+
+  repoJobList: (payload?: {
+    status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+    type?: 'pr-review' | 'issue-implementation' | 'repo-health-audit';
+    limit?: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REPO_JOB_LIST, payload);
+  },
+
+  repoJobGet: (jobId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REPO_JOB_GET, { jobId });
+  },
+
+  repoJobCancel: (jobId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REPO_JOB_CANCEL, { jobId });
+  },
+
+  repoJobRerun: (jobId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REPO_JOB_RERUN, { jobId });
+  },
+
+  repoJobGetStats: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REPO_JOB_GET_STATS);
+  },
+
   // ============================================
   // Security - Secret Detection & Redaction
   // ============================================
@@ -2431,6 +2579,16 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.SECURITY_CLEAR_AUDIT_LOG);
   },
 
+  securityGetPermissionConfig: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SECURITY_GET_PERMISSION_CONFIG);
+  },
+
+  securitySetPermissionPreset: (
+    preset: 'allow' | 'ask' | 'deny'
+  ): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SECURITY_SET_PERMISSION_PRESET, { preset });
+  },
+
   /**
    * Get safe environment variables
    */
@@ -2453,6 +2611,25 @@ const electronAPI = {
    */
   securityGetEnvFilterConfig: (): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.SECURITY_GET_ENV_FILTER_CONFIG);
+  },
+
+  remoteObserverGetStatus: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_OBSERVER_GET_STATUS);
+  },
+
+  remoteObserverStart: (payload?: {
+    host?: string;
+    port?: number;
+  }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_OBSERVER_START, payload || {});
+  },
+
+  remoteObserverStop: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_OBSERVER_STOP);
+  },
+
+  remoteObserverRotateToken: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_OBSERVER_ROTATE_TOKEN);
   },
 
   // ============================================

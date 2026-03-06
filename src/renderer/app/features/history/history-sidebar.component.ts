@@ -11,8 +11,10 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
+import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { HistoryListComponent } from './history-list.component';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
@@ -34,12 +36,17 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
     <aside class="history-sidebar" [class.open]="true">
       <div class="sidebar-header">
         <h2>Conversation History</h2>
-        <button class="btn-close" (click)="closeHistory.emit()" title="Close">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <div class="header-actions">
+          <button class="btn-import" (click)="loadBundle()" title="Load saved share bundle">
+            Bundle
+          </button>
+          <button class="btn-close" (click)="closeHistory.emit()" title="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div class="search-container">
@@ -160,12 +167,20 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
       -webkit-app-region: no-drag;
     }
 
+    .header-actions {
+      display: flex;
+      gap: var(--spacing-xs);
+      align-items: center;
+      -webkit-app-region: no-drag;
+    }
+
     .sidebar-header h2 {
       margin: 0;
       font-size: 16px;
       font-weight: 600;
     }
 
+    .btn-import,
     .btn-close {
       display: flex;
       align-items: center;
@@ -183,6 +198,13 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
         background: var(--bg-tertiary);
         color: var(--text-primary);
       }
+    }
+
+    .btn-import {
+      width: auto;
+      padding: 0 var(--spacing-sm);
+      font-size: 12px;
+      border: 1px solid var(--border-color);
     }
 
     .search-container {
@@ -359,6 +381,8 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
 export class HistorySidebarComponent implements OnInit {
   store = inject(HistoryStore);
   instanceStore = inject(InstanceStore);
+  private router = inject(Router);
+  private fileIpc = inject(FileIpcService);
   closeHistory = output<void>();
 
   // Confirmation dialog state
@@ -371,6 +395,22 @@ export class HistorySidebarComponent implements OnInit {
 
   ngOnInit(): void {
     this.store.loadHistory();
+  }
+
+  async loadBundle(): Promise<void> {
+    const selected = await this.fileIpc.selectFiles({
+      multiple: false,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    const filePath = selected?.[0];
+    if (!filePath) {
+      return;
+    }
+
+    this.closeHistory.emit();
+    await this.router.navigate(['/replay'], {
+      queryParams: { bundlePath: filePath },
+    });
   }
 
   onSearchChange(query: string): void {

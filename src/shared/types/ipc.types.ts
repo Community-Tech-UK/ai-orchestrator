@@ -9,6 +9,7 @@ import type {
   OutputMessage,
   InstanceProvider
 } from './instance.types';
+import type { RepoJobStatus, RepoJobType } from './repo-job.types';
 
 /**
  * IPC Channel names - domain:action pattern
@@ -127,6 +128,10 @@ export const IPC_CHANNELS = {
   SESSION_COPY_TO_CLIPBOARD: 'session:copy-to-clipboard',
   SESSION_SAVE_TO_FILE: 'session:save-to-file',
   SESSION_REVEAL_FILE: 'session:reveal-file',
+  SESSION_SHARE_PREVIEW: 'session:share-preview',
+  SESSION_SHARE_SAVE: 'session:share-save',
+  SESSION_SHARE_LOAD: 'session:share-load',
+  SESSION_SHARE_REPLAY: 'session:share-replay',
 
   // Command operations
   COMMAND_LIST: 'command:list',
@@ -141,6 +146,10 @@ export const IPC_CHANNELS = {
   CONFIG_SAVE_PROJECT: 'config:save-project',
   CONFIG_CREATE_PROJECT: 'config:create-project',
   CONFIG_FIND_PROJECT: 'config:find-project',
+
+  // Instruction inspection and migration
+  INSTRUCTIONS_RESOLVE: 'instructions:resolve',
+  INSTRUCTIONS_CREATE_DRAFT: 'instructions:create-draft',
 
   // Plan mode operations
   PLAN_MODE_ENTER: 'plan:enter',
@@ -231,6 +240,7 @@ export const IPC_CHANNELS = {
   MCP_READ_RESOURCE: 'mcp:read-resource',
   MCP_GET_PROMPT: 'mcp:get-prompt',
   MCP_GET_PRESETS: 'mcp:get-presets',
+  MCP_GET_BROWSER_AUTOMATION_HEALTH: 'mcp:get-browser-automation-health',
   MCP_STATE_CHANGED: 'mcp:state-changed',
   MCP_SERVER_STATUS_CHANGED: 'mcp:server-status-changed',
 
@@ -241,9 +251,18 @@ export const IPC_CHANNELS = {
   TASK_GET_BY_CHILD: 'task:get-by-child',
   TASK_CANCEL: 'task:cancel',
   TASK_GET_QUEUE: 'task:get-queue',
+  TASK_GET_PREFLIGHT: 'task:get-preflight',
   TASK_COMPLETE: 'task:complete',
   TASK_PROGRESS: 'task:progress',
   TASK_ERROR: 'task:error',
+
+  // Background repo jobs
+  REPO_JOB_SUBMIT: 'repo-job:submit',
+  REPO_JOB_LIST: 'repo-job:list',
+  REPO_JOB_GET: 'repo-job:get',
+  REPO_JOB_CANCEL: 'repo-job:cancel',
+  REPO_JOB_RERUN: 'repo-job:rerun',
+  REPO_JOB_GET_STATS: 'repo-job:get-stats',
 
   // Security - Secret detection & redaction
   SECURITY_DETECT_SECRETS: 'security:detect-secrets',
@@ -257,6 +276,8 @@ export const IPC_CHANNELS = {
   SECURITY_CHECK_ENV_VAR: 'security:check-env-var',
   SECURITY_GET_ENV_FILTER_CONFIG: 'security:get-env-filter-config',
   SECURITY_UPDATE_ENV_FILTER_CONFIG: 'security:update-env-filter-config',
+  SECURITY_GET_PERMISSION_CONFIG: 'security:get-permission-config',
+  SECURITY_SET_PERMISSION_PRESET: 'security:set-permission-preset',
 
   // Cost Tracking (5.3)
   COST_RECORD_USAGE: 'cost:record-usage',
@@ -293,6 +314,12 @@ export const IPC_CHANNELS = {
   REMOTE_CONFIG_STATUS: 'remote-config:status',
   REMOTE_CONFIG_CLEAR_CACHE: 'remote-config:clear-cache',
   REMOTE_CONFIG_INVALIDATE: 'remote-config:invalidate',
+
+  // Remote observer / read-only access
+  REMOTE_OBSERVER_GET_STATUS: 'remote-observer:get-status',
+  REMOTE_OBSERVER_START: 'remote-observer:start',
+  REMOTE_OBSERVER_STOP: 'remote-observer:stop',
+  REMOTE_OBSERVER_ROTATE_TOKEN: 'remote-observer:rotate-token',
 
   // External Editor (9.2)
   EDITOR_DETECT: 'editor:detect',
@@ -1103,6 +1130,16 @@ export interface ConfigFindProjectPayload {
   startDir: string;
 }
 
+export interface InstructionsResolvePayload {
+  workingDirectory: string;
+  contextPaths?: string[];
+}
+
+export interface InstructionsCreateDraftPayload {
+  workingDirectory: string;
+  contextPaths?: string[];
+}
+
 // ============================================
 // Plan Mode Payloads
 // ============================================
@@ -1392,6 +1429,45 @@ export interface TaskCancelPayload {
   taskId: string;
 }
 
+export interface TaskGetPreflightPayload {
+  workingDirectory: string;
+  surface: 'repo-job' | 'workflow' | 'worktree' | 'verification';
+  taskType?: string;
+  requiresWrite?: boolean;
+  requiresNetwork?: boolean;
+  requiresBrowser?: boolean;
+}
+
+export interface RepoJobSubmitPayload {
+  type: RepoJobType;
+  workingDirectory: string;
+  issueOrPrUrl?: string;
+  title?: string;
+  description?: string;
+  baseBranch?: string;
+  branchRef?: string;
+  workflowTemplateId?: string;
+  useWorktree?: boolean;
+}
+
+export interface RepoJobListPayload {
+  status?: RepoJobStatus;
+  type?: RepoJobType;
+  limit?: number;
+}
+
+export interface RepoJobGetPayload {
+  jobId: string;
+}
+
+export interface RepoJobCancelPayload {
+  jobId: string;
+}
+
+export interface RepoJobRerunPayload {
+  jobId: string;
+}
+
 // ============================================
 // Security Payloads (Secret Detection & Environment Filtering)
 // ============================================
@@ -1433,6 +1509,10 @@ export interface SecurityUpdateEnvFilterConfigPayload {
   blockPatterns?: string[]; // Regex patterns as strings
   allowPatterns?: string[]; // Regex patterns as strings
   blockAllSecrets?: boolean;
+}
+
+export interface SecuritySetPermissionPresetPayload {
+  preset: 'allow' | 'ask' | 'deny';
 }
 
 // ============================================
@@ -1555,6 +1635,11 @@ export interface RemoteConfigDiscoverGitPayload {
 
 export interface RemoteConfigInvalidatePayload {
   url: string;
+}
+
+export interface RemoteObserverStartPayload {
+  host?: string;
+  port?: number;
 }
 
 // ============================================

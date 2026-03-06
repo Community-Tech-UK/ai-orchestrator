@@ -192,9 +192,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       this.process.stderr?.on('data', (data) => {
         const errorStr = data.toString();
-        // Only emit as error if it's actually an error, not just progress info
-        if (errorStr.includes('error') || errorStr.includes('Error') || errorStr.includes('fatal')) {
-          this.emit('error', errorStr);
+        // Surface MCP / startup progress as info output so users see what's happening
+        const lines = errorStr.split('\n').filter((l: string) => l.trim());
+        for (const line of lines) {
+          const trimmed = line.trim();
+          // Hard errors → emit as error
+          if (/\b(fatal|FATAL)\b/.test(trimmed) ||
+              (/\b(error|Error|ERROR)\b/.test(trimmed) && !trimmed.startsWith('mcp:'))) {
+            this.emit('error', trimmed);
+          } else if (trimmed.startsWith('mcp:') || trimmed.includes('starting') || trimmed.includes('ready') || trimmed.includes('failed')) {
+            // MCP loading / startup status → surface as system output
+            this.emit('output', `[codex] ${trimmed}`);
+          }
         }
       });
 
@@ -476,6 +485,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     this.emit('status', 'busy' as InstanceStatus);
+
+    // Emit a startup notice so the UI shows progress instead of a blank spinner
+    const startupNotice: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: '[codex] Starting Codex CLI... (this may take a moment if MCP servers are loading)',
+    };
+    this.emit('output', startupNotice);
 
     try {
       const cliMessage: CliMessage = {

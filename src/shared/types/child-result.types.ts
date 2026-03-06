@@ -13,6 +13,10 @@ export type ArtifactType =
   | 'recommendation' // A suggested action
   | 'code_snippet' // A piece of code with location
   | 'file_reference' // A reference to a file
+  | 'screenshot' // Browser screenshot or visual capture
+  | 'console_log_excerpt' // Console output or browser log excerpt
+  | 'network_error_summary' // Network failure summary or HAR excerpt
+  | 'trace_reference' // Trace, HAR, or other heavyweight browser artifact
   | 'decision' // A decision made with rationale
   | 'data' // Structured data (JSON, etc.)
   | 'command' // A command that was executed

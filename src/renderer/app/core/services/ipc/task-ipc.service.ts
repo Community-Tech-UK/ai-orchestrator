@@ -4,6 +4,10 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type {
+  TaskPreflightReport,
+  TaskPreflightRequest,
+} from '../../../../../shared/types/task-preflight.types';
 
 @Injectable({ providedIn: 'root' })
 export class TaskIpcService {
@@ -63,5 +67,12 @@ export class TaskIpcService {
   async taskGetQueue(): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.taskGetQueue();
+  }
+
+  async taskGetPreflight(
+    request: TaskPreflightRequest,
+  ): Promise<IpcResponse<TaskPreflightReport>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.taskGetPreflight(request) as Promise<IpcResponse<TaskPreflightReport>>;
   }
 }

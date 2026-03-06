@@ -157,6 +157,16 @@ export const ConfigFindProjectPayloadSchema = z.object({
   startDir: WorkingDirectorySchema,
 });
 
+export const InstructionsResolvePayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+  contextPaths: z.array(FilePathSchema).max(500).optional(),
+});
+
+export const InstructionsCreateDraftPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+  contextPaths: z.array(FilePathSchema).max(500).optional(),
+});
+
 // ============ Remote Config ============
 
 const UrlSchema = z.string().url().max(2000);
@@ -190,6 +200,11 @@ export const RemoteConfigDiscoverGitPayloadSchema = z.object({
 
 export const RemoteConfigInvalidatePayloadSchema = z.object({
   url: UrlSchema,
+});
+
+export const RemoteObserverStartPayloadSchema = z.object({
+  host: z.string().min(1).max(255).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
 });
 
 // ============ User Action Response ============
@@ -728,6 +743,10 @@ export const SecurityCheckEnvVarPayloadSchema = z.object({
   value: z.string().max(100_000),
 });
 
+export const SecuritySetPermissionPresetPayloadSchema = z.object({
+  preset: z.enum(['allow', 'ask', 'deny']),
+});
+
 export const BashValidatePayloadSchema = z.object({
   command: z.string().min(1).max(100_000),
 });
@@ -847,6 +866,33 @@ export const SessionSaveToFilePayloadSchema = z.object({
 
 export const SessionRevealFilePayloadSchema = z.object({
   filePath: FilePathSchema,
+});
+
+const SessionShareSourcePayloadShape = {
+  instanceId: InstanceIdSchema.optional(),
+  entryId: z.string().min(1).max(200).optional(),
+};
+
+export const SessionSharePreviewPayloadSchema = z.object(SessionShareSourcePayloadShape)
+  .refine((value) => Boolean(value.instanceId) !== Boolean(value.entryId), {
+    message: 'Provide either instanceId or entryId.',
+  });
+
+export const SessionShareSavePayloadSchema = z.object({
+  ...SessionShareSourcePayloadShape,
+  filePath: FilePathSchema.optional(),
+}).refine((value) => Boolean(value.instanceId) !== Boolean(value.entryId), {
+  message: 'Provide either instanceId or entryId.',
+});
+
+export const SessionShareLoadPayloadSchema = z.object({
+  filePath: FilePathSchema,
+});
+
+export const SessionShareReplayPayloadSchema = z.object({
+  filePath: FilePathSchema,
+  workingDirectory: WorkingDirectorySchema,
+  displayName: DisplayNameSchema.optional(),
 });
 
 export const ArchiveSessionPayloadSchema = z.object({
@@ -1800,6 +1846,49 @@ export const TaskGetByChildPayloadSchema = z.object({
 
 export const TaskCancelPayloadSchema = z.object({
   taskId: z.string().min(1).max(200),
+});
+
+export const TaskGetPreflightPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+  surface: z.enum(['repo-job', 'workflow', 'worktree', 'verification']),
+  taskType: z.string().min(1).max(200).optional(),
+  requiresWrite: z.boolean().optional(),
+  requiresNetwork: z.boolean().optional(),
+  requiresBrowser: z.boolean().optional(),
+});
+
+const RepoJobTypeSchema = z.enum(['pr-review', 'issue-implementation', 'repo-health-audit']);
+const RepoJobStatusSchema = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']);
+
+export const RepoJobSubmitPayloadSchema = z.object({
+  type: RepoJobTypeSchema,
+  workingDirectory: WorkingDirectorySchema,
+  issueOrPrUrl: z.string().url().max(2000).optional(),
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(50000).optional(),
+  baseBranch: z.string().max(500).optional(),
+  branchRef: z.string().max(500).optional(),
+  workflowTemplateId: z.string().max(200).optional(),
+  useWorktree: z.boolean().optional(),
+  browserEvidence: z.boolean().optional(),
+});
+
+export const RepoJobListPayloadSchema = z.object({
+  status: RepoJobStatusSchema.optional(),
+  type: RepoJobTypeSchema.optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+}).optional();
+
+export const RepoJobGetPayloadSchema = z.object({
+  jobId: z.string().min(1).max(200),
+});
+
+export const RepoJobCancelPayloadSchema = z.object({
+  jobId: z.string().min(1).max(200),
+});
+
+export const RepoJobRerunPayloadSchema = z.object({
+  jobId: z.string().min(1).max(200),
 });
 
 // ============ Todo Payloads ============

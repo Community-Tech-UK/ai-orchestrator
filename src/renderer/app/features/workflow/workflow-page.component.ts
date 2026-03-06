@@ -22,12 +22,16 @@ import type {
 import { WorkflowProgressComponent } from './workflow-progress.component';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
+import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
 
 interface InstanceOption {
   id: string;
   displayName: string;
   status: string;
+  workingDirectory?: string;
 }
 
 interface GateAction {
@@ -40,7 +44,7 @@ interface GateAction {
 @Component({
   selector: 'app-workflow-page',
   standalone: true,
-  imports: [CommonModule, WorkflowProgressComponent],
+  imports: [CommonModule, WorkflowProgressComponent, TaskPreflightCardComponent],
   template: `
     <div class="workflow-page">
       <div class="page-header">
@@ -117,6 +121,17 @@ interface GateAction {
         </div>
 
         <div class="side-panel">
+          <div class="panel-card">
+            <div class="panel-title">Launch Preflight</div>
+            <app-task-preflight-card
+              [report]="preflight()"
+              [loading]="preflightLoading()"
+              title="Workflow Preflight"
+              subtitle="Instructions, permissions, and network/tool readiness for the selected instance."
+              emptyMessage="Select an instance to inspect workflow readiness."
+            />
+          </div>
+
           <div class="panel-card">
             <div class="panel-title">Manual Actions</div>
             @if (execution(); as exec) {
@@ -377,6 +392,7 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly workflowIpc = inject(OrchestrationIpcService);
   private readonly instanceIpc = inject(InstanceIpcService);
+  private readonly taskIpc = inject(TaskIpcService);
 
   readonly templates = signal<WorkflowTemplate[]>([]);
   readonly instances = signal<InstanceOption[]>([]);
@@ -384,6 +400,8 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
   readonly selectedInstanceId = signal('');
   readonly execution = signal<WorkflowExecution | null>(null);
   readonly promptAddition = signal('');
+  readonly preflight = signal<TaskPreflightReport | null>(null);
+  readonly preflightLoading = signal(false);
   readonly phaseDataJson = signal('');
   readonly errorMessage = signal<string | null>(null);
   readonly working = signal(false);
@@ -392,9 +410,15 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
     const templateId = this.selectedTemplateId();
     return this.templates().find((template) => template.id === templateId) || null;
   });
+  readonly selectedInstance = computed(() =>
+    this.instances().find((instance) => instance.id === this.selectedInstanceId()) || null
+  );
 
   readonly canStartWorkflow = computed(() =>
-    this.selectedTemplateId().length > 0 && this.selectedInstanceId().length > 0
+    this.selectedTemplateId().length > 0 &&
+    this.selectedInstanceId().length > 0 &&
+    !this.preflightLoading() &&
+    (this.preflight()?.blockers.length || 0) === 0
   );
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -578,9 +602,11 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
       this.execution.set(execution || null);
       if (execution) {
         this.selectedTemplateId.set(execution.templateId);
+        await this.refreshPreflight();
         await this.refreshPromptAddition();
       } else {
         this.promptAddition.set('');
+        await this.refreshPreflight();
       }
     } finally {
       this.refreshInFlight = false;
@@ -590,11 +616,13 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
   onTemplateChange(event: Event): void {
     const target = event.target as HTMLSelectElement;
     this.selectedTemplateId.set(target.value);
+    void this.refreshPreflight();
   }
 
   async onInstanceChange(event: Event): Promise<void> {
     const target = event.target as HTMLSelectElement;
     this.selectedInstanceId.set(target.value);
+    await this.refreshPreflight();
     await this.refreshExecution();
   }
 
@@ -674,6 +702,8 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
     if (!this.selectedInstanceId() && mapped.length > 0) {
       this.selectedInstanceId.set(mapped[0].id);
     }
+
+    await this.refreshPreflight();
   }
 
   private mapInstanceOption(value: unknown): InstanceOption | null {
@@ -688,7 +718,38 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
       id: candidate['id'],
       displayName: candidate['displayName'],
       status: typeof candidate['status'] === 'string' ? candidate['status'] : 'unknown',
+      workingDirectory:
+        typeof candidate['workingDirectory'] === 'string' ? candidate['workingDirectory'] : undefined,
     };
+  }
+
+  private async refreshPreflight(): Promise<void> {
+    const workingDirectory = this.selectedInstance()?.workingDirectory?.trim();
+    if (!workingDirectory) {
+      this.preflight.set(null);
+      this.preflightLoading.set(false);
+      return;
+    }
+
+    this.preflightLoading.set(true);
+    try {
+      const response = await this.taskIpc.taskGetPreflight({
+        workingDirectory,
+        surface: 'workflow',
+        taskType: this.selectedTemplateId() || 'workflow',
+        requiresWrite: true,
+        requiresNetwork: true,
+      });
+
+      if (response.success && response.data) {
+        this.preflight.set(response.data);
+        return;
+      }
+
+      this.preflight.set(null);
+    } finally {
+      this.preflightLoading.set(false);
+    }
   }
 
   private async refreshPromptAddition(): Promise<void> {

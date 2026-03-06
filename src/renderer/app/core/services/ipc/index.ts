@@ -35,6 +35,8 @@ export { SearchIpcService } from './search-ipc.service';
 export { TrainingIpcService } from './training-ipc.service';
 export { RecentDirectoriesIpcService } from './recent-directories-ipc.service';
 export { CommIpcService } from './comm-ipc.service';
+export { SessionShareIpcService } from './session-share-ipc.service';
+export { RemoteObserverIpcService } from './remote-observer-ipc.service';
 
 // Import services for facade
 import { Injectable, inject } from '@angular/core';
@@ -63,6 +65,7 @@ import { LoggingIpcService } from './logging-ipc.service';
 import { StatsIpcService } from './stats-ipc.service';
 import { SearchIpcService } from './search-ipc.service';
 import { TrainingIpcService } from './training-ipc.service';
+import { SessionShareIpcService } from './session-share-ipc.service';
 
 /**
  * IPC Facade Service - Provides backwards compatibility with the original ElectronIpcService
@@ -110,6 +113,7 @@ export class IpcFacadeService {
   readonly stats = inject(StatsIpcService);
   readonly search = inject(SearchIpcService);
   readonly training = inject(TrainingIpcService);
+  readonly sessionShare = inject(SessionShareIpcService);
 
   // ============================================
   // Base Service Properties

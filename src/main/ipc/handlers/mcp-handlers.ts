@@ -16,6 +16,7 @@ import {
 } from '../../../shared/validation/ipc-schemas';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
 import { WindowManager } from '../../window-manager';
+import { getBrowserAutomationHealthService } from '../../browser-automation/browser-automation-health';
 
 export function registerMcpHandlers(deps: {
   windowManager: WindowManager;
@@ -51,13 +52,13 @@ export function registerMcpHandlers(deps: {
       });
   });
 
-  mcp.on('tools:updated', (tools) => {
+  mcp.on('tools:updated', () => {
     deps.windowManager
       .getMainWindow()
       ?.webContents.send(IPC_CHANNELS.MCP_STATE_CHANGED, { type: 'tools' });
   });
 
-  mcp.on('resources:updated', (resources) => {
+  mcp.on('resources:updated', () => {
     deps.windowManager
       .getMainWindow()
       ?.webContents.send(IPC_CHANNELS.MCP_STATE_CHANGED, {
@@ -65,7 +66,7 @@ export function registerMcpHandlers(deps: {
       });
   });
 
-  mcp.on('prompts:updated', (prompts) => {
+  mcp.on('prompts:updated', () => {
     deps.windowManager
       .getMainWindow()
       ?.webContents.send(IPC_CHANNELS.MCP_STATE_CHANGED, { type: 'prompts' });
@@ -437,6 +438,28 @@ export function registerMcpHandlers(deps: {
         success: true,
         data: MCP_SERVER_PRESETS
       };
+    }
+  );
+
+  // Diagnose browser automation readiness
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_GET_BROWSER_AUTOMATION_HEALTH,
+    async (): Promise<IpcResponse> => {
+      try {
+        return {
+          success: true,
+          data: getBrowserAutomationHealthService().diagnose(),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_GET_BROWSER_AUTOMATION_HEALTH_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          }
+        };
+      }
     }
   );
 }

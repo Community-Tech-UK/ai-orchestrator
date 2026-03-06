@@ -123,6 +123,22 @@ type LeftTab = 'changes' | 'branches';
             }
           </div>
         </div>
+
+        <div class="job-launch-bar">
+          <input
+            class="dir-input"
+            type="text"
+            [value]="jobUrl()"
+            (input)="onJobUrlInput($event)"
+            placeholder="Optional issue or PR URL to include with the background job"
+          />
+          <button class="btn primary" type="button" (click)="openRepoJob('pr-review')">
+            Run PR Review
+          </button>
+          <button class="btn" type="button" (click)="openRepoJob('repo-health-audit')">
+            Run Health Audit
+          </button>
+        </div>
       }
 
       <!-- 3-column layout (shown once repo is loaded) -->
@@ -510,6 +526,12 @@ type LeftTab = 'changes' | 'branches';
         border: 1px solid var(--border-color);
         border-radius: var(--radius-sm);
         background: var(--bg-secondary);
+      }
+
+      .job-launch-bar {
+        display: flex;
+        gap: var(--spacing-sm);
+        flex-shrink: 0;
       }
 
       .current-branch-badge {
@@ -1096,6 +1118,7 @@ export class VcsPageComponent {
   readonly historyFilePath = signal('');
   readonly fileHistory = signal<FileHistoryEntry[]>([]);
   readonly historyLoading = signal(false);
+  readonly jobUrl = signal('');
 
   // -----------------------------------------------------------------------
   // Computed
@@ -1130,6 +1153,39 @@ export class VcsPageComponent {
   onDirInput(event: Event): void {
     const target = event.target as HTMLInputElement;
     this.workingDir.set(target.value);
+  }
+
+  onJobUrlInput(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.jobUrl.set(target.value);
+  }
+
+  openRepoJob(type: 'pr-review' | 'repo-health-audit'): void {
+    if (!this.isRepo() || !this.workingDir().trim()) {
+      return;
+    }
+
+    const queryParams: Record<string, string> = {
+      workingDirectory: this.workingDir().trim(),
+      branchRef: this.status()?.branch || '',
+    };
+
+    const baseBranch = this.getSuggestedBaseBranch();
+    if (baseBranch) {
+      queryParams['baseBranch'] = baseBranch;
+    }
+
+    const issueOrPrUrl = this.jobUrl().trim();
+    if (issueOrPrUrl) {
+      queryParams['issueOrPrUrl'] = issueOrPrUrl;
+    }
+
+    this.router.navigate(['/tasks'], {
+      queryParams,
+      state: {
+        launchType: type,
+      },
+    });
   }
 
   async loadRepo(): Promise<void> {
@@ -1354,5 +1410,26 @@ export class VcsPageComponent {
     const data = response.data;
     if (Array.isArray(data)) return data as T[];
     return [];
+  }
+
+  private getSuggestedBaseBranch(): string | null {
+    const currentBranch = this.status()?.branch || '';
+    const branchNames = this.branches().map((branch) => branch.name);
+    const candidates = ['main', 'master', 'develop'];
+
+    for (const candidate of candidates) {
+      if (currentBranch === candidate) {
+        continue;
+      }
+
+      const matched = branchNames.find((branchName) =>
+        branchName === candidate || branchName.endsWith(`/${candidate}`),
+      );
+      if (matched) {
+        return matched;
+      }
+    }
+
+    return currentBranch || null;
   }
 }

@@ -5,6 +5,19 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 
+interface PermissionConfigResponse {
+  config: {
+    enabled: boolean;
+    defaultAction: 'allow' | 'ask' | 'deny';
+    cacheTTLMs: number;
+    maxCacheEntries: number;
+    inheritParentPermissions: boolean;
+    maxRuleDepth: number;
+    allowYoloOverride: boolean;
+  };
+  stats: Record<string, unknown>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SecurityIpcService {
   private base = inject(ElectronIpcService);
@@ -83,5 +96,19 @@ export class SecurityIpcService {
   async securityGetEnvFilterConfig(): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.securityGetEnvFilterConfig();
+  }
+
+  async securityGetPermissionConfig(): Promise<IpcResponse<PermissionConfigResponse>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.securityGetPermissionConfig() as Promise<IpcResponse<PermissionConfigResponse>>;
+  }
+
+  async securitySetPermissionPreset(
+    preset: 'allow' | 'ask' | 'deny',
+  ): Promise<IpcResponse<PermissionConfigResponse & { preset: 'allow' | 'ask' | 'deny' }>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.securitySetPermissionPreset(preset) as Promise<
+      IpcResponse<PermissionConfigResponse & { preset: 'allow' | 'ask' | 'deny' }>
+    >;
   }
 }

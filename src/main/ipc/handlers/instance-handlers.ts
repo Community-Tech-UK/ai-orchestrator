@@ -26,6 +26,7 @@ import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
+import { getRemoteObserverServer } from '../../remote/observer-server';
 
 const logger = getLogger('InstanceHandlers');
 
@@ -538,6 +539,7 @@ export function registerInstanceHandlers(deps: {
           validatedPayload.action === 'approve',
           validatedPayload.customValue
         );
+        getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
 
         return {
           success: true,
@@ -638,6 +640,7 @@ export function registerInstanceHandlers(deps: {
           validatedPayload.instanceId,
           validatedPayload.requestId
         );
+        getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
 
         // If the renderer attached a permission decision, persist it via PermissionManager.
         if (validatedPayload.decisionAction && validatedPayload.decisionScope) {

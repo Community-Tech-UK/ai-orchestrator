@@ -11,6 +11,7 @@ import {
   SecurityCheckFilePayloadSchema,
   SecurityGetAuditLogPayloadSchema,
   SecurityCheckEnvVarPayloadSchema,
+  SecuritySetPermissionPresetPayloadSchema,
   BashValidatePayloadSchema,
   BashCommandPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
@@ -31,6 +32,7 @@ import {
   DEFAULT_ENV_FILTER_CONFIG
 } from '../../security/env-filter';
 import { getBashValidator } from '../../security/bash-validator';
+import { getPermissionManager } from '../../security/permission-manager';
 import { validatedHandler } from '../validated-handler';
 
 export function registerSecurityHandlers(): void {
@@ -201,6 +203,51 @@ export function registerSecurityHandlers(): void {
         };
       }
     }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SECURITY_GET_PERMISSION_CONFIG,
+    async (): Promise<IpcResponse> => {
+      try {
+        const manager = getPermissionManager();
+        return {
+          success: true,
+          data: {
+            config: manager.getConfig(),
+            stats: manager.getStats(),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SECURITY_GET_PERMISSION_CONFIG_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SECURITY_SET_PERMISSION_PRESET,
+    validatedHandler(
+      'SECURITY_SET_PERMISSION_PRESET',
+      SecuritySetPermissionPresetPayloadSchema,
+      async (payload) => {
+        const manager = getPermissionManager();
+        manager.configure({ defaultAction: payload.preset });
+        return {
+          success: true,
+          data: {
+            preset: payload.preset,
+            config: manager.getConfig(),
+            stats: manager.getStats(),
+          },
+        };
+      }
+    )
   );
 
   // ============================================

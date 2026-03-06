@@ -17,6 +17,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { McpIpcService } from '../../core/services/ipc/mcp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { BrowserAutomationIpcService } from '../../core/services/ipc/browser-automation-ipc.service';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -54,6 +55,29 @@ interface McpPrompt {
   description?: string;
   arguments?: { name: string; description?: string; required?: boolean }[];
   serverId: string;
+}
+
+interface BrowserAutomationHealthSource {
+  path: string;
+  detected: boolean;
+  serverNames: string[];
+}
+
+interface BrowserAutomationHealthReport {
+  status: 'ready' | 'partial' | 'missing';
+  checkedAt: number;
+  lastSuccessfulCheckAt?: number;
+  runtimeAvailable: boolean;
+  runtimeCommand?: string;
+  nodeAvailable: boolean;
+  inAppConfigured: boolean;
+  inAppConnected: boolean;
+  inAppToolCount: number;
+  configDetected: boolean;
+  configSources: BrowserAutomationHealthSource[];
+  browserToolNames: string[];
+  warnings: string[];
+  suggestions: string[];
 }
 
 type DetailTab = 'tools' | 'resources' | 'prompts' | 'config';
@@ -107,6 +131,79 @@ type DetailTab = 'tools' | 'resources' | 'prompts' | 'config';
           <span class="metric-value">{{ resources().length }}</span>
           <span class="metric-label">Resources Available</span>
         </div>
+      </div>
+
+      <div class="browser-health-panel">
+        <div class="panel-toolbar">
+          <div>
+            <span class="panel-heading">Browser Automation</span>
+            <div class="panel-subtitle">Health check for Chrome DevTools and browser MCP readiness.</div>
+          </div>
+          <div class="server-actions">
+            <button class="btn small" type="button" [disabled]="working()" (click)="runBrowserHealthCheck()">
+              Test Browser Tooling
+            </button>
+            <button class="btn small primary" type="button" [disabled]="working()" (click)="installBrowserPreset()">
+              Add Chrome DevTools Preset
+            </button>
+          </div>
+        </div>
+
+        @if (browserHealth(); as health) {
+          <div class="health-summary">
+            <span class="status-badge" [class]="'status-' + mapHealthStatus(health.status)">
+              {{ health.status }}
+            </span>
+            <span>Runtime: {{ health.runtimeAvailable ? (health.runtimeCommand || 'detected') : 'missing' }}</span>
+            <span>Node: {{ health.nodeAvailable ? 'ready' : 'missing' }}</span>
+            <span>In-app MCP: {{ health.inAppConfigured ? (health.inAppConnected ? 'connected' : 'configured') : 'not configured' }}</span>
+            <span>Browser tools: {{ health.inAppToolCount }}</span>
+          </div>
+
+          @if (health.browserToolNames.length > 0) {
+            <div class="health-tools">
+              @for (toolName of health.browserToolNames; track toolName) {
+                <span class="tool-pill">{{ toolName }}</span>
+              }
+            </div>
+          }
+
+          @if (health.warnings.length > 0) {
+            <div class="health-list">
+              <span class="field-label">Warnings</span>
+              <ul>
+                @for (warning of health.warnings; track warning) {
+                  <li>{{ warning }}</li>
+                }
+              </ul>
+            </div>
+          }
+
+          @if (health.suggestions.length > 0) {
+            <div class="health-list">
+              <span class="field-label">Suggested Fixes</span>
+              <ul>
+                @for (suggestion of health.suggestions; track suggestion) {
+                  <li>{{ suggestion }}</li>
+                }
+              </ul>
+            </div>
+          }
+
+          @if (health.configSources.length > 0) {
+            <div class="health-list">
+              <span class="field-label">Claude Config Files</span>
+              <ul>
+                @for (source of health.configSources; track source.path) {
+                  <li>
+                    {{ source.path }}:
+                    {{ source.detected ? ('browser MCP entries: ' + source.serverNames.join(', ')) : 'no browser MCP entry detected' }}
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+        }
       </div>
 
       <!-- 2-column layout -->
@@ -561,6 +658,52 @@ type DetailTab = 'tools' | 'resources' | 'prompts' | 'config';
         letter-spacing: 0.04em;
       }
 
+      .panel-subtitle {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 4px;
+      }
+
+      .browser-health-panel {
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        background: var(--bg-secondary);
+        padding: var(--spacing-md);
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-sm);
+      }
+
+      .health-summary,
+      .health-tools {
+        display: flex;
+        gap: var(--spacing-sm);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .tool-pill {
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+      }
+
+      .health-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .health-list ul {
+        margin: 0;
+        padding-left: 18px;
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+
       .server-list {
         display: flex;
         flex-direction: column;
@@ -939,6 +1082,7 @@ type DetailTab = 'tools' | 'resources' | 'prompts' | 'config';
 export class McpPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly mcpIpc = inject(McpIpcService);
+  private readonly browserAutomationIpc = inject(BrowserAutomationIpcService);
 
   // ── Data signals ──────────────────────────────────────────────────────────
 
@@ -946,6 +1090,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
   readonly tools = signal<McpTool[]>([]);
   readonly resources = signal<McpResource[]>([]);
   readonly prompts = signal<McpPrompt[]>([]);
+  readonly browserHealth = signal<BrowserAutomationHealthReport | null>(null);
 
   // ── UI state ──────────────────────────────────────────────────────────────
 
@@ -1065,6 +1210,56 @@ export class McpPageComponent implements OnInit, OnDestroy {
       await this.loadAll();
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  async runBrowserHealthCheck(): Promise<void> {
+    this.working.set(true);
+    this.errorMessage.set(null);
+    this.infoMessage.set(null);
+    try {
+      const response = await this.browserAutomationIpc.getHealth();
+      if (!response.success) {
+        this.errorMessage.set(response.error?.message ?? 'Failed to run browser automation health check.');
+        return;
+      }
+      this.browserHealth.set((response.data as BrowserAutomationHealthReport) ?? null);
+      this.infoMessage.set('Browser automation health check updated.');
+    } finally {
+      this.working.set(false);
+    }
+  }
+
+  async installBrowserPreset(): Promise<void> {
+    this.working.set(true);
+    this.errorMessage.set(null);
+    this.infoMessage.set(null);
+
+    try {
+      const existing = this.servers().find((server) => server.id === 'chrome-devtools');
+      if (!existing) {
+        const response = await this.mcpIpc.mcpAddServer({
+          id: 'chrome-devtools',
+          name: 'Chrome DevTools',
+          description: 'Browser automation through Chrome DevTools MCP',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', 'chrome-devtools-mcp@latest'],
+          autoConnect: false,
+        });
+
+        if (!response.success) {
+          this.errorMessage.set(response.error?.message ?? 'Failed to add Chrome DevTools preset.');
+          return;
+        }
+      }
+
+      this.infoMessage.set('Chrome DevTools preset is available in the server list.');
+      await this.loadServers();
+      this.selectedServerId.set('chrome-devtools');
+      await this.runBrowserHealthCheck();
+    } finally {
+      this.working.set(false);
     }
   }
 
@@ -1299,6 +1494,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
       this.loadTools(),
       this.loadResources(),
       this.loadPrompts(),
+      this.loadBrowserHealth(),
     ]);
   }
 
@@ -1351,6 +1547,17 @@ export class McpPageComponent implements OnInit, OnDestroy {
     }, 10_000);
   }
 
+  mapHealthStatus(status: BrowserAutomationHealthReport['status']): string {
+    switch (status) {
+      case 'ready':
+        return 'connected';
+      case 'partial':
+        return 'connecting';
+      default:
+        return 'error';
+    }
+  }
+
   private async runServerOp(
     op: () => Promise<IpcResponse>,
     successMessage: string,
@@ -1376,5 +1583,13 @@ export class McpPageComponent implements OnInit, OnDestroy {
     if (!response.success) return [];
     if (Array.isArray(response.data)) return response.data as T[];
     return [];
+  }
+
+  private async loadBrowserHealth(): Promise<void> {
+    const response = await this.browserAutomationIpc.getHealth();
+    if (!response.success) {
+      return;
+    }
+    this.browserHealth.set((response.data as BrowserAutomationHealthReport) ?? null);
   }
 }

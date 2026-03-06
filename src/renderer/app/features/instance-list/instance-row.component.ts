@@ -60,17 +60,20 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
 
       <div class="instance-info">
         <div class="instance-name-row">
-          <div class="badges">
-            <span class="agent-badge" [style.background-color]="agent().color" [title]="agent().description">
-              {{ agent().name.charAt(0) }}
-            </span>
+          <span class="agent-badge" [style.background-color]="agent().color" [title]="agent().description">
+            {{ agent().name.charAt(0) }}
+          </span>
+          <div class="name-and-provider">
+            <span class="instance-name">{{ instance().displayName }}</span>
             <span
-              class="provider-dot"
-              [style.background-color]="providerColor()"
+              class="provider-badge"
+              [class]="'provider-badge provider-' + instance().provider"
               [title]="providerDisplayName()"
-            ></span>
+            >
+              <span class="provider-icon">{{ providerIcon() }}</span>
+              <span class="provider-label">{{ providerShortName() }}</span>
+            </span>
           </div>
-          <span class="instance-name">{{ instance().displayName }}</span>
           @if (hasChildren() && !isExpanded()) {
             <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
           }
@@ -251,11 +254,6 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       gap: 10px;
     }
 
-    .badges {
-      position: relative;
-      flex-shrink: 0;
-    }
-
     .agent-badge {
       display: flex;
       align-items: center;
@@ -271,15 +269,80 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
-    .provider-dot {
-      position: absolute;
-      bottom: -2px;
-      right: -2px;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      border: 2px solid var(--bg-primary);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    .name-and-provider {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    /* Provider badge - distinctive per-provider styling */
+    .provider-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      line-height: 1.4;
+      width: fit-content;
+      border: 1px solid transparent;
+      transition: opacity var(--transition-fast);
+    }
+
+    .provider-icon {
+      font-size: 9px;
+      line-height: 1;
+    }
+
+    .provider-label {
+      text-transform: uppercase;
+    }
+
+    /* Claude - warm amber/orange */
+    .provider-claude {
+      background: rgba(217, 119, 6, 0.12);
+      color: #D97706;
+      border-color: rgba(217, 119, 6, 0.25);
+    }
+
+    /* Codex / OpenAI - green */
+    .provider-codex {
+      background: rgba(16, 163, 127, 0.12);
+      color: #10A37F;
+      border-color: rgba(16, 163, 127, 0.25);
+    }
+
+    /* Gemini - blue */
+    .provider-gemini {
+      background: rgba(66, 133, 244, 0.12);
+      color: #4285F4;
+      border-color: rgba(66, 133, 244, 0.25);
+    }
+
+    /* Copilot - purple */
+    .provider-copilot {
+      background: rgba(168, 85, 247, 0.12);
+      color: #A855F7;
+      border-color: rgba(168, 85, 247, 0.25);
+    }
+
+    /* Ollama - neutral */
+    .provider-ollama {
+      background: rgba(136, 136, 136, 0.12);
+      color: #999;
+      border-color: rgba(136, 136, 136, 0.25);
+    }
+
+    /* Auto / unknown */
+    .provider-auto {
+      background: rgba(136, 136, 136, 0.12);
+      color: #888;
+      border-color: rgba(136, 136, 136, 0.25);
     }
 
     .instance-name {
@@ -290,8 +353,6 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       overflow: hidden;
       text-overflow: ellipsis;
       color: var(--text-primary);
-      flex: 1;
-      min-width: 0;
       letter-spacing: -0.01em;
     }
 
@@ -431,6 +492,30 @@ export class InstanceRowComponent {
       case 'ollama': return '#888888';
       case 'copilot': return '#A855F7';
       default: return '#888888';
+    }
+  });
+
+  providerIcon = computed(() => {
+    const provider = this.instance().provider;
+    switch (provider) {
+      case 'claude': return '◈';
+      case 'codex': return '◉';
+      case 'gemini': return '✦';
+      case 'copilot': return '⬡';
+      case 'ollama': return '○';
+      default: return '●';
+    }
+  });
+
+  providerShortName = computed(() => {
+    const provider = this.instance().provider;
+    switch (provider) {
+      case 'claude': return 'Claude';
+      case 'codex': return 'Codex';
+      case 'gemini': return 'Gemini';
+      case 'copilot': return 'Copilot';
+      case 'ollama': return 'Ollama';
+      default: return 'AI';
     }
   });
 

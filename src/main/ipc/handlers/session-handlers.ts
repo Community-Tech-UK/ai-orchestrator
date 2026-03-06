@@ -13,6 +13,10 @@ import {
   SessionCopyToClipboardPayloadSchema,
   SessionSaveToFilePayloadSchema,
   SessionRevealFilePayloadSchema,
+  SessionSharePreviewPayloadSchema,
+  SessionShareSavePayloadSchema,
+  SessionShareLoadPayloadSchema,
+  SessionShareReplayPayloadSchema,
   ArchiveSessionPayloadSchema,
   ArchiveListPayloadSchema,
   ArchiveRestorePayloadSchema,
@@ -29,6 +33,7 @@ import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
 import { getSessionArchiveManager } from '../../session/session-archive';
+import { getSessionShareService } from '../../session/session-share-service';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 
@@ -291,6 +296,178 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     }
   );
 
+  const sessionShare = getSessionShareService();
+
+  // Preview a redacted share bundle for an active or historical session
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_SHARE_PREVIEW,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          SessionSharePreviewPayloadSchema,
+          payload,
+          'SESSION_SHARE_PREVIEW',
+        );
+
+        const bundle = validated.instanceId
+          ? await buildShareBundleForInstance(validated.instanceId)
+          : await buildShareBundleForHistory(validated.entryId!);
+
+        return {
+          success: true,
+          data: bundle,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_SHARE_PREVIEW_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          }
+        };
+      }
+    }
+  );
+
+  // Save a redacted share bundle to disk
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_SHARE_SAVE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          SessionShareSavePayloadSchema,
+          payload,
+          'SESSION_SHARE_SAVE',
+        );
+
+        const bundle = validated.instanceId
+          ? await buildShareBundleForInstance(validated.instanceId)
+          : await buildShareBundleForHistory(validated.entryId!);
+
+        let filePath = validated.filePath;
+        if (!filePath) {
+          const safeName = bundle.source.displayName
+            .replace(/[^a-z0-9]+/gi, '-')
+            .replace(/^-+|-+$/g, '')
+            .toLowerCase() || 'session-share';
+
+          const result = await dialog.showSaveDialog({
+            title: 'Save Redacted Session Share Bundle',
+            defaultPath: `${safeName}.share.json`,
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+          });
+
+          if (result.canceled || !result.filePath) {
+            return {
+              success: false,
+              error: {
+                code: 'SAVE_CANCELLED',
+                message: 'Save cancelled',
+                timestamp: Date.now(),
+              }
+            };
+          }
+
+          filePath = result.filePath;
+        }
+
+        await sessionShare.saveBundle(bundle, filePath);
+
+        return {
+          success: true,
+          data: {
+            filePath,
+            bundle,
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_SHARE_SAVE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          }
+        };
+      }
+    }
+  );
+
+  // Load a saved share bundle from disk
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_SHARE_LOAD,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          SessionShareLoadPayloadSchema,
+          payload,
+          'SESSION_SHARE_LOAD',
+        );
+        const bundle = await sessionShare.loadBundle(validated.filePath);
+        return {
+          success: true,
+          data: bundle,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_SHARE_LOAD_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          }
+        };
+      }
+    }
+  );
+
+  // Replay a share bundle as a new local instance
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_SHARE_REPLAY,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          SessionShareReplayPayloadSchema,
+          payload,
+          'SESSION_SHARE_REPLAY',
+        );
+        const bundle = await sessionShare.loadBundle(validated.filePath);
+        const exportedSession = sessionShare.toExportedSession(
+          bundle,
+          validated.workingDirectory,
+          validated.displayName,
+        );
+        const instance = await instanceManager.importSession(exportedSession, validated.workingDirectory);
+        return {
+          success: true,
+          data: serializeInstance(instance),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_SHARE_REPLAY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          }
+        };
+      }
+    }
+  );
+
   // ============================================
   // Archive Handlers
   // ============================================
@@ -508,6 +685,22 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   // ============================================
 
   const history = getHistoryManager();
+
+  async function buildShareBundleForInstance(instanceId: string) {
+    const instance = instanceManager.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance not found: ${instanceId}`);
+    }
+    return sessionShare.createBundle({ instance });
+  }
+
+  async function buildShareBundleForHistory(entryId: string) {
+    const conversation = await history.loadConversation(entryId);
+    if (!conversation) {
+      throw new Error(`History entry not found: ${entryId}`);
+    }
+    return sessionShare.createBundle({ conversation });
+  }
 
   // List history entries
   ipcMain.handle(

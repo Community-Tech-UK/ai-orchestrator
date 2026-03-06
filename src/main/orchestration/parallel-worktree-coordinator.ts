@@ -188,7 +188,10 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
         const session = await this.worktreeManager.createWorktree(
           instanceId,
           task.description,
-          { branchName: `task-${task.id}` }
+          {
+            branchName: `task-${task.id}`,
+            repoRoot: repoPath,
+          }
         );
         execution.sessions.set(task.id, session);
         this.emit('worktree:created', { executionId: execution.id, taskId: task.id, session });

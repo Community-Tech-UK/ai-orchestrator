@@ -68,6 +68,7 @@ export class WorktreeManager extends EventEmitter {
       branchName?: string;
       taskType?: WorktreeSession['taskType'];
       skipInstall?: boolean;
+      repoRoot?: string;
     }
   ): Promise<WorktreeSession> {
     // Check concurrent limit
@@ -82,9 +83,9 @@ export class WorktreeManager extends EventEmitter {
       );
     }
 
-    const repoRoot = await this.getRepoRoot();
-    const baseBranch = options?.baseBranch || (await this.getCurrentBranch());
-    const baseCommit = await this.getHeadCommit();
+    const repoRoot = options?.repoRoot || (await this.getRepoRoot());
+    const baseBranch = options?.baseBranch || (await this.getCurrentBranch(repoRoot));
+    const baseCommit = await this.getHeadCommit(repoRoot);
 
     // Generate unique branch name (validated pattern from industry)
     const timestamp = Date.now();
@@ -307,7 +308,7 @@ export class WorktreeManager extends EventEmitter {
 
     const targetBranch = options?.targetBranch || session.baseBranch;
     const strategy = options?.strategy || this.config.defaultStrategy;
-    const repoRoot = await this.getRepoRoot();
+    const repoRoot = await this.getRepoRoot(session.worktreePath);
 
     // Get commits since base
     const commits = await this.getCommitsSince(session, session.baseCommit);
@@ -388,7 +389,7 @@ export class WorktreeManager extends EventEmitter {
     const session = this.sessions.get(worktreeId);
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
-    const repoRoot = await this.getRepoRoot();
+    const repoRoot = await this.getRepoRoot(session.worktreePath);
     const strategy = options?.strategy || this.config.defaultStrategy;
 
     // Pre-merge checks
@@ -489,7 +490,7 @@ export class WorktreeManager extends EventEmitter {
     const session = this.sessions.get(worktreeId);
     if (!session) return;
 
-    const repoRoot = await this.getRepoRoot();
+    const repoRoot = await this.getRepoRoot(session.worktreePath);
 
     try {
       // Remove worktree
@@ -565,18 +566,18 @@ export class WorktreeManager extends EventEmitter {
 
   // ============ Helper Methods ============
 
-  private async getRepoRoot(): Promise<string> {
-    const { stdout } = await execAsync('git rev-parse --show-toplevel');
+  private async getRepoRoot(cwd?: string): Promise<string> {
+    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd });
     return stdout.trim();
   }
 
-  private async getCurrentBranch(): Promise<string> {
-    const { stdout } = await execAsync('git branch --show-current');
+  private async getCurrentBranch(cwd?: string): Promise<string> {
+    const { stdout } = await execAsync('git branch --show-current', { cwd });
     return stdout.trim();
   }
 
-  private async getHeadCommit(): Promise<string> {
-    const { stdout } = await execAsync('git rev-parse HEAD');
+  private async getHeadCommit(cwd?: string): Promise<string> {
+    const { stdout } = await execAsync('git rev-parse HEAD', { cwd });
     return stdout.trim();
   }
 

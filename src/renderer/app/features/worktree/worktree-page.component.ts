@@ -22,7 +22,10 @@ import type {
 import { WorktreePanelComponent } from './worktree-panel.component';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
+import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
+import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
 
 interface WorktreeActionPayload {
   sessionId: string;
@@ -33,12 +36,13 @@ interface InstanceOption {
   id: string;
   displayName: string;
   status: string;
+  workingDirectory?: string;
 }
 
 @Component({
   selector: 'app-worktree-page',
   standalone: true,
-  imports: [CommonModule, WorktreePanelComponent],
+  imports: [CommonModule, WorktreePanelComponent, TaskPreflightCardComponent],
   template: `
     <div class="page">
       <div class="page-header">
@@ -98,6 +102,9 @@ interface InstanceOption {
           <button class="btn primary" type="button" [disabled]="working() || !canCreate()" (click)="createWorktree()">
             Create
           </button>
+          <button class="btn" type="button" [disabled]="!selectedInstance()" (click)="openRepoJobLaunch()">
+            Implement as Background Job
+          </button>
           <button class="btn" type="button" [disabled]="working()" (click)="refreshAll()">
             Refresh
           </button>
@@ -121,6 +128,17 @@ interface InstanceOption {
         </div>
 
         <div class="side-panel">
+          <div class="panel-card">
+            <div class="panel-title">Launch Preflight</div>
+            <app-task-preflight-card
+              [report]="preflight()"
+              [loading]="preflightLoading()"
+              title="Worktree Preflight"
+              subtitle="Filesystem permissions, instructions, and tool readiness for worktree creation."
+              emptyMessage="Select an instance to inspect worktree readiness."
+            />
+          </div>
+
           <div class="panel-card">
             <div class="panel-title">Merge Preview</div>
             @if (preview(); as p) {
@@ -395,6 +413,7 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly orchestrationIpc = inject(OrchestrationIpcService);
   private readonly instanceIpc = inject(InstanceIpcService);
+  private readonly taskIpc = inject(TaskIpcService);
 
   readonly sessions = signal<WorktreeSession[]>([]);
   readonly instances = signal<InstanceOption[]>([]);
@@ -404,6 +423,8 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
   readonly mergeStrategy = signal<MergeStrategy>('auto');
 
   readonly preview = signal<WorktreeMergePreview | null>(null);
+  readonly preflight = signal<TaskPreflightReport | null>(null);
+  readonly preflightLoading = signal(false);
   readonly detectedConflicts = signal<{
     file: string;
     worktrees: string[];
@@ -413,10 +434,15 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
 
   readonly working = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  readonly selectedInstance = computed(() =>
+    this.instances().find((instance) => instance.id === this.selectedInstanceId()) || null
+  );
 
   readonly canCreate = computed(() =>
     this.selectedInstanceId().trim().length > 0 &&
-    this.taskDescription().trim().length > 0
+    this.taskDescription().trim().length > 0 &&
+    !this.preflightLoading() &&
+    (this.preflight()?.blockers.length || 0) === 0
   );
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -437,6 +463,38 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
 
   goBack(): void {
     this.router.navigate(['/']);
+  }
+
+  openRepoJobLaunch(): void {
+    const selectedInstance = this.selectedInstance();
+    const workingDirectory = selectedInstance?.workingDirectory?.trim();
+    if (!workingDirectory) {
+      this.errorMessage.set('The selected instance does not expose a working directory for repo jobs.');
+      return;
+    }
+
+    const queryParams: Record<string, string> = {
+      workingDirectory,
+      useWorktree: 'true',
+    };
+
+    const taskDescription = this.taskDescription().trim();
+    if (taskDescription) {
+      queryParams['description'] = taskDescription;
+      queryParams['title'] = taskDescription;
+    }
+
+    const baseBranch = this.baseBranch().trim();
+    if (baseBranch) {
+      queryParams['baseBranch'] = baseBranch;
+    }
+
+    this.router.navigate(['/tasks'], {
+      queryParams,
+      state: {
+        launchType: 'issue-implementation',
+      },
+    });
   }
 
   async refreshAll(): Promise<void> {
@@ -568,6 +626,7 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
   onInstanceChange(event: Event): void {
     const target = event.target as HTMLSelectElement;
     this.selectedInstanceId.set(target.value);
+    void this.refreshPreflight();
   }
 
   onTaskDescriptionInput(event: Event): void {
@@ -600,6 +659,7 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
         id: String(item['id']),
         displayName: String(item['displayName'] || item['id']),
         status: String(item['status'] || 'unknown'),
+        workingDirectory: typeof item['workingDirectory'] === 'string' ? item['workingDirectory'] : undefined,
       }));
 
     this.instances.set(options);
@@ -607,6 +667,8 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
     if (!this.selectedInstanceId() && options.length > 0) {
       this.selectedInstanceId.set(options[0].id);
     }
+
+    await this.refreshPreflight();
   }
 
   private async loadPreview(sessionId: string): Promise<WorktreeMergePreview | null> {
@@ -614,6 +676,34 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
     const preview = this.unwrapData<WorktreeMergePreview | null>(response, null);
     this.preview.set(preview);
     return preview;
+  }
+
+  private async refreshPreflight(): Promise<void> {
+    const workingDirectory = this.selectedInstance()?.workingDirectory?.trim();
+    if (!workingDirectory) {
+      this.preflight.set(null);
+      this.preflightLoading.set(false);
+      return;
+    }
+
+    this.preflightLoading.set(true);
+    try {
+      const response = await this.taskIpc.taskGetPreflight({
+        workingDirectory,
+        surface: 'worktree',
+        taskType: 'parallel-worktree',
+        requiresWrite: true,
+      });
+
+      if (response.success && response.data) {
+        this.preflight.set(response.data);
+        return;
+      }
+
+      this.preflight.set(null);
+    } finally {
+      this.preflightLoading.set(false);
+    }
   }
 
   private unwrapData<T>(response: IpcResponse, fallback: T): T {

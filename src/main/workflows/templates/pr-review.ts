@@ -10,7 +10,7 @@ export const prReviewTemplate: WorkflowTemplate = {
   id: 'pr-review',
   name: 'PR Review',
   description:
-    'Comprehensive pull request review with security, quality, and test coverage analysis',
+    'Comprehensive pull request review with security, quality, test coverage, and optional browser evidence analysis',
   icon: 'git-pull-request',
   category: 'review',
   triggerPatterns: [
@@ -175,10 +175,28 @@ Present test coverage findings with specific test suggestions.
 `,
     },
     {
+      id: 'browser-evidence',
+      name: 'Browser Evidence Review',
+      description: 'Capture screenshots, console logs, and network evidence when the change affects a runnable UI',
+      order: 4,
+      gateType: 'none',
+      systemPromptAddition: `
+## Current Phase: BROWSER EVIDENCE REVIEW
+
+If the repository exposes a browser-based flow relevant to this PR:
+1. Run the smallest useful browser validation path.
+2. Capture screenshots for visual regressions when applicable.
+3. Record console errors, failed requests, HAR files, or trace references when available.
+4. Keep heavyweight artifacts as file references and summarize the evidence in prose.
+
+If the change is not meaningfully testable in a browser, say so explicitly and continue.
+`,
+    },
+    {
       id: 'summary',
       name: 'Review Summary',
       description: 'Consolidate findings and provide recommendation',
-      order: 4,
+      order: 5,
       gateType: 'user_selection',
       gatePrompt: 'What action would you like to take on this PR?',
       gateOptions: [

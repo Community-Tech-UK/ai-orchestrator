@@ -12,8 +12,10 @@ import {
   TaskGetByParentPayloadSchema,
   TaskGetByChildPayloadSchema,
   TaskCancelPayloadSchema,
+  TaskGetPreflightPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 import { getTaskManager } from '../../orchestration/task-manager';
+import { getTaskPreflightService } from '../../security/task-preflight-service';
 
 export function registerTaskHandlers(): void {
   const taskManager = getTaskManager();
@@ -174,5 +176,36 @@ export function registerTaskHandlers(): void {
         };
       }
     }
+  );
+
+  // Get launch preflight for a workflow/repo job/worktree/verification surface
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_GET_PREFLIGHT,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          TaskGetPreflightPayloadSchema,
+          payload,
+          'TASK_GET_PREFLIGHT',
+        );
+        const report = await getTaskPreflightService().getPreflight(validated);
+        return {
+          success: true,
+          data: report,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'TASK_GET_PREFLIGHT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
   );
 }

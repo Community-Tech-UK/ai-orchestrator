@@ -107,6 +107,11 @@ const NAV_GROUPS: NavGroup[] = [
         icon: '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/><path d="M6 9a9 9 0 0 0 9 9"/>'
       },
       {
+        label: 'Repo Jobs',
+        route: '/tasks',
+        icon: '<path d="M3 4h18"/><path d="M8 4v16"/><path d="M16 8v12"/><path d="M12 12v8"/><rect x="3" y="4" width="18" height="16" rx="2"/>'
+      },
+      {
         label: 'Plan Mode',
         route: '/plan',
         icon: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/>'
@@ -145,6 +150,16 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Snapshots',
         route: '/snapshots',
         icon: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>'
+      },
+      {
+        label: 'Replay',
+        route: '/replay',
+        icon: '<path d="M4 4v16"/><path d="M20 4v16"/><path d="M8 8l8 4-8 4z"/>'
+      },
+      {
+        label: 'Remote Access',
+        route: '/remote-access',
+        icon: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="17" r="1"/>'
       },
       {
         label: 'Statistics',

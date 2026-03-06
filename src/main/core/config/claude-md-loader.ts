@@ -16,8 +16,13 @@
 
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import * as yaml from 'js-yaml';
+import type {
+  InstructionResolution,
+  InstructionSourceKind,
+  InstructionSourceScope,
+} from '../../../shared/types/instruction-source.types';
+import { resolveInstructionStack } from './instruction-resolver';
 
 export interface ClaudeConfig {
   /** Custom instructions prepended to system prompt */
@@ -128,6 +133,13 @@ export interface ConfigSource {
   type: 'project' | 'user' | 'custom';
   loaded: boolean;
   priority: number;
+  kind?: InstructionSourceKind;
+  scope?: InstructionSourceScope;
+  applied?: boolean;
+  label?: string;
+  reason?: string;
+  matchPatterns?: string[];
+  matchedPaths?: string[];
 }
 
 export interface ConfigError {
@@ -190,62 +202,42 @@ export class ClaudeMdLoader extends EventEmitter {
    * Load all config files
    */
   async loadAll(): Promise<LoadedConfig> {
-    const sources: ConfigSource[] = [];
     const errors: ConfigError[] = [];
     const configs: Array<{ config: ClaudeConfig; priority: number }> = [];
+    const resolution = await this.resolveInstructions({
+      workingDirectory: this.projectRoot,
+    });
+    const sources: ConfigSource[] = resolution.sources.map((source) => ({
+      path: source.path,
+      type: source.scope === 'user'
+        ? 'user'
+        : source.scope === 'custom'
+          ? 'custom'
+          : 'project',
+      loaded: source.loaded,
+      priority: source.priority,
+      kind: source.kind,
+      scope: source.scope,
+      applied: source.applied,
+      label: source.label,
+      reason: source.reason,
+      matchPatterns: source.matchPatterns,
+      matchedPaths: source.matchedPaths,
+    }));
 
-    // User-level config (lowest priority)
-    const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
-    if (homeDir) {
-      const userInstructionPath = path.join(homeDir, '.orchestrator', 'INSTRUCTIONS.md');
-      const userInstructionResult = await this.loadConfigFile(userInstructionPath, 'user', 1);
-      sources.push(userInstructionResult.source);
-      if (userInstructionResult.config) {
-        configs.push({ config: userInstructionResult.config, priority: 1 });
-      }
-      if (userInstructionResult.error) {
-        errors.push(userInstructionResult.error);
-      }
-
-      const userLegacyPath = path.join(homeDir, '.claude', 'CLAUDE.md');
-      const userLegacyResult = await this.loadConfigFile(userLegacyPath, 'user', 2);
-      sources.push(userLegacyResult.source);
-      if (userLegacyResult.config) {
-        configs.push({ config: userLegacyResult.config, priority: 2 });
-      }
-      if (userLegacyResult.error) {
-        errors.push(userLegacyResult.error);
-      }
-    }
-
-    // Project-level config (medium priority)
-    const projectCandidates: Array<{ filePath: string; priority: number }> = [
-      { filePath: path.join(this.projectRoot, '.orchestrator', 'INSTRUCTIONS.md'), priority: 3 },
-      { filePath: path.join(this.projectRoot, '.claude', 'CLAUDE.md'), priority: 4 },
-      { filePath: path.join(this.projectRoot, 'CLAUDE.md'), priority: 5 },
-    ];
-
-    for (const candidate of projectCandidates) {
-      const projectResult = await this.loadConfigFile(candidate.filePath, 'project', candidate.priority);
-      sources.push(projectResult.source);
-      if (projectResult.config) {
-        configs.push({ config: projectResult.config, priority: candidate.priority });
-      }
-      if (projectResult.error) {
-        errors.push(projectResult.error);
-      }
-    }
-
-    // Custom paths (highest priority, in order)
-    for (let i = 0; i < this.customPaths.length; i++) {
-      const customPath = this.customPaths[i];
-      const customResult = await this.loadConfigFile(customPath, 'custom', 6 + i);
-      sources.push(customResult.source);
-      if (customResult.config) {
-        configs.push({ config: customResult.config, priority: 6 + i });
-      }
-      if (customResult.error) {
-        errors.push(customResult.error);
+    for (const source of resolution.sources.filter((item) => item.loaded && item.applied)) {
+      const filePath = source.path;
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        configs.push({
+          config: this.parseContent(content),
+          priority: source.priority,
+        });
+      } catch (error) {
+        errors.push({
+          source: filePath,
+          error: (error as Error).message,
+        });
       }
     }
 
@@ -278,6 +270,20 @@ export class ClaudeMdLoader extends EventEmitter {
   }
 
   /**
+   * Resolve the active instruction stack for a working directory.
+   */
+  async resolveInstructions(params?: {
+    workingDirectory?: string;
+    contextPaths?: string[];
+  }): Promise<InstructionResolution> {
+    return resolveInstructionStack({
+      workingDirectory: params?.workingDirectory || this.projectRoot,
+      contextPaths: params?.contextPaths,
+      customPaths: this.customPaths,
+    });
+  }
+
+  /**
    * Reload all config files
    */
   async reload(): Promise<LoadedConfig> {
@@ -285,48 +291,6 @@ export class ClaudeMdLoader extends EventEmitter {
     const result = await this.loadAll();
     this.emit('reload-completed', result);
     return result;
-  }
-
-  /**
-   * Load a single config file
-   */
-  private async loadConfigFile(
-    filePath: string,
-    type: 'project' | 'user' | 'custom',
-    priority: number
-  ): Promise<{
-    source: ConfigSource;
-    config?: ClaudeConfig;
-    error?: ConfigError;
-  }> {
-    const source: ConfigSource = {
-      path: filePath,
-      type,
-      loaded: false,
-      priority,
-    };
-
-    try {
-      await fs.access(filePath);
-      const content = await fs.readFile(filePath, 'utf-8');
-      const config = this.parseContent(content);
-
-      source.loaded = true;
-      return { source, config };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        // File doesn't exist, not an error
-        return { source };
-      }
-
-      return {
-        source,
-        error: {
-          source: filePath,
-          error: (error as Error).message,
-        },
-      };
-    }
   }
 
   /**

@@ -33,6 +33,7 @@ import { getHotModelSwitcher } from '../routing/hot-model-switcher';
 import {
   registerInstanceHandlers,
   registerSettingsHandlers,
+  registerInstructionHandlers,
   registerSessionHandlers,
   registerProviderHandlers,
   registerVcsHandlers,
@@ -44,6 +45,7 @@ import {
   registerDebugHandlers,
   registerCostHandlers,
   registerTaskHandlers,
+  registerRepoJobHandlers,
   registerSearchHandlers,
   registerStatsHandlers,
   registerCommandHandlers,
@@ -56,7 +58,8 @@ import {
   registerConsensusHandlers,
   registerRoutingHandlers,
   registerCommunicationHandlers,
-  registerParallelWorktreeHandlers
+  registerParallelWorktreeHandlers,
+  registerRemoteObserverHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -157,6 +160,7 @@ export class IpcMainHandler {
 
     // Settings, config, and remote config handlers
     registerSettingsHandlers({ windowManager: this.windowManager });
+    registerInstructionHandlers();
 
     // Memory stats handlers (basic memory tracking)
     this.registerMemoryStatsHandlers();
@@ -196,6 +200,7 @@ export class IpcMainHandler {
 
     // Task management handlers (subagent spawning)
     registerTaskHandlers();
+    registerRepoJobHandlers(this.instanceManager);
 
     // Security handlers (secret detection, env filtering, bash validation)
     registerSecurityHandlers();
@@ -265,6 +270,9 @@ export class IpcMainHandler {
 
     // Parallel worktree handlers (parallel execution coordination)
     registerParallelWorktreeHandlers();
+
+    // Remote observer handlers (read-only local web observer)
+    registerRemoteObserverHandlers();
 
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();

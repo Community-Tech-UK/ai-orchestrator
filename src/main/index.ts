@@ -22,6 +22,9 @@ import { getLogger } from './logging/logger';
 import { getDoomLoopDetector } from './orchestration/doom-loop-detector';
 import { initTruncationCleanup } from './util/tool-output-truncation';
 import { evaluateContextWindowGuard } from './context/context-window-guard';
+import { getRemoteObserverServer } from './remote/observer-server';
+import { getRepoJobService } from './repo-jobs';
+import type { UserActionRequest } from './orchestration/orchestration-handler';
 
 const logger = getLogger('App');
 
@@ -50,6 +53,10 @@ class AIOrchestratorApp {
       const steps: Array<{ name: string; fn: () => Promise<void> | void }> = [
         { name: 'IPC handlers', fn: () => this.ipcHandler.registerHandlers() },
         { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
+        {
+          name: 'Remote observer',
+          fn: () => getRemoteObserverServer().initialize({ instanceManager: this.instanceManager }),
+        },
         { name: 'Event forwarding', fn: () => this.setupInstanceEventForwarding() },
         { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(this.instanceManager) },
         { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(this.instanceManager) },
@@ -96,27 +103,46 @@ class AIOrchestratorApp {
   }
 
   private setupInstanceEventForwarding(): void {
+    const observer = getRemoteObserverServer();
+    const repoJobs = getRepoJobService();
+
     // Forward instance events to renderer
     this.instanceManager.on('instance:created', (instance) => {
       this.windowManager.sendToRenderer('instance:created', instance);
+      observer.publishInstanceState({
+        type: 'created',
+        instanceId: instance.id,
+        displayName: instance.displayName,
+        status: instance.status,
+      });
     });
 
     this.instanceManager.on('instance:removed', (instanceId) => {
       this.windowManager.sendToRenderer('instance:removed', instanceId);
       getCompactionCoordinator().cleanupInstance(instanceId as string);
       getDoomLoopDetector().cleanupInstance(instanceId as string);
+      observer.publishInstanceState({
+        type: 'removed',
+        instanceId,
+      });
     });
 
     this.instanceManager.on('instance:state-update', (update) => {
       this.windowManager.sendToRenderer('instance:state-update', update);
+      observer.publishInstanceState(update as Record<string, unknown>);
     });
 
     this.instanceManager.on('instance:output', (output) => {
       this.windowManager.sendToRenderer('instance:output', output);
+      observer.publishInstanceOutput(output.instanceId, output.message);
     });
 
     this.instanceManager.on('instance:batch-update', (updates) => {
       this.windowManager.sendToRenderer('instance:batch-update', updates);
+      observer.publishInstanceState({
+        type: 'batch-update',
+        ...(updates as Record<string, unknown>),
+      });
 
       // Feed context usage updates to compaction coordinator and context window guard
       const data = updates as { updates?: { instanceId: string; contextUsage?: { used: number; total: number; percentage: number } }[] };
@@ -148,6 +174,15 @@ class AIOrchestratorApp {
     // Forward input-required events (permission prompts) to renderer
     this.instanceManager.on('instance:input-required', (payload) => {
       this.windowManager.sendToRenderer('instance:input-required', payload);
+      observer.recordPrompt({
+        id: payload.requestId,
+        promptType: 'input-required',
+        instanceId: payload.instanceId,
+        requestId: payload.requestId,
+        createdAt: payload.timestamp || Date.now(),
+        title: 'Input Required',
+        message: payload.prompt,
+      });
     });
 
     // Forward doom loop detection events to renderer
@@ -158,9 +193,19 @@ class AIOrchestratorApp {
 
     // Forward user action requests from orchestrator to renderer
     const orchestration = this.instanceManager.getOrchestrationHandler();
-    orchestration.on('user-action-request', (request) => {
+    orchestration.on('user-action-request', (request: UserActionRequest) => {
       logger.info('Forwarding user action request to renderer', { requestId: request.id });
       this.windowManager.sendToRenderer('user-action:request', request);
+      observer.recordPrompt({
+        id: request.id,
+        promptType: 'user-action',
+        instanceId: request.instanceId,
+        requestId: request.id,
+        createdAt: request.createdAt,
+        title: request.title,
+        message: request.message,
+        options: request.options?.map((option) => option.label) || request.questions,
+      });
 
       // Notify the user for all request types so questions don't get lost
       let title: string;
@@ -187,6 +232,19 @@ class AIOrchestratorApp {
         request.message || 'An AI instance is waiting for your response.'
       );
     });
+
+    for (const eventName of [
+      'repo-job:submitted',
+      'repo-job:started',
+      'repo-job:progress',
+      'repo-job:completed',
+      'repo-job:failed',
+      'repo-job:cancelled',
+    ] as const) {
+      repoJobs.on(eventName, (job) => {
+        observer.publishRepoJob(job);
+      });
+    }
 
     // Forward orchestration activity (child spawn, debate, verification) to renderer
     const activityBridge = getOrchestrationActivityBridge();

@@ -182,6 +182,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Background repo jobs
+  {
+    path: 'tasks',
+    loadComponent: () =>
+      import('./features/tasks/tasks-page.component').then(
+        (m) => m.TasksPageComponent
+      ),
+  },
+
   // Sprint 2: Plan Mode
   {
     path: 'plan',
@@ -215,6 +224,22 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/snapshots/snapshot-page.component').then(
         (m) => m.SnapshotPageComponent
+      ),
+  },
+
+  // Session replay / observer
+  {
+    path: 'replay',
+    loadComponent: () =>
+      import('./features/replay/session-replay-page.component').then(
+        (m) => m.SessionReplayPageComponent
+      ),
+  },
+  {
+    path: 'remote-access',
+    loadComponent: () =>
+      import('./features/remote-access/remote-access-page.component').then(
+        (m) => m.RemoteAccessPageComponent
       ),
   },
 
