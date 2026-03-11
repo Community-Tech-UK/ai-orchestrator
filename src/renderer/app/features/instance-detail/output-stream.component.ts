@@ -19,33 +19,20 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
-import type { ThinkingContent } from '../../../../shared/types/instance.types';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService } from '../../core/services/ipc';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
 import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
 import { ToolGroupComponent } from '../../shared/components/tool-group/tool-group.component';
+import { DisplayItemProcessor, DisplayItem } from './display-item-processor.service';
 
 type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 
-/**
- * Represents a grouped display item - either a single message, a group of thinking messages,
- * or a group of consecutive tool use/result messages.
- */
-interface DisplayItem {
-  id: string; // Stable row ID for @for tracking (F4)
-  type: 'message' | 'thought-group' | 'tool-group';
-  message?: OutputMessage;
+/** Narrows DisplayItem's `unknown` rendered fields to RenderedMarkdown for template type safety */
+interface RenderedDisplayItem extends DisplayItem {
   renderedMessage?: RenderedMarkdown;
-  thoughts?: string[];  // Legacy support
-  thinking?: ThinkingContent[]; // Structured thinking content
-  response?: OutputMessage;
   renderedResponse?: RenderedMarkdown;
-  timestamp?: number;
-  toolMessages?: OutputMessage[]; // For tool-group: consecutive tool_use/tool_result messages
-  repeatCount?: number; // For collapsed consecutive identical messages
-  showHeader?: boolean; // False when this is a continuation from the same sender
 }
 
 @Component({
@@ -630,161 +617,34 @@ export class OutputStreamComponent {
   private markdownService = inject(MarkdownService);
   private ipc = inject(ElectronIpcService);
   private perf = inject(PerfInstrumentationService);
+  private displayItemProcessor = new DisplayItemProcessor();
 
   /**
    * Shows all messages, consolidating streaming messages with the same ID.
    * Streaming messages (from Copilot SDK) have metadata.streaming=true and share the same ID.
    * We display only the accumulated content for streaming messages.
    */
-  displayItems = computed<DisplayItem[]>(() => {
+  displayItems = computed<RenderedDisplayItem[]>(() => {
     const startTime = performance.now();
     const messages = this.messages();
-    const items: DisplayItem[] = [];
-    const seenStreamingIds = new Set<string>();
+    const instanceId = this.instanceId();
 
-    for (const msg of messages) {
-      // Check if this is a streaming message
-      const isStreaming = msg.metadata && 'streaming' in msg.metadata && msg.metadata['streaming'] === true;
+    const items = this.displayItemProcessor.process(messages, instanceId);
 
-      if (isStreaming) {
-        // For streaming messages, only show the latest one with this ID
-        // (which has the full accumulated content)
-        if (seenStreamingIds.has(msg.id)) {
-          // We've already added a message with this ID, skip this one
-          // But we need to update the existing item with the latest accumulated content
-          const existingIdx = items.findIndex(
-            item => item.type === 'message' && item.message?.id === msg.id
-          );
-          if (existingIdx >= 0 && items[existingIdx].message) {
-            // Update with the accumulated content from metadata
-            const accumulatedContent = msg.metadata && 'accumulatedContent' in msg.metadata
-              ? String(msg.metadata['accumulatedContent'])
-              : msg.content;
-            items[existingIdx].message = {
-              ...items[existingIdx].message!,
-              content: accumulatedContent
-            };
-          }
-          continue;
-        }
-
-        // First time seeing this streaming message ID
-        seenStreamingIds.add(msg.id);
-
-        // Use accumulated content if available
-        const displayContent = msg.metadata && 'accumulatedContent' in msg.metadata
-          ? String(msg.metadata['accumulatedContent'])
-          : msg.content;
-
-        items.push({
-          id: `stream-${msg.id}`,
-          type: 'message',
-          message: {
-            ...msg,
-            content: displayContent
-          }
-        });
-      } else {
-        // Regular non-streaming message
-        // Check if message has thinking content
-        if (msg.thinking && msg.thinking.length > 0 && msg.type === 'assistant') {
-          // Create a thought-group item with thinking and response
-          items.push({
-            id: `thought-${msg.id}`,
-            type: 'thought-group',
-            thinking: msg.thinking,
-            thoughts: msg.thinking.map(t => t.content), // Legacy compat
-            response: msg,
-            timestamp: msg.timestamp
-          });
-        } else {
-          // Regular message without thinking
-          items.push({
-            id: `msg-${msg.id}`,
-            type: 'message',
-            message: msg
-          });
-        }
+    // Incremental markdown rendering: only render new items
+    const newCount = this.displayItemProcessor.newItemCount;
+    if (newCount > 0) {
+      const startIdx = items.length - newCount;
+      for (let i = startIdx; i < items.length; i++) {
+        this.renderItemMarkdown(items[i]);
       }
     }
-
-    // Second pass: group consecutive tool_use/tool_result items into tool-groups
-    const grouped: DisplayItem[] = [];
-    let toolBuffer: OutputMessage[] = [];
-
-    const flushToolBuffer = () => {
-      if (toolBuffer.length > 0) {
-        grouped.push({
-          id: `tools-${toolBuffer[0].id}`,
-          type: 'tool-group',
-          toolMessages: [...toolBuffer],
-          timestamp: toolBuffer[0].timestamp
-        });
-        toolBuffer = [];
-      }
-    };
-
-    for (const item of items) {
-      if (item.type === 'message' && item.message &&
-          (item.message.type === 'tool_use' || item.message.type === 'tool_result')) {
-        toolBuffer.push(item.message);
-      } else {
-        flushToolBuffer();
-        grouped.push(item);
-      }
-    }
-    flushToolBuffer();
-
-    // Third pass: collapse consecutive identical messages (e.g., repeated errors)
-    const deduped: DisplayItem[] = [];
-    for (const item of grouped) {
-      const prev = deduped[deduped.length - 1];
-      if (
-        prev &&
-        item.type === 'message' && prev.type === 'message' &&
-        item.message && prev.message &&
-        item.message.type === prev.message.type &&
-        item.message.content === prev.message.content
-      ) {
-        // Same type and content — increment count on the previous item
-        prev.repeatCount = (prev.repeatCount ?? 1) + 1;
-      } else {
-        deduped.push(item);
-      }
-    }
-
-    // Fourth pass: compute showHeader — hide header on continuation messages from the same sender
-    const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // Re-show header after 2 minute gap
-    for (let i = 0; i < deduped.length; i++) {
-      const item = deduped[i];
-      const prev = i > 0 ? deduped[i - 1] : undefined;
-
-      // Default: show header
-      item.showHeader = true;
-
-      if (!prev) continue;
-
-      // Get sender type for current and previous items
-      const curSender = this.getItemSenderType(item);
-      const prevSender = this.getItemSenderType(prev);
-
-      if (curSender && prevSender && curSender === prevSender) {
-        // Same sender — check time gap
-        const curTime = this.getItemTimestamp(item);
-        const prevTime = this.getItemTimestamp(prev);
-
-        if (curTime && prevTime && (curTime - prevTime) < TIME_GAP_THRESHOLD) {
-          item.showHeader = false;
-        }
-      }
-    }
-
-    this.populateRenderedMarkdown(deduped);
 
     const duration = performance.now() - startTime;
-    this.perf.recordDisplayItemsCompute(messages.length, deduped.length, duration);
+    this.perf.recordDisplayItemsCompute(messages.length, items.length, duration);
 
-    return deduped;
+    // Safe cast: renderItemMarkdown() populates renderedMessage/renderedResponse with RenderedMarkdown
+    return items as RenderedDisplayItem[];
   });
 
   constructor() {
@@ -1053,21 +913,19 @@ export class OutputStreamComponent {
     return message.content || '';
   }
 
-  private populateRenderedMarkdown(items: DisplayItem[]): void {
-    for (const item of items) {
-      item.renderedMessage = undefined;
-      item.renderedResponse = undefined;
+  private renderItemMarkdown(item: DisplayItem): void {
+    item.renderedMessage = undefined;
+    item.renderedResponse = undefined;
 
-      if (item.type === 'message' && item.message) {
-        const isToolMessage = item.message.type === 'tool_use' || item.message.type === 'tool_result';
-        if (!isToolMessage && !this.isCompactionBoundary(item.message) && this.hasContent(item.message)) {
-          item.renderedMessage = this.renderMarkdownContent(item.message.content, item.message.id);
-        }
+    if (item.type === 'message' && item.message) {
+      const isToolMessage = item.message.type === 'tool_use' || item.message.type === 'tool_result';
+      if (!isToolMessage && !this.isCompactionBoundary(item.message) && this.hasContent(item.message)) {
+        item.renderedMessage = this.renderMarkdownContent(item.message.content, item.message.id);
       }
+    }
 
-      if (item.type === 'thought-group' && item.response && this.hasContent(item.response)) {
-        item.renderedResponse = this.renderMarkdownContent(item.response.content, item.response.id);
-      }
+    if (item.type === 'thought-group' && item.response && this.hasContent(item.response)) {
+      item.renderedResponse = this.renderMarkdownContent(item.response.content, item.response.id);
     }
   }
 
@@ -1126,25 +984,4 @@ export class OutputStreamComponent {
     return firstSentence || 'Thought process';
   }
 
-  /**
-   * Get the sender type for a display item (for grouping consecutive messages).
-   * Returns a string key representing the sender, or null if not applicable.
-   */
-  private getItemSenderType(item: DisplayItem): string | null {
-    if (item.type === 'thought-group') return 'assistant';
-    if (item.type === 'tool-group') return 'tool';
-    if (item.type === 'message' && item.message) return item.message.type;
-    return null;
-  }
-
-  /**
-   * Get the timestamp for a display item.
-   */
-  private getItemTimestamp(item: DisplayItem): number | null {
-    if (item.timestamp) return item.timestamp;
-    if (item.message?.timestamp) return item.message.timestamp;
-    if (item.response?.timestamp) return item.response.timestamp;
-    if (item.toolMessages?.length) return item.toolMessages[0].timestamp;
-    return null;
-  }
 }

@@ -9,18 +9,16 @@
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import type { ThinkingContent } from '../../../../shared/types/instance.types';
 
-type RenderedMarkdown = string;
-
 export interface DisplayItem {
   id: string;
   type: 'message' | 'tool-group' | 'thought-group';
   message?: OutputMessage;
-  renderedMessage?: RenderedMarkdown;
+  renderedMessage?: unknown;  // SafeHtml at runtime, set by consuming component
   toolMessages?: OutputMessage[];
   thinking?: ThinkingContent[];
   thoughts?: string[];
   response?: OutputMessage;
-  renderedResponse?: RenderedMarkdown;
+  renderedResponse?: unknown;  // SafeHtml at runtime, set by consuming component
   timestamp?: number;
   repeatCount?: number;
   showHeader?: boolean;
