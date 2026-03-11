@@ -25,7 +25,7 @@ export interface RecentDirectoriesOptions {
   /** Maximum number of entries to return */
   limit?: number;
   /** Sort order for the results */
-  sortBy?: 'lastAccessed' | 'frequency' | 'alphabetical';
+  sortBy?: 'lastAccessed' | 'frequency' | 'alphabetical' | 'manual';
   /** Include pinned directories (default: true) */
   includePinned?: boolean;
 }

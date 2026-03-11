@@ -16,10 +16,11 @@ import {
 import { ContextWarningComponent } from './context-warning.component';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { ElectronIpcService, RecentDirectoriesIpcService } from '../../core/services/ipc';
+import { ElectronIpcService, RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { DraftService } from '../../core/services/draft.service';
 import { ProviderStateService } from '../../core/services/provider-state.service';
+import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { PROVIDER_MODEL_LIST } from '../../../../shared/types/provider.types';
 import { OutputStreamComponent } from './output-stream.component';
@@ -34,6 +35,16 @@ import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { TodoStore } from '../../core/state/todo.store';
+import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
+
+interface WelcomeProjectContext {
+  branch: string | null;
+  hasChanges: boolean;
+  isRepo: boolean;
+  lastAccessed: number | null;
+  draftUpdatedAt: number | null;
+  hasDraft: boolean;
+}
 
 @Component({
   selector: 'app-instance-detail',
@@ -230,11 +241,19 @@ import { TodoStore } from '../../core/state/todo.store';
       <app-instance-welcome
         [workingDirectory]="welcomeWorkingDirectory()"
         [pendingFiles]="welcomePendingFiles()"
+        [pendingFolders]="welcomePendingFolders()"
+        [projectContext]="welcomeProjectContext()"
+        [isProjectContextLoading]="isWelcomeProjectContextLoading()"
         (selectFolder)="onSelectWelcomeFolder($event)"
         (sendMessage)="onWelcomeSendMessage($event)"
         (filesDropped)="onWelcomeFilesDropped($event)"
         (imagesPasted)="onWelcomeImagesPasted($event)"
+        (folderDropped)="onWelcomeFolderDropped($event)"
+        (filePathDropped)="onWelcomeFilePathDropped($event)"
+        (filePathsDropped)="onWelcomeFilePathsDropped($event)"
         (removeFile)="onWelcomeRemoveFile($event)"
+        (removeFolder)="onWelcomeRemoveFolder($event)"
+        (discardDraft)="onWelcomeDiscardDraft()"
         (addFiles)="onWelcomeAddFiles()"
       />
     }
@@ -443,8 +462,10 @@ export class InstanceDetailComponent {
   private settingsStore = inject(SettingsStore);
   private ipc = inject(ElectronIpcService);
   private recentDirsService = inject(RecentDirectoriesIpcService);
+  private vcsIpc = inject(VcsIpcService);
   private draftService = inject(DraftService);
   private providerState = inject(ProviderStateService);
+  private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
   todoStore = inject(TodoStore);
   canShowFileExplorer = input(false);
@@ -480,8 +501,32 @@ export class InstanceDetailComponent {
   // Settings for thinking display
   showThinking = this.settingsStore.showThinking;
   thinkingDefaultExpanded = this.settingsStore.thinkingDefaultExpanded;
-  welcomePendingFiles = signal<File[]>([]);
-  welcomeWorkingDirectory = signal<string | null>(null);
+  welcomePendingFiles = this.newSessionDraft.pendingFiles;
+  welcomePendingFolders = this.newSessionDraft.pendingFolders;
+  welcomeWorkingDirectory = this.newSessionDraft.workingDirectory;
+  private welcomeProjectSnapshot = signal<{
+    branch: string | null;
+    hasChanges: boolean;
+    isRepo: boolean;
+    lastAccessed: number | null;
+  } | null>(null);
+  isWelcomeProjectContextLoading = signal(false);
+  welcomeProjectContext = computed<WelcomeProjectContext | null>(() => {
+    const workingDirectory = this.welcomeWorkingDirectory();
+    if (!workingDirectory) {
+      return null;
+    }
+
+    const snapshot = this.welcomeProjectSnapshot();
+    return {
+      branch: snapshot?.branch ?? null,
+      hasChanges: snapshot?.hasChanges ?? false,
+      isRepo: snapshot?.isRepo ?? false,
+      lastAccessed: snapshot?.lastAccessed ?? null,
+      draftUpdatedAt: this.newSessionDraft.updatedAt(),
+      hasDraft: this.newSessionDraft.hasActiveContent() || this.welcomePendingFiles().length > 0,
+    };
+  });
   isEditingName = signal(false);
   isCreatingInstance = signal(false);
   isChangingMode = signal(false);
@@ -521,6 +566,7 @@ export class InstanceDetailComponent {
 
   // Track the provider we've fetched models for to avoid redundant fetches
   private lastFetchedProvider: string | null = null;
+  private welcomeContextRequestId = 0;
 
   // Effect: fetch models dynamically when provider changes
   private modelsFetchEffect = effect(() => {
@@ -577,9 +623,10 @@ export class InstanceDetailComponent {
 
   constructor() {
     effect(() => {
+      const inst = this.instance();
       const defaultDir = this.settingsStore.defaultWorkingDirectory();
-      if (!this.welcomeWorkingDirectory()) {
-        this.welcomeWorkingDirectory.set(defaultDir || null);
+      if (!inst && !this.welcomeWorkingDirectory()) {
+        this.newSessionDraft.setWorkingDirectory(defaultDir || null);
       }
     });
 
@@ -588,6 +635,18 @@ export class InstanceDetailComponent {
       if (inst) {
         this.isCreatingInstance.set(false);
       }
+    });
+
+    effect(() => {
+      const inst = this.instance();
+      const workingDirectory = this.welcomeWorkingDirectory();
+      if (inst || !workingDirectory) {
+        this.welcomeProjectSnapshot.set(null);
+        this.isWelcomeProjectContextLoading.set(false);
+        return;
+      }
+
+      void this.loadWelcomeProjectContext(workingDirectory);
     });
   }
 
@@ -622,7 +681,7 @@ export class InstanceDetailComponent {
       this.store.setWorkingDirectory(inst.id, folder);
     } else {
       // Update welcome screen
-      this.welcomeWorkingDirectory.set(folder);
+      this.newSessionDraft.setWorkingDirectory(folder);
     }
   }
 
@@ -898,41 +957,73 @@ export class InstanceDetailComponent {
     }
   }
 
-  onWelcomeSendMessage(message: string): void {
+  async onWelcomeSendMessage(message: string): Promise<void> {
     const workingDir = this.welcomeWorkingDirectory() || '.';
-    const provider = this.providerState.getProviderForCreation();
-    const model = this.providerState.getModelForCreation();
+    const provider = this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation();
+    const model = this.newSessionDraft.model() ?? this.providerState.getModelForCreation();
+    const pendingFolders = this.welcomePendingFolders();
+    const finalMessage = this.prependPendingFolders(message, pendingFolders);
 
     this.isCreatingInstance.set(true);
-    this.store.createInstanceWithMessage(
-      message,
+    const launched = await this.store.createInstanceWithMessage(
+      finalMessage,
       this.welcomePendingFiles(),
       workingDir,
       provider,
       model
     );
-    this.welcomePendingFiles.set([]);
-    this.welcomeWorkingDirectory.set(
-      this.settingsStore.defaultWorkingDirectory() || null
-    );
+    this.isCreatingInstance.set(false);
+
+    if (!launched) {
+      return;
+    }
+
+    this.newSessionDraft.clearActiveComposer();
+    await this.recentDirsService.addDirectory(workingDir);
   }
 
   onSelectWelcomeFolder(folder: string): void {
     if (folder) {
-      this.welcomeWorkingDirectory.set(folder);
+      this.newSessionDraft.setWorkingDirectory(folder);
     }
   }
 
   onWelcomeFilesDropped(files: File[]): void {
-    this.welcomePendingFiles.update((current) => [...current, ...files]);
+    this.newSessionDraft.addPendingFiles(files);
   }
 
   onWelcomeImagesPasted(images: File[]): void {
-    this.welcomePendingFiles.update((current) => [...current, ...images]);
+    this.newSessionDraft.addPendingFiles(images);
   }
 
   onWelcomeRemoveFile(file: File): void {
-    this.welcomePendingFiles.update((files) => files.filter((f) => f !== file));
+    this.newSessionDraft.removePendingFile(file);
+  }
+
+  onWelcomeFolderDropped(folderPath: string): void {
+    this.newSessionDraft.addPendingFolder(folderPath);
+  }
+
+  async onWelcomeFilePathDropped(filePath: string): Promise<void> {
+    const files = await this.loadFilesFromPaths([filePath]);
+    if (files.length > 0) {
+      this.newSessionDraft.addPendingFiles(files);
+    }
+  }
+
+  async onWelcomeFilePathsDropped(filePaths: string[]): Promise<void> {
+    const files = await this.loadFilesFromPaths(filePaths);
+    if (files.length > 0) {
+      this.newSessionDraft.addPendingFiles(files);
+    }
+  }
+
+  onWelcomeRemoveFolder(folder: string): void {
+    this.newSessionDraft.removePendingFolder(folder);
+  }
+
+  onWelcomeDiscardDraft(): void {
+    this.newSessionDraft.clearActiveComposer();
   }
 
   async onAddFiles(): Promise<void> {
@@ -948,7 +1039,7 @@ export class InstanceDetailComponent {
   async onWelcomeAddFiles(): Promise<void> {
     const files = await this.selectAndLoadFiles();
     if (files.length > 0) {
-      this.welcomePendingFiles.update((current) => [...current, ...files]);
+      this.newSessionDraft.addPendingFiles(files);
     }
   }
 
@@ -958,6 +1049,10 @@ export class InstanceDetailComponent {
       return [];
     }
 
+    return this.loadFilesFromPaths(filePaths);
+  }
+
+  private async loadFilesFromPaths(filePaths: string[]): Promise<File[]> {
     const files: File[] = [];
     for (const filePath of filePaths) {
       try {
@@ -973,6 +1068,83 @@ export class InstanceDetailComponent {
       }
     }
     return files;
+  }
+
+  private prependPendingFolders(message: string, pendingFolders: string[]): string {
+    if (pendingFolders.length === 0) {
+      return message;
+    }
+
+    const folderRefs = pendingFolders.map((folder) => `[Folder: ${folder}]`).join('\n');
+    return message ? `${folderRefs}\n\n${message}` : folderRefs;
+  }
+
+  private async loadWelcomeProjectContext(workingDirectory: string): Promise<void> {
+    const requestId = ++this.welcomeContextRequestId;
+    this.isWelcomeProjectContextLoading.set(true);
+
+    try {
+      const [recentDirectories, repoResponse] = await Promise.all([
+        this.recentDirsService.getDirectories({ sortBy: 'lastAccessed' }),
+        this.vcsIpc.vcsIsRepo(workingDirectory),
+      ]);
+
+      if (!this.isLatestWelcomeContextRequest(requestId, workingDirectory)) {
+        return;
+      }
+
+      const recentEntry = this.findRecentDirectoryEntry(recentDirectories, workingDirectory);
+      const repoData = (repoResponse.data ?? null) as { isRepo?: boolean } | null;
+
+      if (!repoResponse.success || !repoData?.isRepo) {
+        this.welcomeProjectSnapshot.set({
+          branch: null,
+          hasChanges: false,
+          isRepo: false,
+          lastAccessed: recentEntry?.lastAccessed ?? null,
+        });
+        return;
+      }
+
+      const statusResponse = await this.vcsIpc.vcsGetStatus(workingDirectory);
+      if (!this.isLatestWelcomeContextRequest(requestId, workingDirectory)) {
+        return;
+      }
+
+      const statusData = (statusResponse.data ?? null) as {
+        branch?: string;
+        hasChanges?: boolean;
+      } | null;
+
+      this.welcomeProjectSnapshot.set({
+        branch: statusResponse.success ? statusData?.branch ?? null : null,
+        hasChanges: statusResponse.success ? !!statusData?.hasChanges : false,
+        isRepo: true,
+        lastAccessed: recentEntry?.lastAccessed ?? null,
+      });
+    } finally {
+      if (requestId === this.welcomeContextRequestId) {
+        this.isWelcomeProjectContextLoading.set(false);
+      }
+    }
+  }
+
+  private isLatestWelcomeContextRequest(requestId: number, workingDirectory: string): boolean {
+    return requestId === this.welcomeContextRequestId &&
+      !this.instance() &&
+      this.welcomeWorkingDirectory() === workingDirectory;
+  }
+
+  private findRecentDirectoryEntry(
+    entries: RecentDirectoryEntry[],
+    workingDirectory: string
+  ): RecentDirectoryEntry | null {
+    const normalized = this.normalizePathForComparison(workingDirectory);
+    return entries.find((entry) => this.normalizePathForComparison(entry.path) === normalized) ?? null;
+  }
+
+  private normalizePathForComparison(path: string | null | undefined): string {
+    return (path ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
   }
 
   onSelectChild(childId: string): void {

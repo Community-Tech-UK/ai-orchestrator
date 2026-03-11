@@ -17,7 +17,6 @@ import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { AgentStore } from '../../core/state/agent.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
@@ -28,7 +27,7 @@ import { SettingsComponent } from '../settings/settings.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { CommandPaletteComponent } from '../commands/command-palette.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
-import { ProviderStateService } from '../../core/services/provider-state.service';
+import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SidebarHeaderComponent } from './sidebar-header.component';
 import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
@@ -59,11 +58,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
   store = inject(InstanceStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
-  agentStore = inject(AgentStore);
   private electronIpc = inject(ElectronIpcService);
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
-  private providerState = inject(ProviderStateService);
+  private newSessionDraft = inject(NewSessionDraftService);
 
   showSettings = signal(false);
   showHistory = signal(false);
@@ -71,9 +69,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
   showControlPlane = signal(false);
   showSidebar = signal(true);
   showFileExplorer = signal(false);
-  // Use shared provider state so instance-detail can access it
-  selectedProvider = this.providerState.selectedProvider;
-  selectedModel = this.providerState.selectedModel;
 
   // Computed: selected instance's working directory for file explorer
   selectedInstanceWorkingDir = computed(() => {
@@ -263,20 +258,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   createInstance(): void {
-    const settings = this.settingsStore.settings();
-    const selectedAgent = this.agentStore.selectedAgent();
-    const provider = this.selectedProvider();
-    const model = this.selectedModel();
-    const workingDirectory = settings.defaultWorkingDirectory || undefined;
-    const folderName = workingDirectory?.split(/[/\\]/).filter(Boolean).pop();
-    this.store.createInstance({
-      displayName: folderName || `${selectedAgent.name} Instance`,
-      workingDirectory,
-      yoloMode: settings.defaultYoloMode,
-      agentId: selectedAgent.id,
-      provider: provider === 'auto' ? undefined : provider,
-      model: model || undefined
-    });
+    const workingDirectory = this.settingsStore.settings().defaultWorkingDirectory || null;
+    this.newSessionDraft.open(workingDirectory);
+    this.store.setSelectedInstance(null);
   }
 
   closeAllInstances(): void {

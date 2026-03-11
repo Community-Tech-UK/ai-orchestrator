@@ -48,11 +48,22 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       <!-- Dropdown menu -->
       @if (isOpen()) {
         <div class="dropdown-menu" role="listbox" #dropdownMenu>
+          <div class="search-shell">
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Search folders..."
+              [value]="searchText()"
+              (input)="onSearchInput($event)"
+              (keydown.escape)="closeDropdown()"
+            />
+          </div>
+
           <!-- Pinned directories -->
-          @if (pinnedDirectories().length > 0) {
+          @if (filteredPinnedDirectories().length > 0) {
             <div class="section pinned-section">
               <div class="section-header">Pinned</div>
-              @for (dir of pinnedDirectories(); track dir.path; let i = $index) {
+              @for (dir of filteredPinnedDirectories(); track dir.path; let i = $index) {
                 <button
                   class="menu-item"
                   [class.selected]="dir.path === currentPath()"
@@ -75,22 +86,22 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
           }
 
           <!-- Recent directories -->
-          @if (recentDirectories().length > 0) {
+          @if (filteredRecentDirectories().length > 0) {
             <div class="section recent-section">
-              @if (pinnedDirectories().length > 0) {
+              @if (filteredPinnedDirectories().length > 0) {
                 <div class="section-header">Recent</div>
               }
-              @for (dir of recentDirectories(); track dir.path; let i = $index) {
+              @for (dir of filteredRecentDirectories(); track dir.path; let i = $index) {
                 <button
                   class="menu-item"
                   [class.selected]="dir.path === currentPath()"
-                  [class.focused]="focusedIndex() === pinnedDirectories().length + i"
+                  [class.focused]="focusedIndex() === filteredPinnedDirectories().length + i"
                   [title]="dir.path"
                   role="option"
                   [attr.aria-selected]="dir.path === currentPath()"
                   (click)="selectDirectory(dir)"
                   (contextmenu)="onContextMenu($event, dir)"
-                  (mouseenter)="focusedIndex.set(pinnedDirectories().length + i)"
+                  (mouseenter)="focusedIndex.set(filteredPinnedDirectories().length + i)"
                 >
                   <span class="folder-icon">📁</span>
                   <span class="dir-name">{{ dir.displayName }}</span>
@@ -103,9 +114,9 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
           }
 
           <!-- Empty state -->
-          @if (pinnedDirectories().length === 0 && recentDirectories().length === 0 && !isLoading()) {
+          @if (filteredPinnedDirectories().length === 0 && filteredRecentDirectories().length === 0 && !isLoading()) {
             <div class="empty-state">
-              No recent directories
+              {{ searchText().trim() ? 'No matching folders' : 'No recent directories' }}
             </div>
           }
 
@@ -243,6 +254,37 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
       border-radius: var(--radius-md);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       z-index: 1000;
+    }
+
+    .search-shell {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 10px 10px 8px;
+      background: linear-gradient(180deg, rgba(14, 21, 20, 0.98), rgba(14, 21, 20, 0.92));
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .search-input {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-primary);
+      font-size: 12px;
+      outline: none;
+      transition: border-color var(--transition-fast), background var(--transition-fast);
+    }
+
+    .search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-input:focus {
+      border-color: rgba(var(--primary-rgb), 0.3);
+      background: rgba(var(--primary-rgb), 0.08);
     }
 
     /* Sections */
@@ -397,14 +439,14 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   isOpen = signal(false);
   isLoading = signal(false);
   directories = signal<RecentDirectoryEntry[]>([]);
+  searchText = signal('');
   focusedIndex = signal(-1);
   contextMenuDir = signal<RecentDirectoryEntry | null>(null);
   contextMenuPosition = signal({ x: 0, y: 0 });
 
   // Dependencies
   private recentDirsService = inject(RecentDirectoriesIpcService);
-  private elementRef = inject(ElementRef);
-
+  private elementRef = inject(ElementRef<HTMLElement>);
   // Computed
   pinnedDirectories = computed(() =>
     this.directories().filter((d) => d.isPinned)
@@ -412,6 +454,14 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
 
   recentDirectories = computed(() =>
     this.directories().filter((d) => !d.isPinned)
+  );
+
+  filteredPinnedDirectories = computed(() =>
+    this.filterDirectories(this.pinnedDirectories(), this.searchText())
+  );
+
+  filteredRecentDirectories = computed(() =>
+    this.filterDirectories(this.recentDirectories(), this.searchText())
   );
 
   displayPath = computed(() => {
@@ -441,7 +491,7 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   handleKeydown(event: KeyboardEvent): void {
     if (!this.isOpen()) return;
 
-    const allDirs = [...this.pinnedDirectories(), ...this.recentDirectories()];
+    const allDirs = [...this.filteredPinnedDirectories(), ...this.filteredRecentDirectories()];
 
     switch (event.key) {
       case 'Escape':
@@ -498,12 +548,21 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   openDropdown(): void {
     this.isOpen.set(true);
     this.focusedIndex.set(-1);
+    this.searchText.set('');
     this.loadDirectories();
+    requestAnimationFrame(() => {
+      const searchInput = this.elementRef.nativeElement.querySelector('.search-input');
+      if (searchInput instanceof HTMLInputElement) {
+        searchInput.focus();
+      }
+    });
   }
 
   closeDropdown(): void {
     this.isOpen.set(false);
     this.contextMenuDir.set(null);
+    this.focusedIndex.set(-1);
+    this.searchText.set('');
   }
 
   onTriggerArrowDown(event: KeyboardEvent): void {
@@ -542,6 +601,12 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
     }
   }
 
+  onSearchInput(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    this.searchText.set(target?.value ?? '');
+    this.focusedIndex.set(-1);
+  }
+
   onContextMenu(event: MouseEvent, dir: RecentDirectoryEntry): void {
     event.preventDefault();
     this.contextMenuDir.set(dir);
@@ -575,5 +640,20 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
     const path = this.currentPath();
     const homeMatch = path.match(/^(\/Users\/[^/]+|\/home\/[^/]+|C:\\Users\\[^\\]+)/);
     return homeMatch ? homeMatch[1] : '';
+  }
+
+  private filterDirectories(
+    directories: RecentDirectoryEntry[],
+    searchText: string
+  ): RecentDirectoryEntry[] {
+    const normalizedSearch = searchText.trim().toLowerCase();
+    if (!normalizedSearch) {
+      return directories;
+    }
+
+    return directories.filter((directory) =>
+      directory.displayName.toLowerCase().includes(normalizedSearch) ||
+      directory.path.toLowerCase().includes(normalizedSearch)
+    );
   }
 }

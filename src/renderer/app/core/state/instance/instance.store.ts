@@ -346,7 +346,7 @@ export class InstanceStore implements OnDestroy {
     workingDirectory?: string,
     provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
     model?: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     return this.listStore.createInstanceWithMessage(
       message,
       files,

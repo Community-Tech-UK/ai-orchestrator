@@ -13,6 +13,7 @@ import {
   RecentDirsAddPayloadSchema,
   RecentDirsRemovePayloadSchema,
   RecentDirsPinPayloadSchema,
+  RecentDirsReorderPayloadSchema,
   RecentDirsClearPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 import { getSettingsManager } from '../../core/config/settings-manager';
@@ -156,6 +157,38 @@ export function registerRecentDirectoriesHandlers(): void {
           success: false,
           error: {
             code: 'RECENT_DIRS_PIN_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Persist a manual directory order
+  ipcMain.handle(
+    IPC_CHANNELS.RECENT_DIRS_REORDER,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          RecentDirsReorderPayloadSchema,
+          payload,
+          'RECENT_DIRS_REORDER'
+        );
+        const reordered = manager.reorderDirectories(validated.paths);
+
+        return {
+          success: true,
+          data: { reordered }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'RECENT_DIRS_REORDER_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

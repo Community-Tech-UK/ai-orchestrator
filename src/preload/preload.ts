@@ -74,6 +74,7 @@ const IPC_CHANNELS = {
   RECENT_DIRS_ADD: 'recent-dirs:add',
   RECENT_DIRS_REMOVE: 'recent-dirs:remove',
   RECENT_DIRS_PIN: 'recent-dirs:pin',
+  RECENT_DIRS_REORDER: 'recent-dirs:reorder',
   RECENT_DIRS_CLEAR: 'recent-dirs:clear',
 
   // File operations
@@ -1115,7 +1116,7 @@ const electronAPI = {
    */
   getRecentDirectories: (options?: {
     limit?: number;
-    sortBy?: 'lastAccessed' | 'frequency' | 'alphabetical';
+    sortBy?: 'lastAccessed' | 'frequency' | 'alphabetical' | 'manual';
     includePinned?: boolean;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.RECENT_DIRS_GET, options);
@@ -1140,6 +1141,13 @@ const electronAPI = {
    */
   pinRecentDirectory: (path: string, pinned: boolean): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.RECENT_DIRS_PIN, { path, pinned });
+  },
+
+  /**
+   * Persist a manual order for recent directories
+   */
+  reorderRecentDirectories: (paths: string[]): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RECENT_DIRS_REORDER, { paths });
   },
 
   /**

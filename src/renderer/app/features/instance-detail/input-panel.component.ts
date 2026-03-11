@@ -13,6 +13,7 @@ import {
   OnDestroy,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { CommandStore } from '../../core/state/command.store';
@@ -25,6 +26,7 @@ import {
 } from '../providers/provider-selector.component';
 import { CopilotModelSelectorComponent } from '../providers/copilot-model-selector.component';
 import { ProviderStateService } from '../../core/services/provider-state.service';
+import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import type { CommandTemplate } from '../../../../shared/types/command.types';
 import type {
   InstanceProvider,
@@ -90,14 +92,16 @@ import type {
         </div>
       }
 
-      <div class="composer-toolbar">
-        <div class="composer-runtime">
-          <span class="toolbar-label">Current session</span>
-          <span class="runtime-chip">{{ sessionProviderLabel() }}</span>
-        </div>
+      <div class="composer-toolbar" [class.draft-mode]="isDraftComposer()">
+        @if (!isDraftComposer()) {
+          <div class="composer-runtime">
+            <span class="toolbar-label">Current session</span>
+            <span class="runtime-chip">{{ sessionProviderLabel() }}</span>
+          </div>
+        }
 
         <div class="composer-defaults">
-          <span class="toolbar-label">New sessions</span>
+          <span class="toolbar-label">{{ defaultsLabel() }}</span>
           <div class="default-controls">
             <app-provider-selector
               [provider]="selectedProvider()"
@@ -245,6 +249,10 @@ import type {
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     }
 
+    .composer-toolbar.draft-mode {
+      justify-content: flex-end;
+    }
+
     .composer-runtime,
     .composer-defaults {
       display: flex;
@@ -255,6 +263,10 @@ import type {
     .composer-defaults {
       align-items: flex-end;
       margin-left: auto;
+    }
+
+    .composer-toolbar.draft-mode .composer-defaults {
+      margin-left: 0;
     }
 
     .toolbar-label {
@@ -787,6 +799,7 @@ export class InputPanelComponent implements OnDestroy {
   private suggestionService = inject(PromptSuggestionService);
   private perf = inject(PerfInstrumentationService);
   private providerState = inject(ProviderStateService);
+  private newSessionDraft = inject(NewSessionDraftService);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
 
@@ -834,8 +847,6 @@ export class InputPanelComponent implements OnDestroy {
   message = signal('');
   showCommandSuggestions = signal(false);
   selectedCommandIndex = signal(0);
-  private previousInstanceId: string | null = null;
-
   // Computed: filter commands based on input
   filteredCommands = computed(() => {
     const msg = this.message();
@@ -851,8 +862,18 @@ export class InputPanelComponent implements OnDestroy {
       .slice(0, 8);
   });
 
-  selectedProvider = this.providerState.selectedProvider;
-  selectedModel = this.providerState.selectedModel;
+  isDraftComposer = computed(() => this.instanceId() === 'new');
+  defaultsLabel = computed(() => this.isDraftComposer() ? 'Session defaults' : 'New sessions');
+  selectedProvider = computed(() =>
+    this.isDraftComposer()
+      ? (this.newSessionDraft.provider() ?? this.providerState.selectedProvider())
+      : this.providerState.selectedProvider()
+  );
+  selectedModel = computed(() =>
+    this.isDraftComposer()
+      ? (this.newSessionDraft.model() ?? this.providerState.selectedModel())
+      : this.providerState.selectedModel()
+  );
 
   sessionProviderLabel = computed(() => {
     const p = this.provider();
@@ -895,20 +916,23 @@ export class InputPanelComponent implements OnDestroy {
     // Load commands on init
     this.commandStore.loadCommands();
 
-    // Persist message drafts per instance - load draft when instance changes
+    // Keep the composer input synchronized with the correct backing draft store.
     effect(() => {
-      const currentId = this.instanceId();
-
-      // Save draft for previous instance before switching
-      if (this.previousInstanceId && this.previousInstanceId !== currentId) {
-        const currentMessage = this.message();
-        this.draftService.setDraft(this.previousInstanceId, currentMessage);
+      if (this.isDraftComposer()) {
+        this.newSessionDraft.revision();
+        const savedDraft = this.newSessionDraft.prompt();
+        if (untracked(() => this.message()) !== savedDraft) {
+          this.message.set(savedDraft);
+        }
+        return;
       }
 
-      // Load draft for new instance
+      const currentId = this.instanceId();
+      this.draftService.version();
       const savedDraft = this.draftService.getDraft(currentId);
-      this.message.set(savedDraft);
-      this.previousInstanceId = currentId;
+      if (untracked(() => this.message()) !== savedDraft) {
+        this.message.set(savedDraft);
+      }
     });
 
     // Clean up preview URLs when files change
@@ -967,8 +991,7 @@ export class InputPanelComponent implements OnDestroy {
     this.message.set(value);
     stopComposer(); // Measure composer latency
 
-    // Save draft as user types
-    this.draftService.setDraft(this.instanceId(), value);
+    this.persistComposerText(value);
 
     // Show command suggestions when typing "/"
     if (value.startsWith('/') && !value.includes('\n')) {
@@ -1082,7 +1105,9 @@ export class InputPanelComponent implements OnDestroy {
     // Clear input and draft
     this.message.set('');
     this.showCommandSuggestions.set(false);
-    this.draftService.clearDraft(this.instanceId());
+    if (!this.isDraftComposer()) {
+      this.clearComposerDraft();
+    }
 
     // Reset textarea height
     const textarea = this.textareaRef()?.nativeElement;
@@ -1113,8 +1138,9 @@ export class InputPanelComponent implements OnDestroy {
     this.message.set('');
     this.showCommandSuggestions.set(false);
 
-    // Clear draft for this instance
-    this.draftService.clearDraft(this.instanceId());
+    if (!this.isDraftComposer()) {
+      this.clearComposerDraft();
+    }
 
     // Reset textarea height
     const textarea = this.textareaRef()?.nativeElement;
@@ -1174,8 +1200,7 @@ export class InputPanelComponent implements OnDestroy {
     this.message.set(suggestion);
     this.ghostSuggestion.set(null);
 
-    // Save draft
-    this.draftService.setDraft(this.instanceId(), suggestion);
+    this.persistComposerText(suggestion);
 
     // Update textarea value and resize
     const el = this.textareaEl();
@@ -1234,10 +1259,36 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   onProviderSelected(provider: ProviderType): void {
+    if (this.isDraftComposer()) {
+      this.newSessionDraft.setProvider(provider);
+      return;
+    }
     this.providerState.setProvider(provider);
   }
 
   onModelSelected(model: string): void {
+    if (this.isDraftComposer()) {
+      this.newSessionDraft.setModel(model);
+      return;
+    }
     this.providerState.setModel(model);
+  }
+
+  private persistComposerText(value: string): void {
+    if (this.isDraftComposer()) {
+      this.newSessionDraft.setPrompt(value);
+      return;
+    }
+
+    this.draftService.setDraft(this.instanceId(), value);
+  }
+
+  private clearComposerDraft(): void {
+    if (this.isDraftComposer()) {
+      this.newSessionDraft.clearActiveComposer();
+      return;
+    }
+
+    this.draftService.clearDraft(this.instanceId());
   }
 }

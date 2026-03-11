@@ -714,6 +714,7 @@ export const IPC_CHANNELS = {
   RECENT_DIRS_ADD: 'recent-dirs:add',
   RECENT_DIRS_REMOVE: 'recent-dirs:remove',
   RECENT_DIRS_PIN: 'recent-dirs:pin',
+  RECENT_DIRS_REORDER: 'recent-dirs:reorder',
   RECENT_DIRS_CLEAR: 'recent-dirs:clear',
 
   // Plugin lifecycle events (renderer-bound)

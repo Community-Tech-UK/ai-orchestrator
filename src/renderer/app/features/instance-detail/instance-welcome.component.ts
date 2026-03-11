@@ -12,6 +12,15 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { InputPanelComponent } from './input-panel.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 
+interface WelcomeProjectContext {
+  branch: string | null;
+  hasChanges: boolean;
+  isRepo: boolean;
+  lastAccessed: number | null;
+  draftUpdatedAt: number | null;
+  hasDraft: boolean;
+}
+
 @Component({
   selector: 'app-instance-welcome',
   standalone: true,
@@ -21,6 +30,9 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
       class="full-drop-zone"
       (filesDropped)="filesDropped.emit($event)"
       (imagesPasted)="imagesPasted.emit($event)"
+      (folderDropped)="folderDropped.emit($event)"
+      (filePathDropped)="filePathDropped.emit($event)"
+      (filePathsDropped)="filePathsDropped.emit($event)"
     >
       <div class="welcome-view">
         <div class="welcome-shell">
@@ -38,12 +50,46 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
                 placeholder="Select working folder..."
                 (folderSelected)="selectFolder.emit($event)"
               />
+
+              <div class="project-context-shell">
+                @if (isProjectContextLoading()) {
+                  <div class="project-context project-context-loading">Loading project context...</div>
+                } @else if (projectContext(); as context) {
+                  <div class="project-context">
+                    @if (context.isRepo) {
+                      <span class="context-pill">
+                        {{ context.hasChanges ? 'Dirty repo' : 'Clean repo' }}
+                      </span>
+                      @if (context.branch) {
+                        <span class="context-pill">Branch {{ context.branch }}</span>
+                      }
+                    } @else {
+                      <span class="context-pill">Plain folder</span>
+                    }
+                    @if (context.lastAccessed) {
+                      <span class="context-pill">Recent {{ formatRelativeTime(context.lastAccessed) }}</span>
+                    }
+                    @if (context.hasDraft && context.draftUpdatedAt) {
+                      <span class="context-pill context-pill-draft">
+                        Draft {{ formatRelativeTime(context.draftUpdatedAt) }}
+                      </span>
+                    }
+                  </div>
+                }
+              </div>
             </div>
           </div>
 
           <div class="welcome-input-shell">
             <div class="welcome-input-header">
-              <span class="welcome-composer-label">New session</span>
+              <div class="welcome-heading-row">
+                <span class="welcome-composer-label">New session</span>
+                @if (projectContext()?.hasDraft) {
+                  <button type="button" class="discard-draft-btn" (click)="discardDraft.emit()">
+                    Discard draft
+                  </button>
+                }
+              </div>
               <span class="welcome-composer-hint">Describe the outcome, constraints, and context.</span>
             </div>
             <div class="welcome-input">
@@ -52,8 +98,10 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
                 [disabled]="false"
                 placeholder="Plan the work, review code, investigate a bug, or coordinate a multi-agent task..."
                 [pendingFiles]="pendingFiles()"
+                [pendingFolders]="pendingFolders()"
                 (sendMessage)="sendMessage.emit($event)"
                 (removeFile)="removeFile.emit($event)"
+                (removeFolder)="removeFolder.emit($event)"
                 (addFiles)="addFiles.emit()"
               />
             </div>
@@ -159,6 +207,46 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
         color: var(--text-muted);
       }
 
+      .project-context {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 4px;
+      }
+
+      .project-context-shell {
+        min-height: 32px;
+      }
+
+      .project-context-loading {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .context-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .context-pill-draft {
+        border-color: rgba(var(--primary-rgb), 0.2);
+        background: rgba(var(--primary-rgb), 0.1);
+        color: rgba(212, 233, 190, 0.92);
+      }
+
       .welcome-input-shell {
         display: flex;
         flex-direction: column;
@@ -174,6 +262,13 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
         gap: 8px;
       }
 
+      .welcome-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
       .welcome-composer-label {
         font-family: var(--font-mono);
         font-size: 10px;
@@ -185,6 +280,27 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
       .welcome-composer-hint {
         color: var(--text-secondary);
         font-size: 15px;
+      }
+
+      .discard-draft-btn {
+        height: 28px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .discard-draft-btn:hover {
+        color: var(--text-primary);
+        border-color: rgba(var(--warning-rgb), 0.22);
+        background: rgba(var(--warning-rgb), 0.08);
       }
 
       .welcome-input {
@@ -217,12 +333,47 @@ import { RecentDirectoriesDropdownComponent } from '../../shared/components/rece
 export class InstanceWelcomeComponent {
   workingDirectory = input<string | null>(null);
   pendingFiles = input<File[]>([]);
+  pendingFolders = input<string[]>([]);
+  projectContext = input<WelcomeProjectContext | null>(null);
+  isProjectContextLoading = input(false);
 
   // Actions
   selectFolder = output<string>();
   sendMessage = output<string>();
   filesDropped = output<File[]>();
   imagesPasted = output<File[]>();
+  folderDropped = output<string>();
+  filePathDropped = output<string>();
+  filePathsDropped = output<string[]>();
   removeFile = output<File>();
+  removeFolder = output<string>();
+  discardDraft = output<void>();
   addFiles = output<void>();
+
+  formatRelativeTime(timestamp: number): string {
+    const delta = timestamp - Date.now();
+    const seconds = Math.round(delta / 1000);
+
+    if (Math.abs(seconds) < 60) {
+      return 'just now';
+    }
+
+    const minutes = Math.round(seconds / 60);
+    if (Math.abs(minutes) < 60) {
+      return `${Math.abs(minutes)}m ago`;
+    }
+
+    const hours = Math.round(minutes / 60);
+    if (Math.abs(hours) < 24) {
+      return `${Math.abs(hours)}h ago`;
+    }
+
+    const days = Math.round(hours / 24);
+    if (Math.abs(days) < 7) {
+      return `${Math.abs(days)}d ago`;
+    }
+
+    const weeks = Math.round(days / 7);
+    return `${Math.abs(weeks)}w ago`;
+  }
 }

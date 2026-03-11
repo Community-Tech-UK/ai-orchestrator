@@ -5,6 +5,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  HostListener,
   computed,
   effect,
   inject,
@@ -16,6 +18,7 @@ import { InstanceStore, type Instance } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { InstanceRowComponent } from './instance-row.component';
 import {
   getConversationHistoryTitle,
@@ -50,9 +53,18 @@ interface ProjectGroup {
   hasSelectedInstance: boolean;
   isExpanded: boolean;
   isPinned: boolean;
+  hasDraft: boolean;
+  draftUpdatedAt: number | null;
+  projectStateLabel: string;
+  projectStateTone: 'working' | 'attention' | 'connecting' | 'ready' | 'history';
   lastActivity: number;
   liveItems: HierarchicalInstance[];
   historyItems: ConversationHistoryEntry[];
+}
+
+interface ProjectPathGroupIndex {
+  group: ProjectGroup;
+  index: number;
 }
 
 @Component({
@@ -107,9 +119,27 @@ interface ProjectGroup {
         </div>
       </div>
 
-      <div class="instance-viewport">
+      <div
+        class="instance-viewport"
+        cdkDropList
+        [cdkDropListData]="projectGroups()"
+        [cdkDropListDisabled]="isProjectDragDisabled()"
+        (cdkDropListDropped)="onProjectDrop($event)"
+      >
         @for (group of projectGroups(); track group.key) {
-          <section class="project-group" [class.selected]="group.hasSelectedInstance">
+          <section
+            class="project-group"
+            [class.selected]="group.hasSelectedInstance"
+            [class.project-draggable]="canDragProject(group)"
+            cdkDrag
+            [cdkDragData]="group"
+            [cdkDragDisabled]="!canDragProject(group)"
+          >
+            <div class="project-drag-preview" *cdkDragPreview>
+              <span class="project-drag-title">{{ group.title }}</span>
+              <span class="project-drag-meta">{{ group.sessionCount }} sessions</span>
+            </div>
+            <div class="project-group-placeholder" *cdkDragPlaceholder></div>
             <div class="project-header-row" [class.expanded]="group.isExpanded">
               <button
                 type="button"
@@ -130,30 +160,54 @@ interface ProjectGroup {
                     @if (group.hasSelectedInstance) {
                       <span class="project-selected-pill">Current</span>
                     }
+                    @if (group.isPinned) {
+                      <span class="project-pinned-pill">Pinned</span>
+                    }
+                    @if (group.hasDraft) {
+                      <span class="project-draft-pill" [title]="getProjectDraftTitle(group)">Draft</span>
+                    }
                   </div>
                   <span class="project-subtitle" [title]="group.subtitle">{{ group.subtitle }}</span>
                 </div>
                 <div class="project-meta">
-                  @if (group.busyCount > 0) {
-                    <span class="project-state project-state-busy">{{ group.busyCount }} busy</span>
-                  }
+                  <span
+                    class="project-state"
+                    [class.project-state-working]="group.projectStateTone === 'working'"
+                    [class.project-state-attention]="group.projectStateTone === 'attention'"
+                    [class.project-state-connecting]="group.projectStateTone === 'connecting'"
+                    [class.project-state-ready]="group.projectStateTone === 'ready'"
+                  >
+                    {{ group.projectStateLabel }}
+                  </span>
                   <span class="project-state">{{ group.sessionCount }} sessions</span>
                 </div>
               </button>
               <div class="project-actions" [class.visible]="openProjectMenuKey() === group.key">
                 <button
                   type="button"
-                  class="project-action-btn"
-                  [class.active]="group.isPinned"
-                  [attr.aria-label]="group.isPinned ? 'Unpin project' : 'Pin project'"
-                  [title]="group.isPinned ? 'Unpin project' : 'Pin project'"
-                  (click)="toggleProjectPinned(group, $event)"
+                  class="project-action-btn project-drag-handle"
+                  cdkDragHandle
+                  [disabled]="!canDragProject(group)"
+                  aria-label="Reorder project"
+                  title="Drag to reorder project"
+                  (click)="$event.preventDefault(); $event.stopPropagation()"
                 >
                   <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M10.9 1.8c.3 0 .6.1.8.3l2.2 2.2c.4.4.4 1 0 1.4l-1.5 1.5.5 3.9c0 .3-.1.6-.3.8l-1.1 1.1c-.2.2-.5.2-.8.1l-3.2-1.6-2.9 2.9-.7-.7 2.9-2.9-1.6-3.2c-.1-.3-.1-.6.1-.8L6.4 5c.2-.2.5-.3.8-.3l3.9.5 1.5-1.5c.1-.1.2-.2.2-.4 0-.1-.1-.3-.2-.4L10.4 2c-.1-.1-.3-.2-.4-.2-.1 0-.3.1-.4.2L8.1 3.5l.7.7-1.4 1.4-.7-.7L5.2 6.4l1.6 3.2 4-4-.7-.7 1.4-1.4.7.7 1.5-1.5c.3-.3.3-.9 0-1.2l-2.2-2.2c-.2-.2-.5-.3-.8-.3Z" />
+                    <path d="M4 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm10-8a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
                   </svg>
                 </button>
                 @if (group.path) {
+                  <button
+                    type="button"
+                    class="project-action-btn"
+                    [attr.aria-label]="group.hasDraft ? 'Resume draft in this project' : 'Start a new conversation in this project'"
+                    [attr.title]="group.hasDraft ? 'Resume draft in this project' : 'Start a new conversation in this project'"
+                    (click)="startProjectConversation(group, $event)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M8 1.5a.75.75 0 0 1 .75.75v5h5a.75.75 0 0 1 0 1.5h-5v5a.75.75 0 0 1-1.5 0v-5h-5a.75.75 0 0 1 0-1.5h5v-5A.75.75 0 0 1 8 1.5Z" />
+                    </svg>
+                  </button>
                   <div class="project-menu-anchor">
                     <button
                       type="button"
@@ -161,16 +215,30 @@ interface ProjectGroup {
                       [class.active]="openProjectMenuKey() === group.key"
                       aria-haspopup="menu"
                       [attr.aria-expanded]="openProjectMenuKey() === group.key"
-                      aria-label="Open project actions"
-                      title="Open project actions"
+                      aria-label="Project options"
+                      title="Project options"
                       (click)="toggleProjectMenu(group.key, $event)"
                     >
                       <svg viewBox="0 0 16 16" aria-hidden="true">
-                        <path d="M1.5 3.5a1 1 0 0 1 1-1H6l1.1 1.4c.2.3.6.4.9.4h5.5a1 1 0 0 1 1 1v6.7a1.8 1.8 0 0 1-1.8 1.8H3.3A1.8 1.8 0 0 1 1.5 12V3.5Zm1 1v7.5c0 .4.3.8.8.8h9.4c.4 0 .8-.4.8-.8V5.5H7.9c-.6 0-1.2-.3-1.5-.8L5.5 3.5H2.5Z" />
+                        <path d="M3 8a1.25 1.25 0 1 1-2.5 0A1.25 1.25 0 0 1 3 8Zm6.25 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm6.25 0A1.25 1.25 0 1 1 13 8a1.25 1.25 0 0 1 2.5 0Z" />
                       </svg>
                     </button>
                     @if (openProjectMenuKey() === group.key) {
-                      <div class="project-menu" role="menu">
+                      <div
+                        class="project-menu"
+                        role="menu"
+                        aria-label="Project options"
+                        tabindex="-1"
+                        (keydown)="onProjectMenuKeyDown($event)"
+                      >
+                        <button
+                          type="button"
+                          class="project-menu-item"
+                          role="menuitem"
+                          (click)="toggleProjectPinned(group, $event)"
+                        >
+                          {{ group.isPinned ? 'Unpin project' : 'Pin project' }}
+                        </button>
                         <button
                           type="button"
                           class="project-menu-item"
@@ -444,6 +512,10 @@ interface ProjectGroup {
       gap: 0;
     }
 
+    .instance-viewport.cdk-drop-list-dragging .project-group:not(.cdk-drag-placeholder) {
+      transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+    }
+
     .instance-viewport::-webkit-scrollbar {
       width: 6px;
     }
@@ -462,6 +534,10 @@ interface ProjectGroup {
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       transition: background var(--transition-fast);
       position: relative;
+    }
+
+    .project-group.project-draggable {
+      cursor: default;
     }
 
     .project-group.selected {
@@ -544,6 +620,30 @@ interface ProjectGroup {
       flex-shrink: 0;
     }
 
+    .project-pinned-pill {
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(var(--primary-rgb), 0.12);
+      color: rgba(212, 233, 190, 0.92);
+      font-family: var(--font-mono);
+      font-size: 8px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .project-draft-pill {
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(var(--secondary-rgb), 0.12);
+      color: rgba(224, 234, 181, 0.92);
+      font-family: var(--font-mono);
+      font-size: 8px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
     .project-subtitle {
       font-family: var(--font-mono);
       font-size: 10px;
@@ -564,9 +664,13 @@ interface ProjectGroup {
     .project-actions {
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
       opacity: 0;
-      transition: opacity var(--transition-fast);
+      pointer-events: none;
+      transform: translateX(6px);
+      transition:
+        opacity var(--transition-fast),
+        transform var(--transition-fast);
       position: relative;
     }
 
@@ -574,11 +678,13 @@ interface ProjectGroup {
     .project-header-row:focus-within .project-actions,
     .project-actions.visible {
       opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0);
     }
 
     .project-action-btn {
-      width: 24px;
-      height: 24px;
+      width: 28px;
+      height: 28px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -592,6 +698,19 @@ interface ProjectGroup {
       flex-shrink: 0;
     }
 
+    .project-action-btn:focus-visible {
+      outline: none;
+      color: var(--text-primary);
+      border-color: rgba(var(--primary-rgb), 0.22);
+      background: rgba(var(--primary-rgb), 0.12);
+      box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.14);
+    }
+
+    .project-action-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
     .project-action-btn:hover,
     .project-action-btn.active {
       color: var(--text-primary);
@@ -600,9 +719,17 @@ interface ProjectGroup {
     }
 
     .project-action-btn svg {
-      width: 12px;
-      height: 12px;
+      width: 13px;
+      height: 13px;
       fill: currentColor;
+    }
+
+    .project-drag-handle {
+      cursor: grab;
+    }
+
+    .project-drag-handle:active {
+      cursor: grabbing;
     }
 
     .project-menu-anchor {
@@ -617,15 +744,18 @@ interface ProjectGroup {
       display: flex;
       flex-direction: column;
       padding: 6px;
+      overflow: hidden;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(12, 18, 17, 0.96);
+      background: linear-gradient(180deg, rgb(23, 30, 28), rgb(12, 18, 17));
       box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
-      z-index: 10;
+      isolation: isolate;
+      z-index: 100;
     }
 
     .project-menu-item {
       width: 100%;
+      min-height: 32px;
       padding: 8px 10px;
       border: none;
       border-radius: 8px;
@@ -635,6 +765,12 @@ interface ProjectGroup {
       text-align: left;
       cursor: pointer;
       transition: background var(--transition-fast), color var(--transition-fast);
+    }
+
+    .project-menu-item:focus-visible {
+      outline: none;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
     }
 
     .project-menu-item:hover {
@@ -653,8 +789,20 @@ interface ProjectGroup {
       text-transform: uppercase;
     }
 
-    .project-state-busy {
+    .project-state-working {
       color: var(--secondary-color);
+    }
+
+    .project-state-attention {
+      color: var(--warning-color);
+    }
+
+    .project-state-connecting {
+      color: rgba(180, 208, 255, 0.88);
+    }
+
+    .project-state-ready {
+      color: rgba(212, 233, 190, 0.92);
     }
 
     .project-empty {
@@ -672,6 +820,48 @@ interface ProjectGroup {
       color: var(--text-muted);
       transition: transform var(--transition-fast);
       padding-top: 3px;
+    }
+
+    .project-group-placeholder {
+      height: 44px;
+      margin: 2px 0 8px;
+      border: 1px dashed rgba(var(--primary-rgb), 0.22);
+      border-radius: 12px;
+      background: rgba(var(--primary-rgb), 0.05);
+    }
+
+    .project-drag-preview {
+      min-width: 180px;
+      max-width: 240px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(var(--primary-rgb), 0.28);
+      background: rgba(12, 18, 17, 0.96);
+      box-shadow:
+        0 12px 28px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(var(--primary-rgb), 0.16);
+    }
+
+    .project-drag-title {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .project-drag-meta {
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
     }
 
     .project-header-row.expanded .project-chevron {
@@ -954,10 +1144,12 @@ interface ProjectGroup {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InstanceListComponent {
+  private host = inject(ElementRef<HTMLElement>);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
   private recentDirectoriesService = inject(RecentDirectoriesIpcService);
   private fileIpc = inject(FileIpcService);
+  private newSessionDraft = inject(NewSessionDraftService);
 
   filterText = signal('');
   statusFilter = signal<string>('all');
@@ -972,12 +1164,17 @@ export class InstanceListComponent {
   preferredEditorLabel = signal('Editor');
   selectedId = this.store.selectedInstanceId;
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
+  private projectMenuTrigger: HTMLButtonElement | null = null;
 
   isDragDisabled = computed(() =>
     this.filterText().length > 0 || this.statusFilter() !== 'all'
   );
+  isProjectDragDisabled = computed(() =>
+    this.filterText().length > 0 || this.statusFilter() !== 'all' || this.openProjectMenuKey() !== null
+  );
 
   projectGroups = computed(() => {
+    this.newSessionDraft.revision();
     const instances = this.store.instances();
     const historyEntries = this.historyStore.entries().filter((entry) => !entry.archivedAt);
     const recentDirectories = this.recentDirectories();
@@ -991,6 +1188,9 @@ export class InstanceListComponent {
     const historyByProject = this.buildHistoryEntriesByProject(historyEntries, filter, status);
     const recentDirectoriesByKey = new Map(
       recentDirectories.map((entry) => [this.getProjectKey(entry.path), entry])
+    );
+    const recentDirectoryOrder = new Map(
+      recentDirectories.map((entry, index) => [this.getProjectKey(entry.path), index] as const)
     );
     const groups = new Map<string, ProjectGroup>();
 
@@ -1035,6 +1235,7 @@ export class InstanceListComponent {
       }
 
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
+      const draftInfo = this.getProjectDraftInfo(root.workingDirectory);
       const group = groups.get(projectKey) ?? {
         key: projectKey,
         path: root.workingDirectory?.trim() || null,
@@ -1046,6 +1247,10 @@ export class InstanceListComponent {
         hasSelectedInstance: false,
         isExpanded: !collapsedProjects.has(projectKey),
         isPinned: recentDirectory?.isPinned ?? false,
+        hasDraft: draftInfo.hasDraft,
+        draftUpdatedAt: draftInfo.draftUpdatedAt,
+        projectStateLabel: 'Ready',
+        projectStateTone: 'ready',
         lastActivity: recentDirectory?.lastAccessed ?? root.lastActivity ?? root.createdAt,
         liveItems: [],
         historyItems: [],
@@ -1062,6 +1267,9 @@ export class InstanceListComponent {
       group.hasSelectedInstance = group.hasSelectedInstance || liveItems.some((item) => item.instance.id === selectedId);
       group.isExpanded = !collapsedProjects.has(projectKey);
       group.historyItems = historyItems;
+      group.hasDraft = group.hasDraft || draftInfo.hasDraft;
+      group.draftUpdatedAt = group.draftUpdatedAt ?? draftInfo.draftUpdatedAt;
+      Object.assign(group, this.getProjectStateSummary(group.liveItems, group.historyItems, group.hasDraft));
       group.sessionCount += historyItems.length;
       groups.set(projectKey, group);
       historyByProject.delete(projectKey);
@@ -1074,9 +1282,11 @@ export class InstanceListComponent {
       }
 
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
+      const workingDirectory = recentDirectory?.path || historyItems[0].workingDirectory || null;
+      const draftInfo = this.getProjectDraftInfo(workingDirectory);
       groups.set(projectKey, {
         key: projectKey,
-        path: recentDirectory?.path || historyItems[0].workingDirectory || null,
+        path: workingDirectory,
         title: recentDirectory?.displayName || this.getProjectTitle(historyItems[0].workingDirectory),
         subtitle: recentDirectory ? this.getProjectSubtitle(recentDirectory.path) : this.getProjectSubtitle(historyItems[0].workingDirectory),
         createdAt: Math.max(
@@ -1088,6 +1298,9 @@ export class InstanceListComponent {
         hasSelectedInstance: false,
         isExpanded: !collapsedProjects.has(projectKey),
         isPinned: recentDirectory?.isPinned ?? false,
+        hasDraft: draftInfo.hasDraft,
+        draftUpdatedAt: draftInfo.draftUpdatedAt,
+        ...this.getProjectStateSummary([], historyItems, draftInfo.hasDraft),
         lastActivity: recentDirectory?.lastAccessed ?? historyItems[0].endedAt,
         liveItems: [],
         historyItems,
@@ -1104,6 +1317,7 @@ export class InstanceListComponent {
         }
 
         const projectKey = this.getProjectKey(recentDirectory.path);
+        const draftInfo = this.getProjectDraftInfo(recentDirectory.path);
         groups.set(projectKey, {
           key: projectKey,
           path: recentDirectory.path || null,
@@ -1115,6 +1329,9 @@ export class InstanceListComponent {
           hasSelectedInstance: false,
           isExpanded: !collapsedProjects.has(projectKey),
           isPinned: recentDirectory.isPinned,
+          hasDraft: draftInfo.hasDraft,
+          draftUpdatedAt: draftInfo.draftUpdatedAt,
+          ...this.getProjectStateSummary([], [], draftInfo.hasDraft),
           lastActivity: recentDirectory.lastAccessed,
           liveItems: [],
           historyItems: [],
@@ -1123,8 +1340,16 @@ export class InstanceListComponent {
     }
 
     return Array.from(groups.values()).sort((left, right) => {
-      if (left.isPinned !== right.isPinned) {
-        return left.isPinned ? -1 : 1;
+      const leftOrder = recentDirectoryOrder.get(left.key);
+      const rightOrder = recentDirectoryOrder.get(right.key);
+      if (leftOrder !== undefined && rightOrder !== undefined) {
+        return leftOrder - rightOrder;
+      }
+      if (leftOrder !== undefined) {
+        return -1;
+      }
+      if (rightOrder !== undefined) {
+        return 1;
       }
 
       const timestampDelta =
@@ -1179,6 +1404,7 @@ export class InstanceListComponent {
       const currentRootIds = new Set(this.store.rootInstances().map((instance) => instance.id));
       const removedRoot = previousRootIds.size > 0 &&
         Array.from(previousRootIds).some((id) => !currentRootIds.has(id));
+      const historyEntries = this.historyStore.entries().filter((entry) => !entry.archivedAt);
       const knownRecentDirectories = new Set(
         this.recentDirectories().map((entry) => this.getProjectKey(entry.path))
       );
@@ -1189,6 +1415,14 @@ export class InstanceListComponent {
       for (const instance of this.store.rootInstances()) {
         const workingDirectory = instance.workingDirectory?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
+          knownRecentDirectories.add(this.getProjectKey(workingDirectory));
+          void this.recentDirectoriesService.addDirectory(workingDirectory);
+        }
+      }
+      for (const entry of historyEntries) {
+        const workingDirectory = entry.workingDirectory?.trim();
+        if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
+          knownRecentDirectories.add(this.getProjectKey(workingDirectory));
           void this.recentDirectoriesService.addDirectory(workingDirectory);
         }
       }
@@ -1203,13 +1437,13 @@ export class InstanceListComponent {
   onFilterChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.filterText.set(input.value);
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
   }
 
   onStatusFilterChange(event: Event): void {
     const select = event.target as HTMLSelectElement;
     this.statusFilter.set(select.value);
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
   }
 
   onSortModeChange(event: Event): void {
@@ -1217,11 +1451,11 @@ export class InstanceListComponent {
     const value = select.value === 'created' ? 'created' : 'last-interacted';
     this.historySortMode.set(value);
     this.saveSortMode(value);
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
   }
 
   onSelectInstance(instanceId: string): void {
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
     this.store.setSelectedInstance(instanceId);
   }
 
@@ -1246,7 +1480,7 @@ export class InstanceListComponent {
   }
 
   toggleProjectGroup(projectKey: string): void {
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
     this.collapsedProjectKeys.update((current) => {
       const next = new Set(current);
       if (next.has(projectKey)) {
@@ -1274,19 +1508,29 @@ export class InstanceListComponent {
     if (updated) {
       await this.loadRecentDirectories();
     }
+    this.closeProjectMenu();
   }
 
   async toggleProjectMenu(projectKey: string, event: Event): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+    this.projectMenuTrigger = event.currentTarget instanceof HTMLButtonElement
+      ? event.currentTarget
+      : null;
 
     if (this.openProjectMenuKey() === projectKey) {
-      this.openProjectMenuKey.set(null);
+      this.closeProjectMenu();
       return;
     }
 
     await this.ensurePreferredEditorLoaded();
     this.openProjectMenuKey.set(projectKey);
+    requestAnimationFrame(() => {
+      const firstMenuItem = this.host.nativeElement.querySelector('.project-menu .project-menu-item');
+      if (firstMenuItem instanceof HTMLButtonElement) {
+        firstMenuItem.focus();
+      }
+    });
   }
 
   async openProjectInPreferredEditor(group: ProjectGroup, event: Event): Promise<void> {
@@ -1296,8 +1540,8 @@ export class InstanceListComponent {
       return;
     }
 
+    this.closeProjectMenu();
     await this.fileIpc.editorOpenDirectory(group.path);
-    this.openProjectMenuKey.set(null);
   }
 
   async openProjectInSystemFileManager(group: ProjectGroup, event: Event): Promise<void> {
@@ -1307,8 +1551,16 @@ export class InstanceListComponent {
       return;
     }
 
+    this.closeProjectMenu();
     await this.fileIpc.openPath(group.path);
-    this.openProjectMenuKey.set(null);
+  }
+
+  startProjectConversation(group: ProjectGroup, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeProjectMenu({ restoreFocus: false });
+    this.newSessionDraft.open(group.path);
+    this.store.setSelectedInstance(null);
   }
 
   onDrop(event: CdkDragDrop<HierarchicalInstance[]>, group: ProjectGroup): void {
@@ -1352,12 +1604,49 @@ export class InstanceListComponent {
     this.saveOrder(nextOrder);
   }
 
+  async onProjectDrop(event: CdkDragDrop<ProjectGroup[]>): Promise<void> {
+    if (this.isProjectDragDisabled()) {
+      return;
+    }
+
+    const draggedGroup = event.item.data as ProjectGroup | undefined;
+    if (!draggedGroup || !draggedGroup.path) {
+      return;
+    }
+
+    const pathGroups = this.getDraggableProjectGroups(this.projectGroups());
+    const fromIndex = pathGroups.findIndex(({ group }) => group.key === draggedGroup.key);
+    if (fromIndex === -1) {
+      return;
+    }
+
+    const visiblePathGroups = this.projectGroups()
+      .map((group, index) => ({ group, index }))
+      .filter(
+        (item): item is ProjectPathGroupIndex =>
+          !!item.group.path && this.canDragProject(item.group)
+      );
+    const targetIndex = visiblePathGroups.findIndex(({ index }) => index === event.currentIndex);
+    const toIndex = targetIndex === -1 ? pathGroups.length - 1 : targetIndex;
+
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    const nextOrder = pathGroups.map(({ group }) => group.path!);
+    moveItemInArray(nextOrder, fromIndex, toIndex);
+    const updated = await this.recentDirectoriesService.reorderDirectories(nextOrder);
+    if (updated) {
+      await this.loadRecentDirectories();
+    }
+  }
+
   async onRestoreHistory(entryId: string): Promise<void> {
     if (this.restoringHistoryIds().has(entryId)) {
       return;
     }
 
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
     this.restoringHistoryIds.update((current) => new Set(current).add(entryId));
 
     try {
@@ -1380,8 +1669,86 @@ export class InstanceListComponent {
   async onArchiveHistory(entryId: string, event: Event): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
-    this.openProjectMenuKey.set(null);
+    this.closeProjectMenu({ restoreFocus: false });
     await this.historyStore.archiveEntry(entryId);
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.openProjectMenuKey()) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest('.project-menu-anchor')) {
+      this.closeProjectMenu({ restoreFocus: false });
+    }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeyDown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || !this.openProjectMenuKey()) {
+      return;
+    }
+
+    event.preventDefault();
+    this.closeProjectMenu();
+  }
+
+  onProjectMenuKeyDown(event: KeyboardEvent): void {
+    if (!this.openProjectMenuKey()) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeProjectMenu();
+      return;
+    }
+
+    const items = this.getProjectMenuItems();
+    if (items.length === 0) {
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      items[0]?.focus();
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      items[items.length - 1]?.focus();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const currentIndex = items.findIndex((item) => item === document.activeElement);
+      if (currentIndex === -1) {
+        (event.shiftKey ? items[items.length - 1] : items[0])?.focus();
+        return;
+      }
+
+      const nextIndex = event.shiftKey
+        ? (currentIndex - 1 + items.length) % items.length
+        : (currentIndex + 1 + items.length) % items.length;
+      items[nextIndex]?.focus();
+      return;
+    }
+
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+      return;
+    }
+
+    event.preventDefault();
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    const nextIndex =
+      event.key === 'ArrowDown'
+        ? (currentIndex + 1 + items.length) % items.length
+        : (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex]?.focus();
   }
 
   private buildChildrenMap(instances: Instance[]): Map<string, string[]> {
@@ -1486,6 +1853,54 @@ export class InstanceListComponent {
       const child = instanceMap.get(childId);
       return child ? count + this.countBusySessions(child, childrenByParent, instanceMap) : count;
     }, 0);
+  }
+
+  private getProjectDraftInfo(workingDirectory: string | null | undefined): {
+    hasDraft: boolean;
+    draftUpdatedAt: number | null;
+  } {
+    if (!workingDirectory) {
+      return {
+        hasDraft: false,
+        draftUpdatedAt: null,
+      };
+    }
+
+    return {
+      hasDraft: this.newSessionDraft.hasSavedDraftFor(workingDirectory),
+      draftUpdatedAt: this.newSessionDraft.getDraftUpdatedAt(workingDirectory),
+    };
+  }
+
+  private getProjectStateSummary(
+    liveItems: HierarchicalInstance[],
+    historyItems: ConversationHistoryEntry[],
+    hasDraft: boolean
+  ): Pick<ProjectGroup, 'projectStateLabel' | 'projectStateTone'> {
+    const statuses = new Set(liveItems.map((item) => item.instance.status));
+
+    if (statuses.has('error')) {
+      return { projectStateLabel: 'Issue', projectStateTone: 'attention' };
+    }
+    if (statuses.has('waiting_for_input')) {
+      return { projectStateLabel: 'Awaiting input', projectStateTone: 'attention' };
+    }
+    if (statuses.has('busy')) {
+      return { projectStateLabel: 'Working', projectStateTone: 'working' };
+    }
+    if (statuses.has('initializing') || statuses.has('respawning')) {
+      return { projectStateLabel: 'Connecting', projectStateTone: 'connecting' };
+    }
+    if (liveItems.length > 0) {
+      return { projectStateLabel: 'Ready', projectStateTone: 'ready' };
+    }
+    if (hasDraft) {
+      return { projectStateLabel: 'Draft ready', projectStateTone: 'ready' };
+    }
+    if (historyItems.length > 0) {
+      return { projectStateLabel: 'Recent history', projectStateTone: 'history' };
+    }
+    return { projectStateLabel: 'Available', projectStateTone: 'history' };
   }
 
   private matchesProjectText(title: string, subtitle: string, filter: string): boolean {
@@ -1711,6 +2126,14 @@ export class InstanceListComponent {
     return this.formatRelativeTime(this.getHistorySortTimestamp(entry, this.historySortMode()));
   }
 
+  getProjectDraftTitle(group: ProjectGroup): string {
+    if (!group.draftUpdatedAt) {
+      return 'Draft saved';
+    }
+
+    return `Draft updated ${this.formatRelativeTime(group.draftUpdatedAt)} ago`;
+  }
+
   private getLiveRailTitle(
     instance: Instance,
     matchingHistoryEntry?: ConversationHistoryEntry
@@ -1724,7 +2147,7 @@ export class InstanceListComponent {
 
   private async loadRecentDirectories(): Promise<void> {
     const directories = await this.recentDirectoriesService.getDirectories({
-      sortBy: 'lastAccessed',
+      sortBy: 'manual',
     });
     this.recentDirectories.set(directories);
   }
@@ -1807,5 +2230,36 @@ export class InstanceListComponent {
     } catch {
       // Ignore storage errors.
     }
+  }
+
+  canDragProject(group: ProjectGroup): boolean {
+    return !this.isProjectDragDisabled() && !!group.path;
+  }
+
+  private getDraggableProjectGroups(groups: ProjectGroup[]): ProjectPathGroupIndex[] {
+    return groups
+      .map((group, index) => ({ group, index }))
+      .filter(
+        (item): item is ProjectPathGroupIndex =>
+          !!item.group.path && this.canDragProject(item.group)
+      );
+  }
+
+  private closeProjectMenu(options: { restoreFocus?: boolean } = {}): void {
+    const restoreFocus = options.restoreFocus ?? true;
+    if (!this.openProjectMenuKey()) {
+      return;
+    }
+
+    this.openProjectMenuKey.set(null);
+    if (restoreFocus) {
+      this.projectMenuTrigger?.focus();
+    }
+    this.projectMenuTrigger = null;
+  }
+
+  private getProjectMenuItems(): HTMLButtonElement[] {
+    return Array.from(this.host.nativeElement.querySelectorAll('.project-menu .project-menu-item'))
+      .filter((item): item is HTMLButtonElement => item instanceof HTMLButtonElement);
   }
 }

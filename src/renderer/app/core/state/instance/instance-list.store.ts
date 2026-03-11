@@ -109,7 +109,7 @@ export class InstanceListStore {
     workingDirectory?: string,
     provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
     model?: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
       filesCount: files?.length,
@@ -125,7 +125,7 @@ export class InstanceListStore {
         const errorMessage = validationErrors.join('\n');
         console.error('InstanceListStore: File validation failed:', errorMessage);
         this.stateService.setError(`Cannot create instance:\n${errorMessage}`);
-        return;
+        return false;
       }
     }
 
@@ -147,10 +147,15 @@ export class InstanceListStore {
       });
       console.log('InstanceListStore: createInstanceWithMessage result:', result);
       this.stateService.setLoading(false);
+      if (!result.success) {
+        this.stateService.setError(result.error?.message || 'Failed to create instance');
+      }
+      return result.success;
     } catch (error) {
       console.error('InstanceListStore: createInstanceWithMessage error:', error);
       this.stateService.setLoading(false);
       this.stateService.setError(`Failed to create instance: ${(error as Error).message}`);
+      return false;
     }
   }
 

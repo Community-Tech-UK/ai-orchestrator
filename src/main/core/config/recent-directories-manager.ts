@@ -83,11 +83,11 @@ export class RecentDirectoriesManager extends EventEmitter {
       // Update existing entry
       entry = {
         ...entries[existingIndex],
+        displayName,
         lastAccessed: Date.now(),
         accessCount: entries[existingIndex].accessCount + 1
       };
-      entries.splice(existingIndex, 1);
-      entries.unshift(entry); // Move to front
+      entries.splice(existingIndex, 1, entry);
     } else {
       // Create new entry
       entry = {
@@ -134,7 +134,11 @@ export class RecentDirectoriesManager extends EventEmitter {
     });
 
     // Sort based on preference
-    if (sortBy === 'lastAccessed') {
+    if (sortBy === 'manual') {
+      const pinned = validEntries.filter((entry) => entry.isPinned);
+      const unpinned = validEntries.filter((entry) => !entry.isPinned);
+      validEntries.splice(0, validEntries.length, ...pinned, ...unpinned);
+    } else if (sortBy === 'lastAccessed') {
       // Pinned first, then by lastAccessed
       validEntries.sort((a, b) => {
         if (a.isPinned && !b.isPinned) return -1;
@@ -182,6 +186,56 @@ export class RecentDirectoriesManager extends EventEmitter {
     this.emit('directory-removed', normalizedPath);
     this.emit('directories-changed', entries);
 
+    return true;
+  }
+
+  /**
+   * Persist a manual order for directories.
+   * Pinned and unpinned directories retain separate segments.
+   */
+  reorderDirectories(dirPaths: string[]): boolean {
+    const normalizedOrder = this.dedupeNormalizedPaths(dirPaths);
+    if (normalizedOrder.length === 0) {
+      return false;
+    }
+
+    const entries = this.store.get('entries');
+    const entriesByPath = new Map(
+      entries.map((entry) => [this.normalizePath(entry.path), entry] as const)
+    );
+    const orderedPaths = normalizedOrder.filter((dirPath) => entriesByPath.has(dirPath));
+    if (orderedPaths.length === 0) {
+      return false;
+    }
+
+    const orderedPathSet = new Set(orderedPaths);
+    const reorderSegment = (segmentEntries: RecentDirectoryEntry[], pinned: boolean) => {
+      const orderedEntries = orderedPaths
+        .map((dirPath) => entriesByPath.get(dirPath))
+        .filter(
+          (entry): entry is RecentDirectoryEntry => entry !== undefined && entry.isPinned === pinned
+        );
+      const remainingEntries = segmentEntries.filter(
+        (entry) => !orderedPathSet.has(this.normalizePath(entry.path))
+      );
+      return [...orderedEntries, ...remainingEntries];
+    };
+
+    const reorderedEntries = [
+      ...reorderSegment(entries.filter((entry) => entry.isPinned), true),
+      ...reorderSegment(entries.filter((entry) => !entry.isPinned), false),
+    ];
+
+    if (
+      reorderedEntries.length === entries.length &&
+      reorderedEntries.every((entry, index) => entry.path === entries[index]?.path)
+    ) {
+      return true;
+    }
+
+    this.store.set('entries', reorderedEntries);
+    this.emit('directories-changed', reorderedEntries);
+    this.emit('directories-reordered', reorderedEntries);
     return true;
   }
 
@@ -266,6 +320,22 @@ export class RecentDirectoriesManager extends EventEmitter {
       dirPath = path.join(app.getPath('home'), dirPath.slice(1));
     }
     return path.resolve(dirPath);
+  }
+
+  private dedupeNormalizedPaths(dirPaths: string[]): string[] {
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+
+    for (const dirPath of dirPaths) {
+      const normalizedPath = this.normalizePath(dirPath);
+      if (seen.has(normalizedPath)) {
+        continue;
+      }
+      seen.add(normalizedPath);
+      deduped.push(normalizedPath);
+    }
+
+    return deduped;
   }
 
   /**

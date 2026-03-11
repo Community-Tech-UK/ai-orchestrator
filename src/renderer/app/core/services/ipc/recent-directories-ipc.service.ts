@@ -54,6 +54,15 @@ export class RecentDirectoriesIpcService {
   }
 
   /**
+   * Persist a manual order for recent directories
+   */
+  async reorderDirectories(paths: string[]): Promise<boolean> {
+    if (!this.api) return false;
+    const response = await this.api.reorderRecentDirectories(paths);
+    return response.success && (response.data as { reordered: boolean } | undefined)?.reordered !== false;
+  }
+
+  /**
    * Clear all recent directories
    * @param keepPinned - If true, keeps pinned directories (default: true)
    */

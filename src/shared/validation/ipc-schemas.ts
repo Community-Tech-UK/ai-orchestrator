@@ -1098,7 +1098,7 @@ export const SupervisionHandleFailurePayloadSchema = z.object({
 
 export const RecentDirsGetPayloadSchema = z.object({
   limit: z.number().int().min(1).max(1000).optional(),
-  sortBy: z.enum(['lastAccessed', 'frequency', 'alphabetical']).optional(),
+  sortBy: z.enum(['lastAccessed', 'frequency', 'alphabetical', 'manual']).optional(),
   includePinned: z.boolean().optional(),
 }).optional();
 
@@ -1113,6 +1113,10 @@ export const RecentDirsRemovePayloadSchema = z.object({
 export const RecentDirsPinPayloadSchema = z.object({
   path: DirectoryPathSchema,
   pinned: z.boolean(),
+});
+
+export const RecentDirsReorderPayloadSchema = z.object({
+  paths: z.array(DirectoryPathSchema).min(1).max(1000),
 });
 
 export const RecentDirsClearPayloadSchema = z.object({
