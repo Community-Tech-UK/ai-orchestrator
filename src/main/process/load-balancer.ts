@@ -122,6 +122,7 @@ export class LoadBalancer extends EventEmitter {
       .map(id => ({ id, metrics: this.metrics.get(id) }))
       .filter(({ metrics }) => {
         if (!metrics) return false;
+        if (metrics.lastUpdated && (Date.now() - metrics.lastUpdated) > this.config.staleMetricsMs) return false;
         if (this.config.excludeCriticalMemory && metrics.memoryPressure === 'critical') return false;
         if (this.config.excludeTerminated && metrics.status === 'terminated') return false;
         return true;

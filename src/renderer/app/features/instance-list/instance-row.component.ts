@@ -25,7 +25,7 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       [class.yolo]="instance().yoloMode"
       [class.is-child]="depth() > 0"
       [class.draggable]="isDraggable()"
-      [style.padding-left.px]="12 + depth() * 20"
+      [style.padding-left.px]="8 + depth() * 18"
       (click)="instanceSelect.emit(instance().id)"
       (keydown.enter)="instanceSelect.emit(instance().id)"
       (keydown.space)="instanceSelect.emit(instance().id)"
@@ -33,11 +33,6 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       role="button"
       [attr.aria-label]="'Select instance ' + resolvedDisplayTitle()"
     >
-      <!-- Drag handle for root instances -->
-      @if (isDraggable()) {
-        <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-      }
-
       <!-- Expand/collapse button for parents, child indicator, or placeholder -->
       @if (hasChildren()) {
         <button
@@ -62,17 +57,7 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
           <span class="agent-badge" [style.background-color]="agent().color" [title]="agent().description">
             {{ agent().name.charAt(0) }}
           </span>
-          <div class="name-and-provider">
-            <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
-            <span
-              class="provider-badge"
-              [class]="'provider-badge provider-' + instance().provider"
-              [title]="providerDisplayName()"
-            >
-              <span class="provider-icon">{{ providerIcon() }}</span>
-              <span class="provider-label">{{ providerShortName() }}</span>
-            </span>
-          </div>
+          <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
           @if (hasChildren() && !isExpanded()) {
             <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
           }
@@ -157,33 +142,6 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       cursor: grabbing;
     }
 
-    /* Drag handle - Enhanced visibility on hover */
-    .drag-handle {
-      color: var(--text-muted);
-      font-size: 10px;
-      letter-spacing: -2px;
-      opacity: 0;
-      transition: all var(--transition-fast);
-      cursor: grab;
-      padding: 4px 3px;
-      flex-shrink: 0;
-      border-radius: var(--radius-sm);
-    }
-
-    .instance-row:hover .drag-handle {
-      opacity: 0.6;
-    }
-
-    .drag-handle:hover {
-      opacity: 1 !important;
-      background: var(--bg-tertiary);
-      color: var(--primary-color);
-    }
-
-    .drag-handle:active {
-      cursor: grabbing;
-    }
-
     /* Child connector - Refined tree line */
     .child-connector {
       color: var(--border-color);
@@ -264,83 +222,9 @@ import { getAgentById, getDefaultAgent } from '../../../../shared/types/agent.ty
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
     }
 
-    .name-and-provider {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-      flex: 1;
-    }
-
-    /* Provider badge - distinctive per-provider styling */
-    .provider-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      padding: 2px 6px;
-      border-radius: 999px;
-      font-family: var(--font-mono);
-      font-size: 8px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      line-height: 1.4;
-      width: fit-content;
-      border: 1px solid transparent;
-      transition: opacity var(--transition-fast);
-    }
-
-    .provider-icon {
-      font-size: 9px;
-      line-height: 1;
-    }
-
-    .provider-label {
-      text-transform: uppercase;
-    }
-
-    /* Claude - warm amber/orange */
-    .provider-claude {
-      background: rgba(217, 119, 6, 0.12);
-      color: #D97706;
-      border-color: rgba(217, 119, 6, 0.25);
-    }
-
-    /* Codex / OpenAI - green */
-    .provider-codex {
-      background: rgba(16, 163, 127, 0.12);
-      color: #10A37F;
-      border-color: rgba(16, 163, 127, 0.25);
-    }
-
-    /* Gemini - blue */
-    .provider-gemini {
-      background: rgba(66, 133, 244, 0.12);
-      color: #4285F4;
-      border-color: rgba(66, 133, 244, 0.25);
-    }
-
-    /* Copilot - purple */
-    .provider-copilot {
-      background: rgba(168, 85, 247, 0.12);
-      color: #A855F7;
-      border-color: rgba(168, 85, 247, 0.25);
-    }
-
-    /* Ollama - neutral */
-    .provider-ollama {
-      background: rgba(136, 136, 136, 0.12);
-      color: #999;
-      border-color: rgba(136, 136, 136, 0.25);
-    }
-
-    /* Auto / unknown */
-    .provider-auto {
-      background: rgba(136, 136, 136, 0.12);
-      color: #888;
-      border-color: rgba(136, 136, 136, 0.25);
-    }
-
     .instance-name {
+      flex: 1;
+      min-width: 0;
       font-family: var(--font-display);
       font-weight: 600;
       font-size: 12px;
@@ -452,78 +336,7 @@ export class InstanceRowComponent {
     return agentId ? getAgentById(agentId) || getDefaultAgent() : getDefaultAgent();
   });
 
-  // Cached provider values - computed once per instance change instead of every CD cycle
-  providerDisplayName = computed(() => {
-    const provider = this.instance().provider;
-    switch (provider) {
-      case 'claude': return 'Claude';
-      case 'codex': return 'Codex';
-      case 'gemini': return 'Gemini';
-      case 'ollama': return 'Ollama';
-      case 'copilot': return 'GitHub Copilot';
-      default: return 'AI';
-    }
-  });
-
-  providerColor = computed(() => {
-    const provider = this.instance().provider;
-    switch (provider) {
-      case 'claude': return '#D97706';
-      case 'codex': return '#10A37F';
-      case 'gemini': return '#4285F4';
-      case 'ollama': return '#888888';
-      case 'copilot': return '#A855F7';
-      default: return '#888888';
-    }
-  });
-
-  providerIcon = computed(() => {
-    const provider = this.instance().provider;
-    switch (provider) {
-      case 'claude': return '◈';
-      case 'codex': return '◉';
-      case 'gemini': return '✦';
-      case 'copilot': return '⬡';
-      case 'ollama': return '○';
-      default: return '●';
-    }
-  });
-
-  providerShortName = computed(() => {
-    const provider = this.instance().provider;
-    switch (provider) {
-      case 'claude': return 'Claude';
-      case 'codex': return 'Codex';
-      case 'gemini': return 'Gemini';
-      case 'copilot': return 'Copilot';
-      case 'ollama': return 'Ollama';
-      default: return 'AI';
-    }
-  });
-
-  // Keep methods for backwards compat but prefer computed signals
   readonly resolvedDisplayTitle = computed(() => this.displayTitle()?.trim() || this.instance().displayName);
-  getProviderDisplayName(provider: string): string {
-    switch (provider) {
-      case 'claude': return 'Claude';
-      case 'codex': return 'Codex';
-      case 'gemini': return 'Gemini';
-      case 'ollama': return 'Ollama';
-      case 'copilot': return 'GitHub Copilot';
-      default: return 'AI';
-    }
-  }
-
-  getProviderColor(provider: string): string {
-    switch (provider) {
-      case 'claude': return '#D97706';
-      case 'codex': return '#10A37F';
-      case 'gemini': return '#4285F4';
-      case 'ollama': return '#888888';
-      case 'copilot': return '#A855F7'; // Purple for Copilot
-      default: return '#888888';
-    }
-  }
 
   onTerminate(event: Event): void {
     event.stopPropagation();

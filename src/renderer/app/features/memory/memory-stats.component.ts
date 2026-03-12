@@ -349,11 +349,11 @@ interface MemoryStats {
       height: 100%;
 
       &.short-term {
-        background: #3b82f6;
+        background: var(--memory-episodic);
       }
 
       &.long-term {
-        background: #10b981;
+        background: var(--memory-procedural);
       }
     }
 
@@ -382,11 +382,11 @@ interface MemoryStats {
       border-radius: 2px;
 
       &.short-term {
-        background: #3b82f6;
+        background: var(--memory-episodic);
       }
 
       &.long-term {
-        background: #10b981;
+        background: var(--memory-procedural);
       }
     }
 
@@ -425,11 +425,11 @@ interface MemoryStats {
       height: 100%;
       border-radius: 4px;
 
-      &.type-episodic { background: #3b82f6; }
-      &.type-procedural { background: #10b981; }
-      &.type-semantic { background: #f59e0b; }
-      &.type-short_term { background: #8b5cf6; }
-      &.type-long_term { background: #ec4899; }
+      &.type-episodic { background: var(--memory-episodic); }
+      &.type-procedural { background: var(--memory-procedural); }
+      &.type-semantic { background: var(--memory-semantic); }
+      &.type-short_term { background: var(--memory-short-term); }
+      &.type-long_term { background: var(--memory-long-term); }
     }
 
     .type-count {
@@ -483,10 +483,10 @@ interface MemoryStats {
     .op-segment {
       height: 100%;
 
-      &.add { background: #10b981; }
-      &.update { background: #3b82f6; }
-      &.delete { background: #ef4444; }
-      &.noop { background: #6b7280; }
+      &.add { background: var(--operation-add); }
+      &.update { background: var(--operation-update); }
+      &.delete { background: var(--operation-delete); }
+      &.noop { background: var(--operation-noop); }
     }
 
     /* Evictions */

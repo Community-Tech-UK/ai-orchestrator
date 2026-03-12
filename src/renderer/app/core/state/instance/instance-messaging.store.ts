@@ -150,6 +150,8 @@ export class InstanceMessagingStore {
     message: string,
     files?: File[]
   ): Promise<void> {
+    const previousStatus = this.stateService.getInstance(instanceId)?.status;
+
     // Drop truly empty messages (no text AND no files)
     if (!message && (!files || files.length === 0)) {
       console.log('InstanceMessagingStore: Dropping empty message (no text, no files)', { instanceId });
@@ -195,6 +197,21 @@ export class InstanceMessagingStore {
     if (!result.success) {
       console.error('InstanceMessagingStore: sendInput failed', result.error);
 
+      const errorMessage = result.error?.message || 'Failed to send message';
+      const currentInstance = this.stateService.getInstance(instanceId);
+      const retryDisposition = this.getRetryDisposition(currentInstance?.status, errorMessage);
+
+      if (currentInstance && currentInstance.status === 'busy') {
+        this.stateService.updateInstance(instanceId, {
+          status: retryDisposition.nextStatus ?? previousStatus ?? 'idle',
+        });
+      }
+
+      if (!retryDisposition.shouldRetry) {
+        this.addErrorToOutput(instanceId, `Failed to send message:\n${errorMessage}`);
+        return;
+      }
+
       // Re-queue the message at the front so it's retried when the instance is ready
       console.log('InstanceMessagingStore: Re-queuing failed message at front of queue', {
         instanceId,
@@ -209,13 +226,9 @@ export class InstanceMessagingStore {
       // Revert status only if we were the ones who set it to busy.
       // Don't revert to 'idle' if the instance is in a transitional state
       // (respawning, error, terminated) — let the main process drive those.
-      const instance = this.stateService.getInstance(instanceId);
-      if (instance && instance.status === 'busy') {
-        this.stateService.updateInstance(instanceId, {
-          status: 'idle' as InstanceStatus,
-        });
-
-        // The local idle status set above won't generate a main process
+      const nextStatus = retryDisposition.nextStatus ?? previousStatus ?? 'idle';
+      if (nextStatus === 'idle' || nextStatus === 'waiting_for_input') {
+        // The local ready status set above won't generate a main process
         // batch update, so processMessageQueue won't be re-triggered by the
         // normal path. Schedule a retry so the re-queued message gets another
         // chance once the instance is actually ready.
@@ -278,6 +291,27 @@ export class InstanceMessagingStore {
   // ============================================
   // Private Helpers
   // ============================================
+
+  private getRetryDisposition(
+    status: InstanceStatus | undefined,
+    errorMessage: string
+  ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
+    const normalized = errorMessage.toLowerCase();
+
+    if (status === 'respawning' || normalized.includes('respawning')) {
+      return { shouldRetry: true, nextStatus: 'respawning' };
+    }
+
+    if (status === 'error' || normalized.includes('error state') || normalized.includes('inconsistent state')) {
+      return { shouldRetry: false, nextStatus: 'error' };
+    }
+
+    if (status === 'terminated' || normalized.includes('terminated')) {
+      return { shouldRetry: false, nextStatus: 'terminated' };
+    }
+
+    return { shouldRetry: false, nextStatus: status };
+  }
 
   /**
    * Add an error message to the output buffer

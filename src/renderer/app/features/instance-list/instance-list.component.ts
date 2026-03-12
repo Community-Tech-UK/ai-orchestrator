@@ -156,7 +156,12 @@ interface ProjectPathGroupIndex {
                         <path d="M1.5 3.5a1 1 0 0 1 1-1H6l1.1 1.4c.2.3.6.4.9.4h5.5a1 1 0 0 1 1 1v6.7a1.8 1.8 0 0 1-1.8 1.8H3.3A1.8 1.8 0 0 1 1.5 12V3.5Zm1 1v7.5c0 .4.3.8.8.8h9.4c.4 0 .8-.4.8-.8V5.5H7.9c-.6 0-1.2-.3-1.5-.8L5.5 3.5H2.5Z" />
                       </svg>
                     </span>
-                    <span class="project-title">{{ group.title }}</span>
+                    <div class="project-title-primary">
+                      <span class="project-title">{{ group.title }}</span>
+                      @if (group.sessionCount > 0) {
+                        <span class="project-title-count">: {{ group.sessionCount }}</span>
+                      }
+                    </div>
                     @if (group.hasSelectedInstance) {
                       <span class="project-selected-pill">Current</span>
                     }
@@ -170,16 +175,17 @@ interface ProjectPathGroupIndex {
                   <span class="project-subtitle" [title]="group.subtitle">{{ group.subtitle }}</span>
                 </div>
                 <div class="project-meta">
-                  <span
-                    class="project-state"
-                    [class.project-state-working]="group.projectStateTone === 'working'"
-                    [class.project-state-attention]="group.projectStateTone === 'attention'"
-                    [class.project-state-connecting]="group.projectStateTone === 'connecting'"
-                    [class.project-state-ready]="group.projectStateTone === 'ready'"
-                  >
-                    {{ group.projectStateLabel }}
-                  </span>
-                  <span class="project-state">{{ group.sessionCount }} sessions</span>
+                  @if (shouldShowProjectStateChip(group)) {
+                    <span
+                      class="project-state-chip"
+                      [class.project-state-working]="group.projectStateTone === 'working'"
+                      [class.project-state-attention]="group.projectStateTone === 'attention'"
+                      [class.project-state-connecting]="group.projectStateTone === 'connecting'"
+                      [class.project-state-ready]="group.projectStateTone === 'ready'"
+                    >
+                      {{ getProjectStateDisplayLabel(group) }}
+                    </span>
+                  }
                 </div>
               </button>
               <div class="project-actions" [class.visible]="openProjectMenuKey() === group.key">
@@ -490,7 +496,13 @@ interface ProjectPathGroupIndex {
     .status-filter {
       width: 100%;
       min-width: 0;
-      padding: 8px 10px;
+      padding: 8px 36px 8px 10px;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6.25L8 10.25L12 6.25' stroke='%23B8C2B5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      background-size: 14px;
       cursor: pointer;
     }
 
@@ -545,7 +557,9 @@ interface ProjectPathGroupIndex {
     }
 
     .project-header {
-      flex: 1;
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 100%;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -556,6 +570,7 @@ interface ProjectPathGroupIndex {
       color: inherit;
       cursor: pointer;
       text-align: left;
+      overflow: hidden;
       transition: background var(--transition-fast);
     }
 
@@ -564,12 +579,16 @@ interface ProjectPathGroupIndex {
     }
 
     .project-header-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: flex-start;
       gap: 6px;
+      width: 100%;
+      min-width: 0;
     }
 
     .project-copy {
+      flex: 1 1 auto;
       min-width: 0;
       display: flex;
       flex-direction: column;
@@ -581,6 +600,14 @@ interface ProjectPathGroupIndex {
       align-items: center;
       gap: 8px;
       min-width: 0;
+    }
+
+    .project-title-primary {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      min-width: 0;
+      flex: 1 1 auto;
     }
 
     .project-icon {
@@ -600,12 +627,25 @@ interface ProjectPathGroupIndex {
     }
 
     .project-title {
+      min-width: 0;
+      flex: 1 1 auto;
       font-size: 13px;
       font-weight: 600;
       color: var(--text-primary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .project-title-count {
+      flex-shrink: 0;
+      color: rgba(186, 194, 182, 0.82);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
 
     .project-selected-pill {
@@ -657,14 +697,19 @@ interface ProjectPathGroupIndex {
     .project-meta {
       display: flex;
       align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
+      justify-content: flex-end;
+      gap: 8px;
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .project-actions {
       display: flex;
       align-items: center;
       gap: 6px;
+      flex: 0 0 auto;
+      justify-content: flex-end;
       opacity: 0;
       pointer-events: none;
       transform: translateX(6px);
@@ -778,15 +823,23 @@ interface ProjectPathGroupIndex {
       color: var(--text-primary);
     }
 
-    .project-state {
-      padding: 0;
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
+    .project-state-chip {
+      min-width: 0;
+      max-width: 92px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      color: rgba(188, 198, 184, 0.86);
       font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.02em;
+      font-size: 9px;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
+      line-height: 1.2;
+      flex-shrink: 1;
     }
 
     .project-state-working {
@@ -2124,6 +2177,21 @@ export class InstanceListComponent {
 
   formatHistoryTime(entry: ConversationHistoryEntry): string {
     return this.formatRelativeTime(this.getHistorySortTimestamp(entry, this.historySortMode()));
+  }
+
+  shouldShowProjectStateChip(group: ProjectGroup): boolean {
+    return group.projectStateTone !== 'history';
+  }
+
+  getProjectStateDisplayLabel(group: ProjectGroup): string {
+    switch (group.projectStateLabel) {
+      case 'Awaiting input':
+        return 'Waiting';
+      case 'Draft ready':
+        return 'Draft';
+      default:
+        return group.projectStateLabel;
+    }
   }
 
   getProjectDraftTitle(group: ProjectGroup): string {

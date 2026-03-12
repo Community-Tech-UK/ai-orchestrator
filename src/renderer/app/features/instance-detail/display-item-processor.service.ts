@@ -54,7 +54,7 @@ export class DisplayItemProcessor {
 
     this.computeHeaders();
 
-    return this.items;
+    return this._newItemCount > 0 ? [...this.items] : this.items;
   }
 
   reset(): void {

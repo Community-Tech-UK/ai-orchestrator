@@ -133,6 +133,11 @@ export const IPC_CHANNELS = {
   SESSION_SHARE_SAVE: 'session:share-save',
   SESSION_SHARE_LOAD: 'session:share-load',
   SESSION_SHARE_REPLAY: 'session:share-replay',
+  SESSION_LIST_RESUMABLE: 'session:list-resumable',
+  SESSION_RESUME: 'session:resume',
+  SESSION_LIST_SNAPSHOTS: 'session:list-snapshots',
+  SESSION_CREATE_SNAPSHOT: 'session:create-snapshot',
+  SESSION_GET_STATS: 'session:get-stats',
 
   // Command operations
   COMMAND_LIST: 'command:list',

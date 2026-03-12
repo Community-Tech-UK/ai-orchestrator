@@ -126,6 +126,11 @@ const IPC_CHANNELS = {
   SESSION_SHARE_SAVE: 'session:share-save',
   SESSION_SHARE_LOAD: 'session:share-load',
   SESSION_SHARE_REPLAY: 'session:share-replay',
+  SESSION_LIST_RESUMABLE: 'session:list-resumable',
+  SESSION_RESUME: 'session:resume',
+  SESSION_LIST_SNAPSHOTS: 'session:list-snapshots',
+  SESSION_CREATE_SNAPSHOT: 'session:create-snapshot',
+  SESSION_GET_STATS: 'session:get-stats',
 
   // Command operations
   COMMAND_LIST: 'command:list',
@@ -1615,6 +1620,16 @@ const electronAPI = {
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.SESSION_SHARE_REPLAY, payload);
   },
+
+  // Session continuity
+  listResumableSessions: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST_RESUMABLE),
+  resumeSession: (payload: { instanceId: string; options?: Record<string, unknown> }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_RESUME, payload),
+  listSessionSnapshots: (payload?: { instanceId?: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST_SNAPSHOTS, payload),
+  createSessionSnapshot: (payload: { instanceId: string; name?: string; description?: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_CREATE_SNAPSHOT, payload),
+  getSessionStats: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET_STATS),
 
   // ============================================
   // Command Operations

@@ -35,6 +35,8 @@ import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
 import { getSessionArchiveManager } from '../../session/session-archive';
 import { getSessionShareService } from '../../session/session-share-service';
+import { getSessionContinuityManager } from '../../session/session-continuity';
+import type { ResumeOptions } from '../../session/session-continuity';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 
@@ -1040,4 +1042,51 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       }
     }
   );
+
+  // --- Session Continuity ---
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_LIST_RESUMABLE, async () => {
+    try {
+      return getSessionContinuityManager().getResumableSessions();
+    } catch (error) {
+      logger.error('Failed to list resumable sessions', error instanceof Error ? error : undefined);
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_RESUME, async (_event: IpcMainInvokeEvent, payload: { instanceId: string; options?: ResumeOptions }) => {
+    try {
+      return await getSessionContinuityManager().resumeSession(payload.instanceId, payload.options);
+    } catch (error) {
+      logger.error('Failed to resume session', error instanceof Error ? error : undefined);
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_LIST_SNAPSHOTS, async (_event: IpcMainInvokeEvent, payload?: { instanceId?: string }) => {
+    try {
+      return getSessionContinuityManager().listSnapshots(payload?.instanceId);
+    } catch (error) {
+      logger.error('Failed to list snapshots', error instanceof Error ? error : undefined);
+      return [];
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_CREATE_SNAPSHOT, async (_event: IpcMainInvokeEvent, payload: { instanceId: string; name?: string; description?: string }) => {
+    try {
+      return getSessionContinuityManager().createSnapshot(payload.instanceId, payload.name, payload.description, 'manual');
+    } catch (error) {
+      logger.error('Failed to create snapshot', error instanceof Error ? error : undefined);
+      return null;
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_GET_STATS, async () => {
+    try {
+      return getSessionContinuityManager().getStats();
+    } catch (error) {
+      logger.error('Failed to get session stats', error instanceof Error ? error : undefined);
+      return null;
+    }
+  });
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResourceGovernor } from './resource-governor';
+import type { MemoryPressureLevel } from '../memory/memory-monitor';
 
 describe('ResourceGovernor', () => {
   let governor: ResourceGovernor;
@@ -9,7 +10,7 @@ describe('ResourceGovernor', () => {
     on: vi.fn(),
     off: vi.fn(),
     requestGC: vi.fn(() => true),
-    getPressureLevel: vi.fn(() => 'normal' as const),
+    getPressureLevel: vi.fn((): MemoryPressureLevel => 'normal'),
   };
   const mockInstanceManager = {
     on: vi.fn(),

@@ -442,6 +442,17 @@ export class InstanceManager extends EventEmitter {
     return this.state.getAllInstancesForIpc();
   }
 
+  getInstanceCount(): number {
+    return this.state.getInstanceCount();
+  }
+
+  getIdleInstances(thresholdMs: number): Array<{ id: string; lastActivity: number }> {
+    const now = Date.now();
+    return this.state.getAllInstances()
+      .filter(i => i.status === 'idle' && (now - i.lastActivity) >= thresholdMs)
+      .map(i => ({ id: i.id, lastActivity: i.lastActivity }));
+  }
+
   serializeForIpc(instance: Instance): Record<string, unknown> {
     return this.state.serializeForIpc(instance);
   }

@@ -76,6 +76,31 @@
   --status-error: #ef4444;
   --status-initializing: #a855f7;
 
+  // Memory type indicators
+  --memory-episodic: #3b82f6;
+  --memory-procedural: #10b981;
+  --memory-semantic: #f59e0b;
+  --memory-short-term: #8b5cf6;
+  --memory-long-term: #ec4899;
+  --memory-unknown: #6b7280;
+  --memory-episodic-alpha: rgba(59, 130, 246, 0.15);
+  --memory-procedural-alpha: rgba(16, 185, 129, 0.15);
+  --memory-semantic-alpha: rgba(245, 158, 11, 0.15);
+  --memory-short-term-alpha: rgba(139, 92, 246, 0.15);
+  --memory-long-term-alpha: rgba(236, 72, 153, 0.15);
+  --memory-unknown-alpha: rgba(107, 114, 128, 0.15);
+
+  // Operation status colors
+  --operation-add: #10b981;
+  --operation-update: #3b82f6;
+  --operation-delete: #ef4444;
+  --operation-noop: #6b7280;
+
+  // Overlay variants
+  --overlay-dark-light: rgba(0, 0, 0, 0.2);
+  --overlay-dark-medium: rgba(0, 0, 0, 0.5);
+  --overlay-dark-strong: rgba(0, 0, 0, 0.8);
+
   // ============================================
   // SPACING - Refined 4px base grid
   // ============================================
@@ -188,6 +213,31 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
   --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+
+  // Memory type indicators
+  --memory-episodic: #3b82f6;
+  --memory-procedural: #10b981;
+  --memory-semantic: #f59e0b;
+  --memory-short-term: #8b5cf6;
+  --memory-long-term: #ec4899;
+  --memory-unknown: #6b7280;
+  --memory-episodic-alpha: rgba(59, 130, 246, 0.12);
+  --memory-procedural-alpha: rgba(16, 185, 129, 0.12);
+  --memory-semantic-alpha: rgba(245, 158, 11, 0.12);
+  --memory-short-term-alpha: rgba(139, 92, 246, 0.12);
+  --memory-long-term-alpha: rgba(236, 72, 153, 0.12);
+  --memory-unknown-alpha: rgba(107, 114, 128, 0.12);
+
+  // Operation status colors
+  --operation-add: #16a34a;
+  --operation-update: #2563eb;
+  --operation-delete: #dc2626;
+  --operation-noop: #6b7280;
+
+  // Overlay variants
+  --overlay-dark-light: rgba(0, 0, 0, 0.1);
+  --overlay-dark-medium: rgba(0, 0, 0, 0.3);
+  --overlay-dark-strong: rgba(0, 0, 0, 0.6);
 }
 
 @media (prefers-color-scheme: light) {
@@ -218,6 +268,31 @@
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
     --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+    // Memory type indicators
+    --memory-episodic: #3b82f6;
+    --memory-procedural: #10b981;
+    --memory-semantic: #f59e0b;
+    --memory-short-term: #8b5cf6;
+    --memory-long-term: #ec4899;
+    --memory-unknown: #6b7280;
+    --memory-episodic-alpha: rgba(59, 130, 246, 0.12);
+    --memory-procedural-alpha: rgba(16, 185, 129, 0.12);
+    --memory-semantic-alpha: rgba(245, 158, 11, 0.12);
+    --memory-short-term-alpha: rgba(139, 92, 246, 0.12);
+    --memory-long-term-alpha: rgba(236, 72, 153, 0.12);
+    --memory-unknown-alpha: rgba(107, 114, 128, 0.12);
+
+    // Operation status colors
+    --operation-add: #16a34a;
+    --operation-update: #2563eb;
+    --operation-delete: #dc2626;
+    --operation-noop: #6b7280;
+
+    // Overlay variants
+    --overlay-dark-light: rgba(0, 0, 0, 0.1);
+    --overlay-dark-medium: rgba(0, 0, 0, 0.3);
+    --overlay-dark-strong: rgba(0, 0, 0, 0.6);
   }
 }
 

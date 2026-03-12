@@ -9,15 +9,16 @@ import {
   Component,
   input,
   computed,
-  ElementRef,
   viewChild,
   effect,
   inject,
   signal,
   ChangeDetectionStrategy,
-  afterNextRender
+  afterNextRender,
+  DestroyRef
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { ScrollingModule, CdkVirtualScrollViewport, VIRTUAL_SCROLL_STRATEGY } from '@angular/cdk/scrolling';
 import { OutputMessage } from '../../core/state/instance.store';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService } from '../../core/services/ipc';
@@ -26,6 +27,7 @@ import { MessageAttachmentsComponent } from '../../shared/components/message-att
 import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
 import { ToolGroupComponent } from '../../shared/components/tool-group/tool-group.component';
 import { DisplayItemProcessor, DisplayItem } from './display-item-processor.service';
+import { TranscriptScrollStrategy } from './transcript-scroll-strategy';
 
 type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 
@@ -38,235 +40,152 @@ interface RenderedDisplayItem extends DisplayItem {
 @Component({
   selector: 'app-output-stream',
   standalone: true,
-  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent, ToolGroupComponent],
+  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent, ToolGroupComponent, ScrollingModule],
+  providers: [
+    TranscriptScrollStrategy,
+    { provide: VIRTUAL_SCROLL_STRATEGY, useExisting: TranscriptScrollStrategy },
+  ],
   template: `
-    <div class="output-stream" #container>
-      @for (item of displayItems(); track item.id) {
-        @if (item.type === 'thought-group') {
-          <!-- Thought group with collapsible thinking section -->
-          <!-- Only render thought-group if there's something to display -->
-          @if (hasThoughtGroupContent(item)) {
-            <div class="thought-group">
-              @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
-                @if (showThinking()) {
-                  <app-thought-process
-                    [thoughts]="item.thoughts || []"
-                    [thinkingBlocks]="item.thinking"
-                    [label]="getThoughtLabel(item.thoughts || [])"
-                    [defaultExpanded]="thinkingDefaultExpanded()"
-                    [instanceId]="instanceId()"
-                    [itemId]="item.id"
-                  />
+    @if (displayItems().length === 0) {
+      <div class="empty-stream">
+        <p>No messages yet</p>
+        <p class="hint">Start a conversation</p>
+      </div>
+    } @else {
+      <cdk-virtual-scroll-viewport class="output-stream" #container>
+        <div *cdkVirtualFor="let item of displayItems(); let i = index; trackBy: trackByItemId"
+             class="transcript-item"
+             [attr.data-item-index]="i">
+          @if (item.type === 'thought-group') {
+            @if (hasThoughtGroupContent(item)) {
+              <div class="thought-group">
+                @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
+                  @if (showThinking()) {
+                    <app-thought-process
+                      [thoughts]="item.thoughts || []"
+                      [thinkingBlocks]="item.thinking"
+                      [label]="getThoughtLabel(item.thoughts || [])"
+                      [defaultExpanded]="thinkingDefaultExpanded()"
+                      [instanceId]="instanceId()"
+                      [itemId]="item.id"
+                    />
+                  }
                 }
-              }
-              @if (item.response && hasContent(item.response)) {
-              <div class="message message-assistant" [class.continuation]="item.showHeader === false">
-                @if (item.showHeader !== false) {
-                <div class="message-header">
-                  <span class="message-type">{{
-                    getProviderDisplayName(provider())
-                  }}</span>
-                  <span class="message-time">
-                    {{ item.response.timestamp | date: 'HH:mm:ss' }}
-                  </span>
-                  <button
-                    class="copy-message-btn"
-                    [class.copied]="isMessageCopied(item.response.id)"
-                    (click)="
-                      copyMessageContent(
-                        item.response.content,
-                        item.response.id
-                      )
-                    "
-                    title="Copy to clipboard"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <rect
-                        x="9"
-                        y="9"
-                        width="13"
-                        height="13"
-                        rx="2"
-                        ry="2"
-                      ></rect>
-                      <path
-                        d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-                      ></path>
-                    </svg>
-                    @if (isMessageCopied(item.response.id)) {
-                      <span class="copy-label">Copied</span>
+                @if (item.response && hasContent(item.response)) {
+                  <div class="message message-assistant" [class.continuation]="item.showHeader === false">
+                    @if (item.showHeader !== false) {
+                      <div class="message-header">
+                        <span class="message-type">{{ getProviderDisplayName(provider()) }}</span>
+                        <span class="message-time">{{ item.response.timestamp | date: 'HH:mm:ss' }}</span>
+                        <button class="copy-message-btn" [class.copied]="isMessageCopied(item.response.id)"
+                          (click)="copyMessageContent(item.response.content, item.response.id)"
+                          title="Copy to clipboard">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                          @if (isMessageCopied(item.response.id)) {
+                            <span class="copy-label">Copied</span>
+                          }
+                        </button>
+                      </div>
                     }
-                  </button>
-                </div>
+                    <div class="message-content">
+                      <div class="markdown-content" [innerHTML]="item.renderedResponse"></div>
+                      @if (item.response.attachments && item.response.attachments.length > 0) {
+                        <app-message-attachments [attachments]="item.response.attachments" />
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          } @else if (item.type === 'tool-group' && item.toolMessages) {
+            <app-tool-group [toolMessages]="item.toolMessages" [instanceId]="instanceId()" [itemId]="item.id" />
+          } @else if (item.message) {
+            @if (isCompactionBoundary(item.message)) {
+              <div class="compaction-boundary">
+                <div class="boundary-line"></div>
+                <span class="boundary-label">{{ getCompactionLabel(item.message) }}</span>
+                <div class="boundary-line"></div>
+              </div>
+            } @else if (hasContent(item.message)) {
+              <div class="message" [class]="'message-' + item.message.type" [class.continuation]="item.showHeader === false">
+                @if (item.showHeader !== false) {
+                  <div class="message-header">
+                    <span class="message-type">{{ formatType(item.message.type) }}</span>
+                    @if (item.repeatCount && item.repeatCount > 1) {
+                      <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
+                    }
+                    <span class="message-time">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
+                    @if (item.message.type === 'user' || item.message.type === 'assistant') {
+                      <button class="copy-message-btn" [class.copied]="isMessageCopied(item.message.id)"
+                        (click)="copyMessageContent(item.message.content, item.message.id)"
+                        title="Copy to clipboard">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        @if (isMessageCopied(item.message.id)) {
+                          <span class="copy-label">Copied</span>
+                        }
+                      </button>
+                    }
+                  </div>
                 }
                 <div class="message-content">
-                  <div
-                    class="markdown-content"
-                    [innerHTML]="item.renderedResponse"
-                  ></div>
-                  @if (
-                    item.response.attachments &&
-                    item.response.attachments.length > 0
-                  ) {
-                    <app-message-attachments
-                      [attachments]="item.response.attachments"
-                    />
+                  @if (item.message.type === 'tool_use' || item.message.type === 'tool_result') {
+                    <div class="code-block-wrapper">
+                      <div class="code-block-header">
+                        <span class="code-language">{{ getToolName(item.message) }}</span>
+                      </div>
+                      <pre class="hljs"><code>{{ formatContent(item.message) }}</code></pre>
+                    </div>
+                  } @else {
+                    <div class="markdown-content" [innerHTML]="item.renderedMessage"></div>
+                  }
+                  @if (item.message.attachments && item.message.attachments.length > 0) {
+                    <app-message-attachments [attachments]="item.message.attachments" />
                   }
                 </div>
               </div>
             }
-            </div>
           }
-        } @else if (item.type === 'tool-group' && item.toolMessages) {
-          <!-- Grouped tool calls in collapsible accordion -->
-          <app-tool-group [toolMessages]="item.toolMessages" [instanceId]="instanceId()" [itemId]="item.id" />
-        } @else if (item.message) {
-          <!-- Regular message -->
-          @if (isCompactionBoundary(item.message)) {
-            <div class="compaction-boundary">
-              <div class="boundary-line"></div>
-              <span class="boundary-label">{{ getCompactionLabel(item.message) }}</span>
-              <div class="boundary-line"></div>
-            </div>
-          } @else if (hasContent(item.message)) {
-            <div class="message" [class]="'message-' + item.message.type" [class.continuation]="item.showHeader === false">
-              @if (item.showHeader !== false) {
-              <div class="message-header">
-                <span class="message-type">{{
-                  formatType(item.message.type)
-                }}</span>
-                @if (item.repeatCount && item.repeatCount > 1) {
-                  <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
-                }
-                <span class="message-time">
-                  {{ item.message.timestamp | date: 'HH:mm:ss' }}
-                </span>
-                @if (
-                  item.message.type === 'user' ||
-                  item.message.type === 'assistant'
-                ) {
-                  <button
-                    class="copy-message-btn"
-                    [class.copied]="isMessageCopied(item.message.id)"
-                    (click)="
-                      copyMessageContent(item.message.content, item.message.id)
-                    "
-                    title="Copy to clipboard"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <rect
-                        x="9"
-                        y="9"
-                        width="13"
-                        height="13"
-                        rx="2"
-                        ry="2"
-                      ></rect>
-                      <path
-                        d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-                      ></path>
-                    </svg>
-                    @if (isMessageCopied(item.message.id)) {
-                      <span class="copy-label">Copied</span>
-                    }
-                  </button>
-                }
-              </div>
-              }
-              <div class="message-content">
-                @if (
-                  item.message.type === 'tool_use' ||
-                  item.message.type === 'tool_result'
-                ) {
-                  <div class="code-block-wrapper">
-                    <div class="code-block-header">
-                      <span class="code-language">{{
-                        getToolName(item.message)
-                      }}</span>
-                    </div>
-                    <pre
-                      class="hljs"
-                    ><code>{{ formatContent(item.message) }}</code></pre>
-                  </div>
-                } @else {
-                  <div
-                    class="markdown-content"
-                    [innerHTML]="item.renderedMessage"
-                  ></div>
-                }
-                @if (
-                  item.message.attachments &&
-                  item.message.attachments.length > 0
-                ) {
-                  <app-message-attachments
-                    [attachments]="item.message.attachments"
-                  />
-                }
-              </div>
-            </div>
-          }
-        }
-      } @empty {
-        <div class="empty-stream">
-          <p>No messages yet</p>
-          <p class="hint">Start a conversation</p>
         </div>
-      }
+      </cdk-virtual-scroll-viewport>
+    }
 
-      <!-- Scroll to bottom button -->
-      @if (showScrollToBottom()) {
-        <button
-          class="scroll-to-bottom-btn"
-          (click)="scrollToBottom()"
-          title="Scroll to bottom"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-      }
-    </div>
+    <!-- Scroll to bottom button -->
+    @if (showScrollToBottom()) {
+      <button class="scroll-to-bottom-btn" (click)="scrollToBottom()" title="Scroll to bottom">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    }
   `,
   styles: [
     `
       :host {
         display: flex;
         flex-direction: column;
-        min-height: 0;
+        height: 100%;
+        position: relative;
       }
 
-      .output-stream {
+      cdk-virtual-scroll-viewport.output-stream {
         flex: 1;
         min-height: 0;
+        height: 100%;
         overflow-y: auto;
         padding: 4px;
         background: transparent;
         border-radius: 22px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
         position: relative;
+      }
+
+      .transcript-item {
+        /* Let content determine height naturally */
       }
 
       .message {
@@ -277,9 +196,8 @@ interface RenderedDisplayItem extends DisplayItem {
           linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
           rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.05);
-        content-visibility: auto;
-        contain-intrinsic-size: auto 80px;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+        margin-bottom: 8px;
       }
 
       /* Continuation messages from the same sender — tighter spacing, no top radius */
@@ -514,8 +432,7 @@ interface RenderedDisplayItem extends DisplayItem {
         gap: var(--spacing-sm);
         width: min(100%, 920px);
         margin-right: auto;
-        content-visibility: auto;
-        contain-intrinsic-size: auto 120px;
+        margin-bottom: 8px;
       }
 
       .thought-group .message-assistant {
@@ -535,10 +452,9 @@ interface RenderedDisplayItem extends DisplayItem {
       }
 
       .scroll-to-bottom-btn {
-        position: sticky;
+        position: absolute;
         bottom: 20px;
-        align-self: flex-end;
-        margin-top: -40px;
+        right: 20px;
         width: 40px;
         height: 40px;
         border-radius: 50%;
@@ -605,12 +521,12 @@ export class OutputStreamComponent {
   showThinking = input<boolean>(true);
   thinkingDefaultExpanded = input<boolean>(false);
 
-  container = viewChild<ElementRef>('container');
+  container = viewChild<CdkVirtualScrollViewport>('container');
 
   // Scroll state - stored per instance
   protected showScrollToBottom = signal(false);
   private userScrolledUp = false;
-  private scrollPositions = new Map<string, number>(); // instanceId -> scrollTop
+  private scrollPositions = new Map<string, number>(); // instanceId -> scrollOffset
   private previousInstanceId: string | null = null;
 
   protected copiedMessageId = signal<string | null>(null);
@@ -619,7 +535,11 @@ export class OutputStreamComponent {
   private markdownService = inject(MarkdownService);
   private ipc = inject(ElectronIpcService);
   private perf = inject(PerfInstrumentationService);
+  private scrollStrategy = inject(TranscriptScrollStrategy);
+  private destroyRef = inject(DestroyRef);
   private displayItemProcessor = new DisplayItemProcessor();
+
+  private resizeObserver: ResizeObserver | null = null;
 
   /**
    * Shows all messages, consolidating streaming messages with the same ID.
@@ -649,21 +569,40 @@ export class OutputStreamComponent {
     return items as RenderedDisplayItem[];
   });
 
+  trackByItemId(_index: number, item: RenderedDisplayItem): string {
+    return item.id;
+  }
+
   constructor() {
+    // Notify scroll strategy about data length changes and set type hints for new items
+    effect(() => {
+      const items = this.displayItems();
+      this.scrollStrategy.setDataLength(items.length);
+
+      const newCount = this.displayItemProcessor.newItemCount;
+      if (newCount > 0) {
+        const startIdx = items.length - newCount;
+        for (let i = startIdx; i < items.length; i++) {
+          this.scrollStrategy.setItemTypeHint(i, items[i].type);
+        }
+      }
+    });
+
     // Handle instance changes - save/restore scroll position
     effect(() => {
       const currentInstanceId = this.instanceId();
-      const el = this.container()?.nativeElement;
+      const vp = this.container();
 
-      if (this.previousInstanceId && this.previousInstanceId !== currentInstanceId && el) {
+      if (this.previousInstanceId && this.previousInstanceId !== currentInstanceId && vp) {
         // Save scroll position for the previous instance
-        this.scrollPositions.set(this.previousInstanceId, el.scrollTop);
+        this.scrollPositions.set(this.previousInstanceId, vp.measureScrollOffset());
       }
 
       if (currentInstanceId !== this.previousInstanceId) {
-        // Instance changed - reset scroll state
+        // Instance changed - reset scroll state and strategy cache
         this.userScrolledUp = false;
         this.showScrollToBottom.set(false);
+        this.scrollStrategy.clearCache();
 
         // Perf: measure thread switch time and transcript paint
         const stopSwitch = this.perf.markThreadSwitch(this.previousInstanceId, currentInstanceId);
@@ -672,16 +611,18 @@ export class OutputStreamComponent {
         // Restore scroll position for the new instance using rAF for frame alignment
         requestAnimationFrame(() => {
           const savedPosition = this.scrollPositions.get(currentInstanceId);
-          const containerEl = this.container()?.nativeElement;
-          if (containerEl) {
+          const viewport = this.container();
+          if (viewport) {
             if (savedPosition !== undefined) {
-              containerEl.scrollTop = savedPosition;
-              const scrollPosition = containerEl.scrollTop + containerEl.clientHeight;
-              const scrollHeight = containerEl.scrollHeight;
-              this.userScrolledUp = scrollPosition < scrollHeight - 100;
-              this.showScrollToBottom.set(scrollPosition < scrollHeight - 50);
+              viewport.scrollToOffset(savedPosition);
+              const scrollOffset = viewport.measureScrollOffset();
+              const viewportSize = viewport.getViewportSize();
+              const totalSize = viewport.measureRenderedContentSize();
+              const distanceFromBottom = totalSize - scrollOffset - viewportSize;
+              this.userScrolledUp = distanceFromBottom > 100;
+              this.showScrollToBottom.set(distanceFromBottom > 50);
             } else {
-              containerEl.scrollTop = containerEl.scrollHeight;
+              viewport.scrollToOffset(viewport.measureRenderedContentSize());
             }
           }
           stopPaint();
@@ -695,33 +636,64 @@ export class OutputStreamComponent {
     // Auto-scroll to bottom when new messages arrive (only if user hasn't scrolled up)
     effect(() => {
       const msgs = this.messages();
-      const el = this.container()?.nativeElement;
-      if (el && msgs.length > 0) {
+      const vp = this.container();
+      if (vp && msgs.length > 0) {
         requestAnimationFrame(() => {
           if (!this.userScrolledUp) {
-            el.scrollTop = el.scrollHeight;
+            vp.scrollToOffset(vp.measureRenderedContentSize() + 999999);
           }
         });
       }
     });
 
-    // Setup scroll listener and delegated click handler after render
+    // Setup scroll listener, delegated click handler, and ResizeObserver after render
     afterNextRender(() => {
-      this.setupDelegatedClickHandler();
-      this.setupScrollListener();
+      const clickBinding = this.setupDelegatedClickHandler();
+      const scrollBinding = this.setupScrollListener();
+
+      this.resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const indexStr = el.getAttribute('data-item-index');
+          if (indexStr) {
+            const index = parseInt(indexStr, 10);
+            if (index >= 0) {
+              this.scrollStrategy.setItemHeight(index, entry.contentRect.height);
+            }
+          }
+        }
+      });
+
+      this.destroyRef.onDestroy(() => {
+        this.resizeObserver?.disconnect();
+
+        if (clickBinding) {
+          clickBinding.element.removeEventListener('click', clickBinding.listener);
+        }
+        if (scrollBinding) {
+          scrollBinding.element.removeEventListener('scroll', scrollBinding.listener);
+        }
+
+        if (this.copyResetTimer !== null) {
+          clearTimeout(this.copyResetTimer);
+          this.copyResetTimer = null;
+        }
+      });
     });
   }
 
   /**
-   * Setup scroll event listener to detect user scrolling
+   * Setup scroll event listener to detect user scrolling.
+   * Returns the element and bound listener so the caller can remove it on destroy.
    */
-  private setupScrollListener(): void {
-    const el = this.container()?.nativeElement;
-    if (!el) return;
+  private setupScrollListener(): { element: HTMLElement; listener: EventListener } | null {
+    const vp = this.container();
+    if (!vp) return null;
 
+    const el = vp.elementRef.nativeElement as HTMLElement;
     let lastScrollTime = 0;
 
-    el.addEventListener('scroll', () => {
+    const listener: EventListener = () => {
       // Measure scroll frame timing for perf budget
       const now = performance.now();
       if (lastScrollTime > 0) {
@@ -729,29 +701,29 @@ export class OutputStreamComponent {
       }
       lastScrollTime = now;
 
-      const scrollPosition = el.scrollTop + el.clientHeight;
-      const scrollHeight = el.scrollHeight;
+      const scrollOffset = vp.measureScrollOffset();
+      const viewportSize = vp.getViewportSize();
+      const totalSize = vp.measureRenderedContentSize();
       const autoScrollThreshold = 100;
       const buttonShowThreshold = 50;
 
-      const isAtBottom = scrollPosition >= scrollHeight - autoScrollThreshold;
-      const shouldShowButton = scrollPosition < scrollHeight - buttonShowThreshold;
+      const distanceFromBottom = totalSize - scrollOffset - viewportSize;
 
-      this.userScrolledUp = !isAtBottom;
-      this.showScrollToBottom.set(shouldShowButton);
-    }, { passive: true });
+      this.userScrolledUp = distanceFromBottom > autoScrollThreshold;
+      this.showScrollToBottom.set(distanceFromBottom > buttonShowThreshold);
+    };
+
+    el.addEventListener('scroll', listener, { passive: true });
+    return { element: el, listener };
   }
 
   /**
    * Scroll to the bottom of the container
    */
   scrollToBottom(): void {
-    const el = this.container()?.nativeElement;
-    if (el) {
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: 'smooth'
-      });
+    const vp = this.container();
+    if (vp) {
+      vp.scrollToOffset(vp.measureScrollOffset() + 999999, 'smooth');
       this.userScrolledUp = false;
       this.showScrollToBottom.set(false);
     }
@@ -760,13 +732,17 @@ export class OutputStreamComponent {
   /**
    * Setup a single delegated click handler on the container for copy buttons and file paths.
    * This replaces per-element querySelectorAll scanning that ran every 100ms.
+   * Returns the element and bound listener so the caller can remove it on destroy.
    */
-  private setupDelegatedClickHandler(): void {
-    const el = this.container()?.nativeElement;
-    if (!el) return;
+  private setupDelegatedClickHandler(): { element: HTMLElement; listener: EventListener } | null {
+    const vp = this.container();
+    if (!vp) return null;
 
-    el.addEventListener('click', (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
+    const el = vp.elementRef.nativeElement as HTMLElement;
+
+    const listener: EventListener = (event: Event) => {
+      const mouseEvent = event as MouseEvent;
+      const target = mouseEvent.target as HTMLElement;
 
       // Check for copy button clicks (walk up to find button with data-copy-id)
       const copyButton = target.closest('[data-copy-id]') as HTMLElement | null;
@@ -781,14 +757,17 @@ export class OutputStreamComponent {
       // Check for file path clicks
       const filePathEl = target.closest('[data-file-path]') as HTMLElement | null;
       if (filePathEl) {
-        event.preventDefault();
-        event.stopPropagation();
+        mouseEvent.preventDefault();
+        mouseEvent.stopPropagation();
         const filePath = filePathEl.getAttribute('data-file-path');
         if (filePath) {
           this.onFilePathClick(filePath);
         }
       }
-    });
+    };
+
+    el.addEventListener('click', listener);
+    return { element: el, listener };
   }
 
   /**

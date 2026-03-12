@@ -78,7 +78,7 @@
   flex-shrink: 0;
   padding: 0;
   background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.9), rgba(var(--primary-rgb), 0.74));
-  color: #10100d;
+  color: var(--text-primary);
   border: 1px solid rgba(255, 241, 218, 0.18);
   border-radius: 12px;
   font-family: var(--font-display);

@@ -75,7 +75,7 @@ const defaultDeps: GovernorDependencies = {
 
 export class ResourceGovernor extends EventEmitter {
   private readonly config: ResourceGovernorConfig;
-  private readonly deps: GovernorDependencies;
+  private deps: GovernorDependencies;
   private readonly logger;
   private creationPaused = false;
 
@@ -110,8 +110,12 @@ export class ResourceGovernor extends EventEmitter {
 
   /**
    * Begin listening to MemoryMonitor events. Call once during app init.
+   * Optionally override dependencies (e.g., to inject a concrete InstanceManager).
    */
-  start(): void {
+  start(overrideDeps?: Partial<GovernorDependencies>): void {
+    if (overrideDeps) {
+      Object.assign(this.deps, overrideDeps);
+    }
     const monitor = this.deps.getMemoryMonitor();
     monitor.on('warning', this.boundOnWarning as (...args: unknown[]) => void);
     monitor.on('critical', this.boundOnCritical as (...args: unknown[]) => void);

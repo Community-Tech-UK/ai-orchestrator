@@ -496,32 +496,32 @@ interface MemoryEntryWithType extends MemoryEntry {
 
       &.type-episodic {
         background: rgba(59, 130, 246, 0.2);
-        color: #3b82f6;
+        color: var(--memory-episodic);
       }
 
       &.type-procedural {
         background: rgba(16, 185, 129, 0.2);
-        color: #10b981;
+        color: var(--memory-procedural);
       }
 
       &.type-semantic {
         background: rgba(245, 158, 11, 0.2);
-        color: #f59e0b;
+        color: var(--memory-semantic);
       }
 
       &.type-short_term {
         background: rgba(139, 92, 246, 0.2);
-        color: #8b5cf6;
+        color: var(--memory-short-term);
       }
 
       &.type-long_term {
         background: rgba(236, 72, 153, 0.2);
-        color: #ec4899;
+        color: var(--memory-long-term);
       }
 
       &.type-unknown {
         background: rgba(107, 114, 128, 0.2);
-        color: #6b7280;
+        color: var(--memory-unknown);
       }
     }
 
@@ -534,8 +534,8 @@ interface MemoryEntryWithType extends MemoryEntry {
       font-size: 9px;
       color: var(--text-muted);
 
-      &.relevance { color: #3b82f6; }
-      &.confidence { color: #10b981; }
+      &.relevance { color: var(--memory-episodic); }
+      &.confidence { color: var(--memory-procedural); }
       &.access { color: var(--text-secondary); }
     }
 
@@ -675,11 +675,11 @@ interface MemoryEntryWithType extends MemoryEntry {
       border-radius: 3px;
 
       &.relevance {
-        background: #3b82f6;
+        background: var(--memory-episodic);
       }
 
       &.confidence {
-        background: #10b981;
+        background: var(--memory-procedural);
       }
     }
 

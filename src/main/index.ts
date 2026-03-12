@@ -24,6 +24,11 @@ import { initTruncationCleanup } from './util/tool-output-truncation';
 import { evaluateContextWindowGuard } from './context/context-window-guard';
 import { getRemoteObserverServer } from './remote/observer-server';
 import { getRepoJobService } from './repo-jobs';
+import { getSessionContinuityManager } from './session/session-continuity';
+import { getResourceGovernor } from './process/resource-governor';
+import { getHibernationManager } from './process/hibernation-manager';
+import { getPoolManager } from './process/pool-manager';
+import { getLoadBalancer } from './process/load-balancer';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 
 const logger = getLogger('App');
@@ -70,6 +75,34 @@ class AIOrchestratorApp {
         { name: 'Compaction coordinator', fn: () => this.setupCompactionCoordinator() },
         { name: 'Doom loop detector', fn: () => { getDoomLoopDetector(); } },
         { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
+        { name: 'Session continuity', fn: () => { getSessionContinuityManager(); } },
+        { name: 'Resource governor', fn: () => {
+          const im = this.instanceManager;
+          getResourceGovernor().start({
+            getInstanceManager: () => im,
+          });
+        } },
+        { name: 'Hibernation manager', fn: () => {
+          const hibernation = getHibernationManager();
+          hibernation.start();
+          hibernation.on('check-idle', () => {
+            const instances = this.instanceManager.getAllInstances()
+              .filter((i: { status: string }) => i.status === 'idle')
+              .map((i: { id: string; status: string; lastActivity: number }) => ({ id: i.id, status: i.status, lastActivity: i.lastActivity }));
+            const candidates = hibernation.getHibernationCandidates(instances);
+            for (const candidate of candidates) {
+              this.instanceManager.terminateInstance(candidate.id, true).catch(err => logger.warn('Failed to terminate instance', { error: err instanceof Error ? err.message : String(err) }));
+            }
+          });
+        } },
+        { name: 'Instance pool', fn: () => {
+          const pool = getPoolManager();
+          pool.start();
+          pool.on('instance:evicted', ({ instanceId }: { instanceId: string }) => {
+            this.instanceManager.terminateInstance(instanceId, true).catch(err => logger.warn('Failed to terminate instance', { error: err instanceof Error ? err.message : String(err) }));
+          });
+        } },
+        { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
       ];
 
       for (const step of steps) {
@@ -115,16 +148,29 @@ class AIOrchestratorApp {
         displayName: instance.displayName,
         status: instance.status,
       });
+      // Track for session continuity (auto-save)
+      try {
+        getSessionContinuityManager().startTracking(instance);
+      } catch (error) {
+        logger.warn('Failed to start session tracking', { instanceId: instance.id, error: error instanceof Error ? error.message : String(error) });
+      }
     });
 
     this.instanceManager.on('instance:removed', (instanceId) => {
       this.windowManager.sendToRenderer('instance:removed', instanceId);
       getCompactionCoordinator().cleanupInstance(instanceId as string);
       getDoomLoopDetector().cleanupInstance(instanceId as string);
+      getLoadBalancer().removeMetrics(instanceId as string);
       observer.publishInstanceState({
         type: 'removed',
         instanceId,
       });
+      // Stop tracking and archive for potential resume
+      try {
+        getSessionContinuityManager().stopTracking(instanceId as string, true);
+      } catch (error) {
+        logger.warn('Failed to stop session tracking', { instanceId, error: error instanceof Error ? error.message : String(error) });
+      }
     });
 
     this.instanceManager.on('instance:state-update', (update) => {
@@ -135,6 +181,20 @@ class AIOrchestratorApp {
     this.instanceManager.on('instance:output', (output) => {
       this.windowManager.sendToRenderer('instance:output', output);
       observer.publishInstanceOutput(output.instanceId, output.message);
+      // Track output for session continuity
+      try {
+        const msg = output.message;
+        if (msg && (msg.type === 'user' || msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'tool_result')) {
+          getSessionContinuityManager().addConversationEntry(output.instanceId, {
+            id: msg.id || `msg-${Date.now()}`,
+            role: msg.type === 'user' ? 'user' : msg.type === 'assistant' ? 'assistant' : 'tool',
+            content: msg.content || '',
+            timestamp: msg.timestamp || Date.now(),
+          });
+        }
+      } catch {
+        logger.warn('Failed to track conversation entry', { instanceId: output.instanceId });
+      }
     });
 
     this.instanceManager.on('instance:batch-update', (updates) => {
@@ -145,7 +205,7 @@ class AIOrchestratorApp {
       });
 
       // Feed context usage updates to compaction coordinator and context window guard
-      const data = updates as { updates?: { instanceId: string; contextUsage?: { used: number; total: number; percentage: number } }[] };
+      const data = updates as { updates?: { instanceId: string; status?: string; contextUsage?: { used: number; total: number; percentage: number } }[] };
       if (data.updates) {
         const coordinator = getCompactionCoordinator();
         for (const update of data.updates) {
@@ -166,6 +226,32 @@ class AIOrchestratorApp {
                 ...guardResult,
               });
             }
+          }
+        }
+      }
+      // Update session continuity with latest context usage
+      if (data.updates) {
+        const continuity = getSessionContinuityManager();
+        const lb = getLoadBalancer();
+        for (const update of data.updates) {
+          if (update.contextUsage) {
+            continuity.updateState(update.instanceId, {
+              contextUsage: {
+                used: update.contextUsage.used,
+                total: update.contextUsage.total,
+              },
+            });
+          }
+          // Update load balancer metrics
+          if (update.instanceId) {
+            lb.updateMetrics(update.instanceId, {
+              activeTasks: 0,
+              contextUsagePercent: update.contextUsage
+                ? Math.round((update.contextUsage.used / update.contextUsage.total) * 100)
+                : 0,
+              memoryPressure: 'normal',
+              status: update.status || 'idle',
+            });
           }
         }
       }
@@ -427,6 +513,15 @@ class AIOrchestratorApp {
 
   cleanup(): void {
     logger.info('Cleaning up');
+    try { getResourceGovernor().stop(); } catch { /* best effort */ }
+    try { getHibernationManager().stop(); } catch { /* best effort */ }
+    try { getPoolManager().stop(); } catch { /* best effort */ }
+    // Save all tracked session states before terminating
+    try {
+      getSessionContinuityManager().shutdown();
+    } catch (error) {
+      logger.error('Failed to save sessions on shutdown', error instanceof Error ? error : undefined);
+    }
     this.instanceManager.terminateAll();
   }
 }
