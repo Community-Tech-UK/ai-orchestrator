@@ -19,6 +19,9 @@ export interface ConversationHistoryEntry {
   /** Display name of the instance when it was terminated */
   displayName: string;
 
+  /** Stable app-level thread identity across restore and fallback copies */
+  historyThreadId?: string;
+
   /** When the instance was created */
   createdAt: number;
 

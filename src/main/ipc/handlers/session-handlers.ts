@@ -4,6 +4,7 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent, dialog, clipboard, shell } from 'electron';
+import { promises as fs } from 'fs';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import {
   validateIpcPayload,
@@ -44,7 +45,7 @@ const logger = getLogger('SessionHandlers');
 
 interface SessionHandlersDeps {
   instanceManager: InstanceManager;
-  serializeInstance: (instance: any) => Record<string, unknown>;
+  serializeInstance: (instance: unknown) => Record<string, unknown>;
 }
 
 /**
@@ -135,7 +136,6 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       try {
         const validated = validateIpcPayload(SessionImportPayloadSchema, payload, 'SESSION_IMPORT');
         // Read and parse the file
-        const fs = require('fs').promises;
         const content = await fs.readFile(validated.filePath, 'utf-8');
         const session: ExportedSession = JSON.parse(content);
 
@@ -258,7 +258,6 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           content = instanceManager.exportSessionMarkdown(validated.instanceId);
         }
 
-        const fs = require('fs').promises;
         await fs.writeFile(filePath, content, 'utf-8');
 
         return { success: true, data: { filePath, format: validated.format } };
@@ -860,6 +859,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         const workingDir =
           validated.workingDirectory || data.entry.workingDirectory;
         const displayName = getConversationHistoryTitle(data.entry);
+        const historyThreadId =
+          data.entry.historyThreadId || data.entry.sessionId || data.entry.id;
         let resumeFailed = false;
 
         // Phase 1: Try to resume the CLI session
@@ -867,6 +868,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           const instance = await instanceManager.createInstance({
             workingDirectory: workingDir,
             displayName,
+            historyThreadId,
             sessionId: data.entry.sessionId,
             resume: true,
             initialOutputBuffer: data.messages
@@ -972,6 +974,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           const instance = await instanceManager.createInstance({
             workingDirectory: workingDir,
             displayName,
+            historyThreadId,
             initialOutputBuffer: data.messages
             // No resume, no sessionId — fresh session
           });

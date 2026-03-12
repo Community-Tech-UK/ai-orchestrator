@@ -2,13 +2,13 @@
  * Instance Types - Core data models for AI CLI instances
  */
 
-import type { AgentMode } from './agent.types';
+import { getAgentById, getDefaultAgent, type AgentMode } from './agent.types';
 import type { CanonicalCliType } from './settings.types';
 import type {
   TerminationPolicy,
   ContextInheritanceConfig,
-  createDefaultContextInheritance,
 } from './supervision.types';
+import { createDefaultContextInheritance } from './supervision.types';
 
 /**
  * CLI provider type for instances
@@ -126,6 +126,7 @@ export interface Instance {
   id: string;
   displayName: string;
   createdAt: number;
+  historyThreadId: string;
 
   // Hierarchy
   parentId: string | null;
@@ -178,6 +179,7 @@ export interface Instance {
 export interface InstanceCreateConfig {
   displayName?: string;
   parentId?: string | null;
+  historyThreadId?: string; // Stable app-level thread identity across restore/fallback
   sessionId?: string;
   resume?: boolean; // Resume a previous session (requires sessionId)
   workingDirectory: string;
@@ -210,9 +212,8 @@ export interface InstanceSummary {
  */
 export function createInstance(config: InstanceCreateConfig): Instance {
   const now = Date.now();
-  // Import agent profile to get mode
-  const { getAgentById, getDefaultAgent } = require('./agent.types');
-  const { createDefaultContextInheritance } = require('./supervision.types');
+  const sessionId = config.sessionId || crypto.randomUUID();
+  const historyThreadId = config.historyThreadId || sessionId;
   const agent = config.agentId
     ? getAgentById(config.agentId)
     : getDefaultAgent();
@@ -229,6 +230,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     id: crypto.randomUUID(),
     displayName: config.displayName || (config.workingDirectory && config.workingDirectory.split(/[/\\]/).filter(Boolean).pop()) || `Instance ${now}`,
     createdAt: now,
+    historyThreadId,
 
     parentId: config.parentId || null,
     childrenIds: [],
@@ -253,7 +255,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     lastActivity: now,
 
     processId: null,
-    sessionId: config.sessionId || crypto.randomUUID(),
+    sessionId,
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
     provider: config.provider || 'auto', // Default to auto (resolved by instance manager)

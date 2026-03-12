@@ -236,6 +236,8 @@ export class InstanceLifecycleManager extends EventEmitter {
    */
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
     logger.info('Creating instance', { config });
+    const sessionId = config.sessionId || generateId();
+    const historyThreadId = config.historyThreadId || sessionId;
 
     // Resolve agent profile (built-in + optional markdown-defined)
     const resolvedAgent = await getAgentRegistry().resolveAgent(
@@ -289,6 +291,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       id: generateId(),
       displayName: config.displayName || path.basename(resolvedWorkingDir) || `Instance ${Date.now()}`,
       createdAt: Date.now(),
+      historyThreadId,
 
       parentId: config.parentId || null,
       childrenIds: [],
@@ -317,7 +320,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       lastActivity: Date.now(),
 
       processId: null,
-      sessionId: config.sessionId || generateId(),
+      sessionId,
       workingDirectory: resolvedWorkingDir,
       yoloMode: resolvedYoloMode,
       provider: config.provider || 'auto',

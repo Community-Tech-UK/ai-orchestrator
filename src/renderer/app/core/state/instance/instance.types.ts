@@ -45,6 +45,7 @@ export interface Instance {
   id: string;
   displayName: string;
   createdAt: number;
+  historyThreadId: string;
   parentId: string | null;
   childrenIds: string[];
   agentId: string; // Agent profile ID ('build', 'plan', 'review', etc.)

@@ -115,6 +115,7 @@ export class WorkspaceBenchService implements WorkspaceBenchmarkHarness {
       id: instanceId,
       displayName: `Benchmark ${preset}`,
       createdAt: now,
+      historyThreadId: instanceId,
       parentId: null,
       childrenIds: [],
       agentId: 'build',

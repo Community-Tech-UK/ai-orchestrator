@@ -352,6 +352,7 @@ export class InstanceListStore {
       id: d['id'] as string,
       displayName: d['displayName'] as string,
       createdAt: d['createdAt'] as number,
+      historyThreadId: (d['historyThreadId'] as string) || (d['sessionId'] as string),
       parentId: d['parentId'] as string | null,
       childrenIds: (d['childrenIds'] as string[]) || [],
       agentId: (d['agentId'] as string) || 'build',

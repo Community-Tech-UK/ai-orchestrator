@@ -1253,8 +1253,8 @@ export class InstanceListComponent {
       const subtitle = this.getProjectSubtitle(root.workingDirectory);
       const projectMatches = !!filter && this.matchesProjectText(title, subtitle, filter);
       const rawHistoryItems = historyByProject.get(projectKey) ?? [];
-      const historyBySessionId = new Map(
-        rawHistoryItems.map((entry) => [entry.sessionId, entry])
+      const historyByThreadId = new Map(
+        rawHistoryItems.map((entry) => [this.getHistoryThreadId(entry), entry])
       );
       const liveItems = this.buildVisibleItems(
         root,
@@ -1273,15 +1273,17 @@ export class InstanceListComponent {
         ...item,
         railTitle: this.getLiveRailTitle(
           item.instance,
-          historyBySessionId.get(item.instance.sessionId)
+          historyByThreadId.get(this.getInstanceThreadId(item.instance))
         ),
       }));
-      const liveSessionIds = new Set(
+      const liveThreadIds = new Set(
         liveItems
-          .map((item) => item.instance.sessionId)
-          .filter((sessionId): sessionId is string => sessionId.trim().length > 0)
+          .map((item) => this.getInstanceThreadId(item.instance))
+          .filter((threadId): threadId is string => threadId.trim().length > 0)
       );
-      const historyItems = rawHistoryItems.filter((entry) => !liveSessionIds.has(entry.sessionId));
+      const historyItems = rawHistoryItems.filter(
+        (entry) => !liveThreadIds.has(this.getHistoryThreadId(entry))
+      );
 
       if (liveItems.length === 0 && historyItems.length === 0) {
         continue;
@@ -2001,14 +2003,14 @@ export class InstanceListComponent {
       });
 
       const dedupedEntries: ConversationHistoryEntry[] = [];
-      const seenSessionIds = new Set<string>();
+      const seenThreadIds = new Set<string>();
 
       for (const entry of projectEntries) {
-        const dedupeKey = entry.sessionId.trim() || entry.id;
-        if (seenSessionIds.has(dedupeKey)) {
+        const dedupeKey = this.getHistoryThreadId(entry);
+        if (seenThreadIds.has(dedupeKey)) {
           continue;
         }
-        seenSessionIds.add(dedupeKey);
+        seenThreadIds.add(dedupeKey);
         dedupedEntries.push(entry);
       }
 
@@ -2211,6 +2213,38 @@ export class InstanceListComponent {
     }
 
     return instance.displayName;
+  }
+
+  private getHistoryThreadId(
+    entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'id'>
+  ): string {
+    const historyThreadId = entry.historyThreadId?.trim();
+    if (historyThreadId) {
+      return historyThreadId;
+    }
+
+    const sessionId = entry.sessionId.trim();
+    if (sessionId) {
+      return sessionId;
+    }
+
+    return entry.id;
+  }
+
+  private getInstanceThreadId(
+    instance: Pick<Instance, 'historyThreadId' | 'sessionId' | 'id'>
+  ): string {
+    const historyThreadId = instance.historyThreadId.trim();
+    if (historyThreadId) {
+      return historyThreadId;
+    }
+
+    const sessionId = instance.sessionId.trim();
+    if (sessionId) {
+      return sessionId;
+    }
+
+    return instance.id;
   }
 
   private async loadRecentDirectories(): Promise<void> {

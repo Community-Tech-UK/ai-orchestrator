@@ -90,6 +90,15 @@ export class HistoryManager {
     try {
       // Snapshot the output buffer to avoid issues if it's modified during async operations
       const messages = [...instance.outputBuffer];
+      const threadKey = this.getInstanceThreadKey(instance);
+      const previousEntries = this.index.entries.filter(
+        (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
+      );
+      const entryId = previousEntries[0]?.id ?? crypto.randomUUID();
+      const createdAt = previousEntries.reduce(
+        (earliest, existingEntry) => Math.min(earliest, existingEntry.createdAt),
+        instance.createdAt
+      );
 
       // Find first and last user messages for preview
       const userMessages = messages.filter(m => m.type === 'user');
@@ -98,10 +107,11 @@ export class HistoryManager {
 
       // Create history entry
       const entry: ConversationHistoryEntry = {
-        id: crypto.randomUUID(),
+        id: entryId,
         displayName: instance.displayName,
-        createdAt: instance.createdAt,
+        createdAt,
         endedAt: Date.now(),
+        historyThreadId: instance.historyThreadId,
         workingDirectory: instance.workingDirectory,
         messageCount: messages.length,
         firstUserMessage: this.truncatePreview(firstUserMessage),
@@ -122,8 +132,25 @@ export class HistoryManager {
       await this.saveConversation(entry.id, conversationData);
 
       // Update index (synchronous — safe since JS is single-threaded)
-      this.index.entries.unshift(entry);
+      this.index.entries = [
+        entry,
+        ...this.index.entries.filter(
+          (existingEntry) => this.getEntryThreadKey(existingEntry) !== threadKey
+        ),
+      ];
       this.index.lastUpdated = Date.now();
+
+      for (const previousEntry of previousEntries) {
+        if (previousEntry.id === entry.id) {
+          continue;
+        }
+
+        try {
+          await fs.promises.unlink(this.getConversationPath(previousEntry.id));
+        } catch {
+          /* intentionally ignored: duplicate conversation files may already be absent */
+        }
+      }
 
       // Enforce max entries limit
       await this.enforceLimit();
@@ -135,6 +162,7 @@ export class HistoryManager {
         instanceId: instance.id,
         entryId: entry.id,
         messageCount: entry.messageCount,
+        replacedEntries: previousEntries.length,
       });
     } finally {
       // Release lock
@@ -314,12 +342,13 @@ export class HistoryManager {
           return this.migrateIndex(index);
         }
 
-        // Deduplicate entries by originalInstanceId (clean up legacy duplicates)
+        // Deduplicate entries by stable thread identity (clean up legacy duplicates)
         const seen = new Set<string>();
         const deduped: ConversationHistoryEntry[] = [];
         for (const entry of index.entries) {
-          if (!seen.has(entry.originalInstanceId)) {
-            seen.add(entry.originalInstanceId);
+          const threadKey = this.getEntryThreadKey(entry);
+          if (!seen.has(threadKey)) {
+            seen.add(threadKey);
             deduped.push(entry);
           }
         }
@@ -381,9 +410,9 @@ export class HistoryManager {
         const conversationData = JSON.parse(data.toString()) as ConversationData;
 
         if (conversationData.entry) {
-          // Check it's not a duplicate by originalInstanceId
+          // Check it's not a duplicate by stable thread identity
           const isDuplicate = this.index.entries.some(
-            e => e.originalInstanceId === conversationData.entry.originalInstanceId
+            e => this.getEntryThreadKey(e) === this.getEntryThreadKey(conversationData.entry)
           );
           if (!isDuplicate) {
             this.index.entries.push(conversationData.entry);
@@ -504,6 +533,38 @@ export class HistoryManager {
 
   private getConversationPath(entryId: string): string {
     return path.join(this.storageDir, `${entryId}.json.gz`);
+  }
+
+  private getEntryThreadKey(
+    entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'originalInstanceId'>
+  ): string {
+    const historyThreadId = entry.historyThreadId?.trim();
+    if (historyThreadId) {
+      return historyThreadId;
+    }
+
+    const sessionId = entry.sessionId.trim();
+    if (sessionId) {
+      return sessionId;
+    }
+
+    return entry.originalInstanceId;
+  }
+
+  private getInstanceThreadKey(
+    instance: Pick<Instance, 'historyThreadId' | 'sessionId' | 'id'>
+  ): string {
+    const historyThreadId = instance.historyThreadId.trim();
+    if (historyThreadId) {
+      return historyThreadId;
+    }
+
+    const sessionId = instance.sessionId.trim();
+    if (sessionId) {
+      return sessionId;
+    }
+
+    return instance.id;
   }
 
   private async createSafetyBackup(reason: 'clearAll'): Promise<string | null> {
