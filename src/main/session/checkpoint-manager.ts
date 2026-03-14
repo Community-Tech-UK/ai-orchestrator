@@ -298,7 +298,9 @@ export class CheckpointManager extends EventEmitter {
   }
 
   /**
-   * Create a checkpoint for a session
+   * Create a checkpoint for a session (async — snapshot write is non-blocking).
+   * Returns null immediately if the rate-limit interval has not elapsed.
+   * The checkpoint object is emitted via 'checkpoint:created' once the snapshot resolves.
    */
   createCheckpoint(
     sessionId: string,
@@ -314,48 +316,64 @@ export class CheckpointManager extends EventEmitter {
       return null;
     }
 
-    // Create snapshot in session continuity
-    const snapshot = this.continuity.createSnapshot(
-      sessionId,
-      description || `Checkpoint: ${type}`,
-      undefined,
-      type === CheckpointType.PERIODIC ? 'auto' : 'checkpoint'
-    );
-
-    if (!snapshot) {
-      return null;
-    }
-
-    // Also create error recovery checkpoint
+    // Create a synchronous error-recovery checkpoint using an empty state placeholder.
+    // The continuity snapshot is written asynchronously and its id is patched in later.
     const checkpoint = this.errorRecovery.createCheckpoint(
       sessionId,
       type,
       {
         conversationState: {
-          messages: snapshot.state.conversationHistory.map((m) => ({
-            id: m.id,
-            role: this.mapRole(m.role),
-            content: m.content,
-            timestamp: m.timestamp,
-          })),
-          contextUsage: snapshot.state.contextUsage,
+          messages: [],
+          contextUsage: { used: 0, total: 0 },
           lastActivityAt: Date.now(),
         },
-        activeTasks: snapshot.state.pendingTasks.map((t) => ({
-          id: t.id,
-          type: t.type,
-          status: 'pending' as const,
-          description: t.description,
-        })),
+        activeTasks: [],
         metadata: {
-          snapshotId: snapshot.id,
+          snapshotId: '',
           description,
         },
       }
     );
 
     this.lastCheckpointTime.set(sessionId, Date.now());
-    this.emit('checkpoint:created', { sessionId, checkpoint, snapshot });
+
+    // Fire-and-forget: write the continuity snapshot and patch checkpoint metadata.
+    this.continuity
+      .createSnapshot(
+        sessionId,
+        description || `Checkpoint: ${type}`,
+        undefined,
+        type === CheckpointType.PERIODIC ? 'auto' : 'checkpoint'
+      )
+      .then((snapshot) => {
+        if (snapshot && checkpoint.metadata) {
+          checkpoint.metadata['snapshotId'] = snapshot.id;
+          // Backfill conversation state now that we have the snapshot
+          checkpoint.conversationState.messages =
+            snapshot.state.conversationHistory.map((m) => ({
+              id: m.id,
+              role: this.mapRole(m.role),
+              content: m.content,
+              timestamp: m.timestamp,
+            }));
+          checkpoint.conversationState.contextUsage =
+            snapshot.state.contextUsage;
+          checkpoint.activeTasks = snapshot.state.pendingTasks.map((t) => ({
+            id: t.id,
+            type: t.type,
+            status: 'pending' as const,
+            description: t.description,
+          }));
+        }
+        this.emit('checkpoint:created', { sessionId, checkpoint, snapshot });
+      })
+      .catch((error) => {
+        logger.warn('Failed to create continuity snapshot for checkpoint', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        this.emit('checkpoint:created', { sessionId, checkpoint, snapshot: null });
+      });
 
     return checkpoint;
   }

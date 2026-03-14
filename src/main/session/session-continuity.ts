@@ -17,8 +17,11 @@ import type { Instance } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { SnapshotIndex } from './snapshot-index';
 
 const logger = getLogger('SessionContinuity');
+
+const SCHEMA_VERSION = 1;
 
 /**
  * Session snapshot for point-in-time restoration
@@ -30,6 +33,7 @@ export interface SessionSnapshot {
   name?: string;
   description?: string;
   state: SessionState;
+  schemaVersion?: number;
   metadata: {
     messageCount: number;
     tokensUsed: number;
@@ -143,10 +147,14 @@ export class SessionContinuityManager extends EventEmitter {
   private continuityDir: string;
   private stateDir: string;
   private snapshotDir: string;
+  private quarantineDir: string;
   private config: ContinuityConfig;
-  private autoSaveTimers = new Map<string, NodeJS.Timeout>();
   private sessionStates = new Map<string, SessionState>();
   private dirty = new Set<string>();
+  private readyPromise: Promise<void>;
+  private inFlightSaves = new Set<string>();
+  private globalAutoSaveTimer: NodeJS.Timeout | null = null;
+  private snapshotIndex: SnapshotIndex;
 
   constructor(config: Partial<ContinuityConfig> = {}) {
     super();
@@ -156,32 +164,41 @@ export class SessionContinuityManager extends EventEmitter {
     this.continuityDir = path.join(userData, 'session-continuity');
     this.stateDir = path.join(this.continuityDir, 'states');
     this.snapshotDir = path.join(this.continuityDir, 'snapshots');
+    this.quarantineDir = path.join(this.continuityDir, 'quarantine');
 
-    this.ensureDirectories();
-    this.loadActiveStates();
+    this.snapshotIndex = new SnapshotIndex();
+    this.readyPromise = this.initAsync();
+  }
+
+  /**
+   * Async initialization — runs in the background after construction.
+   */
+  private async initAsync(): Promise<void> {
+    await this.ensureDirectories();
+    await this.loadActiveStates();
+    await this.buildSnapshotIndex();
+    this.startGlobalAutoSave();
   }
 
   /**
    * Ensure required directories exist
    */
-  private ensureDirectories(): void {
-    for (const dir of [this.continuityDir, this.stateDir, this.snapshotDir]) {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+  private async ensureDirectories(): Promise<void> {
+    for (const dir of [this.continuityDir, this.stateDir, this.snapshotDir, this.quarantineDir]) {
+      await fs.promises.mkdir(dir, { recursive: true });
     }
   }
 
   /**
    * Load active session states from disk
    */
-  private loadActiveStates(): void {
+  private async loadActiveStates(): Promise<void> {
     try {
-      const files = fs.readdirSync(this.stateDir);
+      const files = await fs.promises.readdir(this.stateDir);
       for (const file of files) {
         if (file.endsWith('.json')) {
           const filePath = path.join(this.stateDir, file);
-          const data = this.readPayload<SessionState>(filePath);
+          const data = await this.readPayload<SessionState>(filePath);
           if (data) {
             this.sessionStates.set(data.instanceId, data);
           }
@@ -193,17 +210,69 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
+   * Build the in-memory snapshot index from disk
+   */
+  private async buildSnapshotIndex(): Promise<void> {
+    try {
+      const files = await fs.promises.readdir(this.snapshotDir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const filePath = path.join(this.snapshotDir, file);
+        try {
+          const data = await this.readPayload<SessionSnapshot>(filePath);
+          if (data) {
+            this.snapshotIndex.add({
+              id: data.id,
+              sessionId: data.sessionId,
+              timestamp: data.timestamp,
+              messageCount: data.metadata.messageCount,
+              schemaVersion: data.schemaVersion ?? SCHEMA_VERSION
+            });
+          }
+        } catch (error) {
+          logger.warn('Failed to index snapshot file', { file, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to build snapshot index', error instanceof Error ? error : undefined);
+    }
+  }
+
+  /**
+   * Start the global auto-save timer
+   */
+  private startGlobalAutoSave(): void {
+    if (!this.config.autoSaveEnabled) return;
+
+    this.globalAutoSaveTimer = setInterval(() => {
+      for (const instanceId of this.dirty) {
+        if (this.inFlightSaves.has(instanceId)) continue;
+
+        // Add random jitter of 0-10s to spread writes
+        const jitter = Math.random() * 10000;
+        const timer = setTimeout(() => {
+          this.saveStateAsync(instanceId).catch((error) => {
+            logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
+          });
+        }, jitter);
+        // Unref the jitter timer so it doesn't block process exit
+        if (timer.unref) timer.unref();
+      }
+    }, this.config.autoSaveIntervalMs);
+
+    if (this.globalAutoSaveTimer.unref) {
+      this.globalAutoSaveTimer.unref();
+    }
+  }
+
+  /**
    * Start tracking a session for continuity
    */
-  startTracking(instance: Instance): void {
+  async startTracking(instance: Instance): Promise<void> {
+    await this.readyPromise;
     const state = this.instanceToState(instance);
     this.sessionStates.set(instance.id, state);
     this.dirty.add(instance.id);
-
-    // Set up auto-save if enabled
-    if (this.config.autoSaveEnabled) {
-      this.setupAutoSave(instance.id);
-    }
 
     this.emit('tracking:started', { instanceId: instance.id });
   }
@@ -211,24 +280,22 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Stop tracking a session
    */
-  stopTracking(instanceId: string, archive = false): void {
-    // Clear auto-save timer
-    const timer = this.autoSaveTimers.get(instanceId);
-    if (timer) {
-      clearInterval(timer);
-      this.autoSaveTimers.delete(instanceId);
-    }
+  async stopTracking(instanceId: string, archive = false): Promise<void> {
+    await this.readyPromise;
 
     // Final save before stopping
     if (this.dirty.has(instanceId)) {
-      this.saveState(instanceId);
+      await this.saveStateAsync(instanceId);
     }
 
     if (!archive) {
       // Remove state file
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-      if (fs.existsSync(stateFile)) {
-        fs.unlinkSync(stateFile);
+      try {
+        await fs.promises.access(stateFile);
+        await fs.promises.unlink(stateFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       this.sessionStates.delete(instanceId);
     }
@@ -239,7 +306,8 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Update session state (call after each significant change)
    */
-  updateState(instanceId: string, updates: Partial<SessionState>): void {
+  async updateState(instanceId: string, updates: Partial<SessionState>): Promise<void> {
+    await this.readyPromise;
     const state = this.sessionStates.get(instanceId);
     if (!state) return;
 
@@ -252,7 +320,8 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Add a conversation entry
    */
-  addConversationEntry(instanceId: string, entry: ConversationEntry): void {
+  async addConversationEntry(instanceId: string, entry: ConversationEntry): Promise<void> {
+    await this.readyPromise;
     if (!this.config.persistSessionContent) return;
     const state = this.sessionStates.get(instanceId);
     if (!state) return;
@@ -284,14 +353,22 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Create a named snapshot
    */
-  createSnapshot(
+  async createSnapshot(
     instanceId: string,
     name?: string,
     description?: string,
     trigger: 'auto' | 'manual' | 'checkpoint' = 'manual'
-  ): SessionSnapshot | null {
+  ): Promise<SessionSnapshot | null> {
+    await this.readyPromise;
     const state = this.sessionStates.get(instanceId);
     if (!state) return null;
+
+    let stateClone: SessionState;
+    try {
+      stateClone = structuredClone(state);
+    } catch {
+      stateClone = JSON.parse(JSON.stringify(state)) as SessionState;
+    }
 
     const snapshot: SessionSnapshot = {
       id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -299,7 +376,8 @@ export class SessionContinuityManager extends EventEmitter {
       timestamp: Date.now(),
       name,
       description,
-      state: JSON.parse(JSON.stringify(state)), // Deep clone
+      schemaVersion: SCHEMA_VERSION,
+      state: stateClone,
       metadata: {
         messageCount: state.conversationHistory.length,
         tokensUsed: state.contextUsage.used,
@@ -311,43 +389,54 @@ export class SessionContinuityManager extends EventEmitter {
 
     // Save snapshot
     const snapshotFile = path.join(this.snapshotDir, `${snapshot.id}.json`);
-    this.writePayload(snapshotFile, snapshot);
+    await this.writePayload(snapshotFile, snapshot);
+
+    // Update index
+    this.snapshotIndex.add({
+      id: snapshot.id,
+      sessionId: snapshot.sessionId,
+      timestamp: snapshot.timestamp,
+      messageCount: snapshot.metadata.messageCount,
+      schemaVersion: SCHEMA_VERSION
+    });
 
     // Cleanup old snapshots
-    this.cleanupSnapshots(instanceId);
+    await this.cleanupSnapshots(instanceId);
 
     this.emit('snapshot:created', snapshot);
     return snapshot;
   }
 
   /**
-   * List available snapshots for a session
+   * List available snapshots for a session — synchronous, uses index.
    */
   listSnapshots(instanceId?: string): SessionSnapshot[] {
-    const snapshots: SessionSnapshot[] = [];
+    const metas = instanceId
+      ? this.snapshotIndex.listForSession(instanceId)
+      : this.snapshotIndex.listAll();
 
-    try {
-      const files = fs.readdirSync(this.snapshotDir);
-      for (const file of files) {
-        if (file.endsWith('.json')) {
-          const filePath = path.join(this.snapshotDir, file);
-          const data = this.readPayload<SessionSnapshot>(filePath);
-          if (data && (!instanceId || data.sessionId === instanceId)) {
-            snapshots.push(data);
-          }
-        }
+    // Return lightweight objects that satisfy SessionSnapshot shape.
+    // Full state is not included since this is just a listing.
+    return metas.map((meta) => ({
+      id: meta.id,
+      sessionId: meta.sessionId,
+      timestamp: meta.timestamp,
+      schemaVersion: meta.schemaVersion,
+      state: {} as SessionState, // not loaded for listing
+      metadata: {
+        messageCount: meta.messageCount,
+        tokensUsed: 0,
+        duration: 0,
+        trigger: 'auto' as const
       }
-    } catch (error) {
-      logger.error('Failed to list snapshots', error instanceof Error ? error : undefined);
-    }
-
-    return snapshots.sort((a, b) => b.timestamp - a.timestamp);
+    }));
   }
 
   /**
    * Get resumable sessions (sessions with saved state)
    */
-  getResumableSessions(): SessionState[] {
+  async getResumableSessions(): Promise<SessionState[]> {
+    await this.readyPromise;
     return Array.from(this.sessionStates.values()).sort(
       (a, b) =>
         (b.conversationHistory[b.conversationHistory.length - 1]?.timestamp ||
@@ -364,11 +453,12 @@ export class SessionContinuityManager extends EventEmitter {
     instanceId: string,
     options: ResumeOptions = {}
   ): Promise<SessionState | null> {
+    await this.readyPromise;
     let state: SessionState | null = null;
 
     // Load from specific snapshot if specified
     if (options.fromSnapshot) {
-      const snapshot = this.loadSnapshot(options.fromSnapshot);
+      const snapshot = await this.loadSnapshot(options.fromSnapshot);
       if (snapshot) {
         state = snapshot.state;
       }
@@ -379,11 +469,14 @@ export class SessionContinuityManager extends EventEmitter {
       if (!state) {
         // Try loading from disk
         const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-        if (fs.existsSync(stateFile)) {
-          const loaded = this.readPayload<SessionState>(stateFile);
+        try {
+          await fs.promises.access(stateFile);
+          const loaded = await this.readPayload<SessionState>(stateFile);
           if (loaded) {
             state = loaded;
           }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
       }
     }
@@ -416,10 +509,11 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Get transcript for a session
    */
-  getTranscript(
+  async getTranscript(
     instanceId: string,
     format: 'json' | 'markdown' | 'text' = 'markdown'
-  ): string {
+  ): Promise<string> {
+    await this.readyPromise;
     const state = this.sessionStates.get(instanceId);
     if (!state) return '';
 
@@ -471,16 +565,24 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Export session for external storage/sharing
    */
-  exportSession(
+  async exportSession(
     instanceId: string
-  ): { state: SessionState; snapshots: SessionSnapshot[] } | null {
+  ): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null> {
+    await this.readyPromise;
     const state = this.sessionStates.get(instanceId);
     if (!state) return null;
+
+    let stateClone: SessionState;
+    try {
+      stateClone = structuredClone(state);
+    } catch {
+      stateClone = JSON.parse(JSON.stringify(state)) as SessionState;
+    }
 
     const snapshots = this.listSnapshots(instanceId);
 
     return {
-      state: JSON.parse(JSON.stringify(state)),
+      state: stateClone,
       snapshots
     };
   }
@@ -488,22 +590,30 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Import a session from exported data
    */
-  importSession(
+  async importSession(
     data: { state: SessionState; snapshots?: SessionSnapshot[] },
     newInstanceId?: string
-  ): string {
+  ): Promise<string> {
+    await this.readyPromise;
     const instanceId = newInstanceId || data.state.instanceId;
     const state = { ...data.state, instanceId };
 
     this.sessionStates.set(instanceId, state);
-    this.saveState(instanceId);
+    await this.saveStateAsync(instanceId);
 
     // Import snapshots if provided
     if (data.snapshots) {
       for (const snapshot of data.snapshots) {
         const updatedSnapshot = { ...snapshot, sessionId: instanceId };
         const snapshotFile = path.join(this.snapshotDir, `${snapshot.id}.json`);
-        this.writePayload(snapshotFile, updatedSnapshot);
+        await this.writePayload(snapshotFile, updatedSnapshot);
+        this.snapshotIndex.add({
+          id: updatedSnapshot.id,
+          sessionId: updatedSnapshot.sessionId,
+          timestamp: updatedSnapshot.timestamp,
+          messageCount: updatedSnapshot.metadata.messageCount,
+          schemaVersion: updatedSnapshot.schemaVersion ?? SCHEMA_VERSION
+        });
       }
     }
 
@@ -562,61 +672,81 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
-   * Set up auto-save for a session
+   * Async save with atomic write (tmp → fsync → rename → fsync parent)
    */
-  private setupAutoSave(instanceId: string): void {
-    const timer = setInterval(() => {
-      if (this.dirty.has(instanceId)) {
-        this.saveState(instanceId);
-        this.dirty.delete(instanceId);
-
-        // Create auto-checkpoint every 10 saves
-        const state = this.sessionStates.get(instanceId);
-        if (state && state.conversationHistory.length % 50 === 0) {
-          this.createSnapshot(instanceId, undefined, 'Auto-checkpoint', 'auto');
-        }
-      }
-    }, this.config.autoSaveIntervalMs);
-
-    this.autoSaveTimers.set(instanceId, timer);
-  }
-
-  /**
-   * Save session state to disk
-   */
-  private saveState(instanceId: string): void {
+  private async saveStateAsync(instanceId: string): Promise<void> {
     const state = this.sessionStates.get(instanceId);
     if (!state) return;
 
+    if (this.inFlightSaves.has(instanceId)) return;
+    this.inFlightSaves.add(instanceId);
+
     try {
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-      this.writePayload(stateFile, state);
+      await this.writePayload(stateFile, state);
+      this.dirty.delete(instanceId);
       this.emit('state:saved', { instanceId });
     } catch (error) {
       logger.error('Failed to save session state', error instanceof Error ? error : undefined, { instanceId });
       this.emit('state:save-error', { instanceId, error });
+    } finally {
+      this.inFlightSaves.delete(instanceId);
     }
   }
 
   /**
-   * Load a specific snapshot
+   * Load a specific snapshot from disk
    */
-  private loadSnapshot(snapshotId: string): SessionSnapshot | null {
+  private async loadSnapshot(snapshotId: string): Promise<SessionSnapshot | null> {
     const snapshotFile = path.join(this.snapshotDir, `${snapshotId}.json`);
 
-    if (!fs.existsSync(snapshotFile)) return null;
+    try {
+      await fs.promises.access(snapshotFile);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
 
     return this.readPayload<SessionSnapshot>(snapshotFile);
   }
 
-  private writePayload(filePath: string, data: unknown): void {
+  /**
+   * Atomic async write: tmp → fsync → rename → fsync parent dir
+   */
+  private async writePayload(filePath: string, data: unknown): Promise<void> {
     const serialized = this.serializePayload(data);
-    fs.writeFileSync(filePath, serialized);
+    const tmpFile = `${filePath}.tmp`;
+    const dir = path.dirname(filePath);
+
+    const fh = await fs.promises.open(tmpFile, 'w');
+    try {
+      await fh.writeFile(serialized);
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+
+    await fs.promises.rename(tmpFile, filePath);
+
+    // Best-effort fsync on parent directory
+    try {
+      const dirFh = await fs.promises.open(dir, 'r');
+      try {
+        await dirFh.sync();
+      } finally {
+        await dirFh.close();
+      }
+    } catch {
+      // Directory fsync is not supported on all platforms (e.g. Windows)
+    }
   }
 
-  private readPayload<T>(filePath: string): T | null {
+  /**
+   * Async read payload
+   */
+  private async readPayload<T>(filePath: string): Promise<T | null> {
     try {
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      const raw = await fs.promises.readFile(filePath, 'utf-8');
       return this.deserializePayload<T>(raw);
     } catch (error) {
       logger.error('Failed to read continuity payload', error instanceof Error ? error : undefined);
@@ -625,7 +755,7 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   private serializePayload(data: unknown): string {
-    const json = JSON.stringify(data, null, 2);
+    const json = JSON.stringify(data);
     if (this.config.encryptOnDisk && safeStorage.isEncryptionAvailable()) {
       const encrypted = safeStorage.encryptString(json).toString('base64');
       return JSON.stringify({ encrypted: true, data: encrypted });
@@ -668,46 +798,57 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
-   * Cleanup old snapshots
+   * Cleanup old snapshots — single-pass using index
    */
-  private cleanupSnapshots(instanceId: string): void {
-    const snapshots = this.listSnapshots(instanceId);
+  private async cleanupSnapshots(instanceId: string): Promise<void> {
     const cutoffTime =
       Date.now() - this.config.snapshotRetentionDays * 24 * 60 * 60 * 1000;
 
-    // Remove old snapshots
-    for (const snapshot of snapshots) {
-      if (snapshot.timestamp < cutoffTime) {
-        const snapshotFile = path.join(this.snapshotDir, `${snapshot.id}.json`);
-        if (fs.existsSync(snapshotFile)) {
-          fs.unlinkSync(snapshotFile);
-        }
+    // Collect IDs to remove: expired by age + excess by count
+    const toRemoveIds = new Set<string>();
+
+    // Expired snapshots (all sessions)
+    for (const meta of this.snapshotIndex.getExpiredBefore(cutoffTime)) {
+      toRemoveIds.add(meta.id);
+    }
+
+    // After removing expired, compute excess for this session
+    // Build what the session list would look like after removals
+    const sessionMetas = this.snapshotIndex
+      .listForSession(instanceId)
+      .filter((m) => !toRemoveIds.has(m.id));
+
+    if (sessionMetas.length > this.config.maxSnapshots) {
+      const excess = sessionMetas.slice(this.config.maxSnapshots);
+      for (const meta of excess) {
+        toRemoveIds.add(meta.id);
       }
     }
 
-    // Remove excess snapshots
-    const remaining = this.listSnapshots(instanceId);
-    if (remaining.length > this.config.maxSnapshots) {
-      const toRemove = remaining.slice(this.config.maxSnapshots);
-      for (const snapshot of toRemove) {
-        const snapshotFile = path.join(this.snapshotDir, `${snapshot.id}.json`);
-        if (fs.existsSync(snapshotFile)) {
-          fs.unlinkSync(snapshotFile);
+    for (const id of toRemoveIds) {
+      const snapshotFile = path.join(this.snapshotDir, `${id}.json`);
+      try {
+        await fs.promises.unlink(snapshotFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          logger.warn('Failed to delete snapshot', { id, error: error instanceof Error ? error.message : String(error) });
         }
       }
+      this.snapshotIndex.remove(id);
     }
   }
 
   /**
    * Get continuity statistics
    */
-  getStats(): {
+  async getStats(): Promise<{
     activeSessions: number;
     totalSnapshots: number;
     diskUsageBytes: number;
     oldestSession: number | null;
     newestSession: number | null;
-  } {
+  }> {
+    await this.readyPromise;
     let diskUsageBytes = 0;
     let oldestSession: number | null = null;
     let newestSession: number | null = null;
@@ -715,10 +856,14 @@ export class SessionContinuityManager extends EventEmitter {
     // Calculate disk usage
     for (const dir of [this.stateDir, this.snapshotDir]) {
       try {
-        const files = fs.readdirSync(dir);
+        const files = await fs.promises.readdir(dir);
         for (const file of files) {
-          const stat = fs.statSync(path.join(dir, file));
-          diskUsageBytes += stat.size;
+          try {
+            const stat = await fs.promises.stat(path.join(dir, file));
+            diskUsageBytes += stat.size;
+          } catch {
+            // File may have been deleted between readdir and stat
+          }
         }
       } catch (error) {
         logger.warn('Failed to calculate disk usage for session directory', { dir, error: error instanceof Error ? error.message : String(error) });
@@ -747,7 +892,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     return {
       activeSessions: this.sessionStates.size,
-      totalSnapshots: this.listSnapshots().length,
+      totalSnapshots: this.snapshotIndex.size,
       diskUsageBytes,
       oldestSession,
       newestSession
@@ -760,34 +905,43 @@ export class SessionContinuityManager extends EventEmitter {
   configure(config: Partial<ContinuityConfig>): void {
     this.config = { ...this.config, ...config };
 
-    // Update auto-save timers if interval changed
+    // Update global auto-save timer if interval or enabled flag changed
     if (
       config.autoSaveIntervalMs !== undefined ||
       config.autoSaveEnabled !== undefined
     ) {
-      for (const [instanceId, timer] of this.autoSaveTimers) {
-        clearInterval(timer);
-        if (this.config.autoSaveEnabled) {
-          this.setupAutoSave(instanceId);
-        }
+      if (this.globalAutoSaveTimer !== null) {
+        clearInterval(this.globalAutoSaveTimer);
+        this.globalAutoSaveTimer = null;
+      }
+      if (this.config.autoSaveEnabled) {
+        this.startGlobalAutoSave();
       }
     }
   }
 
   /**
-   * Cleanup and shutdown
+   * Cleanup and shutdown — synchronous best-effort save (Electron requirement)
    */
   shutdown(): void {
-    // Save all dirty states
-    for (const instanceId of this.dirty) {
-      this.saveState(instanceId);
+    // Clear global autosave timer
+    if (this.globalAutoSaveTimer !== null) {
+      clearInterval(this.globalAutoSaveTimer);
+      this.globalAutoSaveTimer = null;
     }
 
-    // Clear all timers
-    for (const timer of this.autoSaveTimers.values()) {
-      clearInterval(timer);
+    // Best-effort synchronous save of all dirty states
+    for (const instanceId of this.dirty) {
+      const state = this.sessionStates.get(instanceId);
+      if (!state) continue;
+      try {
+        const stateFile = path.join(this.stateDir, `${instanceId}.json`);
+        const serialized = this.serializePayload(state);
+        fs.writeFileSync(stateFile, serialized);
+      } catch (error) {
+        logger.error('Failed to save session state during shutdown', error instanceof Error ? error : undefined, { instanceId });
+      }
     }
-    this.autoSaveTimers.clear();
   }
 }
 
