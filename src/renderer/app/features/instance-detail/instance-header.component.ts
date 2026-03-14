@@ -17,11 +17,12 @@ import {
 } from '@angular/core';
 import { StatusIndicatorComponent } from '../instance-list/status-indicator.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
+import { ContextBarComponent } from './context-bar.component';
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
-import type { Instance } from '../../core/state/instance.store';
+import type { ContextUsage, Instance } from '../../core/state/instance.store';
 import { getModelShortName } from '../../../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 
@@ -33,37 +34,123 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent],
   template: `
     <div class="detail-header">
-      <div class="instance-identity">
-        <div class="name-row">
-          <app-status-indicator [status]="instance().status" />
-          @if (isEditingName()) {
-            <input
-              type="text"
-              class="name-input"
-              [value]="instance().displayName"
-              (keydown.enter)="onSaveName($event)"
-              (keydown.escape)="cancelEditName.emit()"
-              (blur)="onSaveName($event)"
-              #nameInput
-            />
-          } @else {
-            <h2
-              class="instance-name editable"
-              title="Double-click to rename"
-              role="button"
-              tabindex="0"
-              (dblclick)="startEditName.emit()"
-              (keydown.enter)="startEditName.emit()"
-              (keydown.space)="startEditName.emit()"
-            >
-              {{ instance().displayName }}
-              <span class="edit-icon">rename</span>
-            </h2>
-          }
+      <div class="header-top">
+        <div class="instance-identity">
+          <div class="name-row">
+            <app-status-indicator [status]="instance().status" />
+            @if (isEditingName()) {
+              <input
+                type="text"
+                class="name-input"
+                [value]="instance().displayName"
+                (keydown.enter)="onSaveName($event)"
+                (keydown.escape)="cancelEditName.emit()"
+                (blur)="onSaveName($event)"
+                #nameInput
+              />
+            } @else {
+              <h2
+                class="instance-name editable"
+                [title]="instance().displayName"
+                role="button"
+                tabindex="0"
+                (dblclick)="startEditName.emit()"
+                (keydown.enter)="startEditName.emit()"
+                (keydown.space)="startEditName.emit()"
+              >
+                <span class="instance-name-text">{{ instance().displayName }}</span>
+                <span class="edit-icon">rename</span>
+              </h2>
+            }
+          </div>
         </div>
+
+        <div class="header-actions">
+          @if (instance().status === 'busy') {
+            <button
+              class="btn-action btn-interrupt"
+              title="Interrupt Claude (Esc)"
+              (click)="interrupt.emit()"
+            >
+              ⏸ Interrupt
+            </button>
+          }
+          @if (canShowFileExplorer()) {
+            <button
+              class="btn-action btn-icon"
+              [class.active]="isFileExplorerOpen()"
+              [title]="isFileExplorerOpen() ? 'Hide file browser' : 'Show file browser'"
+              (click)="toggleFileExplorer.emit()"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H10l2 2h7.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-10Z"/>
+              </svg>
+            </button>
+          }
+          <div class="open-menu-shell">
+            <button
+              class="btn-action btn-open"
+              title="Open workspace"
+              [disabled]="!instance().workingDirectory"
+              (click)="onToggleOpenMenu($event)"
+            >
+              <span>Open</span>
+              <span class="open-caret">▾</span>
+            </button>
+            @if (showOpenMenu()) {
+              <div class="open-menu">
+                <button
+                  class="open-menu-item"
+                  (click)="openInPreferredEditor()"
+                  [disabled]="isLoadingEditors()"
+                >
+                  Open in {{ preferredEditorLabel() }}
+                </button>
+                <button
+                  class="open-menu-item"
+                  (click)="openInSystemFileManager()"
+                >
+                  Open in {{ systemFolderLabel() }}
+                </button>
+              </div>
+              <button
+                type="button"
+                class="open-menu-backdrop"
+                aria-label="Close open menu"
+                (click)="showOpenMenu.set(false)"
+              ></button>
+            }
+          </div>
+          <button
+            class="btn-action"
+            title="Restart instance"
+            (click)="restart.emit()"
+            [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+          >
+            ↻ Restart
+          </button>
+          <button
+            class="btn-action btn-danger"
+            title="Terminate instance"
+            (click)="terminate.emit()"
+          >
+            × Terminate
+          </button>
+          <button
+            class="btn-action btn-primary"
+            title="Create child instance"
+            (click)="createChild.emit()"
+          >
+            + Child
+          </button>
+        </div>
+      </div>
+
+      <div class="header-bottom">
         <div class="instance-meta">
           <span
             class="provider-badge"
@@ -113,7 +200,6 @@ interface EditorMenuItem {
               ></button>
             }
           }
-          <span class="separator">•</span>
           <button
             class="mode-badge"
             [class.plan]="instance().agentId === 'plan'"
@@ -129,12 +215,10 @@ interface EditorMenuItem {
             {{ agentModeIcon() }}
             {{ agentModeName() }}
           </button>
-          <span class="separator">•</span>
           <app-recent-directories-dropdown
             [currentPath]="instance().workingDirectory || ''"
             (folderSelected)="selectFolder.emit($event)"
           />
-          <span class="separator">•</span>
           <button
             class="yolo-badge"
             [class.active]="instance().yoloMode"
@@ -150,107 +234,23 @@ interface EditorMenuItem {
           >
             ⚡ YOLO {{ instance().yoloMode ? 'ON' : 'OFF' }}
           </button>
-          @if (activeSkillCount() > 0 || enabledHookCount() > 0) {
-            <span class="separator">•</span>
-          }
           @if (activeSkillCount() > 0) {
-            <span
-              class="skills-badge"
-              [title]="activeSkillsTooltip()"
-            >
+            <span class="skills-badge" [title]="activeSkillsTooltip()">
               🧩 {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
             </span>
           }
           @if (enabledHookCount() > 0) {
-            <span
-              class="hooks-badge"
-              [title]="enabledHooksTooltip()"
-            >
+            <span class="hooks-badge" [title]="enabledHooksTooltip()">
               🪝 {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
             </span>
           }
         </div>
-      </div>
 
-      <div class="header-actions">
-        @if (instance().status === 'busy') {
-          <button
-            class="btn-action btn-interrupt"
-            title="Interrupt Claude (Esc)"
-            (click)="interrupt.emit()"
-          >
-            ⏸ Interrupt
-          </button>
+        @if (contextUsage(); as usage) {
+          <div class="header-context">
+            <app-context-bar [usage]="usage" [showDetails]="true" [showCost]="false" />
+          </div>
         }
-        @if (canShowFileExplorer()) {
-          <button
-            class="btn-action btn-icon"
-            [class.active]="isFileExplorerOpen()"
-            [title]="isFileExplorerOpen() ? 'Hide file browser' : 'Show file browser'"
-            (click)="toggleFileExplorer.emit()"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H10l2 2h7.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-10Z"/>
-            </svg>
-          </button>
-        }
-        <div class="open-menu-shell">
-          <button
-            class="btn-action btn-open"
-            title="Open workspace"
-            [disabled]="!instance().workingDirectory"
-            (click)="onToggleOpenMenu($event)"
-          >
-            <span>Open</span>
-            <span class="open-caret">▾</span>
-          </button>
-          @if (showOpenMenu()) {
-            <div class="open-menu">
-              <button
-                class="open-menu-item"
-                (click)="openInPreferredEditor()"
-                [disabled]="isLoadingEditors()"
-              >
-                Open in {{ preferredEditorLabel() }}
-              </button>
-              <button
-                class="open-menu-item"
-                (click)="openInSystemFileManager()"
-              >
-                Open in {{ systemFolderLabel() }}
-              </button>
-            </div>
-            <button
-              type="button"
-              class="open-menu-backdrop"
-              aria-label="Close open menu"
-              (click)="showOpenMenu.set(false)"
-            ></button>
-          }
-        </div>
-        <button
-          class="btn-action"
-          title="Restart instance"
-          (click)="restart.emit()"
-          [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
-        >
-          ↻ Restart
-        </button>
-        <button
-          class="btn-action btn-danger"
-          title="Terminate instance"
-          (click)="terminate.emit()"
-        >
-          × Terminate
-        </button>
-        <button
-          class="btn-action btn-primary"
-          title="Create child instance"
-          (click)="createChild.emit()"
-        >
-          + Child
-        </button>
       </div>
     </div>
   `,
@@ -258,11 +258,25 @@ interface EditorMenuItem {
     `
       .detail-header {
         display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 0 2px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .header-top {
+        display: flex;
         justify-content: space-between;
         align-items: flex-start;
         gap: 16px;
-        padding: 2px 2px 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .header-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
       }
 
       .instance-identity {
@@ -272,13 +286,13 @@ interface EditorMenuItem {
 
       .name-row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 10px;
       }
 
       .instance-name {
         font-family: var(--font-display);
-        font-size: clamp(20px, 2.2vw, 24px);
+        font-size: clamp(16px, 1.75vw, 21px);
         font-weight: 600;
         letter-spacing: -0.02em;
         margin: 0;
@@ -286,21 +300,24 @@ interface EditorMenuItem {
 
         &.editable {
           cursor: pointer;
-          display: flex;
-          align-items: center;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: start;
           gap: var(--spacing-xs);
-          padding: 4px 6px;
+          padding: 2px 4px;
           border-radius: 10px;
           transition: background var(--transition-fast);
+          min-width: 0;
+          flex: 1;
 
           &:hover {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(255, 255, 255, 0.02);
           }
 
           .edit-icon {
             opacity: 0;
             font-family: var(--font-mono);
-            font-size: 9px;
+            font-size: 8px;
             letter-spacing: 0.12em;
             text-transform: uppercase;
             transition: opacity var(--transition-fast);
@@ -308,100 +325,94 @@ interface EditorMenuItem {
           }
 
           &:hover .edit-icon {
-            opacity: 0.6;
+            opacity: 0.58;
           }
         }
       }
 
+      .instance-name-text {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        min-width: 0;
+        line-height: 1.14;
+        overflow-wrap: anywhere;
+      }
+
       .name-input {
         font-family: var(--font-display);
-        font-size: 20px;
-        font-weight: 700;
+        font-size: 18px;
+        font-weight: 600;
         letter-spacing: -0.02em;
         padding: 4px 10px;
         border: 2px solid var(--primary-color);
-        border-radius: var(--radius-md);
-        background: var(--bg-secondary);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
         color: var(--text-primary);
         outline: none;
-        min-width: 200px;
-        box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.15);
+        min-width: 220px;
+        box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
       }
 
       .instance-meta {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 11px;
-        color: var(--text-secondary);
-        margin-top: 8px;
+        gap: 6px;
         flex-wrap: wrap;
+        min-width: 0;
       }
 
-      .separator {
-        display: none;
-      }
-
-      .working-dir-btn {
-        max-width: 300px;
-        font-family: var(--font-mono);
-        font-size: 11px;
-        letter-spacing: 0.02em;
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-sm);
-        padding: 4px 10px;
-        color: var(--text-muted);
-        cursor: pointer;
-        transition: all var(--transition-fast);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-
-        &:hover {
-          border-color: var(--primary-color);
-          color: var(--text-primary);
-          background: rgba(var(--primary-rgb), 0.1);
-        }
+      .header-context {
+        flex: 1 1 280px;
+        min-width: min(100%, 280px);
+        max-width: 440px;
+        margin-left: auto;
       }
 
       .provider-badge {
-        padding: 5px 9px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 4px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 999px;
         font-family: var(--font-mono);
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
         color: white;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
       }
 
-      /* Inline Model Selector */
       .model-selector-inline {
         position: relative;
         display: inline-block;
-        margin-left: 6px;
+      }
+
+      .model-btn,
+      .mode-badge,
+      .yolo-badge,
+      .skills-badge,
+      .hooks-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
 
       .model-btn {
-        padding: 5px 9px;
         border: 1px solid;
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
         cursor: pointer;
-        transition: all var(--transition-fast);
-        display: flex;
-        align-items: center;
-        gap: 4px;
+        transition: filter var(--transition-fast), opacity var(--transition-fast);
       }
 
       .model-btn:hover:not(:disabled) {
-        filter: brightness(1.2);
+        filter: brightness(1.12);
       }
 
       .model-btn:disabled {
@@ -411,7 +422,7 @@ interface EditorMenuItem {
 
       .dropdown-caret {
         font-size: 8px;
-        opacity: 0.7;
+        opacity: 0.65;
       }
 
       .model-dropdown {
@@ -488,46 +499,33 @@ interface EditorMenuItem {
 
       .model-backdrop {
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        inset: 0;
         z-index: 999;
         background: transparent;
         border: none;
       }
 
       .mode-badge {
-        padding: 5px 9px;
         border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        background: rgba(111, 143, 128, 0.12);
-        color: white;
+        background: rgba(255, 255, 255, 0.025);
+        color: var(--text-secondary);
         cursor: pointer;
         transition: all var(--transition-fast);
-        box-shadow: none;
 
         &:hover {
-          background: rgba(111, 143, 128, 0.18);
+          color: var(--text-primary);
+          border-color: rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.045);
         }
 
         &.plan {
-          background: rgba(97, 120, 163, 0.15);
-          &:hover {
-            background: rgba(97, 120, 163, 0.22);
-          }
+          background: rgba(97, 120, 163, 0.12);
+          color: #d6ddf6;
         }
 
         &.review {
-          background: rgba(var(--primary-rgb), 0.12);
-          &:hover {
-            background: rgba(var(--primary-rgb), 0.18);
-          }
+          background: rgba(var(--primary-rgb), 0.1);
+          color: var(--primary-color);
         }
 
         &:disabled {
@@ -538,33 +536,22 @@ interface EditorMenuItem {
       }
 
       .yolo-badge {
-        padding: 5px 9px;
         border: 1px solid rgba(255, 255, 255, 0.06);
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(255, 255, 255, 0.025);
         color: var(--text-muted);
         cursor: pointer;
         transition: all var(--transition-fast);
 
         &:hover {
-          background: rgba(255, 255, 255, 0.06);
-          border-color: rgba(255, 255, 255, 0.12);
+          color: var(--text-primary);
+          border-color: rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.045);
         }
 
         &.active {
-          background: rgba(var(--primary-rgb), 0.12);
-          border-color: rgba(var(--primary-rgb), 0.3);
+          background: rgba(var(--primary-rgb), 0.1);
+          border-color: rgba(var(--primary-rgb), 0.22);
           color: var(--primary-color);
-          animation: none;
-
-          &:hover {
-            background: rgba(var(--primary-rgb), 0.18);
-          }
         }
 
         &:disabled {
@@ -573,26 +560,18 @@ interface EditorMenuItem {
         }
       }
 
+      .skills-badge,
+      .hooks-badge {
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(255, 255, 255, 0.025);
+      }
+
       .skills-badge {
-        padding: 5px 9px;
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 10px;
-        font-weight: 600;
-        background: rgba(97, 120, 163, 0.12);
         color: #c8d4ff;
-        border: 1px solid rgba(97, 120, 163, 0.18);
       }
 
       .hooks-badge {
-        padding: 5px 9px;
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 10px;
-        font-weight: 600;
-        background: rgba(var(--primary-rgb), 0.12);
         color: var(--primary-color);
-        border: 1px solid rgba(var(--primary-rgb), 0.18);
       }
 
       .header-actions {
@@ -600,25 +579,24 @@ interface EditorMenuItem {
         gap: 6px;
         flex-wrap: wrap;
         justify-content: flex-end;
-        padding-top: 2px;
         position: relative;
       }
 
       .btn-action {
-        padding: 8px 12px;
-        border-radius: 14px;
+        padding: 7px 11px;
+        border-radius: 999px;
         font-family: var(--font-display);
         font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.01em;
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(255, 255, 255, 0.025);
         border: 1px solid rgba(255, 255, 255, 0.06);
         color: var(--text-secondary);
         cursor: pointer;
         transition: all var(--transition-fast);
 
         &:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.05);
           border-color: rgba(255, 255, 255, 0.1);
           color: var(--text-primary);
         }
@@ -630,15 +608,18 @@ interface EditorMenuItem {
       }
 
       .btn-action.btn-icon {
-        width: 36px;
+        width: 34px;
+        height: 34px;
         padding: 0;
+        display: inline-flex;
+        align-items: center;
         justify-content: center;
       }
 
       .btn-action.btn-icon.active {
         color: var(--primary-color);
         border-color: rgba(var(--primary-rgb), 0.22);
-        background: rgba(var(--primary-rgb), 0.1);
+        background: rgba(var(--primary-rgb), 0.08);
       }
 
       .open-menu-shell {
@@ -707,23 +688,22 @@ interface EditorMenuItem {
 
       .btn-danger {
         color: var(--error-color);
-        border-color: rgba(var(--error-rgb), 0.22);
+        border-color: rgba(var(--error-rgb), 0.18);
 
         &:hover:not(:disabled) {
-          background: rgba(var(--error-rgb), 0.12);
-          border-color: rgba(var(--error-rgb), 0.3);
+          background: rgba(var(--error-rgb), 0.1);
+          border-color: rgba(var(--error-rgb), 0.26);
         }
       }
 
       .btn-interrupt {
-        background: rgba(var(--primary-rgb), 0.14);
+        background: rgba(var(--primary-rgb), 0.12);
         color: var(--primary-color);
-        border: 1px solid rgba(var(--primary-rgb), 0.22);
-        animation: none;
+        border-color: rgba(var(--primary-rgb), 0.18);
 
         &:hover:not(:disabled) {
-          background: rgba(var(--primary-rgb), 0.2);
-          border-color: rgba(var(--primary-rgb), 0.3);
+          background: rgba(var(--primary-rgb), 0.18);
+          border-color: rgba(var(--primary-rgb), 0.24);
           color: var(--primary-hover);
         }
       }
@@ -731,16 +711,48 @@ interface EditorMenuItem {
       .btn-primary {
         background: linear-gradient(
           135deg,
-          rgba(var(--primary-rgb), 0.94) 0%,
+          rgba(var(--primary-rgb), 0.9) 0%,
           var(--primary-hover) 100%
         );
         border: none;
         color: var(--bg-primary);
-        box-shadow: 0 14px 28px rgba(var(--primary-rgb), 0.16);
+        box-shadow: 0 10px 22px rgba(var(--primary-rgb), 0.14);
 
         &:hover:not(:disabled) {
           transform: translateY(-1px);
-          box-shadow: 0 18px 32px rgba(var(--primary-rgb), 0.22);
+          box-shadow: 0 14px 26px rgba(var(--primary-rgb), 0.18);
+        }
+      }
+
+      @media (max-width: 960px) {
+        .header-top,
+        .header-bottom {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .header-actions {
+          justify-content: flex-start;
+        }
+
+        .header-context {
+          margin-left: 0;
+          max-width: none;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .detail-header {
+          gap: 8px;
+          padding-bottom: 6px;
+        }
+
+        .name-row {
+          gap: 8px;
+        }
+
+        .instance-name {
+          font-size: 16px;
         }
       }
     `
@@ -762,6 +774,7 @@ export class InstanceHeaderComponent implements OnInit {
   showModelDropdown = input(false);
   currentModel = input<string | undefined>(undefined);
   models = input<ModelDisplayInfo[]>([]);
+  contextUsage = input<ContextUsage | null>(null);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
 

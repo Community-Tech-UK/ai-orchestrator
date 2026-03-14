@@ -50,6 +50,10 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
   `,
   styles: [`
     .thought-process {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       background: var(--bg-secondary);
       border: 1px solid var(--border-color);
       border-radius: 8px;
@@ -62,6 +66,7 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
       padding: 10px 14px;
       background: transparent;
       border: none;
@@ -85,22 +90,29 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
 
     .thought-label {
       flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-weight: 500;
     }
 
     .thought-count {
+      flex-shrink: 0;
       font-size: 11px;
       color: var(--text-muted);
       margin-left: 4px;
     }
 
     .thought-chevron {
+      flex-shrink: 0;
       font-size: 16px;
       opacity: 0.5;
       font-weight: 300;
     }
 
     .thought-content {
+      min-width: 0;
       padding: 0 14px 14px 34px;
       font-size: 13px;
       line-height: 1.6;

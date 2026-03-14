@@ -24,7 +24,10 @@ import { initTruncationCleanup } from './util/tool-output-truncation';
 import { evaluateContextWindowGuard } from './context/context-window-guard';
 import { getRemoteObserverServer } from './remote/observer-server';
 import { getRepoJobService } from './repo-jobs';
-import { getSessionContinuityManager } from './session/session-continuity';
+import {
+  getSessionContinuityManager,
+  getSessionContinuityManagerIfInitialized,
+} from './session/session-continuity';
 import { getResourceGovernor } from './process/resource-governor';
 import { getHibernationManager } from './process/hibernation-manager';
 import { getPoolManager } from './process/pool-manager';
@@ -55,7 +58,7 @@ class AIOrchestratorApp {
     if (!this.handlersRegistered) {
       const criticalSteps = new Set(['IPC handlers', 'Event forwarding']);
 
-      const steps: Array<{ name: string; fn: () => Promise<void> | void }> = [
+      const steps: { name: string; fn: () => Promise<void> | void }[] = [
         { name: 'IPC handlers', fn: () => this.ipcHandler.registerHandlers() },
         { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
         {
@@ -75,7 +78,6 @@ class AIOrchestratorApp {
         { name: 'Compaction coordinator', fn: () => this.setupCompactionCoordinator() },
         { name: 'Doom loop detector', fn: () => { getDoomLoopDetector(); } },
         { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
-        { name: 'Session continuity', fn: () => { getSessionContinuityManager(); } },
         { name: 'Resource governor', fn: () => {
           const im = this.instanceManager;
           getResourceGovernor().start({
@@ -401,9 +403,9 @@ class AIOrchestratorApp {
           const unresolvedItems = instance.outputBuffer
             .slice(-30)
             .flatMap(msg => {
-              const matches = msg.content.match(/(?:^|\n)\s*(?:- \[ \]|todo[:\-]|next[:\-]|follow-up[:\-])\s*(.+)/gi) || [];
+              const matches = msg.content.match(/(?:^|\n)\s*(?:- \[ \]|todo[:-]|next[:-]|follow-up[:-])\s*(.+)/gi) || [];
               return matches.map(m =>
-                m.replace(/(?:^|\n)\s*(?:- \[ \]|todo[:\-]|next[:\-]|follow-up[:\-])\s*/i, '').trim()
+                m.replace(/(?:^|\n)\s*(?:- \[ \]|todo[:-]|next[:-]|follow-up[:-])\s*/i, '').trim()
               );
             })
             .filter(Boolean)
@@ -518,7 +520,7 @@ class AIOrchestratorApp {
     try { getPoolManager().stop(); } catch { /* best effort */ }
     // Save all tracked session states before terminating
     try {
-      getSessionContinuityManager().shutdown();
+      getSessionContinuityManagerIfInitialized()?.shutdown();
     } catch (error) {
       logger.error('Failed to save sessions on shutdown', error instanceof Error ? error : undefined);
     }
@@ -569,6 +571,6 @@ process.on('uncaughtException', (error) => {
   logger.error('Uncaught exception', error instanceof Error ? error : undefined);
 });
 
-process.on('unhandledRejection', (reason, _promise) => {
+process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection', reason instanceof Error ? reason : undefined, { reason: String(reason) });
 });

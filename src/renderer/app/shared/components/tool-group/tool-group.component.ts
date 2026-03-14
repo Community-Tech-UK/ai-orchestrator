@@ -46,9 +46,13 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
   `,
   styles: [`
     .tool-group {
-      background: var(--bg-primary);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
+      width: min(100%, 1100px);
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
       overflow: hidden;
       font-size: 12px;
     }
@@ -58,11 +62,12 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
+      min-width: 0;
+      padding: 10px 12px;
       background: transparent;
       border: none;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-secondary);
       text-align: left;
       transition: all 0.15s ease;
@@ -81,32 +86,44 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
 
     .tool-label {
       flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-weight: 500;
+      font-family: var(--font-mono);
+      letter-spacing: 0.03em;
     }
 
     .tool-time {
+      flex-shrink: 0;
       font-family: var(--font-mono);
-      font-size: 11px;
-      opacity: 0.5;
+      font-size: 10px;
+      opacity: 0.42;
     }
 
     .tool-chevron {
-      font-size: 16px;
-      opacity: 0.5;
-      font-weight: 300;
+      font-size: 12px;
+      opacity: 0.45;
+      font-weight: 600;
     }
 
     .tool-group-content {
-      border-top: 1px solid var(--border-color);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
       display: flex;
       flex-direction: column;
-      gap: 1px;
-      background: var(--border-color);
+      min-width: 0;
+      gap: 8px;
+      padding: 8px 10px 10px;
+      background: rgba(255, 255, 255, 0.015);
     }
 
     .tool-item {
-      background: var(--bg-primary);
-      padding: 8px 14px;
+      background: rgba(6, 10, 9, 0.42);
+      min-width: 0;
+      padding: 8px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
     }
 
     .tool-item-header {
@@ -146,12 +163,14 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
     .tool-item-content {
       margin: 0;
       padding: 6px 8px;
-      background: var(--bg-secondary);
-      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 10px;
       font-size: 11px;
       line-height: 1.5;
+      max-width: 100%;
+      box-sizing: border-box;
       overflow-x: auto;
-      max-height: 200px;
+      max-height: 160px;
       overflow-y: auto;
       color: var(--text-secondary);
     }

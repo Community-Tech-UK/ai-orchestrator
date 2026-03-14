@@ -11,6 +11,7 @@ describe('HibernationManager', () => {
 
   it('should initialize with default config', () => {
     expect(manager.getConfig().idleThresholdMs).toBe(10 * 60 * 1000);
+    expect(manager.getConfig().enableAutoHibernation).toBe(false);
   });
 
   it('should track hibernated instances', () => {

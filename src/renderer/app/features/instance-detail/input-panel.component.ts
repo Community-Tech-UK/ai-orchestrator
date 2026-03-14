@@ -92,30 +92,25 @@ import type {
         </div>
       }
 
-      <div class="composer-toolbar" [class.draft-mode]="isDraftComposer()">
-        @if (!isDraftComposer()) {
-          <div class="composer-runtime">
-            <span class="toolbar-label">Current session</span>
-            <span class="runtime-chip">{{ sessionProviderLabel() }}</span>
-          </div>
-        }
-
-        <div class="composer-defaults">
-          <span class="toolbar-label">{{ defaultsLabel() }}</span>
-          <div class="default-controls">
-            <app-provider-selector
-              [provider]="selectedProvider()"
-              (providerSelected)="onProviderSelected($event)"
-            />
-            @if (selectedProvider() === 'copilot') {
-              <app-copilot-model-selector
-                [model]="selectedModel()"
-                (modelSelected)="onModelSelected($event)"
+      @if (isDraftComposer()) {
+        <div class="composer-toolbar draft-mode">
+          <div class="composer-defaults">
+            <span class="toolbar-label">Session defaults</span>
+            <div class="default-controls">
+              <app-provider-selector
+                [provider]="selectedProvider()"
+                (providerSelected)="onProviderSelected($event)"
               />
-            }
+              @if (selectedProvider() === 'copilot') {
+                <app-copilot-model-selector
+                  [model]="selectedModel()"
+                  (modelSelected)="onModelSelected($event)"
+                />
+              }
+            </div>
           </div>
         </div>
-      </div>
+      }
 
       <!-- Command suggestions dropdown -->
       @if (showCommandSuggestions() && filteredCommands().length > 0) {
@@ -253,7 +248,6 @@ import type {
       justify-content: flex-end;
     }
 
-    .composer-runtime,
     .composer-defaults {
       display: flex;
       flex-direction: column;
@@ -275,20 +269,6 @@ import type {
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--text-muted);
-    }
-
-    .runtime-chip {
-      display: inline-flex;
-      align-items: center;
-      padding: 7px 11px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.035);
-      border: 1px solid rgba(255, 255, 255, 0.07);
-      color: var(--text-secondary);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      white-space: nowrap;
     }
 
     .default-controls {
@@ -437,12 +417,15 @@ import type {
     .input-row {
       display: flex;
       gap: var(--spacing-sm);
-      align-items: flex-end;
+      align-items: center;
+      min-height: 46px;
     }
 
     /* Textarea Wrapper - Container for ghost text overlay */
     .textarea-wrapper {
       position: relative;
+      display: flex;
+      align-items: stretch;
       flex: 1;
       min-width: 0;
       border-radius: 18px;
@@ -530,11 +513,12 @@ import type {
 
     /* Action Buttons - Attach and Send */
     .btn-attach {
-      width: 46px;
+      width: 28px;
       height: 46px;
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.035);
-      border: 1px solid rgba(255, 255, 255, 0.07);
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      border: none;
       color: var(--text-muted);
       display: flex;
       align-items: center;
@@ -544,9 +528,8 @@ import type {
       cursor: pointer;
 
       &:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.06);
-        border-color: rgba(255, 255, 255, 0.1);
-        color: var(--secondary-color);
+        background: transparent;
+        color: var(--text-primary);
       }
 
       &:disabled {
@@ -556,9 +539,10 @@ import type {
     }
 
     .attach-icon {
-      font-size: 22px;
+      font-size: 30px;
       font-weight: 300;
       line-height: 1;
+      transform: translateY(-1px);
     }
 
     .btn-send {
@@ -863,7 +847,6 @@ export class InputPanelComponent implements OnDestroy {
   });
 
   isDraftComposer = computed(() => this.instanceId() === 'new');
-  defaultsLabel = computed(() => this.isDraftComposer() ? 'Session defaults' : 'New sessions');
   selectedProvider = computed(() =>
     this.isDraftComposer()
       ? (this.newSessionDraft.provider() ?? this.providerState.selectedProvider())
@@ -874,12 +857,6 @@ export class InputPanelComponent implements OnDestroy {
       ? (this.newSessionDraft.model() ?? this.providerState.selectedModel())
       : this.providerState.selectedModel()
   );
-
-  sessionProviderLabel = computed(() => {
-    const p = this.provider();
-    const m = this.currentModel();
-    return m ? `${p} · ${m}` : p;
-  });
 
   // Ghost text suggestion state
   ghostSuggestion = signal<string | null>(null);

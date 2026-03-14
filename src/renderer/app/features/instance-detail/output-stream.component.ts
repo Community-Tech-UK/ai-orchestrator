@@ -178,42 +178,56 @@ interface RenderedDisplayItem extends DisplayItem {
         min-height: 0;
         height: 100%;
         overflow-y: auto;
-        padding: 4px;
+        overflow-x: hidden;
+        padding: 8px 12px 8px 4px;
         background: transparent;
-        border-radius: 22px;
+        border-radius: 18px;
         position: relative;
       }
 
+      :host ::ng-deep .cdk-virtual-scroll-content-wrapper {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
       .transcript-item {
-        /* Let content determine height naturally */
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
       }
 
       .message {
-        width: min(100%, 920px);
-        padding: 12px 14px;
-        border-radius: 18px;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-          rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
-        margin-bottom: 8px;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        box-sizing: border-box;
+        padding: 8px 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        margin-bottom: 10px;
       }
 
       /* Continuation messages from the same sender — tighter spacing, no top radius */
       .message.continuation {
-        margin-top: -6px;
-        border-top-left-radius: 12px;
-        border-top-right-radius: 12px;
-        padding-top: 9px;
+        margin-top: -8px;
+        padding-top: 0;
       }
 
       .message-user {
+        width: 100%;
         margin-left: auto;
+        padding: 12px 14px;
+        border-radius: 20px;
         background:
           linear-gradient(180deg, rgba(var(--primary-rgb), 0.18), rgba(var(--primary-rgb), 0.12)),
           rgba(255, 255, 255, 0.03);
         border-color: rgba(var(--primary-rgb), 0.24);
+        border: 1px solid rgba(var(--primary-rgb), 0.24);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
         color: var(--text-primary);
 
         .message-type,
@@ -308,23 +322,35 @@ interface RenderedDisplayItem extends DisplayItem {
 
       .message-assistant {
         margin-right: auto;
+        color: var(--text-primary);
       }
 
       .message-system {
+        width: 100%;
+        padding: 10px 12px;
         background: rgba(var(--info-rgb), 0.08);
+        border: 1px solid rgba(var(--info-rgb), 0.14);
+        border-radius: 14px;
         font-size: 13px;
         color: var(--info-color);
       }
 
       .message-error {
+        width: 100%;
+        padding: 10px 12px;
         background: var(--error-bg);
+        border: 1px solid rgba(var(--error-rgb), 0.16);
+        border-radius: 14px;
         color: var(--error-color);
       }
 
       .message-tool_use,
       .message-tool_result {
+        width: 100%;
+        padding: 10px 12px;
         background: rgba(6, 10, 9, 0.72);
         border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
         font-size: 12px;
       }
 
@@ -342,21 +368,22 @@ interface RenderedDisplayItem extends DisplayItem {
         display: flex;
         align-items: center;
         gap: var(--spacing-sm);
-        margin-bottom: 8px;
-        font-size: 10px;
+        min-width: 0;
+        margin-bottom: 6px;
+        font-size: 9px;
       }
 
       .message-type {
         text-transform: uppercase;
         font-weight: 600;
-        letter-spacing: 0.12em;
-        opacity: 0.58;
+        letter-spacing: 0.14em;
+        opacity: 0.46;
         font-family: var(--font-mono);
       }
 
       .message-time {
         font-family: var(--font-mono);
-        opacity: 0.45;
+        opacity: 0.32;
         margin-left: auto;
       }
 
@@ -404,7 +431,9 @@ interface RenderedDisplayItem extends DisplayItem {
 
       .message-content {
         line-height: 1.62;
-        font-size: var(--output-font-size, 14px);
+        font-size: var(--output-font-size, 15px);
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .empty-stream {
@@ -429,10 +458,13 @@ interface RenderedDisplayItem extends DisplayItem {
       .thought-group {
         display: flex;
         flex-direction: column;
-        gap: var(--spacing-sm);
-        width: min(100%, 920px);
+        gap: 10px;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        box-sizing: border-box;
         margin-right: auto;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
       }
 
       .thought-group .message-assistant {
@@ -540,6 +572,7 @@ export class OutputStreamComponent {
   private displayItemProcessor = new DisplayItemProcessor();
 
   private resizeObserver: ResizeObserver | null = null;
+  private observeItemsFrame: number | null = null;
 
   /**
    * Shows all messages, consolidating streaming messages with the same ID.
@@ -585,6 +618,13 @@ export class OutputStreamComponent {
         for (let i = startIdx; i < items.length; i++) {
           this.scrollStrategy.setItemTypeHint(i, items[i].type);
         }
+      }
+    });
+
+    effect(() => {
+      this.displayItems();
+      if (this.container()) {
+        this.scheduleRenderedItemObservation();
       }
     });
 
@@ -658,14 +698,20 @@ export class OutputStreamComponent {
           if (indexStr) {
             const index = parseInt(indexStr, 10);
             if (index >= 0) {
-              this.scrollStrategy.setItemHeight(index, entry.contentRect.height);
+              this.scrollStrategy.setItemHeight(index, this.measureTranscriptItemHeight(el));
             }
           }
         }
       });
 
+      this.observeRenderedItems();
+
       this.destroyRef.onDestroy(() => {
         this.resizeObserver?.disconnect();
+        if (this.observeItemsFrame !== null) {
+          cancelAnimationFrame(this.observeItemsFrame);
+          this.observeItemsFrame = null;
+        }
 
         if (clickBinding) {
           clickBinding.element.removeEventListener('click', clickBinding.listener);
@@ -680,6 +726,51 @@ export class OutputStreamComponent {
         }
       });
     });
+  }
+
+  private scheduleRenderedItemObservation(): void {
+    if (this.observeItemsFrame !== null) {
+      cancelAnimationFrame(this.observeItemsFrame);
+    }
+
+    this.observeItemsFrame = requestAnimationFrame(() => {
+      this.observeItemsFrame = null;
+      this.observeRenderedItems();
+    });
+  }
+
+  private observeRenderedItems(): void {
+    const vp = this.container();
+    if (!vp || !this.resizeObserver) return;
+
+    const viewportEl = vp.elementRef.nativeElement as HTMLElement;
+    const transcriptItems = Array.from(viewportEl.querySelectorAll<HTMLElement>('.transcript-item'));
+
+    this.resizeObserver.disconnect();
+
+    for (const item of transcriptItems) {
+      const indexStr = item.getAttribute('data-item-index');
+      if (indexStr) {
+        const index = parseInt(indexStr, 10);
+        if (index >= 0) {
+          this.scrollStrategy.setItemHeight(index, this.measureTranscriptItemHeight(item));
+        }
+      }
+      this.resizeObserver.observe(item);
+    }
+  }
+
+  private measureTranscriptItemHeight(item: HTMLElement): number {
+    const firstChild = item.firstElementChild as HTMLElement | null;
+    if (!firstChild) {
+      return Math.ceil(item.getBoundingClientRect().height);
+    }
+
+    const rect = firstChild.getBoundingClientRect();
+    const styles = getComputedStyle(firstChild);
+    const marginTop = parseFloat(styles.marginTop) || 0;
+    const marginBottom = parseFloat(styles.marginBottom) || 0;
+    return Math.ceil(rect.height + marginTop + marginBottom);
   }
 
   /**

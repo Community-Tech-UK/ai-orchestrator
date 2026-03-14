@@ -15,6 +15,7 @@ import {
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { InstanceStore, type Instance } from '../../core/state/instance.store';
+import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { HistoryStore } from '../../core/state/history.store';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
@@ -1708,6 +1709,17 @@ export class InstanceListComponent {
       const entry = this.historyStore.entries().find((item) => item.id === entryId);
       const result = await this.historyStore.restoreEntry(entryId, entry?.workingDirectory);
       if (result.success && result.instanceId) {
+        // Populate restored messages into the new instance's output buffer.
+        // The instance:created event may carry outputBuffer, but this explicit
+        // call acts as a safety net against IPC race conditions (the event
+        // fires via webContents.send while the response returns via
+        // ipcMain.handle — ordering is not guaranteed).
+        if (result.restoredMessages && result.restoredMessages.length > 0) {
+          this.store.setInstanceMessages(
+            result.instanceId,
+            result.restoredMessages as OutputMessage[]
+          );
+        }
         this.store.setSelectedInstance(result.instanceId);
       } else if (result.error) {
         console.error('Failed to restore history entry:', result.error);

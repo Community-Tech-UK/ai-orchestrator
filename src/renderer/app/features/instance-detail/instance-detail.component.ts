@@ -24,7 +24,6 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { PROVIDER_MODEL_LIST } from '../../../../shared/types/provider.types';
 import { OutputStreamComponent } from './output-stream.component';
-import { ContextBarComponent } from './context-bar.component';
 import { InputPanelComponent } from './input-panel.component';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { ActivityStatusComponent } from './activity-status.component';
@@ -51,7 +50,6 @@ interface WelcomeProjectContext {
   standalone: true,
   imports: [
     OutputStreamComponent,
-    ContextBarComponent,
     ContextWarningComponent,
     InputPanelComponent,
     DropZoneComponent,
@@ -83,6 +81,7 @@ interface WelcomeProjectContext {
             [showModelDropdown]="showModelDropdown()"
             [currentModel]="inst.currentModel"
             [models]="availableModels()"
+            [contextUsage]="inst.contextUsage"
             [canShowFileExplorer]="canShowFileExplorer()"
             [isFileExplorerOpen]="isFileExplorerOpen()"
             (startEditName)="onStartEditName()"
@@ -100,11 +99,6 @@ interface WelcomeProjectContext {
             (selectModel)="onChangeModel($event)"
             (toggleFileExplorer)="toggleFileExplorer.emit()"
           />
-
-          <!-- Context bar -->
-          <div class="context-section">
-            <app-context-bar [usage]="inst.contextUsage" [showDetails]="true" />
-          </div>
 
           <!-- Context warning -->
           @if (contextWarningLevel()) {
@@ -278,24 +272,14 @@ interface WelcomeProjectContext {
         display: flex;
         flex-direction: column;
         flex: 1;
-        width: min(1160px, 100%);
+        width: min(1440px, calc(100vw - 40px));
         min-height: 0;
         overflow: hidden;
         margin: 0 auto;
-        padding: 4px 0 0;
-        gap: 12px;
+        padding: 0 12px;
+        gap: 10px;
         position: relative;
         z-index: 1;
-      }
-
-      .context-section {
-        padding: 8px 12px;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-          rgba(255, 255, 255, 0.025);
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(14px);
       }
 
       .output-section {
@@ -303,19 +287,19 @@ interface WelcomeProjectContext {
         min-height: 0;
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        padding: 10px;
+        gap: 10px;
+        padding: 8px 10px 10px;
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
-          rgba(8, 12, 11, 0.42);
-        border-radius: 24px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
+          rgba(8, 12, 11, 0.26);
+        border-radius: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.015);
         overflow: hidden;
       }
 
       .output-section.empty-transcript {
-        flex: 0 0 270px;
+        flex: 0 0 240px;
       }
 
       .output-section app-output-stream {
@@ -451,6 +435,19 @@ interface WelcomeProjectContext {
         }
         50% {
           opacity: 0.5;
+        }
+      }
+
+      @media (max-width: 960px) {
+        .instance-detail {
+          width: 100%;
+          padding: 0 10px;
+          gap: 8px;
+        }
+
+        .output-section {
+          padding: 6px 8px 8px;
+          border-radius: 18px;
         }
       }
     `

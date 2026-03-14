@@ -803,3 +803,7 @@ export function getSessionContinuityManager(): SessionContinuityManager {
   }
   return continuityManagerInstance;
 }
+
+export function getSessionContinuityManagerIfInitialized(): SessionContinuityManager | null {
+  return continuityManagerInstance;
+}

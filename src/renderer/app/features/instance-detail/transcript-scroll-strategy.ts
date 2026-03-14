@@ -62,6 +62,7 @@ export class TranscriptScrollStrategy implements VirtualScrollStrategy {
     if (this.heightCache.get(index) !== height) {
       this.heightCache.set(index, height);
       this.updateTotalContentSize();
+      this.updateRenderedRange();
     }
   }
 

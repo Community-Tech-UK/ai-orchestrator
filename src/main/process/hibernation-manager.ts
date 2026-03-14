@@ -13,7 +13,9 @@ export interface HibernationConfig {
 
 const DEFAULT_CONFIG: HibernationConfig = {
   idleThresholdMs: 10 * 60 * 1000,   // 10 minutes
-  enableAutoHibernation: true,
+  // Keep auto-hibernation off until the lifecycle is wired to persist and restore
+  // sessions instead of terminating them outright.
+  enableAutoHibernation: false,
   checkIntervalMs: 60 * 1000,         // 1 minute
   maxHibernated: 20,
   memoryPressureTrigger: true,
