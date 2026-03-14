@@ -9,6 +9,7 @@ import type {
   ContextInheritanceConfig,
 } from './supervision.types';
 import { createDefaultContextInheritance } from './supervision.types';
+import { getProviderModelContextWindow } from './provider.types';
 
 /**
  * CLI provider type for instances
@@ -67,11 +68,16 @@ export interface PlanModeConfig {
 
 export type InstanceStatus =
   | 'initializing'
+  | 'ready'           // Init complete, adapter spawned, waiting for first input
   | 'idle'
   | 'busy'
   | 'waiting_for_input'
-  | 'respawning'  // Instance is recovering from interrupt, cannot be interrupted again
+  | 'respawning'      // Instance is recovering from interrupt, cannot be interrupted again
+  | 'hibernating'     // Saving state to disk before suspend
+  | 'hibernated'      // State saved, process killed, can wake
+  | 'waking'          // Restoring from hibernation
   | 'error'
+  | 'failed'          // Unrecoverable init/wake failure
   | 'terminated';
 
 export interface ContextUsage {
@@ -169,6 +175,12 @@ export interface Instance {
   communicationTokens: Map<string, CommunicationToken>;
   subscribedTo: string[];
 
+  // Lifecycle promises (not serialized)
+  /** Resolves when init/wake completes. sendInput() awaits this. */
+  readyPromise?: Promise<void>;
+  /** Signals cancellation of in-progress init/wake. */
+  abortController?: AbortController;
+
   // Metrics
   totalTokensUsed: number;
   requestCount: number;
@@ -214,6 +226,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
   const now = Date.now();
   const sessionId = config.sessionId || crypto.randomUUID();
   const historyThreadId = config.historyThreadId || sessionId;
+  const provider = config.provider || 'auto';
   const agent = config.agentId
     ? getAgentById(config.agentId)
     : getDefaultAgent();
@@ -251,14 +264,18 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     },
 
     status: 'initializing',
-    contextUsage: { used: 0, total: 200000, percentage: 0 },
+    contextUsage: {
+      used: 0,
+      total: getProviderModelContextWindow(provider, config.modelOverride),
+      percentage: 0
+    },
     lastActivity: now,
 
     processId: null,
     sessionId,
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
-    provider: config.provider || 'auto', // Default to auto (resolved by instance manager)
+    provider, // Default to auto (resolved by instance manager)
 
     outputBuffer: config.initialOutputBuffer || [],
     outputBufferMaxSize: 1000,

@@ -34,6 +34,13 @@ export const IPC_CHANNELS = {
   INSTANCE_REMOVED: 'instance:removed',
   INSTANCE_LIST: 'instance:list',
 
+  // Hibernation lifecycle
+  INSTANCE_HIBERNATE: 'instance:hibernate',
+  INSTANCE_HIBERNATED: 'instance:hibernated',
+  INSTANCE_WAKE: 'instance:wake',
+  INSTANCE_WAKING: 'instance:waking',
+  INSTANCE_TRANSCRIPT_CHUNK: 'instance:transcript-chunk',
+
   // Context compaction
   INSTANCE_COMPACT: 'instance:compact',
   INSTANCE_COMPACT_STATUS: 'instance:compact-status',
