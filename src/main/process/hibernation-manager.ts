@@ -3,8 +3,10 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('HibernationManager');
 
+const HYSTERESIS_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
 export interface HibernationConfig {
-  idleThresholdMs: number;          // How long idle before hibernation (default: 10min)
+  idleThresholdMs: number;          // How long idle before hibernation (default: 30min)
   enableAutoHibernation: boolean;   // Auto-hibernate idle instances
   checkIntervalMs: number;          // How often to check for idle instances
   maxHibernated: number;            // Max hibernated instances to keep
@@ -12,10 +14,8 @@ export interface HibernationConfig {
 }
 
 const DEFAULT_CONFIG: HibernationConfig = {
-  idleThresholdMs: 10 * 60 * 1000,   // 10 minutes
-  // Keep auto-hibernation off until the lifecycle is wired to persist and restore
-  // sessions instead of terminating them outright.
-  enableAutoHibernation: false,
+  idleThresholdMs: 30 * 60 * 1000,   // 30 minutes
+  enableAutoHibernation: true,
   checkIntervalMs: 60 * 1000,         // 1 minute
   maxHibernated: 20,
   memoryPressureTrigger: true,
@@ -37,9 +37,19 @@ export interface HibernationCandidate {
   lastActivity: number;
 }
 
+export interface EvictionCandidate extends HibernationCandidate {
+  transcriptSize: number;
+  restartCost: number;
+}
+
+export interface ScoredEvictionCandidate extends EvictionCandidate {
+  score: number;
+}
+
 export class HibernationManager extends EventEmitter {
   private config: HibernationConfig;
   private hibernated = new Map<string, HibernatedInstance>();
+  private recentWakes = new Map<string, number>();
   private checkTimer: ReturnType<typeof setInterval> | null = null;
 
   private static instance: HibernationManager;
@@ -106,6 +116,7 @@ export class HibernationManager extends EventEmitter {
     const state = this.hibernated.get(instanceId);
     if (state) {
       this.hibernated.delete(instanceId);
+      this.recentWakes.set(instanceId, Date.now());
       this.emit('instance:awoken', { instanceId, state });
       logger.info('Instance awoken', { instanceId });
     }
@@ -123,6 +134,19 @@ export class HibernationManager extends EventEmitter {
     return [...this.hibernated.values()];
   }
 
+  private isInCooldown(instanceId: string, now: number): boolean {
+    const wakeTime = this.recentWakes.get(instanceId);
+    if (wakeTime === undefined) {
+      return false;
+    }
+    if (now - wakeTime > HYSTERESIS_COOLDOWN_MS) {
+      // Expired — clean up
+      this.recentWakes.delete(instanceId);
+      return false;
+    }
+    return true;
+  }
+
   getHibernationCandidates(
     instances: HibernationCandidate[],
     now = Date.now()
@@ -130,8 +154,32 @@ export class HibernationManager extends EventEmitter {
     return instances.filter(inst =>
       inst.status === 'idle' &&
       (now - inst.lastActivity) > this.config.idleThresholdMs &&
-      !this.hibernated.has(inst.id)
+      !this.hibernated.has(inst.id) &&
+      !this.isInCooldown(inst.id, now)
     ).sort((a, b) => a.lastActivity - b.lastActivity);
+  }
+
+  scoreEvictionCandidates(
+    candidates: EvictionCandidate[],
+    now = Date.now()
+  ): ScoredEvictionCandidate[] {
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const maxIdle = Math.max(...candidates.map(c => now - c.lastActivity));
+    const maxTranscript = Math.max(...candidates.map(c => c.transcriptSize));
+    const maxCost = Math.max(...candidates.map(c => c.restartCost));
+
+    return candidates
+      .map(c => {
+        const idleNorm = maxIdle > 0 ? (now - c.lastActivity) / maxIdle : 0;
+        const transcriptNorm = maxTranscript > 0 ? c.transcriptSize / maxTranscript : 0;
+        const costNorm = maxCost > 0 ? c.restartCost / maxCost : 0;
+        const score = (idleNorm * 0.5) + (transcriptNorm * 0.3) + (costNorm * 0.2);
+        return { ...c, score };
+      })
+      .sort((a, b) => b.score - a.score);
   }
 
   getStats(): { hibernatedCount: number; maxHibernated: number; autoEnabled: boolean } {
