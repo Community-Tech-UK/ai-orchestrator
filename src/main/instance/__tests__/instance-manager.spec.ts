@@ -420,9 +420,11 @@ vi.mock('../../../shared/types/error-recovery.types', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../../shared/types/provider.types', () => ({
   getModelsForProvider: vi.fn().mockReturnValue([]),
-  getProviderModelContextWindow: vi.fn((provider: string, model?: string) =>
-    provider === 'claude' && model?.endsWith('[1m]') ? 1000000 : 200000
-  ),
+  getProviderModelContextWindow: vi.fn((provider: string, model?: string) => {
+    if (provider === 'claude' && model?.endsWith('[1m]')) return 1000000;
+    if (provider === 'claude' && model?.includes('opus')) return 1000000;
+    return 200000;
+  }),
   isModelTier: vi.fn().mockReturnValue(false),
   looksLikeCodexModelId: vi.fn().mockReturnValue(false),
   resolveModelForTier: vi.fn().mockReturnValue(undefined),
@@ -757,6 +759,10 @@ describe('InstanceManager', () => {
         workingDirectory: TEST_WORKING_DIR,
         modelOverride: 'sonnet[1m]',
       });
+
+      // Phase 2 (background init) sets currentModel and contextUsage.
+      // Await readyPromise so assertions see the fully-initialized state.
+      await instance.readyPromise;
 
       expect(instance.currentModel).toBe('sonnet[1m]');
       expect(instance.contextUsage.total).toBe(1000000);

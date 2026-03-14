@@ -151,8 +151,11 @@ export class VectorStore extends EventEmitter {
     }
     this.storeVectorIds.get(storeId)!.add(entry.id);
 
-    // Persist to database
+    // Persist to database — ensure FK parents exist first
     try {
+      this.ensureStoreExists(storeId);
+      this.ensureSectionExists(storeId, sectionId, content);
+
       this.db.addVector({
         id: entry.id,
         storeId,
@@ -416,6 +419,70 @@ export class VectorStore extends EventEmitter {
   isIndexed(storeId: string, sectionId: string): boolean {
     const vectorId = `vec-${storeId}-${sectionId}`;
     return this.vectorCache.has(vectorId);
+  }
+
+  // ============================================
+  // Private Helpers — FK parent row creation
+  // ============================================
+
+  /** Tracked store IDs we've already ensured exist (avoids repeated DB checks) */
+  private ensuredStores = new Set<string>();
+  private ensuredSections = new Set<string>();
+
+  /**
+   * Ensure a context_stores row exists for the given storeId.
+   * Some callers (e.g. ObservationStore) use standalone store IDs
+   * that are not tied to a real instance — create a placeholder row
+   * so the FK constraint on the vectors table is satisfied.
+   */
+  private ensureStoreExists(storeId: string): void {
+    if (this.ensuredStores.has(storeId)) return;
+    try {
+      const existing = this.db.getStore(storeId);
+      if (!existing) {
+        this.db.createStore({ id: storeId, instanceId: storeId });
+        logger.info('Auto-created context store for vector FK', { storeId });
+      }
+      this.ensuredStores.add(storeId);
+    } catch (error) {
+      // UNIQUE constraint → store already exists (race condition), safe to ignore
+      if (error instanceof Error && error.message.includes('UNIQUE')) {
+        this.ensuredStores.add(storeId);
+      } else {
+        logger.warn('Failed to ensure store exists', { storeId, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+
+  /**
+   * Ensure a context_sections row exists for the given sectionId.
+   * Creates a minimal placeholder so the FK constraint on vectors is satisfied.
+   */
+  private ensureSectionExists(storeId: string, sectionId: string, content: string): void {
+    if (this.ensuredSections.has(sectionId)) return;
+    try {
+      const existing = this.db.getSection(sectionId);
+      if (!existing) {
+        this.db.addSection({
+          id: sectionId,
+          storeId,
+          type: 'vector-placeholder',
+          name: sectionId,
+          startOffset: 0,
+          endOffset: content.length,
+          tokens: Math.ceil(content.length / 4), // rough estimate
+          content,
+        });
+        logger.info('Auto-created context section for vector FK', { sectionId, storeId });
+      }
+      this.ensuredSections.add(sectionId);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE')) {
+        this.ensuredSections.add(sectionId);
+      } else {
+        logger.warn('Failed to ensure section exists', { sectionId, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
   }
 }
 

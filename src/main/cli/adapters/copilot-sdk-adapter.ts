@@ -601,7 +601,7 @@ export interface CopilotModelInfo {
  */
 export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
   // Flagship tier - latest and best models
-  { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', supportsVision: true, contextWindow: 200000, enabled: true },
+  { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', supportsVision: true, contextWindow: 1000000, enabled: true },
   { id: 'o3', name: 'OpenAI o3', supportsVision: true, contextWindow: 200000, enabled: true },
   { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Preview)', supportsVision: true, contextWindow: 2000000, enabled: true },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', supportsVision: true, contextWindow: 2000000, enabled: true },

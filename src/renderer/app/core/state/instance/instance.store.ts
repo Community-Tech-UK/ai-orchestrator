@@ -212,8 +212,8 @@ export class InstanceStore implements OnDestroy {
   private applyUpdate(update: StateUpdate): void {
     const newStatus = update.status as InstanceStatus;
 
-    // Clear activity on idle/terminated
-    if (newStatus === 'idle' || newStatus === 'terminated') {
+    // Clear activity on idle/ready/terminated/hibernated
+    if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'terminated' || newStatus === 'hibernated') {
       this.activityDebouncer.clearActivity(update.instanceId);
       this.outputStore.flushInstanceOutput(update.instanceId);
     }
@@ -248,17 +248,17 @@ export class InstanceStore implements OnDestroy {
     });
 
     // Process queued messages AFTER state is updated, so the guard check
-    // inside processMessageQueue sees the new 'idle'/'waiting_for_input' status
-    if (newStatus === 'idle' || newStatus === 'waiting_for_input') {
+    // inside processMessageQueue sees the new 'idle'/'ready'/'waiting_for_input' status
+    if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'waiting_for_input') {
       this.messagingStore.processMessageQueue(update.instanceId);
     }
   }
 
   private applyBatchUpdates(updates: StateUpdate[]): void {
-    // Handle activity clearing and busy-since tracking for idle/terminated statuses
+    // Handle activity clearing and busy-since tracking for idle/ready/terminated/hibernated statuses
     for (const update of updates) {
       const newStatus = update.status as InstanceStatus;
-      if (newStatus === 'idle' || newStatus === 'terminated') {
+      if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'terminated' || newStatus === 'hibernated') {
         this.activityDebouncer.clearActivity(update.instanceId);
         this.outputStore.flushInstanceOutput(update.instanceId);
       }
@@ -285,10 +285,10 @@ export class InstanceStore implements OnDestroy {
     });
 
     // Process queued messages AFTER state is updated, so the guard check
-    // inside processMessageQueue sees the new 'idle'/'waiting_for_input' status
+    // inside processMessageQueue sees the new 'idle'/'ready'/'waiting_for_input' status
     for (const update of updates) {
       const newStatus = update.status as InstanceStatus;
-      if (newStatus === 'idle' || newStatus === 'waiting_for_input') {
+      if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'waiting_for_input') {
         this.messagingStore.processMessageQueue(update.instanceId);
       }
     }

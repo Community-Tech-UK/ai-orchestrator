@@ -182,7 +182,7 @@ export class ModelDiscoveryService {
         displayName: 'Claude Opus 4.5',
         provider: 'anthropic',
         description: 'Most capable model for complex tasks',
-        contextLength: 200000,
+        contextLength: 1000000,
         maxOutputTokens: 32000,
         capabilities: {
           vision: true,

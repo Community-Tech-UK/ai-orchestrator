@@ -35,9 +35,15 @@ import { Instance } from '../../core/state/instance.store';
         <span class="child-connector">└</span>
       }
 
-      <span class="leading-indicator" [title]="showActivitySpinner() ? activityLabel() : providerVisual().label">
+      <span class="leading-indicator" [title]="showActivitySpinner() ? activityLabel() : isHibernated() ? 'Hibernated — click to wake' : providerVisual().label">
         @if (showActivitySpinner()) {
           <span class="activity-spinner"></span>
+        } @else if (isHibernated()) {
+          <span class="hibernated-indicator" title="Hibernated — click to wake">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" opacity="0.4"/>
+            </svg>
+          </span>
         } @else {
           <span class="provider-badge" [style.color]="providerVisual().color">
             @switch (providerVisual().icon) {
@@ -308,6 +314,21 @@ import { Instance } from '../../core/state/instance.store';
       height: 14px;
     }
 
+    .hibernated-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: rgba(168, 176, 164, 0.45);
+    }
+
+    .hibernated-indicator svg {
+      width: 12px;
+      height: 12px;
+    }
+
     .instance-name {
       flex: 1;
       min-width: 0;
@@ -464,8 +485,11 @@ export class InstanceRowComponent {
     this.instance().status === 'busy' ||
     this.instance().status === 'initializing' ||
     this.instance().status === 'waiting_for_input' ||
-    this.instance().status === 'respawning'
+    this.instance().status === 'respawning' ||
+    this.instance().status === 'waking' ||
+    this.instance().status === 'hibernating'
   );
+  readonly isHibernated = computed(() => this.instance().status === 'hibernated');
   readonly activityLabel = computed(() => {
     switch (this.instance().status) {
       case 'busy':
@@ -476,6 +500,10 @@ export class InstanceRowComponent {
         return 'Waiting for input';
       case 'respawning':
         return 'Resuming session';
+      case 'waking':
+        return 'Waking up';
+      case 'hibernating':
+        return 'Hibernating';
       default:
         return '';
     }

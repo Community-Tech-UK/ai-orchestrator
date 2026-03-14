@@ -11,11 +11,16 @@ import type { FileAttachment, ThinkingContent } from '../../../../../shared/type
 
 export type InstanceStatus =
   | 'initializing'
+  | 'ready'         // Instance is fully started and available for input (alias for idle)
   | 'idle'
   | 'busy'
   | 'waiting_for_input'
-  | 'respawning'  // Instance is recovering from interrupt, cannot be interrupted again
+  | 'respawning'    // Instance is recovering from interrupt, cannot be interrupted again
+  | 'hibernating'   // Instance is in the process of hibernating (transitional)
+  | 'hibernated'    // Instance is hibernated (resting, clickable to wake)
+  | 'waking'        // Instance is waking from hibernation (transitional, like initializing)
   | 'error'
+  | 'failed'        // Instance failed to start or encountered a fatal error (alias for error)
   | 'terminated';
 
 export interface ContextUsage {

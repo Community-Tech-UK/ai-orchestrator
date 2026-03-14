@@ -7,21 +7,31 @@ import { InstanceStatus } from '../../core/state/instance.store';
 
 const STATUS_COLORS: Record<InstanceStatus, string> = {
   initializing: '#f59e0b', // Amber
+  ready: '#10b981',        // Green - fully started
   idle: '#10b981',         // Green
   busy: '#3b82f6',         // Blue
   waiting_for_input: '#f59e0b', // Amber
   respawning: '#8b5cf6',   // Purple - recovering from interrupt
+  hibernating: '#6b7280',  // Gray - transitioning
+  hibernated: '#4b5563',   // Darker gray - resting
+  waking: '#f59e0b',       // Amber - waking up
   error: '#ef4444',        // Red
+  failed: '#ef4444',       // Red - unrecoverable failure
   terminated: '#6b7280',   // Gray
 };
 
 const STATUS_LABELS: Record<InstanceStatus, string> = {
   initializing: 'Initializing...',
+  ready: 'Ready',
   idle: 'Idle',
   busy: 'Processing...',
   waiting_for_input: 'Waiting for input',
   respawning: 'Resuming session...',
+  hibernating: 'Hibernating...',
+  hibernated: 'Hibernated',
+  waking: 'Waking up...',
   error: 'Error',
+  failed: 'Failed',
   terminated: 'Terminated',
 };
 
@@ -115,7 +125,11 @@ export class StatusIndicatorComponent {
   visibleLabel = computed(() => this.label());
 
   isPulsing = computed(() =>
-    this.status() === 'busy' || this.status() === 'initializing' || this.status() === 'respawning'
+    this.status() === 'busy' ||
+    this.status() === 'initializing' ||
+    this.status() === 'respawning' ||
+    this.status() === 'hibernating' ||
+    this.status() === 'waking'
   );
 
   showSpinnerIndicator = computed(() =>

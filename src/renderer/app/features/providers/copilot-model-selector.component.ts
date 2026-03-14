@@ -30,7 +30,7 @@ export interface CopilotModel {
 // These are the latest and best models available through GitHub Copilot
 export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
   // Flagship tier - latest and best
-  { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
+  { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: 'o3', name: 'OpenAI o3', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
   { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 2000000 },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 2000000 },

@@ -150,6 +150,9 @@ export class OrchestrationHandler extends EventEmitter {
   private userActionWaiters = new Map<string, (approved: boolean, selectedOption?: string) => void>();
   /** Tracks completed children per parent: parentId → Set<childId> */
   private completedChildrenIds = new Map<string, Set<string>>();
+  /** Tracks consecutive failed children per parent for spawn-failure backoff */
+  private consecutiveFailures = new Map<string, number>();
+  private static readonly MAX_CONSECUTIVE_FAILURES = 3;
   /**
    * Streaming-safe buffer for orchestrator command parsing.
    *
@@ -191,6 +194,8 @@ export class OrchestrationHandler extends EventEmitter {
     this.contexts.delete(instanceId);
     this.commandParseBuffers.delete(instanceId);
     this.recentCommands.delete(instanceId);
+    this.consecutiveFailures.delete(instanceId);
+    this.completedChildrenIds.delete(instanceId);
 
     // Best-effort cleanup: drop any pending user actions for this instance.
     // Otherwise they can linger if an instance is terminated while awaiting input.
@@ -429,6 +434,16 @@ export class OrchestrationHandler extends EventEmitter {
   }
 
   private handleSpawnChild(parentId: string, command: SpawnChildCommand): void {
+    // Block spawning if too many consecutive children have failed (prevents runaway loops)
+    const failures = this.consecutiveFailures.get(parentId) ?? 0;
+    if (failures >= OrchestrationHandler.MAX_CONSECUTIVE_FAILURES) {
+      logger.warn('Spawn blocked: too many consecutive child failures', { parentId, consecutiveFailures: failures });
+      this.injectResponse(parentId, 'spawn_child', false, {
+        error: `Spawn blocked: ${failures} consecutive child failures. Investigate why children are failing before spawning more. Use get_child_summary to review failure details.`,
+      });
+      return;
+    }
+
     this.emit('spawn-child', parentId, command);
   }
 
@@ -972,6 +987,15 @@ export class OrchestrationHandler extends EventEmitter {
       this.completedChildrenIds.set(parentId, new Set());
     }
     this.completedChildrenIds.get(parentId)!.add(childId);
+
+    // Track consecutive failures for spawn-loop backoff
+    if (resultData && !resultData.success) {
+      const prev = this.consecutiveFailures.get(parentId) ?? 0;
+      this.consecutiveFailures.set(parentId, prev + 1);
+    } else if (resultData?.success) {
+      // Reset on success — the parent's strategy is working
+      this.consecutiveFailures.set(parentId, 0);
+    }
 
     // Inject rich result data (not just "terminated") so parent Claude sees findings
     const responseData: Record<string, unknown> = {

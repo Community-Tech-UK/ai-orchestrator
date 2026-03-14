@@ -130,15 +130,21 @@ export class InstanceOrchestrationManager {
           return;
         }
 
-        // Check max children per parent limit
+        // Check max children per parent limit (active + completed to prevent spawn loops)
+        const completedChildCount = this.orchestration.getCompletedChildIds(parentId).length;
+        const totalChildrenSpawned = parent.childrenIds.length + completedChildCount;
         if (
           settings.maxChildrenPerParent > 0 &&
-          parent.childrenIds.length >= settings.maxChildrenPerParent
+          totalChildrenSpawned >= settings.maxChildrenPerParent
         ) {
-          logger.info('Cannot spawn child: max children per parent reached', { maxChildrenPerParent: settings.maxChildrenPerParent });
+          logger.info('Cannot spawn child: max children per parent reached', {
+            maxChildrenPerParent: settings.maxChildrenPerParent,
+            active: parent.childrenIds.length,
+            completed: completedChildCount,
+          });
           this.orchestration.notifyError(
             parentId,
-            `Cannot spawn child: maximum children per parent (${settings.maxChildrenPerParent}) reached`
+            `Cannot spawn child: maximum children per parent (${settings.maxChildrenPerParent}) reached (${parent.childrenIds.length} active, ${completedChildCount} completed)`
           );
           return;
         }
@@ -295,6 +301,12 @@ export class InstanceOrchestrationManager {
     this.orchestration.on(
       'inject-response',
       (instanceId: string, response: string) => {
+        // Guard against empty responses — sending empty user messages causes API 400 errors
+        if (!response || !response.trim()) {
+          logger.warn('Skipping inject-response with empty content', { instanceId });
+          return;
+        }
+
         const adapter = this.deps.getAdapter(instanceId);
         const instance = this.deps.getInstance(instanceId);
 

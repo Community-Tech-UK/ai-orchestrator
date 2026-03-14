@@ -34,7 +34,7 @@ export class InstanceMessagingStore {
 
     for (const [instanceId] of queueMap) {
       const instance = this.stateService.getInstance(instanceId);
-      if (instance && (instance.status === 'idle' || instance.status === 'waiting_for_input')) {
+      if (instance && (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input')) {
         console.log('InstanceMessagingStore: Watchdog draining stuck queue', { instanceId, status: instance.status });
         this.processMessageQueue(instanceId);
       }
@@ -122,8 +122,14 @@ export class InstanceMessagingStore {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
 
-    // If instance is busy or respawning, queue the message instead of sending immediately
-    if (instance.status === 'busy' || instance.status === 'respawning') {
+    // If instance is busy, respawning, or in a transitional state, queue the message instead of sending immediately
+    if (
+      instance.status === 'busy' ||
+      instance.status === 'respawning' ||
+      instance.status === 'initializing' ||
+      instance.status === 'waking' ||
+      instance.status === 'hibernating'
+    ) {
       console.log('InstanceMessagingStore: Instance not ready, queuing message', {
         instanceId,
         status: instance.status,
@@ -249,7 +255,7 @@ export class InstanceMessagingStore {
     // optimistic status updates (e.g., during respawning).
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
-    if (instance.status !== 'idle' && instance.status !== 'waiting_for_input') {
+    if (instance.status !== 'idle' && instance.status !== 'ready' && instance.status !== 'waiting_for_input') {
       console.log('InstanceMessagingStore: Skipping queue processing, instance not ready', {
         instanceId,
         status: instance.status,

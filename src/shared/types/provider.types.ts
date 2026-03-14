@@ -324,6 +324,11 @@ export function getProviderModelContextWindow(
     return 1000000;
   }
 
+  // Opus natively supports 1M context
+  if (normalizedModel?.includes('opus')) {
+    return 1000000;
+  }
+
   return 200000;
 }
 

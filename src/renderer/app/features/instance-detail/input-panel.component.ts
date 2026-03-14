@@ -170,7 +170,9 @@ import type {
             } @else {
               <span class="hint">Press Enter to send, Shift+Enter for new line</span>
             }
-            @if (isRespawning()) {
+            @if (isInitializing()) {
+              <span class="hint hint-starting">Starting up...</span>
+            } @else if (isRespawning()) {
               <span class="hint hint-respawning">Resuming session...</span>
             } @else if (isBusy()) {
               <span class="hint hint-interrupt">Press Esc to interrupt</span>
@@ -182,7 +184,7 @@ import type {
           <div class="composer-actions-right">
             <button
               class="btn-send"
-              [disabled]="disabled() || !canSend()"
+              [disabled]="disabled() || !canSend() || isInitializing()"
               (click)="onSend()"
               title="Send message (Enter)"
             >
@@ -642,6 +644,12 @@ import type {
       animation: pulse 2s ease-in-out infinite;
     }
 
+    .hint-starting {
+      color: rgba(168, 176, 164, 0.7);
+      font-weight: 600;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
     /* Queue Section - Message queue display */
     .queue-section {
       margin-top: var(--spacing-sm);
@@ -884,6 +892,12 @@ export class InputPanelComponent implements OnDestroy {
   });
 
   isDraftComposer = computed(() => this.instanceId() === 'new');
+
+  /** True when the instance is starting up or waking from hibernation — input should be blocked */
+  readonly isInitializing = computed(() => {
+    const status = this.instanceStatus();
+    return status === 'initializing' || status === 'waking';
+  });
   selectedProvider = computed(() =>
     this.isDraftComposer()
       ? (this.newSessionDraft.provider() ?? this.providerState.selectedProvider())
@@ -970,8 +984,8 @@ export class InputPanelComponent implements OnDestroy {
       const status = this.instanceStatus();
       const currentText = this.message();
 
-      // Don't generate while busy or when user has typed something
-      if (status === 'busy' || status === 'initializing' || currentText) {
+      // Don't generate while busy, starting up, or when user has typed something
+      if (status === 'busy' || status === 'initializing' || status === 'waking' || currentText) {
         this.ghostSuggestion.set(null);
         return;
       }
