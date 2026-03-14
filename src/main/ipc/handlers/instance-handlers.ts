@@ -472,6 +472,66 @@ export function registerInstanceHandlers(deps: {
   );
 
   // ============================================
+  // Hibernation Handlers
+  // ============================================
+
+  // Hibernate instance (save state, kill process, keep in store)
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_HIBERNATE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceInterruptPayloadSchema,
+          payload,
+          'INSTANCE_HIBERNATE'
+        );
+        await instanceManager.hibernateInstance(validated.instanceId);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'HIBERNATE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Wake instance (restore state, spawn new adapter)
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_WAKE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceInterruptPayloadSchema,
+          payload,
+          'INSTANCE_WAKE'
+        );
+        await instanceManager.wakeInstance(validated.instanceId);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'WAKE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // ============================================
   // Context Compaction Handlers
   // ============================================
 

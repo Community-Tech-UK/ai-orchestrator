@@ -501,6 +501,14 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.interruptInstance(instanceId);
   }
 
+  async hibernateInstance(instanceId: string): Promise<void> {
+    return this.lifecycle.hibernateInstance(instanceId);
+  }
+
+  async wakeInstance(instanceId: string): Promise<void> {
+    return this.lifecycle.wakeInstance(instanceId);
+  }
+
   // ============================================
   // Public API - Communication
   // ============================================

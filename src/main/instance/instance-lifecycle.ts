@@ -47,6 +47,8 @@ import type {
 import { getLogger } from '../logging/logger';
 import { getPolicyAdapter } from '../observation/policy-adapter';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
+import { getHibernationManager } from '../process/hibernation-manager';
+import { getSessionContinuityManager } from '../session/session-continuity';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -761,6 +763,165 @@ export class InstanceLifecycleManager extends EventEmitter {
       this.terminateInstance(id, false)
     );
     await Promise.all(promises);
+  }
+
+  // ============================================
+  // Hibernation
+  // ============================================
+
+  /**
+   * Hibernate an instance: save state, kill the adapter process, and mark the
+   * instance as hibernated. The instance stays in the store so the UI can show
+   * it. Call wakeInstance() to bring it back.
+   */
+  async hibernateInstance(instanceId: string): Promise<void> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (instance.status !== 'idle') {
+      throw new Error(
+        `Cannot hibernate instance ${instanceId}: status is '${instance.status}', expected 'idle'`
+      );
+    }
+
+    instance.status = 'hibernating';
+    this.deps.queueUpdate(instanceId, 'hibernating', instance.contextUsage);
+
+    try {
+      // Persist session state to disk (archive=true keeps the file for wake).
+      const continuity = getSessionContinuityManager();
+      await continuity.startTracking(instance);
+      await continuity.stopTracking(instanceId, true);
+
+      // Kill the adapter process without removing the instance from the store.
+      const adapter = this.deps.getAdapter(instanceId);
+      if (adapter) {
+        await adapter.terminate(true);
+        this.deps.deleteAdapter(instanceId);
+      }
+
+      instance.processId = null;
+
+      // Record in HibernationManager.
+      getHibernationManager().markHibernated(instanceId, {
+        instanceId,
+        displayName: instance.displayName,
+        agentId: instance.agentId,
+        sessionState: {},
+        hibernatedAt: Date.now(),
+        workingDirectory: instance.workingDirectory,
+        contextUsage: {
+          used: instance.contextUsage.used,
+          total: instance.contextUsage.total,
+        },
+      });
+
+      instance.status = 'hibernated';
+      this.deps.queueUpdate(instanceId, 'hibernated', instance.contextUsage);
+      logger.info('Instance hibernated', { instanceId, displayName: instance.displayName });
+    } catch (error) {
+      instance.status = 'failed';
+      this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
+      logger.error('Failed to hibernate instance', error instanceof Error ? error : undefined, { instanceId });
+      throw error;
+    }
+  }
+
+  /**
+   * Wake a hibernated instance: restore session state and spawn a new adapter.
+   */
+  async wakeInstance(instanceId: string): Promise<void> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (instance.status !== 'hibernated') {
+      throw new Error(
+        `Cannot wake instance ${instanceId}: status is '${instance.status}', expected 'hibernated'`
+      );
+    }
+
+    instance.status = 'waking';
+    this.deps.queueUpdate(instanceId, 'waking', instance.contextUsage);
+
+    const abortController = new AbortController();
+    instance.abortController = abortController;
+
+    const wakePromise = (async () => {
+      const { signal } = abortController;
+      try {
+        if (signal.aborted) return;
+
+        // Load saved session state from disk.
+        const continuity = getSessionContinuityManager();
+        const sessionState = await continuity.resumeSession(instanceId, {
+          restoreMessages: true,
+          restoreContext: true,
+        });
+
+        if (sessionState && sessionState.conversationHistory.length > 0) {
+          // Restore recent messages into the output buffer so the UI can show them.
+          const restored = sessionState.conversationHistory.slice(-20).map((entry, idx) => ({
+            id: `restored-${idx}-${Date.now()}`,
+            timestamp: entry.timestamp,
+            type: (entry.role === 'user' ? 'user'
+              : entry.role === 'assistant' ? 'assistant'
+              : 'system') as OutputMessage['type'],
+            content: entry.content,
+          }));
+          instance.outputBuffer = [...restored, ...instance.outputBuffer];
+        }
+
+        if (signal.aborted) return;
+
+        // Determine CLI type and build spawn options (same pattern as createInstance Phase 2).
+        const cliType = await this.resolveCliTypeForInstance(instance);
+        const spawnOptions: UnifiedSpawnOptions = {
+          sessionId: instance.sessionId,
+          workingDirectory: instance.workingDirectory,
+          yoloMode: instance.yoloMode,
+          model: instance.currentModel,
+          resume: true,
+          mcpConfig: this.getMcpConfig(),
+        };
+
+        const adapter = createCliAdapter(cliType, spawnOptions);
+        this.deps.setupAdapterEvents(instanceId, adapter);
+        this.deps.setAdapter(instanceId, adapter);
+
+        if (signal.aborted) {
+          await adapter.terminate(false).catch(() => { /* ignore */ });
+          this.deps.deleteAdapter(instanceId);
+          return;
+        }
+
+        const pid = await adapter.spawn();
+        instance.processId = pid;
+
+        // Remove from HibernationManager tracking.
+        getHibernationManager().markAwoken(instanceId);
+
+        instance.status = 'idle';
+        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+        logger.info('Instance woken successfully', { instanceId, pid });
+      } catch (error) {
+        instance.status = 'failed';
+        this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
+        logger.error('Failed to wake instance', error instanceof Error ? error : undefined, { instanceId });
+        throw error;
+      } finally {
+        instance.readyPromise = undefined;
+        instance.abortController = undefined;
+      }
+    })();
+
+    instance.readyPromise = wakePromise;
+    wakePromise.catch(() => { /* rejection surfaced via readyPromise */ });
+
+    await wakePromise;
   }
 
   // ============================================
@@ -1530,12 +1691,29 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         instance.status === 'idle' &&
         now - instance.lastActivity > idleThreshold
       ) {
-        logger.info('Auto-terminating idle instance', {
-          instanceId: instance.id,
-          displayName: instance.displayName,
-          idleMinutes
-        });
-        this.terminateInstance(instance.id, true);
+        const hasUserMessages = instance.outputBuffer.some(
+          (msg) => msg.type === 'user'
+        );
+
+        if (hasUserMessages) {
+          logger.info('Auto-hibernating idle instance (has conversation)', {
+            instanceId: instance.id,
+            displayName: instance.displayName,
+            idleMinutes
+          });
+          this.hibernateInstance(instance.id).catch((err) => {
+            logger.error('Auto-hibernate failed', err instanceof Error ? err : undefined, {
+              instanceId: instance.id
+            });
+          });
+        } else {
+          logger.info('Auto-terminating idle instance (no conversation)', {
+            instanceId: instance.id,
+            displayName: instance.displayName,
+            idleMinutes
+          });
+          this.terminateInstance(instance.id, true);
+        }
       }
     });
   }
