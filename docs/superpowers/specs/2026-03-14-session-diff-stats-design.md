@@ -57,10 +57,12 @@ This was chosen over git-based approaches because:
 ### Data Model
 
 ```typescript
+/** Stored on the main-process Instance and sent via IPC.
+ *  Uses Record (not Map) so it survives JSON serialization without special handling. */
 interface SessionDiffStats {
   totalAdded: number;
   totalDeleted: number;
-  files: Map<string, FileDiffEntry>;
+  files: Record<string, FileDiffEntry>;  // keyed by relative path
 }
 
 interface FileDiffEntry {
@@ -73,7 +75,23 @@ interface FileDiffEntry {
 
 ### SessionDiffTracker (main process)
 
-One `SessionDiffTracker` instance per active Instance. Stored in a `Map<string, SessionDiffTracker>` inside `InstanceStateManager`. Created when an instance spawns, destroyed when terminated.
+One `SessionDiffTracker` per active Instance. **NOT a singleton** — created per-instance.
+
+**Storage and lifecycle:**
+- Stored in a `Map<string, SessionDiffTracker>` as a new field `diffTrackers` on `InstanceStateManager`.
+- `InstanceStateManager` gets three new methods:
+  - `setDiffTracker(instanceId: string, tracker: SessionDiffTracker): void`
+  - `getDiffTracker(instanceId: string): SessionDiffTracker | undefined`
+  - `deleteDiffTracker(instanceId: string): void`
+- `LifecycleDependencies` interface is extended with:
+  - `getDiffTracker: (id: string) => SessionDiffTracker | undefined`
+  - `setDiffTracker: (id: string, tracker: SessionDiffTracker) => void`
+  - `deleteDiffTracker: (id: string) => void`
+- **Created** in `InstanceLifecycleManager.createInstance()` after the adapter is spawned and instance is stored.
+- **Destroyed** in `InstanceLifecycleManager.terminateInstance()` alongside `deleteAdapter()` and `deleteInstance()`.
+- **On restart**: The tracker is destroyed and a new one created (stats reset to zero — new session, fresh start).
+- **On hibernation**: Diff stats (`SessionDiffStats`) are persisted as part of the instance state (already serialized to disk during hibernation). The in-memory `SessionDiffTracker` (baselines map) is lost — on wake, a new tracker is created but the accumulated `diffStats` on the `Instance` are preserved.
+- **On context compaction**: No effect — compaction doesn't restart the process or change files.
 
 **Baseline capture:**
 - When a `tool_use` or `tool_result` message indicates a file is being modified, `ToolOutputParser` extracts the file path.
@@ -81,11 +99,12 @@ One `SessionDiffTracker` instance per active Instance. Stored in a `Map<string, 
 - If the file doesn't exist yet (new file being created), baseline is stored as empty string.
 
 **Diff computation:**
-- Triggered on busy→idle transition.
+- Triggered on busy→idle (or busy→ready) transition.
 - For each file with a captured baseline: read current content from disk, compute line-level diff.
 - Sum additions and deletions across all files.
 - Uses a diffing library (e.g., `diff` npm package) for line-level comparison.
 - Binary files detected and skipped (counted as file changes but not line changes).
+- After computation, updates the `Instance.diffStats` field directly, then calls `queueUpdate()` to include it in the next batch-update flush.
 
 **Accumulation across turns:**
 - Diff stats accumulate across the session's lifetime.
@@ -112,6 +131,23 @@ class ToolOutputParser {
   ): string[];
 }
 ```
+
+**Where it hooks into the event pipeline:**
+
+The `ToolOutputParser` is invoked inside `InstanceCommunicationManager.setupAdapterEvents()` (in `src/main/instance/instance-communication.ts`), specifically in the `adapter.on('output', ...)` callback where individual messages are already inspected for tool_use/tool_result types, RLM ingestion, and circuit breaker logic.
+
+When a `tool_use` or `tool_result` message arrives:
+
+1. Call `ToolOutputParser.extractFilePaths(message, instance.workingDirectory, instance.provider)`
+2. For each returned file path, call `diffTracker.captureBaseline(filePath)` (via `deps.getDiffTracker(instanceId)`)
+3. Continue with existing output handling (no change to current behavior)
+
+This requires extending `CommunicationDependencies` (not `LifecycleDependencies`) with:
+- `getDiffTracker: (id: string) => SessionDiffTracker | undefined`
+
+The `InstanceManager` wires this dep when constructing `CommunicationDependencies`, sourcing it from `InstanceStateManager.getDiffTracker()`.
+
+Note: `generateActivityStatus` is a renderer-side concern (in `InstanceStore.setupIpcListeners`). The diff tracking is main-process-side, alongside the existing RLM ingestion and circuit breaker checks in `setupAdapterEvents()`.
 
 **Provider tool naming conventions:**
 
@@ -154,17 +190,50 @@ These conventions MUST be documented with real examples and covered by tests, so
 ### State
 
 - New field on renderer-side `Instance` type: `hasUnreadCompletion: boolean`
-- **Set to `true`** when a batch-update arrives showing status changed to `idle` and previous status was `busy`
+- **Set to `true`** when a batch-update arrives showing status changed to `idle`, `ready`, or `waiting_for_input` and previous status was `busy`
+- **Also set** on `busy` → `error` (instance failed — user should check why)
 - **Cleared to `false`** when the user selects that instance (clicks on the row)
-- Also set on `busy` → `waiting_for_input` (instance finished but needs input)
-- Also set on `busy` → `error` (instance failed — user should check why)
 - NOT set on: initial creation, waking from hibernation, respawning, or any non-busy origin transition
+- Note: `ready` is documented as an alias for `idle` in the renderer types, so `busy` → `ready` is treated identically to `busy` → `idle`
 
-### State location
+### State location and implementation
 
-This is purely renderer-side state. The main process doesn't track or care about "unread" status. The renderer's `InstanceStateService` manages it by:
-1. Comparing previous and current status on each batch-update
-2. Checking if the selected instance matches one with `hasUnreadCompletion: true` and clearing it
+This is purely renderer-side state. The main process doesn't track or care about "unread" status.
+
+**Previous-status tracking:** The `applyUpdate()` and `applyBatchUpdates()` methods in `InstanceStore` (`src/renderer/app/core/state/instance/instance.store.ts`) must read the current instance status BEFORE applying the update. This is the comparison point:
+
+```typescript
+// Inside applyUpdate() — before updating state:
+const instance = this.stateService.getInstance(update.instanceId);
+const previousStatus = instance?.status;
+const newStatus = update.status as InstanceStatus;
+
+// After state is updated:
+if (previousStatus === 'busy' &&
+    (newStatus === 'idle' || newStatus === 'ready' ||
+     newStatus === 'waiting_for_input' || newStatus === 'error')) {
+  // Set hasUnreadCompletion = true, UNLESS this instance is currently selected
+  if (this.queries.selectedInstanceId() !== update.instanceId) {
+    this.stateService.updateInstance(update.instanceId, { hasUnreadCompletion: true });
+  }
+}
+```
+
+The same logic applies inside `applyBatchUpdates()` — read previous status before the batch state update, set flags after.
+
+**Clearing on selection:** In `InstanceStore.setSelectedInstance()`, after delegating to `selectionStore.setSelectedInstance(id)`, clear the flag:
+
+```typescript
+setSelectedInstance(id: string | null): void {
+  this.selectionStore.setSelectedInstance(id);
+  if (id) {
+    const instance = this.stateService.getInstance(id);
+    if (instance?.hasUnreadCompletion) {
+      this.stateService.updateInstance(id, { hasUnreadCompletion: false });
+    }
+  }
+}
+```
 
 ### Visual treatment
 
@@ -235,14 +304,23 @@ Modified:
   src/utils/helpers.ts    +1  -9
 ```
 
-Data comes from `SessionDiffStats.files` — already tracked by the engine.
+Data comes from `SessionDiffStats.files` — already tracked by the engine. Sent as part of the `Instance.diffStats` field (uses `Record<string, FileDiffEntry>`, not Map, so it serializes cleanly via IPC).
 
 ### IPC transport
 
-Diff stats piggyback on the existing batch-update system:
-- Added as optional `diffStats?: { totalAdded: number; totalDeleted: number }` in the batch-update payload
-- Flushed on the existing 100ms cycle — no new IPC channel needed
-- File-level detail sent separately (or on-demand via a new IPC call to avoid bloating batch updates)
+Diff stats are included directly on the `Instance.diffStats` field:
+- The `InstanceStateUpdatePayload` in `src/shared/types/ipc.types.ts` is extended with `diffStats?: { totalAdded: number; totalDeleted: number; files: Record<string, FileDiffEntry> }`
+- The `StateUpdate` interface in `src/renderer/app/core/services/update-batcher.service.ts` is also extended with the same field
+- `queueUpdate()` in `InstanceStateManager` gains an optional `diffStats` parameter
+- On busy→idle transition, after `SessionDiffTracker.computeDiff()`, the lifecycle manager calls `queueUpdate(instanceId, 'idle', contextUsage, diffStats)` to include it in the next 100ms batch flush
+- The renderer's `applyUpdate()` and `applyBatchUpdates()` in `InstanceStore` apply the `diffStats` field alongside status and contextUsage
+
+This piggybacks on the existing batch system — no new IPC channel needed.
+
+**Batcher merge guard:** The `UpdateBatcherService.queueUpdate()` merges updates via spread (`{ ...existing, ...update }`). If a second update arrives for the same instance without `diffStats`, it would overwrite the field with `undefined`. The batcher's merge logic should preserve existing optional fields when the incoming update has `undefined`:
+```typescript
+diffStats: update.diffStats ?? existing?.diffStats
+```
 
 ---
 
@@ -257,37 +335,70 @@ Diff stats piggyback on the existing batch-update system:
 
 ## Files to Modify
 
+### Shared types
+| File | Changes |
+|------|---------|
+| `src/shared/types/instance.types.ts` | Add `diffStats?: SessionDiffStats` to `Instance` type; initialize to `undefined` in `createInstance()` |
+| `src/shared/types/ipc.types.ts` | Add `diffStats?` to `InstanceStateUpdatePayload` |
+
 ### Main process
 | File | Changes |
 |------|---------|
-| `src/shared/types/instance.types.ts` | Add `diffStats` field to `Instance` type |
-| `src/main/instance/instance-state.ts` | Store `SessionDiffTracker` per instance; include `diffStats` in batch-update |
-| `src/main/instance/instance-lifecycle.ts` | Hook output events → `ToolOutputParser`; hook busy→idle → diff computation |
+| `src/main/instance/instance-state.ts` | Add `diffTrackers` Map and `getDiffTracker`/`setDiffTracker`/`deleteDiffTracker` methods; extend `queueUpdate` to accept optional `diffStats` |
+| `src/main/instance/instance-lifecycle.ts` | Extend `LifecycleDependencies` with diff tracker methods; create tracker on spawn, destroy on terminate/restart; trigger `computeDiff()` on busy→idle |
+| `src/main/instance/instance-communication.ts` | Extend `CommunicationDependencies` with `getDiffTracker`; in `setupAdapterEvents()` output handler, call `ToolOutputParser` → `SessionDiffTracker.captureBaseline()` |
+| `src/main/instance/instance-manager.ts` | Wire diff tracker deps into both `LifecycleDependencies` and `CommunicationDependencies`, sourcing from `InstanceStateManager` |
 
 ### Renderer
 | File | Changes |
 |------|---------|
-| `src/renderer/app/core/state/instance/instance.types.ts` | Add `diffStats` and `hasUnreadCompletion` fields |
-| `src/renderer/app/core/state/instance/instance-state.service.ts` | Set/clear unread flag on status transitions and selection changes |
-| `src/renderer/app/core/state/instance/instance-list.store.ts` | Deserialize new fields from IPC |
-| `src/renderer/app/features/instance-list/instance-row.component.ts` | Render diff stats, unread dot, tooltip |
+| `src/renderer/app/core/state/instance/instance.types.ts` | Add `diffStats?: { totalAdded: number; totalDeleted: number; files: Record<string, FileDiffEntry> }` and `hasUnreadCompletion?: boolean` |
+| `src/renderer/app/core/state/instance/instance.store.ts` | In `applyUpdate()` and `applyBatchUpdates()`: read previous status before update, set `hasUnreadCompletion` on busy→idle/ready/waiting_for_input/error transitions, apply `diffStats` from update payload. In `setSelectedInstance()`: clear `hasUnreadCompletion` |
+| `src/renderer/app/core/state/instance/instance-list.store.ts` | Add `diffStats` and `hasUnreadCompletion` to `deserializeInstance()` |
+| `src/renderer/app/core/services/update-batcher.service.ts` | Add `diffStats?` to `StateUpdate` interface |
+| `src/renderer/app/features/instance-list/instance-row.component.ts` | Render diff stats display, unread dot, tooltip |
 
 ## Event Flow
 
 ```
-Instance output arrives (tool_use message)
-  → ToolOutputParser.extractFilePaths()
-  → SessionDiffTracker.captureBaseline(filePath)
+Instance output arrives (tool_use/tool_result message)
+  → [InstanceCommunicationManager.setupAdapterEvents, adapter output handler]
+  → ToolOutputParser.extractFilePaths(message, workingDir, provider)
+  → For each path: diffTracker.captureBaseline(filePath)
+  → Continue existing output forwarding (unchanged)
 
-Instance status: busy → idle
-  → SessionDiffTracker.computeDiff()
-  → Updates instance.diffStats
-  → Included in next batch-update IPC flush
-  → Renderer receives & updates store
-  → InstanceRowComponent re-renders with +N -M
-  → hasUnreadCompletion set to true
+Instance status: busy → idle/ready
+  → [InstanceLifecycleManager status transition handler]
+  → diffTracker.computeDiff() → returns SessionDiffStats
+  → Update instance.diffStats on Instance object
+  → queueUpdate(instanceId, 'idle', contextUsage, diffStats)
+  → Batch flush (100ms) → IPC to renderer
+
+Renderer receives batch-update
+  → [InstanceStore.applyBatchUpdates()]
+  → Read previous status for each instance
+  → Apply new status + contextUsage + diffStats
+  → If previous was 'busy' and new is idle/ready/waiting/error:
+    → Set hasUnreadCompletion = true (unless currently selected)
+  → InstanceRowComponent re-renders with +N -M and blue dot
 
 User selects instance
-  → hasUnreadCompletion cleared to false
+  → [InstanceStore.setSelectedInstance()]
+  → Delegates to selectionStore
+  → Clears hasUnreadCompletion on the selected instance
   → Blue dot disappears
 ```
+
+## Lifecycle Matrix
+
+| Event | SessionDiffTracker | Instance.diffStats | hasUnreadCompletion |
+|-------|-------------------|-------------------|---------------------|
+| Instance created | New tracker created | `undefined` | `false` |
+| busy → idle | `computeDiff()` called, baselines updated | Updated with new totals | Set to `true` (if not selected) |
+| busy → ready | Same as idle | Same as idle | Same as idle |
+| busy → error | Not computed (partial changes unreliable) | Unchanged | Set to `true` |
+| Instance restarted | Old destroyed, new created | Reset to `undefined` | Unchanged |
+| Instance hibernated | Destroyed (in-memory baselines lost) | Preserved (serialized with instance) | Unchanged |
+| Instance woken | New tracker created | Preserved from pre-hibernation | Unchanged |
+| Instance terminated | Destroyed | N/A (instance removed) | N/A |
+| User selects instance | No effect | No effect | Cleared to `false` |
