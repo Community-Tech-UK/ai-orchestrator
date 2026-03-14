@@ -317,10 +317,10 @@ Diff stats are included directly on the `Instance.diffStats` field:
 
 This piggybacks on the existing batch system — no new IPC channel needed.
 
-**Batcher merge guard:** The `UpdateBatcherService.queueUpdate()` merges updates via spread (`{ ...existing, ...update }`). If a second update arrives for the same instance without `diffStats`, it would overwrite the field with `undefined`. The batcher's merge logic should preserve existing optional fields when the incoming update has `undefined`:
-```typescript
-diffStats: update.diffStats ?? existing?.diffStats
-```
+**Batcher merge guards:** Both the main-process and renderer batchers merge updates for the same instance within their batch window. If a second update arrives without `diffStats`, it would overwrite the field with `undefined`. Both must preserve existing optional fields:
+
+- **Main process** (`InstanceStateManager.queueUpdate()` in `instance-state.ts`): Currently does `pendingUpdates.set(instanceId, { instanceId, status, contextUsage })`. Must merge with existing: `diffStats: diffStats ?? existing?.diffStats`
+- **Renderer** (`UpdateBatcherService.queueUpdate()` in `update-batcher.service.ts`): Currently does `{ ...existing, ...update }`. Must use: `diffStats: update.diffStats ?? existing?.diffStats`
 
 ---
 
@@ -344,9 +344,9 @@ diffStats: update.diffStats ?? existing?.diffStats
 ### Main process
 | File | Changes |
 |------|---------|
-| `src/main/instance/instance-state.ts` | Add `diffTrackers` Map and `getDiffTracker`/`setDiffTracker`/`deleteDiffTracker` methods; extend `queueUpdate` to accept optional `diffStats` |
-| `src/main/instance/instance-lifecycle.ts` | Extend `LifecycleDependencies` with diff tracker methods; create tracker on spawn, destroy on terminate/restart; trigger `computeDiff()` on busy→idle |
-| `src/main/instance/instance-communication.ts` | Extend `CommunicationDependencies` with `getDiffTracker`; in `setupAdapterEvents()` output handler, call `ToolOutputParser` → `SessionDiffTracker.captureBaseline()` |
+| `src/main/instance/instance-state.ts` | Add `diffTrackers` Map and `getDiffTracker`/`setDiffTracker`/`deleteDiffTracker` methods; extend `queueUpdate` to accept optional `diffStats`; add merge guard to preserve `diffStats` across batched updates |
+| `src/main/instance/instance-lifecycle.ts` | Extend `LifecycleDependencies` with diff tracker methods; create tracker on spawn, destroy on terminate/restart |
+| `src/main/instance/instance-communication.ts` | Extend `CommunicationDependencies` with `getDiffTracker`; in `setupAdapterEvents()` output handler, call `ToolOutputParser` → `SessionDiffTracker.captureBaseline()`; in `adapter.on('status')` handler, trigger `computeDiff()` on busy→idle transitions and include diffStats in `queueUpdate()` |
 | `src/main/instance/instance-manager.ts` | Wire diff tracker deps into both `LifecycleDependencies` and `CommunicationDependencies`, sourcing from `InstanceStateManager` |
 
 ### Renderer
@@ -368,7 +368,8 @@ Instance output arrives (tool_use/tool_result message)
   → Continue existing output forwarding (unchanged)
 
 Instance status: busy → idle/ready
-  → [InstanceLifecycleManager status transition handler]
+  → [InstanceCommunicationManager.setupAdapterEvents, adapter.on('status') handler]
+  → Read previous status from instance, detect busy→idle transition
   → diffTracker.computeDiff() → returns SessionDiffStats
   → Update instance.diffStats on Instance object
   → queueUpdate(instanceId, 'idle', contextUsage, diffStats)
