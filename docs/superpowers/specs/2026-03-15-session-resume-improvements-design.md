@@ -81,17 +81,17 @@ A new method `buildFallbackHistoryMessage(instance, reason)` replaces the summar
 #### Where It's Called
 
 Every existing fallback path in `instance-lifecycle.ts` that currently calls `buildReplayContinuityMessage()` with a `*-fallback` reason:
-- `resume-failed-fallback` (in `createInstance`, `toggleYoloMode`, `changeModel`, `changeAgentMode`)
+- `resume-failed-fallback` (in `toggleYoloMode`, `changeModel`, `changeAgentMode`, `respawnAfterInterrupt`)
 - `auto-respawn-fallback` (in `respawnAfterUnexpectedExit`)
 
-The old `buildReplayContinuityMessage()` stays for non-fallback replays (`agent-mode-change`, `yolo-toggle`, `model-change`, `interrupt-respawn`) where we intentionally start fresh with context.
+The old `buildReplayContinuityMessage()` stays for non-fallback replays (`agent-mode-change`, `yolo-toggle`, `model-change`, `interrupt-respawn`, `auto-respawn`) where we intentionally start fresh with context.
 
 #### Files Modified
 
 | File | Change |
 |------|--------|
 | `src/main/instance/instance-lifecycle.ts` | Add `buildFallbackHistoryMessage()`, call it from fallback paths |
-| `src/main/instance/instance-persistence.ts` | Reuse `buildForkSourceMessages` pattern (already exists) |
+| `src/main/instance/instance-lifecycle.ts` | Inline the merge+dedup pattern from `InstancePersistenceManager.buildForkSourceMessages` (load historical via `outputStorage.loadMessages`, merge with `outputBuffer`, dedup by message ID) |
 
 ---
 
@@ -170,6 +170,10 @@ Updated in `saveStateAsync()`. On `loadActiveStates()`, if `lastWriteTimestamp` 
 
 The `inFlightSaves` Set in `SessionContinuityManager` is replaced by the mutex.
 
+#### Ownership
+
+The `SessionMutex` is a standalone singleton (like other session services). Both `SessionContinuityManager` (for `saveStateAsync`) and `InstanceLifecycleManager` (for terminate→respawn cycles) import and use the same instance via `getSessionMutex()`.
+
 #### Files Modified
 
 | File | Change |
@@ -213,7 +217,7 @@ The existing `globalAutoSaveTimer` continues running. It serves as crash recover
 
 | File | Change |
 |------|--------|
-| `src/main/instance/instance-communication.ts` | Add hard checkpoint before `sendInput`, track `autonomousToolCount` for soft checkpoints |
+| `src/main/instance/instance-communication.ts` | Add hard checkpoint before `sendInput`, track `autonomousToolCount` for soft checkpoints. Add `createSnapshot` callback to `CommunicationDependencies` interface (the comm manager doesn't import `SessionContinuityManager` directly — the callback is wired in `InstanceManager` during setup). |
 | `src/main/session/session-continuity.ts` | No changes needed — `createSnapshot()` already supports the required parameters |
 
 ---
@@ -305,7 +309,7 @@ No dedup. If a duplicate `tool_result` arrives (e.g., during stream reconnection
 - New per-instance tracking: `seenToolResultIds: Map<string, Set<string>>` — maps instanceId to a Set of `tool_use_id` values that have had a `tool_result` processed.
 
 - In the output handler (`handleAdapterOutput` or equivalent), before adding a `tool_result` message to the output buffer:
-  1. Extract `tool_use_id` from `message.metadata`.
+  1. Extract `tool_use_id` from `message.metadata['tool_use_id']` (typed as `Record<string, unknown>`, cast to `string`). The CLI adapter sets this field on `tool_result` messages (see `claude-cli-adapter.ts` `metadata: { tool_use_id, is_error }`).
   2. If `tool_use_id` is `undefined` or `null` → pass through (no dedup for system-generated results without IDs).
   3. If the ID is already in the instance's Set → **skip** the message. Log at debug level: `"Skipped duplicate tool_result for tool_use_id ${id}"`.
   4. If not in Set → add ID to Set, proceed with normal processing.
