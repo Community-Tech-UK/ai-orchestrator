@@ -19,6 +19,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { SnapshotIndex } from './snapshot-index';
 import { cleanupOrphanedTmpFiles, repairFile, validateTranscript } from './session-repair';
+import { getSessionMutex } from './session-mutex';
 
 const logger = getLogger('SessionContinuity');
 
@@ -29,7 +30,9 @@ const SCHEMA_VERSION = 1;
  */
 export interface SessionSnapshot {
   id: string;
-  sessionId: string;
+  instanceId: string;
+  sessionId?: string;
+  historyThreadId?: string;
   timestamp: number;
   name?: string;
   description?: string;
@@ -50,6 +53,7 @@ export interface SessionState {
   instanceId: string;
   sessionId?: string;
   historyThreadId?: string;
+  nativeResumeFailedAt?: number | null;
   displayName: string;
   agentId: string;
   modelId: string;
@@ -71,6 +75,8 @@ export interface SessionState {
   customInstructions?: string;
   skillsLoaded: string[];
   hooksActive: string[];
+  lastWriteTimestamp?: number;
+  lastWriteSource?: string;
 }
 
 /**
@@ -156,7 +162,6 @@ export class SessionContinuityManager extends EventEmitter {
   private sessionStates = new Map<string, SessionState>();
   private dirty = new Set<string>();
   private readyPromise: Promise<void>;
-  private inFlightSaves = new Set<string>();
   private globalAutoSaveTimer: NodeJS.Timeout | null = null;
   private snapshotIndex: SnapshotIndex;
 
@@ -204,6 +209,92 @@ export class SessionContinuityManager extends EventEmitter {
     }
   }
 
+  private normalizeLookupIdentifier(value: string | null | undefined): string | null {
+    const normalized = value?.trim();
+    return normalized ? normalized : null;
+  }
+
+  private getStateLookupKeys(
+    state: Pick<SessionState, 'instanceId' | 'historyThreadId' | 'sessionId'>
+  ): string[] {
+    const keys = new Set<string>();
+    const addKey = (value: string | null | undefined): void => {
+      const normalized = this.normalizeLookupIdentifier(value);
+      if (normalized) {
+        keys.add(normalized);
+      }
+    };
+
+    addKey(state.instanceId);
+    addKey(state.historyThreadId);
+    addKey(state.sessionId);
+
+    return Array.from(keys);
+  }
+
+  private findTrackedStateByIdentifier(identifier: string): {
+    instanceId: string;
+    state: SessionState;
+  } | null {
+    const normalized = this.normalizeLookupIdentifier(identifier);
+    if (!normalized) {
+      return null;
+    }
+
+    const exact = this.sessionStates.get(normalized);
+    if (exact) {
+      return {
+        instanceId: normalized,
+        state: exact,
+      };
+    }
+
+    for (const [instanceId, state] of this.sessionStates.entries()) {
+      if (this.getStateLookupKeys(state).includes(normalized)) {
+        return { instanceId, state };
+      }
+    }
+
+    return null;
+  }
+
+  private async loadStateFromDiskByIdentifier(identifier: string): Promise<SessionState | null> {
+    const normalized = this.normalizeLookupIdentifier(identifier);
+    if (!normalized) {
+      return null;
+    }
+
+    const directStateFile = path.join(this.stateDir, `${normalized}.json`);
+    const direct = await this.readPayload<SessionState>(directStateFile);
+    if (direct) {
+      return direct;
+    }
+
+    let files: string[] = [];
+    try {
+      files = await fs.promises.readdir(this.stateDir);
+    } catch (error) {
+      logger.error('Failed to scan session state directory for identifier lookup', error instanceof Error ? error : undefined, {
+        stateDir: this.stateDir,
+        identifier: normalized,
+      });
+      return null;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith('.json') || file === `${normalized}.json`) {
+        continue;
+      }
+
+      const state: SessionState | null = await this.readPayload<SessionState>(path.join(this.stateDir, file));
+      if (state && this.getStateLookupKeys(state).includes(normalized)) {
+        return state;
+      }
+    }
+
+    return null;
+  }
+
   /**
    * Load active session states from disk
    */
@@ -227,6 +318,15 @@ export class SessionContinuityManager extends EventEmitter {
       if (data) {
         this.sessionStates.set(data.instanceId, data);
         loaded++;
+
+        // Diagnostic: warn if last write was very recent (possible crash during save)
+        if (data.lastWriteTimestamp && Date.now() - data.lastWriteTimestamp < 5000) {
+          logger.warn('Session state has very recent write timestamp — possible crash during save', {
+            instanceId: data.instanceId,
+            lastWriteSource: data.lastWriteSource,
+            ageMs: Date.now() - data.lastWriteTimestamp,
+          });
+        }
       } else {
         failed++;
         logger.warn('Skipped unloadable session state file', { file, filePath });
@@ -252,7 +352,9 @@ export class SessionContinuityManager extends EventEmitter {
           if (data) {
             this.snapshotIndex.add({
               id: data.id,
+              instanceId: data.instanceId || data.state.instanceId,
               sessionId: data.sessionId,
+              historyThreadId: data.historyThreadId || data.state.historyThreadId,
               timestamp: data.timestamp,
               messageCount: data.metadata.messageCount,
               schemaVersion: data.schemaVersion ?? SCHEMA_VERSION
@@ -275,7 +377,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     this.globalAutoSaveTimer = setInterval(() => {
       for (const instanceId of this.dirty) {
-        if (this.inFlightSaves.has(instanceId)) continue;
+        if (getSessionMutex().isLocked(instanceId)) continue;
 
         // Add random jitter of 0-10s to spread writes
         const jitter = Math.random() * 10000;
@@ -340,10 +442,29 @@ export class SessionContinuityManager extends EventEmitter {
     const state = this.sessionStates.get(instanceId);
     if (!state) return;
 
-    Object.assign(state, updates);
+    const normalizedUpdates: Partial<SessionState> = { ...updates };
+    const nextSessionId = this.normalizeLookupIdentifier(normalizedUpdates.sessionId);
+    if (normalizedUpdates.sessionId !== undefined) {
+      normalizedUpdates.sessionId = nextSessionId ?? undefined;
+      const currentSessionId = this.normalizeLookupIdentifier(state.sessionId);
+      if (
+        nextSessionId
+        && nextSessionId !== currentSessionId
+        && normalizedUpdates.nativeResumeFailedAt === undefined
+      ) {
+        state.nativeResumeFailedAt = null;
+      }
+    }
+
+    if (normalizedUpdates.historyThreadId !== undefined) {
+      normalizedUpdates.historyThreadId =
+        this.normalizeLookupIdentifier(normalizedUpdates.historyThreadId) ?? undefined;
+    }
+
+    Object.assign(state, normalizedUpdates);
     this.dirty.add(instanceId);
 
-    this.emit('state:updated', { instanceId, updates });
+    this.emit('state:updated', { instanceId, updates: normalizedUpdates });
   }
 
   /**
@@ -401,7 +522,10 @@ export class SessionContinuityManager extends EventEmitter {
 
     const snapshot: SessionSnapshot = {
       id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      sessionId: instanceId,
+      instanceId,
+      sessionId: this.normalizeLookupIdentifier(state.sessionId) ?? undefined,
+      historyThreadId:
+        this.normalizeLookupIdentifier(state.historyThreadId) ?? undefined,
       timestamp: Date.now(),
       name,
       description,
@@ -423,7 +547,9 @@ export class SessionContinuityManager extends EventEmitter {
     // Update index
     this.snapshotIndex.add({
       id: snapshot.id,
+      instanceId: snapshot.instanceId,
       sessionId: snapshot.sessionId,
+      historyThreadId: snapshot.historyThreadId,
       timestamp: snapshot.timestamp,
       messageCount: snapshot.metadata.messageCount,
       schemaVersion: SCHEMA_VERSION
@@ -439,16 +565,18 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * List available snapshots for a session — synchronous, uses index.
    */
-  listSnapshots(instanceId?: string): SessionSnapshot[] {
-    const metas = instanceId
-      ? this.snapshotIndex.listForSession(instanceId)
+  listSnapshots(identifier?: string): SessionSnapshot[] {
+    const metas = identifier
+      ? this.snapshotIndex.listForIdentifier(identifier)
       : this.snapshotIndex.listAll();
 
     // Return lightweight objects that satisfy SessionSnapshot shape.
     // Full state is not included since this is just a listing.
     return metas.map((meta) => ({
       id: meta.id,
+      instanceId: meta.instanceId,
       sessionId: meta.sessionId,
+      historyThreadId: meta.historyThreadId,
       timestamp: meta.timestamp,
       schemaVersion: meta.schemaVersion,
       state: {} as SessionState, // not loaded for listing
@@ -479,7 +607,7 @@ export class SessionContinuityManager extends EventEmitter {
    * Resume a session from saved state
    */
   async resumeSession(
-    instanceId: string,
+    identifier: string,
     options: ResumeOptions = {}
   ): Promise<SessionState | null> {
     await this.readyPromise;
@@ -493,19 +621,13 @@ export class SessionContinuityManager extends EventEmitter {
       }
     } else {
       // Load from current state
-      state = this.sessionStates.get(instanceId) || null;
+      state = this.findTrackedStateByIdentifier(identifier)?.state || null;
 
       if (!state) {
-        // Try loading from disk
-        const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-        try {
-          await fs.promises.access(stateFile);
-          const loaded = await this.readPayload<SessionState>(stateFile);
-          if (loaded) {
-            state = loaded;
-          }
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        const loaded = await this.loadStateFromDiskByIdentifier(identifier);
+        if (loaded) {
+          state = loaded;
+          this.sessionStates.set(loaded.instanceId, loaded);
         }
       }
     }
@@ -518,7 +640,7 @@ export class SessionContinuityManager extends EventEmitter {
       if (repairResult.status === 'repaired') {
         state.conversationHistory = repairResult.entries;
         logger.info('Transcript repaired during resume', {
-          instanceId,
+          identifier,
           repairs: repairResult.repairs,
         });
       }
@@ -543,8 +665,29 @@ export class SessionContinuityManager extends EventEmitter {
       resumedState.environmentVariables = {};
     }
 
-    this.emit('session:resumed', { instanceId, state: resumedState, options });
+    this.emit('session:resumed', { identifier, state: resumedState, options });
     return resumedState;
+  }
+
+  async markNativeResumeFailed(identifier: string, failedAt = Date.now()): Promise<boolean> {
+    await this.readyPromise;
+    const tracked = this.findTrackedStateByIdentifier(identifier);
+    if (!tracked) {
+      const loaded = await this.loadStateFromDiskByIdentifier(identifier);
+      if (!loaded) {
+        return false;
+      }
+      this.sessionStates.set(loaded.instanceId, loaded);
+      loaded.nativeResumeFailedAt = failedAt;
+      this.dirty.add(loaded.instanceId);
+      await this.saveStateAsync(loaded.instanceId);
+      return true;
+    }
+
+    tracked.state.nativeResumeFailedAt = failedAt;
+    this.dirty.add(tracked.instanceId);
+    await this.saveStateAsync(tracked.instanceId);
+    return true;
   }
 
   /**
@@ -645,12 +788,19 @@ export class SessionContinuityManager extends EventEmitter {
     // Import snapshots if provided
     if (data.snapshots) {
       for (const snapshot of data.snapshots) {
-        const updatedSnapshot = { ...snapshot, sessionId: instanceId };
+        const updatedSnapshot: SessionSnapshot = {
+          ...snapshot,
+          instanceId,
+          historyThreadId: snapshot.historyThreadId || state.historyThreadId,
+          sessionId: snapshot.sessionId || state.sessionId,
+        };
         const snapshotFile = path.join(this.snapshotDir, `${snapshot.id}.json`);
         await this.writePayload(snapshotFile, updatedSnapshot);
         this.snapshotIndex.add({
           id: updatedSnapshot.id,
+          instanceId: updatedSnapshot.instanceId,
           sessionId: updatedSnapshot.sessionId,
+          historyThreadId: updatedSnapshot.historyThreadId,
           timestamp: updatedSnapshot.timestamp,
           messageCount: updatedSnapshot.metadata.messageCount,
           schemaVersion: updatedSnapshot.schemaVersion ?? SCHEMA_VERSION
@@ -673,6 +823,7 @@ export class SessionContinuityManager extends EventEmitter {
       instanceId: instance.id,
       sessionId: instance.sessionId,
       historyThreadId: instance.historyThreadId,
+      nativeResumeFailedAt: null,
       displayName: instance.displayName,
       agentId: instance.agentId,
       modelId: instance.currentModel || CLAUDE_MODELS.SONNET,
@@ -722,10 +873,12 @@ export class SessionContinuityManager extends EventEmitter {
     const state = this.sessionStates.get(instanceId);
     if (!state) return;
 
-    if (this.inFlightSaves.has(instanceId)) return;
-    this.inFlightSaves.add(instanceId);
-
+    const mutex = getSessionMutex();
+    const release = await mutex.acquire(instanceId, 'auto-save');
     try {
+      state.lastWriteTimestamp = Date.now();
+      state.lastWriteSource = 'auto-save';
+
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
       await this.writePayload(stateFile, state);
       this.dirty.delete(instanceId);
@@ -734,7 +887,7 @@ export class SessionContinuityManager extends EventEmitter {
       logger.error('Failed to save session state', error instanceof Error ? error : undefined, { instanceId });
       this.emit('state:save-error', { instanceId, error });
     } finally {
-      this.inFlightSaves.delete(instanceId);
+      release();
     }
   }
 

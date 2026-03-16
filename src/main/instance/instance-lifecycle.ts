@@ -49,6 +49,7 @@ import { getPolicyAdapter } from '../observation/policy-adapter';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { getSessionMutex } from '../session/session-mutex';
 import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../session/replay-continuity';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
@@ -158,6 +159,50 @@ export class InstanceLifecycleManager extends EventEmitter {
         'Continue the previous task and ask for clarification only if essential context is missing.',
         '[END CONTINUITY NOTICE]',
       ].join('\n');
+  }
+
+  private async waitForResumeHealth(
+    instanceId: string,
+    timeoutMs = 5000,
+    pollIntervalMs = 200
+  ): Promise<boolean> {
+    const isHealthy = (): boolean => {
+      const instance = this.deps.getInstance(instanceId);
+      const adapter = this.deps.getAdapter(instanceId);
+      if (!instance || !adapter) {
+        return false;
+      }
+
+      return (
+        instance.processId !== null
+        && instance.status !== 'error'
+        && instance.status !== 'failed'
+        && instance.status !== 'terminated'
+      );
+    };
+
+    if (!isHealthy()) {
+      return false;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve(isHealthy());
+      }, timeoutMs);
+
+      const poll = setInterval(() => {
+        if (!isHealthy()) {
+          cleanup();
+          resolve(false);
+        }
+      }, pollIntervalMs);
+
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        clearInterval(poll);
+      };
+    });
   }
 
   // ============================================
@@ -703,6 +748,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     const adapter = this.deps.getAdapter(instanceId);
     const instance = this.deps.getInstance(instanceId);
 
+    // Release any held mutex lock to prevent orphaned locks
+    getSessionMutex().forceRelease(instanceId);
+
     // Always clean up diff tracker, even if adapter is null (e.g., spawn failed)
     this.deps.deleteDiffTracker?.(instanceId);
 
@@ -911,6 +959,29 @@ export class InstanceLifecycleManager extends EventEmitter {
           restoreContext: true,
         });
 
+        const savedThreadId =
+          sessionState?.historyThreadId?.trim() || instance.historyThreadId;
+        instance.historyThreadId = savedThreadId;
+        if (sessionState?.provider) {
+          instance.provider = sessionState.provider;
+        }
+        if (sessionState?.modelId) {
+          instance.currentModel = sessionState.modelId;
+        }
+        if (sessionState?.contextUsage) {
+          instance.contextUsage = {
+            used: sessionState.contextUsage.used,
+            total: sessionState.contextUsage.total,
+            percentage: sessionState.contextUsage.total > 0
+              ? Math.min(
+                  (sessionState.contextUsage.used / sessionState.contextUsage.total) * 100,
+                  100
+                )
+              : 0,
+            costEstimate: sessionState.contextUsage.costEstimate,
+          };
+        }
+
         if (sessionState && sessionState.conversationHistory.length > 0) {
           // Restore recent messages into the output buffer so the UI can show them.
           const restored = sessionState.conversationHistory.slice(-50).map((entry, idx) => ({
@@ -926,18 +997,34 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         if (signal.aborted) return;
 
+        const nativeSessionId = sessionState?.sessionId?.trim();
+        const canAttemptNativeResume =
+          Boolean(nativeSessionId)
+          && !sessionState?.nativeResumeFailedAt;
+        const fallbackReason = canAttemptNativeResume
+          ? 'hibernate-wake-fallback'
+          : sessionState?.nativeResumeFailedAt
+            ? 'hibernate-wake-skip-failed-resume'
+            : 'hibernate-wake-replay';
+        const hasConversation = instance.outputBuffer.some(
+          (message) => message.type === 'user' || message.type === 'assistant'
+        );
+
         // Determine CLI type and build spawn options (same pattern as createInstance Phase 2).
         const cliType = await this.resolveCliTypeForInstance(instance);
+        instance.sessionId = canAttemptNativeResume
+          ? nativeSessionId!
+          : generateId();
         const spawnOptions: UnifiedSpawnOptions = {
           sessionId: instance.sessionId,
           workingDirectory: instance.workingDirectory,
           yoloMode: instance.yoloMode,
           model: instance.currentModel,
-          resume: true,
+          resume: canAttemptNativeResume,
           mcpConfig: this.getMcpConfig(),
         };
 
-        const adapter = createCliAdapter(cliType, spawnOptions);
+        let adapter = createCliAdapter(cliType, spawnOptions);
         this.deps.setupAdapterEvents(instanceId, adapter);
         this.deps.setAdapter(instanceId, adapter);
         if (this.deps.setDiffTracker) {
@@ -951,8 +1038,65 @@ export class InstanceLifecycleManager extends EventEmitter {
           return;
         }
 
-        const pid = await adapter.spawn();
+        let pid = await adapter.spawn();
         instance.processId = pid;
+
+        if (canAttemptNativeResume) {
+          const resumeHealthy = await this.waitForResumeHealth(instanceId);
+          if (!resumeHealthy) {
+            logger.warn('Wake resume failed, falling back to replay continuity', {
+              instanceId,
+              nativeSessionId,
+            });
+            await continuity.markNativeResumeFailed(instanceId);
+            await adapter.terminate(true).catch(() => { /* ignore */ });
+            this.deps.deleteAdapter(instanceId);
+            this.deps.deleteDiffTracker?.(instanceId);
+
+            const fallbackSessionId = generateId();
+            instance.sessionId = fallbackSessionId;
+            await continuity.updateState(instanceId, {
+              sessionId: fallbackSessionId,
+              historyThreadId: instance.historyThreadId,
+            });
+
+            const fallbackOptions: UnifiedSpawnOptions = {
+              ...spawnOptions,
+              sessionId: fallbackSessionId,
+              resume: false,
+              forkSession: false,
+            };
+            adapter = createCliAdapter(cliType, fallbackOptions);
+            this.deps.setupAdapterEvents(instanceId, adapter);
+            this.deps.setAdapter(instanceId, adapter);
+            if (this.deps.setDiffTracker) {
+              this.deps.setDiffTracker(instanceId, new SessionDiffTracker(instance.workingDirectory));
+            }
+            pid = await adapter.spawn();
+            instance.processId = pid;
+
+            if (hasConversation) {
+              await adapter.sendInput(
+                this.buildReplayContinuityMessage(instance, fallbackReason)
+              );
+            }
+
+            const fallbackNotice: OutputMessage = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system',
+              content: 'Wake resume failed. Session restarted from the saved transcript.',
+              metadata: {
+                continuityReplay: true,
+                reason: fallbackReason,
+              },
+            };
+            this.deps.addToOutputBuffer(instance, fallbackNotice);
+            this.emit('output', { instanceId, message: fallbackNotice });
+          }
+        } else if (hasConversation) {
+          await adapter.sendInput(this.buildReplayContinuityMessage(instance, fallbackReason));
+        }
 
         // Remove from HibernationManager tracking.
         getHibernationManager().markAwoken(instanceId);
@@ -1059,149 +1203,158 @@ export class InstanceLifecycleManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    if (instance.status === 'busy') {
-      throw new Error('Cannot change agent mode while instance is busy. Please wait for the current operation to complete.');
-    }
-
-    if (instance.agentId === newAgentId) {
-      return instance;
-    }
-
-    // Resolve from registry first (allows markdown-defined agents). Fall back to built-ins for safety.
-    const newAgent = await getAgentRegistry().resolveAgent(instance.workingDirectory, newAgentId);
-    if (!newAgent) {
-      const builtin = getAgentById(newAgentId);
-      if (!builtin) throw new Error(`Agent ${newAgentId} not found`);
-    }
-
-    const oldAgentId = instance.agentId;
-    logger.info('Changing agent mode', { instanceId, oldAgentId, newAgentId });
-
-    const hasConversation = instance.outputBuffer.some(
-      (msg) => msg.type === 'user' || msg.type === 'assistant'
-    );
-
-    // Terminate existing adapter
-    const oldAdapter = this.deps.getAdapter(instanceId);
-    const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
-    if (oldAdapter) {
-      await oldAdapter.terminate(true);
-      this.deps.deleteAdapter(instanceId);
-    }
-
-    // Update instance with new agent
-    instance.agentId = newAgentId;
-    instance.agentMode = newAgent.mode;
-    instance.status = 'initializing';
-
-    // If leaving plan mode, reset plan mode state
-    if (instance.planMode.enabled && newAgent.mode !== 'plan') {
-      instance.planMode = {
-        enabled: false,
-        state: 'off',
-        planContent: undefined,
-        approvedAt: undefined
-      };
-      logger.info('Auto-exited plan mode due to agent mode change', { instanceId, newAgentId });
-    }
-
-    const disallowedTools = [...getDisallowedTools(newAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-    const defaultAllowedTools = instance.yoloMode ? undefined : [
-      'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-      'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-      'NotebookEdit', 'Skill'
-    ];
-
-    const cliType = await this.resolveCliTypeForInstance(instance);
-    const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
-    const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
-
-    const newSessionId = shouldResume && shouldForkSession 
-      ? generateId() 
-      : (shouldResume ? instance.sessionId : generateId());
-    instance.sessionId = newSessionId;
-
-    const spawnOptions: UnifiedSpawnOptions = {
-      sessionId: newSessionId,
-      workingDirectory: instance.workingDirectory,
-      systemPrompt: newAgent.systemPrompt,
-      yoloMode: instance.yoloMode,
-      model: instance.currentModel,
-      allowedTools: defaultAllowedTools,
-      disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-      resume: shouldResume,
-      forkSession: shouldForkSession,
-      mcpConfig: this.getMcpConfig(),
-    };
-
-    let adapter = createCliAdapter(cliType, spawnOptions);
-
-    this.deps.setupAdapterEvents(instanceId, adapter);
-    this.deps.setAdapter(instanceId, adapter);
-
+    const release = await getSessionMutex().acquire(instanceId, 'agent-mode-change');
     try {
-      let pid: number;
+      if (instance.status === 'busy') {
+        throw new Error('Cannot change agent mode while instance is busy. Please wait for the current operation to complete.');
+      }
+
+      if (instance.agentId === newAgentId) {
+        return instance;
+      }
+
+      // Resolve from registry first (allows markdown-defined agents). Fall back to built-ins for safety.
+      const newAgent = await getAgentRegistry().resolveAgent(instance.workingDirectory, newAgentId);
+      if (!newAgent) {
+        const builtin = getAgentById(newAgentId);
+        if (!builtin) throw new Error(`Agent ${newAgentId} not found`);
+      }
+
+      const oldAgentId = instance.agentId;
+      logger.info('Changing agent mode', { instanceId, oldAgentId, newAgentId });
+
+      const hasConversation = instance.outputBuffer.some(
+        (msg) => msg.type === 'user' || msg.type === 'assistant'
+      );
+
+      // Terminate existing adapter
+      const oldAdapter = this.deps.getAdapter(instanceId);
+      const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
+      if (oldAdapter) {
+        await oldAdapter.terminate(true);
+        this.deps.deleteAdapter(instanceId);
+      }
+
+      // Update instance with new agent
+      instance.agentId = newAgentId;
+      instance.agentMode = newAgent.mode;
+      instance.status = 'initializing';
+
+      // If leaving plan mode, reset plan mode state
+      if (instance.planMode.enabled && newAgent.mode !== 'plan') {
+        instance.planMode = {
+          enabled: false,
+          state: 'off',
+          planContent: undefined,
+          approvedAt: undefined
+        };
+        logger.info('Auto-exited plan mode due to agent mode change', { instanceId, newAgentId });
+      }
+
+      const disallowedTools = [...getDisallowedTools(newAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+      const defaultAllowedTools = instance.yoloMode ? undefined : [
+        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
+        'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
+        'NotebookEdit', 'Skill'
+      ];
+
+      const cliType = await this.resolveCliTypeForInstance(instance);
+      const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
+      const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
+
+      const newSessionId = shouldResume && shouldForkSession
+        ? generateId()
+        : (shouldResume ? instance.sessionId : generateId());
+      instance.sessionId = newSessionId;
+
+      const spawnOptions: UnifiedSpawnOptions = {
+        sessionId: newSessionId,
+        workingDirectory: instance.workingDirectory,
+        systemPrompt: newAgent.systemPrompt,
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel,
+        allowedTools: defaultAllowedTools,
+        disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+        resume: shouldResume,
+        forkSession: shouldForkSession,
+        mcpConfig: this.getMcpConfig(),
+      };
+
+      let adapter = createCliAdapter(cliType, spawnOptions);
+
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
+
       try {
-        pid = await adapter.spawn();
-      } catch (spawnError) {
-        if (shouldResume) {
-          logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
-          await adapter.terminate(true);
-          
-          const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
-          instance.sessionId = fallbackOptions.sessionId;
-          adapter = createCliAdapter(cliType, fallbackOptions);
-          this.deps.setupAdapterEvents(instanceId, adapter);
-          this.deps.setAdapter(instanceId, adapter);
-          
+        let pid: number;
+        try {
           pid = await adapter.spawn();
-          
-          if (hasConversation) {
-            await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+          instance.processId = pid;
+          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
+            throw new Error('Native resume did not stabilize after agent mode change');
           }
-        } else {
-          throw spawnError;
+        } catch (spawnError) {
+          if (shouldResume) {
+            logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
+            await adapter.terminate(true);
+
+            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
+            instance.sessionId = fallbackOptions.sessionId;
+            adapter = createCliAdapter(cliType, fallbackOptions);
+            this.deps.setupAdapterEvents(instanceId, adapter);
+            this.deps.setAdapter(instanceId, adapter);
+
+            pid = await adapter.spawn();
+
+            if (hasConversation) {
+              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+            }
+          } else {
+            throw spawnError;
+          }
         }
-      }
 
-      instance.processId = pid;
-      instance.status = 'idle';
-      logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid, resumed: shouldResume });
+        instance.processId = pid;
+        instance.status = 'idle';
+        logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid, resumed: shouldResume });
 
-      if (!shouldResume && hasConversation) {
-        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'agent-mode-change'));
-      }
+        if (!shouldResume && hasConversation) {
+          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'agent-mode-change'));
+        }
 
-      // Build a mode transition message. When resuming, the system prompt can't be changed,
-      // so we send an authoritative message that overrides the previous mode's instructions.
-      let modeChangeMessage: string;
-      if (oldAgentId === 'plan' && newAgentId !== 'plan') {
-        // Explicitly revoke plan mode restrictions since the old system prompt persists in the session
-        modeChangeMessage = `[SYSTEM MODE CHANGE - IMPORTANT]
+        // Build a mode transition message. When resuming, the system prompt can't be changed,
+        // so we send an authoritative message that overrides the previous mode's instructions.
+        let modeChangeMessage: string;
+        if (oldAgentId === 'plan' && newAgentId !== 'plan') {
+          // Explicitly revoke plan mode restrictions since the old system prompt persists in the session
+          modeChangeMessage = `[SYSTEM MODE CHANGE - IMPORTANT]
 Your mode has been changed from PLAN to ${newAgent.name.toUpperCase()}.
 ALL previous PLAN MODE restrictions are now LIFTED. You are NO LONGER in plan mode.
 You now have FULL access to: read files, write files, edit files, execute bash commands, and all other tools.
 ${newAgent.systemPrompt ? `New instructions: ${newAgent.systemPrompt}` : `You are in ${newAgent.name} mode: ${newAgent.description || 'Full access mode.'}`}
 Proceed with implementation. Do NOT request to switch modes - you are already in ${newAgent.name} mode.`;
-      } else {
-        modeChangeMessage = `[System: Agent mode changed to ${newAgent.name}. ${newAgent.description || ''}${newAgent.systemPrompt ? `\n\nNew instructions:\n${newAgent.systemPrompt}` : ''}]`;
+        } else {
+          modeChangeMessage = `[System: Agent mode changed to ${newAgent.name}. ${newAgent.description || ''}${newAgent.systemPrompt ? `\n\nNew instructions:\n${newAgent.systemPrompt}` : ''}]`;
+        }
+        await adapter.sendInput(modeChangeMessage);
+      } catch (error) {
+        instance.status = 'error';
+        logger.error('Failed to change agent mode', error instanceof Error ? error : undefined, { instanceId, newAgentId });
+        throw error;
       }
-      await adapter.sendInput(modeChangeMessage);
-    } catch (error) {
-      instance.status = 'error';
-      logger.error('Failed to change agent mode', error instanceof Error ? error : undefined, { instanceId, newAgentId });
-      throw error;
+
+      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+      this.emit('agent-changed', {
+        instanceId,
+        oldAgentId,
+        newAgentId,
+        agentName: newAgent.name
+      });
+
+      return instance;
+    } finally {
+      release();
     }
-
-    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-    this.emit('agent-changed', {
-      instanceId,
-      oldAgentId,
-      newAgentId,
-      agentName: newAgent.name
-    });
-
-    return instance;
   }
 
   // ============================================
@@ -1217,157 +1370,166 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    if (instance.status === 'busy') {
-      throw new Error('Cannot toggle YOLO mode while instance is busy. Please wait for the current operation to complete.');
-    }
-
-    const newYoloMode = !instance.yoloMode;
-    logger.info('Toggling YOLO mode', {
-      instanceId,
-      currentYoloMode: instance.yoloMode,
-      newYoloMode,
-      adapterExists: !!this.deps.getAdapter(instanceId)
-    });
-
-    // Check if there's actually a conversation to resume
-    // If outputBuffer is empty (or only contains system messages), start fresh instead of resuming
-    const hasConversation = instance.outputBuffer.some(
-      (msg) => msg.type === 'user' || msg.type === 'assistant'
-    );
-    logger.debug('Checking conversation resume status', {
-      instanceId,
-      hasConversation,
-      outputBufferLength: instance.outputBuffer.length
-    });
-
-    // Terminate existing adapter
-    const oldAdapter = this.deps.getAdapter(instanceId);
-    const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
-    if (oldAdapter) {
-      logger.debug('Terminating old adapter', { instanceId });
-      // Delete from map FIRST to prevent race condition with exit handler
-      this.deps.deleteAdapter(instanceId);
-      logger.debug('Old adapter deleted from map, now terminating', { instanceId });
-      await oldAdapter.terminate(true);
-      logger.debug('Old adapter terminated', { instanceId });
-    }
-
-    instance.yoloMode = newYoloMode;
-    instance.status = 'initializing';
-
-    if (newYoloMode) {
-      logger.warn('YOLO mode enabled for instance', {
-        instanceId: instance.id,
-        parentId: instance.parentId,
-        provider: instance.provider
-      });
-    }
-
-    const agent = getAgentById(instance.agentId) || getDefaultAgent();
-    const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-    const allowedTools = newYoloMode ? undefined : [
-      'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-      'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-      'NotebookEdit', 'Skill'
-    ];
-
-    const cliType = await this.resolveCliTypeForInstance(instance);
-    const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
-    const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
-
-    const newSessionId = shouldResume && shouldForkSession 
-      ? generateId() 
-      : (shouldResume ? instance.sessionId : generateId());
-    instance.sessionId = newSessionId;
-
-    const spawnOptions: UnifiedSpawnOptions = {
-      sessionId: newSessionId,
-      workingDirectory: instance.workingDirectory,
-      systemPrompt: agent.systemPrompt,
-      yoloMode: newYoloMode,
-      allowedTools,
-      disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-      resume: shouldResume,
-      forkSession: shouldForkSession,
-      mcpConfig: this.getMcpConfig(),
-    };
-    logger.debug('Spawn options configured', {
-      instanceId,
-      resume: spawnOptions.resume,
-      forkSession: spawnOptions.forkSession,
-      sessionId: spawnOptions.sessionId
-    });
-
-    let adapter = createCliAdapter(cliType, spawnOptions);
-
-    logger.debug('Setting up adapter events', { instanceId });
-    this.deps.setupAdapterEvents(instanceId, adapter);
-    logger.debug('Storing new adapter', { instanceId });
-    this.deps.setAdapter(instanceId, adapter);
-    logger.debug('New adapter stored', {
-      instanceId,
-      adapterExists: !!this.deps.getAdapter(instanceId)
-    });
-
+    const release = await getSessionMutex().acquire(instanceId, 'yolo-toggle');
     try {
-      logger.debug('Spawning new adapter', { instanceId });
-      let pid: number;
+      if (instance.status === 'busy') {
+        throw new Error('Cannot toggle YOLO mode while instance is busy. Please wait for the current operation to complete.');
+      }
+
+      const newYoloMode = !instance.yoloMode;
+      logger.info('Toggling YOLO mode', {
+        instanceId,
+        currentYoloMode: instance.yoloMode,
+        newYoloMode,
+        adapterExists: !!this.deps.getAdapter(instanceId)
+      });
+
+      // Check if there's actually a conversation to resume
+      // If outputBuffer is empty (or only contains system messages), start fresh instead of resuming
+      const hasConversation = instance.outputBuffer.some(
+        (msg) => msg.type === 'user' || msg.type === 'assistant'
+      );
+      logger.debug('Checking conversation resume status', {
+        instanceId,
+        hasConversation,
+        outputBufferLength: instance.outputBuffer.length
+      });
+
+      // Terminate existing adapter
+      const oldAdapter = this.deps.getAdapter(instanceId);
+      const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
+      if (oldAdapter) {
+        logger.debug('Terminating old adapter', { instanceId });
+        // Delete from map FIRST to prevent race condition with exit handler
+        this.deps.deleteAdapter(instanceId);
+        logger.debug('Old adapter deleted from map, now terminating', { instanceId });
+        await oldAdapter.terminate(true);
+        logger.debug('Old adapter terminated', { instanceId });
+      }
+
+      instance.yoloMode = newYoloMode;
+      instance.status = 'initializing';
+
+      if (newYoloMode) {
+        logger.warn('YOLO mode enabled for instance', {
+          instanceId: instance.id,
+          parentId: instance.parentId,
+          provider: instance.provider
+        });
+      }
+
+      const agent = getAgentById(instance.agentId) || getDefaultAgent();
+      const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+      const allowedTools = newYoloMode ? undefined : [
+        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
+        'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
+        'NotebookEdit', 'Skill'
+      ];
+
+      const cliType = await this.resolveCliTypeForInstance(instance);
+      const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
+      const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
+
+      const newSessionId = shouldResume && shouldForkSession
+        ? generateId()
+        : (shouldResume ? instance.sessionId : generateId());
+      instance.sessionId = newSessionId;
+
+      const spawnOptions: UnifiedSpawnOptions = {
+        sessionId: newSessionId,
+        workingDirectory: instance.workingDirectory,
+        systemPrompt: agent.systemPrompt,
+        yoloMode: newYoloMode,
+        allowedTools,
+        disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+        resume: shouldResume,
+        forkSession: shouldForkSession,
+        mcpConfig: this.getMcpConfig(),
+      };
+      logger.debug('Spawn options configured', {
+        instanceId,
+        resume: spawnOptions.resume,
+        forkSession: spawnOptions.forkSession,
+        sessionId: spawnOptions.sessionId
+      });
+
+      let adapter = createCliAdapter(cliType, spawnOptions);
+
+      logger.debug('Setting up adapter events', { instanceId });
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      logger.debug('Storing new adapter', { instanceId });
+      this.deps.setAdapter(instanceId, adapter);
+      logger.debug('New adapter stored', {
+        instanceId,
+        adapterExists: !!this.deps.getAdapter(instanceId)
+      });
+
       try {
-        pid = await adapter.spawn();
-      } catch (spawnError) {
-        if (shouldResume) {
-          logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
-          await adapter.terminate(true);
-          
-          // Retry without resume
-          const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
-          instance.sessionId = fallbackOptions.sessionId;
-          adapter = createCliAdapter(cliType, fallbackOptions);
-          this.deps.setupAdapterEvents(instanceId, adapter);
-          this.deps.setAdapter(instanceId, adapter);
-          
+        logger.debug('Spawning new adapter', { instanceId });
+        let pid: number;
+        try {
           pid = await adapter.spawn();
-          
-          if (hasConversation) {
-            await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+          instance.processId = pid;
+          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
+            throw new Error('Native resume did not stabilize after YOLO toggle');
           }
-        } else {
-          throw spawnError;
+        } catch (spawnError) {
+          if (shouldResume) {
+            logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
+            await adapter.terminate(true);
+
+            // Retry without resume
+            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
+            instance.sessionId = fallbackOptions.sessionId;
+            adapter = createCliAdapter(cliType, fallbackOptions);
+            this.deps.setupAdapterEvents(instanceId, adapter);
+            this.deps.setAdapter(instanceId, adapter);
+
+            pid = await adapter.spawn();
+
+            if (hasConversation) {
+              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+            }
+          } else {
+            throw spawnError;
+          }
         }
+
+        instance.processId = pid;
+        instance.status = 'idle';
+        logger.info('YOLO mode toggled successfully', { instanceId, pid, newYoloMode, resumed: shouldResume });
+        logger.debug('Adapter exists after spawn', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
+
+        if (!shouldResume && hasConversation) {
+          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'yolo-toggle'));
+        }
+
+        const modeMessage = newYoloMode
+          ? '[System: YOLO mode enabled - all tool permissions are now auto-approved.]'
+          : '[System: YOLO mode disabled - tool permissions will now require approval.]';
+        logger.debug('Sending mode message to adapter', { instanceId, newYoloMode });
+        await adapter.sendInput(modeMessage);
+        logger.debug('Mode message sent', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
+      } catch (error) {
+        instance.status = 'error';
+        logger.error('Failed to toggle YOLO mode', error instanceof Error ? error : undefined, { instanceId, newYoloMode });
+        throw error;
       }
 
-      instance.processId = pid;
-      instance.status = 'idle';
-      logger.info('YOLO mode toggled successfully', { instanceId, pid, newYoloMode, resumed: shouldResume });
-      logger.debug('Adapter exists after spawn', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
+      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+      this.emit('yolo-toggled', {
+        instanceId,
+        yoloMode: newYoloMode
+      });
 
-      if (!shouldResume && hasConversation) {
-        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'yolo-toggle'));
-      }
-
-      const modeMessage = newYoloMode
-        ? '[System: YOLO mode enabled - all tool permissions are now auto-approved.]'
-        : '[System: YOLO mode disabled - tool permissions will now require approval.]';
-      logger.debug('Sending mode message to adapter', { instanceId, newYoloMode });
-      await adapter.sendInput(modeMessage);
-      logger.debug('Mode message sent', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
-    } catch (error) {
-      instance.status = 'error';
-      logger.error('Failed to toggle YOLO mode', error instanceof Error ? error : undefined, { instanceId, newYoloMode });
-      throw error;
+      logger.debug('toggleYoloMode complete', {
+        instanceId,
+        adapterExists: !!this.deps.getAdapter(instanceId)
+      });
+      return instance;
+    } finally {
+      release();
     }
-
-    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-    this.emit('yolo-toggled', {
-      instanceId,
-      yoloMode: newYoloMode
-    });
-
-    logger.debug('toggleYoloMode complete', {
-      instanceId,
-      adapterExists: !!this.deps.getAdapter(instanceId)
-    });
-    return instance;
   }
 
   // ============================================
@@ -1384,162 +1546,171 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    if (instance.status === 'busy') {
-      throw new Error('Cannot change model while instance is busy. Please wait for the current operation to complete.');
-    }
-
-    const oldModel = instance.currentModel || 'default';
-    logger.info('Changing model', {
-      instanceId,
-      oldModel,
-      newModel,
-      adapterExists: !!this.deps.getAdapter(instanceId)
-    });
-
-    // Check if there's a conversation to resume
-    const hasConversation = instance.outputBuffer.some(
-      (msg) => msg.type === 'user' || msg.type === 'assistant'
-    );
-
-    // Terminate existing adapter
-    const oldAdapter = this.deps.getAdapter(instanceId);
-    const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
-    if (oldAdapter) {
-      this.deps.deleteAdapter(instanceId);
-      await oldAdapter.terminate(true);
-    }
-
-    // Update instance state
-    instance.status = 'initializing';
-
-    // Resolve agent and permissions (same as toggleYoloMode)
-    const agent = getAgentById(instance.agentId) || getDefaultAgent();
-    const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-    const allowedTools = instance.yoloMode ? undefined : [
-      'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-      'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-      'NotebookEdit', 'Skill'
-    ];
-
-    const cliType = await this.resolveCliTypeForInstance(instance);
-    const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
-    const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
-
-    // Validate model against provider before passing it
-    let validatedModel: string | undefined = newModel;
-    if (cliType !== 'claude') {
-      if (isModelTier(newModel)) {
-        validatedModel = resolveModelForTier(newModel, cliType);
-      }
-
-      const providerModels = getModelsForProvider(cliType);
-      const modelToValidate = validatedModel;
-      const allowCodexDynamicModel =
-        modelToValidate !== undefined &&
-        cliType === 'codex' &&
-        looksLikeCodexModelId(modelToValidate);
-      if (
-        modelToValidate !== undefined &&
-        providerModels.length > 0 &&
-        !providerModels.some(m => m.id === modelToValidate) &&
-        !allowCodexDynamicModel
-      ) {
-        logger.warn('Model not valid for target provider during changeModel, using provider default', {
-          model: modelToValidate,
-          provider: cliType,
-          fallbackModel: 'provider-default',
-        });
-        validatedModel = undefined;
-      }
-    }
-
-    const newSessionId = shouldResume && shouldForkSession 
-      ? generateId() 
-      : (shouldResume ? instance.sessionId : generateId());
-    instance.sessionId = newSessionId;
-
-    instance.currentModel = validatedModel;
-    const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
-    instance.contextUsage = {
-      ...instance.contextUsage,
-      total: contextTotal,
-      percentage: contextTotal > 0
-        ? Math.min((instance.contextUsage.used / contextTotal) * 100, 100)
-        : 0
-    };
-
-    const spawnOptions: UnifiedSpawnOptions = {
-      sessionId: newSessionId,
-      workingDirectory: instance.workingDirectory,
-      systemPrompt: agent.systemPrompt,
-      model: validatedModel,
-      yoloMode: instance.yoloMode,
-      allowedTools,
-      disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-      resume: shouldResume,
-      forkSession: shouldForkSession,
-      mcpConfig: this.getMcpConfig(),
-    };
-
-    let adapter = createCliAdapter(cliType, spawnOptions);
-    this.deps.setupAdapterEvents(instanceId, adapter);
-    this.deps.setAdapter(instanceId, adapter);
-
+    const release = await getSessionMutex().acquire(instanceId, 'model-change');
     try {
-      let pid: number;
-      try {
-        pid = await adapter.spawn();
-      } catch (spawnError) {
-        if (shouldResume) {
-          logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
-          await adapter.terminate(true);
-          
-          const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
-          instance.sessionId = fallbackOptions.sessionId;
-          adapter = createCliAdapter(cliType, fallbackOptions);
-          this.deps.setupAdapterEvents(instanceId, adapter);
-          this.deps.setAdapter(instanceId, adapter);
-          
-          pid = await adapter.spawn();
-          
-          if (hasConversation) {
-            await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
-          }
-        } else {
-          throw spawnError;
+      if (instance.status === 'busy') {
+        throw new Error('Cannot change model while instance is busy. Please wait for the current operation to complete.');
+      }
+
+      const oldModel = instance.currentModel || 'default';
+      logger.info('Changing model', {
+        instanceId,
+        oldModel,
+        newModel,
+        adapterExists: !!this.deps.getAdapter(instanceId)
+      });
+
+      // Check if there's a conversation to resume
+      const hasConversation = instance.outputBuffer.some(
+        (msg) => msg.type === 'user' || msg.type === 'assistant'
+      );
+
+      // Terminate existing adapter
+      const oldAdapter = this.deps.getAdapter(instanceId);
+      const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
+      if (oldAdapter) {
+        this.deps.deleteAdapter(instanceId);
+        await oldAdapter.terminate(true);
+      }
+
+      // Update instance state
+      instance.status = 'initializing';
+
+      // Resolve agent and permissions (same as toggleYoloMode)
+      const agent = getAgentById(instance.agentId) || getDefaultAgent();
+      const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+      const allowedTools = instance.yoloMode ? undefined : [
+        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
+        'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
+        'NotebookEdit', 'Skill'
+      ];
+
+      const cliType = await this.resolveCliTypeForInstance(instance);
+      const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
+      const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
+
+      // Validate model against provider before passing it
+      let validatedModel: string | undefined = newModel;
+      if (cliType !== 'claude') {
+        if (isModelTier(newModel)) {
+          validatedModel = resolveModelForTier(newModel, cliType);
+        }
+
+        const providerModels = getModelsForProvider(cliType);
+        const modelToValidate = validatedModel;
+        const allowCodexDynamicModel =
+          modelToValidate !== undefined &&
+          cliType === 'codex' &&
+          looksLikeCodexModelId(modelToValidate);
+        if (
+          modelToValidate !== undefined &&
+          providerModels.length > 0 &&
+          !providerModels.some(m => m.id === modelToValidate) &&
+          !allowCodexDynamicModel
+        ) {
+          logger.warn('Model not valid for target provider during changeModel, using provider default', {
+            model: modelToValidate,
+            provider: cliType,
+            fallbackModel: 'provider-default',
+          });
+          validatedModel = undefined;
         }
       }
 
-      instance.processId = pid;
-      instance.status = 'idle';
-      logger.info('Model changed successfully', {
-        instanceId,
-        pid,
-        newModel: validatedModel || 'provider-default',
-        resumed: shouldResume,
-      });
+      const newSessionId = shouldResume && shouldForkSession
+        ? generateId()
+        : (shouldResume ? instance.sessionId : generateId());
+      instance.sessionId = newSessionId;
 
-      if (!shouldResume && hasConversation) {
-        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'model-change'));
+      instance.currentModel = validatedModel;
+      const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
+      instance.contextUsage = {
+        ...instance.contextUsage,
+        total: contextTotal,
+        percentage: contextTotal > 0
+          ? Math.min((instance.contextUsage.used / contextTotal) * 100, 100)
+          : 0
+      };
+
+      const spawnOptions: UnifiedSpawnOptions = {
+        sessionId: newSessionId,
+        workingDirectory: instance.workingDirectory,
+        systemPrompt: agent.systemPrompt,
+        model: validatedModel,
+        yoloMode: instance.yoloMode,
+        allowedTools,
+        disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+        resume: shouldResume,
+        forkSession: shouldForkSession,
+        mcpConfig: this.getMcpConfig(),
+      };
+
+      let adapter = createCliAdapter(cliType, spawnOptions);
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
+
+      try {
+        let pid: number;
+        try {
+          pid = await adapter.spawn();
+          instance.processId = pid;
+          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
+            throw new Error('Native resume did not stabilize after model change');
+          }
+        } catch (spawnError) {
+          if (shouldResume) {
+            logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
+            await adapter.terminate(true);
+
+            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
+            instance.sessionId = fallbackOptions.sessionId;
+            adapter = createCliAdapter(cliType, fallbackOptions);
+            this.deps.setupAdapterEvents(instanceId, adapter);
+            this.deps.setAdapter(instanceId, adapter);
+
+            pid = await adapter.spawn();
+
+            if (hasConversation) {
+              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+            }
+          } else {
+            throw spawnError;
+          }
+        }
+
+        instance.processId = pid;
+        instance.status = 'idle';
+        logger.info('Model changed successfully', {
+          instanceId,
+          pid,
+          newModel: validatedModel || 'provider-default',
+          resumed: shouldResume,
+        });
+
+        if (!shouldResume && hasConversation) {
+          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'model-change'));
+        }
+
+        // Notify the instance about the model change
+        await adapter.sendInput(
+          `[System: Model changed from ${oldModel} to ${validatedModel || newModel}. Conversation context has been preserved.]`
+        );
+      } catch (error) {
+        instance.status = 'error';
+        logger.error('Failed to change model', error instanceof Error ? error : undefined, { instanceId, newModel });
+        throw error;
       }
 
-      // Notify the instance about the model change
-      await adapter.sendInput(
-        `[System: Model changed from ${oldModel} to ${validatedModel || newModel}. Conversation context has been preserved.]`
-      );
-    } catch (error) {
-      instance.status = 'error';
-      logger.error('Failed to change model', error instanceof Error ? error : undefined, { instanceId, newModel });
-      throw error;
+      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+      this.emit('model-changed', {
+        instanceId,
+        model: newModel
+      });
+
+      return instance;
+    } finally {
+      release();
     }
-
-    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-    this.emit('model-changed', {
-      instanceId,
-      model: newModel
-    });
-
-    return instance;
   }
 
   // ============================================
@@ -1590,111 +1761,120 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    const previousAdapter = this.deps.getAdapter(instanceId);
-    const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
-    const sessionId = instance.sessionId;
-    logger.debug('Respawning with session ID', { instanceId, sessionId });
-    if (!sessionId && capabilities.supportsResume) {
-      throw new Error(`Instance ${instanceId} has no session ID to resume`);
-    }
-    const hasConversation = instance.outputBuffer.some(
-      (msg) => msg.type === 'user' || msg.type === 'assistant'
-    );
-    const shouldResume = capabilities.supportsResume && Boolean(sessionId);
-    const shouldForkSession = shouldResume && capabilities.supportsForkSession;
-
-    const newSessionId = shouldResume && shouldForkSession
-      ? generateId()
-      : shouldResume
-        ? sessionId
-        : generateId();
-    instance.sessionId = newSessionId;
-
-    const cliType = await this.resolveCliTypeForInstance(instance);
-
-    const spawnOptions: UnifiedSpawnOptions = {
-      sessionId: shouldResume ? sessionId : newSessionId,
-      workingDirectory: instance.workingDirectory,
-      yoloMode: instance.yoloMode,
-      model: instance.currentModel,
-      resume: shouldResume,
-      forkSession: shouldForkSession,
-      mcpConfig: this.getMcpConfig(),
-    };
-    const adapter = createCliAdapter(cliType, spawnOptions);
-    this.deps.setupAdapterEvents(instanceId, adapter);
-    this.deps.setAdapter(instanceId, adapter);
-
+    const release = await getSessionMutex().acquire(instanceId, 'respawn-interrupt');
     try {
-      logger.debug('Spawning new process after interrupt', { instanceId });
-      let pid: number;
-      let actuallyResumed = shouldResume;
-      try {
-        pid = await adapter.spawn();
-      } catch (spawnError) {
-        // Resume failed (e.g., corrupted session with empty messages).
-        // Fall back to a fresh session with replay continuity message.
-        if (shouldResume) {
-          logger.warn('Resume failed after interrupt, falling back to fresh session', {
-            instanceId,
-            error: spawnError instanceof Error ? spawnError.message : String(spawnError),
-          });
-          // eslint-disable-next-line @typescript-eslint/no-empty-function
-          await adapter.terminate(true).catch(() => {});
-
-          const fallbackSessionId = generateId();
-          instance.sessionId = fallbackSessionId;
-          const fallbackOptions: UnifiedSpawnOptions = {
-            ...spawnOptions,
-            resume: false,
-            forkSession: false,
-            sessionId: fallbackSessionId,
-          };
-          const fallbackAdapter = createCliAdapter(cliType, fallbackOptions);
-          this.deps.setupAdapterEvents(instanceId, fallbackAdapter);
-          this.deps.setAdapter(instanceId, fallbackAdapter);
-
-          pid = await fallbackAdapter.spawn();
-          actuallyResumed = false;
-
-          if (hasConversation) {
-            await fallbackAdapter.sendInput(
-              this.buildReplayContinuityMessage(instance, 'resume-failed-fallback')
-            );
-          }
-        } else {
-          throw spawnError;
-        }
+      const previousAdapter = this.deps.getAdapter(instanceId);
+      const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
+      const sessionId = instance.sessionId;
+      logger.debug('Respawning with session ID', { instanceId, sessionId });
+      if (!sessionId && capabilities.supportsResume) {
+        throw new Error(`Instance ${instanceId} has no session ID to resume`);
       }
-      logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
+      const hasConversation = instance.outputBuffer.some(
+        (msg) => msg.type === 'user' || msg.type === 'assistant'
+      );
+      const shouldResume = capabilities.supportsResume && Boolean(sessionId);
+      const shouldForkSession = shouldResume && capabilities.supportsForkSession;
 
-      instance.processId = pid;
-      instance.status = 'idle';
-      instance.lastActivity = Date.now();
+      const newSessionId = shouldResume && shouldForkSession
+        ? generateId()
+        : shouldResume
+          ? sessionId
+          : generateId();
+      instance.sessionId = newSessionId;
 
-      if (!actuallyResumed && shouldResume) {
-        // Already sent continuity message in fallback path above
-      } else if (!shouldResume && hasConversation) {
-        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'interrupt-respawn'));
-      }
+      const cliType = await this.resolveCliTypeForInstance(instance);
 
-      const message = {
-        id: generateId(),
-        type: 'system' as const,
-        content: actuallyResumed ? 'Interrupted — waiting for input' : 'Interrupted — session restarted (resume failed)',
-        timestamp: Date.now()
+      const spawnOptions: UnifiedSpawnOptions = {
+        sessionId: shouldResume ? sessionId : newSessionId,
+        workingDirectory: instance.workingDirectory,
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel,
+        resume: shouldResume,
+        forkSession: shouldForkSession,
+        mcpConfig: this.getMcpConfig(),
       };
-      this.deps.addToOutputBuffer(instance, message);
-      this.emit('output', { instanceId, message });
+      const adapter = createCliAdapter(cliType, spawnOptions);
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
 
-      this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-      logger.info('Respawn after interrupt complete', { instanceId });
-    } catch (error) {
-      logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
-      instance.status = 'error';
-      instance.processId = null;
-      this.deps.queueUpdate(instanceId, 'error');
-      throw error;
+      try {
+        logger.debug('Spawning new process after interrupt', { instanceId });
+        let pid: number;
+        let actuallyResumed = shouldResume;
+        try {
+          pid = await adapter.spawn();
+          instance.processId = pid;
+          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
+            throw new Error('Native resume did not stabilize after interrupt');
+          }
+        } catch (spawnError) {
+          // Resume failed (e.g., corrupted session with empty messages).
+          // Fall back to a fresh session with replay continuity message.
+          if (shouldResume) {
+            logger.warn('Resume failed after interrupt, falling back to fresh session', {
+              instanceId,
+              error: spawnError instanceof Error ? spawnError.message : String(spawnError),
+            });
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
+            await adapter.terminate(true).catch(() => {});
+
+            const fallbackSessionId = generateId();
+            instance.sessionId = fallbackSessionId;
+            const fallbackOptions: UnifiedSpawnOptions = {
+              ...spawnOptions,
+              resume: false,
+              forkSession: false,
+              sessionId: fallbackSessionId,
+            };
+            const fallbackAdapter = createCliAdapter(cliType, fallbackOptions);
+            this.deps.setupAdapterEvents(instanceId, fallbackAdapter);
+            this.deps.setAdapter(instanceId, fallbackAdapter);
+
+            pid = await fallbackAdapter.spawn();
+            actuallyResumed = false;
+
+            if (hasConversation) {
+              await fallbackAdapter.sendInput(
+                this.buildReplayContinuityMessage(instance, 'resume-failed-fallback')
+              );
+            }
+          } else {
+            throw spawnError;
+          }
+        }
+        logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
+
+        instance.processId = pid;
+        instance.status = 'idle';
+        instance.lastActivity = Date.now();
+
+        if (!actuallyResumed && shouldResume) {
+          // Already sent continuity message in fallback path above
+        } else if (!shouldResume && hasConversation) {
+          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'interrupt-respawn'));
+        }
+
+        const message = {
+          id: generateId(),
+          type: 'system' as const,
+          content: actuallyResumed ? 'Interrupted — waiting for input' : 'Interrupted — session restarted (resume failed)',
+          timestamp: Date.now()
+        };
+        this.deps.addToOutputBuffer(instance, message);
+        this.emit('output', { instanceId, message });
+
+        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+        logger.info('Respawn after interrupt complete', { instanceId });
+      } catch (error) {
+        logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
+        instance.status = 'error';
+        instance.processId = null;
+        this.deps.queueUpdate(instanceId, 'error');
+        throw error;
+      }
+    } finally {
+      release();
     }
   }
 
@@ -1711,103 +1891,112 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       throw new Error(`Instance ${instanceId} not found`);
     }
 
-    const previousAdapter = this.deps.getAdapter(instanceId);
-    const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
-    const sessionId = instance.sessionId;
-    const hasConversation = instance.outputBuffer.some(
-      (msg) => msg.type === 'user' || msg.type === 'assistant'
-    );
-    const shouldResume = capabilities.supportsResume && Boolean(sessionId);
-    const shouldForkSession = shouldResume && capabilities.supportsForkSession;
-
-    const newSessionId = shouldResume && shouldForkSession
-      ? generateId()
-      : shouldResume
-        ? sessionId
-        : generateId();
-    instance.sessionId = newSessionId;
-
-    const cliType = await this.resolveCliTypeForInstance(instance);
-
-    const spawnOptions: UnifiedSpawnOptions = {
-      sessionId: shouldResume ? sessionId : newSessionId,
-      workingDirectory: instance.workingDirectory,
-      yoloMode: instance.yoloMode,
-      model: instance.currentModel,
-      resume: shouldResume,
-      forkSession: shouldForkSession,
-      mcpConfig: this.getMcpConfig(),
-    };
-    let adapter = createCliAdapter(cliType, spawnOptions);
-    this.deps.setupAdapterEvents(instanceId, adapter);
-    this.deps.setAdapter(instanceId, adapter);
-
+    const release = await getSessionMutex().acquire(instanceId, 'respawn-unexpected');
     try {
-      let pid: number;
-      let actuallyResumed = shouldResume;
-      try {
-        pid = await adapter.spawn();
-      } catch (spawnError) {
-        if (shouldResume) {
-          logger.warn('Resume failed during auto-respawn, falling back to fresh session', {
-            instanceId,
-            error: spawnError instanceof Error ? spawnError.message : String(spawnError),
-          });
-          await adapter.terminate(true).catch(() => { /* ignore */ });
+      const previousAdapter = this.deps.getAdapter(instanceId);
+      const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
+      const sessionId = instance.sessionId;
+      const hasConversation = instance.outputBuffer.some(
+        (msg) => msg.type === 'user' || msg.type === 'assistant'
+      );
+      const shouldResume = capabilities.supportsResume && Boolean(sessionId);
+      const shouldForkSession = shouldResume && capabilities.supportsForkSession;
 
-          const fallbackSessionId = generateId();
-          instance.sessionId = fallbackSessionId;
-          const fallbackOptions: UnifiedSpawnOptions = {
-            ...spawnOptions,
-            resume: false,
-            forkSession: false,
-            sessionId: fallbackSessionId,
-          };
-          adapter = createCliAdapter(cliType, fallbackOptions);
-          this.deps.setupAdapterEvents(instanceId, adapter);
-          this.deps.setAdapter(instanceId, adapter);
+      const newSessionId = shouldResume && shouldForkSession
+        ? generateId()
+        : shouldResume
+          ? sessionId
+          : generateId();
+      instance.sessionId = newSessionId;
 
-          pid = await adapter.spawn();
-          actuallyResumed = false;
+      const cliType = await this.resolveCliTypeForInstance(instance);
 
-          if (hasConversation) {
-            await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'auto-respawn-fallback'));
-          }
-        } else {
-          throw spawnError;
-        }
-      }
-      logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
-
-      instance.processId = pid;
-      instance.status = 'idle';
-      instance.lastActivity = Date.now();
-
-      if (!actuallyResumed && shouldResume) {
-        // Already sent continuity message in fallback path
-      } else if (!shouldResume && hasConversation) {
-        await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'auto-respawn'));
-      }
-
-      const message = {
-        id: generateId(),
-        type: 'system' as const,
-        content: actuallyResumed
-          ? 'Session reconnected automatically'
-          : 'Session restarted automatically (resume failed)',
-        timestamp: Date.now(),
-        metadata: { autoRespawn: true }
+      const spawnOptions: UnifiedSpawnOptions = {
+        sessionId: shouldResume ? sessionId : newSessionId,
+        workingDirectory: instance.workingDirectory,
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel,
+        resume: shouldResume,
+        forkSession: shouldForkSession,
+        mcpConfig: this.getMcpConfig(),
       };
-      this.deps.addToOutputBuffer(instance, message);
-      this.emit('output', { instanceId, message });
+      let adapter = createCliAdapter(cliType, spawnOptions);
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
 
-      this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-    } catch (error) {
-      logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
-      instance.status = 'error';
-      instance.processId = null;
-      this.deps.queueUpdate(instanceId, 'error');
-      throw error;
+      try {
+        let pid: number;
+        let actuallyResumed = shouldResume;
+        try {
+          pid = await adapter.spawn();
+          instance.processId = pid;
+          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
+            throw new Error('Native resume did not stabilize after unexpected exit');
+          }
+        } catch (spawnError) {
+          if (shouldResume) {
+            logger.warn('Resume failed during auto-respawn, falling back to fresh session', {
+              instanceId,
+              error: spawnError instanceof Error ? spawnError.message : String(spawnError),
+            });
+            await adapter.terminate(true).catch(() => { /* ignore */ });
+
+            const fallbackSessionId = generateId();
+            instance.sessionId = fallbackSessionId;
+            const fallbackOptions: UnifiedSpawnOptions = {
+              ...spawnOptions,
+              resume: false,
+              forkSession: false,
+              sessionId: fallbackSessionId,
+            };
+            adapter = createCliAdapter(cliType, fallbackOptions);
+            this.deps.setupAdapterEvents(instanceId, adapter);
+            this.deps.setAdapter(instanceId, adapter);
+
+            pid = await adapter.spawn();
+            actuallyResumed = false;
+
+            if (hasConversation) {
+              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'auto-respawn-fallback'));
+            }
+          } else {
+            throw spawnError;
+          }
+        }
+        logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
+
+        instance.processId = pid;
+        instance.status = 'idle';
+        instance.lastActivity = Date.now();
+
+        if (!actuallyResumed && shouldResume) {
+          // Already sent continuity message in fallback path
+        } else if (!shouldResume && hasConversation) {
+          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'auto-respawn'));
+        }
+
+        const message = {
+          id: generateId(),
+          type: 'system' as const,
+          content: actuallyResumed
+            ? 'Session reconnected automatically'
+            : 'Session restarted automatically (resume failed)',
+          timestamp: Date.now(),
+          metadata: { autoRespawn: true }
+        };
+        this.deps.addToOutputBuffer(instance, message);
+        this.emit('output', { instanceId, message });
+
+        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+      } catch (error) {
+        logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
+        instance.status = 'error';
+        instance.processId = null;
+        this.deps.queueUpdate(instanceId, 'error');
+        throw error;
+      }
+    } finally {
+      release();
     }
   }
 
