@@ -51,6 +51,7 @@ import { getHibernationManager } from '../process/hibernation-manager';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getSessionMutex } from '../session/session-mutex';
 import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../session/replay-continuity';
+import { buildFallbackHistoryMessage } from '../session/fallback-history';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 
@@ -159,6 +160,35 @@ export class InstanceLifecycleManager extends EventEmitter {
         'Continue the previous task and ask for clarification only if essential context is missing.',
         '[END CONTINUITY NOTICE]',
       ].join('\n');
+  }
+
+  /**
+   * Build a rich fallback history message when --resume fails.
+   * Merges live + historical messages, deduplicates, then creates a
+   * token-budget-aware recovery message.
+   */
+  private async buildFallbackHistory(instance: Instance, reason: string): Promise<string> {
+    const outputStorage = getOutputStorageManager();
+    const historicalMessages = await outputStorage.loadMessages(instance.id);
+
+    // Merge historical + live, dedup by message ID
+    const merged = [...historicalMessages, ...instance.outputBuffer];
+    const seenIds = new Set<string>();
+    const deduped: OutputMessage[] = [];
+    for (const m of merged) {
+      if (seenIds.has(m.id)) continue;
+      seenIds.add(m.id);
+      deduped.push(m);
+    }
+
+    // Get context window for budget calculation
+    const contextWindow = getProviderModelContextWindow(instance.provider, instance.currentModel);
+
+    const fallback = buildFallbackHistoryMessage(deduped, reason, contextWindow);
+    if (fallback) return fallback;
+
+    // Final fallback: use old summary-based method
+    return this.buildReplayContinuityMessage(instance, reason);
   }
 
   private async waitForResumeHealth(
@@ -1307,7 +1337,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             pid = await adapter.spawn();
 
             if (hasConversation) {
-              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+              await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {
             throw spawnError;
@@ -1488,7 +1518,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             pid = await adapter.spawn();
 
             if (hasConversation) {
-              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+              await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {
             throw spawnError;
@@ -1671,7 +1701,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             pid = await adapter.spawn();
 
             if (hasConversation) {
-              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'resume-failed-fallback'));
+              await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {
             throw spawnError;
@@ -1836,7 +1866,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             if (hasConversation) {
               await fallbackAdapter.sendInput(
-                this.buildReplayContinuityMessage(instance, 'resume-failed-fallback')
+                await this.buildFallbackHistory(instance, 'resume-failed-fallback')
               );
             }
           } else {
@@ -1957,7 +1987,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             actuallyResumed = false;
 
             if (hasConversation) {
-              await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'auto-respawn-fallback'));
+              await adapter.sendInput(await this.buildFallbackHistory(instance, 'auto-respawn-fallback'));
             }
           } else {
             throw spawnError;
