@@ -93,6 +93,8 @@ export interface LifecycleDependencies {
   setDiffTracker?: (id: string, tracker: SessionDiffTracker) => void;
   /** Optional: remove the SessionDiffTracker for the given instance. */
   deleteDiffTracker?: (id: string) => void;
+  startStuckTracking?: (instanceId: string) => void;
+  stopStuckTracking?: (instanceId: string) => void;
 }
 
 // MCP config file for spawned CLI instances (LSP server, etc.)
@@ -619,6 +621,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           // The warm adapter is already spawned; mark the instance as idle.
           instance.status = 'idle';
           this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage);
+          this.deps.startStuckTracking?.(instance.id);
           logger.info('Warm-start instance ready', { instanceId: instance.id });
 
           // Send initial prompt if provided.
@@ -687,6 +690,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             instance.processId = pid;
             instance.status = 'idle';
             this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage);
+            this.deps.startStuckTracking?.(instance.id);
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
             // Send initial prompt if provided
@@ -780,6 +784,9 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     // Release any held mutex lock to prevent orphaned locks
     getSessionMutex().forceRelease(instanceId);
+
+    // Stop stuck process tracking
+    this.deps.stopStuckTracking?.(instanceId);
 
     // Always clean up diff tracker, even if adapter is null (e.g., spawn failed)
     this.deps.deleteDiffTracker?.(instanceId);
@@ -1166,6 +1173,9 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     const cliType = await this.resolveCliTypeForInstance(instance);
 
+    // Stop stuck tracking before terminating existing adapter
+    this.deps.stopStuckTracking?.(instanceId);
+
     // Terminate existing adapter
     const oldAdapter = this.deps.getAdapter(instanceId);
     if (oldAdapter) {
@@ -1212,6 +1222,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       const pid = await adapter.spawn();
       instance.processId = pid;
       instance.status = 'idle';
+      this.deps.startStuckTracking?.(instanceId);
     } catch (error) {
       instance.status = 'error';
       logger.error('Failed to restart CLI', error instanceof Error ? error : undefined, { instanceId });

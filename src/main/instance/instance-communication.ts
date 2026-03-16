@@ -40,6 +40,8 @@ export interface CommunicationDependencies {
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
   compactContext?: (instanceId: string) => Promise<void>;
+  onOutput?: (instanceId: string) => void;
+  onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
 }
 
 /**
@@ -401,6 +403,11 @@ export class InstanceCommunicationManager extends EventEmitter {
           const state = this.getCircuitBreaker(instanceId);
           if (state.consecutiveEmptyResponses > 0) {
             state.consecutiveEmptyResponses = 0;
+          }
+          if (message.type === 'tool_use') {
+            this.deps.onToolStateChange?.(instanceId, 'tool_executing');
+          } else if (message.type === 'tool_result') {
+            this.deps.onToolStateChange?.(instanceId, 'generating');
           }
         }
 
@@ -966,6 +973,7 @@ export class InstanceCommunicationManager extends EventEmitter {
    * Add message to instance output buffer
    */
   addToOutputBuffer(instance: Instance, message: OutputMessage): void {
+    this.deps.onOutput?.(instance.id);
     // Suppress repeated identical error messages (e.g., "Prompt is too long" spam)
     if (message.type === 'error') {
       const lastError = this.lastErrorContent.get(instance.id);

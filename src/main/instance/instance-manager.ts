@@ -42,6 +42,7 @@ import { InstanceContextManager } from './instance-context';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
 import { WarmStartManager } from './warm-start-manager';
+import { StuckProcessDetector } from './stuck-process-detector';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
@@ -58,6 +59,7 @@ export class InstanceManager extends EventEmitter {
   private orchestrationMgr: InstanceOrchestrationManager;
   private persistence: InstancePersistenceManager;
   private warmStart: WarmStartManager;
+  private stuckDetector: StuckProcessDetector;
 
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
@@ -91,6 +93,7 @@ export class InstanceManager extends EventEmitter {
     // Initialize sub-managers with dependencies
     this.state = new InstanceStateManager();
     this.context = new InstanceContextManager();
+    this.stuckDetector = new StuckProcessDetector();
 
     // Communication manager needs dependencies
     this.communication = new InstanceCommunicationManager({
@@ -113,7 +116,9 @@ export class InstanceManager extends EventEmitter {
       },
       onChildExit: (childId, child, exitCode) => {
         this.handleChildExit(childId, child, exitCode);
-      }
+      },
+      onOutput: (id) => this.stuckDetector.recordOutput(id),
+      onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),
     });
 
     // Orchestration manager needs dependencies
@@ -152,12 +157,33 @@ export class InstanceManager extends EventEmitter {
       clearFirstMessageTracking: (id) => this.hasReceivedFirstMessage.delete(id),
       markFirstMessageReceived: (id) => this.hasReceivedFirstMessage.add(id),
       warmStartManager: this.warmStart,
+      startStuckTracking: (id) => this.stuckDetector.startTracking(id),
+      stopStuckTracking: (id) => this.stuckDetector.stopTracking(id),
     });
 
     // Persistence manager needs dependencies
     this.persistence = new InstancePersistenceManager({
       getInstance: (id) => this.state.getInstance(id),
       createInstance: (config) => this.createInstance(config)
+    });
+
+    // Wire stuck process detector event handlers
+    this.stuckDetector.on('process:suspect-stuck', ({ instanceId, elapsedMs }) => {
+      const instance = this.state.getInstance(instanceId);
+      if (instance) {
+        const secs = Math.round(elapsedMs / 1000);
+        this.communication.addToOutputBuffer(instance, {
+          id: `stuck-warn-${Date.now()}`,
+          type: 'system',
+          content: `Instance may be stuck — no output for ${secs}s. Will auto-restart if unresponsive.`,
+          timestamp: Date.now(),
+        });
+      }
+    });
+    this.stuckDetector.on('process:stuck', ({ instanceId }) => {
+      this.lifecycle.respawnAfterInterrupt(instanceId).catch(err => {
+        logger.error('Failed to respawn stuck process', err instanceof Error ? err : undefined, { instanceId });
+      });
     });
 
     // Set up event forwarding
