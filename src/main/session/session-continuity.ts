@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { app, safeStorage } from 'electron';
+import { app } from 'electron';
 import { EventEmitter } from 'events';
 import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
@@ -983,9 +983,13 @@ export class SessionContinuityManager extends EventEmitter {
 
   private serializePayload(data: unknown): string {
     const json = JSON.stringify(data);
-    if (this.config.encryptOnDisk && safeStorage.isEncryptionAvailable()) {
-      const encrypted = safeStorage.encryptString(json).toString('base64');
-      return JSON.stringify({ encrypted: true, data: encrypted });
+    if (this.config.encryptOnDisk) {
+      // Lazy import to avoid triggering Keychain access on startup
+      const { safeStorage } = require('electron') as typeof import('electron');
+      if (safeStorage.isEncryptionAvailable()) {
+        const encrypted = safeStorage.encryptString(json).toString('base64');
+        return JSON.stringify({ encrypted: true, data: encrypted });
+      }
     }
     return JSON.stringify({ encrypted: false, data: json });
   }
@@ -1014,6 +1018,8 @@ export class SessionContinuityManager extends EventEmitter {
           parsed['encrypted'] === true &&
           typeof parsed['data'] === 'string'
         ) {
+          // Lazy import to avoid triggering Keychain access on startup
+          const { safeStorage } = require('electron') as typeof import('electron');
           const decrypted = safeStorage.decryptString(
             Buffer.from(parsed['data'], 'base64')
           );

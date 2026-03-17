@@ -551,7 +551,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             content: 'Session history contains invalid messages and cannot be resumed. Please restart this instance to start a fresh session.',
             metadata: { corruptedSession: true, fatal: true }
           };
-          this.addToOutputBuffer(instance, message);
+          this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
           this.addToOutputBuffer(instance, recoveryMessage);
           this.emit('output', { instanceId, message });
           this.emit('output', { instanceId, message: recoveryMessage });
@@ -574,7 +574,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           // Only show the first occurrence; suppress duplicates
           if (!this.contextOverflowSeen.has(instanceId)) {
             this.contextOverflowSeen.add(instanceId);
-            this.addToOutputBuffer(instance, message);
+            this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
             this.emit('output', { instanceId, message });
 
             // Add guidance message
@@ -600,7 +600,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           return; // Don't add duplicate errors to buffer
         }
 
-        this.addToOutputBuffer(instance, message);
+        this.addToOutputBuffer(instance, message, { countAsProcessOutput: true });
         this.emit('output', { instanceId, message });
 
         // Check for orchestration commands in assistant output
@@ -623,6 +623,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         const previousStatus = instance.status;
         instance.status = status;
         instance.lastActivity = Date.now();
+
+        if (status === 'idle' || status === 'ready' || status === 'waiting_for_input') {
+          this.deps.onToolStateChange?.(instanceId, 'idle');
+        }
 
         // On busy→idle/ready transition, compute diff stats and include them in the update
         if (
@@ -991,8 +995,14 @@ export class InstanceCommunicationManager extends EventEmitter {
   /**
    * Add message to instance output buffer
    */
-  addToOutputBuffer(instance: Instance, message: OutputMessage): void {
-    this.deps.onOutput?.(instance.id);
+  addToOutputBuffer(
+    instance: Instance,
+    message: OutputMessage,
+    options?: { countAsProcessOutput?: boolean }
+  ): void {
+    if (options?.countAsProcessOutput) {
+      this.deps.onOutput?.(instance.id);
+    }
     // Suppress repeated identical error messages (e.g., "Prompt is too long" spam)
     if (message.type === 'error') {
       const lastError = this.lastErrorContent.get(instance.id);

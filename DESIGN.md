@@ -2,15 +2,16 @@
 
 ## Overview
 
-AI Orchestrator is a high-performance desktop environment designed to manage, monitor, and coordinate multiple AI CLI instances (Claude, Gemini, OpenAI, and more). It bridges the gap between command-line power and graphical usability, scaling from individual agent interactions to massive, orchestrated swarms of thousands of concurrent instances.
+AI Orchestrator is a high-performance desktop environment for managing, monitoring, and coordinating multiple AI CLI instances (Claude, Gemini, Codex, Copilot). It bridges the gap between command-line power and graphical usability, scaling from individual agent interactions to orchestrated swarms of concurrent instances with hierarchical supervision, multi-agent debate/verification, and session recovery.
 
 ## Core Goals
 
-1. **Seamless CLI Integration** - Encapsulate the Claude Code CLI within a robust, interactive GUI.
-2. **Massive Scalability** - Support the parallel execution of 10,000+ instances for enterprise-scale projects.
-3. **Agent Coordination** - Enable instances to communicate, delegate tasks, and form complex supervisor hierarchies.
-4. **Rich Visual Telemetry** - Provide real-time status indicators, token usage metrics, and streaming output visualization.
-5. **Cross-Platform Compatibility** - Prioritize macOS native integration, with planned support for Windows and Linux.
+1. **Multi-Provider CLI Integration** - Encapsulate Claude, Gemini, Codex, and Copilot CLIs within a unified GUI with automatic failover.
+2. **Massive Scalability** - Support parallel execution of 10,000+ instances via hierarchical supervision, virtual scroll, and resource governance.
+3. **Agent Coordination** - Enable instances to communicate, delegate tasks, and form complex supervisor hierarchies with debate, verification, and consensus systems.
+4. **Rich Visual Telemetry** - Real-time status indicators, token usage metrics, streaming output, orchestration inspectors, and training dashboards.
+5. **Session Resilience** - Automatic session tracking, checkpoint/snapshot management, and user-driven restore from conversation history.
+6. **Cross-Platform Compatibility** - macOS native integration primary, with planned Windows and Linux support.
 
 ---
 
@@ -18,43 +19,57 @@ AI Orchestrator is a high-performance desktop environment designed to manage, mo
 
 ### Technology Stack
 
-- **Electron** - Robust desktop application framework for cross-platform deployment.
-- **Angular 21** - Modern, zoneless frontend framework utilizing signals for reactive performance.
-- **TypeScript** - Ensuring full-stack type safety and shared interfaces between main and renderer processes.
-- **Claude Code CLI** - The core AI engine, managed as spawned child processes for isolation and control.
+- **Electron 40** - Desktop application framework
+- **Angular 21** - Zoneless frontend with signals-based reactivity
+- **TypeScript 5.9** - Full-stack type safety with shared interfaces
+- **better-sqlite3** - Persistence for RLM and memory systems
+- **Zod 4** - Runtime validation for all IPC payloads
+- **Multi-Provider CLIs** - Claude, Gemini, Codex, Copilot as spawned child processes
 
 ### Process Model
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Main Process                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   Window    │  │  Instance   │  │    IPC      │     │
-│  │   Manager   │  │   Manager   │  │   Handler   │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-│                          │                              │
-│         ┌────────────────┼────────────────┐            │
-│         ▼                ▼                ▼            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │ CLI Adapter │  │ CLI Adapter │  │ CLI Adapter │    │
-│  │ (claude)    │  │ (claude)    │  │ (claude)    │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘    │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Main Process                           │
+│                                                             │
+│  ┌──────────┐ ┌──────────────┐ ┌───────────┐ ┌──────────┐  │
+│  │ Window   │ │  Instance    │ │    IPC    │ │ Provider │  │
+│  │ Manager  │ │  Manager     │ │  Handler  │ │ Registry │  │
+│  └──────────┘ └──────┬───────┘ └───────────┘ └──────────┘  │
+│                      │                                      │
+│  ┌───────────────────┼───────────────────────┐              │
+│  │    Orchestration   │   Process Mgmt       │              │
+│  │  ┌──────────────┐  │  ┌────────────────┐  │              │
+│  │  │ Debate       │  │  │ Supervisor     │  │              │
+│  │  │ Verification │  │  │ Resource Gov.  │  │              │
+│  │  │ Consensus    │  │  │ Hibernation    │  │              │
+│  │  └──────────────┘  │  │ Pool / LB      │  │              │
+│  └────────────────────┘  └────────────────┘  │              │
+│                      │                                      │
+│         ┌────────────┼────────────────┐                     │
+│         ▼            ▼                ▼                     │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐              │
+│  │ Claude CLI │ │ Gemini CLI │ │ Codex CLI  │              │
+│  │ Adapter    │ │ Adapter    │ │ Adapter    │              │
+│  └────────────┘ └────────────┘ └────────────┘              │
+└─────────────────────────────────────────────────────────────┘
                           │
-                    (IPC Bridge)
+                    (IPC Bridge — 460+ channels)
                           │
-┌─────────────────────────────────────────────────────────┐
-│                  Renderer Process                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │  Instance   │  │   Output    │  │    Input    │     │
-│  │    Store    │  │   Stream    │  │    Panel    │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Renderer Process                          │
+│  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌────────────┐  │
+│  │ Instance  │ │  Output   │ │   Input   │ │ Orchestr.  │  │
+│  │  Store    │ │  Stream   │ │   Panel   │ │ Inspectors │  │
+│  └───────────┘ └───────────┘ └───────────┘ └────────────┘  │
+│                                                             │
+│  48 feature modules • 39 IPC services • 12 state stores    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Hierarchical Supervisor Tree (Implemented)
+### Hierarchical Supervisor Tree
 
-Inspired by Erlang OTP, instances can be organized in a supervision hierarchy:
+Inspired by Erlang OTP, instances are organized in a supervision hierarchy:
 
 ```
                     ┌─────────────┐
@@ -73,129 +88,78 @@ Inspired by Erlang OTP, instances can be organized in a supervision hierarchy:
    [Worker instances for each project]
 ```
 
+Auto-expansion at 16 children per node. Three restart strategies: one-for-one, one-for-all, rest-for-one.
+
 ---
 
 ## Features
 
-### Phase 1: Core Functionality (Current)
+### Instance Management
+- **Lifecycle Control**: Create, terminate, restart, fork, hibernate instances
+- **Multi-Provider**: Claude, Gemini, Codex, Copilot with automatic failover and model discovery
+- **Hierarchical**: Parent-child relationships with configurable termination policies (terminate-children, orphan-children, reparent-to-root)
+- **Context Inheritance**: Children inherit working directory, environment, YOLO mode, agent settings
+- **State Machine**: idle, busy, waiting, error, hibernated, initializing, waking states
 
-#### Instance Management
-- [x] **Lifecycle Control**: Create, terminate, and restart Claude instances.
-- [x] **List View**: Sortable and filterable list of active instances.
-- [x] **Detailed Inspection**: Deep dive into individual instance state and history.
+### Visual Feedback
+- **Status Indicators**: Color-coded states (idle/busy/waiting/error/hibernated)
+- **Context Metrics**: Visual token usage bar with budget tracking
+- **Output Streaming**: Low-latency rendering with incremental display item processing
+- **Virtual Scroll**: CDK-based virtual scrolling for transcript with variable-height rows
+- **Dark/Light Theme**: CSS variable token system with system preference detection
 
-#### Visual Feedback
-- [x] **Status Indicators**: Color-coded states for quick health assessment:
-  - 🟢 **Green** - Idle (Ready for input)
-  - 🔵 **Blue** - Busy (Processing)
-  - 🟡 **Amber** - Waiting (User input required)
-  - 🔴 **Red** - Error (Process failure)
-- [x] **Context Metrics**: Visual bar displaying token usage vs. limits.
-- [x] **Output Streaming**: Low-latency rendering of CLI output.
+### Multi-Agent Coordination
+- **Verification**: Spawns multiple agents to independently verify responses, uses embedding-based semantic clustering
+- **Debate**: Multi-round debates with critique, defense, and synthesis rounds
+- **Consensus**: Voting-based agreement mechanisms across agents
+- **Parallel Worktrees**: Distributed execution across git worktrees
+- **Orchestration Inspectors**: Full UI for monitoring debates, verifications, and training
 
-#### Input/Output
-- [x] **Interactive Console**: Text input with standard command history and execution.
-- [x] **File Integration**: Drag & drop support for file context.
-- [x] **Rich Media**: Clipboard support for images (Cmd+V).
-- [x] **Structured Parsing**: Real-time parsing of JSON output streams.
+### Session Recovery
+- **Auto-Save**: Configurable interval session tracking (default 60s)
+- **Snapshots**: Point-in-time session state capture (max 50, 30-day retention)
+- **History Restore**: Two-phase restore — attempt native CLI `--resume`, fall back to message replay
+- **Checkpoint System**: 14 error patterns with checkpoint create/restore
+- **Session Repair**: Recovery mechanisms for corrupted sessions
+- **Mutex Protection**: Per-instance async mutex for concurrent state safety
 
-#### Native App Experience
-- [x] **macOS Integration**: Native traffic lights and window controls.
-- [x] **Draggable Windows**: Native-feeling window management.
-- [x] **Theming**: Optimized dark mode for prolonged usage.
-- [x] **Visual Polish**: Platform-specific vibrancy effects (macOS).
+### Resource Governance
+- **ResourceGovernor**: Listens to MemoryMonitor — pauses creation on warning, terminates idle on critical, requests GC
+- **HibernationManager**: Auto-hibernation of idle instances with hysteresis cooldown and eviction scoring
+- **PoolManager**: Warm instance pool with configurable size and stale eviction
+- **LoadBalancer**: Weighted scoring (active tasks, context usage, memory pressure) for instance selection
+- **CircuitBreaker**: Restart rate limiting and fault tolerance
+- **Context Compaction**: Native + restart-based compaction strategies with JIT loading
 
-### Phase 2: Hierarchical Instances (Implemented)
+### Input/Output
+- **Interactive Console**: Text input with Enter to send, Shift+Enter newline
+- **File Integration**: Drag & drop support for file context
+- **Rich Media**: Clipboard image paste support
+- **Structured Parsing**: Real-time NDJSON stream parsing
+- **Markdown Cache**: LRU cache (200 entries, 50K max) for rendered markdown
 
-#### Parent-Child Relationships
-- [x] **Spawn Control**: Capability to spawn child instances directly from a parent.
-- [x] **Tree Visualization**: Hierarchical sidebar view representing instance lineage (IPC handlers ready).
-- [x] **Cascade Management**: Configurable termination policies (terminate-children, orphan-children, reparent-to-root).
-- [x] **Context Inheritance**: Option for children to inherit working directory, environment, YOLO mode, and agent settings.
+### Persistence & Export
+- **Session Export**: JSON and Markdown formats
+- **Session Import**: Restore from exported JSON
+- **Instance Forking**: Fork at specific message point
+- **Output Storage**: Gzip-compressed disk persistence, 100-message chunks, 500MB limit
+- **Templates**: Built-in orchestration templates (research team, code review, debate, verification)
 
-#### Supervisor Strategies
-- [x] **One-for-One**: Restart only the specific failed instance.
-- [x] **One-for-All**: Restart the failed instance and all its siblings.
-- [x] **Rest-for-One**: Restart the failed instance and any siblings started after it.
+### Additional Systems
+- **Code Indexing**: Semantic search with embedding-based indexing
+- **Memory System**: Episodic, procedural, semantic memory types with RLM database
+- **Plugin System**: Extensible plugin framework
+- **Workflow Automation**: Multi-step workflow execution
+- **Hook System**: Pre/post execution hooks
+- **Remote Access**: Remote observer server for external monitoring
+- **Security**: Secret detection, path validation, redaction
+- **MCP Integration**: Model Context Protocol support
+- **Training Dashboard**: GRPO training visualization and analytics
 
-#### Phase 2 Implementation Details
-- **New Files Created**:
-  - `src/main/process/supervisor-tree.ts` - Root supervisor with auto-expansion for 10,000+ instances
-  - `src/main/process/supervisor-node.ts` - Individual supervisor nodes with restart strategies
-  - `src/main/process/circuit-breaker.ts` - Resource protection and restart rate limiting
-  - `src/main/ipc/handlers/supervision-handlers.ts` - IPC handlers for supervision tree UI
-
-- **Types Added** (in `supervision.types.ts`):
-  - `TerminationPolicy`: 'terminate-children' | 'orphan-children' | 'reparent-to-root'
-  - `ContextInheritanceConfig`: Working dir, env vars, YOLO mode, agent settings inheritance
-  - `ChildSpawnConfig`: Configuration for spawning child instances
-  - `InstanceHierarchy`: Hierarchical relationship tracking
-  - `HierarchyTreeNode`: Tree view node for UI rendering
-
-- **Instance Fields Added** (in `instance.types.ts`):
-  - `depth`: Position in hierarchy (0 = root)
-  - `workerNodeId`: Worker node ID in supervision tree
-  - `terminationPolicy`: Cascade termination behavior
-  - `contextInheritance`: What settings children inherit
-
-### Phase 3: Cross-Instance Communication (Partially Implemented)
-
-#### Token-Based Messaging
-Instances utilize a capability-based security model to communicate:
-
-```typescript
-export interface CommunicationToken {
-  token: string;
-  targetInstanceId: string;
-  permissions: ('read' | 'write' | 'control')[];
-  expiresAt: number;
-  createdBy: string;
-}
-```
-
-#### Message Topologies
-- **Direct**: Point-to-point communication (Instance A → Instance B).
-- **Broadcast**: One-to-many communication (Parent → All Children).
-- **Pub/Sub**: Topic-based event subscription model.
-
-#### Use Cases
-- **Code Review**: A 'Reviewer' instance monitors and critiques the output of a 'Writer' instance.
-- **Test Runner**: A 'Coordinator' spawns ephemeral child instances for parallel test execution.
-- **Swarm Orchestration**: A 'Supervisor' delegates specialized tasks to a pool of 'Worker' agents.
-
-### Phase 4: Scale & Performance (Planned)
-
-#### Virtualization
-- [x] **List Virtualization**: CDK Virtual Scroll for handling thousands of list items.
-- [ ] **Output Buffering**: Virtualized rendering for massive conversation histories.
-
-#### Optimized State Management
-- [x] **Batched Updates**: 50ms aggregation window for state changes to reduce render cycles.
-- [ ] **Configurable Intervals**: Dynamic batching based on system load.
-- [ ] **Priority Bypass**: Immediate processing for critical events (errors, termination).
-
-#### Resource Governance
-- [ ] **Memory Caps**: Hard limits per instance to prevent OOM.
-- [ ] **CPU Throttling**: Background priority management for non-active instances.
-- [ ] **Hibernation**: Automatic suspension of idle instances to swap.
-- [ ] **Instance Pooling**: Pre-warmed pools for instant spawn times.
-
-### Phase 5: Advanced Features (Planned)
-
-#### Persistence & Continuity
-- [ ] **Session State**: Full serialization and restoration of instance state.
-- [ ] **Export**: JSON/Markdown export of conversation trees.
-- [ ] **Crash Recovery**: Automatic session resumption post-failure.
-
-#### Templating System
-- [ ] **Blueprints**: Pre-configured instance setups (System Prompt + Tools + Env).
-- [ ] **Quick-Start Library**: Built-in templates for common tasks (Review, Test, Doc).
-- [ ] **Per-Instance Customization**: Overridable system prompts and toolsets.
-
-#### Collaborative Features (Nice to Have)
-- [ ] **Shared View**: Read-only mirroring of instance state.
-- [ ] **Multi-User Sync**: Real-time coordination between multiple human operators.
-- [ ] **Handoff Protocols**: Transferring instance ownership between users.
+### Native App Experience
+- **macOS Integration**: Native traffic lights and window controls
+- **Draggable Windows**: Native-feeling window management
+- **Vibrancy Effects**: Platform-specific visual polish
 
 ---
 
@@ -211,7 +175,7 @@ export interface CommunicationToken {
 ├─────────────────────────┤
 │  ● Instance 1      0%   │
 │  ● Instance 2     45%   │
-│  ○ Instance 3     12%   │
+│  ○ Instance 3     12%   │  ← hibernated
 │  ◉ Instance 4     78%   │
 ├─────────────────────────┤
 │  4 instances   32% ctx  │
@@ -223,9 +187,9 @@ export interface CommunicationToken {
 ┌─────────────────────────────────────────────┐
 │  ● Instance 1                               │
 │  Session: abc-123  •  ~/projects/myapp      │
-│  [Restart] [Terminate] [+ Child]            │
+│  [Restart] [Terminate] [Fork] [+ Child]     │
 ├─────────────────────────────────────────────┤
-│  ████████░░░░░░░░░░░░  45,000 / 200,000 (22%)│
+│  ████████░░░░░░░░░░░░  45,000 / 200,000    │
 ├─────────────────────────────────────────────┤
 │                                             │
 │  YOU                              10:30:45  │
@@ -235,10 +199,13 @@ export interface CommunicationToken {
 │  I'll help you refactor that. Let me...     │
 │                                             │
 ├─────────────────────────────────────────────┤
-│  [Send a message to Claude...]        [↑]   │
+│  [Send a message...]                  [↑]   │
 │  Press Enter to send, Shift+Enter new line  │
 └─────────────────────────────────────────────┘
 ```
+
+### Feature Modules (48 total)
+agents, archive, cli-error, codebase, commands, communication, context, cost, dashboard, debate, editor, file-drop, file-explorer, history, hooks, instance-detail, instance-list, logs, lsp, mcp, memory, models, multi-edit, observations, plan, plugins, providers, remote-access, remote-config, replay, review, rlm, routing, security, semantic-search, settings, skills, snapshots, specialists, stats, supervision, tasks, thinking, training, vcs, verification, workflow, worktree
 
 ---
 
@@ -256,15 +223,14 @@ User clicks "New Instance"
 └────────┬────────┘
          │ IPC: instance:create
          ▼
-┌─────────────────┐
-│ Main Process:   │
-│ InstanceManager │
-│ .createInstance │
-└────────┬────────┘
+┌─────────────────┐     ┌─────────────────┐
+│ InstanceManager │────▶│ SessionContinuity│
+│ .createInstance  │     │ .startTracking() │
+└────────┬────────┘     └─────────────────┘
          │ spawn child process
          ▼
 ┌─────────────────┐
-│ Claude CLI      │
+│ CLI Adapter     │  (Claude/Gemini/Codex/Copilot)
 │ --print         │
 │ --stream-json   │
 └────────┬────────┘
@@ -287,12 +253,6 @@ User types message, presses Enter
 │ InputPanel:     │
 │ emit(message)   │
 └────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ InstanceDetail: │
-│ store.sendInput │
-└────────┬────────┘
          │ IPC: instance:send-input
          ▼
 ┌─────────────────┐
@@ -302,7 +262,7 @@ User types message, presses Enter
          │ stdin (JSON)
          ▼
 ┌─────────────────┐
-│ Claude CLI      │
+│ CLI Process     │
 │ processes input │
 └────────┬────────┘
          │ stdout (NDJSON stream)
@@ -314,11 +274,38 @@ User types message, presses Enter
          │ IPC: instance:output
          ▼
 ┌─────────────────┐
-│ Renderer:       │
-│ store updates   │
-│ OutputStream    │
-│ re-renders      │
+│ DisplayItem     │
+│ Processor       │  (incremental append-only)
+│ → virtual scroll│
 └─────────────────┘
+```
+
+### Session Recovery
+
+```
+User clicks "Restore" in history sidebar
+        │
+        ▼
+┌─────────────────┐
+│ HISTORY_RESTORE │  IPC handler (two-phase)
+└────────┬────────┘
+         │
+    Phase 1: Try native CLI --resume
+         │
+    ┌────┴────┐
+    │ Success │────▶ Instance with full context
+    │ Failure │
+    └────┬────┘
+         │
+    Phase 2: Fresh instance + message replay
+         │
+    ┌────┴────────────┐
+    │ FallbackHistory │  Token-budget-aware
+    │ builder         │  message selection
+    └────┬────────────┘
+         │
+         ▼
+    New instance with replay messages + system note
 ```
 
 ---
@@ -353,68 +340,57 @@ claude \
 
 ### Default Limits
 ```typescript
-// From src/shared/constants/limits.ts
 const LIMITS = {
-  MAX_CHILDREN_PER_NODE: 12,
-  MAX_RESTARTS: 5,
-  RESTART_WINDOW_MS: 60000,            // 1 minute
-  OUTPUT_BUFFER_MAX_SIZE: 2000,        // messages per instance
-  OUTPUT_BATCH_INTERVAL_MS: 50,        // batching frequency
+  MAX_CHILDREN_PER_NODE: 12,         // supervisor tree
+  MAX_RESTARTS: 5,                   // circuit breaker
+  RESTART_WINDOW_MS: 60000,          // 1 minute
+  OUTPUT_BUFFER_MAX_SIZE: 2000,      // messages per instance
+  OUTPUT_BATCH_INTERVAL_MS: 50,      // batching frequency
   DEFAULT_MAX_CONTEXT_TOKENS: 200000,
   IPC_TIMEOUT_MS: 30000,
+  MAX_TOTAL_INSTANCES: 50,           // resource governor hard cap
+  MAX_INSTANCE_MEMORY_MB: 512,       // resource governor soft cap
+  IDLE_THRESHOLD_MS: 1800000,        // 30 min hibernation threshold
+  POOL_MAX_SIZE: 5,                  // warm instance pool
+  MARKDOWN_CACHE_SIZE: 200,          // LRU cache entries
+  MAX_SNAPSHOTS: 50,                 // session snapshots
+  SNAPSHOT_RETENTION_DAYS: 30,
 };
 ```
-
-### Per-Instance Settings (Planned)
-- **Model Selection**: Granular control (e.g., `claude-3-opus`, `claude-3-sonnet`).
-- **Token Limits**: Configurable context windows.
-- **System Prompts**: Custom behavioral instructions.
-- **Tool Restrictions**: Allow/Deny lists for tool access.
-- **Environment**: Scoped working directories and environment variables.
 
 ---
 
 ## Error Handling
 
 ### Failure Modes
-- **Launch Failure**: If CLI fails to spawn, instance enters 'Error' state with accessible stderr logs.
-- **Process Crash**: Unexpected termination triggers an 'Error' event with automatic recovery options.
-- **API Errors**: Rate limits or API failures are rendered distinctly in the output stream.
+- **Launch Failure**: CLI fails to spawn — instance enters 'error' state with accessible stderr logs
+- **Process Crash**: Unexpected termination triggers checkpoint save + error event
+- **API Errors**: Rate limits or API failures rendered distinctly in output stream
+- **Stuck Process**: Two-stage timeout detection (busy-too-long → force terminate)
+- **Session Corruption**: Automatic session repair with mutex protection
 
 ### Recovery Strategies
-- **Auto-Restart**: Exponential backoff strategy for transient failures (Planned).
-- **Manual Intervention**: UI controls for immediate restart or termination.
-- **State Restoration**: Resume from last known good checkpoint (Planned).
+- **Auto-Restart**: Supervisor tree with one-for-one, one-for-all, rest-for-one strategies
+- **Circuit Breaker**: Rate-limited restarts to prevent thrashing
+- **Session Continuity**: Auto-save + checkpoint restore
+- **Resource Governor**: Memory pressure detection with automated response (pause creation, terminate idle, request GC)
+- **Doom Loop Detection**: Detects and breaks infinite agent loops
 
 ---
 
 ## Security Considerations
 
 ### Isolation & Sandboxing
-- **Process Isolation**: Each Claude instance runs in a dedicated child process.
-- **Context Bridge**: Renderer communicates with Main process exclusively via secure IPC.
-- **Preload Hardening**: Context isolation enabled, preventing direct Node.js access in the UI.
+- **Process Isolation**: Each CLI instance runs in a dedicated child process
+- **Context Bridge**: Renderer communicates via secure IPC only (460+ validated channels)
+- **Preload Hardening**: Context isolation enabled, no direct Node.js access in UI
+- **Zod Validation**: All IPC payloads validated with runtime schemas
 
 ### Access Control
-- **Tokenized Communication**: Instances require explicit capabilities to interact.
-- **Filesystem Scoping**: Working directories are strictly enforced per instance.
-- **No Direct IO**: Renderer cannot access filesystem directly; all operations go through validated Main process handlers.
-
----
-
-## Future Considerations
-
-### Extended Capabilities
-- **Model Switching**: Dynamic hot-swapping of models during a conversation.
-- **Cost Optimization**: Automated routing of simple tasks to lighter models (e.g., Haiku).
-
-### Ecosystem
-- **Plugin Architecture**: API for custom renderers and third-party tool integrations.
-- **Workflow Automation**: Scriptable sequences of multi-agent interactions.
-
-### Intelligence
-- **Analytics Dashboard**: Comprehensive view of token usage, costs, and performance metrics.
-- **Self-Optimization**: System suggestions for model selection based on task complexity.
+- **Tokenized Communication**: Instances require explicit capabilities to interact
+- **Path Validation**: Filesystem paths validated and scoped per instance
+- **Secret Detection**: Automatic redaction of sensitive content
+- **No Direct IO**: Renderer cannot access filesystem directly
 
 ---
 
@@ -424,25 +400,12 @@ const LIMITS = {
 ```
 claude-orchestrator/
 ├── src/
-│   ├── main/              # Electron Main Process (Node.js)
-│   │   ├── agents/        # Agent management
-│   │   ├── cli/           # Claude CLI Adapter Layer
-│   │   ├── communication/ # Cross-instance communication
-│   │   ├── core/          # Config, health, cost tracking
-│   │   ├── indexing/      # Code indexing and search
-│   │   ├── instance/      # Instance State Management
-│   │   ├── ipc/           # IPC Event Handlers
-│   │   ├── orchestration/ # Multi-agent coordination
-│   │   ├── process/       # Supervisor tree, circuit breaker
-│   │   ├── skills/        # Skills system
-│   │   └── index.ts       # Application Entry Point
-│   ├── preload/           # Secure Context Bridge
-│   ├── renderer/          # Angular 21 Frontend
-│   │   └── app/
-│   │       ├── core/      # Services, Stores, Models
-│   │       └── features/  # Feature Modules (47 feature dirs)
-│   └── shared/            # Shared Interfaces & Types
-├── dist/                  # Compilation Artifacts
+│   ├── main/              # Electron Main Process — 37 domains, 325 files
+│   ├── preload/           # Secure Context Bridge — 5,300 lines
+│   ├── renderer/          # Angular 21 Frontend — 48 features, 262 files
+│   └── shared/            # Types (47), Constants, Validation
+├── docs/plans/            # Architecture docs and benchmarks
+├── benchmarks/            # Performance benchmark harness
 └── package.json
 ```
 
@@ -454,17 +417,8 @@ npm run build:main # Recompile Main Process only
 npm run test       # Run tests (Vitest)
 npm run lint       # ESLint check (ng lint)
 npx tsc --noEmit   # TypeScript compilation check
-
-# Package for macOS (unsigned)
-npm run build && npm run electron:build -- --mac --config.mac.identity=null
 ```
 
 ---
 
-## Version History
-
-- **v0.1.0** - Core functionality, single-instance management
-- **v0.2.0** - Hierarchical instances, parent-child relationships, supervisor tree
-- **v0.3.0** (In Progress) - Cross-instance communication
-- **v0.4.0** (Planned) - Scale optimizations, resource management
-- **v1.0.0** (Planned) - Production ready, full feature set
+Built with Claude Code by James.

@@ -2,12 +2,15 @@
  * SnapshotIndex
  *
  * In-memory index for fast snapshot lookups without disk I/O.
- * Tracks snapshot metadata keyed by id, with secondary index by sessionId.
+ * Tracks snapshot metadata keyed by id, with secondary lookups by
+ * instance id, stable thread id, and native provider session id.
  */
 
 export interface SnapshotMeta {
   id: string;
-  sessionId: string;
+  instanceId: string;
+  sessionId?: string;
+  historyThreadId?: string;
   timestamp: number;
   messageCount: number;
   schemaVersion: number;
@@ -15,7 +18,23 @@ export interface SnapshotMeta {
 
 export class SnapshotIndex {
   private byId = new Map<string, SnapshotMeta>();
-  private bySession = new Map<string, Set<string>>();
+  private byIdentifier = new Map<string, Set<string>>();
+
+  private getLookupKeys(meta: Pick<SnapshotMeta, 'instanceId' | 'sessionId' | 'historyThreadId'>): string[] {
+    const keys = new Set<string>();
+    const addKey = (value: string | undefined): void => {
+      const normalized = value?.trim();
+      if (normalized) {
+        keys.add(normalized);
+      }
+    };
+
+    addKey(meta.instanceId);
+    addKey(meta.historyThreadId);
+    addKey(meta.sessionId);
+
+    return Array.from(keys);
+  }
 
   /**
    * Add or update a snapshot entry.
@@ -23,19 +42,20 @@ export class SnapshotIndex {
   add(meta: SnapshotMeta): void {
     const existing = this.byId.get(meta.id);
 
-    // If updating an entry that changed sessionId, remove from old session index.
-    if (existing && existing.sessionId !== meta.sessionId) {
-      this.removeFromSessionIndex(meta.id, existing.sessionId);
+    if (existing) {
+      this.removeFromIdentifierIndex(meta.id, existing);
     }
 
     this.byId.set(meta.id, meta);
 
-    let sessionSet = this.bySession.get(meta.sessionId);
-    if (!sessionSet) {
-      sessionSet = new Set<string>();
-      this.bySession.set(meta.sessionId, sessionSet);
+    for (const key of this.getLookupKeys(meta)) {
+      let identifierSet = this.byIdentifier.get(key);
+      if (!identifierSet) {
+        identifierSet = new Set<string>();
+        this.byIdentifier.set(key, identifierSet);
+      }
+      identifierSet.add(meta.id);
     }
-    sessionSet.add(meta.id);
   }
 
   /**
@@ -45,7 +65,7 @@ export class SnapshotIndex {
     const meta = this.byId.get(id);
     if (!meta) return;
 
-    this.removeFromSessionIndex(id, meta.sessionId);
+    this.removeFromIdentifierIndex(id, meta);
     this.byId.delete(id);
   }
 
@@ -57,15 +77,27 @@ export class SnapshotIndex {
   }
 
   /**
-   * List all snapshots for a session, sorted by timestamp descending (newest first).
+   * List all snapshots for a specific instance, thread, or native session id,
+   * sorted by timestamp descending (newest first).
    */
-  listForSession(sessionId: string): SnapshotMeta[] {
-    const ids = this.bySession.get(sessionId);
+  listForIdentifier(identifier: string): SnapshotMeta[] {
+    const normalized = identifier.trim();
+    if (!normalized) return [];
+
+    const ids = this.byIdentifier.get(normalized);
     if (!ids || ids.size === 0) return [];
 
     return Array.from(ids)
       .map(id => this.byId.get(id)!)
       .sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  /**
+   * Backward-compatible alias retained for callers that still pass a
+   * session-like identifier.
+   */
+  listForSession(sessionId: string): SnapshotMeta[] {
+    return this.listForIdentifier(sessionId);
   }
 
   /**
@@ -91,7 +123,7 @@ export class SnapshotIndex {
    * Returns them sorted oldest-first (the ones that should be removed first).
    */
   getExcessForSession(sessionId: string, maxCount: number): SnapshotMeta[] {
-    const sorted = this.listForSession(sessionId); // newest first
+    const sorted = this.listForIdentifier(sessionId); // newest first
     if (sorted.length <= maxCount) return [];
 
     // Entries beyond the newest maxCount are excess; return oldest first.
@@ -105,12 +137,14 @@ export class SnapshotIndex {
     return this.byId.size;
   }
 
-  private removeFromSessionIndex(id: string, sessionId: string): void {
-    const sessionSet = this.bySession.get(sessionId);
-    if (sessionSet) {
-      sessionSet.delete(id);
-      if (sessionSet.size === 0) {
-        this.bySession.delete(sessionId);
+  private removeFromIdentifierIndex(id: string, meta: Pick<SnapshotMeta, 'instanceId' | 'sessionId' | 'historyThreadId'>): void {
+    for (const key of this.getLookupKeys(meta)) {
+      const identifierSet = this.byIdentifier.get(key);
+      if (identifierSet) {
+        identifierSet.delete(id);
+        if (identifierSet.size === 0) {
+          this.byIdentifier.delete(key);
+        }
       }
     }
   }

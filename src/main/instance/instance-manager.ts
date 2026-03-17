@@ -180,12 +180,18 @@ export class InstanceManager extends EventEmitter {
       const instance = this.state.getInstance(instanceId);
       if (instance) {
         const secs = Math.round(elapsedMs / 1000);
-        this.communication.addToOutputBuffer(instance, {
+        const warningMessage: OutputMessage = {
           id: `stuck-warn-${Date.now()}`,
           type: 'system',
           content: `Instance may be stuck — no output for ${secs}s. Will auto-restart if unresponsive.`,
           timestamp: Date.now(),
-        });
+          metadata: {
+            watchdogWarning: true,
+            elapsedMs,
+          },
+        };
+        this.communication.addToOutputBuffer(instance, warningMessage);
+        this.emit('instance:output', { instanceId, message: warningMessage });
       }
     });
     this.stuckDetector.on('process:stuck', ({ instanceId }) => {

@@ -255,6 +255,60 @@ describe('InstanceCommunicationManager', () => {
     expect(instance.diffStats).toEqual(diffStats);
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'idle', instance.contextUsage, diffStats);
   });
+
+  it('does not count local system messages as process output', () => {
+    const onOutput = vi.fn();
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onOutput,
+    });
+
+    manager.addToOutputBuffer(instance, createMessage('system', 'Internal warning'));
+    expect(onOutput).not.toHaveBeenCalled();
+
+    manager.addToOutputBuffer(instance, createMessage('assistant', 'Real adapter output'), {
+      countAsProcessOutput: true,
+    });
+    expect(onOutput).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('resets tool state to idle when adapter becomes ready for input', () => {
+    const onToolStateChange = vi.fn();
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'busy';
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      onToolStateChange,
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'waiting_for_input');
+
+    expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
+  });
 });
 
 describe('tool result deduplication', () => {

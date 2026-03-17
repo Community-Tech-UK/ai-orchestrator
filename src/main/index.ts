@@ -88,12 +88,14 @@ class AIOrchestratorApp {
           const hibernation = getHibernationManager();
           hibernation.start();
           hibernation.on('check-idle', () => {
+            // Only consider child instances — root (user-created) instances
+            // should never be auto-terminated from here.
             const instances = this.instanceManager.getAllInstances()
-              .filter((i: { status: string }) => i.status === 'idle')
-              .map((i: { id: string; status: string; lastActivity: number }) => ({ id: i.id, status: i.status, lastActivity: i.lastActivity }));
+              .filter((i) => i.status === 'idle' && i.parentId)
+              .map((i) => ({ id: i.id, status: i.status, lastActivity: i.lastActivity }));
             const candidates = hibernation.getHibernationCandidates(instances);
             for (const candidate of candidates) {
-              this.instanceManager.terminateInstance(candidate.id, true).catch(err => logger.warn('Failed to terminate instance', { error: err instanceof Error ? err.message : String(err) }));
+              this.instanceManager.terminateInstance(candidate.id, true).catch(err => logger.warn('Failed to terminate idle child instance', { error: err instanceof Error ? err.message : String(err) }));
             }
           });
         } },

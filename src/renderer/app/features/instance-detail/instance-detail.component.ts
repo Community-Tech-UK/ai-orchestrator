@@ -1080,9 +1080,13 @@ export class InstanceDetailComponent {
       provider,
       model
     );
-    this.isCreatingInstance.set(false);
 
     if (!launched) {
+      // Only reset on failure — on success, the effect (which watches
+      // instance()) resets isCreatingInstance once the instance:created
+      // event arrives.  Resetting eagerly here races with that event and
+      // can briefly flash back to the welcome view.
+      this.isCreatingInstance.set(false);
       return;
     }
 

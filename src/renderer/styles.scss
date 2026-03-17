@@ -848,17 +848,17 @@ select {
   }
 }
 
-// User message links - need to be visible on orange background
+// User message links - bright on dark bubble background
 .message-user .markdown-content a {
-  color: #1a1a1a;
+  color: #7db8e0;
   text-decoration: underline;
-  font-weight: 600;
+  font-weight: 500;
   border-bottom: none;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.1);
+    color: #a5d0f0;
+    background: rgba(125, 184, 224, 0.1);
     border-radius: 2px;
-    color: #1a1a1a;
   }
 }
 
@@ -1459,7 +1459,6 @@ app-output-stream .message {
 app-output-stream .message-user {
   margin-left: auto;
   margin-right: 0;
-  background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.96), rgba(245, 222, 173, 0.92));
 }
 
 app-output-stream .message-assistant {

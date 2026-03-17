@@ -938,6 +938,34 @@ describe('InstanceManager', () => {
 
       expect(handler).toHaveBeenCalledTimes(1);
     });
+
+    it('forwards stuck-process warnings as instance output events', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Stuck Warning Test',
+      });
+
+      const handler = vi.fn();
+      manager.on('instance:output', handler);
+
+      const stuckDetector = (manager as unknown as { stuckDetector: EventEmitter }).stuckDetector;
+      stuckDetector.emit('process:suspect-stuck', {
+        instanceId: instance.id,
+        elapsedMs: 300_000,
+      });
+
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({
+        instanceId: instance.id,
+        message: expect.objectContaining({
+          type: 'system',
+          content: 'Instance may be stuck — no output for 300s. Will auto-restart if unresponsive.',
+          metadata: expect.objectContaining({
+            watchdogWarning: true,
+            elapsedMs: 300_000,
+          }),
+        }),
+      }));
+    });
   });
 
   // =========================================================================
