@@ -2,13 +2,21 @@
  * Window Manager - Creates and manages Electron windows
  */
 
+import { execFile } from 'child_process';
+import * as fs from 'fs';
 import { app, BrowserWindow, screen, Menu, Notification, shell, clipboard, nativeImage } from 'electron';
 import * as path from 'path';
 import { IPC_CHANNELS } from '../shared/types/ipc.types';
+import { getLogger } from './logging/logger';
+
+const logger = getLogger('WindowManager');
+const SAMPLE_DURATION_SECONDS = 5;
+const SAMPLE_INTERVAL_MS = 10;
 
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
   private isDev: boolean;
+  private sampleCaptureInFlight = new Set<number>();
 
   constructor() {
     this.isDev = process.env['NODE_ENV'] === 'development' || !app.isPackaged;
@@ -56,6 +64,8 @@ export class WindowManager {
         devTools: true // Always enable devtools for debugging
       }
     });
+
+    this.attachWindowDiagnostics(this.mainWindow);
 
     // Remove menu bar entirely on Windows/Linux for cleaner look
     if (!isMac) {
@@ -137,6 +147,142 @@ export class WindowManager {
     });
 
     return this.mainWindow;
+  }
+
+  private attachWindowDiagnostics(window: BrowserWindow): void {
+    window.on('unresponsive', () => {
+      const diagnostics = this.getWindowDiagnostics(window);
+      logger.error('Main window became unresponsive', undefined, diagnostics);
+      void this.captureWindowSample(window, diagnostics);
+    });
+
+    window.on('responsive', () => {
+      logger.info('Main window became responsive again', this.getWindowDiagnostics(window));
+    });
+
+    window.webContents.on('render-process-gone', (_event, details) => {
+      logger.error('Renderer process exited unexpectedly', undefined, {
+        ...this.getWindowDiagnostics(window),
+        reason: details.reason,
+        exitCode: details.exitCode,
+      });
+    });
+
+    window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      logger.error('Window failed to load content', undefined, {
+        ...this.getWindowDiagnostics(window),
+        errorCode,
+        errorDescription,
+        validatedURL,
+        isMainFrame,
+      });
+    });
+  }
+
+  private getWindowDiagnostics(window: BrowserWindow): Record<string, unknown> {
+    const webContents = window.webContents;
+    let rendererPid: number | null = null;
+
+    try {
+      rendererPid = webContents.getOSProcessId();
+    } catch {
+      rendererPid = null;
+    }
+
+    return {
+      windowId: window.id,
+      rendererPid,
+      url: webContents.getURL(),
+      isVisible: window.isVisible(),
+      isFocused: window.isFocused(),
+      bounds: window.getBounds(),
+    };
+  }
+
+  private async captureWindowSample(
+    window: BrowserWindow,
+    diagnostics: Record<string, unknown>
+  ): Promise<void> {
+    if (process.platform !== 'darwin') {
+      return;
+    }
+
+    const { rendererPid, windowId } = diagnostics;
+    if (typeof rendererPid !== 'number' || rendererPid <= 0) {
+      logger.warn('Skipping sample capture because renderer pid is unavailable', diagnostics);
+      return;
+    }
+
+    if (this.sampleCaptureInFlight.has(window.id)) {
+      logger.debug('Sample capture already in progress for window', {
+        windowId,
+        rendererPid,
+      });
+      return;
+    }
+
+    const samplePath = this.getWindowSamplePath(window.id, rendererPid);
+    this.sampleCaptureInFlight.add(window.id);
+
+    try {
+      await fs.promises.mkdir(path.dirname(samplePath), { recursive: true });
+
+      logger.warn('Capturing renderer sample for unresponsive window', {
+        windowId,
+        rendererPid,
+        samplePath,
+        durationSeconds: SAMPLE_DURATION_SECONDS,
+        samplingIntervalMs: SAMPLE_INTERVAL_MS,
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'sample',
+          [
+            String(rendererPid),
+            String(SAMPLE_DURATION_SECONDS),
+            String(SAMPLE_INTERVAL_MS),
+            '-mayDie',
+            '-file',
+            samplePath,
+          ],
+          (error) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          }
+        );
+      });
+
+      logger.warn('Captured renderer sample for unresponsive window', {
+        windowId,
+        rendererPid,
+        samplePath,
+      });
+    } catch (error) {
+      logger.error(
+        'Failed to capture renderer sample for unresponsive window',
+        error instanceof Error ? error : undefined,
+        {
+          windowId,
+          rendererPid,
+          samplePath,
+        }
+      );
+    } finally {
+      this.sampleCaptureInFlight.delete(window.id);
+    }
+  }
+
+  private getWindowSamplePath(windowId: number, rendererPid: number): string {
+    return path.join(
+      app.getPath('userData'),
+      'diagnostics',
+      'samples',
+      `window-${windowId}-renderer-${rendererPid}-${Date.now()}.sample.txt`
+    );
   }
 
   private createMacMenu(): void {

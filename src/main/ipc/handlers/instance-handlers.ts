@@ -6,6 +6,8 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { generateId } from '../../../shared/utils/id-generator';
+import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import {
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
@@ -34,13 +36,33 @@ const logger = getLogger('InstanceHandlers');
 /**
  * Serialize instance for IPC response
  */
-function serializeInstance(instance: any): Record<string, unknown> {
+function serializeInstance(
+  instance: object & { communicationTokens?: unknown }
+): Record<string, unknown> {
   return {
     ...instance,
     communicationTokens:
       instance.communicationTokens instanceof Map
         ? Object.fromEntries(instance.communicationTokens)
         : instance.communicationTokens
+  };
+}
+
+function createInitialUserMessage(
+  message: string,
+  attachments?: FileAttachment[]
+): OutputMessage {
+  return {
+    id: generateId(),
+    timestamp: Date.now(),
+    type: 'user',
+    content: message,
+    attachments: attachments?.map((attachment) => ({
+      name: attachment.name,
+      type: attachment.type,
+      size: attachment.size,
+      data: attachment.data,
+    })),
   };
 }
 
@@ -136,10 +158,13 @@ export function registerInstanceHandlers(deps: {
           }
         }
 
+        const attachments = validated.attachments as FileAttachment[] | undefined;
+
         const instance = await instanceManager.createInstance({
           workingDirectory,
           initialPrompt: validated.message,
-          attachments: validated.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
+          attachments,
+          initialOutputBuffer: [createInitialUserMessage(validated.message, attachments)],
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model
         });

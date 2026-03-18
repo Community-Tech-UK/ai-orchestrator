@@ -35,6 +35,68 @@ import { getLoadBalancer } from './process/load-balancer';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 
 const logger = getLogger('App');
+const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
+const MAIN_PROCESS_STALL_THRESHOLD_MS = 2000;
+
+let runtimeDiagnosticsInstalled = false;
+
+function roundMegabytes(bytes: number): number {
+  return Math.round((bytes / (1024 * 1024)) * 10) / 10;
+}
+
+function installRuntimeDiagnostics(): void {
+  if (runtimeDiagnosticsInstalled) {
+    return;
+  }
+
+  runtimeDiagnosticsInstalled = true;
+
+  app.on('child-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit') {
+      return;
+    }
+
+    const detailRecord = details as unknown as Record<string, unknown>;
+    logger.error('Electron child process exited unexpectedly', undefined, {
+      type: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode,
+      name: detailRecord['name'],
+      serviceName: detailRecord['serviceName'],
+    });
+  });
+
+  process.on('warning', (warning) => {
+    logger.warn('Process warning emitted', {
+      name: warning.name,
+      message: warning.message,
+      stack: warning.stack,
+    });
+  });
+
+  let lastTick = Date.now();
+  const timer = setInterval(() => {
+    const now = Date.now();
+    const stallMs = now - lastTick - MAIN_PROCESS_MONITOR_INTERVAL_MS;
+    lastTick = now;
+
+    if (stallMs < MAIN_PROCESS_STALL_THRESHOLD_MS) {
+      return;
+    }
+
+    const memory = process.memoryUsage();
+    logger.warn('Main process event loop stall detected', {
+      stallMs,
+      windowCount: BrowserWindow.getAllWindows().length,
+      rssMB: roundMegabytes(memory.rss),
+      heapUsedMB: roundMegabytes(memory.heapUsed),
+      heapTotalMB: roundMegabytes(memory.heapTotal),
+      externalMB: roundMegabytes(memory.external),
+      arrayBuffersMB: roundMegabytes(memory.arrayBuffers),
+    });
+  }, MAIN_PROCESS_MONITOR_INTERVAL_MS);
+  timer.unref();
+}
 
 class AIOrchestratorApp {
   private windowManager: WindowManager;
@@ -60,6 +122,7 @@ class AIOrchestratorApp {
 
       const steps: { name: string; fn: () => Promise<void> | void }[] = [
         { name: 'IPC handlers', fn: () => this.ipcHandler.registerHandlers() },
+        { name: 'Runtime diagnostics', fn: () => installRuntimeDiagnostics() },
         { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
         {
           name: 'Remote observer',

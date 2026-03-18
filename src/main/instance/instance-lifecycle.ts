@@ -193,6 +193,49 @@ export class InstanceLifecycleManager extends EventEmitter {
     return this.buildReplayContinuityMessage(instance, reason);
   }
 
+  private getSeededInitialUserMessage(config: InstanceCreateConfig): OutputMessage | undefined {
+    const outputBuffer = config.initialOutputBuffer;
+    if (!outputBuffer || outputBuffer.length === 0) {
+      return undefined;
+    }
+
+    const lastMessage = outputBuffer[outputBuffer.length - 1];
+    const expectedAttachmentCount = config.attachments?.length ?? 0;
+    const actualAttachmentCount = lastMessage.attachments?.length ?? 0;
+
+    if (
+      lastMessage.type === 'user'
+      && lastMessage.content === (config.initialPrompt ?? '')
+      && actualAttachmentCount === expectedAttachmentCount
+    ) {
+      return lastMessage;
+    }
+
+    return undefined;
+  }
+
+  private createInitialUserMessage(config: InstanceCreateConfig): OutputMessage | undefined {
+    const hasText = typeof config.initialPrompt === 'string' && config.initialPrompt.length > 0;
+    const hasAttachments = Boolean(config.attachments?.length);
+
+    if (!hasText && !hasAttachments) {
+      return undefined;
+    }
+
+    return {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'user',
+      content: config.initialPrompt ?? '',
+      attachments: config.attachments?.map((attachment) => ({
+        name: attachment.name,
+        type: attachment.type,
+        size: attachment.size,
+        data: attachment.data,
+      })),
+    };
+  }
+
   private async waitForResumeHealth(
     instanceId: string,
     timeoutMs = 5000,
@@ -445,6 +488,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     // rejection. The error is still observable via sendInput().
     const backgroundInit = (async () => {
       const { signal } = abortController;
+      const seededInitialUserMessage = this.getSeededInitialUserMessage(config);
+      const initialUserMessage =
+        seededInitialUserMessage ?? this.createInitialUserMessage(config);
       try {
         if (signal.aborted) return;
 
@@ -625,23 +671,13 @@ export class InstanceLifecycleManager extends EventEmitter {
           logger.info('Warm-start instance ready', { instanceId: instance.id });
 
           // Send initial prompt if provided.
-          if (config.initialPrompt) {
-            const userMessage = {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'user' as const,
-              content: config.initialPrompt,
-              attachments: config.attachments?.map((a) => ({
-                name: a.name,
-                type: a.type,
-                size: a.size,
-                data: a.data
-              }))
-            };
-            this.deps.addToOutputBuffer(instance, userMessage);
-            this.emit('output', { instanceId: instance.id, message: userMessage });
+          if (initialUserMessage) {
+            if (!seededInitialUserMessage) {
+              this.deps.addToOutputBuffer(instance, initialUserMessage);
+              this.emit('output', { instanceId: instance.id, message: initialUserMessage });
+            }
             try {
-              await adapter.sendInput(config.initialPrompt, config.attachments);
+              await adapter.sendInput(initialUserMessage.content, config.attachments);
             } catch (error) {
               instance.status = 'failed';
               const errorMessage = error instanceof Error ? error.message : String(error);
@@ -694,22 +730,12 @@ export class InstanceLifecycleManager extends EventEmitter {
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
             // Send initial prompt if provided
-            if (config.initialPrompt) {
-              const userMessage = {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'user' as const,
-                content: config.initialPrompt,
-                attachments: config.attachments?.map((a) => ({
-                  name: a.name,
-                  type: a.type,
-                  size: a.size,
-                  data: a.data
-                }))
-              };
-              this.deps.addToOutputBuffer(instance, userMessage);
-              this.emit('output', { instanceId: instance.id, message: userMessage });
-              await adapter.sendInput(config.initialPrompt, config.attachments);
+            if (initialUserMessage) {
+              if (!seededInitialUserMessage) {
+                this.deps.addToOutputBuffer(instance, initialUserMessage);
+                this.emit('output', { instanceId: instance.id, message: initialUserMessage });
+              }
+              await adapter.sendInput(initialUserMessage.content, config.attachments);
             }
           } catch (error) {
             instance.status = 'failed';
