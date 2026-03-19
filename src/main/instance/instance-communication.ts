@@ -55,6 +55,7 @@ interface CircuitBreakerState {
 }
 
 const logger = getLogger('InstanceCommunication');
+const RESPONSE_PREVIEW_LENGTH = 120;
 
 const CIRCUIT_BREAKER_CONFIG = {
   maxConsecutiveEmpty: 3,          // Trip after 3 consecutive empty responses
@@ -62,6 +63,30 @@ const CIRCUIT_BREAKER_CONFIG = {
   resetTimeoutMs: 30000,           // Reset circuit after 30s
   cooldownMs: 5000                 // Wait 5s before allowing retry after trip
 };
+
+function summarizeLogText(value: string, maxLength = RESPONSE_PREVIEW_LENGTH): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
+}
+
+function summarizeInputResponse(response: string, permissionKey?: string): Record<string, unknown> {
+  const normalized = response.trim().toLowerCase();
+  return {
+    responseLength: response.length,
+    responsePreview: summarizeLogText(response),
+    isPermissionApproval: normalized.includes('permission granted')
+      || normalized.includes('allow')
+      || normalized.startsWith('y'),
+    isPermissionDenial: normalized.includes('permission denied')
+      || normalized.includes('do not perform')
+      || normalized.startsWith('n'),
+    permissionKey: permissionKey ?? null,
+  };
+}
 
 export class InstanceCommunicationManager extends EventEmitter {
   private settings = getSettingsManager();
@@ -358,10 +383,10 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     instance.lastActivity = Date.now();
 
-    logger.info('Sending input response', { instanceId, response });
-    if (permissionKey) {
-      logger.info('Using permission key', { instanceId, permissionKey });
-    }
+    logger.info('Sending input response', {
+      instanceId,
+      ...summarizeInputResponse(response, permissionKey),
+    });
 
     const capabilities = this.getAdapterRuntimeCapabilities(adapter);
     if (!capabilities.supportsPermissionPrompts) {

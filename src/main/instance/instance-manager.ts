@@ -50,6 +50,48 @@ import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 
 const logger = getLogger('InstanceManager');
+const LOG_PREVIEW_LENGTH = 160;
+
+function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
+}
+
+function summarizeInputRequiredPayload(payload: {
+  instanceId: string;
+  requestId: string;
+  prompt: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const metadata = payload.metadata ?? {};
+  return {
+    instanceId: payload.instanceId,
+    requestId: payload.requestId,
+    timestamp: payload.timestamp,
+    promptLength: payload.prompt.length,
+    promptPreview: summarizeLogText(payload.prompt),
+    metadataType: typeof metadata['type'] === 'string' ? metadata['type'] : undefined,
+    approvalTraceId: typeof metadata['approvalTraceId'] === 'string'
+      ? metadata['approvalTraceId']
+      : undefined,
+    action: typeof metadata['action'] === 'string' ? metadata['action'] : undefined,
+    path: typeof metadata['path'] === 'string'
+      ? summarizeLogText(metadata['path'])
+      : undefined,
+    permissionKey: typeof metadata['permissionKey'] === 'string'
+      ? metadata['permissionKey']
+      : undefined,
+  };
+}
 
 export class InstanceManager extends EventEmitter {
   // Sub-managers
@@ -257,7 +299,7 @@ export class InstanceManager extends EventEmitter {
     // Communication events
     this.communication.on('output', (payload) => this.emit('instance:output', payload));
     this.communication.on('input-required', (payload) => {
-      logger.info('Input-required event received', { payload });
+      logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.handleInputRequired(payload);
     });
 

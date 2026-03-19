@@ -82,6 +82,166 @@ const DEFAULT_CONFIG: LoggerConfig = {
   maxFiles: 5,
 };
 
+const MAX_LOG_MESSAGE_LENGTH = 2048;
+const MAX_LOG_STRING_LENGTH = 4096;
+const MAX_LOG_STACK_LENGTH = 8192;
+const MAX_LOG_OBJECT_DEPTH = 4;
+const MAX_LOG_OBJECT_KEYS = 40;
+const MAX_LOG_ARRAY_ITEMS = 25;
+
+function truncateLogString(value: string, maxLength = MAX_LOG_STRING_LENGTH): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}... [truncated ${value.length - maxLength} chars]`;
+}
+
+function summarizeObject(value: object): string {
+  const constructorName = value.constructor?.name;
+  return constructorName ? `[${constructorName}]` : '[Object]';
+}
+
+function sanitizeLogValue(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>()
+): unknown {
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return truncateLogString(value);
+  }
+
+  if (typeof value === 'bigint') {
+    return `${value}n`;
+  }
+
+  if (typeof value === 'symbol') {
+    return value.toString();
+  }
+
+  if (typeof value === 'function') {
+    return `[Function ${value.name || 'anonymous'}]`;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
+  }
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: truncateLogString(value.message),
+      stack: value.stack ? truncateLogString(value.stack, MAX_LOG_STACK_LENGTH) : undefined,
+    };
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return {
+      type: 'Buffer',
+      length: value.length,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    if (depth >= MAX_LOG_OBJECT_DEPTH) {
+      return `[Array(${value.length})]`;
+    }
+
+    const items = value
+      .slice(0, MAX_LOG_ARRAY_ITEMS)
+      .map((item) => sanitizeLogValue(item, depth + 1, seen));
+
+    if (value.length > MAX_LOG_ARRAY_ITEMS) {
+      items.push(`[+${value.length - MAX_LOG_ARRAY_ITEMS} more items]`);
+    }
+
+    return items;
+  }
+
+  if (value instanceof Map) {
+    if (depth >= MAX_LOG_OBJECT_DEPTH) {
+      return `[Map(${value.size})]`;
+    }
+
+    const entries = Array.from(value.entries()).slice(0, MAX_LOG_ARRAY_ITEMS).map(([key, entryValue]) => ({
+      key: sanitizeLogValue(key, depth + 1, seen),
+      value: sanitizeLogValue(entryValue, depth + 1, seen),
+    }));
+
+    if (value.size > MAX_LOG_ARRAY_ITEMS) {
+      entries.push({ key: '__truncatedEntries', value: value.size - MAX_LOG_ARRAY_ITEMS });
+    }
+
+    return entries;
+  }
+
+  if (value instanceof Set) {
+    if (depth >= MAX_LOG_OBJECT_DEPTH) {
+      return `[Set(${value.size})]`;
+    }
+
+    const entries = Array.from(value.values())
+      .slice(0, MAX_LOG_ARRAY_ITEMS)
+      .map((entryValue) => sanitizeLogValue(entryValue, depth + 1, seen));
+
+    if (value.size > MAX_LOG_ARRAY_ITEMS) {
+      entries.push(`[+${value.size - MAX_LOG_ARRAY_ITEMS} more items]`);
+    }
+
+    return entries;
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) {
+      return '[Circular]';
+    }
+
+    if (depth >= MAX_LOG_OBJECT_DEPTH) {
+      return summarizeObject(value);
+    }
+
+    seen.add(value);
+    try {
+      const keys = Object.keys(value);
+      const sanitized: Record<string, unknown> = {};
+
+      for (const key of keys.slice(0, MAX_LOG_OBJECT_KEYS)) {
+        try {
+          sanitized[key] = sanitizeLogValue(
+            (value as Record<string, unknown>)[key],
+            depth + 1,
+            seen
+          );
+        } catch (error) {
+          sanitized[key] = `[Thrown during logging: ${error instanceof Error ? error.message : String(error)}]`;
+        }
+      }
+
+      if (keys.length > MAX_LOG_OBJECT_KEYS) {
+        sanitized['__truncatedKeys'] = keys.length - MAX_LOG_OBJECT_KEYS;
+      }
+
+      return sanitized;
+    } finally {
+      seen.delete(value);
+    }
+  }
+
+  return String(value);
+}
+
+function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!data) {
+    return undefined;
+  }
+
+  return sanitizeLogValue(data) as Record<string, unknown>;
+}
+
 /**
  * Subsystem logger - provides logging for a specific subsystem
  */
@@ -154,7 +314,7 @@ export class ContextualLogger extends SubsystemLogger {
  */
 export class LogManager extends EventEmitter {
   private config: LoggerConfig;
-  private loggers: Map<string, SubsystemLogger> = new Map();
+  private loggers = new Map<string, SubsystemLogger>();
   private logBuffer: LogEntry[] = [];
   private maxBufferSize = 10000;
   private logFile: string;
@@ -225,8 +385,8 @@ export class LogManager extends EventEmitter {
       timestamp: Date.now(),
       level,
       subsystem,
-      message,
-      data,
+      message: truncateLogString(message, MAX_LOG_MESSAGE_LENGTH),
+      data: sanitizeLogData(data),
       context,
     };
 
@@ -250,13 +410,13 @@ export class LogManager extends EventEmitter {
       timestamp: Date.now(),
       level,
       subsystem,
-      message,
-      data,
+      message: truncateLogString(message, MAX_LOG_MESSAGE_LENGTH),
+      data: sanitizeLogData(data),
       context,
       error: error ? {
         name: error.name,
-        message: error.message,
-        stack: error.stack,
+        message: truncateLogString(error.message, MAX_LOG_MESSAGE_LENGTH),
+        stack: error.stack ? truncateLogString(error.stack, MAX_LOG_STACK_LENGTH) : undefined,
       } : undefined,
     };
 

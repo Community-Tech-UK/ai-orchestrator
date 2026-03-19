@@ -56,11 +56,87 @@ import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 
 const logger = getLogger('InstanceLifecycle');
+const LOG_PREVIEW_LENGTH = 160;
 
 // Tools that require Claude CLI's interactive terminal and auto-deny in --print mode.
 // Always disallow these so Claude doesn't attempt them and misinterpret the auto-denial
 // as user rejection. Claude will ask questions as regular text messages instead.
 const PRINT_MODE_INCOMPATIBLE_TOOLS = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'];
+
+function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
+}
+
+function summarizeAttachments(
+  attachments: InstanceCreateConfig['attachments']
+): Record<string, unknown>[] | undefined {
+  if (!attachments || attachments.length === 0) {
+    return undefined;
+  }
+
+  return attachments.map((attachment) => ({
+    name: summarizeLogText(attachment.name, 80) ?? attachment.name,
+    type: attachment.type,
+    size: attachment.size,
+    dataLength: attachment.data.length,
+  }));
+}
+
+function summarizeInitialOutputBuffer(
+  outputBuffer: OutputMessage[] | undefined
+): Record<string, unknown> | undefined {
+  if (!outputBuffer || outputBuffer.length === 0) {
+    return undefined;
+  }
+
+  const totalContentLength = outputBuffer.reduce((total, message) => total + message.content.length, 0);
+  const totalAttachmentCount = outputBuffer.reduce(
+    (total, message) => total + (message.attachments?.length ?? 0),
+    0
+  );
+
+  return {
+    count: outputBuffer.length,
+    totalContentLength,
+    totalAttachmentCount,
+    recentMessages: outputBuffer.slice(-3).map((message) => ({
+      type: message.type,
+      contentLength: message.content.length,
+      attachmentCount: message.attachments?.length ?? 0,
+      metadataKeys: message.metadata ? Object.keys(message.metadata).slice(0, 8) : undefined,
+    })),
+  };
+}
+
+function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Record<string, unknown> {
+  return {
+    displayName: config.displayName,
+    parentId: config.parentId,
+    historyThreadId: config.historyThreadId,
+    sessionId: config.sessionId,
+    resume: config.resume ?? false,
+    workingDirectory: config.workingDirectory,
+    initialPromptLength: config.initialPrompt?.length ?? 0,
+    initialPromptPreview: summarizeLogText(config.initialPrompt),
+    attachments: summarizeAttachments(config.attachments),
+    yoloMode: config.yoloMode,
+    initialOutputBuffer: summarizeInitialOutputBuffer(config.initialOutputBuffer),
+    agentId: config.agentId,
+    modelOverride: config.modelOverride,
+    provider: config.provider,
+    terminationPolicy: config.terminationPolicy,
+    hasContextInheritanceOverride: Boolean(config.contextInheritance),
+  };
+}
 
 /**
  * Dependencies required by the lifecycle manager
@@ -327,7 +403,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    * done. `sendInput()` awaits this promise before sending any user input.
    */
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
-    logger.info('Creating instance', { config });
+    logger.info('Creating instance', summarizeCreateInstanceConfig(config));
     const sessionId = config.sessionId || generateId();
     const historyThreadId = config.historyThreadId || sessionId;
 
@@ -756,12 +832,21 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // After a successful spawn/warm-start, pre-warm a replacement process in
         // the background for the next createInstance call of the same provider.
-        if (this.deps.warmStartManager) {
+        // Skip this after native resume restores: the spare process only serves
+        // future fresh sessions, but it still expires on a 5 minute timer while
+        // the restored session is idle.
+        if (this.deps.warmStartManager && !config.resume) {
           const wsm = this.deps.warmStartManager;
           const warmProvider = resolvedCliType;
           const warmWorkingDir = config.workingDirectory;
           // Fire and forget — errors are handled inside preWarm.
           void wsm.preWarm(warmProvider, warmWorkingDir);
+        } else if (this.deps.warmStartManager && config.resume) {
+          logger.info('Skipping warm-start replacement after resumed session spawn', {
+            provider: resolvedCliType,
+            instanceId: instance.id,
+            sessionId: instance.sessionId,
+          });
         }
 
         // Register with orchestration handler
