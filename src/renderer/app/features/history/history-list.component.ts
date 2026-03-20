@@ -2,9 +2,11 @@
  * History List Component - Scrollable list of history entries
  */
 
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { HistoryItemComponent } from './history-item.component';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
+
+const INITIAL_DISPLAY_LIMIT = 10;
 
 @Component({
   selector: 'app-history-list',
@@ -31,12 +33,17 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
       </div>
     } @else {
       <div class="history-list">
-        @for (entry of entries(); track entry.id) {
+        @for (entry of visibleEntries(); track entry.id) {
           <app-history-item
             [entry]="entry"
             (selectEntry)="selectEntry.emit($event)"
             (deleteEntry)="deleteEntry.emit($event)"
           />
+        }
+        @if (hasMore()) {
+          <button class="btn-show-more" (click)="expanded.set(true)">
+            Show more
+          </button>
         }
       </div>
     }
@@ -112,12 +119,42 @@ import type { ConversationHistoryEntry } from '../../../../shared/types/history.
       gap: var(--spacing-sm);
       padding: var(--spacing-sm);
     }
+
+    .btn-show-more {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 13px;
+      cursor: pointer;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      text-align: left;
+      transition: color var(--transition-fast);
+
+      &:hover {
+        color: var(--text-primary);
+      }
+    }
   `],
 })
 export class HistoryListComponent {
   entries = input.required<ConversationHistoryEntry[]>();
   loading = input(false);
   searchQuery = input('');
+
+  expanded = signal(false);
+
+  visibleEntries = computed(() => {
+    const all = this.entries();
+    // When searching or expanded, show everything
+    if (this.searchQuery() || this.expanded()) {
+      return all;
+    }
+    return all.slice(0, INITIAL_DISPLAY_LIMIT);
+  });
+
+  hasMore = computed(() => {
+    return !this.searchQuery() && !this.expanded() && this.entries().length > INITIAL_DISPLAY_LIMIT;
+  });
 
   selectEntry = output<ConversationHistoryEntry>();
   deleteEntry = output<ConversationHistoryEntry>();

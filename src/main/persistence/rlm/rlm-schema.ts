@@ -214,6 +214,34 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS reflections;
       DROP TABLE IF EXISTS observations;
     `
+  },
+
+  // Migration 005: Add token stats table
+  {
+    name: '005_add_token_stats_table',
+    up: `
+      CREATE TABLE IF NOT EXISTS token_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        instance_id TEXT NOT NULL,
+        session_id TEXT,
+        tool_type TEXT NOT NULL,
+        token_count INTEGER NOT NULL,
+        char_count INTEGER NOT NULL,
+        truncated INTEGER DEFAULT 0,
+        metadata TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_token_stats_instance ON token_stats(instance_id);
+      CREATE INDEX IF NOT EXISTS idx_token_stats_tool ON token_stats(tool_type);
+      CREATE INDEX IF NOT EXISTS idx_token_stats_time ON token_stats(timestamp);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_token_stats_instance;
+      DROP INDEX IF EXISTS idx_token_stats_tool;
+      DROP INDEX IF EXISTS idx_token_stats_time;
+      DROP TABLE IF EXISTS token_stats;
+    `
   }
 ];
 

@@ -54,6 +54,7 @@ import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } fr
 import { buildFallbackHistoryMessage } from '../session/fallback-history';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
+import { InstanceStateMachine } from './instance-state-machine';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -171,6 +172,10 @@ export interface LifecycleDependencies {
   deleteDiffTracker?: (id: string) => void;
   startStuckTracking?: (instanceId: string) => void;
   stopStuckTracking?: (instanceId: string) => void;
+  /** State machine accessors for soft-validated lifecycle transitions. */
+  getStateMachine?: (instanceId: string) => InstanceStateMachine | undefined;
+  setStateMachine?: (instanceId: string, machine: InstanceStateMachine) => void;
+  deleteStateMachine?: (instanceId: string) => void;
 }
 
 // MCP config file for spawned CLI instances (LSP server, etc.)
@@ -211,6 +216,38 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps = deps;
     this.startIdleCheckTimer();
     this.setupMemoryMonitoring();
+  }
+
+  // ============================================
+  // State Machine Integration
+  // ============================================
+
+  /**
+   * Soft-validated state transition.
+   *
+   * Attempts to transition the instance's state machine to `newState`.
+   * If the transition is invalid, logs a warning but still sets the status
+   * so that existing behaviour is preserved (observability-only, no breakage).
+   * If no state machine exists for the instance, falls back to direct assignment.
+   */
+  private transitionState(instance: Instance, newState: InstanceStatus): void {
+    const sm = this.deps.getStateMachine?.(instance.id);
+    if (!sm) {
+      // Legacy/unknown instance — fall back to direct assignment.
+      instance.status = newState;
+      return;
+    }
+
+    if (sm.canTransition(newState)) {
+      sm.transition(newState);
+    } else {
+      logger.warn('Invalid state transition detected', {
+        instanceId: instance.id,
+        from: sm.current,
+        to: newState,
+      });
+    }
+    instance.status = newState;
   }
 
   private getAdapterRuntimeCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {
@@ -527,6 +564,9 @@ export class InstanceLifecycleManager extends EventEmitter {
     // Store instance so UI renders immediately
     this.deps.setInstance(instance);
 
+    // Initialize state machine for this instance (starts in 'initializing').
+    this.deps.setStateMachine?.(instance.id, new InstanceStateMachine('initializing'));
+
     // If has parent, update parent's children list
     if (instance.parentId) {
       const parent = this.deps.getInstance(instance.parentId);
@@ -741,7 +781,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           }
 
           // The warm adapter is already spawned; mark the instance as idle.
-          instance.status = 'idle';
+          this.transitionState(instance, 'idle');
           this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage);
           this.deps.startStuckTracking?.(instance.id);
           logger.info('Warm-start instance ready', { instanceId: instance.id });
@@ -755,7 +795,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             try {
               await adapter.sendInput(initialUserMessage.content, config.attachments);
             } catch (error) {
-              instance.status = 'failed';
+              this.transitionState(instance, 'failed');
               const errorMessage = error instanceof Error ? error.message : String(error);
               logger.error('Failed to send initial prompt via warm adapter', error instanceof Error ? error : undefined, { errorMessage });
               const errorOutput = {
@@ -800,7 +840,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
 
             instance.processId = pid;
-            instance.status = 'idle';
+            this.transitionState(instance, 'idle');
             this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage);
             this.deps.startStuckTracking?.(instance.id);
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
@@ -814,7 +854,7 @@ export class InstanceLifecycleManager extends EventEmitter {
               await adapter.sendInput(initialUserMessage.content, config.attachments);
             }
           } catch (error) {
-            instance.status = 'failed';
+            this.transitionState(instance, 'failed');
             const errorMessage = error instanceof Error ? error.message : String(error);
             logger.error('Failed to spawn/initialize CLI', error instanceof Error ? error : undefined, { errorMessage });
 
@@ -858,7 +898,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       } catch (error) {
         if (!signal.aborted) {
           if (instance.status !== 'failed') {
-            instance.status = 'failed';
+            this.transitionState(instance, 'failed');
             this.deps.queueUpdate(instance.id, 'failed', instance.contextUsage);
           }
           logger.error('Instance background init failed', error instanceof Error ? error : undefined, { instanceId: instance.id });
@@ -901,6 +941,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     // Always clean up diff tracker, even if adapter is null (e.g., spawn failed)
     this.deps.deleteDiffTracker?.(instanceId);
+    this.deps.deleteStateMachine?.(instanceId);
 
     if (adapter) {
       await adapter.terminate(graceful);
@@ -919,7 +960,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       }
 
-      instance.status = 'terminated';
+      this.transitionState(instance, 'terminated');
       instance.processId = null;
 
       // Remove from parent's children list
@@ -1030,7 +1071,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       );
     }
 
-    instance.status = 'hibernating';
+    this.transitionState(instance, 'hibernating');
     this.deps.queueUpdate(instanceId, 'hibernating', instance.contextUsage);
 
     try {
@@ -1063,11 +1104,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         },
       });
 
-      instance.status = 'hibernated';
+      this.transitionState(instance, 'hibernated');
       this.deps.queueUpdate(instanceId, 'hibernated', instance.contextUsage);
       logger.info('Instance hibernated', { instanceId, displayName: instance.displayName });
     } catch (error) {
-      instance.status = 'failed';
+      this.transitionState(instance, 'failed');
       this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
       logger.error('Failed to hibernate instance', error instanceof Error ? error : undefined, { instanceId });
       throw error;
@@ -1089,7 +1130,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       );
     }
 
-    instance.status = 'waking';
+    this.transitionState(instance, 'waking');
     this.deps.queueUpdate(instanceId, 'waking', instance.contextUsage);
 
     const abortController = new AbortController();
@@ -1249,11 +1290,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         // Remove from HibernationManager tracking.
         getHibernationManager().markAwoken(instanceId);
 
-        instance.status = 'ready';
+        this.transitionState(instance, 'ready');
         this.deps.queueUpdate(instanceId, 'ready', instance.contextUsage);
         logger.info('Instance woken successfully', { instanceId, pid });
       } catch (error) {
-        instance.status = 'failed';
+        this.transitionState(instance, 'failed');
         this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
         logger.error('Failed to wake instance', error instanceof Error ? error : undefined, { instanceId });
         throw error;
@@ -1326,16 +1367,16 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     // Spawn new process
-    instance.status = 'initializing';
+    this.transitionState(instance, 'initializing');
     instance.restartCount++;
 
     try {
       const pid = await adapter.spawn();
       instance.processId = pid;
-      instance.status = 'idle';
+      this.transitionState(instance, 'idle');
       this.deps.startStuckTracking?.(instanceId);
     } catch (error) {
-      instance.status = 'error';
+      this.transitionState(instance, 'error');
       logger.error('Failed to restart CLI', error instanceof Error ? error : undefined, { instanceId });
     }
 
@@ -1390,7 +1431,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       // Update instance with new agent
       instance.agentId = newAgentId;
       instance.agentMode = newAgent.mode;
-      instance.status = 'initializing';
+      this.transitionState(instance, 'initializing');
 
       // If leaving plan mode, reset plan mode state
       if (instance.planMode.enabled && newAgent.mode !== 'plan') {
@@ -1467,7 +1508,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
 
         instance.processId = pid;
-        instance.status = 'idle';
+        this.transitionState(instance, 'idle');
         logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid, resumed: shouldResume });
 
         if (!shouldResume && hasConversation) {
@@ -1490,7 +1531,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         }
         await adapter.sendInput(modeChangeMessage);
       } catch (error) {
-        instance.status = 'error';
+        this.transitionState(instance, 'error');
         logger.error('Failed to change agent mode', error instanceof Error ? error : undefined, { instanceId, newAgentId });
         throw error;
       }
@@ -1560,7 +1601,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }
 
       instance.yoloMode = newYoloMode;
-      instance.status = 'initializing';
+      this.transitionState(instance, 'initializing');
 
       if (newYoloMode) {
         logger.warn('YOLO mode enabled for instance', {
@@ -1648,7 +1689,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         }
 
         instance.processId = pid;
-        instance.status = 'idle';
+        this.transitionState(instance, 'idle');
         logger.info('YOLO mode toggled successfully', { instanceId, pid, newYoloMode, resumed: shouldResume });
         logger.debug('Adapter exists after spawn', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
 
@@ -1663,7 +1704,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         await adapter.sendInput(modeMessage);
         logger.debug('Mode message sent', { instanceId, adapterExists: !!this.deps.getAdapter(instanceId) });
       } catch (error) {
-        instance.status = 'error';
+        this.transitionState(instance, 'error');
         logger.error('Failed to toggle YOLO mode', error instanceof Error ? error : undefined, { instanceId, newYoloMode });
         throw error;
       }
@@ -1726,7 +1767,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }
 
       // Update instance state
-      instance.status = 'initializing';
+      this.transitionState(instance, 'initializing');
 
       // Resolve agent and permissions (same as toggleYoloMode)
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
@@ -1831,7 +1872,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         }
 
         instance.processId = pid;
-        instance.status = 'idle';
+        this.transitionState(instance, 'idle');
         logger.info('Model changed successfully', {
           instanceId,
           pid,
@@ -1848,7 +1889,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           `[System: Model changed from ${oldModel} to ${validatedModel || newModel}. Conversation context has been preserved.]`
         );
       } catch (error) {
-        instance.status = 'error';
+        this.transitionState(instance, 'error');
         logger.error('Failed to change model', error instanceof Error ? error : undefined, { instanceId, newModel });
         throw error;
       }
@@ -1892,7 +1933,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     const success = adapter.interrupt();
     if (success) {
       // Use 'respawning' status to prevent further interrupts during recovery
-      instance.status = 'respawning';
+      this.transitionState(instance, 'respawning');
       instance.lastActivity = Date.now();
       this.deps.queueUpdate(instanceId, 'respawning', instance.contextUsage);
     } else {
@@ -1998,7 +2039,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
 
         instance.processId = pid;
-        instance.status = 'idle';
+        this.transitionState(instance, 'idle');
         instance.lastActivity = Date.now();
 
         if (!actuallyResumed && shouldResume) {
@@ -2020,7 +2061,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         logger.info('Respawn after interrupt complete', { instanceId });
       } catch (error) {
         logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
-        instance.status = 'error';
+        this.transitionState(instance, 'error');
         instance.processId = null;
         this.deps.queueUpdate(instanceId, 'error');
         throw error;
@@ -2118,7 +2159,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
 
         instance.processId = pid;
-        instance.status = 'idle';
+        this.transitionState(instance, 'idle');
         instance.lastActivity = Date.now();
 
         if (!actuallyResumed && shouldResume) {
@@ -2142,7 +2183,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
       } catch (error) {
         logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
-        instance.status = 'error';
+        this.transitionState(instance, 'error');
         instance.processId = null;
         this.deps.queueUpdate(instanceId, 'error');
         throw error;
@@ -2411,7 +2452,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         });
         instance.processId = null;
         if (instance.status === 'busy' || instance.status === 'initializing') {
-          instance.status = 'error';
+          this.transitionState(instance, 'error');
           this.deps.queueUpdate(instanceId, 'error');
         }
       }

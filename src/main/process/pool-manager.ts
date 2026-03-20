@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('PoolManager');
+const DEFAULT_RESUME_POOL_GRACE_MS = 60_000;
 
 export interface PoolConfig {
   minPoolSize: number;        // Minimum warm instances (default: 0)
@@ -35,6 +36,7 @@ export class PoolManager extends EventEmitter {
   private config: PoolConfig;
   private pool: PooledInstance[] = [];
   private warmupTimer: ReturnType<typeof setInterval> | null = null;
+  private maintenanceDeferredUntil = 0;
 
   private static instance: PoolManager;
 
@@ -59,7 +61,12 @@ export class PoolManager extends EventEmitter {
 
   start(): void {
     if (this.config.enableAutoWarm && !this.warmupTimer) {
-      this.warmupTimer = setInterval(() => this.checkPoolLevel(), this.config.warmupIntervalMs);
+      this.warmupTimer = setInterval(() => {
+        if (Date.now() < this.maintenanceDeferredUntil) {
+          return;
+        }
+        this.checkPoolLevel();
+      }, this.config.warmupIntervalMs);
       logger.info('Pool manager started', { config: this.config as unknown as Record<string, unknown> });
     }
   }
@@ -128,6 +135,23 @@ export class PoolManager extends EventEmitter {
       maxPoolSize: this.config.maxPoolSize,
       minPoolSize: this.config.minPoolSize,
     };
+  }
+
+  handleSystemSuspend(): void {
+    logger.info('Pool maintenance noted system suspend', {
+      poolSize: this.pool.length,
+    });
+  }
+
+  handleSystemResume(graceMs = DEFAULT_RESUME_POOL_GRACE_MS): void {
+    const normalizedGraceMs = Math.max(0, graceMs);
+    this.maintenanceDeferredUntil = Date.now() + normalizedGraceMs;
+
+    logger.info('Pool maintenance deferred after system resume', {
+      graceMs: normalizedGraceMs,
+      deferredUntil: this.maintenanceDeferredUntil,
+      poolSize: this.pool.length,
+    });
   }
 
   private evictStale(): void {

@@ -4,6 +4,7 @@ import { getLogger } from '../logging/logger';
 const logger = getLogger('HibernationManager');
 
 const HYSTERESIS_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_RESUME_HIBERNATION_GRACE_MS = 60_000;
 
 export interface HibernationConfig {
   idleThresholdMs: number;          // How long idle before hibernation (default: 30min)
@@ -51,6 +52,7 @@ export class HibernationManager extends EventEmitter {
   private hibernated = new Map<string, HibernatedInstance>();
   private recentWakes = new Map<string, number>();
   private checkTimer: ReturnType<typeof setInterval> | null = null;
+  private resumeDeferredUntil = 0;
 
   private static instance: HibernationManager;
 
@@ -75,7 +77,12 @@ export class HibernationManager extends EventEmitter {
 
   start(): void {
     if (this.config.enableAutoHibernation && !this.checkTimer) {
-      this.checkTimer = setInterval(() => this.emit('check-idle'), this.config.checkIntervalMs);
+      this.checkTimer = setInterval(() => {
+        if (Date.now() < this.resumeDeferredUntil) {
+          return;
+        }
+        this.emit('check-idle');
+      }, this.config.checkIntervalMs);
       logger.info('Hibernation manager started', { config: this.config as unknown as Record<string, unknown> });
     }
   }
@@ -151,6 +158,10 @@ export class HibernationManager extends EventEmitter {
     instances: HibernationCandidate[],
     now = Date.now()
   ): HibernationCandidate[] {
+    if (now < this.resumeDeferredUntil) {
+      return [];
+    }
+
     return instances.filter(inst =>
       inst.status === 'idle' &&
       (now - inst.lastActivity) > this.config.idleThresholdMs &&
@@ -188,6 +199,20 @@ export class HibernationManager extends EventEmitter {
       maxHibernated: this.config.maxHibernated,
       autoEnabled: this.config.enableAutoHibernation,
     };
+  }
+
+  handleSystemSuspend(): void {
+    logger.info('Hibernation checks noted system suspend');
+  }
+
+  handleSystemResume(graceMs = DEFAULT_RESUME_HIBERNATION_GRACE_MS): void {
+    const normalizedGraceMs = Math.max(0, graceMs);
+    this.resumeDeferredUntil = Date.now() + normalizedGraceMs;
+
+    logger.info('Hibernation checks deferred after system resume', {
+      graceMs: normalizedGraceMs,
+      deferredUntil: this.resumeDeferredUntil,
+    });
   }
 }
 

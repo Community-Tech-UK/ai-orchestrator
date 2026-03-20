@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { SessionDiffTracker } from './session-diff-tracker';
+import { InstanceStateMachine } from './instance-state-machine';
 import type {
   Instance,
   InstanceStatus,
@@ -24,6 +25,7 @@ export class InstanceStateManager extends EventEmitter {
   private instances: Map<string, Instance> = new Map();
   private adapters: Map<string, CliAdapter> = new Map();
   private diffTrackers = new Map<string, SessionDiffTracker>();
+  private stateMachines = new Map<string, InstanceStateMachine>();
   private pendingUpdates: Map<string, InstanceStateUpdatePayload> = new Map();
   private batchTimer: NodeJS.Timeout | null = null;
 
@@ -160,6 +162,31 @@ export class InstanceStateManager extends EventEmitter {
   }
 
   // ============================================
+  // State Machine Accessors
+  // ============================================
+
+  /**
+   * Get the InstanceStateMachine for an instance
+   */
+  getStateMachine(instanceId: string): InstanceStateMachine | undefined {
+    return this.stateMachines.get(instanceId);
+  }
+
+  /**
+   * Create and store an InstanceStateMachine for an instance
+   */
+  setStateMachine(instanceId: string, machine: InstanceStateMachine): void {
+    this.stateMachines.set(instanceId, machine);
+  }
+
+  /**
+   * Remove the InstanceStateMachine for an instance
+   */
+  deleteStateMachine(instanceId: string): void {
+    this.stateMachines.delete(instanceId);
+  }
+
+  // ============================================
   // Batch Update System
   // ============================================
 
@@ -235,5 +262,6 @@ export class InstanceStateManager extends EventEmitter {
     }
     // Flush any remaining updates
     this.flushUpdates();
+    this.stateMachines.clear();
   }
 }

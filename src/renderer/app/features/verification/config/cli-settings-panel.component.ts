@@ -809,7 +809,7 @@ export class CliSettingsPanelComponent implements OnInit {
   private modelOptions: Record<string, string[]> = {
     claude: ['opus', 'sonnet', 'haiku'],
     gemini: ['gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
-    codex: ['gpt-5.3-codex', 'o3', 'gpt-4o', 'gpt-4o-mini'],
+    codex: ['gpt-5.4', 'gpt-5.3-codex', 'o3', 'gpt-4o', 'gpt-4o-mini'],
     ollama: ['llama3.3:70b', 'llama3.2:8b', 'codellama:34b', 'qwen2.5-coder:32b'],
     copilot: ['claude-opus-4-5', 'o3', 'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-2.5-pro', 'claude-sonnet-4-5', 'gpt-4o', 'gemini-3-flash-preview', 'gemini-2.0-flash', 'claude-haiku-4-5', 'gpt-4o-mini'], // Copilot uses full model IDs
   };

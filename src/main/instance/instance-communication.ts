@@ -22,6 +22,7 @@ import type {
 import type { SessionDiffTracker } from './session-diff-tracker';
 import { ToolOutputParser } from './tool-output-parser';
 import { generateId } from '../../shared/utils/id-generator';
+import { getTokenStatsService } from '../memory/token-stats';
 
 /**
  * Dependencies required by the communication manager
@@ -1111,6 +1112,22 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     instance.outputBuffer.push(message);
+
+    // Record token stats (best-effort)
+    try {
+      const statsService = getTokenStatsService();
+      const charCount = typeof message.content === 'string'
+        ? message.content.length
+        : JSON.stringify(message.content).length;
+      statsService.record({
+        instanceId: instance.id,
+        toolType: statsService.classifyToolType(message),
+        tokenCount: Math.ceil(charCount / 4),
+        charCount,
+        truncated: !!(message.metadata?.['truncated']),
+        metadata: message.metadata ? { toolName: message.metadata['toolName'] } : undefined
+      });
+    } catch { /* stats are best-effort */ }
 
     const settings = this.settings.getAll();
     const bufferSize = settings.outputBufferSize;

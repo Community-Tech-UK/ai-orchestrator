@@ -808,6 +808,11 @@ export const IPC_CHANNELS = {
   CROSS_MODEL_REVIEW_STATUS: 'cross-model-review:status',
   CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
   CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',
+
+  // Token Stats operations
+  TOKEN_STATS_GET_SUMMARY: 'token-stats:get-summary',
+  TOKEN_STATS_GET_RECENT: 'token-stats:get-recent',
+  TOKEN_STATS_CLEANUP: 'token-stats:cleanup',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

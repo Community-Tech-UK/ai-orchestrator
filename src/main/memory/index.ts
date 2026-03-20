@@ -68,3 +68,7 @@ export type {
   ScoredRetrievalResult,
   TrajectoryRecord,
 } from './hybrid-retrieval';
+
+// Conflict Detector
+export { ConflictDetector, getConflictDetector } from './conflict-detector';
+export type { ConflictType, ConflictResult } from './conflict-detector';

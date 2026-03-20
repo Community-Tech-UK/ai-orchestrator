@@ -319,7 +319,7 @@ export class ContextEditingFallback extends EventEmitter {
       const response = await (client.beta.messages as any).create({
         model: params.model,
         max_tokens: params.max_tokens,
-        betas: [CONTEXT_MANAGEMENT_BETA],
+        betas: [CONTEXT_MANAGEMENT_BETA, 'token-efficient-tools-2025-02-19'],
         tools: params.tools,
         messages: params.messages,
         system: params.system,

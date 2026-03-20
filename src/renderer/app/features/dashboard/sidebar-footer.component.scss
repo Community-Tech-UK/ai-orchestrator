@@ -4,8 +4,8 @@
 
 .sidebar-footer {
   padding: 16px 18px 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(8, 12, 11, 0.82);
+  border-top: 1px solid var(--glass-border);
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -20,8 +20,8 @@
 
 .stat {
   padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--glass-light);
+  border: 1px solid var(--glass-border);
   border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -55,8 +55,8 @@
 }
 
 .btn-control-plane {
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-light);
   color: var(--text-secondary);
 
   &:hover,

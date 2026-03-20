@@ -8,10 +8,10 @@
   flex-direction: column;
   gap: 12px;
   padding: 18px 18px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--glass-border);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
-    rgba(8, 12, 11, 0.78);
+    linear-gradient(180deg, var(--glass-light), transparent),
+    var(--bg-secondary);
 }
 
 .header-row {
@@ -54,8 +54,8 @@
   justify-content: center;
   width: 34px;
   height: 34px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--glass-subtle);
+  border: 1px solid var(--glass-border);
   border-radius: 999px;
   color: var(--text-muted);
   cursor: pointer;
@@ -64,8 +64,8 @@
 
   &:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--glass-strong);
+    border-color: var(--glass-border-hover);
   }
 }
 

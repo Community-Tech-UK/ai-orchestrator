@@ -3,7 +3,7 @@
  * Initializes the Electron application and all core services
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, powerMonitor } from 'electron';
 import * as path from 'path';
 import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
@@ -39,6 +39,7 @@ import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ip
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
 const MAIN_PROCESS_STALL_THRESHOLD_MS = 2000;
+const POST_RESUME_GRACE_PERIOD_MS = 60_000;
 
 let runtimeDiagnosticsInstalled = false;
 
@@ -77,6 +78,38 @@ function installRuntimeDiagnostics(): void {
   });
 
   let lastTick = Date.now();
+  const noteSystemSuspend = (source: 'suspend' | 'lock-screen'): void => {
+    logger.info('System power event observed', { source });
+    getObservationIngestor().handleSystemSuspend();
+    getSessionContinuityManagerIfInitialized()?.handleSystemSuspend();
+    getHibernationManager().handleSystemSuspend();
+    getPoolManager().handleSystemSuspend();
+  };
+  const noteSystemResume = (source: 'resume' | 'unlock-screen'): void => {
+    lastTick = Date.now();
+    logger.info('System resumed; deferring background timers', {
+      source,
+      graceMs: POST_RESUME_GRACE_PERIOD_MS,
+    });
+    getObservationIngestor().handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
+    getSessionContinuityManagerIfInitialized()?.handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
+    getHibernationManager().handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
+    getPoolManager().handleSystemResume(POST_RESUME_GRACE_PERIOD_MS);
+  };
+
+  powerMonitor.on('suspend', () => {
+    noteSystemSuspend('suspend');
+  });
+  powerMonitor.on('resume', () => {
+    noteSystemResume('resume');
+  });
+  powerMonitor.on('lock-screen', () => {
+    noteSystemSuspend('lock-screen');
+  });
+  powerMonitor.on('unlock-screen', () => {
+    noteSystemResume('unlock-screen');
+  });
+
   const timer = setInterval(() => {
     const now = Date.now();
     const stallMs = now - lastTick - MAIN_PROCESS_MONITOR_INTERVAL_MS;

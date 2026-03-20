@@ -199,12 +199,12 @@ export const COPILOT_MODELS = {
 export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'claude-cli': CLAUDE_MODELS.SONNET,
   'anthropic-api': CLAUDE_MODELS.SONNET,
-  'openai': OPENAI_MODELS.GPT4O,
-  'openai-compatible': OPENAI_MODELS.GPT4O,
+  'openai': OPENAI_MODELS.GPT54,
+  'openai-compatible': OPENAI_MODELS.GPT54,
   'ollama': 'llama3',
   'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
-  'amazon-bedrock': 'anthropic.claude-3-5-sonnet-20241022-v2:0',
-  'azure': OPENAI_MODELS.GPT4O,
+  'amazon-bedrock': 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+  'azure': OPENAI_MODELS.GPT54,
 };
 
 /**
@@ -227,7 +227,10 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   // Claude 3.5 models (legacy)
   'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
-  // OpenAI models
+  // OpenAI models (GPT-5 family)
+  [OPENAI_MODELS.GPT54]: { input: 5.0, output: 20.0 },
+  [OPENAI_MODELS.GPT53_CODEX]: { input: 2.5, output: 10.0 },
+  // OpenAI models (GPT-4 family, legacy)
   [OPENAI_MODELS.GPT4O]: { input: 2.5, output: 10.0 },
   [OPENAI_MODELS.GPT4O_MINI]: { input: 0.15, output: 0.6 },
   [OPENAI_MODELS.GPT4_TURBO]: { input: 10.0, output: 30.0 },

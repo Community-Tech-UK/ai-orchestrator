@@ -684,10 +684,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     // Log raw output for debugging permission issues
-    if (raw.includes('input_required') || raw.includes('permission') || raw.includes('approve')) {
+    if (raw.includes('input_required') || raw.includes('permission') || raw.includes('approve') ||
+        raw.includes('denied') || raw.includes('not allowed') || raw.includes('is_error')) {
       logger.debug('RAW STDOUT (permission-related)', {
         rawLength: raw.length,
-        preview: this.summarizeLogText(raw, 220),
+        preview: this.summarizeLogText(raw, 400),
       });
     }
 
@@ -842,11 +843,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Claude CLI returns these as user messages with tool_result content when permissions are denied
         if (userMsg.message?.content && Array.isArray(userMsg.message.content)) {
           for (const block of userMsg.message.content) {
+            // Log ALL tool_result errors for diagnostic visibility
+            if (
+              block.type === 'tool_result' &&
+              block.is_error === true &&
+              typeof block.content === 'string'
+            ) {
+              logger.info('[APPROVAL_TRACE] tool_result_error_received', {
+                toolUseId: block.tool_use_id,
+                contentLength: block.content.length,
+                contentPreview: this.summarizeLogText(block.content, 300),
+                isPermissionDenial: this.isPermissionDenialContent(block.content)
+              });
+            }
+
             if (
               block.type === 'tool_result' &&
               block.is_error === true &&
               typeof block.content === 'string' &&
-              block.content.includes("haven't granted it yet")
+              this.isPermissionDenialContent(block.content)
             ) {
               logger.debug('Permission denial detected in tool_result', {
                 toolUseId: block.tool_use_id,
@@ -1159,6 +1174,16 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         });
         logger.debug('Input_required handling complete');
         break;
+
+      default: {
+        const unhandled = message as { type: string };
+        logger.warn('Unrecognized CLI message type', {
+          type: unhandled.type,
+          keys: Object.keys(message),
+          preview: this.summarizeLogText(JSON.stringify(message), 300)
+        });
+        break;
+      }
     }
   }
 
@@ -1298,6 +1323,36 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       return;
     }
     this.toolUseContexts.delete(toolUseId);
+  }
+
+  /**
+   * Detect whether a tool_result error content indicates a permission denial.
+   * Claude CLI has changed its denial wording across versions, so we match
+   * several known patterns rather than a single literal string.
+   */
+  private isPermissionDenialContent(content: string): boolean {
+    const lower = content.toLowerCase();
+    const patterns = [
+      "haven't granted it yet",          // Original Claude CLI wording
+      "hasn't been granted",             // Alternate phrasing
+      "permission denied",               // Generic denial
+      "not allowed to",                  // "You are not allowed to..."
+      "not permitted",                   // "This tool is not permitted"
+      "requires permission",             // "This action requires permission"
+      "does not have permission",        // "Claude does not have permission"
+      "need permission",                 // "You need permission to..."
+      "must grant permission",           // "You must grant permission"
+      "allow this tool",                 // "Please allow this tool"
+      "tool is not approved",            // Approval-gated tools
+      "denied by permission",            // "Action denied by permission policy"
+      "permission to use this tool",     // "You haven't given permission to use this tool"
+      "tool use is not allowed",         // Direct denial
+      "is not allowed in",               // "Bash is not allowed in acceptEdits mode"
+      "isn't allowed",                   // Contraction variant
+      "not authorized",                  // Authorization-style denial
+    ];
+
+    return patterns.some(p => lower.includes(p));
   }
 
   private extractPermissionDetails(

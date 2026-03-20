@@ -15,7 +15,6 @@ import { app } from 'electron';
 import {
   SessionCheckpoint,
   CheckpointType,
-  DegradationTier,
   RecoveryAction,
 } from '../../shared/types/error-recovery.types';
 import { ErrorRecoveryManager } from '../core/error-recovery';
@@ -663,18 +662,6 @@ export class CheckpointManager extends EventEmitter {
    * Setup listeners for error recovery events
    */
   private setupErrorRecoveryListeners(): void {
-    this.errorRecovery.on('degradation_started', (event) => {
-      // Create checkpoint on degradation
-      const sessionIds = Array.from(this.lastCheckpointTime.keys());
-      for (const sessionId of sessionIds) {
-        this.createCheckpoint(
-          sessionId,
-          CheckpointType.DEGRADATION,
-          `Degradation from ${event.fromTier} to ${event.toTier}`
-        );
-      }
-    });
-
     this.errorRecovery.on('recovery_plan_created', (event) => {
       // Log recovery action
       const entry: TransactionLogEntry = {

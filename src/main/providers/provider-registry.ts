@@ -43,7 +43,7 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'openai-compatible',
     name: 'OpenAI Compatible',
     enabled: false,
-    defaultModel: OPENAI_MODELS.GPT4O,
+    defaultModel: OPENAI_MODELS.GPT54,
   },
   'ollama': {
     type: 'ollama',
@@ -63,13 +63,13 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'amazon-bedrock',
     name: 'Amazon Bedrock',
     enabled: false,
-    defaultModel: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    defaultModel: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
   },
   'azure': {
     type: 'azure',
     name: 'Azure OpenAI',
     enabled: false,
-    defaultModel: OPENAI_MODELS.GPT4O,
+    defaultModel: OPENAI_MODELS.GPT54,
   },
 };
 

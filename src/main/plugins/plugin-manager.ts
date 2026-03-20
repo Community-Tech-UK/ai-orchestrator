@@ -103,7 +103,8 @@ export class OrchestratorPluginManager {
       let entries: Array<import('fs').Dirent>;
       try {
         entries = await fs.readdir(current, { withFileTypes: true });
-      } catch {
+      } catch (e) {
+        logger.debug('Failed to read plugin directory during walk', { dir: current, error: String(e) });
         continue;
       }
       for (const entry of entries) {

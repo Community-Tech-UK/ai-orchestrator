@@ -314,7 +314,7 @@ interface RailChangeSummary {
                     class="project-history-items"
                     [class.with-divider]="group.liveItems.length > 0"
                   >
-                    @for (entry of group.historyItems; track entry.id) {
+                    @for (entry of getVisibleHistoryItems(group); track entry.id) {
                       <div
                         class="history-entry"
                         [class.pinned]="isPinnedHistory(entry.id)"
@@ -426,6 +426,15 @@ interface RailChangeSummary {
                           </button>
                         </div>
                       </div>
+                    }
+                    @if (group.historyItems.length > 10) {
+                      <button
+                        type="button"
+                        class="history-show-more"
+                        (click)="toggleHistoryExpanded(group.key)"
+                      >
+                        {{ expandedHistoryKeys().has(group.key) ? 'Show less' : 'Show more' }}
+                      </button>
                     }
                   </div>
                 }
@@ -874,6 +883,24 @@ interface RailChangeSummary {
       text-transform: uppercase;
     }
 
+    .history-show-more {
+      display: block;
+      width: 100%;
+      padding: 4px 8px;
+      background: none;
+      border: none;
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: left;
+      transition: color var(--transition-fast);
+    }
+
+    .history-show-more:hover {
+      color: var(--text-primary);
+    }
+
     .project-chevron {
       font-size: 14px;
       color: var(--text-muted);
@@ -1262,6 +1289,7 @@ export class InstanceListComponent {
   rootInstanceOrder = signal<string[]>(this.loadOrder());
   pinnedHistoryIds = signal<Set<string>>(this.loadPinnedHistoryIds());
   restoringHistoryIds = signal<Set<string>>(new Set());
+  expandedHistoryKeys = signal<Set<string>>(new Set());
   recentDirectories = signal<RecentDirectoryEntry[]>([]);
   historySortMode = signal<HistorySortMode>(this.loadSortMode());
   openProjectMenuKey = signal<string | null>(null);
@@ -2308,6 +2336,27 @@ export class InstanceListComponent {
 
   isRestoringHistory(entryId: string): boolean {
     return this.restoringHistoryIds().has(entryId);
+  }
+
+  private readonly HISTORY_DISPLAY_LIMIT = 10;
+
+  getVisibleHistoryItems(group: ProjectGroup): ConversationHistoryEntry[] {
+    if (this.expandedHistoryKeys().has(group.key)) {
+      return group.historyItems;
+    }
+    return group.historyItems.slice(0, this.HISTORY_DISPLAY_LIMIT);
+  }
+
+  toggleHistoryExpanded(key: string): void {
+    this.expandedHistoryKeys.update((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   }
 
   isPinnedHistory(entryId: string): boolean {

@@ -11,7 +11,6 @@
 import { EventEmitter } from 'events';
 import {
   ClassifiedError,
-  DegradationTier,
   ErrorCategory,
   ErrorSeverity,
   ErrorPattern,
@@ -293,7 +292,6 @@ export class ErrorRecoveryManager extends EventEmitter {
       ...config,
       retry: { ...this.config.retry, ...config.retry },
       checkpoint: { ...this.config.checkpoint, ...config.checkpoint },
-      degradation: { ...this.config.degradation, ...config.degradation },
       notifications: { ...this.config.notifications, ...config.notifications },
     };
   }
@@ -438,14 +436,14 @@ export class ErrorRecoveryManager extends EventEmitter {
       case ErrorCategory.RESOURCE:
         if (error.technicalDetails?.includes('context')) {
           actions.push({
-            type: RecoveryActionType.DEGRADE,
+            type: RecoveryActionType.RESTART_SESSION,
             description: 'Compact context and retry',
             priority: 1,
             requiresConfirmation: false,
           });
         } else if (error.technicalDetails?.includes('memory')) {
           actions.push({
-            type: RecoveryActionType.DEGRADE,
+            type: RecoveryActionType.RESTART_SESSION,
             description: 'Free memory and retry',
             priority: 1,
             requiresConfirmation: false,
@@ -608,14 +606,13 @@ export class ErrorRecoveryManager extends EventEmitter {
   createCheckpoint(
     sessionId: string,
     type: CheckpointType,
-    state: Omit<SessionCheckpoint, 'id' | 'sessionId' | 'createdAt' | 'type' | 'degradationTier'>
+    state: Omit<SessionCheckpoint, 'id' | 'sessionId' | 'createdAt' | 'type'>
   ): SessionCheckpoint {
     const checkpoint: SessionCheckpoint = {
       id: `ckpt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       sessionId,
       createdAt: Date.now(),
       type,
-      degradationTier: DegradationTier.FULL,
       ...state,
     };
 

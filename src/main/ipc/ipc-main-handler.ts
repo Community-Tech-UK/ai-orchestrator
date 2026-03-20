@@ -23,6 +23,7 @@ import { registerSpecialistHandlers } from './specialist-ipc-handler';
 import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
 import { registerObservationHandlers } from './observation-ipc-handler';
+import { registerTokenStatsHandlers } from './token-stats-ipc-handler';
 import { RLMContextManager } from '../rlm/context-manager';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
@@ -259,6 +260,9 @@ export class IpcMainHandler {
 
     // Observation memory handlers
     registerObservationHandlers();
+
+    // Token stats handlers (lightweight token usage tracking)
+    registerTokenStatsHandlers();
 
     // Recent directories handlers
     registerRecentDirectoriesHandlers();

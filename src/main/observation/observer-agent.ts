@@ -14,6 +14,7 @@ const STOP_WORDS = new Set([
   'and', 'or', 'but', 'not', 'no', 'if', 'then', 'else', 'so', 'up',
   'out', 'about', 'into', 'over', 'after', 'before', 'between', 'under',
 ]);
+const MAX_ANALYZED_EVENT_CONTENT_CHARS = 2_000;
 
 /**
  * ObserverAgent - Compresses raw observations into Observation summaries
@@ -160,7 +161,7 @@ export class ObserverAgent extends EventEmitter {
     const wordCounts = new Map<string, number>();
 
     for (const event of events) {
-      const content = event.content.toLowerCase();
+      const content = this.getAnalyzableContent(event.content).toLowerCase();
       const words = content.split(/\s+/);
 
       for (const word of words) {
@@ -194,12 +195,12 @@ export class ObserverAgent extends EventEmitter {
 
     if (notableEvents.length > 0) {
       for (const event of notableEvents.slice(0, 5)) {
-        findings.push(event.content.substring(0, 100));
+        findings.push(this.getAnalyzableContent(event.content).substring(0, 100));
       }
     } else {
       // Fall back to first 3 events
       for (const event of events.slice(0, 3)) {
-        findings.push(event.content.substring(0, 80));
+        findings.push(this.getAnalyzableContent(event.content).substring(0, 80));
       }
     }
 
@@ -216,7 +217,7 @@ export class ObserverAgent extends EventEmitter {
     const failureKeywords = ['error', 'failed', 'timeout', 'crashed', 'exception', 'rejected'];
 
     for (const event of events) {
-      const contentLower = event.content.toLowerCase();
+      const contentLower = this.getAnalyzableContent(event.content).toLowerCase();
 
       // Check for success signals
       const hasSuccessKeyword = successKeywords.some(kw => contentLower.includes(kw));
@@ -235,6 +236,14 @@ export class ObserverAgent extends EventEmitter {
     }
 
     return signals;
+  }
+
+  private getAnalyzableContent(content: string): string {
+    if (content.length <= MAX_ANALYZED_EVENT_CONTENT_CHARS) {
+      return content;
+    }
+
+    return content.slice(0, MAX_ANALYZED_EVENT_CONTENT_CHARS);
   }
 
   /**

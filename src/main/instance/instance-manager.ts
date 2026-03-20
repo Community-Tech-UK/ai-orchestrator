@@ -209,6 +209,9 @@ export class InstanceManager extends EventEmitter {
       warmStartManager: this.warmStart,
       startStuckTracking: (id) => this.stuckDetector.startTracking(id),
       stopStuckTracking: (id) => this.stuckDetector.stopTracking(id),
+      getStateMachine: (id) => this.state.getStateMachine(id),
+      setStateMachine: (id, machine) => this.state.setStateMachine(id, machine),
+      deleteStateMachine: (id) => this.state.deleteStateMachine(id),
     });
 
     // Persistence manager needs dependencies

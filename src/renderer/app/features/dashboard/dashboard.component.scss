@@ -33,7 +33,7 @@
 .loading-spinner {
   width: 48px;
   height: 48px;
-  border: 2px solid rgba(255, 255, 255, 0.08);
+  border: 2px solid var(--glass-strong);
   border-top-color: var(--primary-color);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -47,7 +47,7 @@
   background:
     radial-gradient(circle at 10% 6%, rgba(var(--secondary-rgb), 0.1), transparent 26%),
     radial-gradient(circle at 84% 100%, rgba(var(--primary-rgb), 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 18%),
+    linear-gradient(180deg, var(--glass-subtle), transparent 18%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.01), transparent 34%),
     var(--bg-primary);
   position: relative;
@@ -65,12 +65,12 @@
   display: flex;
   flex-direction: column;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 20%),
-    rgba(8, 13, 12, 0.88);
+    linear-gradient(180deg, var(--glass-subtle), transparent 20%),
+    var(--bg-primary);
   backdrop-filter: blur(24px);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid var(--glass-border);
   box-shadow:
-    inset -1px 0 0 rgba(255, 255, 255, 0.02),
+    inset -1px 0 0 var(--glass-subtle),
     24px 0 60px rgba(0, 0, 0, 0.22);
   flex-shrink: 0;
   overflow: hidden;
@@ -127,10 +127,10 @@
   gap: var(--spacing-md);
   padding: 20px;
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--glass-border);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
-    rgba(11, 16, 15, 0.94);
+    linear-gradient(180deg, var(--glass-subtle), transparent),
+    var(--bg-primary);
   backdrop-filter: blur(26px);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.44);
   overflow: hidden;
@@ -164,14 +164,14 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-strong);
+  background: var(--glass-light);
   color: var(--text-secondary);
   transition: all var(--transition-fast);
 
   &:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--glass-strong);
   }
 }
 
@@ -184,8 +184,8 @@
 .control-plane-chip {
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-strong);
+  background: var(--glass-light);
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -205,8 +205,8 @@ app-file-explorer {
   height: 100%;
   flex-shrink: 0;
   overflow: hidden;
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(11, 15, 14, 0.9);
+  border-left: 1px solid var(--glass-border);
+  background: var(--bg-primary);
   backdrop-filter: blur(18px);
 }
 
@@ -220,8 +220,8 @@ app-file-explorer {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(11, 15, 14, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-primary);
+  border: 1px solid var(--glass-strong);
   border-left: none;
   border-radius: 0 12px 12px 0;
   color: var(--text-muted);
@@ -232,7 +232,7 @@ app-file-explorer {
   &:hover {
     color: var(--text-primary);
     width: 30px;
-    background: rgba(18, 24, 22, 0.98);
+    background: var(--bg-elevated);
   }
 }
 

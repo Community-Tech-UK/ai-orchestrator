@@ -167,7 +167,13 @@ const MODEL_HINTS: Record<string, string> = {
   sonnet: '',
   haiku: 'Be concise. Prioritize speed over thoroughness.',
 
-  // OpenAI models
+  // OpenAI models (GPT-5 family)
+  'gpt-5.4': '',
+  'gpt-5.3-codex': '',
+  'gpt-5.2-codex': '',
+  'gpt-5.1-codex': '',
+  'o3': 'Take time to reason through complex problems step by step.',
+  // OpenAI models (GPT-4 family, legacy)
   'gpt-4o': 'Format code blocks with language tags.',
   'gpt-4o-mini': 'Be concise. Format code blocks with language tags.',
   'o1': 'Take time to reason through complex problems step by step.',

@@ -101,6 +101,14 @@
   --overlay-dark-medium: rgba(0, 0, 0, 0.5);
   --overlay-dark-strong: rgba(0, 0, 0, 0.8);
 
+  // Glass / frost overlays (white channel — dark theme)
+  --glass-subtle: rgba(255, 255, 255, 0.02);
+  --glass-light: rgba(255, 255, 255, 0.03);
+  --glass-medium: rgba(255, 255, 255, 0.05);
+  --glass-strong: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-border-hover: rgba(255, 255, 255, 0.1);
+
   // ============================================
   // SPACING - Refined 4px base grid
   // ============================================
@@ -238,6 +246,14 @@
   --overlay-dark-light: rgba(0, 0, 0, 0.1);
   --overlay-dark-medium: rgba(0, 0, 0, 0.3);
   --overlay-dark-strong: rgba(0, 0, 0, 0.6);
+
+  // Glass / frost overlays (dark channel — light theme)
+  --glass-subtle: rgba(0, 0, 0, 0.02);
+  --glass-light: rgba(0, 0, 0, 0.03);
+  --glass-medium: rgba(0, 0, 0, 0.05);
+  --glass-strong: rgba(0, 0, 0, 0.08);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-border-hover: rgba(0, 0, 0, 0.12);
 }
 
 @media (prefers-color-scheme: light) {
@@ -293,6 +309,14 @@
     --overlay-dark-light: rgba(0, 0, 0, 0.1);
     --overlay-dark-medium: rgba(0, 0, 0, 0.3);
     --overlay-dark-strong: rgba(0, 0, 0, 0.6);
+
+    // Glass / frost overlays (dark channel — light theme)
+    --glass-subtle: rgba(0, 0, 0, 0.02);
+    --glass-light: rgba(0, 0, 0, 0.03);
+    --glass-medium: rgba(0, 0, 0, 0.05);
+    --glass-strong: rgba(0, 0, 0, 0.08);
+    --glass-border: rgba(0, 0, 0, 0.06);
+    --glass-border-hover: rgba(0, 0, 0, 0.12);
   }
 }
 

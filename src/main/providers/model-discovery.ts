@@ -279,7 +279,7 @@ export class ModelDiscoveryService {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
+          model: CLAUDE_MODELS.HAIKU,
           max_tokens: 1,
           messages: [{ role: 'user', content: 'hi' }],
         }),
@@ -318,8 +318,8 @@ export class ModelDiscoveryService {
       const models: DiscoveredModel[] = [];
 
       for (const model of data.data) {
-        // Filter to chat models
-        if (!model.id.includes('gpt') && !model.id.includes('o1') && !model.id.includes('o3')) {
+        // Filter to chat models (gpt-4/5, o1/o3/o4, codex)
+        if (!model.id.includes('gpt') && !model.id.includes('o1') && !model.id.includes('o3') && !model.id.includes('o4') && !model.id.includes('codex')) {
           continue;
         }
 
@@ -354,8 +354,8 @@ export class ModelDiscoveryService {
       systemMessage: true,
     };
 
-    // Vision models
-    if (modelId.includes('vision') || modelId.includes('gpt-4o') || modelId.includes('gpt-4-turbo')) {
+    // Vision models (GPT-5 family, GPT-4o, GPT-4-turbo all support vision)
+    if (modelId.includes('gpt-5') || modelId.includes('gpt-4o') || modelId.includes('gpt-4-turbo') || modelId.includes('vision')) {
       caps.vision = true;
     }
 
@@ -367,6 +367,16 @@ export class ModelDiscoveryService {
    */
   private getOpenAIPricing(modelId: string): ModelPricing | undefined {
     const pricing: Record<string, ModelPricing> = {
+      // GPT-5 family
+      'gpt-5.4': { inputPer1kTokens: 0.005, outputPer1kTokens: 0.02, currency: 'USD' },
+      'gpt-5.3-codex': { inputPer1kTokens: 0.0025, outputPer1kTokens: 0.01, currency: 'USD' },
+      'gpt-5.2-codex': { inputPer1kTokens: 0.0025, outputPer1kTokens: 0.01, currency: 'USD' },
+      'gpt-5.2': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
+      'gpt-5.1-codex': { inputPer1kTokens: 0.002, outputPer1kTokens: 0.008, currency: 'USD' },
+      'gpt-5.1': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
+      'gpt-5-codex': { inputPer1kTokens: 0.002, outputPer1kTokens: 0.008, currency: 'USD' },
+      'gpt-5': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
+      // GPT-4 family (legacy)
       'gpt-4o': { inputPer1kTokens: 0.005, outputPer1kTokens: 0.015, currency: 'USD' },
       'gpt-4o-mini': { inputPer1kTokens: 0.00015, outputPer1kTokens: 0.0006, currency: 'USD' },
       'gpt-4-turbo': { inputPer1kTokens: 0.01, outputPer1kTokens: 0.03, currency: 'USD' },
@@ -374,6 +384,7 @@ export class ModelDiscoveryService {
       'gpt-3.5-turbo': { inputPer1kTokens: 0.0005, outputPer1kTokens: 0.0015, currency: 'USD' },
       'o1-preview': { inputPer1kTokens: 0.015, outputPer1kTokens: 0.06, currency: 'USD' },
       'o1-mini': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
+      'o3': { inputPer1kTokens: 0.01, outputPer1kTokens: 0.04, currency: 'USD' },
     };
 
     for (const [key, value] of Object.entries(pricing)) {

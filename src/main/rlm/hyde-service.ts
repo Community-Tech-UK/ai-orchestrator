@@ -25,6 +25,7 @@
 import { EventEmitter } from 'events';
 import { LLMService, getLLMService } from './llm-service';
 import { EmbeddingService, getEmbeddingService } from './embedding-service';
+import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 
 export interface HyDEConfig {
   enabled: boolean;
@@ -445,7 +446,7 @@ Generate a hypothetical document that would perfectly match this query:`;
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-3-haiku-20240307', // Use fast model for HyDE
+        model: CLAUDE_MODELS.HAIKU, // Use fast model for HyDE
         max_tokens: this.config.maxHypotheticalTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]

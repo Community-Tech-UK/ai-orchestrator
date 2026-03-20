@@ -24,6 +24,7 @@ import { getSessionMutex } from './session-mutex';
 const logger = getLogger('SessionContinuity');
 
 const SCHEMA_VERSION = 1;
+const DEFAULT_RESUME_AUTOSAVE_GRACE_MS = 60_000;
 
 /**
  * Session snapshot for point-in-time restoration
@@ -163,6 +164,8 @@ export class SessionContinuityManager extends EventEmitter {
   private dirty = new Set<string>();
   private readyPromise: Promise<void>;
   private globalAutoSaveTimer: NodeJS.Timeout | null = null;
+  private pendingAutoSaveTimers = new Map<string, NodeJS.Timeout>();
+  private autoSaveDeferredUntil = 0;
   private snapshotIndex: SnapshotIndex;
 
   constructor(config: Partial<ContinuityConfig> = {}) {
@@ -376,18 +379,15 @@ export class SessionContinuityManager extends EventEmitter {
     if (!this.config.autoSaveEnabled) return;
 
     this.globalAutoSaveTimer = setInterval(() => {
+      if (this.getAutoSaveDeferralRemainingMs() > 0) {
+        return;
+      }
+
       for (const instanceId of this.dirty) {
         if (getSessionMutex().isLocked(instanceId)) continue;
 
         // Add random jitter of 0-10s to spread writes
-        const jitter = Math.random() * 10000;
-        const timer = setTimeout(() => {
-          this.saveStateAsync(instanceId).catch((error) => {
-            logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
-          });
-        }, jitter);
-        // Unref the jitter timer so it doesn't block process exit
-        if (timer.unref) timer.unref();
+        this.queueAutoSave(instanceId, Math.random() * 10000);
       }
     }, this.config.autoSaveIntervalMs);
 
@@ -413,6 +413,7 @@ export class SessionContinuityManager extends EventEmitter {
    */
   async stopTracking(instanceId: string, archive = false): Promise<void> {
     await this.readyPromise;
+    this.clearPendingAutoSaveTimer(instanceId);
 
     // Final save before stopping
     if (this.dirty.has(instanceId)) {
@@ -465,6 +466,25 @@ export class SessionContinuityManager extends EventEmitter {
     this.dirty.add(instanceId);
 
     this.emit('state:updated', { instanceId, updates: normalizedUpdates });
+  }
+
+  handleSystemSuspend(): void {
+    logger.info('Session auto-save timer noted system suspend', {
+      dirtyCount: this.dirty.size,
+      pendingTimers: this.pendingAutoSaveTimers.size,
+    });
+  }
+
+  handleSystemResume(graceMs = DEFAULT_RESUME_AUTOSAVE_GRACE_MS): void {
+    const normalizedGraceMs = Math.max(0, graceMs);
+    this.autoSaveDeferredUntil = Date.now() + normalizedGraceMs;
+
+    logger.info('Session auto-save deferred after system resume', {
+      graceMs: normalizedGraceMs,
+      deferredUntil: this.autoSaveDeferredUntil,
+      dirtyCount: this.dirty.size,
+      pendingTimers: this.pendingAutoSaveTimers.size,
+    });
   }
 
   /**
@@ -985,6 +1005,7 @@ export class SessionContinuityManager extends EventEmitter {
     const json = JSON.stringify(data);
     if (this.config.encryptOnDisk) {
       // Lazy import to avoid triggering Keychain access on startup
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { safeStorage } = require('electron') as typeof import('electron');
       if (safeStorage.isEncryptionAvailable()) {
         const encrypted = safeStorage.encryptString(json).toString('base64');
@@ -1019,6 +1040,7 @@ export class SessionContinuityManager extends EventEmitter {
           typeof parsed['data'] === 'string'
         ) {
           // Lazy import to avoid triggering Keychain access on startup
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { safeStorage } = require('electron') as typeof import('electron');
           const decrypted = safeStorage.decryptString(
             Buffer.from(parsed['data'], 'base64')
@@ -1162,6 +1184,7 @@ export class SessionContinuityManager extends EventEmitter {
         clearInterval(this.globalAutoSaveTimer);
         this.globalAutoSaveTimer = null;
       }
+      this.clearPendingAutoSaveTimers();
       if (this.config.autoSaveEnabled) {
         this.startGlobalAutoSave();
       }
@@ -1178,6 +1201,8 @@ export class SessionContinuityManager extends EventEmitter {
       this.globalAutoSaveTimer = null;
     }
 
+    this.clearPendingAutoSaveTimers();
+
     // Best-effort synchronous save of all dirty states
     for (const instanceId of this.dirty) {
       const state = this.sessionStates.get(instanceId);
@@ -1190,6 +1215,57 @@ export class SessionContinuityManager extends EventEmitter {
         logger.error('Failed to save session state during shutdown', error instanceof Error ? error : undefined, { instanceId });
       }
     }
+  }
+
+  private queueAutoSave(instanceId: string, delayMs: number): void {
+    if (this.pendingAutoSaveTimers.has(instanceId)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.pendingAutoSaveTimers.delete(instanceId);
+
+      if (!this.dirty.has(instanceId)) {
+        return;
+      }
+
+      const remainingDeferralMs = this.getAutoSaveDeferralRemainingMs();
+      if (remainingDeferralMs > 0) {
+        this.queueAutoSave(instanceId, remainingDeferralMs);
+        return;
+      }
+
+      this.saveStateAsync(instanceId).catch((error) => {
+        logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
+      });
+    }, Math.max(0, Math.ceil(delayMs)));
+
+    if (timer.unref) {
+      timer.unref();
+    }
+
+    this.pendingAutoSaveTimers.set(instanceId, timer);
+  }
+
+  private getAutoSaveDeferralRemainingMs(now = Date.now()): number {
+    return Math.max(0, this.autoSaveDeferredUntil - now);
+  }
+
+  private clearPendingAutoSaveTimers(): void {
+    for (const timer of this.pendingAutoSaveTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingAutoSaveTimers.clear();
+  }
+
+  private clearPendingAutoSaveTimer(instanceId: string): void {
+    const timer = this.pendingAutoSaveTimers.get(instanceId);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    this.pendingAutoSaveTimers.delete(instanceId);
   }
 }
 

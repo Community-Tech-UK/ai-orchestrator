@@ -262,6 +262,10 @@ export class AnthropicApiProvider extends BaseProvider {
           max_tokens: this.maxTokens,
           system: this.session.systemPrompt as any,
           messages: this.session.messages,
+        }, {
+          headers: {
+            'anthropic-beta': 'token-efficient-tools-2025-02-19',
+          },
         });
       }
 

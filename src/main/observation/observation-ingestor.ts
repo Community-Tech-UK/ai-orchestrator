@@ -10,6 +10,10 @@ import type {
 import { DEFAULT_OBSERVATION_CONFIG } from '../../shared/types/observation.types';
 import type { InstanceManager } from '../instance/instance-manager';
 
+const MAX_CAPTURED_OBSERVATION_CHARS = 4_000;
+const MAX_OUTPUT_MESSAGE_PREVIEW_CHARS = 600;
+const DEFAULT_RESUME_FLUSH_GRACE_MS = 60_000;
+
 /**
  * ObservationIngestor captures events from the orchestrator and buffers them
  * before flushing to the observer agent. Uses ring buffer to prevent memory leaks.
@@ -38,6 +42,7 @@ export class ObservationIngestor extends EventEmitter {
   private cumulativeTokenCount = 0;
   private lastFlushTimestamp = Date.now();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private flushDeferredUntil = 0;
   private initialized = false;
   private totalCaptured = 0;
 
@@ -68,17 +73,12 @@ export class ObservationIngestor extends EventEmitter {
           return;
         }
 
-        const content = JSON.stringify(message);
-        const metadata: Record<string, unknown> = {
-          messageType: typeof message === 'object' && message !== null
-            ? (message as Record<string, unknown>)['type']
-            : undefined
-        };
+        const summarized = this.summarizeOutputMessage(message);
         this.captureEvent(
           'instance:output',
           'event',
-          content,
-          metadata,
+          summarized.content,
+          summarized.metadata,
           String(instanceId)
         );
       } catch (error) {
@@ -116,6 +116,9 @@ export class ObservationIngestor extends EventEmitter {
 
     // Set up periodic flush timer
     this.flushTimer = setInterval(() => {
+      if (this.isFlushDeferred()) {
+        return;
+      }
       const timeSinceLastFlush = Date.now() - this.lastFlushTimestamp;
       if (timeSinceLastFlush >= this.config.observeTimeThresholdMs) {
         this.logger.debug('Periodic flush triggered by time threshold');
@@ -151,16 +154,27 @@ export class ObservationIngestor extends EventEmitter {
     const filteredContent = this.config.enablePrivacyFiltering
       ? this.anonymize(content)
       : content;
+    const normalizedContent = this.normalizeContent(filteredContent);
+    const wasTruncated = normalizedContent.length > MAX_CAPTURED_OBSERVATION_CHARS;
+    const boundedContent = wasTruncated
+      ? `${normalizedContent.slice(0, MAX_CAPTURED_OBSERVATION_CHARS)}... (${normalizedContent.length} chars)`
+      : normalizedContent;
+    const observationMetadata = wasTruncated
+      ? {
+          ...metadata,
+          originalContentLength: normalizedContent.length,
+        }
+      : metadata;
 
     // Create raw observation
-    const tokenEstimate = Math.ceil(filteredContent.length / 4);
+    const tokenEstimate = Math.ceil(boundedContent.length / 4);
     const observation: RawObservation = {
       id: `obs-${generateId()}`,
       timestamp: Date.now(),
       source,
       level,
-      content: filteredContent,
-      metadata,
+      content: boundedContent,
+      metadata: observationMetadata,
       instanceId,
       sessionId,
       tokenEstimate,
@@ -178,6 +192,13 @@ export class ObservationIngestor extends EventEmitter {
 
     // Check if we should flush based on token threshold
     if (this.cumulativeTokenCount >= this.config.observeTokenThreshold) {
+      if (this.isFlushDeferred()) {
+        this.logger.debug('Skipping token-threshold flush during post-resume grace period', {
+          cumulativeTokens: this.cumulativeTokenCount,
+          deferredUntil: this.flushDeferredUntil,
+        });
+        return;
+      }
       this.logger.debug('Flush triggered by token threshold', {
         cumulativeTokens: this.cumulativeTokenCount,
         threshold: this.config.observeTokenThreshold,
@@ -249,6 +270,73 @@ export class ObservationIngestor extends EventEmitter {
     return filtered;
   }
 
+  private summarizeOutputMessage(message: unknown): {
+    content: string;
+    metadata: Record<string, unknown>;
+  } {
+    if (!message || typeof message !== 'object') {
+      return {
+        content: this.normalizeContent(String(message ?? '')),
+        metadata: {
+          messageType: typeof message,
+        },
+      };
+    }
+
+    const messageRecord = message as Record<string, unknown>;
+    const messageType = typeof messageRecord['type'] === 'string'
+      ? messageRecord['type']
+      : 'unknown';
+    const rawContent = typeof messageRecord['content'] === 'string'
+      ? messageRecord['content']
+      : '';
+    const attachments = Array.isArray(messageRecord['attachments'])
+      ? messageRecord['attachments']
+      : [];
+    const messageMetadata = messageRecord['metadata'];
+    const metadataKeys = messageMetadata && typeof messageMetadata === 'object'
+      ? Object.keys(messageMetadata as Record<string, unknown>).slice(0, 8)
+      : undefined;
+    const preview = rawContent.length > 0
+      ? this.previewText(rawContent)
+      : '[no text content]';
+
+    return {
+      content: `${messageType}: ${preview}`,
+      metadata: {
+        messageType,
+        contentLength: rawContent.length,
+        attachmentCount: attachments.length,
+        metadataKeys,
+      },
+    };
+  }
+
+  private previewText(value: string): string {
+    const normalized = this.normalizeContent(value);
+    if (normalized.length <= MAX_OUTPUT_MESSAGE_PREVIEW_CHARS) {
+      return normalized;
+    }
+    return `${normalized.slice(0, MAX_OUTPUT_MESSAGE_PREVIEW_CHARS)}... (${normalized.length} chars)`;
+  }
+
+  private normalizeContent(content: string): string {
+    return content.replace(/\s+/g, ' ').trim();
+  }
+
+  private isFlushDeferred(now = Date.now()): boolean {
+    if (this.flushDeferredUntil === 0) {
+      return false;
+    }
+
+    if (now >= this.flushDeferredUntil) {
+      this.flushDeferredUntil = 0;
+      return false;
+    }
+
+    return true;
+  }
+
   /**
    * Convert observation level to numeric value for comparison.
    */
@@ -305,6 +393,9 @@ export class ObservationIngestor extends EventEmitter {
       }
 
       this.flushTimer = setInterval(() => {
+        if (this.isFlushDeferred()) {
+          return;
+        }
         const timeSinceLastFlush = Date.now() - this.lastFlushTimestamp;
         if (timeSinceLastFlush >= this.config.observeTimeThresholdMs) {
           this.logger.debug('Periodic flush triggered by time threshold');
@@ -321,6 +412,23 @@ export class ObservationIngestor extends EventEmitter {
     this.flush();
   }
 
+  handleSystemSuspend(): void {
+    this.logger.info('Observation flush timer noted system suspend');
+  }
+
+  handleSystemResume(graceMs = DEFAULT_RESUME_FLUSH_GRACE_MS): void {
+    const normalizedGraceMs = Math.max(0, graceMs);
+    this.lastFlushTimestamp = Date.now();
+    this.flushDeferredUntil = this.lastFlushTimestamp + normalizedGraceMs;
+
+    this.logger.info('Observation flush timer deferred after system resume', {
+      graceMs: normalizedGraceMs,
+      deferredUntil: this.flushDeferredUntil,
+      bufferedObservations: this.ringBuffer.length,
+      bufferedTokens: this.cumulativeTokenCount,
+    });
+  }
+
   /**
    * Clean up resources and reset state.
    */
@@ -332,6 +440,7 @@ export class ObservationIngestor extends EventEmitter {
 
     this.ringBuffer = [];
     this.cumulativeTokenCount = 0;
+    this.flushDeferredUntil = 0;
     this.totalCaptured = 0;
     this.initialized = false;
 

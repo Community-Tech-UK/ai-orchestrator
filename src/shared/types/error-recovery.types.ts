@@ -2,25 +2,10 @@
  * Error Recovery Types
  *
  * Comprehensive error handling and recovery system with:
- * - Tiered degradation (FULL → CORE → BASIC → MINIMAL)
  * - Error classification (transient vs permanent)
  * - Retry strategies with exponential backoff
  * - Session recovery and checkpointing
  */
-
-/**
- * Degradation tiers for graceful system degradation
- */
-export enum DegradationTier {
-  /** All tools, all features enabled */
-  FULL = 'full',
-  /** Essential tools only (file read/write, basic bash) */
-  CORE = 'core',
-  /** No external dependencies (no network, no subprocess) */
-  BASIC = 'basic',
-  /** Read-only, cached responses only */
-  MINIMAL = 'minimal',
-}
 
 /**
  * Error classification for retry decisions
@@ -138,8 +123,6 @@ export interface SessionCheckpoint {
   createdAt: number;
   /** Checkpoint type/trigger */
   type: CheckpointType;
-  /** Current degradation tier at checkpoint */
-  degradationTier: DegradationTier;
   /** Conversation state */
   conversationState: {
     messages: ConversationMessage[];
@@ -172,8 +155,6 @@ export enum CheckpointType {
   MANUAL = 'manual',
   /** Checkpoint triggered by error detection */
   ERROR_RECOVERY = 'error_recovery',
-  /** Checkpoint during degradation */
-  DEGRADATION = 'degradation',
 }
 
 /**
@@ -228,8 +209,6 @@ export enum RecoveryActionType {
   SWITCH_PROVIDER = 'switch_provider',
   /** Restore from checkpoint */
   RESTORE_CHECKPOINT = 'restore_checkpoint',
-  /** Degrade to lower tier */
-  DEGRADE = 'degrade',
   /** Clear and restart session */
   RESTART_SESSION = 'restart_session',
   /** Notify user and wait */
@@ -293,17 +272,6 @@ export interface ErrorRecoveryConfig {
     /** Whether to checkpoint before risky operations */
     preOperationCheckpoint: boolean;
   };
-  /** Degradation configuration */
-  degradation: {
-    /** Enable automatic degradation */
-    autoDegrade: boolean;
-    /** Consecutive failures before degradation */
-    failuresBeforeDegrade: number;
-    /** Time before attempting to upgrade tier in ms */
-    upgradeDelayMs: number;
-    /** Minimum tier (won't degrade below this) */
-    minimumTier: DegradationTier;
-  };
   /** Notification configuration */
   notifications: {
     /** Notify user on degradation */
@@ -326,8 +294,6 @@ export type ErrorRecoveryEvent =
   | { type: 'retry_exhausted'; state: RetryState }
   | { type: 'checkpoint_created'; checkpoint: SessionCheckpoint }
   | { type: 'checkpoint_restored'; checkpoint: SessionCheckpoint }
-  | { type: 'degradation_started'; fromTier: DegradationTier; toTier: DegradationTier; reason: string }
-  | { type: 'degradation_restored'; fromTier: DegradationTier; toTier: DegradationTier }
   | { type: 'recovery_plan_created'; plan: RecoveryPlan }
   | { type: 'recovery_action_started'; plan: RecoveryPlan; action: RecoveryAction }
   | { type: 'recovery_action_completed'; plan: RecoveryPlan; result: ActionResult }
@@ -384,12 +350,6 @@ export const DEFAULT_ERROR_RECOVERY_CONFIG: ErrorRecoveryConfig = {
     intervalMs: 60000, // 1 minute
     maxCheckpoints: 10,
     preOperationCheckpoint: true,
-  },
-  degradation: {
-    autoDegrade: true,
-    failuresBeforeDegrade: 3,
-    upgradeDelayMs: 300000, // 5 minutes
-    minimumTier: DegradationTier.BASIC,
   },
   notifications: {
     onDegradation: true,

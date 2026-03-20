@@ -578,6 +578,14 @@ export class RLMDatabase extends EventEmitter {
   getContentDir(): string {
     return this.contentDir;
   }
+
+  /**
+   * Expose the raw better-sqlite3 Database instance for services that need
+   * direct access (e.g., TokenStatsService for lightweight stat writes).
+   */
+  getRawDb(): Database.Database {
+    return this.db;
+  }
 }
 
 // Export singleton getter
