@@ -800,6 +800,14 @@ export const IPC_CHANNELS = {
   HOT_SWITCH_EVENT_STARTED: 'hot-switch:event:started',
   HOT_SWITCH_EVENT_COMPLETED: 'hot-switch:event:completed',
   HOT_SWITCH_EVENT_FAILED: 'hot-switch:event:failed',
+
+  // Cross-Model Review
+  CROSS_MODEL_REVIEW_RESULT: 'cross-model-review:result',
+  CROSS_MODEL_REVIEW_STARTED: 'cross-model-review:started',
+  CROSS_MODEL_REVIEW_ALL_UNAVAILABLE: 'cross-model-review:all-unavailable',
+  CROSS_MODEL_REVIEW_STATUS: 'cross-model-review:status',
+  CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
+  CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

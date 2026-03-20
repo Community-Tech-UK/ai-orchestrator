@@ -18,6 +18,7 @@ import {
 import { StatusIndicatorComponent } from '../instance-list/status-indicator.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { ContextBarComponent } from './context-bar.component';
+import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
@@ -34,7 +35,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CrossModelReviewIndicatorComponent],
   template: `
     <div class="detail-header">
       <div class="header-top">
@@ -243,6 +244,10 @@ interface EditorMenuItem {
               🪝 {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
             </span>
           }
+          <app-cross-model-review-indicator
+            [instanceId]="instance().id"
+            (indicatorClicked)="reviewPanelToggle.emit()"
+          />
         </div>
 
         @if (contextUsage(); as usage) {
@@ -840,6 +845,7 @@ export class InstanceHeaderComponent implements OnInit {
   closeModelDropdown = output<void>();
   selectModel = output<string>();
   toggleFileExplorer = output<void>();
+  reviewPanelToggle = output<void>();
 
   providerDisplayName = computed(() => {
     return this.getProviderDisplayName(this.instance().provider);

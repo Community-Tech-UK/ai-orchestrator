@@ -658,7 +658,15 @@ const IPC_CHANNELS = {
   TRAINING_GET_INSIGHTS: 'training:get-insights',
   TRAINING_APPLY_INSIGHT: 'training:apply-insight',
   TRAINING_DISMISS_INSIGHT: 'training:dismiss-insight',
-  TRAINING_UPDATE_CONFIG: 'training:update-config'
+  TRAINING_UPDATE_CONFIG: 'training:update-config',
+
+  // Cross-Model Review
+  CROSS_MODEL_REVIEW_RESULT: 'cross-model-review:result',
+  CROSS_MODEL_REVIEW_STARTED: 'cross-model-review:started',
+  CROSS_MODEL_REVIEW_ALL_UNAVAILABLE: 'cross-model-review:all-unavailable',
+  CROSS_MODEL_REVIEW_STATUS: 'cross-model-review:status',
+  CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
+  CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action'
 } as const;
 
 
@@ -5261,6 +5269,28 @@ const electronAPI = {
 
   parallelWorktreeList: (): Promise<IpcResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.PARALLEL_WORKTREE_LIST),
+
+  // ============================================
+  // Cross-Model Review
+  // ============================================
+
+  crossModelReviewOnResult: (callback: (data: unknown) => void) =>
+    ipcRenderer.on('cross-model-review:result', (_e, data) => callback(data)),
+
+  crossModelReviewOnStarted: (callback: (data: unknown) => void) =>
+    ipcRenderer.on('cross-model-review:started', (_e, data) => callback(data)),
+
+  crossModelReviewOnAllUnavailable: (callback: (data: unknown) => void) =>
+    ipcRenderer.on('cross-model-review:all-unavailable', (_e, data) => callback(data)),
+
+  crossModelReviewStatus: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_STATUS),
+
+  crossModelReviewDismiss: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_DISMISS, payload),
+
+  crossModelReviewAction: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_ACTION, payload),
 
   // ============================================
   // Platform Info

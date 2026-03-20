@@ -1,0 +1,466 @@
+import { EventEmitter } from 'events';
+import { getLogger } from '../logging/logger';
+import { getSettingsManager } from '../core/config/settings-manager';
+import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
+import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
+import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
+import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
+import { CliDetectionService } from '../cli/cli-detection';
+import { OutputClassifier } from './output-classifier';
+import { ReviewerPool } from './reviewer-pool';
+import {
+  buildStructuredReviewPrompt,
+  buildTieredReviewPrompt,
+  truncateForReview,
+} from './review-prompts';
+import {
+  ReviewResultJsonSchema,
+  TieredReviewResultJsonSchema,
+} from '../../shared/validation/cross-model-review-schemas';
+import type {
+  AggregatedReview,
+  ReviewOutputType,
+  ReviewResult,
+  ReviewVerdict,
+  ReviewDimensionScore,
+  CrossModelReviewStatus,
+} from '../../shared/types/cross-model-review.types';
+import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
+
+const logger = getLogger('CrossModelReviewService');
+
+const MIN_COOLDOWN_MS = 10_000;
+const MAX_REVIEW_HISTORY = 50;
+const RATE_LIMIT_CHECK_INTERVAL_MS = 30_000;
+const AVAILABILITY_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
+  return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
+}
+
+export class CrossModelReviewService extends EventEmitter {
+  private static instance: CrossModelReviewService | null = null;
+
+  private classifier = new OutputClassifier();
+  private reviewerPool = new ReviewerPool();
+  private buffers = new Map<string, OutputBuffer>();
+  private lastReviewTime = new Map<string, number>();
+  private reviewHistory = new Map<string, AggregatedReview[]>();
+  private pendingReviews = new Map<string, AbortController>();
+  private pendingReviewInstances = new Map<string, string>();
+  private rateLimitTimer: ReturnType<typeof setInterval> | null = null;
+  private availabilityTimer: ReturnType<typeof setInterval> | null = null;
+  private initialized = false;
+
+  static getInstance(): CrossModelReviewService {
+    if (!this.instance) {
+      this.instance = new CrossModelReviewService();
+    }
+    return this.instance;
+  }
+
+  static _resetForTesting(): void {
+    if (this.instance) {
+      this.instance.shutdown();
+      this.instance = null;
+    }
+  }
+
+  private constructor() {
+    super();
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
+    await this.refreshAvailability();
+    this.rateLimitTimer = setInterval(() => {
+      this.reviewerPool.checkRateLimitRecovery();
+    }, RATE_LIMIT_CHECK_INTERVAL_MS);
+    this.availabilityTimer = setInterval(() => {
+      this.refreshAvailability().catch(err =>
+        logger.warn('Availability refresh failed', { error: String(err) })
+      );
+    }, AVAILABILITY_CHECK_INTERVAL_MS);
+    logger.info('CrossModelReviewService initialized', {
+      reviewers: this.reviewerPool.getStatus(),
+    });
+  }
+
+  // === Message Buffering ===
+
+  bufferMessage(instanceId: string, messageType: string, content: string, primaryProvider = 'claude', firstUserPrompt = ''): void {
+    if (messageType !== 'assistant') return;
+    let buffer = this.buffers.get(instanceId);
+    if (!buffer) {
+      buffer = { instanceId, messages: [], primaryProvider, firstUserPrompt, lastUpdated: Date.now() };
+      this.buffers.set(instanceId, buffer);
+    }
+    buffer.messages.push(content);
+    buffer.lastUpdated = Date.now();
+  }
+
+  getBufferSize(instanceId: string): number {
+    return this.buffers.get(instanceId)?.messages.length ?? 0;
+  }
+
+  clearBuffer(instanceId: string): void {
+    this.buffers.delete(instanceId);
+  }
+
+  // === Trigger (called when instance goes idle) ===
+
+  async onInstanceIdle(instanceId: string): Promise<void> {
+    const settings = getSettingsManager().getAll();
+    if (!settings.crossModelReviewEnabled) return;
+
+    const buffer = this.buffers.get(instanceId);
+    if (!buffer || buffer.messages.length === 0) return;
+
+    const aggregatedContent = buffer.messages.join('\n\n');
+    this.buffers.delete(instanceId);
+
+    if (aggregatedContent.length < 50) return;
+
+    const lastReview = this.lastReviewTime.get(instanceId) ?? 0;
+    if (Date.now() - lastReview < MIN_COOLDOWN_MS) {
+      logger.debug('Skipping review due to cooldown', { instanceId });
+      return;
+    }
+
+    const classification = this.classifier.classify(aggregatedContent);
+    if (!classification.shouldReview) return;
+
+    const enabledTypes = settings.crossModelReviewTypes as string[];
+    if (!enabledTypes.includes(classification.type)) return;
+
+    let reviewDepth = settings.crossModelReviewDepth as 'structured' | 'tiered';
+    if (reviewDepth === 'structured' && classification.isComplex) {
+      reviewDepth = 'tiered';
+    }
+
+    const selectedReviewers = this.reviewerPool.selectReviewers(
+      buffer.primaryProvider,
+      settings.crossModelReviewMaxReviewers,
+    );
+
+    if (selectedReviewers.length === 0) {
+      this.emit('review:all-unavailable', { instanceId });
+      return;
+    }
+
+    const reviewId = `review-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.lastReviewTime.set(instanceId, Date.now());
+    this.emit('review:started', { instanceId, reviewId });
+
+    const request: ReviewDispatchRequest = {
+      id: reviewId,
+      instanceId,
+      primaryProvider: buffer.primaryProvider,
+      content: truncateForReview(aggregatedContent),
+      taskDescription: buffer.firstUserPrompt || 'No task description available',
+      classification,
+      reviewDepth,
+      timestamp: Date.now(),
+    };
+
+    this.executeReviews(request, selectedReviewers, settings.crossModelReviewTimeout)
+      .catch(err => logger.error('Review execution failed', err, { reviewId }));
+  }
+
+  // === Review Execution ===
+
+  private async executeReviews(request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number): Promise<void> {
+    const abort = new AbortController();
+    this.pendingReviews.set(request.id, abort);
+    this.pendingReviewInstances.set(request.id, request.instanceId);
+
+    try {
+      const reviewPromises = reviewerClis.map(cliType =>
+        this.executeOneReview(request, cliType, timeoutSeconds, abort.signal)
+      );
+
+      const results = await Promise.allSettled(reviewPromises);
+      const successfulResults = results
+        .filter((r): r is PromiseFulfilledResult<ReviewResult> => r.status === 'fulfilled')
+        .map(r => r.value);
+
+      const hasDisagreement = this.detectDisagreement(successfulResults);
+
+      const aggregated: AggregatedReview = {
+        id: request.id,
+        instanceId: request.instanceId,
+        outputType: request.classification.type as ReviewOutputType,
+        reviewDepth: request.reviewDepth,
+        reviews: successfulResults,
+        hasDisagreement,
+        timestamp: Date.now(),
+      };
+
+      this.addToHistory(request.instanceId, aggregated);
+      this.emit('review:result', aggregated);
+    } finally {
+      this.pendingReviews.delete(request.id);
+      this.pendingReviewInstances.delete(request.id);
+    }
+  }
+
+  private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal): Promise<ReviewResult> {
+    const startTime = Date.now();
+    const breaker = getCircuitBreakerRegistry().getBreaker(`cross-review-${cliType}`, {
+      failureThreshold: 3,
+      resetTimeoutMs: 60000,
+    });
+
+    try {
+      const response = await breaker.execute(async () => {
+        if (signal.aborted) throw new Error('Review cancelled');
+
+        const resolvedCli = await resolveCliType(cliType as SettingsCliType);
+        const adapter = createCliAdapter(resolvedCli, {
+          workingDirectory: process.cwd(),
+          timeout: timeoutSeconds * 1000,
+          yoloMode: false,
+        });
+
+        if (!isCliAdapterLike(adapter)) {
+          throw new Error(`CLI adapter "${cliType}" does not support sendMessage`);
+        }
+
+        const prompt = request.reviewDepth === 'tiered'
+          ? buildTieredReviewPrompt(request.taskDescription, request.content)
+          : buildStructuredReviewPrompt(request.taskDescription, request.content);
+
+        return adapter.sendMessage({ role: 'user', content: prompt });
+      });
+
+      this.reviewerPool.recordSuccess(cliType);
+      return this.parseReviewResponse(cliType, response.content, request.reviewDepth, Date.now() - startTime);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('429') || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('quota')) {
+        this.reviewerPool.markRateLimited(cliType);
+      } else {
+        this.reviewerPool.recordFailure(cliType);
+      }
+      logger.warn('Review failed', { cliType, error: message });
+      throw err;
+    }
+  }
+
+  // === Response Parsing ===
+
+  private parseReviewResponse(reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number): ReviewResult {
+    const baseResult: Partial<ReviewResult> = {
+      reviewerId,
+      reviewType: reviewDepth,
+      timestamp: Date.now(),
+      durationMs,
+    };
+
+    let cleaned = rawResponse;
+    const fenceMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) cleaned = fenceMatch[1];
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          parsed = JSON.parse(jsonMatch[0]);
+        } catch {
+          logger.warn('Failed to parse review response', { reviewerId });
+          return {
+            ...baseResult,
+            scores: this.emptyScores(),
+            overallVerdict: 'CONCERNS' as ReviewVerdict,
+            summary: 'Unable to parse reviewer response',
+            parseSuccess: false,
+            rawResponse,
+          } as ReviewResult;
+        }
+      }
+    }
+
+    if (!parsed) {
+      return {
+        ...baseResult,
+        scores: this.emptyScores(),
+        overallVerdict: 'CONCERNS' as ReviewVerdict,
+        summary: 'Unable to parse reviewer response',
+        parseSuccess: false,
+        rawResponse,
+      } as ReviewResult;
+    }
+
+    const schema = reviewDepth === 'tiered' ? TieredReviewResultJsonSchema : ReviewResultJsonSchema;
+    const validated = schema.safeParse(parsed);
+
+    if (!validated.success) {
+      logger.warn('Review response failed schema validation', {
+        reviewerId,
+        errors: validated.error.issues.slice(0, 3),
+      });
+      return this.buildPartialResult(baseResult, parsed, durationMs);
+    }
+
+    const data = validated.data;
+    const scores = 'scores' in data ? data.scores : data;
+
+    return {
+      ...baseResult,
+      scores: {
+        correctness: scores.correctness,
+        completeness: scores.completeness,
+        security: scores.security,
+        consistency: scores.consistency,
+        feasibility: 'feasibility' in scores ? scores.feasibility : undefined,
+      },
+      overallVerdict: data.overall_verdict as ReviewVerdict,
+      summary: data.summary,
+      criticalIssues: 'critical_issues' in data ? data.critical_issues : undefined,
+      traces: 'traces' in data ? data.traces : undefined,
+      boundariesChecked: 'boundaries_checked' in data ? data.boundaries_checked : undefined,
+      assumptions: 'assumptions' in data ? data.assumptions : undefined,
+      integrationRisks: 'integration_risks' in data ? data.integration_risks : undefined,
+      parseSuccess: true,
+    } as ReviewResult;
+  }
+
+  private buildPartialResult(base: Partial<ReviewResult>, raw: unknown, durationMs: number): ReviewResult {
+    const extractScore = (obj: unknown): ReviewDimensionScore => {
+      const o = obj as Record<string, unknown> | null | undefined;
+      return {
+        reasoning: typeof o?.['reasoning'] === 'string' ? o['reasoning'] : 'Unable to parse',
+        score: typeof o?.['score'] === 'number' ? Math.min(4, Math.max(1, o['score'])) : 2,
+        issues: Array.isArray(o?.['issues']) ? (o['issues'] as string[]) : [],
+      };
+    };
+    const r = raw as Record<string, unknown> | null | undefined;
+    const scores = (r?.['scores'] ?? r) as Record<string, unknown> | null | undefined;
+    return {
+      ...base,
+      scores: {
+        correctness: extractScore(scores?.['correctness']),
+        completeness: extractScore(scores?.['completeness']),
+        security: extractScore(scores?.['security']),
+        consistency: extractScore(scores?.['consistency']),
+      },
+      overallVerdict: (['APPROVE', 'CONCERNS', 'REJECT'].includes(r?.['overall_verdict'] as string)
+        ? r?.['overall_verdict'] : 'CONCERNS') as ReviewVerdict,
+      summary: typeof r?.['summary'] === 'string' ? r['summary'] : 'Partially parsed response',
+      parseSuccess: false,
+      rawResponse: JSON.stringify(raw),
+      timestamp: Date.now(),
+      durationMs,
+    } as ReviewResult;
+  }
+
+  private emptyScores() {
+    const empty: ReviewDimensionScore = { reasoning: 'No data', score: 2, issues: [] };
+    return { correctness: { ...empty }, completeness: { ...empty }, security: { ...empty }, consistency: { ...empty } };
+  }
+
+  // === Disagreement Detection ===
+
+  private detectDisagreement(reviews: ReviewResult[]): boolean {
+    if (reviews.length === 0) return false;
+    if (reviews.some(r => r.overallVerdict !== 'APPROVE')) return true;
+    for (const review of reviews) {
+      const allScores = [
+        review.scores.correctness?.score,
+        review.scores.completeness?.score,
+        review.scores.security?.score,
+        review.scores.consistency?.score,
+        review.scores.feasibility?.score,
+      ].filter((s): s is number => s !== undefined);
+      if (allScores.some(s => s === 1)) return true;
+    }
+    const verdicts = new Set(reviews.map(r => r.overallVerdict));
+    if (verdicts.has('APPROVE') && verdicts.has('REJECT')) return true;
+    return false;
+  }
+
+  // === Review History ===
+
+  getReviewHistory(instanceId: string): AggregatedReview[] {
+    return this.reviewHistory.get(instanceId) ?? [];
+  }
+
+  private addToHistory(instanceId: string, review: AggregatedReview): void {
+    let history = this.reviewHistory.get(instanceId);
+    if (!history) {
+      history = [];
+      this.reviewHistory.set(instanceId, history);
+    }
+    history.push(review);
+    if (history.length > MAX_REVIEW_HISTORY) {
+      history.splice(0, history.length - MAX_REVIEW_HISTORY);
+    }
+  }
+
+  // === Availability ===
+
+  private async refreshAvailability(): Promise<void> {
+    try {
+      const detection = CliDetectionService.getInstance();
+      const result = await detection.detectAll();
+      const available = result.available.map(c => c.name);
+      const settings = getSettingsManager().getAll();
+      const configured = settings.crossModelReviewProviders as string[];
+      const effectiveList = configured.length > 0
+        ? configured.filter(p => available.includes(p))
+        : available;
+      this.reviewerPool.setAvailable(effectiveList);
+    } catch (err) {
+      logger.warn('CLI detection failed', { error: String(err) });
+    }
+  }
+
+  getStatus(): CrossModelReviewStatus {
+    const settings = getSettingsManager().getAll();
+    return {
+      enabled: settings.crossModelReviewEnabled,
+      reviewers: this.reviewerPool.getStatus(),
+      pendingReviews: this.pendingReviews.size,
+    };
+  }
+
+  // === Cleanup ===
+
+  cancelPendingReviews(instanceId: string): void {
+    for (const [reviewId, instId] of this.pendingReviewInstances) {
+      if (instId === instanceId) {
+        const abort = this.pendingReviews.get(reviewId);
+        if (abort) {
+          abort.abort();
+          this.pendingReviews.delete(reviewId);
+        }
+        this.pendingReviewInstances.delete(reviewId);
+      }
+    }
+    this.clearBuffer(instanceId);
+    this.reviewHistory.delete(instanceId);
+  }
+
+  shutdown(): void {
+    if (this.rateLimitTimer) clearInterval(this.rateLimitTimer);
+    if (this.availabilityTimer) clearInterval(this.availabilityTimer);
+    this.rateLimitTimer = null;
+    this.availabilityTimer = null;
+    for (const abort of this.pendingReviews.values()) abort.abort();
+    this.pendingReviews.clear();
+    this.pendingReviewInstances.clear();
+    this.buffers.clear();
+    this.reviewHistory.clear();
+    this.lastReviewTime.clear();
+    this.removeAllListeners();
+    this.initialized = false;
+  }
+}
+
+export function getCrossModelReviewService(): CrossModelReviewService {
+  return CrossModelReviewService.getInstance();
+}

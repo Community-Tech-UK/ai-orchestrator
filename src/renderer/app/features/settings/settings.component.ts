@@ -12,6 +12,7 @@ import { AdvancedSettingsTabComponent } from './advanced-settings-tab.component'
 import { KeyboardSettingsTabComponent } from './keyboard-settings-tab.component';
 import { PermissionsSettingsTabComponent } from './permissions-settings-tab.component';
 import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.component';
+import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 
 type SettingsTab =
   | 'general'
@@ -20,6 +21,7 @@ type SettingsTab =
   | 'display'
   | 'ecosystem'
   | 'permissions'
+  | 'review'
   | 'advanced'
   | 'keyboard';
 
@@ -32,6 +34,7 @@ type SettingsTab =
     MemorySettingsTabComponent,
     DisplaySettingsTabComponent,
     EcosystemSettingsTabComponent,
+    ReviewSettingsTabComponent,
     AdvancedSettingsTabComponent,
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent
@@ -102,6 +105,13 @@ type SettingsTab =
             </button>
             <button
               class="tab"
+              [class.active]="activeTab === 'review'"
+              (click)="activeTab = 'review'"
+            >
+              Cross-Model Review
+            </button>
+            <button
+              class="tab"
               [class.active]="activeTab === 'advanced'"
               (click)="activeTab =('advanced')"
             >
@@ -136,6 +146,9 @@ type SettingsTab =
               }
               @case ('permissions') {
                 <app-permissions-settings-tab />
+              }
+              @case ('review') {
+                <app-review-settings-tab />
               }
               @case ('advanced') {
                 <app-advanced-settings-tab />

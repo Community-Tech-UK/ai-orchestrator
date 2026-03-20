@@ -50,6 +50,14 @@ export interface AppSettings {
   // Advanced
   customModelOverride: string; // empty = use default
   parserBufferMaxKB: number; // max size for NDJSON parser buffer
+
+  // Cross-Model Review
+  crossModelReviewEnabled: boolean;
+  crossModelReviewDepth: 'structured' | 'tiered';
+  crossModelReviewMaxReviewers: number;
+  crossModelReviewProviders: string[];
+  crossModelReviewTimeout: number;
+  crossModelReviewTypes: string[];
 }
 
 /**
@@ -89,7 +97,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Advanced
   customModelOverride: '',
-  parserBufferMaxKB: 1024 // 1MB max parser buffer
+  parserBufferMaxKB: 1024, // 1MB max parser buffer
+
+  // Cross-Model Review
+  crossModelReviewEnabled: true,
+  crossModelReviewDepth: 'structured',
+  crossModelReviewMaxReviewers: 2,
+  crossModelReviewProviders: [],
+  crossModelReviewTimeout: 30,
+  crossModelReviewTypes: ['code', 'plan', 'architecture'],
 };
 
 /**
@@ -113,8 +129,8 @@ export interface SettingMetadata {
   key: keyof AppSettings;
   label: string;
   description: string;
-  type: 'boolean' | 'string' | 'number' | 'select' | 'directory';
-  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced';
+  type: 'boolean' | 'string' | 'number' | 'select' | 'directory' | 'multi-select';
+  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review';
   options?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
@@ -346,7 +362,70 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
     min: 256,
     max: 10240
-  }
+  },
+
+  // Cross-Model Review
+  {
+    key: 'crossModelReviewEnabled',
+    label: 'Enable Cross-Model Review',
+    description: 'Automatically verify AI output using secondary models (Gemini, Codex, etc.)',
+    type: 'boolean',
+    category: 'review',
+  },
+  {
+    key: 'crossModelReviewDepth',
+    label: 'Review Depth',
+    description: 'Level of verification detail (structured = standard, tiered = deep for complex output)',
+    type: 'select',
+    category: 'review',
+    options: [
+      { value: 'structured', label: 'Structured (standard)' },
+      { value: 'tiered', label: 'Tiered (auto-escalate for complex)' },
+    ],
+  },
+  {
+    key: 'crossModelReviewMaxReviewers',
+    label: 'Max Reviewers',
+    description: 'Number of secondary models to use for each review',
+    type: 'number',
+    category: 'review',
+    min: 1,
+    max: 4,
+  },
+  {
+    key: 'crossModelReviewProviders',
+    label: 'Preferred Review Providers',
+    description: 'Which CLIs to use for reviews (empty = auto-detect available)',
+    type: 'multi-select',
+    category: 'review',
+    options: [
+      { value: 'gemini', label: 'Gemini CLI' },
+      { value: 'codex', label: 'OpenAI Codex CLI' },
+      { value: 'copilot', label: 'GitHub Copilot' },
+      { value: 'claude', label: 'Claude Code' },
+    ],
+  },
+  {
+    key: 'crossModelReviewTimeout',
+    label: 'Review Timeout (seconds)',
+    description: 'Maximum time to wait for each reviewer response',
+    type: 'number',
+    category: 'review',
+    min: 10,
+    max: 120,
+  },
+  {
+    key: 'crossModelReviewTypes',
+    label: 'Review Triggers',
+    description: 'Which output types trigger automatic review',
+    type: 'multi-select',
+    category: 'review',
+    options: [
+      { value: 'code', label: 'Code' },
+      { value: 'plan', label: 'Plans' },
+      { value: 'architecture', label: 'Architecture' },
+    ],
+  },
 ];
 
 // ============================================

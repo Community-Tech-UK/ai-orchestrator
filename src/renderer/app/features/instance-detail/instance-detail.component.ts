@@ -33,6 +33,8 @@ import { UserActionRequestComponent } from './user-action-request.component';
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
+import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
+import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { TodoStore } from '../../core/state/todo.store';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 
@@ -59,7 +61,8 @@ interface WelcomeProjectContext {
     UserActionRequestComponent,
     InstanceHeaderComponent,
     InstanceWelcomeComponent,
-    InstanceReviewPanelComponent
+    InstanceReviewPanelComponent,
+    CrossModelReviewPanelComponent
   ],
   template: `
     @if (instance(); as inst) {
@@ -148,6 +151,14 @@ interface WelcomeProjectContext {
               />
             }
           </div>
+
+          <!-- Cross-model review panel -->
+          @if (currentReview()?.hasDisagreement) {
+            <app-cross-model-review-panel
+              [review]="currentReview()"
+              (actionPerformed)="onReviewAction($event)"
+            />
+          }
 
           <!-- Inspector toggles -->
           <div class="inspector-toggles">
@@ -562,6 +573,7 @@ export class InstanceDetailComponent {
   private providerState = inject(ProviderStateService);
   private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
+  private crossModelReviewService = inject(CrossModelReviewIpcService);
   todoStore = inject(TodoStore);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
@@ -570,6 +582,11 @@ export class InstanceDetailComponent {
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
   busySince = computed(() => this.store.getSelectedInstanceBusySince());
+  currentReview = computed(() => {
+    const inst = this.instance();
+    if (!inst) return null;
+    return this.crossModelReviewService.getReviewForInstance(inst.id) ?? null;
+  });
 
   // Inspector panel visibility (F3: on-demand inspectors)
   showTodoInspector = signal(false);
@@ -838,6 +855,21 @@ export class InstanceDetailComponent {
       }
     } catch {
       // Static fallback already set above
+    }
+  }
+
+  onReviewAction(event: { reviewId: string; instanceId: string; action: string }): void {
+    if (event.action === 'ask-primary') {
+      const review = this.currentReview();
+      if (review) {
+        const concerns = review.reviews
+          .flatMap(r => Object.values(r.scores).flatMap(s => s?.issues ?? []))
+          .filter(Boolean);
+        if (concerns.length > 0) {
+          const message = `Cross-model review flagged these issues:\n${concerns.map(c => `- ${c}`).join('\n')}\n\nPlease address them.`;
+          this.onSendMessage(message);
+        }
+      }
     }
   }
 

@@ -52,6 +52,9 @@ export class SettingsStore {
   readonly advancedSettings = computed(() =>
     SETTINGS_METADATA.filter(m => m.category === 'advanced')
   );
+  readonly reviewSettings = computed(() =>
+    SETTINGS_METADATA.filter(s => s.category === 'review')
+  );
 
   private unsubscribe: (() => void) | null = null;
 

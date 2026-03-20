@@ -87,6 +87,20 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
               </button>
             </div>
           }
+          @case ('multi-select') {
+            <div class="multi-select-options">
+              @for (option of setting().options ?? []; track option.value) {
+                <label class="multi-select-option">
+                  <input
+                    type="checkbox"
+                    [checked]="isOptionSelected(option.value)"
+                    (change)="toggleMultiSelectOption(option.value)"
+                  />
+                  {{ option.label }}
+                </label>
+              }
+            </div>
+          }
         }
       </div>
     </div>
@@ -234,6 +248,20 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
           background: var(--bg-primary);
         }
       }
+
+      .multi-select-options {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .multi-select-option {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        cursor: pointer;
+      }
     `
   ]
 })
@@ -272,5 +300,22 @@ export class SettingRowComponent {
     if (response.success && response.data) {
       this.valueChange.emit({ key: this.setting().key, value: response.data });
     }
+  }
+
+  isOptionSelected(optionValue: string | number): boolean {
+    const current = this.value();
+    return Array.isArray(current) && current.includes(optionValue);
+  }
+
+  toggleMultiSelectOption(optionValue: string | number): void {
+    const current = this.value();
+    const arr = Array.isArray(current) ? [...current] : [];
+    const idx = arr.indexOf(optionValue);
+    if (idx >= 0) {
+      arr.splice(idx, 1);
+    } else {
+      arr.push(optionValue);
+    }
+    this.valueChange.emit({ key: this.setting().key, value: arr });
   }
 }

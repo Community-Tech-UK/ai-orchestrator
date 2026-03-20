@@ -33,6 +33,8 @@ import { getHibernationManager } from './process/hibernation-manager';
 import { getPoolManager } from './process/pool-manager';
 import { getLoadBalancer } from './process/load-balancer';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
+import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
+import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -170,6 +172,11 @@ class AIOrchestratorApp {
           });
         } },
         { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
+        { name: 'Cross-model review', fn: async () => {
+          const crossModelReview = getCrossModelReviewService();
+          await crossModelReview.initialize();
+          registerCrossModelReviewIpcHandlers();
+        } },
       ];
 
       for (const step of steps) {
@@ -337,6 +344,43 @@ class AIOrchestratorApp {
           }
         }
       }
+    });
+
+    // Wire instance events to cross-model review
+    const crossModelReview = getCrossModelReviewService();
+
+    this.instanceManager.on('instance:output', ({ instanceId, message }) => {
+      if (message.metadata?.source === 'cross-model-review') return;
+      const instance = this.instanceManager.getInstance(instanceId);
+      const provider = instance?.provider ?? 'claude';
+      const firstUserPrompt = instance?.displayName ?? '';
+      crossModelReview.bufferMessage(instanceId, message.type, message.content, provider as string, firstUserPrompt);
+    });
+
+    this.instanceManager.on('instance:batch-update', ({ updates }) => {
+      for (const update of updates) {
+        if (update.status === 'idle' || update.status === 'waiting_for_input') {
+          crossModelReview.onInstanceIdle(update.instanceId).catch(err =>
+            logger.warn('Review trigger failed', { instanceId: update.instanceId, error: String(err) })
+          );
+        }
+      }
+    });
+
+    // instance:removed emits a plain string, NOT an object
+    this.instanceManager.on('instance:removed', (instanceId: string) => {
+      crossModelReview.cancelPendingReviews(instanceId);
+    });
+
+    // Forward cross-model review events to renderer
+    crossModelReview.on('review:started', (data) => {
+      this.windowManager.sendToRenderer('cross-model-review:started', data);
+    });
+    crossModelReview.on('review:result', (data) => {
+      this.windowManager.sendToRenderer('cross-model-review:result', data);
+    });
+    crossModelReview.on('review:all-unavailable', (data) => {
+      this.windowManager.sendToRenderer('cross-model-review:all-unavailable', data);
     });
 
     // Forward input-required events (permission prompts) to renderer
@@ -598,6 +642,7 @@ class AIOrchestratorApp {
     try { getResourceGovernor().stop(); } catch { /* best effort */ }
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }
+    try { getCrossModelReviewService().shutdown(); } catch { /* best effort */ }
     // Save all tracked session states before terminating
     try {
       getSessionContinuityManagerIfInitialized()?.shutdown();

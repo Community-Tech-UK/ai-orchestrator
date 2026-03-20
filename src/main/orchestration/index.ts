@@ -98,3 +98,6 @@ export type {
   LeaderElectionResult,
   ConsensusStats,
 } from './consensus';
+
+// Cross-Model Review
+export { CrossModelReviewService, getCrossModelReviewService } from './cross-model-review-service';
