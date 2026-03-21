@@ -32,7 +32,6 @@ const logger = getLogger('CrossModelReviewService');
 const MIN_COOLDOWN_MS = 10_000;
 const MAX_REVIEW_HISTORY = 50;
 const RATE_LIMIT_CHECK_INTERVAL_MS = 30_000;
-const AVAILABILITY_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
@@ -49,7 +48,6 @@ export class CrossModelReviewService extends EventEmitter {
   private pendingReviews = new Map<string, AbortController>();
   private pendingReviewInstances = new Map<string, string>();
   private rateLimitTimer: ReturnType<typeof setInterval> | null = null;
-  private availabilityTimer: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
 
   static getInstance(): CrossModelReviewService {
@@ -77,11 +75,6 @@ export class CrossModelReviewService extends EventEmitter {
     this.rateLimitTimer = setInterval(() => {
       this.reviewerPool.checkRateLimitRecovery();
     }, RATE_LIMIT_CHECK_INTERVAL_MS);
-    this.availabilityTimer = setInterval(() => {
-      this.refreshAvailability().catch(err =>
-        logger.warn('Availability refresh failed', { error: String(err) })
-      );
-    }, AVAILABILITY_CHECK_INTERVAL_MS);
     logger.info('CrossModelReviewService initialized', {
       reviewers: this.reviewerPool.getStatus(),
     });
@@ -139,6 +132,7 @@ export class CrossModelReviewService extends EventEmitter {
       reviewDepth = 'tiered';
     }
 
+    await this.refreshAvailability();
     const selectedReviewers = this.reviewerPool.selectReviewers(
       buffer.primaryProvider,
       settings.crossModelReviewMaxReviewers,
@@ -447,9 +441,7 @@ export class CrossModelReviewService extends EventEmitter {
 
   shutdown(): void {
     if (this.rateLimitTimer) clearInterval(this.rateLimitTimer);
-    if (this.availabilityTimer) clearInterval(this.availabilityTimer);
     this.rateLimitTimer = null;
-    this.availabilityTimer = null;
     for (const abort of this.pendingReviews.values()) abort.abort();
     this.pendingReviews.clear();
     this.pendingReviewInstances.clear();

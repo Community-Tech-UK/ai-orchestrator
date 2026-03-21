@@ -11,6 +11,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ScrollingModule } from '@angular/cdk/scrolling';
@@ -1548,8 +1549,9 @@ export class InstanceListComponent {
         Array.from(previousRootIds).some((id) => !currentRootIds.has(id));
       const historyEntries = this.historyStore.entries().filter((entry) => !entry.archivedAt);
       const knownRecentDirectories = new Set(
-        this.recentDirectories().map((entry) => this.getProjectKey(entry.path))
+        untracked(() => this.recentDirectories()).map((entry) => this.getProjectKey(entry.path))
       );
+      const missingDirectories: string[] = [];
 
       previousRootIds = currentRootIds;
 
@@ -1558,17 +1560,19 @@ export class InstanceListComponent {
         const workingDirectory = instance.workingDirectory?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.getProjectKey(workingDirectory));
-          void this.recentDirectoriesService.addDirectory(workingDirectory);
+          missingDirectories.push(workingDirectory);
         }
       }
       for (const entry of historyEntries) {
         const workingDirectory = entry.workingDirectory?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.getProjectKey(workingDirectory));
-          void this.recentDirectoriesService.addDirectory(workingDirectory);
+          missingDirectories.push(workingDirectory);
         }
       }
-      void this.loadRecentDirectories();
+      if (missingDirectories.length > 0) {
+        void this.syncRecentDirectories(missingDirectories);
+      }
 
       if (removedRoot) {
         void this.historyStore.loadHistory();
@@ -2536,7 +2540,38 @@ export class InstanceListComponent {
     const directories = await this.recentDirectoriesService.getDirectories({
       sortBy: 'manual',
     });
+    if (this.areRecentDirectoriesEqual(this.recentDirectories(), directories)) {
+      return;
+    }
     this.recentDirectories.set(directories);
+  }
+
+  private async syncRecentDirectories(workingDirectories: readonly string[]): Promise<void> {
+    await Promise.all(
+      workingDirectories.map((workingDirectory) =>
+        this.recentDirectoriesService.addDirectory(workingDirectory)
+      )
+    );
+    await this.loadRecentDirectories();
+  }
+
+  private areRecentDirectoriesEqual(
+    left: readonly RecentDirectoryEntry[],
+    right: readonly RecentDirectoryEntry[]
+  ): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    return left.every((entry, index) => {
+      const candidate = right[index];
+      return candidate !== undefined &&
+        entry.path === candidate.path &&
+        entry.displayName === candidate.displayName &&
+        entry.lastAccessed === candidate.lastAccessed &&
+        entry.accessCount === candidate.accessCount &&
+        entry.isPinned === candidate.isPinned;
+    });
   }
 
   private async ensurePreferredEditorLoaded(): Promise<void> {
