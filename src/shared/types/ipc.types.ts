@@ -813,6 +813,22 @@ export const IPC_CHANNELS = {
   TOKEN_STATS_GET_SUMMARY: 'token-stats:get-summary',
   TOKEN_STATS_GET_RECENT: 'token-stats:get-recent',
   TOKEN_STATS_CLEANUP: 'token-stats:cleanup',
+
+  // Channel Management
+  CHANNEL_CONNECT: 'channel:connect',
+  CHANNEL_DISCONNECT: 'channel:disconnect',
+  CHANNEL_GET_STATUS: 'channel:get-status',
+  CHANNEL_GET_MESSAGES: 'channel:get-messages',
+  CHANNEL_SEND_MESSAGE: 'channel:send-message',
+  CHANNEL_PAIR_SENDER: 'channel:pair-sender',
+  CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
+  CHANNEL_SET_ACCESS_POLICY: 'channel:set-access-policy',
+
+  // Channel push events (main -> renderer)
+  CHANNEL_STATUS_CHANGED: 'channel:status-changed',
+  CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
+  CHANNEL_RESPONSE_SENT: 'channel:response-sent',
+  CHANNEL_ERROR: 'channel:error',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
