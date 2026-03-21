@@ -59,7 +59,7 @@ Two ways to exit:
 When the user sends the edited message, `InstanceDetailComponent` handles the `resendEdited` event:
 
 1. **Fork** — Call `this.ipc.forkSession(instanceId, messageIndex)` via the existing `ElectronIpcService` injection (`this.ipc`). The `messageIndex` is passed directly as `atMessageIndex`, which uses exclusive indexing (keeps messages 0 through messageIndex-1). This truncates to just before the last user message, which is exactly what we want. The existing fork machinery handles message deduplication and tool_use/tool_result pair preservation.
-2. **Send** — Send the edited message text to the new instance via `this.store.sendInput(newInstanceId, editedText)`, consistent with how the existing `onSendMessage()` method works.
+2. **Send** — Send the edited message text to the new instance via `this.store.sendInput(newInstanceId, editedText)`, consistent with how the existing `onSendMessage()` method works. The store's `sendInput` automatically queues the message if the new instance is still initializing, and delivers it once the instance is ready — no need to await instance readiness.
 3. **Swap** — Select the new instance via `this.store.setSelectedInstance(newInstanceId)`. The `forkSession` IPC response includes the new instance data and the store is updated synchronously in the handler (consistent with how `OutputStreamComponent.forkFromMessage()` calls `this.instanceStore.setSelectedInstance(data.id)` immediately after the fork response).
 4. **Cleanup** — Terminate the old instance via `this.store.terminateInstance(oldInstanceId)`. This kills the CLI process and triggers the `onInstanceRemoved` listener for store cleanup. The old conversation can still be recovered from session archives if needed, since the fork preserves the source.
 
@@ -93,6 +93,8 @@ This avoids adding a new input or coupling the parent to the edit-mode feature. 
 - **Conversation loss after edit point:** The last user message may not be the last message in the buffer — assistant responses, tool_use, and tool_result messages may follow it. Forking at the user message's buffer index correctly excludes all subsequent messages. The user loses all conversation after the edit point. This is the expected behavior (the spec title says "rewind") and is consistent with how "Fork from here" works in the context menu.
 - **Last message has file attachments:** The text is loaded but attachments are not restored. This is acceptable — the user is editing the text, and re-attaching files is a separate action.
 - **Rapid UP/Escape/UP:** Each UP press re-stashes the current input. If the user is already in edit mode and presses UP again, it's a no-op (already showing the last message).
+- **Draft sync effect:** The input panel has an effect that syncs the `message` signal with the backing draft store. When entering edit mode, the effect should be skipped (`if (this.editMode()) return;`) to prevent the draft store from overwriting the loaded last message.
+- **Ghost text in edit mode:** Loading text via `message.set()` does not trigger ghost text (it bypasses `onInput`). If the user edits the text, ghost text may appear — this is fine. If ghost text is showing when Escape is pressed, the first Escape dismisses the ghost text (existing guard), and a second Escape cancels edit mode.
 
 ## Files Changed
 
