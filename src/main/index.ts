@@ -35,6 +35,7 @@ import { getLoadBalancer } from './process/load-balancer';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
+import { getChannelManager } from './channels';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -210,6 +211,7 @@ class AIOrchestratorApp {
           await crossModelReview.initialize();
           registerCrossModelReviewIpcHandlers();
         } },
+        { name: 'Channel manager', fn: () => { getChannelManager(); } },
       ];
 
       for (const step of steps) {
@@ -682,6 +684,9 @@ class AIOrchestratorApp {
     } catch (error) {
       logger.error('Failed to save sessions on shutdown', error instanceof Error ? error : undefined);
     }
+    void (async () => {
+      try { await getChannelManager().shutdown(); } catch { /* best effort */ }
+    })();
     this.instanceManager.terminateAll();
   }
 }

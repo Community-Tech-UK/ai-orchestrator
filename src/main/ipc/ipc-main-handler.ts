@@ -62,6 +62,7 @@ import {
   registerParallelWorktreeHandlers,
   registerRemoteObserverHandlers,
   registerImageHandlers,
+  registerChannelHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -281,6 +282,9 @@ export class IpcMainHandler {
 
     // Remote observer handlers (read-only local web observer)
     registerRemoteObserverHandlers();
+
+    // Channel handlers (Discord/WhatsApp integration)
+    registerChannelHandlers();
 
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();
