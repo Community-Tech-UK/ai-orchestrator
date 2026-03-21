@@ -666,7 +666,21 @@ const IPC_CHANNELS = {
   CROSS_MODEL_REVIEW_ALL_UNAVAILABLE: 'cross-model-review:all-unavailable',
   CROSS_MODEL_REVIEW_STATUS: 'cross-model-review:status',
   CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
-  CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action'
+  CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',
+
+  // Channel Management
+  CHANNEL_CONNECT: 'channel:connect',
+  CHANNEL_DISCONNECT: 'channel:disconnect',
+  CHANNEL_GET_STATUS: 'channel:get-status',
+  CHANNEL_GET_MESSAGES: 'channel:get-messages',
+  CHANNEL_SEND_MESSAGE: 'channel:send-message',
+  CHANNEL_PAIR_SENDER: 'channel:pair-sender',
+  CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
+  CHANNEL_SET_ACCESS_POLICY: 'channel:set-access-policy',
+  CHANNEL_STATUS_CHANGED: 'channel:status-changed',
+  CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
+  CHANNEL_RESPONSE_SENT: 'channel:response-sent',
+  CHANNEL_ERROR: 'channel:error',
 } as const;
 
 
@@ -5291,6 +5305,47 @@ const electronAPI = {
 
   crossModelReviewAction: (payload: Record<string, unknown>): Promise<IpcResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_ACTION, payload),
+
+  // ============================================
+  // Channel Management
+  // ============================================
+
+  channelConnect: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_CONNECT, withAuth(payload)),
+
+  channelDisconnect: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_DISCONNECT, withAuth(payload)),
+
+  channelGetStatus: (payload?: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_STATUS, withAuth(payload ?? {})),
+
+  channelGetMessages: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_MESSAGES, withAuth(payload)),
+
+  channelSendMessage: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SEND_MESSAGE, withAuth(payload)),
+
+  channelPairSender: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_PAIR_SENDER, withAuth(payload)),
+
+  channelGetAccessPolicy: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_ACCESS_POLICY, withAuth(payload)),
+
+  channelSetAccessPolicy: (payload: Record<string, unknown>): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SET_ACCESS_POLICY, withAuth(payload)),
+
+  // Channel push events (main -> renderer)
+  channelOnStatusChanged: (callback: (data: unknown) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, (_e, data) => callback(data)),
+
+  channelOnMessageReceived: (callback: (data: unknown) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, (_e, data) => callback(data)),
+
+  channelOnResponseSent: (callback: (data: unknown) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, (_e, data) => callback(data)),
+
+  channelOnError: (callback: (data: unknown) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_ERROR, (_e, data) => callback(data)),
 
   // ============================================
   // Platform Info
