@@ -247,7 +247,41 @@ describe('ChannelMessageRouter', () => {
     expect(() => router.assertSendable('This is perfectly safe content')).not.toThrow();
   });
 
-  // ── 10. Adds ⏳ reaction on receipt, swaps to ✅ on success ───────────────
+  // ── 10. Streams results back to channel on instance output ────────────────
+  it('streams instance output back to the channel after debounce', async () => {
+    vi.useFakeTimers();
+    const router = makeRouter();
+    const policy = makePolicy();
+    const adapter = { ...makeMockAdapter(policy), sendMessage: vi.fn().mockResolvedValue({ messageId: 'r1', chatId: 'chat-100', timestamp: Date.now() }) };
+    const msg = makeMessage();
+
+    const mgr = vi.mocked(getInstanceManager)();
+    // Capture the 'instance:output' handler when the router subscribes
+    const outputHandlers: ((data: { instanceId: string; message: { type: string; content: string } }) => void)[] = [];
+    vi.mocked(mgr.on).mockImplementation(((event: string, handler: (...args: unknown[]) => void) => {
+      if (event === 'instance:output') outputHandlers.push(handler as typeof outputHandlers[0]);
+      return mgr;
+    }) as typeof mgr.on);
+
+    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
+
+    // Simulate instance output
+    for (const handler of outputHandlers) {
+      handler({ instanceId: 'inst-1', message: { type: 'assistant', content: 'Hello from Claude' } });
+    }
+
+    // Before debounce fires, no send
+    expect(adapter.sendMessage).not.toHaveBeenCalled();
+
+    // After debounce
+    vi.advanceTimersByTime(2500);
+
+    expect(adapter.sendMessage).toHaveBeenCalledWith('chat-100', 'Hello from Claude');
+
+    vi.useRealTimers();
+  });
+
+  // ── 11. Adds ⏳ reaction on receipt, swaps to ✅ on success ───────────────
   it('adds ⏳ reaction on message receipt and ✅ on success', async () => {
     const router = makeRouter();
     const policy = makePolicy();

@@ -7,8 +7,11 @@ import type { BaseChannelAdapter } from './channel-adapter';
 import type { InboundChannelMessage, AccessPolicy } from '../../shared/types/channels';
 
 const logger = getLogger('ChannelMessageRouter');
+const DEBOUNCE_MS = 2000;
 
 export class ChannelMessageRouter {
+  private outputBuffers = new Map<string, { content: string; timer: ReturnType<typeof setTimeout> }>();
+
   constructor(private deps: {
     persistence: ChannelPersistence;
     rateLimiter: RateLimiter;
@@ -40,6 +43,9 @@ export class ChannelMessageRouter {
     try {
       const instanceId = await this.resolveTarget(msg);
 
+      // 6. Stream results back — subscribe to instance output
+      this.streamResults(instanceId, msg.chatId, adapter);
+
       // Success reaction
       try {
         await adapter.addReaction(msg.chatId, msg.messageId, '\u2705');
@@ -51,6 +57,69 @@ export class ChannelMessageRouter {
       try {
         await adapter.addReaction(msg.chatId, msg.messageId, '\u274C');
       } catch { /* best effort */ }
+    }
+  }
+
+  /** Subscribe to instance output and debounce-send back to the channel */
+  private streamResults(instanceId: string, chatId: string, adapter: BaseChannelAdapter): void {
+    const instanceManager = getInstanceManager();
+    const bufferKey = `${instanceId}:${chatId}`;
+
+    const handler = (data: { instanceId: string; message: { type: string; content: string } }) => {
+      if (data.instanceId !== instanceId) return;
+      if (data.message.type !== 'assistant') return;
+
+      const existing = this.outputBuffers.get(bufferKey);
+      if (existing) {
+        clearTimeout(existing.timer);
+        existing.content += data.message.content;
+      } else {
+        this.outputBuffers.set(bufferKey, { content: data.message.content, timer: undefined as unknown as ReturnType<typeof setTimeout> });
+      }
+
+      const buffer = this.outputBuffers.get(bufferKey)!;
+      buffer.timer = setTimeout(() => {
+        this.flushBuffer(bufferKey, chatId, adapter);
+      }, DEBOUNCE_MS);
+    };
+
+    instanceManager.on('instance:output', handler);
+
+    // Clean up listener when instance goes idle (response complete)
+    const stateHandler = (data: { instanceId: string; status: string }) => {
+      if (data.instanceId !== instanceId) return;
+      if (data.status === 'idle') {
+        // Flush any remaining buffer
+        if (this.outputBuffers.has(bufferKey)) {
+          const existing = this.outputBuffers.get(bufferKey)!;
+          clearTimeout(existing.timer);
+          this.flushBuffer(bufferKey, chatId, adapter);
+        }
+        instanceManager.removeListener('instance:output', handler);
+        instanceManager.removeListener('instance:state-update', stateHandler);
+      }
+    };
+    instanceManager.on('instance:state-update', stateHandler);
+  }
+
+  private flushBuffer(bufferKey: string, chatId: string, adapter: BaseChannelAdapter): void {
+    const buffer = this.outputBuffers.get(bufferKey);
+    if (!buffer || !buffer.content) {
+      this.outputBuffers.delete(bufferKey);
+      return;
+    }
+
+    const content = buffer.content;
+    this.outputBuffers.delete(bufferKey);
+
+    try {
+      this.assertSendable(content);
+      adapter.sendMessage(chatId, content).catch(err => {
+        logger.error('Failed to send response to channel', err instanceof Error ? err : undefined, { chatId });
+      });
+    } catch (err) {
+      logger.warn('Outbound content blocked by assertSendable', { chatId, reason: (err as Error).message });
+      adapter.sendMessage(chatId, '[Response blocked: contains sensitive content]').catch(() => { /* best effort */ });
     }
   }
 
