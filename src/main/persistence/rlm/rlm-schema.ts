@@ -242,7 +242,40 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_token_stats_time;
       DROP TABLE IF EXISTS token_stats;
     `
-  }
+  },
+
+  {
+    name: '006_add_channel_messages',
+    up: `
+      CREATE TABLE IF NOT EXISTS channel_messages (
+        id TEXT PRIMARY KEY,
+        platform TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        thread_id TEXT,
+        sender_id TEXT NOT NULL,
+        sender_name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+        instance_id TEXT,
+        reply_to_message_id TEXT,
+        timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_channel_messages_chat
+        ON channel_messages(platform, chat_id);
+      CREATE INDEX IF NOT EXISTS idx_channel_messages_instance
+        ON channel_messages(instance_id);
+      CREATE INDEX IF NOT EXISTS idx_channel_messages_thread
+        ON channel_messages(thread_id);
+      CREATE INDEX IF NOT EXISTS idx_channel_messages_timestamp
+        ON channel_messages(platform, chat_id, timestamp);
+    `,
+    down: `
+      DROP TABLE IF EXISTS channel_messages;
+    `
+  },
 ];
 
 /**
