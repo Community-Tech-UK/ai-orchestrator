@@ -33,3 +33,4 @@ export { registerCommunicationHandlers } from './communication-handlers';
 export { registerParallelWorktreeHandlers } from './parallel-worktree-handlers';
 export { registerRemoteObserverHandlers } from './remote-observer-handlers';
 export { registerImageHandlers } from './image-handlers';
+export { registerChannelHandlers } from './channel-handlers';
