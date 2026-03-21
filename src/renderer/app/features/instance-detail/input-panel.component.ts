@@ -138,6 +138,17 @@ import type {
         </div>
       }
 
+      <!-- Edit mode indicator -->
+      @if (editMode()) {
+        <div class="edit-mode-bar">
+          @if (isBusy()) {
+            <span>Instance is busy — wait for completion before resending · Esc to cancel</span>
+          } @else {
+            <span>Editing last message · Enter to resend · Esc to cancel</span>
+          }
+        </div>
+      }
+
       <!-- Input area -->
       <div class="input-row">
         <div class="textarea-wrapper" [class.has-ghost]="showGhostText()">
@@ -855,6 +866,24 @@ import type {
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
+    .edit-mode-bar {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      background: rgba(var(--primary-rgb), 0.08);
+      border: 1px solid rgba(var(--primary-rgb), 0.15);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      color: var(--text-muted);
+
+      span {
+        opacity: 0.85;
+      }
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -910,6 +939,21 @@ export class InputPanelComponent implements OnDestroy {
   removeFolder = output<string>();
   addFiles = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
+  resendEdited = output<{ messageIndex: number; text: string }>();
+
+  editMode = signal(false);
+  stashedDraft = signal<string | null>(null);
+  editMessageIndex = signal<number | null>(null);
+
+  private lastUserMessage = computed(() => {
+    const msgs = this.outputMessages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].type === 'user') {
+        return { text: msgs[i].content, bufferIndex: i };
+      }
+    }
+    return null;
+  });
 
   message = signal('');
   showCommandSuggestions = signal(false);
@@ -990,6 +1034,8 @@ export class InputPanelComponent implements OnDestroy {
 
     // Keep the composer input synchronized with the correct backing draft store.
     effect(() => {
+      if (this.editMode()) return;
+
       if (this.isDraftComposer()) {
         this.newSessionDraft.revision();
         const savedDraft = this.newSessionDraft.prompt();
@@ -1158,6 +1204,30 @@ export class InputPanelComponent implements OnDestroy {
       }
     }
 
+    // Edit mode: Escape to cancel
+    if (event.key === 'Escape' && this.editMode()) {
+      event.preventDefault();
+      this.cancelEditMode();
+      return;
+    }
+
+    // Edit mode: UP arrow at cursor position 0 to enter edit mode
+    if (event.key === 'ArrowUp') {
+      const textarea = event.target as HTMLTextAreaElement;
+      if (textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
+        event.preventDefault();
+        this.enterEditMode();
+        return;
+      }
+    }
+
+    // Edit mode: Enter to resend edited message
+    if (event.key === 'Enter' && !event.shiftKey && this.editMode()) {
+      event.preventDefault();
+      this.sendEditedMessage();
+      return;
+    }
+
     // Normal enter to send
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -1213,6 +1283,70 @@ export class InputPanelComponent implements OnDestroy {
     this.clearComposerDraft();
 
     // Reset textarea height
+    const textarea = this.textareaRef()?.nativeElement;
+    if (textarea) {
+      textarea.style.height = 'auto';
+    }
+  }
+
+  // ============================================
+  // Edit Mode Methods
+  // ============================================
+
+  private enterEditMode(): void {
+    const last = this.lastUserMessage();
+    if (!last || this.editMode()) return;
+
+    this.stashedDraft.set(this.message());
+    this.message.set(last.text);
+    this.editMessageIndex.set(last.bufferIndex);
+    this.editMode.set(true);
+
+    // Place cursor at end of loaded text
+    requestAnimationFrame(() => {
+      const textarea = this.textareaRef()?.nativeElement;
+      if (textarea) {
+        textarea.value = last.text;
+        textarea.selectionStart = last.text.length;
+        textarea.selectionEnd = last.text.length;
+        this.scheduleTextareaResize(textarea);
+      }
+    });
+  }
+
+  private cancelEditMode(): void {
+    this.message.set(this.stashedDraft() ?? '');
+    this.editMode.set(false);
+    this.stashedDraft.set(null);
+    this.editMessageIndex.set(null);
+
+    // Restore textarea content
+    requestAnimationFrame(() => {
+      const textarea = this.textareaRef()?.nativeElement;
+      if (textarea) {
+        textarea.value = this.message();
+        this.scheduleTextareaResize(textarea);
+      }
+    });
+  }
+
+  private sendEditedMessage(): void {
+    if (!this.canSend() || this.isBusy() || this.disabled()) return;
+
+    const idx = this.editMessageIndex();
+    if (idx === null) return;
+
+    this.resendEdited.emit({
+      messageIndex: idx,
+      text: this.message().trim(),
+    });
+
+    this.message.set('');
+    this.editMode.set(false);
+    this.stashedDraft.set(null);
+    this.editMessageIndex.set(null);
+    this.clearComposerDraft();
+
     const textarea = this.textareaRef()?.nativeElement;
     if (textarea) {
       textarea.style.height = 'auto';
