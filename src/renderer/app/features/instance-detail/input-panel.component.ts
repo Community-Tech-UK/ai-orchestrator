@@ -942,8 +942,8 @@ export class InputPanelComponent implements OnDestroy {
   resendEdited = output<{ messageIndex: number; text: string }>();
 
   editMode = signal(false);
-  stashedDraft = signal<string | null>(null);
-  editMessageIndex = signal<number | null>(null);
+  private stashedDraft = signal<string | null>(null);
+  private editMessageIndex = signal<number | null>(null);
 
   private lastUserMessage = computed(() => {
     const msgs = this.outputMessages();
@@ -1211,10 +1211,10 @@ export class InputPanelComponent implements OnDestroy {
       return;
     }
 
-    // Edit mode: UP arrow at cursor position 0 to enter edit mode
-    if (event.key === 'ArrowUp') {
+    // UP arrow at cursor position 0 to enter edit mode
+    if (event.key === 'ArrowUp' && !this.editMode()) {
       const textarea = event.target as HTMLTextAreaElement;
-      if (textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
+      if (textarea.selectionStart === 0 && textarea.selectionEnd === 0 && this.lastUserMessage()) {
         event.preventDefault();
         this.enterEditMode();
         return;
