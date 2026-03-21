@@ -351,6 +351,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Channels: Discord/WhatsApp
+  {
+    path: 'channels',
+    loadComponent: () =>
+      import('./features/channels/channels-page.component').then(
+        (m) => m.ChannelsPageComponent
+      ),
+  },
+
   // Catch-all redirect to dashboard
   {
     path: '**',
