@@ -477,7 +477,7 @@ export class ChannelsPageComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     const response = await this.channelIpc.channelGetStatus();
     if (response.success && response.data) {
-      const statuses = response.data as Array<{ platform: ChannelPlatform; status: string; botUsername?: string }>;
+      const statuses = response.data as { platform: ChannelPlatform; status: string; botUsername?: string }[];
       statuses.forEach(s => {
         if (s.platform === 'discord') {
           this.store['updateChannelStatus']?.(s.platform, s.status as never, { botUsername: s.botUsername });
