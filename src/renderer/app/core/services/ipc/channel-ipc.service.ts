@@ -1,89 +1,72 @@
 /**
- * Channel IPC Service - Discord/WhatsApp channel operations
+ * Channel IPC Service - Discord/WhatsApp channel management
  */
-
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
-import type { ChannelPlatform } from '../../../../../shared/types/channels';
 
 @Injectable({ providedIn: 'root' })
 export class ChannelIpcService {
   private base = inject(ElectronIpcService);
+  private get api() { return this.base.getApi(); }
 
-  private get api() {
-    return this.base.getApi();
-  }
-
-  private get ngZone() {
-    return this.base.getNgZone();
-  }
-
-  async channelConnect(platform: ChannelPlatform, token?: string): Promise<IpcResponse> {
+  async connect(platform: string, token?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelConnect({ platform, token });
   }
 
-  async channelDisconnect(platform: ChannelPlatform): Promise<IpcResponse> {
+  async disconnect(platform: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelDisconnect({ platform });
   }
 
-  async channelGetStatus(platform?: ChannelPlatform): Promise<IpcResponse> {
+  async getStatus(): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.channelGetStatus(platform ? { platform } : undefined);
+    return this.api.channelGetStatus();
   }
 
-  async channelGetMessages(platform: ChannelPlatform, chatId: string, limit?: number, before?: number): Promise<IpcResponse> {
+  async getMessages(platform: string, chatId: string, limit?: number, before?: number): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelGetMessages({ platform, chatId, limit, before });
   }
 
-  async channelSendMessage(platform: ChannelPlatform, chatId: string, content: string, replyTo?: string): Promise<IpcResponse> {
+  async sendMessage(platform: string, chatId: string, content: string, replyTo?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelSendMessage({ platform, chatId, content, replyTo });
   }
 
-  async channelPairSender(platform: ChannelPlatform, code: string): Promise<IpcResponse> {
+  async pairSender(platform: string, code: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelPairSender({ platform, code });
   }
 
-  async channelGetAccessPolicy(platform: ChannelPlatform): Promise<IpcResponse> {
+  async getAccessPolicy(platform: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelGetAccessPolicy({ platform });
   }
 
-  async channelSetAccessPolicy(platform: ChannelPlatform, mode: string): Promise<IpcResponse> {
+  async setAccessPolicy(platform: string, mode: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.channelSetAccessPolicy({ platform, mode });
   }
 
-  // Push event listeners
-  onStatusChanged(callback: (data: unknown) => void): void {
-    if (!this.api) return;
-    this.api.channelOnStatusChanged((data) => {
-      this.ngZone.run(() => callback(data));
-    });
+  // Event listeners — return cleanup functions
+  onStatusChanged(callback: (data: unknown) => void): (() => void) | null {
+    if (!this.api) return null;
+    return this.api.onChannelStatusChanged(callback);
   }
 
-  onMessageReceived(callback: (data: unknown) => void): void {
-    if (!this.api) return;
-    this.api.channelOnMessageReceived((data) => {
-      this.ngZone.run(() => callback(data));
-    });
+  onMessageReceived(callback: (data: unknown) => void): (() => void) | null {
+    if (!this.api) return null;
+    return this.api.onChannelMessageReceived(callback);
   }
 
-  onResponseSent(callback: (data: unknown) => void): void {
-    if (!this.api) return;
-    this.api.channelOnResponseSent((data) => {
-      this.ngZone.run(() => callback(data));
-    });
+  onResponseSent(callback: (data: unknown) => void): (() => void) | null {
+    if (!this.api) return null;
+    return this.api.onChannelResponseSent(callback);
   }
 
-  onError(callback: (data: unknown) => void): void {
-    if (!this.api) return;
-    this.api.channelOnError((data) => {
-      this.ngZone.run(() => callback(data));
-    });
+  onError(callback: (data: unknown) => void): (() => void) | null {
+    if (!this.api) return null;
+    return this.api.onChannelError(callback);
   }
 }

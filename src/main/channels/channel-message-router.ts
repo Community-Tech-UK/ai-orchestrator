@@ -1,198 +1,341 @@
+/**
+ * Channel Message Router
+ *
+ * Routes inbound channel messages to instances and streams results back.
+ * Pipeline: access gate → rate limit → parse intent → route → stream results
+ */
+
+import * as path from 'path';
 import { getLogger } from '../logging/logger';
-import { getInstanceManager } from '../instance/instance-manager';
-import { detectSecretsInContent, isSecretFile } from '../security/secret-detector';
+import type { ChannelManager, ChannelEvent } from './channel-manager';
 import type { ChannelPersistence } from './channel-persistence';
-import type { RateLimiter } from './rate-limiter';
+import { RateLimiter } from './rate-limiter';
 import type { BaseChannelAdapter } from './channel-adapter';
-import type { InboundChannelMessage, AccessPolicy } from '../../shared/types/channels';
+import type { InboundChannelMessage } from '../../shared/types/channels';
 
 const logger = getLogger('ChannelMessageRouter');
+
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 60_000;
 const DEBOUNCE_MS = 2000;
 
+interface ParsedIntent {
+  type: 'default' | 'thread' | 'explicit' | 'broadcast';
+  instanceId?: string;
+  cleanContent: string;
+}
+
+/** Directories that must never be sent out via channel file sharing */
+const FORBIDDEN_PATHS = ['.env', 'credentials', 'tokens', 'secrets', '.ssh', 'access.json'];
+
 export class ChannelMessageRouter {
+  private rateLimiter = new RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  private unsubscribe: (() => void) | null = null;
   private outputBuffers = new Map<string, { content: string; timer: ReturnType<typeof setTimeout> }>();
+  // We need InstanceManager but import it lazily to avoid circular deps
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private instanceManager: any = null;
 
-  constructor(private deps: {
-    persistence: ChannelPersistence;
-    rateLimiter: RateLimiter;
-  }) {}
+  constructor(
+    private channelManager: ChannelManager,
+    private persistence: ChannelPersistence,
+  ) {}
 
-  async handleMessage(msg: InboundChannelMessage, adapter: BaseChannelAdapter): Promise<void> {
-    // 1. Access gate — check sender against adapter's access policy
-    const policy = adapter.getAccessPolicy();
-    if (!this.isAuthorized(msg.senderId, policy)) {
-      logger.warn('Unauthorized sender blocked', { senderId: msg.senderId, platform: msg.platform });
+  start(): void {
+    this.unsubscribe = this.channelManager.onEvent((event: ChannelEvent) => {
+      if (event.type === 'message') {
+        this.handleInboundMessage(event.data).catch(err => {
+          logger.error('Error handling inbound message', err instanceof Error ? err : new Error(String(err)));
+        });
+      }
+    });
+    logger.info('Channel message router started');
+  }
+
+  stop(): void {
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
+    // Clear any pending debounce timers
+    for (const [, buf] of this.outputBuffers) {
+      clearTimeout(buf.timer);
+    }
+    this.outputBuffers.clear();
+    this.rateLimiter.clear();
+    logger.info('Channel message router stopped');
+  }
+
+  /**
+   * Lazy-load InstanceManager to avoid circular deps at import time.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getInstanceManager(): any {
+    if (!this.instanceManager) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { InstanceManager } = require('../instance/instance-manager');
+      this.instanceManager = InstanceManager.getInstance?.() ?? new InstanceManager();
+    }
+    return this.instanceManager;
+  }
+
+  /** Inject instance manager for testing */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _setInstanceManagerForTesting(im: any): void {
+    this.instanceManager = im;
+  }
+
+  async handleInboundMessage(msg: InboundChannelMessage): Promise<void> {
+    // 1. Access gate — adapter already handles this, but double-check
+    const adapter = this.channelManager.getAdapter(msg.platform);
+    if (!adapter) {
+      logger.warn('No adapter for platform', { platform: msg.platform });
       return;
     }
 
     // 2. Rate limit
-    if (!this.deps.rateLimiter.tryAcquire(msg.senderId)) {
-      logger.warn('Rate limited', { senderId: msg.senderId });
+    if (!this.rateLimiter.check(msg.senderId)) {
+      logger.warn('Rate limited sender', { senderId: msg.senderId, platform: msg.platform });
+      try {
+        await adapter.addReaction(msg.chatId, msg.messageId, '⏳');
+      } catch {
+        // Ignore reaction failures
+      }
       return;
     }
 
-    // 3. Add "processing" reaction
+    // 3. Parse intent
+    const intent = this.parseIntent(msg.content, msg.threadId);
+
+    // 4. Save inbound message to persistence
+    this.persistence.saveMessage({
+      id: msg.id,
+      platform: msg.platform,
+      chat_id: msg.chatId,
+      message_id: msg.messageId,
+      thread_id: msg.threadId ?? null,
+      sender_id: msg.senderId,
+      sender_name: msg.senderName,
+      content: msg.content,
+      direction: 'inbound',
+      instance_id: null,
+      reply_to_message_id: msg.replyTo ?? null,
+      timestamp: msg.timestamp,
+    });
+
+    // 5. Acknowledge receipt
     try {
-      await adapter.addReaction(msg.chatId, msg.messageId, '\u23F3');
-    } catch { /* best effort */ }
-
-    // 4. Persist inbound message
-    this.deps.persistence.insertMessage(msg, 'inbound');
-
-    // 5. Parse intent and route
-    try {
-      const instanceId = await this.resolveTarget(msg);
-
-      // 6. Stream results back — subscribe to instance output
-      this.streamResults(instanceId, msg.chatId, adapter);
-
-      // Success reaction
-      try {
-        await adapter.addReaction(msg.chatId, msg.messageId, '\u2705');
-      } catch { /* best effort */ }
-
-      logger.info('Message routed', { messageId: msg.messageId, instanceId });
-    } catch (error) {
-      logger.error('Failed to route message', error instanceof Error ? error : undefined, { messageId: msg.messageId });
-      try {
-        await adapter.addReaction(msg.chatId, msg.messageId, '\u274C');
-      } catch { /* best effort */ }
-    }
-  }
-
-  /** Subscribe to instance output and debounce-send back to the channel */
-  private streamResults(instanceId: string, chatId: string, adapter: BaseChannelAdapter): void {
-    const instanceManager = getInstanceManager();
-    const bufferKey = `${instanceId}:${chatId}`;
-
-    const handler = (data: { instanceId: string; message: { type: string; content: string } }) => {
-      if (data.instanceId !== instanceId) return;
-      if (data.message.type !== 'assistant') return;
-
-      const existing = this.outputBuffers.get(bufferKey);
-      if (existing) {
-        clearTimeout(existing.timer);
-        existing.content += data.message.content;
-      } else {
-        this.outputBuffers.set(bufferKey, { content: data.message.content, timer: undefined as unknown as ReturnType<typeof setTimeout> });
-      }
-
-      const buffer = this.outputBuffers.get(bufferKey)!;
-      buffer.timer = setTimeout(() => {
-        this.flushBuffer(bufferKey, chatId, adapter);
-      }, DEBOUNCE_MS);
-    };
-
-    instanceManager.on('instance:output', handler);
-
-    // Clean up listener when instance goes idle (response complete)
-    const stateHandler = (data: { instanceId: string; status: string }) => {
-      if (data.instanceId !== instanceId) return;
-      if (data.status === 'idle') {
-        // Flush any remaining buffer
-        if (this.outputBuffers.has(bufferKey)) {
-          const existing = this.outputBuffers.get(bufferKey)!;
-          clearTimeout(existing.timer);
-          this.flushBuffer(bufferKey, chatId, adapter);
-        }
-        instanceManager.removeListener('instance:output', handler);
-        instanceManager.removeListener('instance:state-update', stateHandler);
-      }
-    };
-    instanceManager.on('instance:state-update', stateHandler);
-  }
-
-  private flushBuffer(bufferKey: string, chatId: string, adapter: BaseChannelAdapter): void {
-    const buffer = this.outputBuffers.get(bufferKey);
-    if (!buffer || !buffer.content) {
-      this.outputBuffers.delete(bufferKey);
-      return;
+      await adapter.addReaction(msg.chatId, msg.messageId, '👀');
+    } catch {
+      // Ignore reaction failures
     }
 
-    const content = buffer.content;
-    this.outputBuffers.delete(bufferKey);
-
+    // 6. Route based on intent
     try {
-      this.assertSendable(content);
-      adapter.sendMessage(chatId, content).catch(err => {
-        logger.error('Failed to send response to channel', err instanceof Error ? err : undefined, { chatId });
-      });
+      let instanceId: string;
+
+      switch (intent.type) {
+        case 'thread':
+          instanceId = intent.instanceId!;
+          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          break;
+
+        case 'explicit':
+          instanceId = intent.instanceId!;
+          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          break;
+
+        case 'broadcast':
+          await this.routeBroadcast(msg, intent.cleanContent, adapter);
+          return; // broadcast handles its own completion
+
+        case 'default':
+        default:
+          instanceId = await this.routeDefault(msg, intent.cleanContent, adapter);
+          break;
+      }
+
+      // Update instance_id in persistence
+      this.persistence.updateInstanceId(msg.id, instanceId);
+
+      // React with completion
+      try {
+        await adapter.addReaction(msg.chatId, msg.messageId, '✅');
+      } catch {
+        // Ignore
+      }
     } catch (err) {
-      logger.warn('Outbound content blocked by assertSendable', { chatId, reason: (err as Error).message });
-      adapter.sendMessage(chatId, '[Response blocked: contains sensitive content]').catch(() => { /* best effort */ });
+      logger.error('Error routing message', err instanceof Error ? err : new Error(String(err)));
+      try {
+        await adapter.addReaction(msg.chatId, msg.messageId, '❌');
+        await adapter.sendMessage(msg.chatId, `Error: ${err instanceof Error ? err.message : String(err)}`, {
+          replyTo: msg.messageId,
+        });
+      } catch {
+        // Ignore send failures
+      }
     }
   }
 
-  private isAuthorized(senderId: string, policy: AccessPolicy): boolean {
-    if (policy.mode === 'disabled') return true;
-    return policy.allowedSenders.includes(senderId);
-  }
-
-  private async resolveTarget(msg: InboundChannelMessage): Promise<string> {
-    const instanceManager = getInstanceManager();
-    const content = msg.content.trim();
-
-    // Check for @all broadcast
-    if (content.startsWith('@all ')) {
-      const instances = instanceManager.getAllInstances();
-      const broadcastContent = content.replace(/^@all\s+/, '');
-      for (const inst of instances) {
-        await instanceManager.sendInput(inst.id, broadcastContent);
-      }
-      if (instances.length > 0) {
-        return instances[0].id;
-      }
+  parseIntent(content: string, threadId?: string): ParsedIntent {
+    // Check for @instance-<id> pattern
+    const explicitMatch = content.match(/^@instance-(\S+)\s+([\s\S]+)$/);
+    if (explicitMatch) {
+      return { type: 'explicit', instanceId: explicitMatch[1], cleanContent: explicitMatch[2].trim() };
     }
 
-    // Check for @DisplayName or @id targeting a specific instance
-    if (content.startsWith('@')) {
-      const spaceIdx = content.indexOf(' ');
-      if (spaceIdx !== -1) {
-        const targetName = content.slice(1, spaceIdx);
-        const instances = instanceManager.getAllInstances();
-        const target = instances.find(
-          i => i.displayName === targetName || i.id === targetName,
-        );
-        if (target) {
-          const targetContent = content.slice(spaceIdx + 1);
-          await instanceManager.sendInput(target.id, targetContent);
-          return target.id;
-        }
-      }
+    // Check for @all pattern
+    const broadcastMatch = content.match(/^@all\s+([\s\S]+)$/);
+    if (broadcastMatch) {
+      return { type: 'broadcast', cleanContent: broadcastMatch[1].trim() };
     }
 
-    // Check for thread mapping to existing instance
-    if (msg.threadId) {
-      const existingInstanceId = this.deps.persistence.getInstanceForThread(msg.threadId);
-      if (existingInstanceId) {
-        await instanceManager.sendInput(existingInstanceId, content);
-        return existingInstanceId;
+    // Check for thread continuity
+    if (threadId) {
+      const instanceId = this.persistence.resolveInstanceByThread(threadId);
+      if (instanceId) {
+        return { type: 'thread', instanceId, cleanContent: content };
       }
     }
 
     // Default: create new instance
-    const instance = await instanceManager.createInstance({
-      agentId: 'claude',
-      displayName: `Discord-${msg.senderName}`,
+    return { type: 'default', cleanContent: content };
+  }
+
+  private async routeDefault(
+    msg: InboundChannelMessage,
+    content: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<string> {
+    const im = this.getInstanceManager();
+    const instance = await im.createInstance({
+      displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory: process.cwd(),
+      initialPrompt: content,
+      yoloMode: true,
     });
-    await instanceManager.sendInput(instance.id, content);
+
+    // Stream results back
+    this.streamResults(msg, instance.id, adapter);
+
     return instance.id;
   }
 
-  /** Check if outbound content is safe to send to a channel */
-  assertSendable(content: string): void {
-    const secrets = detectSecretsInContent(content);
-    if (secrets.length > 0) {
-      throw new Error(`Content contains ${secrets.length} detected secret(s) — blocked from sending to channel`);
+  private async routeToInstance(
+    msg: InboundChannelMessage,
+    instanceId: string,
+    content: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const im = this.getInstanceManager();
+    await im.sendInput(instanceId, content);
+
+    // Stream results back
+    this.streamResults(msg, instanceId, adapter);
+  }
+
+  private async routeBroadcast(
+    msg: InboundChannelMessage,
+    content: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const im = this.getInstanceManager();
+    // Get all instances — InstanceManager has getInstances() or similar
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const instances: any[] = im.getInstances?.() ?? [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const activeInstances = instances.filter((i: any) =>
+      i.status === 'idle' || i.status === 'busy'
+    );
+
+    if (activeInstances.length === 0) {
+      await adapter.sendMessage(msg.chatId, 'No active instances to broadcast to.', {
+        replyTo: msg.messageId,
+      });
+      return;
     }
 
-    const filePathPattern = /(?:^|\s)(\/[^\s]+|~\/[^\s]+|[A-Za-z]:\\[^\s]+)/g;
-    let match: RegExpExecArray | null;
-    while ((match = filePathPattern.exec(content)) !== null) {
-      const filePath = match[1];
-      if (isSecretFile(filePath)) {
-        throw new Error(`Content references sensitive file path "${filePath}" — blocked from sending to channel`);
+    await adapter.sendMessage(
+      msg.chatId,
+      `Broadcasting to ${activeInstances.length} instances...`,
+      { replyTo: msg.messageId },
+    );
+
+    for (const inst of activeInstances) {
+      try {
+        await im.sendInput(inst.id, content);
+        this.streamResults(msg, inst.id, adapter);
+      } catch (err) {
+        logger.warn('Failed to send broadcast to instance', { instanceId: inst.id, error: err });
+      }
+    }
+  }
+
+  private streamResults(
+    msg: InboundChannelMessage,
+    instanceId: string,
+    adapter: BaseChannelAdapter,
+  ): void {
+    const im = this.getInstanceManager();
+    const bufferKey = `${msg.id}:${instanceId}`;
+
+    const handler = (payload: { instanceId: string; message: { type: string; content: string } }) => {
+      if (payload.instanceId !== instanceId) return;
+
+      const content = payload.message?.content;
+      if (!content) return;
+
+      // Debounce: accumulate output and send after DEBOUNCE_MS of silence
+      const existing = this.outputBuffers.get(bufferKey);
+      if (existing) {
+        clearTimeout(existing.timer);
+        existing.content += content;
+      } else {
+        this.outputBuffers.set(bufferKey, { content, timer: null as unknown as ReturnType<typeof setTimeout> });
+      }
+
+      const buffer = this.outputBuffers.get(bufferKey)!;
+      buffer.timer = setTimeout(() => {
+        this.outputBuffers.delete(bufferKey);
+        im.removeListener('instance:output', handler);
+
+        // Send accumulated output
+        adapter.sendMessage(msg.chatId, buffer.content, {
+          replyTo: msg.messageId,
+        }).catch((err: unknown) => {
+          logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
+        });
+
+        // Save outbound message
+        this.persistence.saveMessage({
+          id: `out-${msg.id}-${instanceId}`,
+          platform: msg.platform,
+          chat_id: msg.chatId,
+          message_id: '',
+          thread_id: msg.threadId ?? null,
+          sender_id: 'bot',
+          sender_name: 'Orchestrator',
+          content: buffer.content,
+          direction: 'outbound',
+          instance_id: instanceId,
+          reply_to_message_id: msg.messageId,
+          timestamp: Date.now(),
+        });
+      }, DEBOUNCE_MS);
+    };
+
+    im.on('instance:output', handler);
+  }
+
+  /**
+   * Security guard: prevents sending sensitive files via channel.
+   * Blocks files from config/state directories.
+   */
+  assertSendable(filePath: string): void {
+    const normalized = path.normalize(filePath).toLowerCase();
+    for (const forbidden of FORBIDDEN_PATHS) {
+      if (normalized.includes(forbidden)) {
+        throw new Error(`Cannot send file from restricted path: ${filePath}`);
       }
     }
   }

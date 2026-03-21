@@ -211,7 +211,10 @@ class AIOrchestratorApp {
           await crossModelReview.initialize();
           registerCrossModelReviewIpcHandlers();
         } },
-        { name: 'Channel manager', fn: () => { getChannelManager(); } },
+        { name: 'Channel manager', fn: () => {
+          // Initialize ChannelManager singleton (adapters registered on demand via IPC)
+          getChannelManager();
+        } },
       ];
 
       for (const step of steps) {
@@ -678,6 +681,7 @@ class AIOrchestratorApp {
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }
     try { getCrossModelReviewService().shutdown(); } catch { /* best effort */ }
+    try { getChannelManager().shutdown(); } catch { /* best effort */ }
     // Save all tracked session states before terminating
     try {
       getSessionContinuityManagerIfInitialized()?.shutdown();

@@ -1,62 +1,59 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RateLimiter } from '../rate-limiter';
 
 describe('RateLimiter', () => {
   let limiter: RateLimiter;
 
   beforeEach(() => {
-    vi.useFakeTimers();
-    limiter = new RateLimiter({ maxRequests: 3, windowMs: 60_000 });
+    limiter = new RateLimiter(10, 60_000); // 10 per 60s
   });
 
-  afterEach(() => {
+  it('allows messages under the limit', () => {
+    for (let i = 0; i < 10; i++) {
+      expect(limiter.check('user-1')).toBe(true);
+    }
+  });
+
+  it('blocks messages over the limit', () => {
+    for (let i = 0; i < 10; i++) {
+      limiter.check('user-1');
+    }
+    expect(limiter.check('user-1')).toBe(false);
+  });
+
+  it('tracks senders independently', () => {
+    for (let i = 0; i < 10; i++) {
+      limiter.check('user-1');
+    }
+    expect(limiter.check('user-1')).toBe(false);
+    expect(limiter.check('user-2')).toBe(true);
+  });
+
+  it('resets after the window expires', () => {
+    vi.useFakeTimers();
+    for (let i = 0; i < 10; i++) {
+      limiter.check('user-1');
+    }
+    expect(limiter.check('user-1')).toBe(false);
+
+    vi.advanceTimersByTime(60_001);
+    expect(limiter.check('user-1')).toBe(true);
     vi.useRealTimers();
   });
 
-  it('should allow requests under the limit', () => {
-    expect(limiter.tryAcquire('user-1')).toBe(true);
-    expect(limiter.tryAcquire('user-1')).toBe(true);
-    expect(limiter.tryAcquire('user-1')).toBe(true);
-  });
+  it('uses sliding window (old entries expire individually)', () => {
+    vi.useFakeTimers();
+    for (let i = 0; i < 5; i++) {
+      limiter.check('user-1');
+    }
+    vi.advanceTimersByTime(30_000);
+    for (let i = 0; i < 5; i++) {
+      limiter.check('user-1');
+    }
+    expect(limiter.check('user-1')).toBe(false);
 
-  it('should reject requests over the limit', () => {
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    expect(limiter.tryAcquire('user-1')).toBe(false);
-  });
-
-  it('should isolate per sender', () => {
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    expect(limiter.tryAcquire('user-2')).toBe(true);
-  });
-
-  it('should allow requests after window expires', () => {
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    expect(limiter.tryAcquire('user-1')).toBe(false);
-
-    vi.advanceTimersByTime(60_001);
-    expect(limiter.tryAcquire('user-1')).toBe(true);
-  });
-
-  it('should return remaining time until next available slot', () => {
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    const remaining = limiter.getRetryAfterMs('user-1');
-    expect(remaining).toBeGreaterThan(0);
-    expect(remaining).toBeLessThanOrEqual(60_000);
-  });
-
-  it('should reset a specific sender', () => {
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    limiter.tryAcquire('user-1');
-    limiter.reset('user-1');
-    expect(limiter.tryAcquire('user-1')).toBe(true);
+    vi.advanceTimersByTime(30_001);
+    expect(limiter.check('user-1')).toBe(true);
+    vi.useRealTimers();
   });
 });

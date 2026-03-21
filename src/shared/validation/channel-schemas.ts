@@ -1,3 +1,6 @@
+/**
+ * Channel IPC Payload Validation Schemas
+ */
 import { z } from 'zod';
 
 const ChannelPlatformSchema = z.enum(['discord', 'whatsapp']);
@@ -10,10 +13,6 @@ export const ChannelConnectPayloadSchema = z.object({
 export const ChannelDisconnectPayloadSchema = z.object({
   platform: ChannelPlatformSchema,
 });
-
-export const ChannelGetStatusPayloadSchema = z.object({
-  platform: ChannelPlatformSchema.optional(),
-}).optional();
 
 export const ChannelGetMessagesPayloadSchema = z.object({
   platform: ChannelPlatformSchema,
@@ -34,18 +33,16 @@ export const ChannelPairSenderPayloadSchema = z.object({
   code: z.string().length(6).regex(/^[0-9a-f]+$/),
 });
 
-export const ChannelGetAccessPolicyPayloadSchema = z.object({
-  platform: ChannelPlatformSchema,
-});
-
 export const ChannelSetAccessPolicyPayloadSchema = z.object({
   platform: ChannelPlatformSchema,
   mode: z.enum(['pairing', 'allowlist', 'disabled']),
 });
 
+export const ChannelGetAccessPolicyPayloadSchema = z.object({
+  platform: ChannelPlatformSchema,
+});
+
 export type ValidatedChannelConnectPayload = z.infer<typeof ChannelConnectPayloadSchema>;
-export type ValidatedChannelDisconnectPayload = z.infer<typeof ChannelDisconnectPayloadSchema>;
-export type ValidatedChannelGetMessagesPayload = z.infer<typeof ChannelGetMessagesPayloadSchema>;
 export type ValidatedChannelSendMessagePayload = z.infer<typeof ChannelSendMessagePayloadSchema>;
 export type ValidatedChannelPairSenderPayload = z.infer<typeof ChannelPairSenderPayloadSchema>;
-export type ValidatedChannelSetAccessPolicyPayload = z.infer<typeof ChannelSetAccessPolicyPayloadSchema>;
+export type ValidatedChannelGetMessagesPayload = z.infer<typeof ChannelGetMessagesPayloadSchema>;

@@ -351,13 +351,12 @@ export const routes: Routes = [
       ),
   },
 
-  // Channels: Discord/WhatsApp
+  // Channels (Discord/WhatsApp)
   {
     path: 'channels',
-    loadComponent: () =>
-      import('./features/channels/channels-page.component').then(
-        (m) => m.ChannelsPageComponent
-      ),
+    loadChildren: () =>
+      import('./features/channels/channels.routes')
+        .then(m => m.CHANNELS_ROUTES),
   },
 
   // Catch-all redirect to dashboard

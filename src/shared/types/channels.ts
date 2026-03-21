@@ -1,3 +1,7 @@
+/**
+ * Channel Types - Shared between main process and renderer
+ */
+
 export type ChannelPlatform = 'discord' | 'whatsapp';
 export type ChannelConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -32,12 +36,12 @@ export interface ChannelResponse {
   status: 'streaming' | 'complete' | 'error';
 }
 
-export interface ChannelSendOptions {
+export interface SendOptions {
   replyTo?: string;
   splitAt?: number;
 }
 
-export interface ChannelSentMessage {
+export interface SentMessage {
   messageId: string;
   chatId: string;
   timestamp: number;
@@ -86,29 +90,18 @@ export interface ChannelErrorEvent {
   recoverable: boolean;
 }
 
-export interface StoredChannelMessage {
+export interface ChannelMessageRow {
   id: string;
-  platform: ChannelPlatform;
-  chatId: string;
-  messageId: string;
-  threadId?: string;
-  senderId: string;
-  senderName: string;
+  platform: string;
+  chat_id: string;
+  message_id: string;
+  thread_id: string | null;
+  sender_id: string;
+  sender_name: string;
   content: string;
   direction: 'inbound' | 'outbound';
-  instanceId?: string;
-  replyToMessageId?: string;
+  instance_id: string | null;
+  reply_to_message_id: string | null;
   timestamp: number;
-  createdAt: number;
+  created_at: number;
 }
-
-/** Error codes for channel IPC responses */
-export type ChannelErrorCode =
-  | 'CHANNEL_CONNECT_FAILED'
-  | 'CHANNEL_NOT_CONNECTED'
-  | 'CHANNEL_ADAPTER_UNAVAILABLE'
-  | 'CHANNEL_SEND_FAILED'
-  | 'CHANNEL_PAIR_INVALID'
-  | 'CHANNEL_PAIR_EXPIRED'
-  | 'CHANNEL_UNAUTHORIZED'
-  | 'CHANNEL_RATE_LIMITED';

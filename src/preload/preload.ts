@@ -668,19 +668,20 @@ const IPC_CHANNELS = {
   CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
   CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',
 
-  // Channel Management
+  // Channels (Discord/WhatsApp)
   CHANNEL_CONNECT: 'channel:connect',
   CHANNEL_DISCONNECT: 'channel:disconnect',
   CHANNEL_GET_STATUS: 'channel:get-status',
   CHANNEL_GET_MESSAGES: 'channel:get-messages',
   CHANNEL_SEND_MESSAGE: 'channel:send-message',
   CHANNEL_PAIR_SENDER: 'channel:pair-sender',
-  CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
   CHANNEL_SET_ACCESS_POLICY: 'channel:set-access-policy',
+  CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
+  // Channel events (main -> renderer)
   CHANNEL_STATUS_CHANGED: 'channel:status-changed',
   CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
   CHANNEL_RESPONSE_SENT: 'channel:response-sent',
-  CHANNEL_ERROR: 'channel:error',
+  CHANNEL_ERROR: 'channel:error'
 } as const;
 
 
@@ -5307,45 +5308,57 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_ACTION, payload),
 
   // ============================================
-  // Channel Management
+  // Channels (Discord/WhatsApp)
   // ============================================
 
-  channelConnect: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_CONNECT, withAuth(payload)),
+  channelConnect: (payload: { platform: string; token?: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_CONNECT, payload),
 
-  channelDisconnect: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_DISCONNECT, withAuth(payload)),
+  channelDisconnect: (payload: { platform: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_DISCONNECT, payload),
 
-  channelGetStatus: (payload?: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_STATUS, withAuth(payload ?? {})),
+  channelGetStatus: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_STATUS),
 
-  channelGetMessages: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_MESSAGES, withAuth(payload)),
+  channelGetMessages: (payload: { platform: string; chatId: string; limit?: number; before?: number }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_MESSAGES, payload),
 
-  channelSendMessage: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SEND_MESSAGE, withAuth(payload)),
+  channelSendMessage: (payload: { platform: string; chatId: string; content: string; replyTo?: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SEND_MESSAGE, payload),
 
-  channelPairSender: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_PAIR_SENDER, withAuth(payload)),
+  channelPairSender: (payload: { platform: string; code: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_PAIR_SENDER, payload),
 
-  channelGetAccessPolicy: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_ACCESS_POLICY, withAuth(payload)),
+  channelSetAccessPolicy: (payload: { platform: string; mode: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SET_ACCESS_POLICY, payload),
 
-  channelSetAccessPolicy: (payload: Record<string, unknown>): Promise<IpcResponse> =>
-    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SET_ACCESS_POLICY, withAuth(payload)),
+  channelGetAccessPolicy: (payload: { platform: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_ACCESS_POLICY, payload),
 
-  // Channel push events (main -> renderer)
-  channelOnStatusChanged: (callback: (data: unknown) => void) =>
-    ipcRenderer.on(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, (_e, data) => callback(data)),
+  // Channel push event listeners
+  onChannelStatusChanged: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, handler);
+  },
 
-  channelOnMessageReceived: (callback: (data: unknown) => void) =>
-    ipcRenderer.on(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, (_e, data) => callback(data)),
+  onChannelMessageReceived: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, handler);
+  },
 
-  channelOnResponseSent: (callback: (data: unknown) => void) =>
-    ipcRenderer.on(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, (_e, data) => callback(data)),
+  onChannelResponseSent: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, handler);
+  },
 
-  channelOnError: (callback: (data: unknown) => void) =>
-    ipcRenderer.on(IPC_CHANNELS.CHANNEL_ERROR, (_e, data) => callback(data)),
+  onChannelError: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_ERROR, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_ERROR, handler);
+  },
 
   // ============================================
   // Platform Info

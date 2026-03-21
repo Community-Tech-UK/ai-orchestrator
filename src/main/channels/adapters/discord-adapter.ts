@@ -1,356 +1,245 @@
-import { randomBytes } from 'crypto';
-import { BaseChannelAdapter } from '../channel-adapter';
+/**
+ * Discord Adapter - discord.js implementation of ChannelAdapter
+ */
+
+import * as crypto from 'crypto';
 import { getLogger } from '../../logging/logger';
+import { BaseChannelAdapter } from '../channel-adapter';
 import type {
   ChannelPlatform,
-  ChannelConnectionStatus,
   ChannelConfig,
-  ChannelSendOptions,
-  ChannelSentMessage,
+  SendOptions,
+  SentMessage,
   InboundChannelMessage,
-  AccessPolicy,
-  PairedSender,
-  PendingPairing,
 } from '../../../shared/types/channels';
 
 const logger = getLogger('DiscordAdapter');
 
 const DISCORD_MAX_LENGTH = 2000;
-const DEFAULT_CODE_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
-const DEFAULT_MAX_PENDING = 3;
+
+// Discord.js types (resolved at runtime via dynamic import — no static types available)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DiscordClient = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DiscordMessage = any;
 
 export class DiscordAdapter extends BaseChannelAdapter {
   readonly platform: ChannelPlatform = 'discord';
-  status: ChannelConnectionStatus = 'disconnected';
-
-  private client: import('discord.js').Client | null = null;
-  private botId: string | null = null;
-  private accessPolicy: AccessPolicy = {
-    mode: 'pairing',
-    allowedSenders: [],
-    pendingPairings: [],
-    maxPending: DEFAULT_MAX_PENDING,
-    codeExpiryMs: DEFAULT_CODE_EXPIRY_MS,
-  };
+  private client: DiscordClient | null = null;
+  private botUserId: string | null = null;
 
   async connect(config: ChannelConfig): Promise<void> {
     if (!config.token) {
-      throw new Error('Discord adapter requires a bot token');
+      throw new Error('Discord bot token is required');
     }
 
-    this.status = 'connecting';
-    this.emit('status', 'connecting');
-
-    // Use dynamic import so vi.mock('discord.js') intercepts it in tests.
-    // In production (CJS build), Electron's Node supports top-level dynamic import.
-    const { Client, GatewayIntentBits, Partials } = await import('discord.js');
-
-    const client = new Client({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.MessageContent,
-      ],
-      partials: [Partials.Channel, Partials.Message],
-    });
-
-    client.on('messageCreate', (msg: import('discord.js').Message) => {
-      this.handleIncomingMessage(msg);
-    });
-
-    client.on('error', (err: Error) => {
-      logger.error('Discord client error', err, {});
-      this.emit('error', err);
-    });
+    this.setStatus('connecting');
+    logger.info('Connecting to Discord...');
 
     try {
-      await client.login(config.token);
+      // Lazy import discord.js
+      const { Client, GatewayIntentBits, Partials } = await import('discord.js');
+
+      this.client = new Client({
+        intents: [
+          GatewayIntentBits.Guilds,
+          GatewayIntentBits.GuildMessages,
+          GatewayIntentBits.DirectMessages,
+          GatewayIntentBits.MessageContent,
+        ],
+        partials: [Partials.Channel],
+      });
+
+      this.client.on('messageCreate', (message: DiscordMessage) =>
+        this.handleMessage(message).catch((err: unknown) => {
+          logger.error('Error handling Discord message', err instanceof Error ? err : new Error(String(err)));
+        })
+      );
+
+      this.client.on('error', (err: Error) => {
+        logger.error('Discord client error', err);
+        this.emitError(err.message, true);
+      });
+
+      await this.client.login(config.token);
+      this.botUserId = this.client.user?.id ?? null;
+      const botUsername = this.client.user?.tag ?? undefined;
+      logger.info('Connected to Discord', { botUsername });
+      this.setStatus('connected', { botUsername });
+
+      // Apply config allowlists
+      if (config.allowedSenders.length > 0) {
+        this.accessPolicy.allowedSenders = [...config.allowedSenders];
+      }
     } catch (err) {
-      this.status = 'error';
-      this.emit('status', 'error');
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to connect to Discord', err instanceof Error ? err : new Error(message));
+      this.setStatus('error');
+      this.emitError(`Failed to connect: ${message}`, true);
       throw err;
     }
-
-    this.client = client;
-    this.botId = client.user?.id ?? null;
-
-    if (config.allowedSenders?.length) {
-      this.accessPolicy = {
-        ...this.accessPolicy,
-        allowedSenders: [...config.allowedSenders],
-      };
-    }
-
-    this.status = 'connected';
-    this.emit('status', 'connected');
-    logger.info('Discord connected', { botTag: client.user?.tag });
   }
 
   async disconnect(): Promise<void> {
     if (this.client) {
+      logger.info('Disconnecting from Discord');
       this.client.destroy();
       this.client = null;
+      this.botUserId = null;
+      this.setStatus('disconnected');
     }
-    this.botId = null;
-    this.status = 'disconnected';
-    this.emit('status', 'disconnected');
-    logger.info('Discord disconnected', {});
   }
 
-  async sendMessage(chatId: string, content: string, _options?: ChannelSendOptions): Promise<ChannelSentMessage> {
-    if (!this.client) {
-      throw new Error('Discord adapter is not connected');
-    }
+  async sendMessage(chatId: string, content: string, options?: SendOptions): Promise<SentMessage> {
+    if (!this.client) throw new Error('Discord client not connected');
 
     const channel = await this.client.channels.fetch(chatId);
-    if (!channel || !channel.isTextBased()) {
-      throw new Error(`Channel ${chatId} is not a text channel`);
-    }
+    if (!channel?.isTextBased()) throw new Error(`Channel ${chatId} is not a text channel`);
 
-    const chunks = this.chunkMessage(content);
-    let lastMessageId = '';
+    const chunks = this.chunkMessage(content, options?.splitAt ?? DISCORD_MAX_LENGTH);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let lastMessage: any;
 
-    // Cast via unknown to avoid PartialGroupDMChannel incompatibility; guarded by isTextBased()
-    const sendable = channel as unknown as { send(content: string): Promise<{ id: string }> };
     for (const chunk of chunks) {
-      const sent = await sendable.send(chunk);
-      lastMessageId = sent.id;
+      if (options?.replyTo && chunk === chunks[0]) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const replyTarget = await (channel as any).messages.fetch(options.replyTo);
+          lastMessage = await replyTarget.reply(chunk);
+        } catch {
+          // If we can't reply, just send normally
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          lastMessage = await (channel as any).send(chunk);
+        }
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        lastMessage = await (channel as any).send(chunk);
+      }
     }
 
     return {
-      messageId: lastMessageId,
+      messageId: lastMessage.id,
       chatId,
-      timestamp: Date.now(),
+      timestamp: lastMessage.createdTimestamp ?? Date.now(),
     };
   }
 
-  async sendFile(chatId: string, filePath: string, caption?: string): Promise<ChannelSentMessage> {
-    if (!this.client) {
-      throw new Error('Discord adapter is not connected');
-    }
+  async sendFile(chatId: string, filePath: string, caption?: string): Promise<SentMessage> {
+    if (!this.client) throw new Error('Discord client not connected');
 
     const channel = await this.client.channels.fetch(chatId);
-    if (!channel || !channel.isTextBased()) {
-      throw new Error(`Channel ${chatId} is not a text channel`);
-    }
+    if (!channel?.isTextBased()) throw new Error(`Channel ${chatId} is not a text channel`);
 
-    // Cast via unknown to avoid PartialGroupDMChannel incompatibility; guarded by isTextBased()
-    const sendable = channel as unknown as { send(options: { content?: string; files: string[] }): Promise<{ id: string }> };
-    const sent = await sendable.send({
-      content: caption,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const message = await (channel as any).send({
+      content: caption ?? '',
       files: [filePath],
     });
 
     return {
-      messageId: sent.id,
+      messageId: message.id,
       chatId,
-      timestamp: Date.now(),
+      timestamp: message.createdTimestamp ?? Date.now(),
     };
   }
 
   async editMessage(chatId: string, messageId: string, content: string): Promise<void> {
-    if (!this.client) {
-      throw new Error('Discord adapter is not connected');
-    }
+    if (!this.client) throw new Error('Discord client not connected');
 
     const channel = await this.client.channels.fetch(chatId);
-    if (!channel || !channel.isTextBased()) {
-      throw new Error(`Channel ${chatId} is not a text channel`);
-    }
+    if (!channel?.isTextBased()) throw new Error(`Channel ${chatId} is not a text channel`);
 
-    const msg = await (channel as import('discord.js').TextChannel).messages.fetch(messageId);
-    await msg.edit(content);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const message = await (channel as any).messages.fetch(messageId);
+    await message.edit(content);
   }
 
   async addReaction(chatId: string, messageId: string, emoji: string): Promise<void> {
-    if (!this.client) {
-      throw new Error('Discord adapter is not connected');
-    }
+    if (!this.client) throw new Error('Discord client not connected');
 
     const channel = await this.client.channels.fetch(chatId);
-    if (!channel || !channel.isTextBased()) {
-      throw new Error(`Channel ${chatId} is not a text channel`);
-    }
+    if (!channel?.isTextBased()) throw new Error(`Channel ${chatId} is not a text channel`);
 
-    const msg = await (channel as import('discord.js').TextChannel).messages.fetch(messageId);
-    await msg.react(emoji);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const message = await (channel as any).messages.fetch(messageId);
+    await message.react(emoji);
   }
 
-  getAccessPolicy(): AccessPolicy {
-    return {
-      ...this.accessPolicy,
-      allowedSenders: [...this.accessPolicy.allowedSenders],
-      pendingPairings: this.accessPolicy.pendingPairings.map(p => ({ ...p })),
-    };
-  }
-
-  setAccessPolicy(policy: AccessPolicy): void {
-    this.accessPolicy = {
-      ...policy,
-      allowedSenders: [...policy.allowedSenders],
-      pendingPairings: policy.pendingPairings.map(p => ({ ...p })),
-    };
-  }
-
-  async pairSender(code: string): Promise<PairedSender> {
-    const now = Date.now();
-    const idx = this.accessPolicy.pendingPairings.findIndex(p => p.code === code);
-
-    if (idx === -1) {
-      throw new Error('Invalid pairing code');
-    }
-
-    const pending = this.accessPolicy.pendingPairings[idx];
-
-    if (pending.expiresAt < now) {
-      this.accessPolicy.pendingPairings.splice(idx, 1);
-      throw new Error('Pairing code has expired');
-    }
-
-    // Move sender from pending to allowed
-    this.accessPolicy.pendingPairings.splice(idx, 1);
-    if (!this.accessPolicy.allowedSenders.includes(pending.senderId)) {
-      this.accessPolicy.allowedSenders.push(pending.senderId);
-    }
-
-    const pairedSender: PairedSender = {
-      senderId: pending.senderId,
-      senderName: pending.senderName,
-      platform: 'discord',
-      pairedAt: now,
-    };
-
-    logger.info('Sender paired', { senderId: pending.senderId, senderName: pending.senderName });
-    return pairedSender;
-  }
-
-  // --- Private helpers ---
-
-  private handleIncomingMessage(msg: import('discord.js').Message): void {
+  private async handleMessage(message: DiscordMessage): Promise<void> {
     // Ignore bot's own messages
-    if (this.botId && msg.author.id === this.botId) {
-      return;
+    if (message.author?.id === this.botUserId) return;
+    // Ignore other bots
+    if (message.author?.bot) return;
+
+    const isGroup = message.guild !== null;
+    const isDM = !isGroup;
+
+    // In groups, require @mention of the bot
+    if (isGroup && this.botUserId) {
+      if (!message.mentions?.has(this.botUserId)) return;
     }
 
-    // Guild messages must @mention the bot; silently drop those that don't
-    if (!msg.channel.isDMBased()) {
-      const mentioned =
-        msg.content.includes('<@' + this.botId + '>') ||
-        msg.content.includes('<@!' + this.botId + '>');
-      if (!mentioned) {
-        return;
+    const senderId = message.author?.id;
+    const senderName = message.author?.username ?? message.author?.tag ?? 'Unknown';
+
+    // Access gate
+    if (!this.isSenderAllowed(senderId)) {
+      // Try pairing flow
+      const pending = this.handlePairingRequest(senderId, senderName);
+      if (pending) {
+        try {
+          await message.reply(
+            `👋 You're not yet paired with this bot. Your pairing code is: **${pending.code}**\nEnter this code in the Orchestrator UI to pair your account. Code expires in 5 minutes.`
+          );
+        } catch (err) {
+          logger.warn('Failed to send pairing code', { senderId, error: String(err) });
+        }
       }
-    }
-
-    const senderId = msg.author.id;
-    const policy = this.accessPolicy;
-
-    // Pairing mode: unknown sender DMs → generate code
-    if (policy.mode === 'pairing' && !policy.allowedSenders.includes(senderId)) {
-      if (msg.channel.isDMBased()) {
-        this.handlePairingRequest(msg);
-      }
       return;
     }
 
-    // Allowlist mode: reject unknown senders
-    if (policy.mode === 'allowlist' && !policy.allowedSenders.includes(senderId)) {
-      logger.warn('Message from unauthorized sender ignored', { senderId });
-      return;
+    // Typing indicator
+    try {
+      await message.channel?.sendTyping?.();
+    } catch {
+      // Ignore typing failures
     }
 
-    // Disabled: allow all
-    const inbound = this.buildInboundMessage(msg);
+    // Build inbound message
+    const inbound: InboundChannelMessage = {
+      id: crypto.randomUUID(),
+      platform: 'discord',
+      chatId: message.channelId ?? message.channel?.id ?? '',
+      messageId: message.id,
+      threadId: message.thread?.id ?? (message.reference?.messageId ? `discord-ref-${message.reference.messageId}` : undefined),
+      senderId,
+      senderName,
+      content: this.cleanContent(message),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      attachments: (message.attachments?.values ? Array.from(message.attachments.values()) : []).map((a: any) => ({
+        name: a.name ?? 'attachment',
+        type: a.contentType ?? 'application/octet-stream',
+        size: a.size ?? 0,
+        url: a.url,
+      })),
+      isGroup,
+      isDM,
+      replyTo: message.reference?.messageId,
+      timestamp: message.createdTimestamp ?? Date.now(),
+    };
+
     this.emit('message', inbound);
   }
 
-  private handlePairingRequest(msg: import('discord.js').Message): void {
-    const policy = this.accessPolicy;
-
-    // Clean up expired pending pairings
-    const now = Date.now();
-    this.accessPolicy.pendingPairings = policy.pendingPairings.filter(p => p.expiresAt > now);
-
-    if (this.accessPolicy.pendingPairings.length >= policy.maxPending) {
-      logger.warn('Max pending pairings reached, ignoring pairing request', { senderId: msg.author.id });
-      return;
+  /**
+   * Clean the message content by removing bot mention prefix
+   */
+  private cleanContent(message: DiscordMessage): string {
+    let content: string = message.content ?? '';
+    if (this.botUserId) {
+      // Remove <@botId> or <@!botId> mention prefix
+      content = content.replace(new RegExp(`<@!?${this.botUserId}>\\s*`), '').trim();
     }
-
-    const code = randomBytes(3).toString('hex');
-    const pending: PendingPairing = {
-      code,
-      senderId: msg.author.id,
-      senderName: msg.author.tag ?? msg.author.username,
-      expiresAt: now + policy.codeExpiryMs,
-    };
-
-    this.accessPolicy.pendingPairings.push(pending);
-    logger.debug('Pairing code generated', { senderId: msg.author.id });
-
-    // Reply with pairing code (fire-and-forget)
-    // Cast via unknown — isDMBased() guarantees a real DM channel with send()
-    const dmChannel = msg.channel as unknown as { send(content: string): Promise<unknown> };
-    dmChannel.send(`Your pairing code is: \`${code}\``).catch((err: Error) => {
-      logger.error('Failed to send pairing code', err, { senderId: msg.author.id });
-    });
-  }
-
-  private buildInboundMessage(msg: import('discord.js').Message): InboundChannelMessage {
-    // Strip bot mention from content
-    let content = msg.content;
-    if (this.botId) {
-      content = content.replace(new RegExp(`<@!?${this.botId}>`, 'g'), '').trim();
-    }
-
-    // Thread support: if message is in a thread, use parent channel id as chatId
-    let chatId = msg.channelId;
-    let threadId: string | undefined;
-
-    const channel = msg.channel;
-    if (channel.isThread()) {
-      threadId = channel.id;
-      chatId = channel.parentId ?? chatId;
-    }
-
-    const isDM = channel.isDMBased();
-    const isGroup = !isDM;
-
-    const attachments = [...msg.attachments.values()].map(a => ({
-      name: a.name ?? 'attachment',
-      type: a.contentType ?? 'application/octet-stream',
-      size: a.size,
-      url: a.url,
-    }));
-
-    return {
-      id: msg.id,
-      platform: 'discord',
-      chatId,
-      messageId: msg.id,
-      threadId,
-      senderId: msg.author.id,
-      senderName: msg.author.tag ?? msg.author.username,
-      content,
-      attachments,
-      isGroup,
-      isDM,
-      replyTo: msg.reference?.messageId,
-      timestamp: msg.createdTimestamp,
-    };
-  }
-
-  private chunkMessage(content: string, chunkSize = DISCORD_MAX_LENGTH): string[] {
-    if (content.length <= chunkSize) {
-      return [content];
-    }
-
-    const chunks: string[] = [];
-    let offset = 0;
-    while (offset < content.length) {
-      chunks.push(content.slice(offset, offset + chunkSize));
-      offset += chunkSize;
-    }
-    return chunks;
+    return content;
   }
 }

@@ -244,6 +244,7 @@ export const MIGRATIONS: Migration[] = [
     `
   },
 
+  // Migration 006: Add channel messages table
   {
     name: '006_add_channel_messages',
     up: `
@@ -273,6 +274,10 @@ export const MIGRATIONS: Migration[] = [
         ON channel_messages(platform, chat_id, timestamp);
     `,
     down: `
+      DROP INDEX IF EXISTS idx_channel_messages_timestamp;
+      DROP INDEX IF EXISTS idx_channel_messages_thread;
+      DROP INDEX IF EXISTS idx_channel_messages_instance;
+      DROP INDEX IF EXISTS idx_channel_messages_chat;
       DROP TABLE IF EXISTS channel_messages;
     `
   },

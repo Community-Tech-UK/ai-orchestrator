@@ -1,49 +1,174 @@
+/**
+ * Channel Adapter - Base class for platform adapters
+ */
+
 import { EventEmitter } from 'events';
 import type {
   ChannelPlatform,
   ChannelConnectionStatus,
   ChannelConfig,
-  ChannelSendOptions,
-  ChannelSentMessage,
   InboundChannelMessage,
-  AccessPolicy,
+  SendOptions,
+  SentMessage,
   PairedSender,
+  AccessPolicy,
+  PendingPairing,
+  ChannelStatusEvent,
+  ChannelErrorEvent,
 } from '../../shared/types/channels';
 
 export interface ChannelAdapterEvents {
-  'message': (msg: InboundChannelMessage) => void;
-  'status': (status: ChannelConnectionStatus) => void;
-  'error': (error: Error) => void;
-  'qr': (qrData: string) => void;
+  message: [InboundChannelMessage];
+  status: [ChannelStatusEvent];
+  error: [ChannelErrorEvent];
+  qr: [string]; // QR code data (WhatsApp only)
 }
 
 export abstract class BaseChannelAdapter extends EventEmitter {
   abstract readonly platform: ChannelPlatform;
-  abstract status: ChannelConnectionStatus;
+  protected _status: ChannelConnectionStatus = 'disconnected';
+  protected accessPolicy: AccessPolicy = {
+    mode: 'pairing',
+    allowedSenders: [],
+    pendingPairings: [],
+    maxPending: 3,
+    codeExpiryMs: 5 * 60 * 1000, // 5 minutes
+  };
 
+  get status(): ChannelConnectionStatus {
+    return this._status;
+  }
+
+  // Lifecycle
   abstract connect(config: ChannelConfig): Promise<void>;
   abstract disconnect(): Promise<void>;
 
-  abstract sendMessage(chatId: string, content: string, options?: ChannelSendOptions): Promise<ChannelSentMessage>;
-  abstract sendFile(chatId: string, filePath: string, caption?: string): Promise<ChannelSentMessage>;
+  // Messaging
+  abstract sendMessage(chatId: string, content: string, options?: SendOptions): Promise<SentMessage>;
+  abstract sendFile(chatId: string, filePath: string, caption?: string): Promise<SentMessage>;
   abstract editMessage(chatId: string, messageId: string, content: string): Promise<void>;
   abstract addReaction(chatId: string, messageId: string, emoji: string): Promise<void>;
 
-  abstract getAccessPolicy(): AccessPolicy;
-  abstract setAccessPolicy(policy: AccessPolicy): void;
-  abstract pairSender(code: string): Promise<PairedSender>;
-
-  override emit<K extends keyof ChannelAdapterEvents>(
-    event: K,
-    ...args: Parameters<ChannelAdapterEvents[K]>
-  ): boolean {
-    return super.emit(event, ...args);
+  // Access control
+  getAccessPolicy(): AccessPolicy {
+    return { ...this.accessPolicy };
   }
 
-  override on<K extends keyof ChannelAdapterEvents>(
-    event: K,
-    listener: ChannelAdapterEvents[K]
-  ): this {
-    return super.on(event, listener as (...args: unknown[]) => void);
+  setAccessPolicy(policy: AccessPolicy): void {
+    this.accessPolicy = { ...policy };
+  }
+
+  protected isSenderAllowed(senderId: string): boolean {
+    if (this.accessPolicy.mode === 'disabled') return false;
+    return this.accessPolicy.allowedSenders.includes(senderId);
+  }
+
+  protected handlePairingRequest(senderId: string, senderName: string): PendingPairing | null {
+    if (this.accessPolicy.mode !== 'pairing') return null;
+
+    // Check if already pending
+    const existing = this.accessPolicy.pendingPairings.find(p => p.senderId === senderId);
+    if (existing && existing.expiresAt > Date.now()) return existing;
+
+    // Prune expired first
+    this.accessPolicy.pendingPairings = this.accessPolicy.pendingPairings.filter(
+      p => p.expiresAt > Date.now()
+    );
+
+    // Check max pending
+    if (this.accessPolicy.pendingPairings.length >= this.accessPolicy.maxPending) return null;
+
+    // Generate 6-char hex code
+    const code = Math.random().toString(16).substring(2, 8).toUpperCase();
+    const pending: PendingPairing = {
+      code,
+      senderId,
+      senderName,
+      expiresAt: Date.now() + this.accessPolicy.codeExpiryMs,
+    };
+    this.accessPolicy.pendingPairings.push(pending);
+    return pending;
+  }
+
+  async pairSender(code: string): Promise<PairedSender> {
+    const index = this.accessPolicy.pendingPairings.findIndex(
+      p => p.code === code && p.expiresAt > Date.now()
+    );
+    if (index === -1) {
+      throw new Error('Invalid or expired pairing code');
+    }
+    const pending = this.accessPolicy.pendingPairings[index];
+    this.accessPolicy.pendingPairings.splice(index, 1);
+    this.accessPolicy.allowedSenders.push(pending.senderId);
+
+    return {
+      senderId: pending.senderId,
+      senderName: pending.senderName,
+      platform: this.platform,
+      pairedAt: Date.now(),
+    };
+  }
+
+  protected setStatus(status: ChannelConnectionStatus, extra?: Partial<ChannelStatusEvent>): void {
+    this._status = status;
+    this.emit('status', {
+      platform: this.platform,
+      status,
+      ...extra,
+    } satisfies ChannelStatusEvent);
+  }
+
+  protected emitError(error: string, recoverable: boolean): void {
+    this.emit('error', {
+      platform: this.platform,
+      error,
+      recoverable,
+    } satisfies ChannelErrorEvent);
+  }
+
+  /**
+   * Split a long message into chunks that fit platform limits.
+   * Splits at paragraph boundaries first, then newlines, then spaces, then hard cut.
+   */
+  protected chunkMessage(content: string, maxLength: number): string[] {
+    if (content.length <= maxLength) return [content];
+
+    const chunks: string[] = [];
+    let remaining = content;
+
+    while (remaining.length > 0) {
+      if (remaining.length <= maxLength) {
+        chunks.push(remaining);
+        break;
+      }
+
+      let splitAt = -1;
+
+      // Try paragraph boundary
+      const paraIdx = remaining.lastIndexOf('\n\n', maxLength);
+      if (paraIdx > 0) {
+        splitAt = paraIdx;
+      }
+
+      // Try newline
+      if (splitAt === -1) {
+        const nlIdx = remaining.lastIndexOf('\n', maxLength);
+        if (nlIdx > 0) splitAt = nlIdx;
+      }
+
+      // Try space
+      if (splitAt === -1) {
+        const spaceIdx = remaining.lastIndexOf(' ', maxLength);
+        if (spaceIdx > 0) splitAt = spaceIdx;
+      }
+
+      // Hard cut
+      if (splitAt === -1) splitAt = maxLength;
+
+      chunks.push(remaining.substring(0, splitAt));
+      remaining = remaining.substring(splitAt).trimStart();
+    }
+
+    return chunks;
   }
 }

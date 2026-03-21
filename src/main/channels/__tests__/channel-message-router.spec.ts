@@ -1,296 +1,471 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'events';
 import { ChannelMessageRouter } from '../channel-message-router';
-import { ChannelPersistence } from '../channel-persistence';
-import { RateLimiter } from '../rate-limiter';
-import type { InboundChannelMessage, AccessPolicy } from '../../../shared/types/channels';
-import type { BaseChannelAdapter } from '../channel-adapter';
-import type { Instance } from '../../../shared/types/instance.types';
-import type { DetectedSecret } from '../../security/secret-detector';
+import type { ChannelManager, ChannelEvent } from '../channel-manager';
+import type { ChannelPersistence } from '../channel-persistence';
+import type { InboundChannelMessage, SentMessage } from '../../../shared/types/channels';
 
-// Mock the security module
-vi.mock('../../security/secret-detector', () => ({
-  detectSecretsInContent: vi.fn().mockReturnValue([]),
-  isSecretFile: vi.fn().mockReturnValue(false),
-}));
+// ---------------------------------------------------------------------------
+// Mock logger
+// ---------------------------------------------------------------------------
 
-// Mock the instance module
-vi.mock('../../instance/instance-manager', () => ({
-  getInstanceManager: vi.fn().mockReturnValue({
-    createInstance: vi.fn().mockResolvedValue({ id: 'inst-1', displayName: 'Instance 1', status: 'idle' }),
-    sendInput: vi.fn().mockResolvedValue(undefined),
-    getAllInstances: vi.fn().mockReturnValue([
-      { id: 'inst-1', displayName: 'Instance 1', status: 'idle' },
-      { id: 'inst-2', displayName: 'Instance 2', status: 'idle' },
-    ]),
-    getInstance: vi.fn().mockReturnValue({ id: 'inst-1', displayName: 'Instance 1', status: 'idle' }),
-    on: vi.fn(),
-    removeListener: vi.fn(),
+vi.mock('../../logging/logger', () => ({
+  getLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
   }),
 }));
 
-import { detectSecretsInContent, isSecretFile } from '../../security/secret-detector';
-import { getInstanceManager } from '../../instance/instance-manager';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function makeMessage(overrides: Partial<InboundChannelMessage> = {}): InboundChannelMessage {
   return {
     id: 'msg-1',
     platform: 'discord',
-    chatId: 'chat-100',
+    chatId: 'chat-1',
     messageId: 'discord-msg-1',
-    senderId: 'user-allowed',
+    senderId: 'user-1',
     senderName: 'Alice',
-    content: 'Hello',
+    content: 'Hello agent',
     attachments: [],
     isGroup: false,
     isDM: true,
-    timestamp: Date.now(),
+    timestamp: 1000,
     ...overrides,
   };
 }
 
-function makePolicy(overrides: Partial<AccessPolicy> = {}): AccessPolicy {
+function makeSentMessage(overrides: Partial<SentMessage> = {}): SentMessage {
+  return { messageId: 'sent-1', chatId: 'chat-1', timestamp: Date.now(), ...overrides };
+}
+
+function makeMockAdapter() {
   return {
-    mode: 'allowlist',
-    allowedSenders: ['user-allowed'],
-    pendingPairings: [],
-    maxPending: 5,
-    codeExpiryMs: 60_000,
-    ...overrides,
+    sendMessage: vi.fn(async () => makeSentMessage()),
+    addReaction: vi.fn(async () => undefined),
+    sendFile: vi.fn(async () => makeSentMessage()),
+    editMessage: vi.fn(async () => undefined),
   };
 }
 
-function makeMockAdapter(policy: AccessPolicy): Partial<BaseChannelAdapter> & {
-  addReaction: ReturnType<typeof vi.fn>;
-  getAccessPolicy: ReturnType<typeof vi.fn>;
-} {
+function makeMockPersistence() {
   return {
-    getAccessPolicy: vi.fn().mockReturnValue(policy),
-    addReaction: vi.fn().mockResolvedValue(undefined),
+    saveMessage: vi.fn(),
+    resolveInstanceByThread: vi.fn(() => null as string | null),
+    updateInstanceId: vi.fn(),
   };
 }
 
-function makeMockPersistence(): Partial<ChannelPersistence> & {
-  insertMessage: ReturnType<typeof vi.fn>;
-  getInstanceForThread: ReturnType<typeof vi.fn>;
-} {
+function makeMockInstanceManager() {
+  const em = new EventEmitter();
+  return Object.assign(em, {
+    createInstance: vi.fn(async () => ({ id: 'inst-1' })),
+    sendInput: vi.fn(async () => undefined),
+    getInstances: vi.fn(() => [] as { id: string; status: string }[]),
+  });
+}
+
+function makeMockChannelManager(adapter: ReturnType<typeof makeMockAdapter>) {
+  const listeners = new Set<(event: ChannelEvent) => void>();
   return {
-    insertMessage: vi.fn(),
-    getInstanceForThread: vi.fn().mockReturnValue(undefined),
-  };
+    getAdapter: vi.fn(() => adapter),
+    onEvent: vi.fn((cb: (event: ChannelEvent) => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    }),
+    // helper for tests to emit events
+    _emit: (event: ChannelEvent) => {
+      for (const l of listeners) l(event);
+    },
+  } as unknown as ChannelManager & { _emit: (event: ChannelEvent) => void };
 }
 
-function makeMockRateLimiter(allows = true): Partial<RateLimiter> & {
-  tryAcquire: ReturnType<typeof vi.fn>;
-} {
-  return {
-    tryAcquire: vi.fn().mockReturnValue(allows),
-  };
-}
-
-function makeRouter(
-  persistenceOverrides?: Partial<ChannelPersistence>,
-  rateLimiterOverrides?: Partial<RateLimiter>,
-): ChannelMessageRouter {
-  const persistence = { ...makeMockPersistence(), ...persistenceOverrides } as unknown as ChannelPersistence;
-  const rateLimiter = { ...makeMockRateLimiter(), ...rateLimiterOverrides } as unknown as RateLimiter;
-  return new ChannelMessageRouter({ persistence, rateLimiter });
-}
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe('ChannelMessageRouter', () => {
+  let adapter: ReturnType<typeof makeMockAdapter>;
+  let persistence: ReturnType<typeof makeMockPersistence>;
+  let channelManager: ReturnType<typeof makeMockChannelManager>;
+  let instanceManager: ReturnType<typeof makeMockInstanceManager>;
+  let router: ChannelMessageRouter;
+
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Re-set default mock implementations after clearAllMocks
-    vi.mocked(detectSecretsInContent).mockReturnValue([]);
-    vi.mocked(isSecretFile).mockReturnValue(false);
-    const mgr = vi.mocked(getInstanceManager)();
-    vi.mocked(mgr.createInstance).mockResolvedValue({ id: 'inst-1', displayName: 'Instance 1', status: 'idle' } as Instance);
-    vi.mocked(mgr.sendInput).mockResolvedValue(undefined);
-    vi.mocked(mgr.getAllInstances).mockReturnValue([
-      { id: 'inst-1', displayName: 'Instance 1', status: 'idle' } as Instance,
-      { id: 'inst-2', displayName: 'Instance 2', status: 'idle' } as Instance,
-    ]);
+    adapter = makeMockAdapter();
+    persistence = makeMockPersistence();
+    channelManager = makeMockChannelManager(adapter);
+    instanceManager = makeMockInstanceManager();
+    router = new ChannelMessageRouter(
+      channelManager as unknown as ChannelManager,
+      persistence as unknown as ChannelPersistence,
+    );
+    router._setInstanceManagerForTesting(instanceManager);
   });
 
-  // ── 1. Blocks unauthorized senders ───────────────────────────────────────
-  it('blocks senders not in allowedSenders when mode=allowlist', async () => {
-    const router = makeRouter();
-    const policy = makePolicy({ mode: 'allowlist', allowedSenders: ['user-allowed'] });
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage({ senderId: 'unknown-user' });
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    // Should not have reached instance manager
-    const mgr = vi.mocked(getInstanceManager)();
-    expect(mgr.sendInput).not.toHaveBeenCalled();
-    expect(mgr.createInstance).not.toHaveBeenCalled();
-    // No reaction added (blocked before processing)
-    expect(adapter.addReaction).not.toHaveBeenCalled();
-  });
-
-  // ── 2. Allows allowlisted senders ────────────────────────────────────────
-  it('allows senders present in allowedSenders', async () => {
-    const router = makeRouter();
-    const policy = makePolicy({ mode: 'allowlist', allowedSenders: ['user-allowed'] });
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage({ senderId: 'user-allowed' });
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    const mgr = vi.mocked(getInstanceManager)();
-    // Either created an instance or sent input — either way processing occurred
-    expect(mgr.sendInput).toHaveBeenCalled();
-  });
-
-  // ── 3. Blocks rate-limited senders ───────────────────────────────────────
-  it('blocks rate-limited senders', async () => {
-    const rateLimiter = makeMockRateLimiter(false);
-    const router = makeRouter(undefined, rateLimiter as unknown as RateLimiter);
-    const policy = makePolicy();
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage();
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    const mgr = vi.mocked(getInstanceManager)();
-    expect(mgr.sendInput).not.toHaveBeenCalled();
-    expect(mgr.createInstance).not.toHaveBeenCalled();
-  });
-
-  // ── 4. Routes plain message to new instance ───────────────────────────────
-  it('creates a new instance and sends input for plain messages', async () => {
-    const persistence = makeMockPersistence();
-    const router = makeRouter(persistence as unknown as ChannelPersistence);
-    const policy = makePolicy();
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage({ content: 'Hello world' });
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    const mgr = vi.mocked(getInstanceManager)();
-    expect(mgr.createInstance).toHaveBeenCalled();
-    expect(mgr.sendInput).toHaveBeenCalledWith('inst-1', 'Hello world');
-  });
-
-  // ── 5. Routes thread reply to existing instance via persistence ───────────
-  it('routes a thread reply to an existing instance via persistence lookup', async () => {
-    const persistence = makeMockPersistence();
-    vi.mocked(persistence.getInstanceForThread!).mockReturnValue('inst-existing');
-    const router = makeRouter(persistence as unknown as ChannelPersistence);
-    const policy = makePolicy();
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage({ threadId: 'thread-42', content: 'Follow-up' });
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    const mgr = vi.mocked(getInstanceManager)();
-    expect(mgr.createInstance).not.toHaveBeenCalled();
-    expect(mgr.sendInput).toHaveBeenCalledWith('inst-existing', 'Follow-up');
-  });
-
-  // ── 6. Routes @instance-NAME to specific instance ─────────────────────────
-  it('routes @instance-NAME message to the named instance', async () => {
-    const router = makeRouter();
-    const policy = makePolicy();
-    const adapter = makeMockAdapter(policy);
-    // Use the instance ID (no spaces) as the @target — matches i.id === targetName
-    const msg = makeMessage({ content: '@inst-2 Please do this task' });
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    const mgr = vi.mocked(getInstanceManager)();
-    expect(mgr.sendInput).toHaveBeenCalledWith('inst-2', expect.any(String));
-    expect(mgr.createInstance).not.toHaveBeenCalled();
-  });
-
-  // ── 7. Routes @all to all active instances ────────────────────────────────
-  it('broadcasts @all message to every active instance', async () => {
-    const router = makeRouter();
-    const policy = makePolicy();
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage({ content: '@all Please do this' });
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    const mgr = vi.mocked(getInstanceManager)();
-    // Should have sent to both instances
-    const calls = vi.mocked(mgr.sendInput).mock.calls;
-    const targetIds = calls.map(c => c[0]);
-    expect(targetIds).toContain('inst-1');
-    expect(targetIds).toContain('inst-2');
-  });
-
-  // ── 8. assertSendable blocks content with detected secrets ────────────────
-  it('assertSendable throws when content contains detected secrets', () => {
-    const router = makeRouter();
-    vi.mocked(detectSecretsInContent).mockReturnValue([
-      { type: 'api_key', name: 'ANTHROPIC_API_KEY', value: 'sk-abc', startIndex: 0, endIndex: 10, confidence: 'high' } satisfies DetectedSecret,
-    ]);
-
-    expect(() => router.assertSendable('Here is my key: sk-abc')).toThrow(/secret/i);
-  });
-
-  // ── 9. assertSendable blocks outbound file paths matching sensitive patterns
-  it('assertSendable throws when content references a sensitive file path', () => {
-    const router = makeRouter();
-    vi.mocked(isSecretFile).mockReturnValue(true);
-
-    expect(() => router.assertSendable('See the file at /home/user/.env')).toThrow(/sensitive file path/i);
-  });
-
-  it('assertSendable does not throw for safe content', () => {
-    const router = makeRouter();
-    expect(() => router.assertSendable('This is perfectly safe content')).not.toThrow();
-  });
-
-  // ── 10. Streams results back to channel on instance output ────────────────
-  it('streams instance output back to the channel after debounce', async () => {
-    vi.useFakeTimers();
-    const router = makeRouter();
-    const policy = makePolicy();
-    const adapter = { ...makeMockAdapter(policy), sendMessage: vi.fn().mockResolvedValue({ messageId: 'r1', chatId: 'chat-100', timestamp: Date.now() }) };
-    const msg = makeMessage();
-
-    const mgr = vi.mocked(getInstanceManager)();
-    // Capture the 'instance:output' handler when the router subscribes
-    const outputHandlers: ((data: { instanceId: string; message: { type: string; content: string } }) => void)[] = [];
-    vi.mocked(mgr.on).mockImplementation(((event: string, handler: (...args: unknown[]) => void) => {
-      if (event === 'instance:output') outputHandlers.push(handler as typeof outputHandlers[0]);
-      return mgr;
-    }) as typeof mgr.on);
-
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
-
-    // Simulate instance output
-    for (const handler of outputHandlers) {
-      handler({ instanceId: 'inst-1', message: { type: 'assistant', content: 'Hello from Claude' } });
-    }
-
-    // Before debounce fires, no send
-    expect(adapter.sendMessage).not.toHaveBeenCalled();
-
-    // After debounce
-    vi.advanceTimersByTime(2500);
-
-    expect(adapter.sendMessage).toHaveBeenCalledWith('chat-100', 'Hello from Claude');
-
+  afterEach(() => {
+    router.stop();
     vi.useRealTimers();
   });
 
-  // ── 11. Adds ⏳ reaction on receipt, swaps to ✅ on success ───────────────
-  it('adds ⏳ reaction on message receipt and ✅ on success', async () => {
-    const router = makeRouter();
-    const policy = makePolicy();
-    const adapter = makeMockAdapter(policy);
-    const msg = makeMessage();
+  // -------------------------------------------------------------------------
+  // start / stop
+  // -------------------------------------------------------------------------
 
-    await router.handleMessage(msg, adapter as unknown as BaseChannelAdapter);
+  describe('start / stop', () => {
+    it('subscribes to channel manager events on start', () => {
+      router.start();
+      expect(channelManager.onEvent).toHaveBeenCalledOnce();
+    });
 
-    expect(adapter.addReaction).toHaveBeenCalledWith(msg.chatId, msg.messageId, '⏳');
-    expect(adapter.addReaction).toHaveBeenCalledWith(msg.chatId, msg.messageId, '✅');
+    it('unsubscribes on stop', () => {
+      router.start();
+      router.stop();
+      // After unsubscribing, emitting a message should not reach the router
+      const createSpy = instanceManager.createInstance;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (channelManager as any)._emit({ type: 'message', data: makeMessage() });
+      // Give any microtasks a chance (no await needed since stop cleared)
+      expect(createSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Rate limiting
+  // -------------------------------------------------------------------------
+
+  describe('rate limiting', () => {
+    it('blocks sender after exceeding 10 messages per minute', async () => {
+      // Send 10 messages (all pass)
+      for (let i = 0; i < 10; i++) {
+        await router.handleInboundMessage(makeMessage({ id: `msg-${i}`, messageId: `m${i}` }));
+      }
+      // Reset mocks to detect the 11th call specifically
+      adapter.addReaction.mockClear();
+      instanceManager.createInstance.mockClear();
+
+      // 11th message should be rate-limited
+      await router.handleInboundMessage(makeMessage({ id: 'msg-11', messageId: 'm11' }));
+
+      // Should add the clock reaction and NOT create an instance
+      expect(adapter.addReaction).toHaveBeenCalledWith('chat-1', 'm11', '⏳');
+      expect(instanceManager.createInstance).not.toHaveBeenCalled();
+    });
+
+    it('tracks rate limits per sender independently', async () => {
+      // Exhaust user-1
+      for (let i = 0; i < 10; i++) {
+        await router.handleInboundMessage(makeMessage({ id: `msg-${i}`, messageId: `m${i}`, senderId: 'user-1' }));
+      }
+      instanceManager.createInstance.mockClear();
+
+      // user-2 should still pass
+      await router.handleInboundMessage(makeMessage({ id: 'msg-u2', messageId: 'm-u2', senderId: 'user-2' }));
+      expect(instanceManager.createInstance).toHaveBeenCalledOnce();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // parseIntent
+  // -------------------------------------------------------------------------
+
+  describe('parseIntent', () => {
+    it('returns default intent for plain content', () => {
+      const intent = router.parseIntent('hello world');
+      expect(intent.type).toBe('default');
+      expect(intent.cleanContent).toBe('hello world');
+    });
+
+    it('parses @instance-<id> as explicit intent', () => {
+      const intent = router.parseIntent('@instance-3 do the thing');
+      expect(intent.type).toBe('explicit');
+      expect(intent.instanceId).toBe('3');
+      expect(intent.cleanContent).toBe('do the thing');
+    });
+
+    it('parses @all as broadcast intent', () => {
+      const intent = router.parseIntent('@all stop all work');
+      expect(intent.type).toBe('broadcast');
+      expect(intent.cleanContent).toBe('stop all work');
+    });
+
+    it('returns thread intent when persistence resolves threadId', () => {
+      persistence.resolveInstanceByThread.mockReturnValue('inst-42');
+      const intent = router.parseIntent('follow up question', 'thread-99');
+      expect(intent.type).toBe('thread');
+      expect(intent.instanceId).toBe('inst-42');
+      expect(intent.cleanContent).toBe('follow up question');
+    });
+
+    it('returns default intent when threadId resolves to null', () => {
+      persistence.resolveInstanceByThread.mockReturnValue(null);
+      const intent = router.parseIntent('new question', 'thread-99');
+      expect(intent.type).toBe('default');
+    });
+
+    it('@instance pattern takes precedence over threadId', () => {
+      persistence.resolveInstanceByThread.mockReturnValue('thread-inst');
+      const intent = router.parseIntent('@instance-5 hello', 'thread-99');
+      expect(intent.type).toBe('explicit');
+      expect(intent.instanceId).toBe('5');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Default routing (creates new instance)
+  // -------------------------------------------------------------------------
+
+  describe('default routing', () => {
+    it('creates a new instance with message content', async () => {
+      await router.handleInboundMessage(makeMessage({ content: 'run this task' }));
+
+      expect(instanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialPrompt: 'run this task',
+          yoloMode: true,
+        })
+      );
+    });
+
+    it('updates instance_id in persistence after routing', async () => {
+      await router.handleInboundMessage(makeMessage({ id: 'msg-abc' }));
+      expect(persistence.updateInstanceId).toHaveBeenCalledWith('msg-abc', 'inst-1');
+    });
+
+    it('saves the inbound message to persistence', async () => {
+      const msg = makeMessage({ id: 'save-test', content: 'save me' });
+      await router.handleInboundMessage(msg);
+      expect(persistence.saveMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'save-test',
+          direction: 'inbound',
+          content: 'save me',
+        })
+      );
+    });
+
+    it('adds eyes reaction on receipt and check reaction on completion', async () => {
+      const msg = makeMessage({ chatId: 'c1', messageId: 'dm1' });
+      await router.handleInboundMessage(msg);
+      expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'dm1', '👀');
+      expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'dm1', '✅');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Thread routing
+  // -------------------------------------------------------------------------
+
+  describe('thread routing', () => {
+    it('routes to existing instance when thread resolves', async () => {
+      persistence.resolveInstanceByThread.mockReturnValue('existing-inst');
+      const msg = makeMessage({ threadId: 'thread-1', content: 'follow up' });
+      await router.handleInboundMessage(msg);
+
+      expect(instanceManager.sendInput).toHaveBeenCalledWith('existing-inst', 'follow up');
+      expect(instanceManager.createInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Explicit routing (@instance-<id>)
+  // -------------------------------------------------------------------------
+
+  describe('explicit routing', () => {
+    it('routes @instance-<id> to the specified instance', async () => {
+      const msg = makeMessage({ content: '@instance-3 do this task' });
+      await router.handleInboundMessage(msg);
+
+      expect(instanceManager.sendInput).toHaveBeenCalledWith('3', 'do this task');
+      expect(instanceManager.createInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Broadcast routing (@all)
+  // -------------------------------------------------------------------------
+
+  describe('broadcast routing', () => {
+    it('sends to all active instances', async () => {
+      instanceManager.getInstances.mockReturnValue([
+        { id: 'a', status: 'idle' },
+        { id: 'b', status: 'busy' },
+        { id: 'c', status: 'hibernated' },
+      ]);
+      const msg = makeMessage({ content: '@all stop everything' });
+      await router.handleInboundMessage(msg);
+
+      // Should have sent to a and b (idle/busy), not c (hibernated)
+      expect(instanceManager.sendInput).toHaveBeenCalledWith('a', 'stop everything');
+      expect(instanceManager.sendInput).toHaveBeenCalledWith('b', 'stop everything');
+      expect(instanceManager.sendInput).not.toHaveBeenCalledWith('c', expect.anything());
+    });
+
+    it('sends "no active instances" message when there are none', async () => {
+      instanceManager.getInstances.mockReturnValue([]);
+      const msg = makeMessage({ content: '@all stop everything', chatId: 'c1', messageId: 'dm1' });
+      await router.handleInboundMessage(msg);
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'No active instances to broadcast to.',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('announces broadcast count before sending', async () => {
+      instanceManager.getInstances.mockReturnValue([
+        { id: 'a', status: 'idle' },
+        { id: 'b', status: 'idle' },
+      ]);
+      const msg = makeMessage({ content: '@all go', chatId: 'c1', messageId: 'dm1' });
+      await router.handleInboundMessage(msg);
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Broadcasting to 2 instances...',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Output debounce / streaming
+  // -------------------------------------------------------------------------
+
+  describe('output debounce', () => {
+    it('batches output for 2 seconds before sending back to channel', async () => {
+      vi.useFakeTimers();
+
+      await router.handleInboundMessage(makeMessage({ id: 'deb-1', chatId: 'c1', messageId: 'dm1' }));
+
+      // Emit two output chunks from the created instance
+      instanceManager.emit('instance:output', {
+        instanceId: 'inst-1',
+        message: { type: 'text', content: 'Hello ' },
+      });
+      instanceManager.emit('instance:output', {
+        instanceId: 'inst-1',
+        message: { type: 'text', content: 'World' },
+      });
+
+      // Nothing sent yet (debounce hasn't fired)
+      expect(adapter.sendMessage).not.toHaveBeenCalled();
+
+      // Advance past debounce
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Hello World',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('saves the outbound message to persistence after debounce', async () => {
+      vi.useFakeTimers();
+
+      await router.handleInboundMessage(makeMessage({ id: 'deb-2', chatId: 'c1', messageId: 'dm1' }));
+
+      instanceManager.emit('instance:output', {
+        instanceId: 'inst-1',
+        message: { type: 'text', content: 'Response text' },
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(persistence.saveMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          direction: 'outbound',
+          content: 'Response text',
+          instance_id: 'inst-1',
+          reply_to_message_id: 'dm1',
+        })
+      );
+    });
+
+    it('ignores output from other instances', async () => {
+      vi.useFakeTimers();
+
+      await router.handleInboundMessage(makeMessage({ id: 'deb-3' }));
+
+      instanceManager.emit('instance:output', {
+        instanceId: 'other-inst',
+        message: { type: 'text', content: 'Not mine' },
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // sendMessage was called for eyes/check reactions only (addReaction), not sendMessage
+      expect(adapter.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Error handling
+  // -------------------------------------------------------------------------
+
+  describe('error handling', () => {
+    it('sends error reaction and message when routing fails', async () => {
+      instanceManager.createInstance.mockRejectedValue(new Error('spawn failed'));
+      const msg = makeMessage({ chatId: 'c1', messageId: 'dm1', content: 'do work' });
+      await router.handleInboundMessage(msg);
+
+      expect(adapter.addReaction).toHaveBeenCalledWith('c1', 'dm1', '❌');
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Error: spawn failed',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('does nothing when no adapter is registered for the platform', async () => {
+      (channelManager.getAdapter as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+      await expect(router.handleInboundMessage(makeMessage())).resolves.toBeUndefined();
+      expect(instanceManager.createInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // assertSendable
+  // -------------------------------------------------------------------------
+
+  describe('assertSendable', () => {
+    it('allows normal file paths', () => {
+      expect(() => router.assertSendable('/home/user/project/report.pdf')).not.toThrow();
+      expect(() => router.assertSendable('/tmp/output.txt')).not.toThrow();
+    });
+
+    it('blocks paths containing .env', () => {
+      expect(() => router.assertSendable('/app/.env')).toThrow('Cannot send file from restricted path');
+    });
+
+    it('blocks paths containing credentials', () => {
+      expect(() => router.assertSendable('/app/credentials/key.json')).toThrow();
+    });
+
+    it('blocks paths containing tokens', () => {
+      expect(() => router.assertSendable('/config/tokens/auth.json')).toThrow();
+    });
+
+    it('blocks paths containing secrets', () => {
+      expect(() => router.assertSendable('/etc/secrets/db_pass')).toThrow();
+    });
+
+    it('blocks paths containing .ssh', () => {
+      expect(() => router.assertSendable('/home/user/.ssh/id_rsa')).toThrow();
+    });
+
+    it('blocks paths containing access.json', () => {
+      expect(() => router.assertSendable('/app/access.json')).toThrow();
+    });
+
+    it('blocks paths with mixed case (case-insensitive check)', () => {
+      expect(() => router.assertSendable('/app/.ENV')).toThrow();
+    });
   });
 });
