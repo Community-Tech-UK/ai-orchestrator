@@ -1154,3 +1154,18 @@ export class InstanceManager extends EventEmitter {
     this.terminateAll();
   }
 }
+
+// Singleton accessor — lazily created on first call.
+// The main process wires up the actual instance via setInstanceManager().
+let _instanceManagerSingleton: InstanceManager | undefined;
+
+export function setInstanceManager(im: InstanceManager): void {
+  _instanceManagerSingleton = im;
+}
+
+export function getInstanceManager(): InstanceManager {
+  if (!_instanceManagerSingleton) {
+    _instanceManagerSingleton = new InstanceManager();
+  }
+  return _instanceManagerSingleton;
+}
