@@ -29,6 +29,7 @@ import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
 import { getTrainingLoop } from '../memory/training-loop';
 import { getHotModelSwitcher } from '../routing/hot-model-switcher';
+import { getChannelManager } from '../channels';
 
 // Import extracted handlers
 import {
@@ -62,6 +63,7 @@ import {
   registerParallelWorktreeHandlers,
   registerRemoteObserverHandlers,
   registerImageHandlers,
+  registerChannelHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -282,6 +284,9 @@ export class IpcMainHandler {
     // Remote observer handlers (read-only local web observer)
     registerRemoteObserverHandlers();
 
+    // Channel handlers (Discord/WhatsApp messaging)
+    registerChannelHandlers();
+
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();
     this.setupRlmEventForwarding();
@@ -289,6 +294,7 @@ export class IpcMainHandler {
     this.setupVerificationEventForwarding();
     this.setupTrainingEventForwarding();
     this.setupHotSwitchEventForwarding();
+    this.setupChannelEventForwarding();
 
     logger.info('IPC handlers registered');
   }
@@ -611,6 +617,27 @@ export class IpcMainHandler {
     } catch {
       logger.warn('HotModelSwitcher not available for event forwarding');
     }
+  }
+
+  private setupChannelEventForwarding(): void {
+    const channelManager = getChannelManager();
+
+    channelManager.onEvent((event) => {
+      const mainWindow = this.windowManager.getMainWindow();
+      if (!mainWindow) return;
+
+      switch (event.type) {
+        case 'status':
+          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, event.data);
+          break;
+        case 'message':
+          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, event.data);
+          break;
+        case 'error':
+          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_ERROR, event.data);
+          break;
+      }
+    });
   }
 
   private serializeInstance(instance: any): Record<string, unknown> {

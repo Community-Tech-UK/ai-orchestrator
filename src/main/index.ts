@@ -35,6 +35,7 @@ import { getLoadBalancer } from './process/load-balancer';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
+import { getChannelManager } from './channels';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -209,6 +210,10 @@ class AIOrchestratorApp {
           const crossModelReview = getCrossModelReviewService();
           await crossModelReview.initialize();
           registerCrossModelReviewIpcHandlers();
+        } },
+        { name: 'Channel manager', fn: () => {
+          // Initialize ChannelManager singleton (adapters registered on demand via IPC)
+          getChannelManager();
         } },
       ];
 
@@ -676,6 +681,7 @@ class AIOrchestratorApp {
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }
     try { getCrossModelReviewService().shutdown(); } catch { /* best effort */ }
+    try { getChannelManager().shutdown(); } catch { /* best effort */ }
     // Save all tracked session states before terminating
     try {
       getSessionContinuityManagerIfInitialized()?.shutdown();

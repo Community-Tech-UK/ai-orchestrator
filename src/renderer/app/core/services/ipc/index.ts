@@ -37,6 +37,7 @@ export { RecentDirectoriesIpcService } from './recent-directories-ipc.service';
 export { CommIpcService } from './comm-ipc.service';
 export { SessionShareIpcService } from './session-share-ipc.service';
 export { RemoteObserverIpcService } from './remote-observer-ipc.service';
+export { ChannelIpcService } from './channel-ipc.service';
 
 // Import services for facade
 import { Injectable, inject } from '@angular/core';

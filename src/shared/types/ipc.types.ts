@@ -11,6 +11,7 @@ import type {
   SessionDiffStats
 } from './instance.types';
 import type { RepoJobStatus, RepoJobType } from './repo-job.types';
+import type { ChannelPlatform } from './channels';
 
 /**
  * IPC Channel names - domain:action pattern
@@ -813,6 +814,22 @@ export const IPC_CHANNELS = {
   TOKEN_STATS_GET_SUMMARY: 'token-stats:get-summary',
   TOKEN_STATS_GET_RECENT: 'token-stats:get-recent',
   TOKEN_STATS_CLEANUP: 'token-stats:cleanup',
+
+  // Channel management (request/response)
+  CHANNEL_CONNECT: 'channel:connect',
+  CHANNEL_DISCONNECT: 'channel:disconnect',
+  CHANNEL_GET_STATUS: 'channel:get-status',
+  CHANNEL_GET_MESSAGES: 'channel:get-messages',
+  CHANNEL_SEND_MESSAGE: 'channel:send-message',
+  CHANNEL_PAIR_SENDER: 'channel:pair-sender',
+  CHANNEL_SET_ACCESS_POLICY: 'channel:set-access-policy',
+  CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
+
+  // Channel push events (main -> renderer)
+  CHANNEL_STATUS_CHANGED: 'channel:status-changed',
+  CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
+  CHANNEL_RESPONSE_SENT: 'channel:response-sent',
+  CHANNEL_ERROR: 'channel:error',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -2534,4 +2551,43 @@ export interface RecentDirsPinPayload {
 
 export interface RecentDirsClearPayload {
   keepPinned?: boolean;
+}
+
+// ============ Channel Payloads ============
+
+export interface ChannelConnectPayload {
+  platform: ChannelPlatform;
+  token?: string;
+}
+
+export interface ChannelDisconnectPayload {
+  platform: ChannelPlatform;
+}
+
+export interface ChannelGetMessagesPayload {
+  platform: ChannelPlatform;
+  chatId: string;
+  limit?: number;
+  before?: number;
+}
+
+export interface ChannelSendMessagePayload {
+  platform: ChannelPlatform;
+  chatId: string;
+  content: string;
+  replyTo?: string;
+}
+
+export interface ChannelPairSenderPayload {
+  platform: ChannelPlatform;
+  code: string;
+}
+
+export interface ChannelSetAccessPolicyPayload {
+  platform: ChannelPlatform;
+  mode: 'pairing' | 'allowlist' | 'disabled';
+}
+
+export interface ChannelGetAccessPolicyPayload {
+  platform: ChannelPlatform;
 }

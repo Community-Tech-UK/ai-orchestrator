@@ -666,7 +666,22 @@ const IPC_CHANNELS = {
   CROSS_MODEL_REVIEW_ALL_UNAVAILABLE: 'cross-model-review:all-unavailable',
   CROSS_MODEL_REVIEW_STATUS: 'cross-model-review:status',
   CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
-  CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action'
+  CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',
+
+  // Channels (Discord/WhatsApp)
+  CHANNEL_CONNECT: 'channel:connect',
+  CHANNEL_DISCONNECT: 'channel:disconnect',
+  CHANNEL_GET_STATUS: 'channel:get-status',
+  CHANNEL_GET_MESSAGES: 'channel:get-messages',
+  CHANNEL_SEND_MESSAGE: 'channel:send-message',
+  CHANNEL_PAIR_SENDER: 'channel:pair-sender',
+  CHANNEL_SET_ACCESS_POLICY: 'channel:set-access-policy',
+  CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
+  // Channel events (main -> renderer)
+  CHANNEL_STATUS_CHANGED: 'channel:status-changed',
+  CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
+  CHANNEL_RESPONSE_SENT: 'channel:response-sent',
+  CHANNEL_ERROR: 'channel:error'
 } as const;
 
 
@@ -5291,6 +5306,59 @@ const electronAPI = {
 
   crossModelReviewAction: (payload: Record<string, unknown>): Promise<IpcResponse> =>
     ipcRenderer.invoke(IPC_CHANNELS.CROSS_MODEL_REVIEW_ACTION, payload),
+
+  // ============================================
+  // Channels (Discord/WhatsApp)
+  // ============================================
+
+  channelConnect: (payload: { platform: string; token?: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_CONNECT, payload),
+
+  channelDisconnect: (payload: { platform: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_DISCONNECT, payload),
+
+  channelGetStatus: (): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_STATUS),
+
+  channelGetMessages: (payload: { platform: string; chatId: string; limit?: number; before?: number }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_MESSAGES, payload),
+
+  channelSendMessage: (payload: { platform: string; chatId: string; content: string; replyTo?: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SEND_MESSAGE, payload),
+
+  channelPairSender: (payload: { platform: string; code: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_PAIR_SENDER, payload),
+
+  channelSetAccessPolicy: (payload: { platform: string; mode: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_SET_ACCESS_POLICY, payload),
+
+  channelGetAccessPolicy: (payload: { platform: string }): Promise<IpcResponse> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHANNEL_GET_ACCESS_POLICY, payload),
+
+  // Channel push event listeners
+  onChannelStatusChanged: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, handler);
+  },
+
+  onChannelMessageReceived: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, handler);
+  },
+
+  onChannelResponseSent: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, handler);
+  },
+
+  onChannelError: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CHANNEL_ERROR, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_ERROR, handler);
+  },
 
   // ============================================
   // Platform Info
