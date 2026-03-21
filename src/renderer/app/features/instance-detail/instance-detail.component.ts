@@ -160,54 +160,79 @@ interface WelcomeProjectContext {
             />
           }
 
-          <!-- Inspector toggles -->
-          <div class="inspector-toggles">
-            <button
-              class="inspector-toggle"
-              [class.active]="showTodoInspector()"
-              (click)="showTodoInspector.set(!showTodoInspector())"
-              title="Toggle task list"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>
-              </svg>
-              Tasks
-              @if (todoStore.hasTodos() && !showTodoInspector()) {
-                <span class="inspector-badge">{{ todoStore.stats().completed }}/{{ todoStore.stats().total }}</span>
+          <!-- Inspector toggles — only rendered when at least one has content -->
+          @if (anyInspectorVisible()) {
+            <div class="inspector-toggles"
+                 role="toolbar"
+                 aria-label="Session inspectors">
+              @if (todoStore.hasTodos()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showTodoInspector()"
+                  (click)="showTodoInspector.set(!showTodoInspector())"
+                  [attr.aria-expanded]="showTodoInspector()"
+                  title="Toggle task list"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>
+                  </svg>
+                  Tasks
+                  @if (!showTodoInspector()) {
+                    <span class="inspector-badge">{{ todoStore.stats().completed }}/{{ todoStore.stats().total }}</span>
+                  }
+                </button>
               }
-            </button>
-            <button
-              class="inspector-toggle"
-              [class.active]="showReviewInspector()"
-              (click)="showReviewInspector.set(!showReviewInspector())"
-              title="Toggle review panel"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>
-              </svg>
-              Review
-            </button>
-            @if (hasChildren()) {
-              <button
-                class="inspector-toggle"
-                [class.active]="showChildrenInspector()"
-                (click)="showChildrenInspector.set(!showChildrenInspector())"
-                title="Toggle child agents"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-                Agents ({{ inst.childrenIds.length }})
-              </button>
-            }
-          </div>
+              @if (reviewHasContent()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showReviewInspector()"
+                  (click)="showReviewInspector.set(!showReviewInspector())"
+                  [attr.aria-expanded]="showReviewInspector()"
+                  title="Toggle review panel"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>
+                  </svg>
+                  Review
+                  @if (!showReviewInspector()) {
+                    @if (reviewBadgeInfo(); as badge) {
+                      <span class="inspector-badge" [class.severity-error]="badge.hasErrors">
+                        {{ badge.issueCount }} {{ badge.issueCount === 1 ? 'issue' : 'issues' }}
+                      </span>
+                    } @else {
+                      <span class="inspector-badge running">running</span>
+                    }
+                  }
+                </button>
+              }
+              @if (hasChildren()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showChildrenInspector()"
+                  (click)="showChildrenInspector.set(!showChildrenInspector())"
+                  [attr.aria-expanded]="showChildrenInspector()"
+                  title="Toggle child agents"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                  Agents ({{ inst.childrenIds.length }})
+                </button>
+              }
+              <!-- Screen reader announcement for dynamically appearing toggles -->
+              <span class="sr-only" aria-live="polite">
+                @if (todoStore.hasTodos()) { Task list available. }
+                @if (reviewHasContent()) { Review results available. }
+              </span>
+            </div>
+          }
 
           <!-- User action requests + on-demand inspector panels -->
           <app-user-action-request [instanceId]="inst.id" />
@@ -220,6 +245,8 @@ interface WelcomeProjectContext {
                 <app-instance-review-panel
                   [instanceId]="inst.id"
                   [workingDirectory]="inst.workingDirectory"
+                  (reviewStarted)="onReviewStarted()"
+                  (reviewCompleted)="onReviewCompleted($event)"
                 />
               }
               @if (showChildrenInspector()) {
@@ -252,6 +279,7 @@ interface WelcomeProjectContext {
             (removeFolder)="onRemoveFolder($event)"
             (addFiles)="onAddFiles()"
             (cancelQueuedMessage)="onCancelQueuedMessage($event)"
+            (resendEdited)="onResendEdited($event)"
           />
         </div>
       </app-drop-zone>
@@ -481,6 +509,46 @@ interface WelcomeProjectContext {
         backdrop-filter: blur(12px);
       }
 
+      /* Entrance animation for the toggle bar */
+      @media (prefers-reduced-motion: no-preference) {
+        .inspector-toggles {
+          animation: inspectorSlideIn 200ms ease-out;
+        }
+
+        @keyframes inspectorSlideIn {
+          from {
+            opacity: 0;
+            transform: translateY(-4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      }
+
+      .inspector-badge.severity-error {
+        background: rgba(var(--error-rgb), 0.15);
+        color: var(--error-color);
+      }
+
+      .inspector-badge.running {
+        background: rgba(var(--warning-rgb, 251, 191, 36), 0.15);
+        color: var(--warning-color, #fbbf24);
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
       .creating-view {
         display: flex;
         flex: 1;
@@ -593,10 +661,47 @@ export class InstanceDetailComponent {
   showReviewInspector = signal(false);
   showChildrenInspector = signal(false);
 
-  // Keep TodoStore session in sync with the selected instance (regardless of inspector state)
-  private todoSessionSync = effect(() => {
+  // Review panel state — driven by output events from InstanceReviewPanelComponent
+  reviewHasContent = signal(false);
+  reviewBadgeInfo = signal<{ issueCount: number; hasErrors: boolean } | null>(null);
+
+  // Container visibility — only render the toggle bar when at least one toggle has content
+  anyInspectorVisible = computed(() =>
+    this.todoStore.hasTodos() || this.reviewHasContent() || this.hasChildren()
+  );
+
+  // Auto-expand Tasks panel on first appearance (false → true transition).
+  // Guard: only fires when the TodoStore's session matches the current instance,
+  // preventing stale data from a previous instance from triggering auto-expand
+  // during the async gap between setSession() and loadTodos().
+  private todoAutoExpandedForInstance = signal<string | null>(null);
+
+  private todoAutoExpandEffect = effect(() => {
+    const inst = this.instance();
+    const hasTodos = this.todoStore.hasTodos();
+    const todoSessionId = this.todoStore.currentSessionId();
+    if (!inst) return;
+
+    // Don't auto-expand if todo data is stale (from a previous instance)
+    if (todoSessionId !== inst.sessionId) return;
+
+    if (hasTodos && this.todoAutoExpandedForInstance() !== inst.id) {
+      this.todoAutoExpandedForInstance.set(inst.id);
+      this.showTodoInspector.set(true);
+    }
+  });
+
+  // Keep TodoStore session in sync and reset inspector state on instance change
+  private instanceChangeSync = effect(() => {
     const inst = this.instance();
     void this.todoStore.setSession(inst?.sessionId ?? null);
+
+    // Reset inspector panels on instance change
+    this.showTodoInspector.set(false);
+    this.showReviewInspector.set(false);
+    this.showChildrenInspector.set(false);
+    this.reviewHasContent.set(false);
+    this.reviewBadgeInfo.set(null);
   });
 
   // Computed: any inspector is open
@@ -791,6 +896,12 @@ export class InstanceDetailComponent {
       event.preventDefault();
       this.openFolderSelection();
     }
+
+    // Cmd/Ctrl + Shift + V — open review panel
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'V') {
+      event.preventDefault();
+      this.openReviewPanel();
+    }
   }
 
   /**
@@ -888,6 +999,26 @@ export class InstanceDetailComponent {
     this.store.sendInput(inst.id, finalMessage, this.pendingFiles());
     this.draftService.clearPendingFiles(inst.id);
     this.draftService.clearPendingFolders(inst.id);
+  }
+
+  async onResendEdited(event: { messageIndex: number; text: string }): Promise<void> {
+    const inst = this.instance();
+    if (!inst) return;
+
+    const result = await this.ipc.forkSession(
+      inst.id,
+      event.messageIndex,
+      `Edit resend at message ${event.messageIndex}`,
+    );
+
+    if (!result?.success || !result.data) return;
+
+    const data = result.data as { id?: string };
+    if (!data.id) return;
+
+    this.store.sendInput(data.id, event.text);
+    this.store.setSelectedInstance(data.id);
+    await this.store.terminateInstance(inst.id);
   }
 
   onCancelQueuedMessage(index: number): void {
@@ -1293,6 +1424,19 @@ export class InstanceDetailComponent {
 
   onSelectChild(childId: string): void {
     this.store.setSelectedInstance(childId);
+  }
+
+  onReviewStarted(): void {
+    this.reviewHasContent.set(true);
+  }
+
+  onReviewCompleted(result: { issueCount: number; hasErrors: boolean }): void {
+    this.reviewBadgeInfo.set(result);
+  }
+
+  openReviewPanel(): void {
+    this.reviewHasContent.set(true);
+    this.showReviewInspector.set(true);
   }
 
   onCompactNow(): void {
