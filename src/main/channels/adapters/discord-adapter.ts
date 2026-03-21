@@ -17,7 +17,7 @@ const logger = getLogger('DiscordAdapter');
 
 const DISCORD_MAX_LENGTH = 2000;
 const DEFAULT_CODE_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
-const DEFAULT_MAX_PENDING = 10;
+const DEFAULT_MAX_PENDING = 3;
 
 export class DiscordAdapter extends BaseChannelAdapter {
   readonly platform: ChannelPlatform = 'discord';
@@ -64,7 +64,13 @@ export class DiscordAdapter extends BaseChannelAdapter {
       this.emit('error', err);
     });
 
-    await client.login(config.token);
+    try {
+      await client.login(config.token);
+    } catch (err) {
+      this.status = 'error';
+      this.emit('status', 'error');
+      throw err;
+    }
 
     this.client = client;
     this.botId = client.user?.id ?? null;
@@ -172,11 +178,19 @@ export class DiscordAdapter extends BaseChannelAdapter {
   }
 
   getAccessPolicy(): AccessPolicy {
-    return { ...this.accessPolicy };
+    return {
+      ...this.accessPolicy,
+      allowedSenders: [...this.accessPolicy.allowedSenders],
+      pendingPairings: this.accessPolicy.pendingPairings.map(p => ({ ...p })),
+    };
   }
 
   setAccessPolicy(policy: AccessPolicy): void {
-    this.accessPolicy = { ...policy };
+    this.accessPolicy = {
+      ...policy,
+      allowedSenders: [...policy.allowedSenders],
+      pendingPairings: policy.pendingPairings.map(p => ({ ...p })),
+    };
   }
 
   async pairSender(code: string): Promise<PairedSender> {
@@ -217,6 +231,16 @@ export class DiscordAdapter extends BaseChannelAdapter {
     // Ignore bot's own messages
     if (this.botId && msg.author.id === this.botId) {
       return;
+    }
+
+    // Guild messages must @mention the bot; silently drop those that don't
+    if (!msg.channel.isDMBased()) {
+      const mentioned =
+        msg.content.includes('<@' + this.botId + '>') ||
+        msg.content.includes('<@!' + this.botId + '>');
+      if (!mentioned) {
+        return;
+      }
     }
 
     const senderId = msg.author.id;
@@ -262,7 +286,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
     };
 
     this.accessPolicy.pendingPairings.push(pending);
-    logger.info('Pairing code generated', { senderId: msg.author.id, code });
+    logger.debug('Pairing code generated', { senderId: msg.author.id });
 
     // Reply with pairing code (fire-and-forget)
     // Cast via unknown — isDMBased() guarantees a real DM channel with send()
