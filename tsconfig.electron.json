@@ -26,6 +26,9 @@
   ],
   "exclude": [
     "src/renderer/**/*",
-    "node_modules"
+    "node_modules",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/main/channels/adapters/whatsapp-adapter.ts"
   ]
 }

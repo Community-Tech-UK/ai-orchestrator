@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -14,7 +15,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { ChannelStore } from '../../core/state/channel.store';
 import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
-import type { ChannelPlatform } from '../../../../shared/types/channels';
+
 
 @Component({
   selector: 'app-channels-page',
@@ -30,8 +31,8 @@ import type { ChannelPlatform } from '../../../../shared/types/channels';
         </div>
       </div>
 
-      @if (store.error()) {
-        <div class="error-banner">{{ store.error() }}</div>
+      @if (store.discord().error) {
+        <div class="error-banner">{{ store.discord().error }}</div>
       }
 
       <div class="content">
@@ -41,14 +42,14 @@ import type { ChannelPlatform } from '../../../../shared/types/channels';
           <div class="panel-title">Discord Connection</div>
 
           <div class="status-row">
-            <span class="status-dot" [class]="'status-dot--' + store.discordStatus()"></span>
-            <span class="status-label">{{ store.discordStatus() }}</span>
+            <span class="status-dot" [class]="'status-dot--' + store.discord().status"></span>
+            <span class="status-label">{{ store.discord().status }}</span>
             @if (discordBotUsername()) {
               <span class="bot-name">{{ discordBotUsername() }}</span>
             }
           </div>
 
-          @if (store.discordStatus() === 'disconnected' || store.discordStatus() === 'error') {
+          @if (store.discord().status === 'disconnected' || store.discord().status === 'error') {
             <label class="field">
               <span class="label">Bot Token</span>
               <input
@@ -70,7 +71,7 @@ import type { ChannelPlatform } from '../../../../shared/types/channels';
                 @if (store.loading()) { Connecting... } @else { Connect }
               </button>
             </div>
-          } @else if (store.discordStatus() === 'connecting') {
+          } @else if (store.discord().status === 'connecting') {
             <div class="hint">Connecting to Discord...</div>
           } @else {
             <div class="row-actions">
@@ -469,23 +470,14 @@ export class ChannelsPageComponent implements OnInit {
   readonly accessPolicyMode = signal<'pairing' | 'allowlist' | 'disabled'>('pairing');
   readonly policyWorking = signal(false);
 
-  readonly discordBotUsername = (() => {
-    const channel = this.store.channels().find(c => c.platform === 'discord');
-    return channel?.botUsername ?? null;
+  readonly discordBotUsername = computed(() => {
+    return this.store.discord().botUsername ?? null;
   });
 
   async ngOnInit(): Promise<void> {
-    const response = await this.channelIpc.channelGetStatus();
-    if (response.success && response.data) {
-      const statuses = response.data as { platform: ChannelPlatform; status: string; botUsername?: string }[];
-      statuses.forEach(s => {
-        if (s.platform === 'discord') {
-          this.store['updateChannelStatus']?.(s.platform, s.status as never, { botUsername: s.botUsername });
-        }
-      });
-    }
+    // Initial status is loaded by the store constructor via loadInitialStatus()
 
-    const policyResp = await this.channelIpc.channelGetAccessPolicy('discord');
+    const policyResp = await this.channelIpc.getAccessPolicy('discord');
     if (policyResp.success && policyResp.data) {
       const policy = policyResp.data as { mode: 'pairing' | 'allowlist' | 'disabled' };
       this.accessPolicyMode.set(policy.mode);
@@ -512,7 +504,7 @@ export class ChannelsPageComponent implements OnInit {
   }
 
   async connect(): Promise<void> {
-    await this.store.connect('discord', this.botToken() || undefined);
+    await this.store.connectDiscord(this.botToken());
   }
 
   async disconnect(): Promise<void> {
@@ -538,7 +530,7 @@ export class ChannelsPageComponent implements OnInit {
   async applyAccessPolicy(): Promise<void> {
     this.policyWorking.set(true);
     try {
-      await this.channelIpc.channelSetAccessPolicy('discord', this.accessPolicyMode());
+      await this.channelIpc.setAccessPolicy('discord', this.accessPolicyMode());
     } finally {
       this.policyWorking.set(false);
     }

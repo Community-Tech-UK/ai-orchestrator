@@ -245,8 +245,6 @@ interface WelcomeProjectContext {
                 <app-instance-review-panel
                   [instanceId]="inst.id"
                   [workingDirectory]="inst.workingDirectory"
-                  (reviewStarted)="onReviewStarted()"
-                  (reviewCompleted)="onReviewCompleted($event)"
                 />
               }
               @if (showChildrenInspector()) {

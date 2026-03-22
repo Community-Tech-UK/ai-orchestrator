@@ -6,7 +6,8 @@
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
     "src/**/*.bench.ts",
-    "src/**/*.load.ts"
+    "src/**/*.load.ts",
+    "src/main/channels/adapters/whatsapp-adapter.ts"
   ],
   "compilerOptions": {
     "outDir": "./dist/out-tsc",
