@@ -54,6 +54,18 @@ describe('history title helpers', () => {
     ).toBe('MyTradeMail 2');
   });
 
+  it('prefers user-set displayName when isRenamed is true', () => {
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({
+          displayName: 'My Custom Title',
+          isRenamed: true,
+          firstUserMessage: 'Investigate prod error',
+        })
+      )
+    ).toBe('My Custom Title');
+  });
+
   it('normalizes repeated whitespace in previews', () => {
     expect(
       getConversationHistoryTitle(

@@ -158,6 +158,7 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
 
         const result = await dialog.showOpenDialog({
           properties,
+          defaultPath: options?.defaultPath || undefined,
           title: options?.multiple ? 'Select Files' : 'Select File',
           buttonLabel: 'Select',
           filters: options?.filters || [

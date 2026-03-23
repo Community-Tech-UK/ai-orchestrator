@@ -215,7 +215,7 @@ export class InstanceListStore {
    */
   async renameInstance(instanceId: string, displayName: string): Promise<void> {
     // Optimistic update
-    this.stateService.updateInstance(instanceId, { displayName });
+    this.stateService.updateInstance(instanceId, { displayName, isRenamed: true });
     await this.ipc.renameInstance(instanceId, displayName);
   }
 

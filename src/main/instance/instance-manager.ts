@@ -43,6 +43,7 @@ import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
+import { getAutoTitleService } from './auto-title-service';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
@@ -584,6 +585,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
+    getAutoTitleService().clearInstance(instanceId);
     return this.lifecycle.terminateInstance(instanceId, graceful);
   }
 

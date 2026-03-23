@@ -20,6 +20,9 @@ export interface ConversationHistoryEntry {
   /** Display name of the instance when it was terminated */
   displayName: string;
 
+  /** True when the user explicitly renamed this instance */
+  isRenamed?: boolean;
+
   /** Stable app-level thread identity across restore and fallback copies */
   historyThreadId?: string;
 
@@ -166,12 +169,19 @@ function inferHistoryProviderFromText(
 /**
  * Derive a stable thread title for workspace rails and restored sessions.
  *
- * Prefer the first user message so titles stay anchored to the original task
- * instead of drifting to short follow-up messages like "hi" or "yes".
+ * When the user explicitly renamed the instance, honour that title.
+ * Otherwise prefer the first user message so titles stay anchored to the
+ * original task instead of drifting to short follow-up messages like "hi".
  */
 export function getConversationHistoryTitle(
-  entry: Pick<ConversationHistoryEntry, 'displayName' | 'firstUserMessage' | 'lastUserMessage'>
+  entry: Pick<ConversationHistoryEntry, 'displayName' | 'isRenamed' | 'firstUserMessage' | 'lastUserMessage'>
 ): string {
+  // User-set title always takes priority
+  if (entry.isRenamed) {
+    const renamed = normalizeHistoryTitlePart(entry.displayName);
+    if (renamed) return renamed;
+  }
+
   const candidates = [
     normalizeHistoryTitlePart(entry.firstUserMessage),
     normalizeHistoryTitlePart(entry.lastUserMessage),

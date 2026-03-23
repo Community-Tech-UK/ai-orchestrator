@@ -37,6 +37,7 @@ export class FileIpcService {
    */
   async selectFiles(options?: {
     multiple?: boolean;
+    defaultPath?: string;
     filters?: { name: string; extensions: string[] }[];
   }): Promise<string[] | null> {
     if (!this.api) return null;

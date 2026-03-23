@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { getLogger } from '../../logging/logger';
@@ -20,6 +21,22 @@ const EXCLUDED_SCAN_DIRS = new Set([
   'build',
   '.angular',
   '.worktrees',
+  // macOS protected directories — scanning these triggers TCC permission prompts
+  'Documents',
+  'Desktop',
+  'Downloads',
+  'Movies',
+  'Music',
+  'Pictures',
+  'Library',
+  'Applications',
+  '.Trash',
+  // Linux common non-project directories
+  'snap',
+  // Volumes / mounts — avoid removable volume TCC prompts
+  'Volumes',
+  'mnt',
+  'media',
 ]);
 
 interface InstructionSourceDescriptor {
@@ -80,6 +97,24 @@ function matchGlob(value: string, pattern: string): boolean {
     .replace(/__DOUBLE_STAR__/g, '.*');
 
   return new RegExp(`^${escaped}$`).test(value);
+}
+
+/**
+ * Returns true if the given directory is too broad to recursively scan for
+ * instruction files.  The home directory and the filesystem root are never
+ * real project roots — scanning them triggers macOS TCC permission prompts
+ * (Documents, Desktop, removable volumes, etc.) and is extremely slow.
+ */
+function isBroadDirectory(directory: string): boolean {
+  const resolved = path.resolve(directory);
+  const home = os.homedir();
+  // Filesystem root ('/' on unix, 'C:\' on Windows)
+  if (resolved === path.parse(resolved).root) return true;
+  // Home directory
+  if (resolved === home) return true;
+  // /Volumes on macOS (parent of all mount points)
+  if (resolved === '/Volumes') return true;
+  return false;
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -272,39 +307,46 @@ async function discoverInstructionDescriptors(
     },
   );
 
-  const nestedAgentFiles = await collectMatchingFiles(
-    projectRoot,
-    (absolutePath) =>
-      path.basename(absolutePath) === 'AGENTS.md' &&
-      normalizePath(absolutePath) !== normalizePath(path.join(projectRoot, 'AGENTS.md')),
-  );
+  // Only recursively scan for nested instruction files when the project root
+  // is an actual project directory.  Broad directories (home, filesystem root)
+  // would walk into macOS-protected folders and trigger TCC permission prompts.
+  if (!isBroadDirectory(projectRoot)) {
+    const nestedAgentFiles = await collectMatchingFiles(
+      projectRoot,
+      (absolutePath) =>
+        path.basename(absolutePath) === 'AGENTS.md' &&
+        normalizePath(absolutePath) !== normalizePath(path.join(projectRoot, 'AGENTS.md')),
+    );
 
-  for (const agentFile of nestedAgentFiles) {
-    descriptors.push({
-      path: agentFile,
-      kind: 'agents',
-      scope: 'path-specific',
-      priority: 7,
-      label: `Scoped AGENTS.md (${path.relative(projectRoot, path.dirname(agentFile)) || '.'})`,
-    });
-  }
+    for (const agentFile of nestedAgentFiles) {
+      descriptors.push({
+        path: agentFile,
+        kind: 'agents',
+        scope: 'path-specific',
+        priority: 7,
+        label: `Scoped AGENTS.md (${path.relative(projectRoot, path.dirname(agentFile)) || '.'})`,
+      });
+    }
 
-  const copilotInstructionsDir = path.join(projectRoot, '.github', 'instructions');
-  const copilotInstructionFiles = await collectMatchingFiles(
-    copilotInstructionsDir,
-    (absolutePath) => absolutePath.endsWith('.instructions.md'),
-  );
+    const copilotInstructionsDir = path.join(projectRoot, '.github', 'instructions');
+    const copilotInstructionFiles = await collectMatchingFiles(
+      copilotInstructionsDir,
+      (absolutePath) => absolutePath.endsWith('.instructions.md'),
+    );
 
-  for (const instructionsFile of copilotInstructionFiles) {
-    const content = await fs.readFile(instructionsFile, 'utf-8');
-    descriptors.push({
-      path: instructionsFile,
-      kind: 'copilot',
-      scope: 'path-specific',
-      priority: 6,
-      label: `Scoped Copilot instructions (${path.basename(instructionsFile)})`,
-      matchPatterns: parseInstructionsApplyTo(content),
-    });
+    for (const instructionsFile of copilotInstructionFiles) {
+      const content = await fs.readFile(instructionsFile, 'utf-8');
+      descriptors.push({
+        path: instructionsFile,
+        kind: 'copilot',
+        scope: 'path-specific',
+        priority: 6,
+        label: `Scoped Copilot instructions (${path.basename(instructionsFile)})`,
+        matchPatterns: parseInstructionsApplyTo(content),
+      });
+    }
+  } else {
+    logger.debug('Skipping recursive instruction scan — project root is too broad', { projectRoot });
   }
 
   customPaths.forEach((customPath, index) => {

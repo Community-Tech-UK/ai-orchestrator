@@ -1141,6 +1141,7 @@ const electronAPI = {
    */
   selectFiles: (options?: {
     multiple?: boolean;
+    defaultPath?: string;
     filters?: { name: string; extensions: string[] }[];
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FILES, options);

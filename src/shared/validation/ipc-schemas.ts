@@ -776,6 +776,7 @@ export const AppOpenDocsPayloadSchema = z.object({
 
 export const DialogSelectFilesPayloadSchema = z.object({
   multiple: z.boolean().optional(),
+  defaultPath: z.string().max(4096).optional(),
   filters: z.array(z.object({
     name: z.string().min(1).max(200),
     extensions: z.array(z.string().max(20)).max(50),

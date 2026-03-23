@@ -55,6 +55,7 @@ import { buildFallbackHistoryMessage } from '../session/fallback-history';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 import { InstanceStateMachine } from './instance-state-machine';
+import { getAutoTitleService } from './auto-title-service';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -275,6 +276,23 @@ export class InstanceLifecycleManager extends EventEmitter {
         'Continue the previous task and ask for clarification only if essential context is missing.',
         '[END CONTINUITY NOTICE]',
       ].join('\n');
+  }
+
+  /**
+   * Fire-and-forget auto-title generation from the first user message.
+   */
+  private triggerAutoTitle(instance: Instance, message: string): void {
+    getAutoTitleService().maybeGenerateTitle(
+      instance.id,
+      message,
+      (id, title) => {
+        if (!instance.isRenamed) {
+          instance.displayName = title;
+          this.deps.queueUpdate(id, instance.status, instance.contextUsage);
+        }
+      },
+      instance.isRenamed,
+    ).catch(() => { /* non-critical */ });
   }
 
   /**
@@ -744,7 +762,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         const modelOverride = resolvedModel;
         const spawnOptions: UnifiedSpawnOptions = {
           sessionId: instance.sessionId,
-          workingDirectory: config.workingDirectory,
+          workingDirectory: instance.workingDirectory,
           systemPrompt: systemPrompt,
           model: modelOverride,
           yoloMode: instance.yoloMode,
@@ -760,7 +778,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         // spawned CLI process.
         const warmAdapter = config.resume
           ? null
-          : (this.deps.warmStartManager?.consume(resolvedCliType) as CliAdapter | null ?? null);
+          : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
 
         let adapter: CliAdapter;
         if (warmAdapter) {
@@ -794,6 +812,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
             try {
               await adapter.sendInput(initialUserMessage.content, config.attachments);
+              this.triggerAutoTitle(instance, initialUserMessage.content);
             } catch (error) {
               this.transitionState(instance, 'failed');
               const errorMessage = error instanceof Error ? error.message : String(error);
@@ -852,6 +871,7 @@ export class InstanceLifecycleManager extends EventEmitter {
                 this.emit('output', { instanceId: instance.id, message: initialUserMessage });
               }
               await adapter.sendInput(initialUserMessage.content, config.attachments);
+              this.triggerAutoTitle(instance, initialUserMessage.content);
             }
           } catch (error) {
             this.transitionState(instance, 'failed');
@@ -878,7 +898,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (this.deps.warmStartManager && !config.resume) {
           const wsm = this.deps.warmStartManager;
           const warmProvider = resolvedCliType;
-          const warmWorkingDir = config.workingDirectory;
+          const warmWorkingDir = instance.workingDirectory;
           // Fire and forget — errors are handled inside preWarm.
           void wsm.preWarm(warmProvider, warmWorkingDir);
         } else if (this.deps.warmStartManager && config.resume) {
@@ -1151,6 +1171,12 @@ export class InstanceLifecycleManager extends EventEmitter {
         const savedThreadId =
           sessionState?.historyThreadId?.trim() || instance.historyThreadId;
         instance.historyThreadId = savedThreadId;
+        if (sessionState?.displayName) {
+          instance.displayName = sessionState.displayName;
+        }
+        if (sessionState?.isRenamed) {
+          instance.isRenamed = sessionState.isRenamed;
+        }
         if (sessionState?.provider) {
           instance.provider = sessionState.provider;
         }
@@ -2345,6 +2371,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     }
 
     instance.displayName = displayName;
+    instance.isRenamed = true;
     this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
   }
 

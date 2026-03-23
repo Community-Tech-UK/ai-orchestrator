@@ -50,6 +50,8 @@ export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copil
 export interface Instance {
   id: string;
   displayName: string;
+  /** True when the user explicitly renamed this instance */
+  isRenamed?: boolean;
   createdAt: number;
   historyThreadId: string;
   parentId: string | null;

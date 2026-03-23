@@ -109,6 +109,7 @@ export class HistoryManager {
       const entry: ConversationHistoryEntry = {
         id: entryId,
         displayName: instance.displayName,
+        isRenamed: instance.isRenamed,
         createdAt,
         endedAt: Date.now(),
         historyThreadId: instance.historyThreadId,
@@ -405,14 +406,15 @@ export class HistoryManager {
    * This happens when saveConversation succeeds but saveIndex fails.
    */
   private async recoverOrphans(): Promise<void> {
-    const indexedIds = new Set(this.index.entries.map(e => e.id));
     const files = await fs.promises.readdir(this.storageDir);
     const gzFiles = files.filter(f => f.endsWith('.json.gz'));
 
     let recovered = 0;
     for (const file of gzFiles) {
       const entryId = file.replace('.json.gz', '');
-      if (indexedIds.has(entryId)) {
+      // Check current index state (not a stale snapshot) to avoid race
+      // with concurrent archiveInstance() calls that modify the index.
+      if (this.index.entries.some(e => e.id === entryId)) {
         continue; // Already in index
       }
 
@@ -514,6 +516,23 @@ export class HistoryManager {
    * Uses temp file + rename for atomicity, with fallback to direct write.
    */
   private async doSaveIndex(): Promise<void> {
+    // Defensive deduplication: remove any entries with duplicate thread keys
+    // that may have crept in due to the recoverOrphans/archiveInstance race.
+    const seen = new Set<string>();
+    const before = this.index.entries.length;
+    this.index.entries = this.index.entries.filter((entry) => {
+      const key = this.getEntryThreadKey(entry);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (this.index.entries.length !== before) {
+      logger.info('Deduplicated entries at save time', {
+        before,
+        after: this.index.entries.length,
+      });
+    }
+
     const data = JSON.stringify(this.index, null, 2);
     const tempPath = `${this.indexPath}.tmp`;
 

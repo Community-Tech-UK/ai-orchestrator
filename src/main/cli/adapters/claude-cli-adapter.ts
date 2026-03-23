@@ -1005,11 +1005,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           const outputCost = (outputTokens / 1_000_000) * pricing.output;
           const costEstimate = inputCost + outputCost;
 
-          const contextWindow = message.usage.max_tokens || this.lastKnownContextWindow;
-          // Cache the context window for future streaming emissions
-          if (message.usage.max_tokens) {
-            this.lastKnownContextWindow = message.usage.max_tokens;
-          }
+          // max_tokens is the output token cap, NOT the context window.
+          // Only trust modelUsage.contextWindow from result messages (handled below).
+          const contextWindow = this.lastKnownContextWindow;
           const percentage = contextWindow > 0
             ? (totalUsedTokens / contextWindow) * 100
             : 0;

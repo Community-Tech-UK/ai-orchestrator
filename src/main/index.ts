@@ -700,7 +700,10 @@ class AIOrchestratorApp {
 // Prevent macOS Keychain popup for Chromium's encrypted storage.
 // Without this, Electron triggers "AI Orchestrator wants to use your
 // confidential information stored in 'ai-orchestrator Safe Storage'" on launch.
+// `use-mock-keychain` is the macOS-specific switch; `password-store=basic` is Linux-only.
 if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('use-mock-keychain');
+} else if (process.platform === 'linux') {
   app.commandLine.appendSwitch('password-store', 'basic');
 }
 

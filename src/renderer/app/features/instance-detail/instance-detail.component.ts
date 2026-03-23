@@ -970,15 +970,43 @@ export class InstanceDetailComponent {
   onReviewAction(event: { reviewId: string; instanceId: string; action: string }): void {
     if (event.action === 'ask-primary') {
       const review = this.currentReview();
-      if (review) {
-        const concerns = review.reviews
-          .flatMap(r => Object.values(r.scores).flatMap(s => s?.issues ?? []))
-          .filter(Boolean);
-        if (concerns.length > 0) {
-          const message = `Cross-model review flagged these issues:\n${concerns.map(c => `- ${c}`).join('\n')}\n\nPlease address them.`;
-          this.onSendMessage(message);
+      if (!review) return;
+
+      const concerns = review.reviews
+        .flatMap(r => Object.values(r.scores).flatMap(s => s?.issues ?? []))
+        .filter(Boolean);
+
+      if (concerns.length > 0) {
+        const message = `Cross-model review flagged these issues:\n${concerns.map(c => `- ${c}`).join('\n')}\n\nPlease address them.`;
+        this.onSendMessage(message);
+        return;
+      }
+
+      // Fallback: issues arrays are empty but scores are low — build message from scores and summaries
+      const scoreLines: string[] = [];
+      for (const result of review.reviews) {
+        for (const [category, data] of Object.entries(result.scores)) {
+          if (data && data.score <= 2) {
+            const reasoning = data.reasoning && data.reasoning !== 'No data' ? `: ${data.reasoning}` : '';
+            scoreLines.push(`- ${category} scored ${data.score}/4${reasoning}`);
+          }
         }
       }
+
+      const summaries = review.reviews
+        .map(r => r.summary)
+        .filter(Boolean);
+
+      const parts: string[] = ['Cross-model review flagged concerns with your last response.'];
+      if (scoreLines.length > 0) {
+        parts.push(`\nLow scores:\n${scoreLines.join('\n')}`);
+      }
+      if (summaries.length > 0) {
+        parts.push(`\nReviewer feedback:\n${summaries.map(s => `> ${s}`).join('\n')}`);
+      }
+      parts.push('\nPlease review and address these concerns.');
+
+      this.onSendMessage(parts.join('\n'));
     }
   }
 
@@ -1303,21 +1331,24 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
-    const files = await this.selectAndLoadFiles();
+    const files = await this.selectAndLoadFiles(inst.workingDirectory);
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);
     }
   }
 
   async onWelcomeAddFiles(): Promise<void> {
-    const files = await this.selectAndLoadFiles();
+    const files = await this.selectAndLoadFiles(this.welcomeWorkingDirectory());
     if (files.length > 0) {
       this.newSessionDraft.addPendingFiles(files);
     }
   }
 
-  private async selectAndLoadFiles(): Promise<File[]> {
-    const filePaths = await this.ipc.selectFiles({ multiple: true });
+  private async selectAndLoadFiles(defaultPath?: string | null): Promise<File[]> {
+    const filePaths = await this.ipc.selectFiles({
+      multiple: true,
+      defaultPath: defaultPath || undefined,
+    });
     if (!filePaths || filePaths.length === 0) {
       return [];
     }

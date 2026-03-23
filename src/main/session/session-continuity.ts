@@ -56,6 +56,7 @@ export interface SessionState {
   historyThreadId?: string;
   nativeResumeFailedAt?: number | null;
   displayName: string;
+  isRenamed?: boolean;
   agentId: string;
   modelId: string;
   provider?: InstanceProvider;
@@ -845,6 +846,7 @@ export class SessionContinuityManager extends EventEmitter {
       historyThreadId: instance.historyThreadId,
       nativeResumeFailedAt: null,
       displayName: instance.displayName,
+      isRenamed: instance.isRenamed,
       agentId: instance.agentId,
       modelId: instance.currentModel || CLAUDE_MODELS.SONNET,
       provider: instance.provider,

@@ -151,6 +151,8 @@ export interface Instance {
   // Identity
   id: string;
   displayName: string;
+  /** True when the user explicitly renamed this instance */
+  isRenamed?: boolean;
   createdAt: number;
   historyThreadId: string;
 
