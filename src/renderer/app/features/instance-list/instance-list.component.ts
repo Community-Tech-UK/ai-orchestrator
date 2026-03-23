@@ -256,6 +256,15 @@ interface RailChangeSummary {
                         >
                           Open in {{ systemFileManagerLabel }}
                         </button>
+                        <div class="project-menu-divider"></div>
+                        <button
+                          type="button"
+                          class="project-menu-item project-menu-item--danger"
+                          role="menuitem"
+                          (click)="removeProject(group, $event)"
+                        >
+                          Remove project
+                        </button>
                       </div>
                     }
                   </div>
@@ -704,7 +713,7 @@ interface RailChangeSummary {
 
     .project-title {
       min-width: 0;
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       font-size: 13px;
       font-weight: 600;
       color: var(--text-primary);
@@ -872,6 +881,21 @@ interface RailChangeSummary {
     .project-menu-item:hover {
       background: rgba(255, 255, 255, 0.05);
       color: var(--text-primary);
+    }
+
+    .project-menu-item--danger {
+      color: var(--error-color);
+    }
+
+    .project-menu-item--danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--error-color);
+    }
+
+    .project-menu-divider {
+      height: 1px;
+      margin: 4px 0;
+      background: rgba(255, 255, 255, 0.06);
     }
 
     .project-empty {
@@ -1720,6 +1744,25 @@ export class InstanceListComponent {
 
     this.closeProjectMenu();
     await this.fileIpc.openPath(group.path);
+  }
+
+  async removeProject(group: ProjectGroup, event: Event): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!group.path) {
+      return;
+    }
+
+    this.closeProjectMenu();
+
+    // Archive all history entries for this project
+    for (const entry of group.historyItems) {
+      await this.historyStore.archiveEntry(entry.id);
+    }
+
+    // Remove from recent directories
+    await this.recentDirectoriesService.removeDirectory(group.path);
+    await this.loadRecentDirectories();
   }
 
   startProjectConversation(group: ProjectGroup, event: Event): void {
