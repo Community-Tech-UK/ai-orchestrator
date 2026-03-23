@@ -9,6 +9,7 @@ import {
   computed,
   inject,
   effect,
+  untracked,
   signal,
   viewChild,
   ElementRef,
@@ -808,7 +809,7 @@ export class InstanceHeaderComponent implements OnInit {
       if (this.isEditingName()) {
         const input = this.nameInput()?.nativeElement;
         if (input) {
-          input.value = this.instance().displayName;
+          input.value = untracked(() => this.instance().displayName);
           input.focus();
           input.select();
         }
