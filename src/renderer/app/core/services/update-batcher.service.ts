@@ -17,6 +17,7 @@ export interface StateUpdate {
     totalDeleted: number;
     files: Record<string, { path: string; status: 'added' | 'modified' | 'deleted'; added: number; deleted: number }>;
   };
+  displayName?: string;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;
@@ -43,6 +44,8 @@ export class UpdateBatcherService {
       ...update,
       // Preserve diffStats if the new update doesn't carry them
       diffStats: update.diffStats ?? existing?.diffStats,
+      // Preserve displayName if the new update doesn't carry it
+      displayName: update.displayName ?? existing?.displayName,
     });
   }
 

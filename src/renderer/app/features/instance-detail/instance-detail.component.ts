@@ -979,35 +979,37 @@ export class InstanceDetailComponent {
       if (concerns.length > 0) {
         const message = `Cross-model review flagged these issues:\n${concerns.map(c => `- ${c}`).join('\n')}\n\nPlease address them.`;
         this.onSendMessage(message);
-        return;
-      }
-
-      // Fallback: issues arrays are empty but scores are low — build message from scores and summaries
-      const scoreLines: string[] = [];
-      for (const result of review.reviews) {
-        for (const [category, data] of Object.entries(result.scores)) {
-          if (data && data.score <= 2) {
-            const reasoning = data.reasoning && data.reasoning !== 'No data' ? `: ${data.reasoning}` : '';
-            scoreLines.push(`- ${category} scored ${data.score}/4${reasoning}`);
+      } else {
+        // Fallback: issues arrays are empty but scores are low — build message from scores and summaries
+        const scoreLines: string[] = [];
+        for (const result of review.reviews) {
+          for (const [category, data] of Object.entries(result.scores)) {
+            if (data && data.score <= 2) {
+              const reasoning = data.reasoning && data.reasoning !== 'No data' ? `: ${data.reasoning}` : '';
+              scoreLines.push(`- ${category} scored ${data.score}/4${reasoning}`);
+            }
           }
         }
-      }
 
-      const summaries = review.reviews
-        .map(r => r.summary)
-        .filter(Boolean);
+        const summaries = review.reviews
+          .map(r => r.summary)
+          .filter(Boolean);
 
-      const parts: string[] = ['Cross-model review flagged concerns with your last response.'];
-      if (scoreLines.length > 0) {
-        parts.push(`\nLow scores:\n${scoreLines.join('\n')}`);
-      }
-      if (summaries.length > 0) {
-        parts.push(`\nReviewer feedback:\n${summaries.map(s => `> ${s}`).join('\n')}`);
-      }
-      parts.push('\nPlease review and address these concerns.');
+        const parts: string[] = ['Cross-model review flagged concerns with your last response.'];
+        if (scoreLines.length > 0) {
+          parts.push(`\nLow scores:\n${scoreLines.join('\n')}`);
+        }
+        if (summaries.length > 0) {
+          parts.push(`\nReviewer feedback:\n${summaries.map(s => `> ${s}`).join('\n')}`);
+        }
+        parts.push('\nPlease review and address these concerns.');
 
-      this.onSendMessage(parts.join('\n'));
+        this.onSendMessage(parts.join('\n'));
+      }
     }
+
+    // Always dismiss the review panel after any action
+    this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
   }
 
   onSendMessage(message: string): void {

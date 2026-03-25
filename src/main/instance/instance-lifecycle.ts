@@ -42,7 +42,8 @@ import type {
   InstanceCreateConfig,
   InstanceStatus,
   ContextUsage,
-  OutputMessage
+  OutputMessage,
+  SessionDiffStats
 } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { getPolicyAdapter } from '../observation/policy-adapter';
@@ -152,7 +153,7 @@ export interface LifecycleDependencies {
   deleteAdapter: (id: string) => boolean;
   getInstanceCount: () => number;
   forEachInstance: (callback: (instance: Instance, id: string) => void) => void;
-  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage) => void;
+  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats, displayName?: string) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;
   initializeRlm: (instance: Instance) => Promise<void>;
@@ -288,7 +289,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       (id, title) => {
         if (!instance.isRenamed) {
           instance.displayName = title;
-          this.deps.queueUpdate(id, instance.status, instance.contextUsage);
+          this.deps.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
         }
       },
       instance.isRenamed,
@@ -2372,7 +2373,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
     instance.displayName = displayName;
     instance.isRenamed = true;
-    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage, undefined, displayName);
   }
 
   // ============================================

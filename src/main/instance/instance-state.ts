@@ -197,14 +197,16 @@ export class InstanceStateManager extends EventEmitter {
     instanceId: string,
     status: InstanceStatus,
     contextUsage?: ContextUsage,
-    diffStats?: SessionDiffStats
+    diffStats?: SessionDiffStats,
+    displayName?: string
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
       instanceId,
       status,
       contextUsage: contextUsage ?? existing?.contextUsage,
-      diffStats: diffStats ?? existing?.diffStats
+      diffStats: diffStats ?? existing?.diffStats,
+      displayName: displayName ?? existing?.displayName
     });
   }
 

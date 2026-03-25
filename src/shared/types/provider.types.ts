@@ -323,16 +323,8 @@ export function getProviderModelContextWindow(
     return 200000;
   }
 
-  if (normalizedModel?.endsWith('[1m]')) {
-    return 1000000;
-  }
-
-  // Opus natively supports 1M context
-  if (normalizedModel?.includes('opus')) {
-    return 1000000;
-  }
-
-  return 200000;
+  // All current Claude models support 1M context
+  return 1000000;
 }
 
 /**

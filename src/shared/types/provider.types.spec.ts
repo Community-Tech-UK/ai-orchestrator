@@ -20,8 +20,8 @@ describe('provider type helpers', () => {
     expect(getProviderModelContextWindow('claude-cli', 'claude-opus-4-5')).toBe(1000000);
   });
 
-  it('keeps the existing 200k default for non-Opus models without 1M variant', () => {
-    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.SONNET)).toBe(200000);
+  it('returns 1M context for all Claude models', () => {
+    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.SONNET)).toBe(1000000);
     expect(getProviderModelContextWindow('codex', 'gpt-5.4')).toBe(200000);
   });
 });

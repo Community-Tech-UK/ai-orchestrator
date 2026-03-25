@@ -16,7 +16,7 @@ export const LIMITS = {
   OUTPUT_BUFFER_MAX_SIZE: 2000,
   OUTPUT_BATCH_INTERVAL_MS: 50,
 
-  // Context
+  // Context (conservative fallback for unknown providers; Claude-specific values in CONTEXT_WINDOWS)
   DEFAULT_MAX_CONTEXT_TOKENS: 200000,
 
   // IPC
@@ -65,11 +65,11 @@ export const TIMEOUTS = {
  * Maximum token counts for different AI models
  */
 export const CONTEXT_WINDOWS = {
-  // Claude models
-  CLAUDE_DEFAULT: 200000,
+  // Claude models (all support 1M context as of 2025)
+  CLAUDE_DEFAULT: 1000000,
   CLAUDE_OPUS: 1000000,
-  CLAUDE_SONNET: 200000,
-  CLAUDE_HAIKU: 200000,
+  CLAUDE_SONNET: 1000000,
+  CLAUDE_HAIKU: 1000000,
 
   // OpenAI models
   GPT4_O: 128000,

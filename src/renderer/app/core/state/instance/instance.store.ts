@@ -247,6 +247,7 @@ export class InstanceStore implements OnDestroy {
           contextUsage: update.contextUsage || inst.contextUsage,
           lastActivity: Date.now(),
           diffStats: update.diffStats ?? inst.diffStats,
+          ...(update.displayName ? { displayName: update.displayName } : {}),
         });
       }
 
@@ -299,6 +300,7 @@ export class InstanceStore implements OnDestroy {
             contextUsage: update.contextUsage || instance.contextUsage,
             lastActivity: Date.now(),
             diffStats: update.diffStats ?? instance.diffStats,
+            ...(update.displayName ? { displayName: update.displayName } : {}),
           });
         }
       }

@@ -423,6 +423,7 @@ vi.mock('../../../shared/types/provider.types', () => ({
   getProviderModelContextWindow: vi.fn((provider: string, model?: string) => {
     if (provider === 'claude' && model?.endsWith('[1m]')) return 1000000;
     if (provider === 'claude' && model?.includes('opus')) return 1000000;
+    if (provider === 'claude') return 1000000;
     return 200000;
   }),
   isModelTier: vi.fn().mockReturnValue(false),
@@ -448,7 +449,7 @@ vi.mock('../../../shared/constants/limits', () => ({
   LIMITS: {
     OUTPUT_BATCH_INTERVAL_MS: 100,
     OUTPUT_BUFFER_MAX_SIZE: 500,
-    DEFAULT_MAX_CONTEXT_TOKENS: 200000,
+    DEFAULT_MAX_CONTEXT_TOKENS: 1000000,
   },
 }));
 
@@ -986,7 +987,7 @@ describe('InstanceManager', () => {
         modelOverride: 'sonnet',
       });
 
-      expect(instance.contextUsage.total).toBe(200000);
+      expect(instance.contextUsage.total).toBe(1000000);
 
       const updated = await manager.changeModel(instance.id, 'sonnet[1m]');
 

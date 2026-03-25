@@ -206,7 +206,7 @@ export class ModelDiscoveryService {
         displayName: 'Claude Sonnet 4.5',
         provider: 'anthropic',
         description: 'Balanced performance and cost',
-        contextLength: 200000,
+        contextLength: 1000000,
         maxOutputTokens: 64000,
         capabilities: {
           vision: true,
@@ -230,7 +230,7 @@ export class ModelDiscoveryService {
         displayName: 'Claude Haiku 4.5',
         provider: 'anthropic',
         description: 'Fast and cost-effective',
-        contextLength: 200000,
+        contextLength: 1000000,
         maxOutputTokens: 8192,
         capabilities: {
           vision: true,

@@ -881,6 +881,7 @@ export interface InstanceStateUpdatePayload {
   contextUsage?: ContextUsage;
   error?: ErrorInfo;
   diffStats?: SessionDiffStats;
+  displayName?: string;
 }
 
 export interface InstanceOutputPayload {

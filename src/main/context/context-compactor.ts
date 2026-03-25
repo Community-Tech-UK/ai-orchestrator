@@ -11,6 +11,7 @@
 import { EventEmitter } from 'events';
 import { getLLMService, type LLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
+import { LIMITS } from '../../shared/constants/limits';
 
 const compactorLogger = getLogger('ContextCompactor');
 
@@ -95,7 +96,7 @@ const DEFAULT_CONFIG: CompactionConfig = {
   preserveRecent: 5,
   summaryModel: 'default',
   toolCallRetention: 'results_only',
-  maxContextTokens: 200000,
+  maxContextTokens: LIMITS.DEFAULT_MAX_CONTEXT_TOKENS,
   autoCompact: true,
 };
 

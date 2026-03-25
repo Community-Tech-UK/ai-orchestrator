@@ -7,6 +7,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { LIMITS } from '../../shared/constants/limits';
 
 const logger = getLogger('ContextWindowGuard');
 
@@ -70,7 +71,7 @@ export function resolveContextWindowSize(options: {
     return { tokens: modelContextWindow, source: 'model' };
   }
 
-  const fallback = (defaultTokens !== undefined && defaultTokens > 0) ? defaultTokens : 200000;
+  const fallback = (defaultTokens !== undefined && defaultTokens > 0) ? defaultTokens : LIMITS.DEFAULT_MAX_CONTEXT_TOKENS;
   logger.debug('Context window resolved from default', { tokens: fallback });
   return { tokens: fallback, source: 'default' };
 }
