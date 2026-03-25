@@ -1,6 +1,6 @@
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 import type { McpServerConfig, McpTool } from '../../shared/types/mcp.types';
 import { getMcpManager } from '../mcp/mcp-manager';
 
@@ -86,18 +86,12 @@ function resolveClaudeSettingsPaths(): string[] {
   ];
 }
 
-function readClaudeSettingsSources(): BrowserAutomationHealthSource[] {
-  return resolveClaudeSettingsPaths().map((filePath) => {
-    if (!fs.existsSync(filePath)) {
-      return {
-        path: filePath,
-        detected: false,
-        serverNames: [],
-      };
-    }
-
+async function readClaudeSettingsSources(): Promise<BrowserAutomationHealthSource[]> {
+  const results: BrowserAutomationHealthSource[] = [];
+  for (const filePath of resolveClaudeSettingsPaths()) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ClaudeSettingsFile;
+      const content = await fsp.readFile(filePath, 'utf-8');
+      const parsed = JSON.parse(content) as ClaudeSettingsFile;
       const mcpServers = parsed.mcpServers || {};
       const serverNames = Object.entries(mcpServers)
         .filter(([id, server]) =>
@@ -108,41 +102,50 @@ function readClaudeSettingsSources(): BrowserAutomationHealthSource[] {
         )
         .map(([id]) => id);
 
-      return {
+      results.push({
         path: filePath,
         detected: serverNames.length > 0,
         serverNames,
-      };
+      });
     } catch {
-      return {
+      results.push({
         path: filePath,
         detected: false,
         serverNames: [],
-      };
+      });
     }
+  }
+  return results;
+}
+
+async function commandExists(command: string): Promise<boolean> {
+  if (path.isAbsolute(command)) {
+    try {
+      await fsp.access(command);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const child = execFile('which', [command], {
+      encoding: 'utf-8',
+      timeout: 3000,
+    }, (error) => {
+      resolve(!error);
+    });
+    // Safety timeout in case the process hangs
+    setTimeout(() => {
+      try { child.kill(); } catch { /* already exited */ }
+      resolve(false);
+    }, 3500);
   });
 }
 
-function commandExists(command: string): boolean {
-  if (path.isAbsolute(command)) {
-    return fs.existsSync(command);
-  }
-
-  try {
-    execFileSync('which', [command], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 3000,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function detectBrowserRuntime(): { available: boolean; command?: string } {
+async function detectBrowserRuntime(): Promise<{ available: boolean; command?: string }> {
   for (const command of BROWSER_COMMANDS) {
-    if (commandExists(command)) {
+    if (await commandExists(command)) {
       return {
         available: true,
         command,
@@ -155,17 +158,19 @@ function detectBrowserRuntime(): { available: boolean; command?: string } {
   };
 }
 
-function detectNodeAvailability(): boolean {
-  try {
-    execFileSync(process.execPath, ['--version'], {
+async function detectNodeAvailability(): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const child = execFile(process.execPath, ['--version'], {
       encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 3000,
+    }, (error) => {
+      resolve(!error);
     });
-    return true;
-  } catch {
-    return false;
-  }
+    setTimeout(() => {
+      try { child.kill(); } catch { /* already exited */ }
+      resolve(false);
+    }, 3500);
+  });
 }
 
 export class BrowserAutomationHealthService {
@@ -183,15 +188,27 @@ export class BrowserAutomationHealthService {
     this.instance = null;
   }
 
+  /** Cached report — avoids repeated sync process spawns on every preflight. */
+  private cachedReport: BrowserAutomationHealthReport | null = null;
+  private static readonly CACHE_TTL_MS = 60_000; // 1 minute
+
   private constructor() {
     // Singleton
   }
 
-  diagnose(): BrowserAutomationHealthReport {
+  async diagnose(): Promise<BrowserAutomationHealthReport> {
+    // Return cached report if still fresh — the underlying checks spawn
+    // child processes for every browser command which can be slow.
+    if (this.cachedReport && (Date.now() - this.cachedReport.checkedAt) < BrowserAutomationHealthService.CACHE_TTL_MS) {
+      return this.cachedReport;
+    }
+
     const checkedAt = Date.now();
-    const runtime = detectBrowserRuntime();
-    const nodeAvailable = detectNodeAvailability();
-    const configSources = readClaudeSettingsSources();
+    const [runtime, nodeAvailable, configSources] = await Promise.all([
+      detectBrowserRuntime(),
+      detectNodeAvailability(),
+      readClaudeSettingsSources(),
+    ]);
     const configDetected = configSources.some((source) => source.detected);
 
     const mcp = getMcpManager();
@@ -238,7 +255,7 @@ export class BrowserAutomationHealthService {
       this.lastSuccessfulCheckAt = checkedAt;
     }
 
-    return {
+    const report: BrowserAutomationHealthReport = {
       status,
       checkedAt,
       lastSuccessfulCheckAt: this.lastSuccessfulCheckAt,
@@ -254,6 +271,9 @@ export class BrowserAutomationHealthService {
       warnings,
       suggestions,
     };
+
+    this.cachedReport = report;
+    return report;
   }
 }
 

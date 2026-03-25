@@ -90,22 +90,22 @@ describe('RecentDirectoriesManager', () => {
     manager.addDirectory(gamma);
 
     expect(
-      manager.getDirectories({ sortBy: 'manual' }).map((entry) => entry.displayName)
+      (await manager.getDirectories({ sortBy: 'manual' })).map((entry) => entry.displayName)
     ).toEqual(['gamma', 'beta', 'alpha']);
 
     expect(manager.reorderDirectories([beta, gamma, alpha])).toBe(true);
     expect(
-      manager.getDirectories({ sortBy: 'manual' }).map((entry) => entry.displayName)
+      (await manager.getDirectories({ sortBy: 'manual' })).map((entry) => entry.displayName)
     ).toEqual(['beta', 'gamma', 'alpha']);
 
     vi.advanceTimersByTime(1_000);
     manager.addDirectory(gamma);
 
     expect(
-      manager.getDirectories({ sortBy: 'manual' }).map((entry) => entry.displayName)
+      (await manager.getDirectories({ sortBy: 'manual' })).map((entry) => entry.displayName)
     ).toEqual(['beta', 'gamma', 'alpha']);
     expect(
-      manager.getDirectories({ sortBy: 'lastAccessed' })[0]?.displayName
+      (await manager.getDirectories({ sortBy: 'lastAccessed' }))[0]?.displayName
     ).toBe('gamma');
   });
 
@@ -135,7 +135,7 @@ describe('RecentDirectoriesManager', () => {
     expect(manager.pinDirectory(gamma, true)).toBe(true);
 
     expect(
-      manager.getDirectories({ sortBy: 'manual' }).map((entry) => entry.displayName)
+      (await manager.getDirectories({ sortBy: 'manual' })).map((entry) => entry.displayName)
     ).toEqual(['gamma', 'alpha', 'delta', 'beta']);
   });
 });

@@ -21,7 +21,7 @@
       <aside class="sidebar" [style.width.px]="sidebarWidth()">
         <app-sidebar-header
           (historyClicked)="showHistory.set(true)"
-          (settingsClicked)="showSettings.set(true)"
+          (settingsClicked)="navigateToSettings()"
           (createClicked)="createInstance()"
         />
 
@@ -78,8 +78,8 @@
         <section class="control-plane-panel">
           <div class="control-plane-header">
             <div>
-              <p class="control-plane-eyebrow">Control Plane</p>
-              <h2 class="control-plane-title">Secondary tools and system views</h2>
+              <p class="control-plane-eyebrow">Tools & Views</p>
+              <h2 class="control-plane-title">Manage agents, search code, and monitor usage</h2>
             </div>
             <button
               class="control-plane-close"
@@ -100,8 +100,7 @@
             </button>
             <button
               class="control-plane-chip"
-              [class.active]="showSettings()"
-              (click)="showSettings.set(true)"
+              (click)="navigateToSettings()"
             >
               Settings
             </button>
@@ -130,11 +129,6 @@
       />
     }
   </div>
-
-  <!-- Settings Modal -->
-  @if (showSettings()) {
-    <app-settings (closeDialog)="showSettings.set(false)" />
-  }
 
   <!-- History Sidebar -->
   @if (showHistory()) {

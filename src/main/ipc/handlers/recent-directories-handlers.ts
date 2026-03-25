@@ -58,7 +58,7 @@ export function registerRecentDirectoriesHandlers(): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(RecentDirsGetPayloadSchema, payload, 'RECENT_DIRS_GET');
-        const entries = manager.getDirectories({
+        const entries = await manager.getDirectories({
           limit: validated?.limit,
           sortBy: validated?.sortBy,
           includePinned: validated?.includePinned

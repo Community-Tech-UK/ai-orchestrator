@@ -6,6 +6,7 @@ import ElectronStore from 'electron-store';
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import { app } from 'electron';
 import type {
   RecentDirectoryEntry,
@@ -120,18 +121,39 @@ export class RecentDirectoriesManager extends EventEmitter {
   }
 
   /**
-   * Get recent directories
+   * Get recent directories (async — avoids blocking the main process).
+   *
+   * Previously this was synchronous and called `fs.existsSync()` on every
+   * entry, which blocks the event loop when paths point to sleeping external
+   * drives, unreachable network shares, or macOS-protected directories.
    */
-  getDirectories(options?: RecentDirectoriesOptions): RecentDirectoryEntry[] {
+  async getDirectories(options?: RecentDirectoriesOptions): Promise<RecentDirectoryEntry[]> {
     const entries = [...this.store.get('entries')];
     const sortBy = options?.sortBy ?? RECENT_DIRECTORIES_DEFAULTS.defaultSortBy;
     const includePinned = options?.includePinned !== false;
 
-    // Filter out non-existent directories
-    const validEntries = entries.filter((e) => {
-      if (!includePinned && e.isPinned) return false;
-      return fs.existsSync(e.path);
+    // Filter out non-existent directories using async fs.access with a
+    // per-path timeout so a single slow mount point can't hang everything.
+    const PATH_CHECK_TIMEOUT_MS = 500;
+
+    const checks = entries.map(async (e): Promise<RecentDirectoryEntry | null> => {
+      if (!includePinned && e.isPinned) return null;
+      try {
+        await Promise.race([
+          fsp.access(e.path),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), PATH_CHECK_TIMEOUT_MS)
+          ),
+        ]);
+        return e;
+      } catch {
+        return null;
+      }
     });
+
+    const validEntries = (await Promise.all(checks)).filter(
+      (e): e is RecentDirectoryEntry => e !== null
+    );
 
     // Sort based on preference
     if (sortBy === 'manual') {

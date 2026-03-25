@@ -448,7 +448,7 @@ export function registerMcpHandlers(deps: {
       try {
         return {
           success: true,
-          data: getBrowserAutomationHealthService().diagnose(),
+          data: await getBrowserAutomationHealthService().diagnose(),
         };
       } catch (error) {
         return {

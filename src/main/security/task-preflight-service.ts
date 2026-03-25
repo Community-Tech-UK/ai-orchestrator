@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getBrowserAutomationHealthService } from '../browser-automation/browser-automation-health';
@@ -46,7 +46,7 @@ export class TaskPreflightService {
 
     const [instructionSummary, browserHealth] = await Promise.all([
       resolveInstructionStack({ workingDirectory }),
-      Promise.resolve(getBrowserAutomationHealthService().diagnose()),
+      getBrowserAutomationHealthService().diagnose(),
     ]);
 
     const filesystem = getFilesystemPolicy();
@@ -59,7 +59,13 @@ export class TaskPreflightService {
     const permissions = getPermissionManager();
     const permissionConfig = permissions.getConfig();
     const projectPermissionsPath = path.join(workingDirectory, '.orchestrator', 'permissions.json');
-    const hasProjectPermissionFile = fs.existsSync(projectPermissionsPath);
+    let hasProjectPermissionFile = false;
+    try {
+      await fsp.access(projectPermissionsPath);
+      hasProjectPermissionFile = true;
+    } catch {
+      // File does not exist or is not accessible
+    }
 
     const mcp = getMcpManager();
     const servers = mcp.getServers();

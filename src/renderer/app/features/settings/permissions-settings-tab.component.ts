@@ -1064,17 +1064,26 @@ export class PermissionsSettingsTabComponent {
       return;
     }
 
-    const response = await this.taskIpc.taskGetPreflight({
-      workingDirectory,
-      surface: 'repo-job',
-      taskType: 'default-workspace',
-      requiresWrite: true,
-      requiresNetwork: true,
-    });
+    try {
+      const response = await Promise.race([
+        this.taskIpc.taskGetPreflight({
+          workingDirectory,
+          surface: 'repo-job',
+          taskType: 'default-workspace',
+          requiresWrite: true,
+          requiresNetwork: true,
+        }),
+        new Promise<{ success: false; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ success: false, error: { message: 'Preflight timed out' } }), 5000)
+        ),
+      ]);
 
-    if (response.success && response.data) {
-      this.defaultWorkspacePreflight.set(response.data);
-      return;
+      if (response.success && 'data' in response && response.data) {
+        this.defaultWorkspacePreflight.set(response.data as TaskPreflightReport);
+        return;
+      }
+    } catch (error) {
+      console.warn('Preflight check failed:', error);
     }
 
     this.defaultWorkspacePreflight.set(null);

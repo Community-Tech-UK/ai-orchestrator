@@ -23,7 +23,6 @@ import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
-import { SettingsComponent } from '../settings/settings.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { CommandPaletteComponent } from '../commands/command-palette.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
@@ -40,7 +39,6 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
     InstanceListComponent,
     InstanceDetailComponent,
     CliErrorComponent,
-    SettingsComponent,
     HistorySidebarComponent,
     CommandPaletteComponent,
     FileExplorerComponent,
@@ -63,7 +61,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private viewLayoutService = inject(ViewLayoutService);
   private newSessionDraft = inject(NewSessionDraftService);
 
-  showSettings = signal(false);
   showHistory = signal(false);
   showCommandPalette = signal(false);
   showControlPlane = signal(false);
@@ -164,7 +161,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     // Settings - Cmd+,
     this.keybindingCleanup.push(
       this.keybindingService.onAction('toggle-settings', () => {
-        this.showSettings.set(!this.showSettings());
+        void this.router.navigate(['/settings']);
       })
     );
 
@@ -242,8 +239,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
         // Close any open modals first
         if (this.showCommandPalette()) {
           this.showCommandPalette.set(false);
-        } else if (this.showSettings()) {
-          this.showSettings.set(false);
         } else if (this.showHistory()) {
           this.showHistory.set(false);
         } else {
@@ -278,6 +273,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
 
     this.showFileExplorer.update((open) => !open);
+  }
+
+  navigateToSettings(): void {
+    void this.router.navigate(['/settings']);
   }
 
   openRlm(): void {

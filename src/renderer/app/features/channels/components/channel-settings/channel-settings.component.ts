@@ -16,6 +16,13 @@ import { ChannelStore } from '../../../../core/state/channel.store';
   template: `
     <div class="channels-page">
       <div class="page-header">
+        <button class="back-btn" type="button" (click)="router.navigate(['/'])">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Back to Projects
+        </button>
         <h2>Channel Settings</h2>
         <p class="subtitle">Manage access policies and paired accounts</p>
         <div class="nav-links">
@@ -63,6 +70,13 @@ import { ChannelStore } from '../../../../core/state/channel.store';
   `,
   styles: [`
     .channels-page { padding: 1.5rem; max-width: 800px; }
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      background: none; border: none; color: var(--text-muted, #888);
+      cursor: pointer; font-size: 0.8125rem; padding: 0.25rem 0;
+      margin-bottom: 0.75rem;
+    }
+    .back-btn:hover { color: var(--text-primary, #ccc); }
     .page-header { margin-bottom: 1.5rem; }
     .page-header h2 { margin: 0 0 0.25rem; font-size: 1.5rem; }
     .subtitle { color: var(--text-muted, #888); margin: 0 0 1rem; font-size: 0.875rem; }

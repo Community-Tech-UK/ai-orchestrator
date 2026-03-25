@@ -2,8 +2,8 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { execFile } from 'child_process';
 import { getLogger } from '../../logging/logger';
-import { VcsManager } from '../../workspace/git/vcs-manager';
 import type {
   InstructionMigrationDraft,
   InstructionResolution,
@@ -220,9 +220,27 @@ function buildWarnings(sources: ResolvedInstructionSource[]): string[] {
   return warnings;
 }
 
-export function findInstructionProjectRoot(workingDirectory: string): string {
+export async function findInstructionProjectRoot(workingDirectory: string): Promise<string> {
   try {
-    const gitRoot = new VcsManager(workingDirectory).findGitRoot();
+    const gitRoot = await new Promise<string | null>((resolve) => {
+      const child = execFile(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        { cwd: workingDirectory, encoding: 'utf-8', timeout: 5000 },
+        (error, stdout) => {
+          if (error) {
+            resolve(null);
+          } else {
+            resolve(stdout?.trim() || null);
+          }
+        },
+      );
+      // Safety: kill if the timeout callback doesn't fire
+      setTimeout(() => {
+        try { child.kill(); } catch { /* already exited */ }
+        resolve(null);
+      }, 5500);
+    });
     if (gitRoot) {
       return normalizePath(gitRoot);
     }
@@ -435,7 +453,7 @@ export async function resolveInstructionStack(
   params: ResolveInstructionStackParams,
 ): Promise<InstructionResolution> {
   const workingDirectory = normalizePath(params.workingDirectory);
-  const projectRoot = findInstructionProjectRoot(workingDirectory);
+  const projectRoot = await findInstructionProjectRoot(workingDirectory);
   const rawContextPaths = params.contextPaths ?? [];
   const anchors = collectContextAnchors(projectRoot, workingDirectory, rawContextPaths);
   const descriptors = await discoverInstructionDescriptors(projectRoot, params.customPaths ?? []);

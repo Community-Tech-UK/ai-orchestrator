@@ -44,7 +44,7 @@ import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-dire
           [class.open]="controlPlaneOpen()"
           (click)="controlPlaneClicked.emit()"
         >
-          {{ controlPlaneOpen() ? 'Hide Control Plane' : 'Open Control Plane' }}
+          {{ controlPlaneOpen() ? 'Hide Tools' : 'Tools & Views' }}
         </button>
         @if (store.instanceCount() > 0) {
           <button
@@ -85,14 +85,28 @@ export class SidebarFooterComponent {
   closeAllClicked = output<void>();
   controlPlaneClicked = output<void>();
 
+  private recentProjectsTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     void this.loadRecentProjects();
 
+    // Debounce: when instance or history counts change rapidly (e.g. batch
+    // updates), we only fire one IPC call after 500ms of quiet.
     effect(() => {
       this.store.instanceCount();
       this.historyStore.entryCount();
-      void this.loadRecentProjects();
+      this.scheduleRecentProjectsRefresh();
     });
+  }
+
+  private scheduleRecentProjectsRefresh(): void {
+    if (this.recentProjectsTimer) {
+      clearTimeout(this.recentProjectsTimer);
+    }
+    this.recentProjectsTimer = setTimeout(() => {
+      this.recentProjectsTimer = null;
+      void this.loadRecentProjects();
+    }, 500);
   }
 
   private async loadRecentProjects(): Promise<void> {

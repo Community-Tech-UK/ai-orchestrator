@@ -25,7 +25,9 @@ npm-debug.log*
 
 # Claude attachments (temporary files for file uploads)
 .claude-attachments/
-archive/
+# Session archive data lives in the repo root; keep feature folders named
+# "archive" trackable under src/.
+/archive/
 
 # Claude Code settings
 .claude/

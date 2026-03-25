@@ -1,8 +1,10 @@
 /**
- * Settings Component - Application settings modal (container)
+ * Settings Component - Full-page settings with left sidebar navigation
+ * Modeled after the Claude desktop app settings layout.
  */
 
-import { ChangeDetectionStrategy, Component, inject, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { SettingsStore } from '../../core/state/settings.store';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
 import { OrchestrationSettingsTabComponent } from './orchestration-settings-tab.component';
@@ -13,10 +15,12 @@ import { KeyboardSettingsTabComponent } from './keyboard-settings-tab.component'
 import { PermissionsSettingsTabComponent } from './permissions-settings-tab.component';
 import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.component';
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
+import { ConnectionsSettingsTabComponent } from './connections-settings-tab.component';
 
 type SettingsTab =
   | 'general'
   | 'orchestration'
+  | 'connections'
   | 'memory'
   | 'display'
   | 'ecosystem'
@@ -24,6 +28,25 @@ type SettingsTab =
   | 'review'
   | 'advanced'
   | 'keyboard';
+
+interface SettingsNavItem {
+  id: SettingsTab;
+  label: string;
+  group?: string;
+}
+
+const NAV_ITEMS: SettingsNavItem[] = [
+  { id: 'general', label: 'General' },
+  { id: 'connections', label: 'Connections' },
+  { id: 'display', label: 'Display' },
+  { id: 'keyboard', label: 'Keyboard' },
+  { id: 'permissions', label: 'Permissions' },
+  { id: 'orchestration', label: 'Orchestration', group: 'Agents' },
+  { id: 'review', label: 'Cross-Model Review', group: 'Agents' },
+  { id: 'memory', label: 'Memory', group: 'Agents' },
+  { id: 'ecosystem', label: 'Ecosystem', group: 'Advanced' },
+  { id: 'advanced', label: 'Advanced', group: 'Advanced' },
+];
 
 @Component({
   selector: 'app-settings',
@@ -37,304 +60,219 @@ type SettingsTab =
     ReviewSettingsTabComponent,
     AdvancedSettingsTabComponent,
     KeyboardSettingsTabComponent,
-    PermissionsSettingsTabComponent
+    PermissionsSettingsTabComponent,
+    ConnectionsSettingsTabComponent
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div
-      class="settings-overlay"
-      (click)="onOverlayClick($event)"
-      (keydown)="onOverlayKeydown($event)"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-title"
-      tabindex="0"
-    >
-      <div class="settings-modal">
-        <div class="settings-header">
-          <h2 id="settings-title">Settings</h2>
-          <button class="btn-close" (click)="closeDialog.emit()" title="Close">
-            <span class="close-icon">&times;</span>
-          </button>
-        </div>
+    <div class="settings-page" (keydown)="onKeydown($event)" tabindex="0">
+      <!-- Left sidebar nav -->
+      <aside class="settings-sidebar">
+        <button class="back-btn" (click)="goBack()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Settings
+        </button>
 
-        <div class="settings-content">
-          <!-- Tabs -->
-          <div class="settings-tabs">
+        <nav class="settings-nav">
+          @for (item of ungroupedItems; track item.id) {
             <button
-              class="tab"
-              [class.active]="activeTab === 'general'"
-              (click)="activeTab =('general')"
+              class="nav-item"
+              [class.active]="activeTab() === item.id"
+              (click)="activeTab.set(item.id)"
             >
-              General
+              {{ item.label }}
             </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'orchestration'"
-              (click)="activeTab =('orchestration')"
-            >
-              Orchestration
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'memory'"
-              (click)="activeTab =('memory')"
-            >
-              Memory
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'display'"
-              (click)="activeTab =('display')"
-            >
-              Display
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'ecosystem'"
-              (click)="activeTab =('ecosystem')"
-            >
-              Ecosystem
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'permissions'"
-              (click)="activeTab =('permissions')"
-            >
-              Permissions
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'review'"
-              (click)="activeTab = 'review'"
-            >
-              Cross-Model Review
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'advanced'"
-              (click)="activeTab =('advanced')"
-            >
-              Advanced
-            </button>
-            <button
-              class="tab"
-              [class.active]="activeTab === 'keyboard'"
-              (click)="activeTab =('keyboard')"
-            >
-              Keyboard
-            </button>
-          </div>
+          }
 
-          <!-- Tab Content -->
-          <div class="settings-form">
-            @switch (activeTab) {
-              @case ('general') {
-                <app-general-settings-tab />
-              }
-              @case ('orchestration') {
-                <app-orchestration-settings-tab />
-              }
-              @case ('memory') {
-                <app-memory-settings-tab />
-              }
-              @case ('display') {
-                <app-display-settings-tab />
-              }
-              @case ('ecosystem') {
-                <app-ecosystem-settings-tab />
-              }
-              @case ('permissions') {
-                <app-permissions-settings-tab />
-              }
-              @case ('review') {
-                <app-review-settings-tab />
-              }
-              @case ('advanced') {
-                <app-advanced-settings-tab />
-              }
-              @case ('keyboard') {
-                <app-keyboard-settings-tab />
-              }
+          @for (group of groups; track group) {
+            <span class="nav-group-label">{{ group }}</span>
+            @for (item of getGroupItems(group); track item.id) {
+              <button
+                class="nav-item"
+                [class.active]="activeTab() === item.id"
+                (click)="activeTab.set(item.id)"
+              >
+                {{ item.label }}
+              </button>
             }
-          </div>
-        </div>
+          }
+        </nav>
+      </aside>
 
-        <div class="settings-footer">
-          <button class="btn-reset" (click)="resetAll()">
-            Reset All to Defaults
-          </button>
-          <button class="btn-done" (click)="closeDialog.emit()">Done</button>
+      <!-- Main content area -->
+      <main class="settings-content">
+        <div class="settings-body">
+          @switch (activeTab()) {
+            @case ('general') {
+              <app-general-settings-tab />
+            }
+            @case ('connections') {
+              <app-connections-settings-tab />
+            }
+            @case ('orchestration') {
+              <app-orchestration-settings-tab />
+            }
+            @case ('memory') {
+              <app-memory-settings-tab />
+            }
+            @case ('display') {
+              <app-display-settings-tab />
+            }
+            @case ('ecosystem') {
+              <app-ecosystem-settings-tab />
+            }
+            @case ('permissions') {
+              <app-permissions-settings-tab />
+            }
+            @case ('review') {
+              <app-review-settings-tab />
+            }
+            @case ('advanced') {
+              <app-advanced-settings-tab />
+            }
+            @case ('keyboard') {
+              <app-keyboard-settings-tab />
+            }
+          }
         </div>
-      </div>
+      </main>
     </div>
   `,
-  styles: [
-    `
-      .settings-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: var(--overlay-dark-medium);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-      }
+  styles: [`
+    :host { display: block; height: 100%; }
 
-      .settings-modal {
-        width: 620px;
-        max-width: 90vw;
-        max-height: 80vh;
-        background: var(--bg-primary);
-        border-radius: var(--radius-lg);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
+    .settings-page {
+      display: flex;
+      height: 100vh;
+      background: var(--bg-primary, #0f0f0f);
+      color: var(--text-primary, #e5e5e5);
+      outline: none;
+    }
 
-      .settings-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: var(--spacing-md) var(--spacing-lg);
-        border-bottom: 1px solid var(--border-color);
-        background: var(--bg-secondary);
-      }
+    /* ── Left sidebar ── */
+    .settings-sidebar {
+      width: 220px;
+      min-width: 220px;
+      border-right: 1px solid var(--border-color, #2a2a2e);
+      padding: 1.25rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      overflow-y: auto;
+      background: var(--bg-secondary, #1a1a1a);
+    }
 
-      .settings-header h2 {
-        margin: 0;
-        font-size: 18px;
-        font-weight: 600;
-      }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: none;
+      border: none;
+      color: var(--text-primary, #e5e5e5);
+      cursor: pointer;
+      font-size: 1.125rem;
+      font-weight: 600;
+      padding: 0.375rem 0.5rem;
+      margin-bottom: 1rem;
+      border-radius: 6px;
+      transition: background 0.15s ease;
+    }
 
-      .btn-close {
-        width: 32px;
-        height: 32px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: transparent;
-        border: none;
-        border-radius: var(--radius-sm);
-        font-size: 24px;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: all var(--transition-fast);
+    .back-btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
 
-        &:hover {
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
-      }
+    .back-btn svg {
+      color: var(--text-muted, #888);
+    }
 
-      .settings-content {
-        flex: 1;
-        overflow-y: auto;
-        padding: var(--spacing-lg);
-      }
+    .settings-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
 
-      .settings-tabs {
-        display: flex;
-        gap: var(--spacing-xs);
-        margin-bottom: var(--spacing-lg);
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: var(--spacing-sm);
-      }
+    .nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      background: none;
+      border: none;
+      border-radius: 6px;
+      color: var(--text-secondary, #aaa);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.1s ease;
+    }
 
-      .tab {
-        padding: var(--spacing-sm) var(--spacing-md);
-        background: transparent;
-        border: none;
-        border-radius: var(--radius-sm);
-        color: var(--text-secondary);
-        font-weight: 500;
-        cursor: pointer;
-        transition: all var(--transition-fast);
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-primary, #e5e5e5);
+    }
 
-        &:hover {
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
+    .nav-item.active {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary, #e5e5e5);
+    }
 
-        &.active {
-          background: var(--primary-color);
-          color: white;
-        }
-      }
+    .nav-group-label {
+      display: block;
+      padding: 1rem 0.75rem 0.375rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted, #666);
+    }
 
-      .settings-form {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-md);
-      }
+    /* ── Main content ── */
+    .settings-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem 2.5rem;
+    }
 
-      .settings-footer {
-        display: flex;
-        justify-content: space-between;
-        padding: var(--spacing-md) var(--spacing-lg);
-        border-top: 1px solid var(--border-color);
-        background: var(--bg-secondary);
-      }
-
-      .btn-reset {
-        padding: var(--spacing-sm) var(--spacing-md);
-        background: transparent;
-        border: 1px solid var(--error-color);
-        color: var(--error-color);
-        border-radius: var(--radius-sm);
-        font-weight: 500;
-        cursor: pointer;
-        transition: all var(--transition-fast);
-
-        &:hover {
-          background: var(--error-color);
-          color: white;
-        }
-      }
-
-      .btn-done {
-        padding: var(--spacing-sm) var(--spacing-lg);
-        background: var(--primary-color);
-        border: none;
-        color: white;
-        border-radius: var(--radius-sm);
-        font-weight: 500;
-        cursor: pointer;
-        transition: all var(--transition-fast);
-
-        &:hover {
-          background: var(--primary-hover);
-        }
-      }
-    `
-  ]
+    .settings-body {
+      max-width: 680px;
+    }
+  `]
 })
 export class SettingsComponent {
   private store = inject(SettingsStore);
+  private router = inject(Router);
+
+  /** Still emitted when opened as a modal (legacy callers). */
   closeDialog = output<void>();
 
-  activeTab = 'general' as SettingsTab;
+  activeTab = signal<SettingsTab>('general');
 
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('settings-overlay')) {
-      this.closeDialog.emit();
-    }
+  readonly navItems = NAV_ITEMS;
+  readonly ungroupedItems = NAV_ITEMS.filter(i => !i.group);
+  readonly groups = [...new Set(NAV_ITEMS.filter(i => i.group).map(i => i.group!))];
+
+  getGroupItems(group: string): SettingsNavItem[] {
+    return NAV_ITEMS.filter(i => i.group === group);
   }
 
-  onOverlayKeydown(event: KeyboardEvent): void {
+  goBack(): void {
+    // If opened as modal, emit close; otherwise navigate home
+    this.closeDialog.emit();
+    void this.router.navigate(['/']);
+  }
+
+  onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
-      this.closeDialog.emit();
+      this.goBack();
     }
   }
 
   resetAll(): void {
-    if (
-      confirm('Are you sure you want to reset all settings to their defaults?')
-    ) {
+    if (confirm('Are you sure you want to reset all settings to their defaults?')) {
       this.store.reset();
     }
   }
