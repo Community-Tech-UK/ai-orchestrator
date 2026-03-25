@@ -36,6 +36,38 @@ import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
 import { getChannelManager } from './channels';
+// Orchestration singletons
+import { getConsensusManager } from './orchestration/consensus';
+import { getRestartPolicy } from './orchestration/restart-policy';
+import { getSupervisor } from './orchestration/supervisor';
+import { getSynthesisAgent } from './orchestration/synthesis-agent';
+import { getVotingSystem } from './orchestration/voting';
+// Learning singletons
+import { getABTestingEngine } from './learning/ab-testing';
+import { getOutcomeTracker } from './learning/outcome-tracker';
+import { getPromptEnhancer } from './learning/prompt-enhancer';
+import { getStrategyLearner } from './learning/strategy-learner';
+// Memory agents
+import { getAnswerAgent } from './memory/answer-agent';
+import { getCritiqueAgent } from './memory/critique-agent';
+// RLM singletons
+import { getRLMContextManager } from './rlm/context-manager';
+import { getEpisodicRLMStore } from './rlm/episodic-rlm-store';
+import { getSmartCompactionManager } from './rlm/smart-compaction';
+import { getSummarizationWorker } from './rlm/summarization-worker';
+// Infrastructure singletons
+import { getCheckpointManager } from './session/checkpoint-manager';
+import { getHealthChecker } from './core/system/health-checker';
+import { getRetryManager } from './core/retry-manager';
+import { getFailoverManager } from './providers/failover-manager';
+import { getSandboxManager } from './security/sandbox-manager';
+import { getClaudeMdLoader } from './core/config/claude-md-loader';
+// Skills & hooks singletons
+import { getSkillMatcher } from './skills/skill-matcher';
+import { getTriggerMatcher } from './skills/trigger-matcher';
+import { getEnhancedHookExecutor } from './hooks/enhanced-hook-executor';
+// CLI singletons
+import { getCliDetectionService } from './cli/cli-detection';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -211,10 +243,56 @@ class AIOrchestratorApp {
           await crossModelReview.initialize();
           registerCrossModelReviewIpcHandlers();
         } },
-        { name: 'Channel manager', fn: () => {
-          // Initialize ChannelManager singleton (adapters registered on demand via IPC)
-          getChannelManager();
+        { name: 'Channel manager', fn: async () => {
+          const { DiscordAdapter } = await import('./channels/adapters/discord-adapter');
+          const { WhatsAppAdapter } = await import('./channels/adapters/whatsapp-adapter');
+          const manager = getChannelManager();
+          manager.registerAdapter(new DiscordAdapter());
+          manager.registerAdapter(new WhatsAppAdapter());
         } },
+
+        // --- Orchestration ---
+        { name: 'Consensus manager', fn: () => { getConsensusManager(); } },
+        { name: 'Restart policy', fn: () => { getRestartPolicy(); } },
+        { name: 'Supervisor', fn: () => { getSupervisor(); } },
+        { name: 'Synthesis agent', fn: () => { getSynthesisAgent(); } },
+        { name: 'Voting system', fn: () => { getVotingSystem(); } },
+
+        // --- Learning / Self-improvement ---
+        { name: 'Outcome tracker', fn: () => { getOutcomeTracker(); } },
+        { name: 'Strategy learner', fn: () => { getStrategyLearner(); } },
+        { name: 'Prompt enhancer', fn: () => { getPromptEnhancer(); } },
+        { name: 'A/B testing engine', fn: () => { getABTestingEngine(); } },
+
+        // --- Memory agents ---
+        { name: 'Answer agent', fn: () => { getAnswerAgent(); } },
+        { name: 'Critique agent', fn: () => { getCritiqueAgent(); } },
+
+        // --- RLM (Reinforcement Learning from Memory) ---
+        { name: 'RLM context manager', fn: () => { getRLMContextManager(); } },
+        { name: 'Episodic RLM store', fn: () => { getEpisodicRLMStore(); } },
+        { name: 'Smart compaction', fn: () => { getSmartCompactionManager(); } },
+        { name: 'Summarization worker', fn: () => {
+          const worker = getSummarizationWorker();
+          worker.initialize();
+          worker.start();
+        } },
+
+        // --- Infrastructure ---
+        { name: 'Checkpoint manager', fn: () => { getCheckpointManager(); } },
+        { name: 'Health checker', fn: () => { getHealthChecker(); } },
+        { name: 'Retry manager', fn: () => { getRetryManager(); } },
+        { name: 'Failover manager', fn: () => { getFailoverManager(); } },
+        { name: 'Sandbox manager', fn: () => { getSandboxManager(); } },
+        { name: 'Claude MD loader', fn: () => { getClaudeMdLoader(); } },
+
+        // --- Skills & Hooks ---
+        { name: 'Trigger matcher', fn: () => { getTriggerMatcher(); } },
+        { name: 'Skill matcher', fn: () => { getSkillMatcher(); } },
+        { name: 'Enhanced hook executor', fn: () => { getEnhancedHookExecutor(); } },
+
+        // --- CLI Detection ---
+        { name: 'CLI detection', fn: () => { getCliDetectionService(); } },
       ];
 
       for (const step of steps) {
