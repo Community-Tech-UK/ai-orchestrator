@@ -242,6 +242,8 @@ export class CopilotSdkAdapter extends EventEmitter {
 
       // Create a session with streaming enabled
       logger.debug('Creating session', { model: this.config.model || 'gpt-4' });
+      // Import approveAll handler from the SDK for permission requests
+      const { approveAll } = await import('@github/copilot-sdk');
       const session = await client.createSession({
         model: this.config.model || 'gpt-4',
         systemMessage: this.config.systemPrompt
@@ -250,7 +252,8 @@ export class CopilotSdkAdapter extends EventEmitter {
               content: this.config.systemPrompt
             }
           : undefined,
-        streaming: true
+        streaming: true,
+        onPermissionRequest: approveAll,
       });
       this.session = session;
       logger.info('Session created', { sessionId: session.sessionId });
