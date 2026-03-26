@@ -107,6 +107,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private conversationHistory: CodexConversationEntry[] = [];
   private isSpawned = false;
   private shouldResumeNextTurn: boolean;
+  /** Running total of tokens used across all turns */
+  private cumulativeTokensUsed = 0;
 
   constructor(config: CodexCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -390,14 +392,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       if (response.usage) {
-        const usedTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
+        const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
           ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
           : (response.usage.totalTokens || 0);
+        this.cumulativeTokensUsed += turnTokens;
         const contextWindow = this.getCapabilities().contextWindow;
         const contextUsage: ContextUsage = {
-          used: usedTokens,
+          used: this.cumulativeTokensUsed,
           total: contextWindow,
-          percentage: Math.min((usedTokens / contextWindow) * 100, 100),
+          percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
         };
         this.emit('context', contextUsage);
       }
@@ -442,6 +445,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     if (lower.includes('failed to delete shell snapshot')) {
       return { category: 'startup', fatal: false, line: trimmed, level: 'warning' };
+    }
+
+    // Internal Codex state-db housekeeping logs (e.g. "state db missing rollout path for thread ...")
+    // These are non-actionable Rust-level diagnostics that should not surface to the user.
+    if (lower.includes('state db missing rollout path') || lower.includes('codex_core::rollout')) {
+      return { category: 'unknown', fatal: false, line: trimmed, level: 'info' };
     }
 
     if (

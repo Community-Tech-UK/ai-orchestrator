@@ -124,9 +124,11 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
             <input
               class="input"
               type="text"
-              placeholder="Enter pairing code"
+              placeholder="e.g. 4553FD"
               [value]="pairingCode()"
               (input)="onPairingCodeInput($event)"
+              maxlength="6"
+              style="text-transform: uppercase; font-family: var(--font-family-mono, monospace); letter-spacing: 0.1em;"
             />
           </label>
 
@@ -495,7 +497,7 @@ export class ChannelsPageComponent implements OnInit {
 
   onPairingCodeInput(event: Event): void {
     const target = event.target as HTMLInputElement;
-    this.pairingCode.set(target.value);
+    this.pairingCode.set(target.value.toUpperCase().trim());
   }
 
   onPolicyModeChange(event: Event): void {

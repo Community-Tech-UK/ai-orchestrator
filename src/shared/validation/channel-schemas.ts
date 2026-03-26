@@ -30,7 +30,7 @@ export const ChannelSendMessagePayloadSchema = z.object({
 
 export const ChannelPairSenderPayloadSchema = z.object({
   platform: ChannelPlatformSchema,
-  code: z.string().length(6).regex(/^[0-9a-f]+$/),
+  code: z.string().min(1).max(6).regex(/^[0-9a-fA-F]+$/),
 });
 
 export const ChannelSetAccessPolicyPayloadSchema = z.object({

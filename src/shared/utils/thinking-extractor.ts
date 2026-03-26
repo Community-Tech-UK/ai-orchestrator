@@ -232,6 +232,13 @@ export function extractHeaderStyleThinking(content: string): {
     return { cleaned: content, extracted: [] };
   }
 
+  // Safety net: if we couldn't find any response content, don't extract at
+  // all.  Showing the full content (with reasoning mixed in) is better than
+  // showing an empty assistant message with only a thinking accordion.
+  if (!split.response.trim()) {
+    return { cleaned: content, extracted: [] };
+  }
+
   return {
     cleaned: split.response,
     extracted: [`${header}\n\n${split.thinking}`],
@@ -311,6 +318,26 @@ function splitHeaderThinkingBody(body: string): { response: string; thinking: st
   }
 
   if (looksLikeMetaReasoning(normalized)) {
+    // Before swallowing everything as thinking, check if trailing lines are
+    // actual response content (not meta-reasoning).  Scan from the end to
+    // find the boundary and preserve those lines as the response.
+    const allLines = normalized.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (allLines.length >= 2) {
+      let splitIdx = allLines.length;
+      for (let i = allLines.length - 1; i >= 1; i--) {
+        if (!looksLikeMetaReasoning(allLines[i])) {
+          splitIdx = i;
+        } else {
+          break;
+        }
+      }
+      if (splitIdx < allLines.length) {
+        return {
+          thinking: allLines.slice(0, splitIdx).join('\n'),
+          response: allLines.slice(splitIdx).join('\n'),
+        };
+      }
+    }
     return { thinking: normalized, response: '' };
   }
 

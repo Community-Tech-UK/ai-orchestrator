@@ -91,8 +91,9 @@ export abstract class BaseChannelAdapter extends EventEmitter {
   }
 
   async pairSender(code: string): Promise<PairedSender> {
+    const normalized = code.trim().toUpperCase();
     const index = this.accessPolicy.pendingPairings.findIndex(
-      p => p.code === code && p.expiresAt > Date.now()
+      p => p.code === normalized && p.expiresAt > Date.now()
     );
     if (index === -1) {
       throw new Error('Invalid or expired pairing code');

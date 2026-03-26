@@ -35,7 +35,8 @@ import { getLoadBalancer } from './process/load-balancer';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
-import { getChannelManager } from './channels';
+import { getChannelManager, ChannelMessageRouter, ChannelPersistence, ChannelCredentialStore } from './channels';
+import { getRLMDatabase } from './persistence/rlm-database';
 // Orchestration singletons
 import { getConsensusManager } from './orchestration/consensus';
 import { getRestartPolicy } from './orchestration/restart-policy';
@@ -249,6 +250,34 @@ class AIOrchestratorApp {
           const manager = getChannelManager();
           manager.registerAdapter(new DiscordAdapter());
           manager.registerAdapter(new WhatsAppAdapter());
+
+          // Auto-reconnect from saved credentials
+          try {
+            const credStore = new ChannelCredentialStore(getRLMDatabase().getRawDb());
+            const saved = credStore.getAll();
+            for (const cred of saved) {
+              const adapter = manager.getAdapter(cred.platform as 'discord' | 'whatsapp');
+              if (adapter) {
+                logger.info('Auto-reconnecting channel', { platform: cred.platform });
+                adapter.connect({
+                  platform: cred.platform as 'discord' | 'whatsapp',
+                  token: cred.token,
+                  allowedSenders: [],
+                  allowedChats: [],
+                }).catch(err => {
+                  logger.warn('Auto-reconnect failed', { platform: cred.platform, error: String(err) });
+                });
+              }
+            }
+          } catch (err) {
+            logger.warn('Failed to load saved channel credentials', { error: String(err) });
+          }
+        } },
+        { name: 'Channel message router', fn: () => {
+          const db = getRLMDatabase().getRawDb();
+          const persistence = new ChannelPersistence(db);
+          const router = new ChannelMessageRouter(getChannelManager(), persistence);
+          router.start();
         } },
 
         // --- Orchestration ---

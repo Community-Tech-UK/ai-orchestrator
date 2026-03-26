@@ -281,6 +281,21 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS channel_messages;
     `
   },
+
+  // Migration 007: Add channel credentials table for token persistence
+  {
+    name: '007_add_channel_credentials',
+    up: `
+      CREATE TABLE IF NOT EXISTS channel_credentials (
+        platform TEXT PRIMARY KEY,
+        token TEXT NOT NULL,
+        saved_at INTEGER NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS channel_credentials;
+    `
+  },
 ];
 
 /**

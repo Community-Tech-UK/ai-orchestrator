@@ -18,9 +18,14 @@ import {
   ChannelGetAccessPolicyPayloadSchema,
 } from '../../../shared/validation/channel-schemas';
 import { ChannelPersistence } from '../../channels/channel-persistence';
+import { ChannelCredentialStore } from '../../channels/channel-credential-store';
 import { getRLMDatabase } from '../../persistence/rlm-database';
 
 const logger = getLogger('ChannelHandlers');
+
+function getCredentialStore(): ChannelCredentialStore {
+  return new ChannelCredentialStore(getRLMDatabase().getRawDb());
+}
 
 export function registerChannelHandlers(): void {
   const manager = getChannelManager();
@@ -44,6 +49,14 @@ export function registerChannelHandlers(): void {
           allowedSenders: [],
           allowedChats: [],
         });
+        // Persist token so we can auto-reconnect on restart
+        if (validated.token) {
+          try {
+            getCredentialStore().save(validated.platform, validated.token);
+          } catch (err) {
+            logger.warn('Failed to persist channel credential', { platform: validated.platform, error: String(err) });
+          }
+        }
         return { success: true, data: { platform: validated.platform, status: adapter.status } };
       } catch (error) {
         logger.error('CHANNEL_CONNECT failed', error instanceof Error ? error : new Error(String(error)));
@@ -69,6 +82,12 @@ export function registerChannelHandlers(): void {
           };
         }
         await adapter.disconnect();
+        // Remove saved credential so we don't auto-reconnect next time
+        try {
+          getCredentialStore().remove(validated.platform);
+        } catch (err) {
+          logger.warn('Failed to remove channel credential', { platform: validated.platform, error: String(err) });
+        }
         return { success: true, data: { platform: validated.platform, status: 'disconnected' } };
       } catch (error) {
         logger.error('CHANNEL_DISCONNECT failed', error instanceof Error ? error : new Error(String(error)));

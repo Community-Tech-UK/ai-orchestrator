@@ -146,6 +146,8 @@ export class CopilotSdkAdapter extends EventEmitter {
   private config: CopilotSdkConfig;
   private sessionId: string;
   private isSpawned: boolean = false;
+  /** Running total of tokens used across all turns */
+  private cumulativeTokensUsed = 0;
   private unsubscribeFromSession: (() => void) | null = null;
 
   constructor(config: CopilotSdkConfig = {}) {
@@ -406,12 +408,13 @@ export class CopilotSdkAdapter extends EventEmitter {
           // Update context usage using current-turn occupancy, not cumulative lifetime usage.
           // Summing turn usage can falsely hit compaction thresholds.
           if (event.data.inputTokens || event.data.outputTokens) {
-            const usedTokens = (event.data.inputTokens || 0) + (event.data.outputTokens || 0);
+            const turnTokens = (event.data.inputTokens || 0) + (event.data.outputTokens || 0);
+            this.cumulativeTokensUsed += turnTokens;
             const contextWindow = this.getCapabilities().contextWindow;
             const contextUsage: ContextUsage = {
-              used: usedTokens,
+              used: this.cumulativeTokensUsed,
               total: contextWindow,
-              percentage: Math.min((usedTokens / contextWindow) * 100, 100)
+              percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100)
             };
             this.emit('context', contextUsage);
           }

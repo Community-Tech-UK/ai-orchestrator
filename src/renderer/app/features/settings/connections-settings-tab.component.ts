@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { ChannelStore } from '../../core/state/channel.store';
+import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
 
 @Component({
   standalone: true,
@@ -33,6 +34,38 @@ import { ChannelStore } from '../../core/state/channel.store';
 
         @if (store.discord().status === 'connected') {
           <p class="connected-detail">Bot: <strong>{{ store.discord().botUsername }}</strong></p>
+
+          <!-- Pairing section -->
+          <div class="pairing-section">
+            <label class="field-label" for="discord-pair">Pairing Code</label>
+            <p class="field-hint">DM the bot to get a code, then enter it here to authorize your account.</p>
+            <div class="pair-row">
+              <input
+                id="discord-pair"
+                type="text"
+                class="field-input pair-input"
+                [value]="discordPairCode()"
+                (input)="discordPairCode.set($any($event.target).value.toUpperCase().trim())"
+                placeholder="e.g. 4553FD"
+                maxlength="6"
+                style="text-transform: uppercase; font-family: var(--font-family-mono, monospace); letter-spacing: 0.1em;"
+              />
+              <button
+                class="btn btn-primary"
+                type="button"
+                (click)="pairDiscord()"
+                [disabled]="pairingWorking() || discordPairCode().length < 4"
+              >
+                {{ pairingWorking() ? 'Pairing...' : 'Pair' }}
+              </button>
+            </div>
+            @if (pairingMessage()) {
+              <div class="pairing-msg" [class.pairing-success]="pairingSuccess()" [class.pairing-error]="!pairingSuccess()">
+                {{ pairingMessage() }}
+              </div>
+            }
+          </div>
+
           <button
             class="btn btn-danger"
             type="button"
@@ -239,16 +272,88 @@ import { ChannelStore } from '../../core/state/channel.store';
       padding: 0.5rem;
       border-radius: 4px;
     }
+
+    .pairing-section {
+      border-top: 1px solid var(--border-color, #333);
+      padding-top: 0.625rem;
+      margin-top: 0.25rem;
+    }
+
+    .field-hint {
+      margin: 0 0 0.375rem;
+      font-size: 0.75rem;
+      color: var(--text-muted, #6b7280);
+    }
+
+    .pair-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .pair-input {
+      flex: 1;
+      max-width: 180px;
+    }
+
+    .pairing-msg {
+      margin-top: 0.375rem;
+      padding: 0.375rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+    }
+
+    .pairing-success {
+      background: color-mix(in srgb, var(--success-color, #22c55e) 10%, transparent);
+      color: var(--success-color, #22c55e);
+      border: 1px solid color-mix(in srgb, var(--success-color, #22c55e) 30%, transparent);
+    }
+
+    .pairing-error {
+      background: color-mix(in srgb, var(--error-color, #ef4444) 10%, transparent);
+      color: var(--error-color, #ef4444);
+      border: 1px solid color-mix(in srgb, var(--error-color, #ef4444) 30%, transparent);
+    }
   `]
 })
 export class ConnectionsSettingsTabComponent {
   protected store = inject(ChannelStore);
+  private ipcService = inject(ChannelIpcService);
   protected discordToken = signal('');
+  protected discordPairCode = signal('');
+  protected pairingWorking = signal(false);
+  protected pairingMessage = signal<string | null>(null);
+  protected pairingSuccess = signal(false);
 
   connectDiscord(): void {
     const token = this.discordToken();
     if (token) {
       this.store.connectDiscord(token);
+    }
+  }
+
+  async pairDiscord(): Promise<void> {
+    const code = this.discordPairCode().trim().toUpperCase();
+    if (!code) return;
+
+    this.pairingWorking.set(true);
+    this.pairingMessage.set(null);
+
+    try {
+      const res = await this.ipcService.pairSender('discord', code);
+      if (res.success) {
+        this.pairingSuccess.set(true);
+        this.pairingMessage.set('Paired successfully! You can now send messages via Discord.');
+        this.discordPairCode.set('');
+      } else {
+        this.pairingSuccess.set(false);
+        this.pairingMessage.set(res.error?.message ?? 'Pairing failed. Check the code and try again.');
+      }
+    } catch {
+      this.pairingSuccess.set(false);
+      this.pairingMessage.set('Pairing failed. Check the code and try again.');
+    } finally {
+      this.pairingWorking.set(false);
     }
   }
 }
