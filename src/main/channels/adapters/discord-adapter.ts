@@ -11,6 +11,7 @@ import type {
   SendOptions,
   SentMessage,
   InboundChannelMessage,
+  PairedSender,
 } from '../../../shared/types/channels';
 
 const logger = getLogger('DiscordAdapter');
@@ -88,6 +89,26 @@ export class DiscordAdapter extends BaseChannelAdapter {
       this.botUserId = null;
       this.setStatus('disconnected');
     }
+  }
+
+  override async pairSender(code: string): Promise<PairedSender> {
+    const result = await super.pairSender(code);
+
+    // Send confirmation DM to the newly paired user
+    if (this.client) {
+      try {
+        const user = await this.client.users.fetch(result.senderId);
+        if (user) {
+          await user.send(
+            `✅ **Paired successfully!** You're now connected to the Orchestrator.\n\nTry these commands:\n• \`/help\` — see all available commands\n• \`/list\` — list running instances\n• \`@projectname message\` — send to a specific project`
+          );
+        }
+      } catch (err) {
+        logger.warn('Failed to send pairing confirmation DM', { senderId: result.senderId, error: String(err) });
+      }
+    }
+
+    return result;
   }
 
   async sendMessage(chatId: string, content: string, options?: SendOptions): Promise<SentMessage> {

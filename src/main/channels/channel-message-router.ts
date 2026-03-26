@@ -177,40 +177,147 @@ export class ChannelMessageRouter {
 
   // ============ Command handlers ============
 
+  /**
+   * Get hibernated instances grouped by project.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getHibernatedByProject(): Map<string, any[]> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getHibernationManager } = require('../process/hibernation-manager');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const hibernated: any[] = getHibernationManager().getHibernatedInstances?.() ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const map = new Map<string, any[]>();
+      for (const h of hibernated) {
+        const dir = (h.workingDirectory || '').trim();
+        const project = dir ? path.basename(dir) : '(no project)';
+        const key = project.toLowerCase();
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(h);
+      }
+      return map;
+    } catch {
+      return new Map();
+    }
+  }
+
+  /**
+   * Get saved/resumable sessions grouped by project.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async getSavedByProject(): Promise<Map<string, any[]>> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getSessionArchiveManager } = require('../session/session-archive');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const archived: any[] = getSessionArchiveManager().listArchivedSessions?.() ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const map = new Map<string, any[]>();
+      for (const s of archived) {
+        const dir = (s.workingDirectory || '').trim();
+        const project = dir ? path.basename(dir) : '(no project)';
+        const key = project.toLowerCase();
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(s);
+      }
+      return map;
+    } catch {
+      return new Map();
+    }
+  }
+
   private async handleListCommand(
     msg: InboundChannelMessage,
     adapter: BaseChannelAdapter,
   ): Promise<void> {
     const projectMap = this.getProjectMap();
+    const hibernatedMap = this.getHibernatedByProject();
+    const savedMap = await this.getSavedByProject();
 
-    if (projectMap.size === 0) {
-      await adapter.sendMessage(msg.chatId, 'No active instances.', { replyTo: msg.messageId });
+    // Collect all project keys across all three sources
+    const allKeys = new Set<string>();
+    for (const k of projectMap.keys()) allKeys.add(k);
+    for (const k of hibernatedMap.keys()) allKeys.add(k);
+    for (const k of savedMap.keys()) allKeys.add(k);
+
+    if (allKeys.size === 0) {
+      await adapter.sendMessage(msg.chatId, 'No instances or saved sessions found.', { replyTo: msg.messageId });
       return;
     }
 
     const lines: string[] = [];
-    // Sort projects alphabetically
-    const sortedKeys = [...projectMap.keys()].sort();
+    const sortedKeys = [...allKeys].sort();
+
+    // Collect active instance IDs so we skip duplicates from hibernated/archived
+    const activeIds = new Set<string>();
+    for (const instances of projectMap.values()) {
+      for (const inst of instances) activeIds.add(inst.id);
+    }
 
     for (const key of sortedKeys) {
-      const instances = projectMap.get(key)!;
-      const dir = (instances[0]?.workingDirectory || '').trim();
-      const projectLabel = dir ? path.basename(dir) : '(no project)';
-      lines.push(`**${projectLabel}**  (${instances.length} instance${instances.length === 1 ? '' : 's'})`);
+      const active = projectMap.get(key) ?? [];
+      const hibernated = (hibernatedMap.get(key) ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((h: any) => !activeIds.has(h.instanceId));
+      const saved = (savedMap.get(key) ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((s: any) => !activeIds.has(s.id));
 
-      // Sort by last activity descending
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sorted = [...instances].sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0));
-      for (const inst of sorted) {
-        const status = inst.status || 'unknown';
-        const icon = status === 'idle' ? '🟢' : status === 'busy' ? '🟡' : '⚫';
-        const name = inst.displayName || inst.id.slice(0, 8);
-        const age = this.formatAge(inst.lastActivity);
-        lines.push(`  ${icon} ${name}  —  ${status}  (${age})`);
+      const totalCount = active.length + hibernated.length + saved.length;
+      if (totalCount === 0) continue;
+
+      // Derive project label from whatever source has it
+      const firstActive = active[0];
+      const firstHibernated = hibernated[0];
+      const firstSaved = saved[0];
+      const dir = firstActive?.workingDirectory || firstHibernated?.workingDirectory || firstSaved?.workingDirectory || '';
+      const projectLabel = dir ? path.basename(dir) : '(no project)';
+      lines.push(`**${projectLabel}**`);
+
+      // Active instances
+      if (active.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sorted = [...active].sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0));
+        for (const inst of sorted) {
+          const status = inst.status || 'unknown';
+          const icon = status === 'idle' ? '🟢' : status === 'busy' ? '🟡' : status === 'waiting_for_input' ? '🔵' : '⚪';
+          const name = inst.displayName || inst.id.slice(0, 8);
+          const age = this.formatAge(inst.lastActivity);
+          lines.push(`  ${icon} ${name}  —  ${status}  (${age})`);
+        }
       }
+
+      // Hibernated instances
+      if (hibernated.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sorted = [...hibernated].sort((a: any, b: any) => (b.hibernatedAt || 0) - (a.hibernatedAt || 0));
+        for (const h of sorted) {
+          const name = h.displayName || h.instanceId?.slice(0, 8) || 'unknown';
+          const age = this.formatAge(h.hibernatedAt);
+          lines.push(`  💤 ${name}  —  hibernated  (${age})`);
+        }
+      }
+
+      // Saved/archived sessions (limit to 3 most recent per project)
+      if (saved.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sorted = [...saved].sort((a: any, b: any) => (b.lastActivity || b.archivedAt || 0) - (a.lastActivity || a.archivedAt || 0));
+        const shown = sorted.slice(0, 3);
+        for (const s of shown) {
+          const name = s.displayName || s.id?.slice(0, 8) || 'unknown';
+          const age = this.formatAge(s.lastActivity || s.archivedAt);
+          lines.push(`  📦 ${name}  —  saved  (${age})`);
+        }
+        if (sorted.length > 3) {
+          lines.push(`  … and ${sorted.length - 3} more saved session${sorted.length - 3 === 1 ? '' : 's'}`);
+        }
+      }
+
       lines.push('');
     }
 
+    // Pin info
     const pinInfo = this.channelPins.get(msg.chatId);
     if (pinInfo) {
       const im = this.getInstanceManager();
@@ -219,17 +326,10 @@ export class ChannelMessageRouter {
       lines.push(`📌 This channel is pinned to: **${label}**`);
     }
 
+    // Legend
+    lines.push('🟢 idle  🟡 busy  🔵 waiting  💤 hibernated  📦 saved');
     lines.push('');
-    lines.push('**Commands:**');
-    lines.push('`/pick` — interactive numbered list, reply with `/pick <number>`');
-    lines.push('`/select <project>` or `/select <project>/<name>` — pin this channel');
-    lines.push('`/switch` — clear your DM instance (start fresh)');
-    lines.push('`/clear` — remove channel pin');
-    lines.push('');
-    lines.push('**Routing:**');
-    lines.push('`@<project> <message>` — send to most recent instance in project');
-    lines.push('`@<project>/<name> <message>` — send to specific instance');
-    lines.push('In DMs, your instance is remembered between messages.');
+    lines.push('Use `/pick` to select an instance, or `@project message` to route directly.');
 
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }
@@ -357,33 +457,61 @@ export class ChannelMessageRouter {
       return;
     }
 
-    // Show the pick list
+    // Show the pick list — active + hibernated instances
     const im = this.getInstanceManager();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const instances: any[] = im.getAllInstances?.() ?? [];
     const active = instances
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((i: any) => i.status === 'idle' || i.status === 'busy' || i.status === 'waiting')
+      .filter((i: any) => i.status === 'idle' || i.status === 'busy' || i.status === 'waiting_for_input')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0));
+
+    // Also include hibernated instances
+    const activeIds = new Set(active.map((i: { id: string }) => i.id));
+    const hibernatedList = this.getHibernatedByProject();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hibernated: any[] = [];
+    for (const group of hibernatedList.values()) {
+      for (const h of group) {
+        if (!activeIds.has(h.instanceId)) {
+          // Normalize to match active instance shape for the pick list
+          hibernated.push({
+            id: h.instanceId,
+            displayName: h.displayName,
+            workingDirectory: h.workingDirectory || '',
+            status: 'hibernated',
+            lastActivity: h.hibernatedAt,
+          });
+        }
+      }
+    }
+
+    const combined = [...active, ...hibernated]
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0))
-      .slice(0, 10);
+      .slice(0, 15);
 
-    if (active.length === 0) {
-      await adapter.sendMessage(msg.chatId, 'No active instances.', { replyTo: msg.messageId });
+    if (combined.length === 0) {
+      await adapter.sendMessage(msg.chatId, 'No instances available. Send a message to create one.', { replyTo: msg.messageId });
       return;
     }
 
-    this.pendingPicks.set(pickKey, active);
+    this.pendingPicks.set(pickKey, combined);
 
     const lines = ['**Pick an instance** (reply with `/pick <number>`):'];
-    for (let i = 0; i < active.length; i++) {
-      const inst = active[i];
+    for (let i = 0; i < combined.length; i++) {
+      const inst = combined[i];
       const dir = path.basename(inst.workingDirectory || '');
       const name = inst.displayName || inst.id.slice(0, 8);
       const status = inst.status || 'unknown';
-      const icon = status === 'idle' ? '🟢' : status === 'busy' ? '🟡' : '⚪';
+      const icon = status === 'idle' ? '🟢' : status === 'busy' ? '🟡' : status === 'hibernated' ? '💤' : '⚪';
       const age = this.formatAge(inst.lastActivity);
       lines.push(`**${i + 1}.** ${icon} ${dir}/**${name}**  —  ${status}  (${age})`);
+    }
+    if (hibernated.length > 0) {
+      lines.push('');
+      lines.push('💤 Hibernated instances will be woken when you send a message.');
     }
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }

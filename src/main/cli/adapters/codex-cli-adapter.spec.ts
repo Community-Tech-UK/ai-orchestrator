@@ -71,10 +71,10 @@ describe('CodexCliAdapter', () => {
     vi.restoreAllMocks();
   });
 
-  it('only advertises native resume when full-auto mode is enabled', () => {
+  it('advertises native resume for all approval modes', () => {
     const readOnlyAdapter = new CodexCliAdapter();
     expect(readOnlyAdapter.getCapabilities().vision).toBe(true);
-    expect(readOnlyAdapter.getRuntimeCapabilities().supportsResume).toBe(false);
+    expect(readOnlyAdapter.getRuntimeCapabilities().supportsResume).toBe(true);
     expect(readOnlyAdapter.getRuntimeCapabilities().supportsForkSession).toBe(false);
 
     const fullAutoAdapter = new CodexCliAdapter({
@@ -173,7 +173,7 @@ Hey! I'm here. What do you want to tackle?`;
     expect(stdinContent).toBe('second');
   });
 
-  it('replays recent conversation instead of using native resume in read-only mode', async () => {
+  it('uses native resume on subsequent turns in read-only mode when thread id is available', async () => {
     const adapter = new CodexCliAdapter({
       approvalMode: 'suggest',
       sandboxMode: 'read-only',
@@ -191,11 +191,11 @@ Hey! I'm here. What do you want to tackle?`;
 
     const first = await adapter.sendMessage({ role: 'user', content: 'first question' });
     expect(first.content).toBe('first answer');
-    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
+    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(true);
 
     const secondProc = queueCodexRun(spawnSpy, {
       stdoutLines: [
-        '{"type":"thread.started","thread_id":"thread-readonly-2"}',
+        '{"type":"thread.started","thread_id":"thread-readonly"}',
         '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"second answer"}}',
         '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":6}}',
       ],
@@ -207,20 +207,18 @@ Hey! I'm here. What do you want to tackle?`;
 
     const firstArgs = spawnSpy.mock.calls[0][0] as string[];
     const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+    // First turn: regular exec
     expect(firstArgs.slice(0, 2)).toEqual(['exec', '--json']);
     expect(firstArgs).toContain('--sandbox');
     expect(firstArgs).toContain('read-only');
-    expect(secondArgs.slice(0, 2)).toEqual(['exec', '--json']);
-    expect(secondArgs).not.toContain('resume');
-    expect(secondArgs).toContain('--sandbox');
-    expect(secondArgs).toContain('read-only');
+    // Second turn: uses resume with the thread id from the first turn
+    expect(secondArgs[0]).toBe('exec');
+    expect(secondArgs[1]).toBe('resume');
+    expect(secondArgs).toContain('thread-readonly');
 
-    // Prompt (with conversation replay) is now written to stdin
+    // Prompt is just the raw message (no conversation replay or system prompt)
     const secondPrompt = await secondStdin;
-    expect(secondPrompt).toContain('[CONVERSATION HISTORY]');
-    expect(secondPrompt).toContain('<User>\nfirst question\n</User>');
-    expect(secondPrompt).toContain('<Assistant>\nfirst answer\n</Assistant>');
-    expect(secondPrompt).toContain('[CURRENT USER MESSAGE]\nsecond question\n[/CURRENT USER MESSAGE]');
+    expect(secondPrompt).toBe('second question');
   });
 
   it('retries once when a successful run returns no assistant content', async () => {

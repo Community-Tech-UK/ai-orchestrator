@@ -281,6 +281,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     args.push('--skip-git-repo-check');
 
+    // Disable Codex-native MCP servers during exec calls.  In interactive
+    // mode these servers stay running, but `codex exec` cold-starts them on
+    // every invocation — adding minutes of latency (one startup_timeout per
+    // server).  The orchestrator manages its own MCP integrations.
+    args.push('-c', 'mcp_servers={}');
+
     for (const attachment of message.attachments || []) {
       if (attachment.type === 'image' && attachment.path) {
         args.push('-i', attachment.path);
@@ -320,11 +326,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     this.emit('status', 'busy' as InstanceStatus);
+    const isResume = this.shouldUseResumeCommand();
     this.emit('output', {
       id: generateId(),
       timestamp: Date.now(),
       type: 'system',
-      content: '[codex] Starting Codex CLI... (this may take a moment if MCP servers are loading)',
+      content: isResume
+        ? '[codex] Resuming Codex thread...'
+        : '[codex] Starting Codex CLI... (this may take a moment if MCP servers are loading)',
     });
 
     try {
@@ -547,6 +556,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
         state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
           const diagnostic = this.classifyDiagnostic(line);
           state.diagnostics.push(diagnostic);
+
+          // Emit fatal diagnostics immediately so the user doesn't wait
+          // minutes only to discover an auth/config error at the end.
+          if (diagnostic.fatal) {
+            this.emit('output', {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'error',
+              content: `[codex] ${diagnostic.line}`,
+              metadata: { diagnostic: true, category: diagnostic.category, fatal: true },
+            });
+          }
         });
       });
 
@@ -643,6 +664,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
     };
   }
 
+  /**
+   * Max chars for the system prompt injected into message content.
+   * Codex CLI natively loads instruction files (AGENTS.md, CLAUDE.md, etc.)
+   * from the working directory, so the orchestrator's merged instruction
+   * content is largely redundant.  Injecting 15 KB+ of duplicate instructions
+   * causes dramatic latency increases (minutes instead of seconds) because
+   * every `codex exec` call re-processes the giant prompt through the model.
+   * Cap the injection so only the compact orchestrator-specific context (agent
+   * role, observation, tool permissions) is sent.
+   */
+  private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
+
   private prepareMessageForExecution(message: CliMessage): CliMessage {
     let content = message.content;
 
@@ -650,14 +683,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
       content = this.buildReplayPrompt(content);
     }
 
-    if (this.cliConfig.systemPrompt?.trim()) {
-      content = [
-        '[SYSTEM INSTRUCTIONS]',
-        this.cliConfig.systemPrompt.trim(),
-        '[/SYSTEM INSTRUCTIONS]',
-        '',
-        content,
-      ].join('\n');
+    // Skip system prompt on resume turns — the Codex thread already has full
+    // context from the initial turn.  Re-injecting it wastes tokens.
+    if (!this.shouldUseResumeCommand() && this.cliConfig.systemPrompt?.trim()) {
+      const prompt = this.cliConfig.systemPrompt.trim();
+      // Only inject the system prompt when it is reasonably short.  Large
+      // prompts are almost certainly the merged project instruction files
+      // which Codex already loads natively from the working directory.
+      if (prompt.length <= CodexCliAdapter.MAX_SYSTEM_PROMPT_CHARS) {
+        content = [
+          '[SYSTEM INSTRUCTIONS]',
+          prompt,
+          '[/SYSTEM INSTRUCTIONS]',
+          '',
+          content,
+        ].join('\n');
+      }
     }
 
     return {
@@ -744,9 +785,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const event = JSON.parse(line) as Record<string, unknown>;
         const type = typeof event['type'] === 'string' ? event['type'] : '';
 
-        if (type === 'thread.started' && typeof event['thread_id'] === 'string') {
-          threadId = event['thread_id'];
-          continue;
+        // Capture thread/session ID from various Codex event formats.
+        // Different Codex CLI versions use different event names.
+        if (!threadId) {
+          const id = event['thread_id'] ?? event['session_id'] ?? event['id'];
+          if (
+            typeof id === 'string'
+            && (type === 'thread.started'
+              || type === 'session.started'
+              || type === 'session.created'
+              || type === 'thread.created')
+          ) {
+            threadId = id;
+            continue;
+          }
         }
 
         if (type === 'turn.completed' && event['usage'] && typeof event['usage'] === 'object') {
@@ -856,9 +908,42 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
-      if (event['type'] === 'thread.started' && typeof event['thread_id'] === 'string') {
-        state.threadId = event['thread_id'];
+      const eventType = typeof event['type'] === 'string' ? event['type'] : '';
+
+      // Capture thread/session ID from various Codex event names
+      if (!state.threadId) {
+        const id = event['thread_id'] ?? event['session_id'] ?? event['id'];
+        if (
+          typeof id === 'string'
+          && (eventType === 'thread.started'
+            || eventType === 'session.started'
+            || eventType === 'session.created'
+            || eventType === 'thread.created')
+        ) {
+          state.threadId = id as string;
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content: '[codex] Connected to Codex thread, waiting for response...',
+          });
+        }
       }
+
+      // Emit real-time tool use events so the UI isn't silent during long executions
+      if (eventType === 'item.created' && event['item'] && typeof event['item'] === 'object') {
+        const item = event['item'] as Record<string, unknown>;
+        if (item['type'] === 'command_execution' && typeof item['command'] === 'string') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Running command: ${item['command'] as string}`,
+            metadata: { streaming: true },
+          });
+        }
+      }
+
       return;
     } catch {
       // Non-JSON lines are kept in raw stdout and parsed later as fallback content.
@@ -869,8 +954,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return Boolean(this.shouldResumeNextTurn && this.sessionId);
   }
 
+  /**
+   * Whether the adapter can use `codex exec resume` for subsequent turns.
+   * Thread resumption is a Codex thread-continuity feature and is independent
+   * of the approval policy.  Previously this was gated on `full-auto`, which
+   * meant resume was never used for suggest/read-only instances — causing every
+   * turn to re-send the full system prompt + conversation history and
+   * burning 100K+ tokens per message.
+   */
   private supportsNativeResume(): boolean {
-    return this.cliConfig.approvalMode === 'full-auto';
+    return true;
   }
 
   private buildReplayPrompt(currentMessage: string): string {
