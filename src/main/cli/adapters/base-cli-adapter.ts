@@ -7,6 +7,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
+import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 
 const logger = getLogger('BaseCliAdapter');
 
@@ -166,11 +167,31 @@ export interface CliAdapterEvents {
  * Abstract base class for CLI adapters
  * All CLI tool adapters (Claude, Codex, Gemini, etc.) must extend this class
  */
+/**
+ * Default stream idle timeout in milliseconds.
+ * If no data is received on stdout for this duration during active streaming,
+ * a 'stream:idle' event is emitted. Configurable via STREAM_IDLE_TIMEOUT_MS
+ * env var. Inspired by Claude Code 2.1.84 CLAUDE_STREAM_IDLE_TIMEOUT_MS.
+ */
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
+
 export abstract class BaseCliAdapter extends EventEmitter {
   protected config: CliAdapterConfig;
   protected process: ChildProcess | null = null;
   protected sessionId: string | null = null;
   protected outputBuffer: string = '';
+
+  /** Stream idle watchdog timer — resets on each stdout chunk */
+  private streamIdleTimer: NodeJS.Timeout | null = null;
+  private streamIdleTimeoutMs: number;
+
+  /**
+   * Generation counter — incremented on every spawnProcess() call so that
+   * a stale timeout callback from a previous process cannot fire on the
+   * current one (race fix flagged by GPT-5.4 review).
+   */
+  private processGeneration = 0;
+  private processAlive = false;
 
   constructor(config: CliAdapterConfig) {
     super();
@@ -180,6 +201,9 @@ export abstract class BaseCliAdapter extends EventEmitter {
       sessionPersistence: true,
       ...config,
     };
+    this.streamIdleTimeoutMs = parseInt(
+      process.env['STREAM_IDLE_TIMEOUT_MS'] || '', 10
+    ) || DEFAULT_STREAM_IDLE_TIMEOUT_MS;
   }
 
   // ============ Abstract Methods - Must be implemented by each CLI adapter ============
@@ -261,6 +285,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     this.process = null;
     this.outputBuffer = '';
+    this.clearStreamIdleWatchdog();
   }
 
   /**
@@ -357,22 +382,78 @@ export abstract class BaseCliAdapter extends EventEmitter {
     const currentPath = process.env['PATH'] || '';
     const extendedPath = [...additionalPaths, currentPath].join(':');
 
-    // Build clean environment: remove CLAUDECODE to prevent "nested session" errors
-    // when the orchestrator itself is running inside a Claude Code session
-    const cleanEnv = { ...process.env };
-    delete cleanEnv['CLAUDECODE'];
+    // Build safe environment: strip API keys, secrets, and sensitive credentials
+    // from child processes to prevent cross-provider credential leakage.
+    // Uses getSafeEnv() which filters via blocklist (24 vars), block patterns (9 regexes),
+    // and secret detection. Also removes CLAUDECODE to prevent "nested session" errors.
+    const safeEnv = getSafeEnvForTrustedProcess();
+    delete safeEnv['CLAUDECODE'];
 
     const proc = spawn(this.config.command, fullArgs, {
       cwd: this.config.cwd,
-      env: { ...cleanEnv, ...this.config.env, PATH: extendedPath },
+      env: { ...safeEnv, ...this.config.env, PATH: extendedPath },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    // Increment generation so stale watchdog callbacks from a previous
+    // process are silently discarded (race condition fix).
+    const generation = ++this.processGeneration;
+    this.processAlive = true;
 
     if (proc.pid) {
       this.emit('spawned', proc.pid);
     }
 
+    // Wire stream idle watchdog: reset on stdout data, clear on process close.
+    // We use 'close' rather than 'exit' because stdout may still have buffered
+    // data after 'exit' fires (flagged by Copilot/gpt-5.2 review).
+    proc.stdout?.on('data', () => this.resetStreamIdleWatchdog(generation));
+    proc.stderr?.on('data', () => this.emit('stderr'));
+    proc.on('close', () => {
+      this.processAlive = false;
+      this.clearStreamIdleWatchdog();
+    });
+
     return proc;
+  }
+
+  // ============ Stream Idle Watchdog ============
+
+  /**
+   * Start or reset the stream idle watchdog timer.
+   * Call this whenever stdout data is received to reset the countdown.
+   * @param generation - process generation token; callback is discarded if it doesn't match
+   */
+  protected resetStreamIdleWatchdog(generation?: number): void {
+    this.clearStreamIdleWatchdog();
+    const expectedGen = generation ?? this.processGeneration;
+    this.streamIdleTimer = setTimeout(() => {
+      // Guard: discard if process has exited or generation has changed
+      // (prevents stale timer from previous process firing on a new one)
+      if (!this.processAlive || expectedGen !== this.processGeneration) return;
+      logger.warn('Stream idle timeout exceeded', {
+        adapter: this.getName(),
+        timeoutMs: this.streamIdleTimeoutMs,
+        pid: this.getPid(),
+      });
+      this.emit('stream:idle', {
+        adapter: this.getName(),
+        timeoutMs: this.streamIdleTimeoutMs,
+        pid: this.getPid(),
+      });
+    }, this.streamIdleTimeoutMs);
+    if (this.streamIdleTimer.unref) this.streamIdleTimer.unref();
+  }
+
+  /**
+   * Clear the stream idle watchdog timer.
+   * Call this when streaming completes or the process exits.
+   */
+  protected clearStreamIdleWatchdog(): void {
+    if (this.streamIdleTimer) {
+      clearTimeout(this.streamIdleTimer);
+      this.streamIdleTimer = null;
+    }
   }
 
   /**

@@ -7,7 +7,7 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import * as path from 'path';
 import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
-import { InstanceManager } from './instance/instance-manager';
+import { InstanceManager, setInstanceManager } from './instance/instance-manager';
 import { getHookManager } from './hooks/hook-manager';
 import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker, registerDefaultWorkflowInvoker } from './orchestration/default-invokers';
 import { getOrchestratorPluginManager } from './plugins/plugin-manager';
@@ -176,6 +176,7 @@ class AIOrchestratorApp {
   constructor() {
     this.windowManager = new WindowManager();
     this.instanceManager = new InstanceManager();
+    setInstanceManager(this.instanceManager);
     this.ipcHandler = new IpcMainHandler(
       this.instanceManager,
       this.windowManager

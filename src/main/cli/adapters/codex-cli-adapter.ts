@@ -22,6 +22,12 @@ import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, Think
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { buildMessageWithFiles, processAttachments, type ProcessedAttachment } from '../file-handler';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, lstatSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('CodexCliAdapter');
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
 type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -105,6 +111,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   private cliConfig: CodexCliConfig;
   private conversationHistory: CodexConversationEntry[] = [];
+  /** Temp directory used as CODEX_HOME to bypass user MCP servers */
+  private codexHomeDir?: string;
   private isSpawned = false;
   private shouldResumeNextTurn: boolean;
   /** Running total of tokens used across all turns */
@@ -281,11 +289,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     args.push('--skip-git-repo-check');
 
-    // Disable Codex-native MCP servers during exec calls.  In interactive
-    // mode these servers stay running, but `codex exec` cold-starts them on
-    // every invocation — adding minutes of latency (one startup_timeout per
-    // server).  The orchestrator manages its own MCP integrations.
-    args.push('-c', 'mcp_servers={}');
+    // MCP servers are disabled via CODEX_HOME env var (see prepareCleanCodexHome).
+    // The `-c mcp_servers={}` CLI override does NOT actually prevent MCP loading.
 
     for (const attachment of message.attachments || []) {
       if (attachment.type === 'image' && attachment.path) {
@@ -313,6 +318,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
       throw new Error(status.error || 'Codex CLI is unavailable');
     }
 
+    // Prepare a clean CODEX_HOME to bypass user-configured MCP servers.
+    // The `-c mcp_servers={}` CLI override does NOT work — the Codex CLI
+    // still loads all MCP tool descriptions from config.toml, inflating
+    // input tokens (87K+) and adding 60+ seconds of latency per exec call.
+    this.prepareCleanCodexHome();
+
     this.isSpawned = true;
     const fakePid = Math.floor(Math.random() * 100000) + 10000;
     this.emit('spawned', fakePid);
@@ -326,15 +337,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     this.emit('status', 'busy' as InstanceStatus);
-    const isResume = this.shouldUseResumeCommand();
-    this.emit('output', {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'system',
-      content: isResume
-        ? '[codex] Resuming Codex thread...'
-        : '[codex] Starting Codex CLI... (this may take a moment if MCP servers are loading)',
-    });
 
     try {
       const cliMessage: CliMessage = {
@@ -429,6 +431,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   override async terminate(graceful = true): Promise<void> {
     this.isSpawned = false;
+    this.cleanupCodexHome();
     await super.terminate(graceful);
   }
 
@@ -921,12 +924,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
             || eventType === 'thread.created')
         ) {
           state.threadId = id as string;
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'system',
-            content: '[codex] Connected to Codex thread, waiting for response...',
-          });
         }
       }
 
@@ -1104,5 +1101,115 @@ export class CodexCliAdapter extends BaseCliAdapter {
       return false;
     }
     return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
+  }
+
+  // ============ MCP-free CODEX_HOME ============
+
+  /**
+   * Create a clean CODEX_HOME directory that mirrors ~/.codex/ but without
+   * MCP server definitions.  The `-c mcp_servers={}` CLI override is broken
+   * in the Codex CLI — it does NOT prevent MCP tool descriptions from being
+   * loaded into the system prompt (~87K tokens, 60-90s startup per server).
+   *
+   * Instead we create a temp directory, symlink everything from the real
+   * ~/.codex/ (auth, sessions, models cache, etc.), and write a stripped
+   * config.toml that omits all [mcp_servers.*] sections.
+   */
+  private prepareCleanCodexHome(): void {
+    const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
+    const codexDir = join(homeDir, '.codex');
+
+    if (!existsSync(codexDir)) {
+      logger.debug('No ~/.codex directory found, skipping CODEX_HOME override');
+      return;
+    }
+
+    const configPath = join(codexDir, 'config.toml');
+    if (!existsSync(configPath)) {
+      logger.debug('No ~/.codex/config.toml found, skipping CODEX_HOME override');
+      return;
+    }
+
+    // Check if the config even has MCP servers before creating the override
+    const configContent = readFileSync(configPath, 'utf-8');
+    if (!configContent.includes('[mcp_servers')) {
+      logger.debug('No MCP servers in config, skipping CODEX_HOME override');
+      return;
+    }
+
+    try {
+      const tempDir = mkdtempSync(join(tmpdir(), 'codex-nomcp-'));
+
+      // Symlink all files/dirs from ~/.codex/ except config.toml
+      const entries = readdirSync(codexDir);
+      for (const entry of entries) {
+        if (entry === 'config.toml') continue;
+        const source = join(codexDir, entry);
+        const target = join(tempDir, entry);
+        try {
+          // Use the same type of symlink as the source (file vs dir)
+          const stat = lstatSync(source);
+          symlinkSync(source, target, stat.isDirectory() ? 'dir' : 'file');
+        } catch {
+          // Skip entries that can't be symlinked (e.g., permission issues)
+          logger.debug('Could not symlink codex entry', { entry });
+        }
+      }
+
+      // Write config.toml with MCP servers stripped
+      const strippedConfig = this.stripMcpServers(configContent);
+      writeFileSync(join(tempDir, 'config.toml'), strippedConfig, 'utf-8');
+
+      this.codexHomeDir = tempDir;
+      this.config.env = { ...this.config.env, CODEX_HOME: tempDir };
+
+      logger.info('Created MCP-free CODEX_HOME', { path: tempDir });
+    } catch (err) {
+      logger.warn('Failed to create clean CODEX_HOME, MCP servers may cause latency', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Strip all [mcp_servers.*] sections from a TOML config string.
+   * Uses line-by-line processing: when a [mcp_servers...] header is found,
+   * all subsequent lines are skipped until a non-mcp_servers header appears.
+   */
+  private stripMcpServers(config: string): string {
+    const lines = config.split('\n');
+    const result: string[] = [];
+    let inMcpSection = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      // Detect TOML table headers: [section] or [section.subsection]
+      if (/^\[.+\]$/.test(trimmed)) {
+        if (trimmed.startsWith('[mcp_servers')) {
+          inMcpSection = true;
+          continue;
+        }
+        inMcpSection = false;
+      }
+
+      if (!inMcpSection) {
+        result.push(line);
+      }
+    }
+
+    return result.join('\n');
+  }
+
+  private cleanupCodexHome(): void {
+    if (this.codexHomeDir) {
+      try {
+        rmSync(this.codexHomeDir, { recursive: true, force: true });
+        logger.debug('Cleaned up CODEX_HOME', { path: this.codexHomeDir });
+      } catch {
+        // Best-effort cleanup; OS will reclaim temp dir eventually
+      }
+      this.codexHomeDir = undefined;
+    }
   }
 }

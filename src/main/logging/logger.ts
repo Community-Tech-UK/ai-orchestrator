@@ -641,6 +641,27 @@ export function getLogger(subsystem: string): SubsystemLogger {
 }
 
 /**
+ * Generate a unique request/correlation ID for tracing requests through the system.
+ * Format: `req-{timestamp}-{random}` — suitable for log correlation, API headers,
+ * and debugging multi-instance orchestration flows.
+ * Inspired by Claude Code 2.1.84 x-client-request-id header pattern.
+ */
+export function generateRequestId(): string {
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Create a contextual logger pre-bound with instance/session/request IDs.
+ * Usage: `const log = createContextualLogger('MyService', { instanceId, requestId })`
+ */
+export function createContextualLogger(
+  subsystem: string,
+  context: LogEntry['context']
+): ContextualLogger {
+  return getLogManager().getLogger(subsystem).withContext(context);
+}
+
+/**
  * Reset the LogManager singleton for testing.
  * Clears all loggers, buffers, and resets to default config.
  */

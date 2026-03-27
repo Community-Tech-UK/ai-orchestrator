@@ -7,6 +7,10 @@ export type HookEvent =
   | 'PreToolUse' // Before tool executes
   | 'PostToolUse' // After tool completes
   | 'Stop' // When Claude signals done
+  | 'StopFailure' // When instance stops due to API/provider error (CC 2.1.78)
+  | 'PostCompact' // After context compaction completes (CC 2.1.76)
+  | 'CwdChanged' // Working directory changed (CC 2.1.83)
+  | 'FileChanged' // Watched file changed (CC 2.1.83)
   | 'SessionStart' // Session begins
   | 'SessionEnd' // Session ends
   | 'BeforeCommit' // Before git commit
@@ -37,6 +41,15 @@ export interface HookRule {
   event: HookEvent | 'all';
   toolMatcher?: string; // Tool name pattern (e.g., "Bash", "Edit|Write")
   conditions: HookCondition[]; // All must match (AND logic)
+
+  /**
+   * Optional lightweight predicate conditions evaluated BEFORE the main conditions.
+   * Uses the same HookCondition syntax. All must match (AND logic).
+   * When present, the hook is skipped entirely if any `if` condition fails,
+   * avoiding unnecessary executor spawns in multi-instance scenarios.
+   * Inspired by Claude Code 2.1.85 conditional hook execution.
+   */
+  if?: HookCondition[];
 
   // Action
   action: HookAction;
@@ -79,6 +92,24 @@ export interface HookContext {
   // Stop context
   stopReason?: string;
   transcript?: string;
+
+  // StopFailure context (for API/provider error hooks)
+  errorMessage?: string;
+  errorProvider?: string;
+
+  // PostCompact context (for compaction hooks)
+  compactionMethod?: 'native' | 'restart-with-summary';
+  compactionSuccess?: boolean;
+  previousContextUsage?: number; // percentage before compaction
+
+  // CwdChanged context
+  oldCwd?: string;
+  newCwd?: string;
+
+  // FileChanged context
+  changeType?: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+  changedPath?: string;
+  changedRelativePath?: string;
 }
 
 // IPC payload types

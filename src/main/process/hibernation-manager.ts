@@ -6,12 +6,23 @@ const logger = getLogger('HibernationManager');
 const HYSTERESIS_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_RESUME_HIBERNATION_GRACE_MS = 60_000;
 
+/**
+ * Default context staleness threshold.
+ * If an instance has been hibernated for longer than this, its context
+ * is considered "stale" and should be cleared rather than resumed.
+ * Configurable via HibernationConfig.contextStalenessThresholdMs.
+ * Inspired by Claude Code 2.1.84 idle-return detection that nudges toward /clear.
+ */
+const DEFAULT_CONTEXT_STALENESS_THRESHOLD_MS = 75 * 60 * 1000; // 75 minutes
+
 export interface HibernationConfig {
   idleThresholdMs: number;          // How long idle before hibernation (default: 30min)
   enableAutoHibernation: boolean;   // Auto-hibernate idle instances
   checkIntervalMs: number;          // How often to check for idle instances
   maxHibernated: number;            // Max hibernated instances to keep
   memoryPressureTrigger: boolean;   // Also hibernate on memory pressure
+  /** How long before hibernated context is considered stale (default: 75min) */
+  contextStalenessThresholdMs: number;
 }
 
 const DEFAULT_CONFIG: HibernationConfig = {
@@ -20,6 +31,7 @@ const DEFAULT_CONFIG: HibernationConfig = {
   checkIntervalMs: 60 * 1000,         // 1 minute
   maxHibernated: 20,
   memoryPressureTrigger: true,
+  contextStalenessThresholdMs: DEFAULT_CONTEXT_STALENESS_THRESHOLD_MS,
 };
 
 export interface HibernatedInstance {
@@ -122,10 +134,32 @@ export class HibernationManager extends EventEmitter {
   markAwoken(instanceId: string): void {
     const state = this.hibernated.get(instanceId);
     if (state) {
+      const now = Date.now();
+      const hibernationDurationMs = now - state.hibernatedAt;
+      const isContextStale = hibernationDurationMs >= this.config.contextStalenessThresholdMs;
+
       this.hibernated.delete(instanceId);
-      this.recentWakes.set(instanceId, Date.now());
-      this.emit('instance:awoken', { instanceId, state });
-      logger.info('Instance awoken', { instanceId });
+      this.recentWakes.set(instanceId, now);
+      this.emit('instance:awoken', {
+        instanceId,
+        state,
+        isContextStale,
+        hibernationDurationMs,
+      });
+
+      if (isContextStale) {
+        logger.info('Instance awoken with stale context — recommend clearing', {
+          instanceId,
+          hibernationDurationMs,
+          thresholdMs: this.config.contextStalenessThresholdMs,
+        });
+        this.emit('instance:stale-context', {
+          instanceId,
+          hibernationDurationMs,
+        });
+      } else {
+        logger.info('Instance awoken', { instanceId, hibernationDurationMs });
+      }
     }
   }
 

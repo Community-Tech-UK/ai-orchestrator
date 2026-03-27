@@ -47,6 +47,13 @@ export class CompactionCoordinator extends EventEmitter {
   // Auto-compact enabled (default true)
   private autoCompactEnabled = true;
 
+  /**
+   * Context token threshold above which compaction should be chunked
+   * to prevent the compaction request itself from exceeding context limits.
+   * Inspired by Claude Code 2.1.83/2.1.85 fixes for /compact on oversized conversations.
+   */
+  private readonly CHUNKED_COMPACTION_THRESHOLD_TOKENS = 100_000;
+
   // Strategy callbacks (injected by wiring code)
   private nativeCompactStrategy: CompactionStrategy | null = null;
   private restartCompactStrategy: CompactionStrategy | null = null;
@@ -211,10 +218,33 @@ export class CompactionCoordinator extends EventEmitter {
     }
   }
 
+  /**
+   * Check if this instance needs chunked compaction due to oversized context.
+   * Returns true if the current context usage exceeds the chunking threshold.
+   */
+  needsChunkedCompaction(instanceId: string): boolean {
+    const usage = this.latestUsage.get(instanceId);
+    if (!usage) return false;
+    return usage.used >= this.CHUNKED_COMPACTION_THRESHOLD_TOKENS;
+  }
+
   private async executeCompaction(instanceId: string): Promise<CompactionResult> {
     this.compactingInstances.add(instanceId);
     const previousUsage = this.latestUsage.get(instanceId);
     this.emit('compaction-started', { instanceId });
+
+    // If context is very large, emit a warning for chunked approach
+    if (this.needsChunkedCompaction(instanceId)) {
+      logger.info('Large context detected — compaction may require multiple passes', {
+        instanceId,
+        usedTokens: previousUsage?.used,
+        threshold: this.CHUNKED_COMPACTION_THRESHOLD_TOKENS,
+      });
+      this.emit('compaction-chunked-start', {
+        instanceId,
+        usedTokens: previousUsage?.used,
+      });
+    }
 
     try {
       // Determine strategy from adapter capability
@@ -254,6 +284,15 @@ export class CompactionCoordinator extends EventEmitter {
 
       const result: CompactionResult = { success: true, method, previousUsage };
       this.emit('compaction-completed', { instanceId, result });
+
+      // Emit PostCompact hook event for downstream processing
+      // (logging, RLM metrics, memory persistence, etc.)
+      this.emit('post-compact-hook', {
+        instanceId,
+        method,
+        success: true,
+        previousUsagePercent: previousUsage?.percentage,
+      });
 
       logger.info('Compaction completed', { instanceId, method });
       return result;

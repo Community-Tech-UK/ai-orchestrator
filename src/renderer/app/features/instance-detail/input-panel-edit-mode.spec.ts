@@ -128,7 +128,6 @@ describe('Edit Mode State', () => {
   it('is a no-op when already in edit mode (repeated UP)', () => {
     const editMode = signal(true);
     const stashedDraft = signal<string | null>('original draft');
-    const editMessageIndex = signal<number | null>(3);
     const message = signal('Previous question');
 
     if (editMode()) {

@@ -222,8 +222,9 @@ export class TokenCounterComponent {
 
   formatNumber(value: number): string {
     if (value < 1000) return value.toString();
-    if (value < 1_000_000) return `${(value / 1000).toFixed(1)}K`;
-    return `${(value / 1_000_000).toFixed(2)}M`;
+    if (value < 1_000_000) return `${(value / 1000).toFixed(1)}k`;
+    // Show compact "1.5m" format for ≥1M tokens (inspired by CC 2.1.84)
+    return `${(value / 1_000_000).toFixed(1)}m`;
   }
 
   formatCost(cost: number | undefined): string {

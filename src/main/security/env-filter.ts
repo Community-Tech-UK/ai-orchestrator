@@ -173,35 +173,38 @@ export function shouldAllowEnvVar(
   value: string | undefined,
   config: EnvFilterConfig = DEFAULT_ENV_FILTER_CONFIG
 ): FilterResult {
-  // Check explicit allowlist first (highest priority)
-  if (config.allowlist.includes(name)) {
-    return { name, allowed: true, reason: 'allowlist' };
-  }
-
-  // Check explicit blocklist
+  // Check explicit blocklist first (always blocked regardless of value)
   if (config.blocklist.includes(name)) {
     return { name, allowed: false, reason: 'blocklist' };
   }
 
-  // Check allow patterns (before block patterns)
-  for (const pattern of config.allowPatterns) {
-    if (pattern.test(name)) {
-      return { name, allowed: true, reason: 'allow_pattern' };
-    }
-  }
-
-  // Check block patterns
+  // Check block patterns by name
   for (const pattern of config.blockPatterns) {
     if (pattern.test(name)) {
       return { name, allowed: false, reason: 'block_pattern' };
     }
   }
 
-  // Check for secret detection in value
+  // Run secret detection BEFORE allowlist/allow-patterns so that a variable
+  // whose value looks like a secret is blocked even if its name matches
+  // an allow pattern (e.g. MY_CONFIG="sk-proj-...").
+  // Codex + GPT-5.4 both flagged the original ordering as a policy gap.
   if (value && config.blockAllSecrets) {
     const secret = detectSecretsInKeyValue(name, value);
     if (secret && config.blockSecretTypes.includes(secret.type)) {
       return { name, allowed: false, reason: 'secret_detected', secretType: secret.type };
+    }
+  }
+
+  // Check explicit allowlist (high priority after security checks)
+  if (config.allowlist.includes(name)) {
+    return { name, allowed: true, reason: 'allowlist' };
+  }
+
+  // Check allow patterns
+  for (const pattern of config.allowPatterns) {
+    if (pattern.test(name)) {
+      return { name, allowed: true, reason: 'allow_pattern' };
     }
   }
 
@@ -275,6 +278,41 @@ export function logBlockedEnvVars(blocked: FilterResult[]): void {
   logger.info('Blocked environment variables', {
     count: blocked.length,
     variables: blocked.map(r => ({ name: r.name, reason: r.reason, secretType: r.secretType })),
+  });
+}
+
+/**
+ * API keys that trusted child processes (CLI adapters, MCP servers) need
+ * to authenticate with their respective AI/VCS providers.
+ *
+ * These are added to the allowlist (which has priority over the blocklist)
+ * so that CLI adapters and MCP servers can inherit them from process.env.
+ * Untrusted or sandboxed processes should use plain getSafeEnv() instead.
+ */
+const TRUSTED_PROCESS_ALLOWED_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'CLAUDE_API_KEY',
+  'GEMINI_API_KEY',
+  'MISTRAL_API_KEY',
+  'GROQ_API_KEY',
+  'COHERE_API_KEY',
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+];
+
+/**
+ * Get a safe environment for trusted child processes (CLI adapters, MCP servers).
+ *
+ * Same as getSafeEnv() but preserves AI provider API keys and VCS tokens
+ * that CLI tools need to authenticate. Use this when spawning CLI adapters
+ * and MCP servers; use plain getSafeEnv() for untrusted/sandboxed processes.
+ */
+export function getSafeEnvForTrustedProcess(
+  additionalEnv?: Record<string, string>,
+): Record<string, string> {
+  return getSafeEnv(additionalEnv, {
+    allowlist: TRUSTED_PROCESS_ALLOWED_KEYS,
   });
 }
 

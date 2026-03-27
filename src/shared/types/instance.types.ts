@@ -231,6 +231,14 @@ export interface InstanceCreateConfig {
   // Phase 2: Hierarchical instance options
   terminationPolicy?: TerminationPolicy; // What happens to children when this instance terminates
   contextInheritance?: Partial<ContextInheritanceConfig>; // Context inheritance settings
+
+  /**
+   * Bare mode: skip hooks, plugins, RLM, and session tracking for lightweight
+   * internal orchestration spawns (verification, debate sub-instances).
+   * Reduces startup overhead and resource usage for ephemeral instances.
+   * Inspired by Claude Code 2.1.81 --bare flag for scripted calls.
+   */
+  bareMode?: boolean;
 }
 
 export interface InstanceSummary {

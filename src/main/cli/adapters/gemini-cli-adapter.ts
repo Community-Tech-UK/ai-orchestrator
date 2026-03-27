@@ -68,6 +68,8 @@ export interface GeminiCliAdapterEvents {
  */
 export class GeminiCliAdapter extends BaseCliAdapter {
   private cliConfig: GeminiCliConfig;
+  /** Running total of tokens used across all turns */
+  private cumulativeTokensUsed = 0;
 
   constructor(config: GeminiCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -527,13 +529,19 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   }
 
   private extractUsage(raw: string): CliUsage {
-    // Try to extract usage from Gemini result event
-    // Format: {"type":"result","stats":{"total_tokens":...,"input_tokens":...,"output_tokens":...}}
+    // Try to extract usage from Gemini stream-json events.
+    // The Gemini CLI may emit token usage in several formats:
+    //   1. {"type":"result","stats":{"total_tokens":N,"input_tokens":N,"output_tokens":N}}
+    //   2. {"type":"result","usageMetadata":{"promptTokenCount":N,"candidatesTokenCount":N,"totalTokenCount":N}}
+    //   3. {"type":"turn.completed","usage":{"input_tokens":N,"output_tokens":N}}
+    //   4. Any event with a top-level "usage" object
     const lines = raw.split('\n').filter((l) => l.trim());
 
     for (const line of lines) {
       try {
         const event = JSON.parse(line);
+
+        // Format 1: result with stats
         if (event.type === 'result' && event.stats) {
           return {
             inputTokens: event.stats.input_tokens || event.stats.input || 0,
@@ -541,16 +549,59 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             totalTokens: event.stats.total_tokens || 0
           };
         }
+
+        // Format 2: result with usageMetadata (Google API style)
+        if (event.type === 'result' && event.usageMetadata) {
+          const meta = event.usageMetadata;
+          const input = meta.promptTokenCount || 0;
+          const output = meta.candidatesTokenCount || 0;
+          return {
+            inputTokens: input,
+            outputTokens: output,
+            totalTokens: meta.totalTokenCount || (input + output)
+          };
+        }
+
+        // Format 3: turn.completed with usage (like Codex)
+        if (event.type === 'turn.completed' && event.usage && typeof event.usage === 'object') {
+          const u = event.usage as Record<string, unknown>;
+          const input = typeof u['input_tokens'] === 'number' ? u['input_tokens'] : 0;
+          const output = typeof u['output_tokens'] === 'number' ? u['output_tokens'] : 0;
+          return {
+            inputTokens: input,
+            outputTokens: output,
+            totalTokens: input + output
+          };
+        }
+
+        // Format 4: any event with a top-level usage object containing token fields
+        if (event.usage && typeof event.usage === 'object') {
+          const u = event.usage as Record<string, unknown>;
+          const input = (typeof u['input_tokens'] === 'number' ? u['input_tokens'] : 0) ||
+            (typeof u['promptTokenCount'] === 'number' ? u['promptTokenCount'] : 0);
+          const output = (typeof u['output_tokens'] === 'number' ? u['output_tokens'] : 0) ||
+            (typeof u['candidatesTokenCount'] === 'number' ? u['candidatesTokenCount'] : 0);
+          const total = (typeof u['total_tokens'] === 'number' ? u['total_tokens'] : 0) ||
+            (typeof u['totalTokenCount'] === 'number' ? u['totalTokenCount'] : 0);
+          if (input || output || total) {
+            return {
+              inputTokens: input,
+              outputTokens: output,
+              totalTokens: total || (input + output)
+            };
+          }
+        }
       } catch {
         /* intentionally ignored: non-JSON lines are skipped during token count parsing */
       }
     }
 
-    // Fallback: estimate from content
-    const tokens = this.estimateTokens(raw);
+    // Fallback: estimate from content (both input and output)
+    const outputTokens = this.estimateTokens(raw);
     return {
-      outputTokens: tokens,
-      totalTokens: tokens
+      inputTokens: 0,
+      outputTokens,
+      totalTokens: outputTokens
     };
   }
 
@@ -625,18 +676,17 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Update context usage using current-turn occupancy, not cumulative lifetime usage.
-      // In exec-per-message mode, summing turn usage can falsely hit compaction thresholds.
+      // Accumulate token usage across turns for meaningful progress tracking.
       if (response.usage) {
-        const usedTokens = response.usage.inputTokens !== undefined ||
-          response.usage.outputTokens !== undefined
+        const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
           ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
           : (response.usage.totalTokens || 0);
+        this.cumulativeTokensUsed += turnTokens;
         const contextWindow = this.getCapabilities().contextWindow;
         const contextUsage: ContextUsage = {
-          used: usedTokens,
+          used: this.cumulativeTokensUsed,
           total: contextWindow,
-          percentage: Math.min((usedTokens / contextWindow) * 100, 100)
+          percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
         };
         this.emit('context', contextUsage);
       }

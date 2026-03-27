@@ -113,6 +113,27 @@ interface ToolIndex {
 /**
  * MCP Tool Search Service
  */
+/**
+ * Maximum length for MCP tool descriptions (in characters).
+ * Prevents context window bloat when many MCP servers are connected.
+ * Inspired by Claude Code 2.1.84 which caps descriptions at 2KB.
+ */
+const MAX_TOOL_DESCRIPTION_LENGTH = 2048;
+
+/**
+ * Truncate a tool description to the maximum allowed length.
+ * Appends an ellipsis indicator if truncation occurs.
+ */
+function truncateDescription(description: string): string {
+  if (description.length <= MAX_TOOL_DESCRIPTION_LENGTH) {
+    return description;
+  }
+  return description.slice(0, MAX_TOOL_DESCRIPTION_LENGTH - 3) + '...';
+}
+
+/**
+ * MCP Tool Search Service
+ */
 export class MCPToolSearchService extends EventEmitter {
   private servers: Map<string, MCPServer> = new Map();
   private index: ToolIndex;
@@ -167,6 +188,11 @@ export class MCPToolSearchService extends EventEmitter {
    * Index a tool for searching
    */
   indexTool(tool: MCPTool): void {
+    // Truncate description to prevent context window bloat
+    if (tool.description && tool.description.length > MAX_TOOL_DESCRIPTION_LENGTH) {
+      tool = { ...tool, description: truncateDescription(tool.description) };
+    }
+
     // Store tool
     this.index.tools.set(tool.id, tool);
 

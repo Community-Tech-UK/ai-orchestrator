@@ -13,6 +13,9 @@ import {
   ConditionOperator,
 } from '../../shared/types/hook.types';
 import { builtInHookRules } from './built-in-rules';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('HookEngine');
 
 export class HookEngine extends EventEmitter {
   private static instance: HookEngine | null = null;
@@ -142,6 +145,24 @@ export class HookEngine extends EventEmitter {
   // ============ Matching Logic ============
 
   private ruleMatches(rule: HookRule, context: HookContext): boolean {
+    // Check lightweight `if` predicates first (short-circuit before expensive evaluation)
+    // This avoids unnecessary executor spawns when the predicate doesn't match.
+    // A failing predicate (e.g. bad regex) blocks the rule rather than letting it pass,
+    // matching the principle of least privilege (flagged by GPT-5.4 review).
+    if (rule.if && rule.if.length > 0) {
+      try {
+        if (!rule.if.every((cond) => this.conditionMatches(cond, context))) {
+          return false;
+        }
+      } catch (err) {
+        logger.warn('Hook `if` predicate threw — blocking rule as precaution', {
+          ruleId: rule.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+    }
+
     // Check tool matcher
     if (rule.toolMatcher && context.toolName) {
       const pattern = this.getRegex(rule.toolMatcher);

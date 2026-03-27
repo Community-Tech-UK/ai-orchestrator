@@ -11,6 +11,7 @@
 import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
 import { getLogger } from '../logging/logger';
+import { getSafeEnvForTrustedProcess } from '../security/env-filter';
 
 const logger = getLogger('McpManager');
 import {
@@ -92,9 +93,38 @@ export class McpManager extends EventEmitter {
   // ============================================
 
   /**
-   * Add a server configuration
+   * Add a server configuration.
+   * Deduplicates servers with the same command+args to prevent double connections
+   * when the same server is configured in multiple places (inspired by CC 2.1.84).
    */
   addServer(config: McpServerConfig): void {
+    // Check for duplicate server by command + args + env signature.
+    // Including env in the key prevents false dedup when the same binary
+    // is configured with different API tokens or scopes (Codex review finding).
+    // Local/explicit config wins over duplicates (first registration wins).
+    if (config.command) {
+      const argsKey = JSON.stringify(config.args || []);
+      const envKey = config.env ? JSON.stringify(Object.keys(config.env).sort()) : '';
+      for (const existing of this.connections.values()) {
+        const existingEnvKey = existing.config.env
+          ? JSON.stringify(Object.keys(existing.config.env).sort())
+          : '';
+        if (
+          existing.config.command === config.command &&
+          JSON.stringify(existing.config.args || []) === argsKey &&
+          existingEnvKey === envKey &&
+          existing.config.id !== config.id
+        ) {
+          logger.info('Skipping duplicate MCP server registration', {
+            newId: config.id,
+            existingId: existing.config.id,
+            command: config.command,
+          });
+          return;
+        }
+      }
+    }
+
     const connection: ServerConnection = {
       config: { ...config, status: 'disconnected' },
       requestId: 0,
@@ -374,8 +404,11 @@ export class McpManager extends EventEmitter {
       throw new Error('No command specified for stdio transport');
     }
 
+    // Use safe environment to prevent credential leakage to MCP server processes.
+    // Server-specific env vars are applied on top of the filtered base.
+    const safeEnv = getSafeEnvForTrustedProcess();
     const proc = spawn(command, args || [], {
-      env: { ...process.env, ...env },
+      env: { ...safeEnv, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -587,9 +620,15 @@ export class McpManager extends EventEmitter {
 
       // Update tools map
       for (const tool of tools) {
+        // Cap tool descriptions at 2KB to prevent context window bloat
+        // when many MCP servers are connected (inspired by Claude Code 2.1.84)
+        const description = tool.description && tool.description.length > 2048
+          ? tool.description.slice(0, 2045) + '...'
+          : tool.description;
+
         const mcpTool: McpTool = {
           name: tool.name,
-          description: tool.description,
+          description,
           inputSchema: tool.inputSchema as McpTool['inputSchema'],
           serverId: connection.config.id,
         };

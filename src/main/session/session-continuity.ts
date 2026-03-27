@@ -136,6 +136,14 @@ export interface ResumeOptions {
   restoreTasks?: boolean;
   restoreEnvironment?: boolean;
   fromSnapshot?: string;
+
+  /**
+   * When true, validates that all parallel tool results are present in the
+   * conversation history before completing resume. Logs warnings for any
+   * tool_result entries that appear to have placeholders or missing content.
+   * Inspired by Claude Code 2.1.80 fix for --resume dropping parallel tool results.
+   */
+  validateParallelToolResults?: boolean;
 }
 
 const DEFAULT_CONFIG: ContinuityConfig = {

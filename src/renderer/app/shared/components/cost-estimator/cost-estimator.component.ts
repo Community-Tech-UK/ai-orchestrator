@@ -358,7 +358,8 @@ export class CostEstimatorComponent {
 
   formatTokens(tokens: number): string {
     if (tokens < 1000) return tokens.toString();
-    if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}K`;
-    return `${(tokens / 1_000_000).toFixed(2)}M`;
+    if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}k`;
+    // Show compact "1.5m" format for ≥1M tokens (inspired by CC 2.1.84)
+    return `${(tokens / 1_000_000).toFixed(1)}m`;
   }
 }

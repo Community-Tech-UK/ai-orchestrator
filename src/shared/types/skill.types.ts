@@ -12,6 +12,22 @@ export interface SkillMetadata {
   category?: string;
   icon?: string;
 
+  /**
+   * Model effort level override for this skill.
+   * Skills can declare their required effort so verification skills use high
+   * effort while formatting skills use low effort — saving tokens.
+   * Inspired by Claude Code 2.1.76/2.1.80 per-skill effort frontmatter.
+   */
+  effort?: 'low' | 'medium' | 'high';
+
+  /**
+   * Preferred model override for this skill.
+   * When set, instances executing this skill will use this model
+   * instead of the default. Supports tier names (fast/balanced/powerful)
+   * or concrete model IDs.
+   */
+  preferredModel?: string;
+
   // Progressive loading hints
   coreSize?: number; // SKILL.md size in bytes
   referenceCount?: number;
@@ -229,6 +245,16 @@ export function parseSkillFrontmatter(content: string): SkillMetadata | null {
         break;
       case 'icon':
         metadata.icon = value;
+        break;
+      case 'effort':
+        if (value === 'low' || value === 'medium' || value === 'high') {
+          metadata.effort = value;
+        }
+        break;
+      case 'preferredModel':
+      case 'preferred_model':
+      case 'model':
+        metadata.preferredModel = value;
         break;
     }
   }
