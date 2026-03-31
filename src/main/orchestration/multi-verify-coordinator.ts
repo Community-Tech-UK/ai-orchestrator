@@ -27,6 +27,7 @@ import { getVerificationCache, type VerificationCache } from './verification-cac
 import { getConfidenceAnalyzer, type ConfidenceAnalyzer } from './confidence-analyzer';
 import { getEmbeddingService as getOrchestrationEmbeddingService, type EmbeddingService, type SemanticClusterConfig, type ResponseCluster } from './embedding-service';
 import { getLogger } from '../logging/logger';
+import { getConfidenceFilter } from './confidence-filter';
 import { createCliAdapter, resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -267,6 +268,21 @@ export class MultiVerifyCoordinator extends EventEmitter {
     const successfulResponses = responses.filter((r) => !r.error && !this.failedAgents.has(r.agentId));
     this.checkSufficientAgents(request, successfulResponses.length);
 
+    // Filter low-confidence responses before analysis
+    const confidenceFilter = getConfidenceFilter();
+    const { accepted, rejected } = confidenceFilter.filterByThreshold(successfulResponses, config.confidenceThreshold);
+
+    if (rejected.length > 0) {
+      logger.info('Filtered low-confidence verification responses', {
+        verificationId: request.id,
+        accepted: accepted.length,
+        rejected: rejected.length,
+      });
+    }
+
+    // Use accepted responses for further analysis; fallback to all if none pass
+    const responsesToAnalyze = accepted.length > 0 ? accepted : successfulResponses;
+
     // Emit progress: analyzing phase
     this.emitProgress(request, 'analyzing', successfulCount, config.agentCount, 'Analyzing agent responses');
 
@@ -275,7 +291,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
     let synthesisConfidence: number;
     let debateRounds: DebateSessionRound[] | undefined;
 
-    const analysis = await this.analyzeResponses(successfulResponses, config);
+    const analysis = await this.analyzeResponses(responsesToAnalyze, config);
 
     // Emit progress: synthesizing phase
     this.emitProgress(
@@ -288,20 +304,20 @@ export class MultiVerifyCoordinator extends EventEmitter {
 
     switch (config.synthesisStrategy) {
       case 'debate':
-        const debateResult = await this.runDebate(request, successfulResponses, analysis);
+        const debateResult = await this.runDebate(request, responsesToAnalyze, analysis);
         synthesizedResponse = debateResult.synthesizedResponse;
         synthesisConfidence = debateResult.confidence;
         debateRounds = debateResult.rounds;
         break;
 
       case 'hierarchical':
-        const hierResult = await this.synthesizeHierarchical(request, successfulResponses, analysis);
+        const hierResult = await this.synthesizeHierarchical(request, responsesToAnalyze, analysis);
         synthesizedResponse = hierResult.synthesizedResponse;
         synthesisConfidence = hierResult.confidence;
         break;
 
       default:
-        const result = await this.synthesize(request, successfulResponses, analysis, config.synthesisStrategy);
+        const result = await this.synthesize(request, responsesToAnalyze, analysis, config.synthesisStrategy);
         synthesizedResponse = result.synthesizedResponse;
         synthesisConfidence = result.confidence;
     }
