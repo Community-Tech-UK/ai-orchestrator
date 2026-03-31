@@ -72,6 +72,10 @@ import { getCliDetectionService } from './cli/cli-detection';
 // Child auto-announce
 import { getChildAnnouncer } from './orchestration/child-announcer';
 import type { ChildAnnouncement } from '../shared/types/child-announce.types';
+// Cross-project pattern adoptions
+import { getAgentTreePersistence } from './session/agent-tree-persistence';
+import { getPermissionRegistry } from './orchestration/permission-registry';
+import { getOrchestrationSnapshotManager } from './orchestration/orchestration-snapshot';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -341,6 +345,23 @@ class AIOrchestratorApp {
 
         // --- CLI Detection ---
         { name: 'CLI detection', fn: () => { getCliDetectionService(); } },
+
+        // === Cross-project pattern adoptions ===
+        { name: 'Cross-project patterns', fn: () => {
+          // Initialize agent tree persistence
+          getAgentTreePersistence().initialize().catch((err) => {
+            logger.warn('Agent tree persistence initialization failed', { error: err instanceof Error ? err.message : String(err) });
+          });
+
+          // Initialize permission registry cleanup on instance removal
+          const permissionRegistry = getPermissionRegistry();
+          this.instanceManager.on('instance:removed', (instanceId: string) => {
+            permissionRegistry.clearForInstance(instanceId);
+            getOrchestrationSnapshotManager().clearForInstance(instanceId);
+          });
+
+          logger.info('Cross-project patterns initialized');
+        } },
       ];
 
       for (const step of steps) {
