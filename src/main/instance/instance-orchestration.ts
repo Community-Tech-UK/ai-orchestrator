@@ -26,7 +26,8 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import type { TaskExecution } from '../../shared/types/task.types';
 import type { ToolUsageRecord } from '../../shared/types/self-improvement.types';
 import type { FastPathResult } from './instance-types';
-import type { ChildAnnouncement } from '../../shared/types/child-announce.types';
+import { getChildErrorClassifier } from '../orchestration/child-error-classifier';
+import type { ChildAnnouncement, ChildErrorClassification } from '../../shared/types/child-announce.types';
 import type {
   ReportResultCommand,
   GetChildSummaryCommand,
@@ -477,6 +478,18 @@ export class InstanceOrchestrationManager {
     const resultStorage = getChildResultStorage();
     const storedResult = await resultStorage.getChildSummary(child.id);
 
+    const isFailed = child.status === 'failed' || child.status === 'error';
+
+    let errorClassification: ChildErrorClassification | undefined;
+    if (isFailed) {
+      // Find the last error message in the output buffer
+      const lastError = child.outputBuffer
+        .filter(m => m.type === 'error')
+        .pop();
+      const errorText = lastError?.content ?? `Instance ended with status: ${child.status}`;
+      errorClassification = getChildErrorClassifier().classify(errorText, child.status);
+    }
+
     return {
       childId: child.id,
       parentId,
@@ -484,7 +497,7 @@ export class InstanceOrchestrationManager {
       success: storedResult?.success ?? (child.status !== 'failed' && child.status !== 'error'),
       summary: storedResult?.summary ?? `Child "${child.displayName}" finished with status: ${child.status}`,
       conclusions: storedResult?.conclusions ?? [],
-      errorClassification: undefined,
+      errorClassification,
       duration: Date.now() - child.createdAt,
       tokensUsed: child.totalTokensUsed,
       completedAt: Date.now(),
