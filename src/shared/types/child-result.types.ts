@@ -5,6 +5,8 @@
  * externally, preventing context overflow in parent instances.
  */
 
+import type { ChildErrorClassification } from './child-announce.types';
+
 /**
  * Types of artifacts a child can report
  */
@@ -72,6 +74,8 @@ export interface ChildResult {
 
   // Metadata
   success: boolean;
+  /** Structured error classification (populated on failure) */
+  errorClassification?: ChildErrorClassification;
   completedAt: number;
   duration: number; // ms
   tokensUsed: number;
