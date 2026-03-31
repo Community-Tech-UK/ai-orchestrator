@@ -9,6 +9,7 @@ import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
 import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
+import { getChildAnnouncer } from '../orchestration/child-announcer';
 import { getModelRouter, type RoutingDecision, type ModelRouter } from '../routing';
 import { getUnifiedMemory } from '../memory';
 import { getHabitTracker } from '../learning/habit-tracker';
@@ -25,6 +26,7 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import type { TaskExecution } from '../../shared/types/task.types';
 import type { ToolUsageRecord } from '../../shared/types/self-improvement.types';
 import type { FastPathResult } from './instance-types';
+import type { ChildAnnouncement } from '../../shared/types/child-announce.types';
 import type {
   ReportResultCommand,
   GetChildSummaryCommand,
@@ -247,6 +249,11 @@ export class InstanceOrchestrationManager {
       'terminate-child',
       async (parentId: string, command: TerminateChildCommand) => {
         try {
+          // Announce to parent before terminating (child instance must be fetched before removal)
+          const child = this.deps.getInstance(command.childId);
+          if (child) {
+            this.announceChildCompletion(child, parentId);
+          }
           await this.deps.terminateInstance(command.childId, true);
           this.orchestration.notifyChildTerminated(parentId, command.childId);
         } catch (error) {
@@ -456,6 +463,49 @@ export class InstanceOrchestrationManager {
         callback(section);
       }
     );
+  }
+
+  // ============================================
+  // Child Announcements
+  // ============================================
+
+  /**
+   * Build a ChildAnnouncement from a completed/failed child instance.
+   * Fetches stored result summary if available, falls back to instance status.
+   */
+  async buildAnnouncement(child: Instance, parentId: string): Promise<ChildAnnouncement | null> {
+    const resultStorage = getChildResultStorage();
+    const storedResult = await resultStorage.getChildSummary(child.id);
+
+    return {
+      childId: child.id,
+      parentId,
+      childName: child.displayName,
+      success: storedResult?.success ?? (child.status !== 'failed' && child.status !== 'error'),
+      summary: storedResult?.summary ?? `Child "${child.displayName}" finished with status: ${child.status}`,
+      conclusions: storedResult?.conclusions ?? [],
+      errorClassification: undefined,
+      duration: Date.now() - child.createdAt,
+      tokensUsed: child.totalTokensUsed,
+      completedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Announce a child's completion to its parent
+   */
+  announceChildCompletion(child: Instance, parentId: string): void {
+    this.buildAnnouncement(child, parentId).then((announcement) => {
+      if (announcement) {
+        getChildAnnouncer().announce(announcement);
+      }
+    }).catch((err) => {
+      logger.warn('Failed to build child announcement', {
+        childId: child.id,
+        parentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   // ============================================

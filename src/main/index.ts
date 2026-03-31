@@ -69,6 +69,9 @@ import { getTriggerMatcher } from './skills/trigger-matcher';
 import { getEnhancedHookExecutor } from './hooks/enhanced-hook-executor';
 // CLI singletons
 import { getCliDetectionService } from './cli/cli-detection';
+// Child auto-announce
+import { getChildAnnouncer } from './orchestration/child-announcer';
+import type { ChildAnnouncement } from '../shared/types/child-announce.types';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -203,6 +206,21 @@ class AIOrchestratorApp {
         { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(this.instanceManager) },
         { name: 'Debate invokers', fn: () => registerDefaultDebateInvoker(this.instanceManager) },
         { name: 'Workflow invokers', fn: () => registerDefaultWorkflowInvoker(this.instanceManager) },
+        { name: 'Child auto-announce', fn: () => {
+          const childAnnouncer = getChildAnnouncer();
+          childAnnouncer.on('child:announced', (announcement: ChildAnnouncement, message: string) => {
+            const parent = this.instanceManager.getInstance(announcement.parentId);
+            if (parent && parent.status !== 'terminated') {
+              this.instanceManager.sendInput(announcement.parentId, message).catch((err) => {
+                logger.warn('Failed to deliver child announcement to parent', {
+                  parentId: announcement.parentId,
+                  childId: announcement.childId,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              });
+            }
+          });
+        } },
         { name: 'Plugin manager', fn: () => getOrchestratorPluginManager().initialize(this.instanceManager) },
         { name: 'Observation ingestor', fn: () => getObservationIngestor().initialize(this.instanceManager) },
         { name: 'Observer agent', fn: () => { getObserverAgent(); } },
