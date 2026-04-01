@@ -696,6 +696,14 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     });
 
+    adapter.on('cost', (cost: { costEstimate: number }) => {
+      const instance = this.deps.getInstance(instanceId);
+      if (instance) {
+        instance.contextUsage = { ...instance.contextUsage, costEstimate: cost.costEstimate };
+        this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+      }
+    });
+
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
       const payloadMetadata = payload.metadata || {};
       const approvalTraceId = typeof payloadMetadata['approvalTraceId'] === 'string'

@@ -15,10 +15,14 @@ describe('provider type helpers', () => {
     ).toBe(1000000);
   });
 
-  it('returns 200k default for bare Claude model names (1M requires [1m] suffix or 4.6+)', () => {
-    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.OPUS)).toBe(200000);
+  it('returns 1M for bare opus/sonnet (they resolve server-side to 4.6+)', () => {
+    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.OPUS)).toBe(1000000);
+    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.SONNET)).toBe(1000000);
+  });
+
+  it('returns 200k for pinned older Claude models', () => {
     expect(getProviderModelContextWindow('claude-cli', 'claude-opus-4-5')).toBe(200000);
-    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.SONNET)).toBe(200000);
+    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.HAIKU)).toBe(200000);
   });
 
   it('returns 1M for 4.6+ models that natively support it', () => {

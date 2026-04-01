@@ -336,8 +336,12 @@ export function getProviderModelContextWindow(
     return 1000000;
   }
 
-  // Models that natively support 1M context (no beta header needed)
+  // Models that natively support 1M context (no beta header needed).
+  // Bare "opus" / "sonnet" resolve server-side to the latest (4.6+),
+  // which has native 1M support.
   if (
+    normalizedModel === 'opus' ||
+    normalizedModel === 'sonnet' ||
     normalizedModel.includes('opus-4-6') ||
     normalizedModel.includes('opus-4.6') ||
     normalizedModel.includes('sonnet-4-6') ||
@@ -346,7 +350,7 @@ export function getProviderModelContextWindow(
     return 1000000;
   }
 
-  // All other Claude models default to 200k
+  // All other Claude models (haiku, pinned older versions) default to 200k
   return 200000;
 }
 

@@ -163,6 +163,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private lastKnownContextWindow: number;
   /** Floor value from model config — CLI-reported values cannot go below this */
   private readonly contextWindowFloor: number;
+  /** Whether we received per-call usage this turn (assistant/system messages). When true,
+   *  the result handler should NOT overwrite context usage with cumulative modelUsage totals. */
+  private hasPerCallUsageThisTurn = false;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     const config: CliAdapterConfig = {
@@ -902,7 +905,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           });
         }
 
-        // Extract context usage from assistant message (for real-time updates)
+        // Extract context usage from assistant message (for real-time updates).
+        // This is per-API-call usage and correctly reflects current context occupancy.
         if (assistantMsg.message?.usage) {
           const usage = assistantMsg.message.usage;
           // All input tokens (cached or not) occupy the context window.
@@ -916,6 +920,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           const contextWindow = this.lastKnownContextWindow;
           const percentage = (totalUsedTokens / contextWindow) * 100;
 
+          this.hasPerCallUsageThisTurn = true;
           this.emit('context', {
             used: totalUsedTokens,
             total: contextWindow,
@@ -1087,7 +1092,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             output: 15.0
           };
 
-          // All input tokens (cached or not) occupy the context window.
+          // Per-API-call usage — correctly reflects current context occupancy.
           // input_tokens = non-cached, cache_creation/cache_read = cached portions.
           const inputTokens = (message.usage.input_tokens || 0)
             + (message.usage.cache_creation_input_tokens || 0)
@@ -1106,6 +1111,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             ? (totalUsedTokens / contextWindow) * 100
             : 0;
 
+          this.hasPerCallUsageThisTurn = true;
           this.emit('context', {
             used: totalUsedTokens,
             total: contextWindow,
@@ -1161,31 +1167,39 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       case 'result': {
         const resultMsg = raw;
 
-        // Extract context usage from result message
-        if (resultMsg.modelUsage || resultMsg.usage) {
-          // Get the model's context window from modelUsage if available
-          let contextWindow = this.lastKnownContextWindow;
+        // Update context window size from modelUsage (the contextWindow field
+        // is per-model, not cumulative — safe to use).
+        // IMPORTANT: modelUsage.inputTokens / .outputTokens are SESSION-LEVEL
+        // CUMULATIVE totals, NOT current context occupancy. Using them for
+        // context % would massively overcount after multi-call agentic turns.
+        if (resultMsg.modelUsage) {
+          const modelKeys = Object.keys(resultMsg.modelUsage);
+          if (modelKeys.length > 0) {
+            const modelData = resultMsg.modelUsage[modelKeys[0]];
+            // Use CLI-reported context window but never go below our known floor.
+            const cliReported = modelData.contextWindow || this.lastKnownContextWindow;
+            const contextWindow = Math.max(cliReported, this.contextWindowFloor);
+            this.lastKnownContextWindow = contextWindow;
+          }
+        }
+
+        // Emit context usage only if we didn't already get accurate per-call
+        // usage from assistant or system messages this turn.
+        if (!this.hasPerCallUsageThisTurn) {
+          const contextWindow = this.lastKnownContextWindow;
           let totalUsedTokens = 0;
 
           if (resultMsg.modelUsage) {
-            // modelUsage is keyed by model name, get the first one
+            // Fallback: use cumulative modelUsage when no per-call data available.
+            // This overcounts but is better than showing 0%.
             const modelKeys = Object.keys(resultMsg.modelUsage);
             if (modelKeys.length > 0) {
               const modelData = resultMsg.modelUsage[modelKeys[0]];
-              // Use CLI-reported value but never go below our known floor.
-              // Claude Code CLI has bugs where it reports 200k for 1M models
-              // (see GitHub issues #23432, #34083, #36649).
-              const cliReported = modelData.contextWindow || this.lastKnownContextWindow;
-              contextWindow = Math.max(cliReported, this.contextWindowFloor);
-              // Cache for future streaming emissions
-              this.lastKnownContextWindow = contextWindow;
-              // inputTokens + outputTokens = actual context window usage
               totalUsedTokens =
                 (modelData.inputTokens || 0) +
                 (modelData.outputTokens || 0);
             }
           } else if (resultMsg.usage) {
-            // All input tokens (cached or not) occupy the context window.
             totalUsedTokens =
               (resultMsg.usage.input_tokens || 0) +
               (resultMsg.usage.cache_creation_input_tokens || 0) +
@@ -1193,17 +1207,26 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               (resultMsg.usage.output_tokens || 0);
           }
 
-          const percentage = (totalUsedTokens / contextWindow) * 100;
-          const costEstimate = resultMsg.total_cost_usd || 0;
+          if (totalUsedTokens > 0) {
+            const percentage = (totalUsedTokens / contextWindow) * 100;
+            const costEstimate = resultMsg.total_cost_usd || 0;
 
-          this.emit('context', {
-            used: totalUsedTokens,
-            total: contextWindow,
-            percentage: Math.min(percentage, 100),
-            costEstimate
-          });
+            this.emit('context', {
+              used: totalUsedTokens,
+              total: contextWindow,
+              percentage: Math.min(percentage, 100),
+              costEstimate
+            });
+          }
+        } else if (resultMsg.total_cost_usd !== undefined) {
+          // We have accurate per-call usage but result has the session cost.
+          // Emit a cost-only event using the 'cost' channel so downstream
+          // can merge it without overwriting accurate token values.
+          this.emit('cost', { costEstimate: resultMsg.total_cost_usd });
         }
 
+        // Reset for next turn
+        this.hasPerCallUsageThisTurn = false;
         this.emit('status', 'idle' as InstanceStatus);
         break;
       }

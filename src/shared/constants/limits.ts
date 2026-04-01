@@ -73,10 +73,10 @@ export const TIMEOUTS = {
  * See: https://github.com/anthropics/claude-code/issues/23432
  */
 export const CONTEXT_WINDOWS = {
-  // Claude models — default (200k) context
+  // Claude models — Opus 4.6+ and Sonnet 4.6+ natively support 1M
   CLAUDE_DEFAULT: 200000,
-  CLAUDE_OPUS: 200000,
-  CLAUDE_SONNET: 200000,
+  CLAUDE_OPUS: 1000000,
+  CLAUDE_SONNET: 1000000,
   CLAUDE_HAIKU: 200000,
 
   // Claude models — 1M context (Opus 4.6+, Sonnet 4.6+, or [1m] suffix)
