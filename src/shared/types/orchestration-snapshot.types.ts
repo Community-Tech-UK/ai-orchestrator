@@ -3,7 +3,7 @@
  */
 
 export interface OrchestrationSnapshot {
-  activeChildren: Map<string, ChildSnapshot[]>;
+  activeChildren: Record<string, ChildSnapshot[]>;
   activeDebates: DebateSnapshot[];
   activeVerifications: VerificationSnapshot[];
   pendingActions: PendingActionSnapshot[];

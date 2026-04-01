@@ -5,16 +5,15 @@
  * provider and generates actionable recommendations.
  */
 
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
-import { HealthStatus } from '../core/system/health-checker';
+import type { HealthStatus } from '../core/system/health-checker';
 
+const execFileAsync = promisify(execFile);
 const logger = getLogger('ProviderDoctor');
 
 export type ProbeStatus = 'pass' | 'fail' | 'skip' | 'timeout';
-
-// Re-export HealthStatus so consumers can import from a single location
-export type { HealthStatus };
 
 export interface ProbeResult {
   name: string;
@@ -88,7 +87,7 @@ export class ProviderDoctor {
 
           const start = Date.now();
           try {
-            execFileSync('which', [cmd], { timeout: 5000, stdio: 'pipe' });
+            await execFileAsync('which', [cmd], { timeout: 5000 });
             return {
               name: 'cli_installed',
               status: 'pass' as const,

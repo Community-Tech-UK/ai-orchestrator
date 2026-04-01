@@ -19,6 +19,22 @@ import { AGENT_TREE_SCHEMA_VERSION } from '../../shared/types/agent-tree.types';
 
 const logger = getLogger('AgentTreePersistence');
 
+interface InstanceData {
+  id: string;
+  displayName: string;
+  parentId: string | null;
+  childrenIds: string[];
+  depth: number;
+  status: string;
+  provider: string;
+  currentModel?: string;
+  workingDirectory: string;
+  agentId?: string;
+  sessionId: string;
+  totalTokensUsed: number;
+  createdAt: number;
+}
+
 export class AgentTreePersistence {
   private static instance: AgentTreePersistence | null = null;
   private storagePath: string;
@@ -50,21 +66,7 @@ export class AgentTreePersistence {
    */
   buildSnapshot(
     rootId: string,
-    instances: Array<{
-      id: string;
-      displayName: string;
-      parentId: string | null;
-      childrenIds: string[];
-      depth: number;
-      status: string;
-      provider: string;
-      currentModel?: string;
-      workingDirectory: string;
-      agentId?: string;
-      sessionId: string;
-      totalTokensUsed: number;
-      createdAt: number;
-    }>,
+    instances: InstanceData[],
   ): AgentTreeSnapshot {
     const instanceMap = new Map(instances.map(i => [i.id, i]));
     const nodes: AgentTreeNode[] = [];
@@ -173,17 +175,26 @@ export class AgentTreePersistence {
     await this.initialize();
     try {
       const data = await fs.readFile(path.join(this.storagePath, `${snapshotId}.json`), 'utf-8');
-      return JSON.parse(data) as AgentTreeSnapshot;
+      const snapshot = JSON.parse(data) as AgentTreeSnapshot;
+      if (snapshot.schemaVersion !== AGENT_TREE_SCHEMA_VERSION) {
+        logger.warn('Snapshot schema version mismatch', {
+          snapshotId,
+          expected: AGENT_TREE_SCHEMA_VERSION,
+          got: snapshot.schemaVersion,
+        });
+        return null;
+      }
+      return snapshot;
     } catch {
       logger.warn('Failed to load agent tree snapshot', { snapshotId });
       return null;
     }
   }
 
-  async listSnapshots(): Promise<Array<{ id: string; rootId: string; totalInstances: number; timestamp: number }>> {
+  async listSnapshots(): Promise<{ id: string; rootId: string; totalInstances: number; timestamp: number }[]> {
     await this.initialize();
     const files = await fs.readdir(this.storagePath);
-    const snapshots: Array<{ id: string; rootId: string; totalInstances: number; timestamp: number }> = [];
+    const snapshots: { id: string; rootId: string; totalInstances: number; timestamp: number }[] = [];
     for (const file of files) {
       if (!file.endsWith('.json')) continue;
       try {

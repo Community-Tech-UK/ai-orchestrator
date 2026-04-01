@@ -63,8 +63,12 @@ export class PermissionRegistry extends EventEmitter {
   listPending(): PermissionRequest[] { return Array.from(this.pending.values()).map(e => e.request); }
 
   clearForInstance(instanceId: string): void {
-    for (const [id, entry] of this.pending) {
-      if (entry.request.instanceId === instanceId) this.resolve(id, false, 'parent_deny');
+    // Collect IDs first to avoid modifying the Map during iteration
+    const toResolve = [...this.pending.entries()]
+      .filter(([, e]) => e.request.instanceId === instanceId)
+      .map(([id]) => id);
+    for (const id of toResolve) {
+      this.resolve(id, false, 'parent_deny');
     }
   }
 }

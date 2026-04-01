@@ -29,6 +29,7 @@ export class ConfidenceFilter {
   private static instance: ConfidenceFilter | null = null;
   private config: ConfidenceFilterConfig = { ...DEFAULT_CONFIG };
 
+  // eslint-disable-next-line @typescript-eslint/no-empty-function -- singleton pattern
   private constructor() {}
 
   static getInstance(): ConfidenceFilter {
@@ -44,6 +45,10 @@ export class ConfidenceFilter {
 
   configure(config: Partial<ConfidenceFilterConfig>): void {
     this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): ConfidenceFilterConfig {
+    return { ...this.config };
   }
 
   /**

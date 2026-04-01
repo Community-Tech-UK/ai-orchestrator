@@ -250,10 +250,10 @@ export class InstanceOrchestrationManager {
       'terminate-child',
       async (parentId: string, command: TerminateChildCommand) => {
         try {
-          // Announce to parent before terminating (child instance must be fetched before removal)
+          // Announce to parent before terminating — must await to capture child state before cleanup
           const child = this.deps.getInstance(command.childId);
           if (child) {
-            this.announceChildCompletion(child, parentId);
+            await this.announceChildCompletion(child, parentId);
           }
           await this.deps.terminateInstance(command.childId, true);
           this.orchestration.notifyChildTerminated(parentId, command.childId);
@@ -505,20 +505,22 @@ export class InstanceOrchestrationManager {
   }
 
   /**
-   * Announce a child's completion to its parent
+   * Announce a child's completion to its parent.
+   * Must be awaited before terminating the child to avoid a race condition.
    */
-  announceChildCompletion(child: Instance, parentId: string): void {
-    this.buildAnnouncement(child, parentId).then((announcement) => {
+  async announceChildCompletion(child: Instance, parentId: string): Promise<void> {
+    try {
+      const announcement = await this.buildAnnouncement(child, parentId);
       if (announcement) {
         getChildAnnouncer().announce(announcement);
       }
-    }).catch((err) => {
+    } catch (err) {
       logger.warn('Failed to build child announcement', {
         childId: child.id,
         parentId,
         error: err instanceof Error ? err.message : String(err),
       });
-    });
+    }
   }
 
   // ============================================
