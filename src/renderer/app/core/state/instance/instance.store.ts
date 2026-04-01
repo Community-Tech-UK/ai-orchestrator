@@ -196,6 +196,22 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
+
+    // Listen for input-required events (permission/approval prompts) to track pending approvals
+    this.unsubscribes.push(
+      this.ipc.onInputRequired((rawPayload: unknown) => {
+        const payload = rawPayload as { instanceId: string; requestId: string };
+        if (payload.instanceId) {
+          // Check if YOLO mode is enabled — skip tracking if so
+          const inst = this.stateService.getInstance(payload.instanceId);
+          if (inst?.yoloMode) return;
+
+          this.stateService.updateInstance(payload.instanceId, {
+            pendingApprovalCount: (inst?.pendingApprovalCount ?? 0) + 1,
+          });
+        }
+      })
+    );
   }
 
   private setupBatcher(): void {
@@ -234,6 +250,11 @@ export class InstanceStore implements OnDestroy {
 
     // Track busy-since timestamps for elapsed time display
     this.updateBusySince(update.instanceId, newStatus);
+
+    // Clear pending approval count when instance resumes work or is terminated
+    if (newStatus === 'busy' || newStatus === 'terminated') {
+      this.clearPendingApprovals(update.instanceId);
+    }
 
     // Update state FIRST so processMessageQueue sees the new status
     this.stateService.state.update((current) => {
@@ -277,12 +298,16 @@ export class InstanceStore implements OnDestroy {
       previousStatuses.set(update.instanceId, inst?.status);
     }
 
-    // Handle activity clearing and busy-since tracking
+    // Handle activity clearing, approval clearing, and busy-since tracking
     for (const update of updates) {
       const newStatus = update.status as InstanceStatus;
       if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'terminated' || newStatus === 'hibernated') {
         this.activityDebouncer.clearActivity(update.instanceId);
         this.outputStore.flushInstanceOutput(update.instanceId);
+      }
+      // Clear pending approval count when instance resumes work or is terminated
+      if (newStatus === 'busy' || newStatus === 'terminated') {
+        this.clearPendingApprovals(update.instanceId);
       }
       this.updateBusySince(update.instanceId, newStatus);
     }
@@ -518,6 +543,26 @@ export class InstanceStore implements OnDestroy {
     const response = await this.ipc.compactInstance(instanceId);
     if (!response.success) {
       console.error('Compaction failed:', response.error?.message);
+    }
+  }
+
+  /** Decrement pending approval count for an instance (called after approval response) */
+  decrementPendingApproval(instanceId: string): void {
+    const inst = this.stateService.getInstance(instanceId);
+    if (inst && (inst.pendingApprovalCount ?? 0) > 0) {
+      this.stateService.updateInstance(instanceId, {
+        pendingApprovalCount: (inst.pendingApprovalCount ?? 0) - 1,
+      });
+    }
+  }
+
+  /** Clear all pending approvals for an instance (e.g., when YOLO mode is toggled on) */
+  clearPendingApprovals(instanceId: string): void {
+    const inst = this.stateService.getInstance(instanceId);
+    if (inst && (inst.pendingApprovalCount ?? 0) > 0) {
+      this.stateService.updateInstance(instanceId, {
+        pendingApprovalCount: 0,
+      });
     }
   }
 }

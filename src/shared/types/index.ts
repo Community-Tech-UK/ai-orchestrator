@@ -23,3 +23,5 @@ export * from './cli-detection.types';
 export * from './verification-ui.types';
 export * from './error-recovery.types';
 export * from './codebase.types';
+export * from './coordinator-progress.types';
+export * from './tool-permission.types';

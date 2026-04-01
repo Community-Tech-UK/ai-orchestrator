@@ -24,6 +24,8 @@ import type {
   ConsensusProgressEvent,
 } from '../../shared/types/consensus.types';
 import { getLogger } from '../logging/logger';
+import { getErrorRecoveryManager } from '../core/error-recovery';
+import { ErrorCategory } from '../../shared/types/error-recovery.types';
 
 const logger = getLogger('ConsensusCoordinator');
 
@@ -172,7 +174,16 @@ export class ConsensusCoordinator extends EventEmitter {
 
       return result;
     } catch (error) {
-      logger.error('Consensus query failed', error instanceof Error ? error : undefined, { queryId });
+      const classified = getErrorRecoveryManager().classifyError(
+        error instanceof Error ? error : new Error(String(error)),
+        'ConsensusCoordinator'
+      );
+      logger.error('Consensus query failed', error instanceof Error ? error : undefined, {
+        queryId,
+        category: classified.category,
+        severity: classified.severity,
+        recoverable: classified.recoverable,
+      });
       this.emitProgress(queryId, 'error', [], []);
       return this.emptyResult(startTime, error instanceof Error ? error.message : String(error));
     } finally {
@@ -232,14 +243,31 @@ export class ConsensusCoordinator extends EventEmitter {
       const durationMs = Date.now() - providerStart;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      logger.warn('Provider query failed', { provider: spec.provider, error: errorMessage });
+      const classified = getErrorRecoveryManager().classifyError(
+        error instanceof Error ? error : new Error(errorMessage),
+        `ConsensusCoordinator.queryProvider[${spec.provider}]`
+      );
+
+      const isTransient =
+        classified.category === ErrorCategory.TRANSIENT ||
+        classified.category === ErrorCategory.RATE_LIMITED;
+
+      logger.warn('Provider query failed', {
+        provider: spec.provider,
+        error: errorMessage,
+        category: classified.category,
+        recoverable: classified.recoverable,
+        isTransient,
+      });
 
       return {
         provider: spec.provider,
         model: spec.model,
         content: '',
         success: false,
-        error: errorMessage,
+        error: isTransient
+          ? `[${classified.category}] ${errorMessage}`
+          : errorMessage,
         durationMs,
       };
     } finally {

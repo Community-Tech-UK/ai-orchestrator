@@ -3,7 +3,6 @@
  * Extends BaseCliAdapter for multi-CLI support
  */
 
-import { ChildProcess } from 'child_process';
 import { createHash } from 'crypto';
 import {
   BaseCliAdapter,
@@ -14,7 +13,8 @@ import {
   CliMessage,
   CliResponse,
   CliToolCall,
-  CliUsage
+  CliUsage,
+  ndjsonSafeStringify
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { InputFormatter } from '../input-formatter';
@@ -25,7 +25,8 @@ import type {
   OutputMessage,
   ContextUsage,
   InstanceStatus,
-  ThinkingContent
+  ThinkingContent,
+  FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
@@ -36,6 +37,65 @@ import {
 } from '../../../shared/types/provider.types';
 
 const logger = getLogger('ClaudeCliAdapter');
+
+/**
+ * Shape of a content block inside raw CLI NDJSON assistant/user messages.
+ * The typed CliStreamMessage union is minimal — the actual CLI emits richer payloads.
+ */
+interface RawContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  content?: string | RawContentBlock[];
+  is_error?: boolean;
+  thinking?: string;
+  tool_use_id?: string;
+  [key: string]: unknown;
+}
+
+/** Raw assistant/user message payload from Claude CLI NDJSON stream */
+interface RawCliPayload {
+  type: string;
+  subtype?: string;
+  timestamp?: number;
+  message?: {
+    content?: RawContentBlock[];
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    };
+    model?: string;
+    role?: string;
+  };
+  tool?: {
+    id?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+  };
+  content?: string;
+  is_error?: boolean;
+  modelUsage?: Record<string, {
+    inputTokens?: number;
+    outputTokens?: number;
+    contextWindow?: number;
+  }>;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    total_tokens?: number;
+  };
+  total_cost_usd?: number;
+  session_id?: string;
+  error?: { code: string; message: string };
+  prompt?: string;
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * Claude CLI specific spawn options
@@ -52,6 +112,13 @@ export interface ClaudeCliSpawnOptions {
   disallowedTools?: string[];
   systemPrompt?: string;
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
+  /** Enable Claude in Chrome extension integration (--chrome flag).
+   *  Allows spawned instances to use browser tools via the Chrome extension's
+   *  native messaging bridge. Defaults to true in the adapter factory. */
+  chrome?: boolean;
+  /** Beta headers for API requests (API key users only).
+   *  e.g. ['context-1m-2025-08-07'] to enable 1M context on eligible models. */
+  betas?: string[];
 }
 
 /**
@@ -85,15 +152,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private formatter: InputFormatter | null = null;
   private spawnOptions: ClaudeCliSpawnOptions;
   /** Track pending permission requests to avoid duplicate prompts */
-  private pendingPermissions: Set<string> = new Set();
+  private pendingPermissions = new Set<string>();
   /** Track permissions that user has already approved (to avoid re-prompting after retry fails) */
-  private approvedPermissions: Set<string> = new Set();
+  private approvedPermissions = new Set<string>();
   /** Deduplicate AskUserQuestion prompts that can be emitted in multiple stream shapes */
-  private emittedAskUserQuestionKeys: Set<string> = new Set();
+  private emittedAskUserQuestionKeys = new Set<string>();
   /** Map tool_use ids to tool metadata for robust permission-denial parsing */
   private toolUseContexts = new Map<string, { name: string; input: Record<string, unknown> }>();
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow: number;
+  /** Floor value from model config — CLI-reported values cannot go below this */
+  private readonly contextWindowFloor: number;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     const config: CliAdapterConfig = {
@@ -107,7 +176,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     this.spawnOptions = options;
     this.sessionId = options.sessionId || generateId();
-    this.lastKnownContextWindow = getProviderModelContextWindow('claude-cli', options.model);
+    const knownWindow = getProviderModelContextWindow('claude-cli', options.model);
+    this.lastKnownContextWindow = knownWindow;
+    this.contextWindowFloor = knownWindow;
     this.parser = new NdjsonParser();
   }
 
@@ -200,7 +271,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const startTime = Date.now();
     this.outputBuffer = '';
 
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
       this.process = this.spawnProcess(args);
 
@@ -221,46 +292,50 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         });
       }
 
-      // Prepare message content with file attachments
-      let finalMessage = message.content;
-      const imageAttachments =
-        message.attachments?.filter(
-          (a) => a.mimeType?.startsWith('image/') || a.type === 'image'
-        ) || [];
-      const otherAttachments =
-        message.attachments?.filter(
-          (a) => !a.mimeType?.startsWith('image/') && a.type !== 'image'
-        ) || [];
+      // Prepare and send message content (async setup, then sync event wiring)
+      const sendInput = async (): Promise<void> => {
+        let finalMessage = message.content;
+        const imageAttachments =
+          message.attachments?.filter(
+            (a) => a.mimeType?.startsWith('image/') || a.type === 'image'
+          ) || [];
+        const otherAttachments =
+          message.attachments?.filter(
+            (a) => !a.mimeType?.startsWith('image/') && a.type !== 'image'
+          ) || [];
 
-      // Process non-image attachments
-      if (otherAttachments.length > 0 && this.config.cwd) {
-        const processed = await processAttachments(
-          otherAttachments.map((a) => ({
-            type: a.mimeType || 'text/plain',
-            name: a.name || 'attachment',
-            data: a.content || '',
-            size: a.content?.length || 0
-          })),
-          this.sessionId || generateId(),
-          this.config.cwd
-        );
-        finalMessage = buildMessageWithFiles(message.content, processed);
-      }
+        // Process non-image attachments
+        if (otherAttachments.length > 0 && this.config.cwd) {
+          const processed = await processAttachments(
+            otherAttachments.map((a) => ({
+              type: a.mimeType || 'text/plain',
+              name: a.name || 'attachment',
+              data: a.content || '',
+              size: a.content?.length || 0
+            })),
+            this.sessionId || generateId(),
+            this.config.cwd
+          );
+          finalMessage = buildMessageWithFiles(message.content, processed);
+        }
 
-      // Send the message
-      if (this.formatter && this.formatter.isWritable()) {
-        await this.formatter.sendMessage(
-          finalMessage,
-          imageAttachments.length > 0
-            ? imageAttachments.map((a) => ({
-                type: a.mimeType || 'image/png',
-                name: a.name || 'image',
-                data: a.content || '',
-                size: a.content?.length || 0
-              }))
-            : undefined
-        );
-      }
+        // Send the message
+        if (this.formatter && this.formatter.isWritable()) {
+          await this.formatter.sendMessage(
+            finalMessage,
+            imageAttachments.length > 0
+              ? imageAttachments.map((a) => ({
+                  type: a.mimeType || 'image/png',
+                  name: a.name || 'image',
+                  data: a.content || '',
+                  size: a.content?.length || 0
+                }))
+              : undefined
+          );
+        }
+      };
+
+      sendInput().catch(reject);
 
       // Handle stdout (NDJSON stream)
       this.process.stdout?.on('data', (chunk: Buffer) => {
@@ -339,10 +414,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       const messages = this.parser.parse(raw);
 
       for (const msg of messages) {
-        if (msg.type === 'assistant' && (msg as any).message?.content) {
-          const content = (msg as any).message.content
-            .filter((block: any) => block.type === 'text' && block.text)
-            .map((block: any) => block.text)
+        const raw = msg as unknown as RawCliPayload;
+        if (raw.type === 'assistant' && raw.message?.content) {
+          const content = raw.message.content
+            .filter((block) => block.type === 'text' && block.text)
+            .map((block) => block.text)
             .join('');
           if (content) {
             yield content;
@@ -363,13 +439,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     for (const line of lines) {
       try {
-        const msg = JSON.parse(line);
+        const msg = JSON.parse(line) as RawCliPayload;
 
         if (msg.type === 'assistant' && msg.message?.content) {
           // Extract text content
           const textContent = msg.message.content
-            .filter((block: any) => block.type === 'text' && block.text)
-            .map((block: any) => block.text)
+            .filter((block) => block.type === 'text' && block.text)
+            .map((block) => block.text)
             .join('');
           if (textContent) {
             content += textContent;
@@ -377,12 +453,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
           // Extract tool uses
           const toolUses = msg.message.content.filter(
-            (block: any) => block.type === 'tool_use'
+            (block) => block.type === 'tool_use'
           );
           for (const tool of toolUses) {
             toolCalls.push({
               id: tool.id || generateId(),
-              name: tool.name,
+              name: tool.name || '',
               arguments: tool.input || {}
             });
           }
@@ -412,7 +488,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     };
   }
 
-  protected buildArgs(message: CliMessage): string[] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected buildArgs(_message: CliMessage): string[] {
     const args = [
       '--print',
       '--output-format',
@@ -490,6 +567,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--mcp-config', ...this.spawnOptions.mcpConfig);
     }
 
+    // Beta headers (API key users only) — e.g. context-1m-2025-08-07
+    if (this.spawnOptions.betas && this.spawnOptions.betas.length > 0) {
+      args.push('--betas', ...this.spawnOptions.betas);
+    }
+
+    // Chrome extension integration — always enabled so spawned instances can
+    // use browser tools via the native messaging bridge to Claude in Chrome.
+    args.push('--chrome');
+
     logger.debug('buildArgs complete', {
       yoloMode: this.spawnOptions.yoloMode,
       argCount: args.length,
@@ -500,6 +586,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       allowedToolsCount: this.spawnOptions.allowedTools?.length ?? 0,
       disallowedToolsCount: this.spawnOptions.disallowedTools?.length ?? 0,
       mcpConfigCount: this.spawnOptions.mcpConfig?.length ?? 0,
+      betasCount: this.spawnOptions.betas?.length ?? 0,
+      chrome: this.spawnOptions.chrome ?? 'unset',
     });
 
     return args;
@@ -566,7 +654,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /**
    * Send a message to the CLI (legacy API)
    */
-  async sendInput(message: string, attachments?: any[]): Promise<void> {
+  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.formatter || !this.formatter.isWritable()) {
       throw new Error('CLI not ready for input');
     }
@@ -651,7 +739,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         content: text
       }
     };
-    const jsonMessage = JSON.stringify(userMessage);
+    const jsonMessage = ndjsonSafeStringify(userMessage);
     logger.debug('Sending as user message', {
       contentLength: text.length,
       jsonMessageLength: jsonMessage.length,
@@ -745,9 +833,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private processCliMessage(message: CliStreamMessage): void {
+    const raw = message as unknown as RawCliPayload;
     switch (message.type) {
       case 'assistant': {
-        const assistantMsg = message as any;
+        const assistantMsg = raw;
         let assistantContent = '';
         const thinkingBlocks: ThinkingContent[] = [];
         const assistantTimestamp = message.timestamp || Date.now();
@@ -816,10 +905,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Extract context usage from assistant message (for real-time updates)
         if (assistantMsg.message?.usage) {
           const usage = assistantMsg.message.usage;
-          // input_tokens + output_tokens = actual context window usage
-          // Cache tokens are cumulative across session and used for billing, not context
+          // All input tokens (cached or not) occupy the context window.
+          // input_tokens = non-cached, cache_creation/cache_read = cached portions.
           const totalUsedTokens =
             (usage.input_tokens || 0) +
+            (usage.cache_creation_input_tokens || 0) +
+            (usage.cache_read_input_tokens || 0) +
             (usage.output_tokens || 0);
 
           const contextWindow = this.lastKnownContextWindow;
@@ -836,8 +927,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         break;
       }
 
-      case 'user':
-        const userMsg = message as any;
+      case 'user': {
+        const userMsg = raw;
 
         // Check for permission denial in tool_result content
         // Claude CLI returns these as user messages with tool_result content when permissions are denied
@@ -986,6 +1077,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           });
         }
         break;
+      }
 
       case 'system':
         if (message.subtype === 'context_usage' && message.usage) {
@@ -995,9 +1087,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             output: 15.0
           };
 
-          // input_tokens + output_tokens = actual context window usage
-          // total_tokens is a billing metric and doesn't reflect true context consumption
-          const inputTokens = message.usage.input_tokens || 0;
+          // All input tokens (cached or not) occupy the context window.
+          // input_tokens = non-cached, cache_creation/cache_read = cached portions.
+          const inputTokens = (message.usage.input_tokens || 0)
+            + (message.usage.cache_creation_input_tokens || 0)
+            + (message.usage.cache_read_input_tokens || 0);
           const outputTokens = message.usage.output_tokens || 0;
           const totalUsedTokens = inputTokens + outputTokens;
 
@@ -1064,8 +1158,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         });
         break;
 
-      case 'result':
-        const resultMsg = message as any;
+      case 'result': {
+        const resultMsg = raw;
 
         // Extract context usage from result message
         if (resultMsg.modelUsage || resultMsg.usage) {
@@ -1078,7 +1172,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             const modelKeys = Object.keys(resultMsg.modelUsage);
             if (modelKeys.length > 0) {
               const modelData = resultMsg.modelUsage[modelKeys[0]];
-              contextWindow = modelData.contextWindow || this.lastKnownContextWindow;
+              // Use CLI-reported value but never go below our known floor.
+              // Claude Code CLI has bugs where it reports 200k for 1M models
+              // (see GitHub issues #23432, #34083, #36649).
+              const cliReported = modelData.contextWindow || this.lastKnownContextWindow;
+              contextWindow = Math.max(cliReported, this.contextWindowFloor);
               // Cache for future streaming emissions
               this.lastKnownContextWindow = contextWindow;
               // inputTokens + outputTokens = actual context window usage
@@ -1087,9 +1185,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 (modelData.outputTokens || 0);
             }
           } else if (resultMsg.usage) {
-            // input_tokens + output_tokens = actual context window usage
+            // All input tokens (cached or not) occupy the context window.
             totalUsedTokens =
               (resultMsg.usage.input_tokens || 0) +
+              (resultMsg.usage.cache_creation_input_tokens || 0) +
+              (resultMsg.usage.cache_read_input_tokens || 0) +
               (resultMsg.usage.output_tokens || 0);
           }
 
@@ -1106,6 +1206,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
         this.emit('status', 'idle' as InstanceStatus);
         break;
+      }
 
       case 'error':
         this.emit('output', {
@@ -1118,7 +1219,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         this.emit('status', 'error' as InstanceStatus);
         break;
 
-      case 'input_required':
+      case 'input_required': {
         const inputRequiredMetadataKeys = 'metadata' in message
           && message.metadata
           && typeof message.metadata === 'object'
@@ -1172,6 +1273,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         });
         logger.debug('Input_required handling complete');
         break;
+      }
 
       default: {
         const unhandled = message as { type: string };

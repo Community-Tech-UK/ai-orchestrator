@@ -103,6 +103,9 @@ import { Instance } from '../../core/state/instance.store';
             <span class="unread-dot" title="Completed — click to view"></span>
           }
           <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
+          @if (hasPendingApproval()) {
+            <span class="approval-chip" title="This instance has a pending permission request">Awaiting approval</span>
+          }
           @if (hasChildren() && !isExpanded()) {
             <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
           }
@@ -432,6 +435,25 @@ import { Instance } from '../../core/state/instance.store';
       letter-spacing: -0.01em;
     }
 
+    .approval-chip {
+      background: rgba(74, 222, 128, 0.18);
+      color: #4ade80;
+      font-family: var(--font-mono);
+      font-size: 8px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 999px;
+      flex-shrink: 0;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      animation: chip-fade-in 200ms ease-out;
+    }
+
+    @keyframes chip-fade-in {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
     .collapsed-badge {
       background: rgba(var(--primary-rgb), 0.14);
       color: var(--primary-color);
@@ -556,6 +578,10 @@ export class InstanceRowComponent {
   restart = output<string>();
   toggleExpand = output<string>();
   readonly resolvedDisplayTitle = computed(() => this.displayTitle()?.trim() || this.instance().displayName);
+
+  readonly hasPendingApproval = computed(() =>
+    (this.instance().pendingApprovalCount ?? 0) > 0
+  );
 
   readonly hasDiffStats = computed(() => {
     const stats = this.instance().diffStats;

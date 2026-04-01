@@ -30,6 +30,15 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('PluginManager');
 
+/**
+ * Reject paths containing '..' segments to prevent directory escape.
+ */
+function isPathSafe(filePath: string, baseDir: string): boolean {
+  const resolved = path.resolve(filePath);
+  const resolvedBase = path.resolve(baseDir);
+  return resolved.startsWith(resolvedBase + path.sep) || resolved === resolvedBase;
+}
+
 export interface OrchestratorPluginContext {
   instanceManager: InstanceManager;
   appPath: string;
@@ -109,6 +118,10 @@ export class OrchestratorPluginManager {
       }
       for (const entry of entries) {
         const full = path.join(current, entry.name);
+        if (!isPathSafe(full, dir)) {
+          logger.warn('Blocked path traversal attempt in plugin directory', { path: full, baseDir: dir });
+          continue;
+        }
         if (entry.isDirectory()) {
           if (entry.name === 'node_modules' || entry.name === '.git') continue;
           stack.push(full);

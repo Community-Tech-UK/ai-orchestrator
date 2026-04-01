@@ -8,6 +8,7 @@
  */
 
 import { ChangeDetectionStrategy, Component, signal, effect, computed, input, output } from '@angular/core';
+import { LIMITS } from '../../../../shared/constants/limits';
 import { CommonModule } from '@angular/common';
 
 interface ElectronAPI {
@@ -576,7 +577,7 @@ export class CompactionIndicatorComponent {
 
   status = signal<CompactionStatus>({
     currentTokens: 0,
-    maxTokens: 200000,
+    maxTokens: LIMITS.DEFAULT_MAX_CONTEXT_TOKENS,
     usagePercent: 0,
     warningThreshold: 80,
     emergencyThreshold: 95,

@@ -12,8 +12,22 @@ interface TimeoutConfig {
 
 const TIMEOUTS: Record<string, TimeoutConfig> = {
   generating: { softMs: 120_000, hardMs: 240_000 },
-  tool_executing: { softMs: 300_000, hardMs: 600_000 },
+  tool_executing: { softMs: 600_000, hardMs: 1_200_000 },
 };
+
+/**
+ * When the CLI process is confirmed alive (e.g. running Agent subagents),
+ * multiply timeouts by this factor before emitting stuck events.
+ * This prevents killing instances that are actively working but not
+ * producing visible output (long-running tool chains, subagent spawns).
+ */
+const ALIVE_PROCESS_TIMEOUT_MULTIPLIER = 2;
+
+/**
+ * Maximum number of times we defer a timeout for a still-alive process.
+ * Prevents infinite deferral for a truly stuck-but-alive process.
+ */
+const MAX_ALIVE_DEFERRALS = 3;
 
 /**
  * Timeout for detecting when a subprocess is waiting for interactive input
@@ -25,6 +39,16 @@ const INTERACTIVE_PROMPT_DETECT_MS = 45_000;
 
 export type ProcessState = 'generating' | 'tool_executing' | 'idle';
 
+export interface StuckDetectorOptions {
+  /**
+   * Callback to check whether the CLI process for a given instance is still
+   * alive and running. When the process is alive, timeouts are extended to
+   * avoid killing instances that are actively working but silent (e.g.
+   * running Agent subagents, long bash commands).
+   */
+  isProcessAlive?: (instanceId: string) => boolean;
+}
+
 interface ProcessTracker {
   lastOutputAt: number;
   instanceState: ProcessState;
@@ -33,14 +57,18 @@ interface ProcessTracker {
   interactivePromptWarningEmitted: boolean;
   /** Last time we saw stderr output (interactive prompts often write to stderr) */
   lastStderrAt: number;
+  /** How many times we've deferred the timeout because process was alive */
+  aliveDeferrals: number;
 }
 
 export class StuckProcessDetector extends EventEmitter {
   private trackers = new Map<string, ProcessTracker>();
   private checkInterval: NodeJS.Timeout | null = null;
+  private isProcessAlive: ((instanceId: string) => boolean) | undefined;
 
-  constructor() {
+  constructor(options?: StuckDetectorOptions) {
     super();
+    this.isProcessAlive = options?.isProcessAlive;
     this.checkInterval = setInterval(() => this.checkAll(), CHECK_INTERVAL_MS);
     if (this.checkInterval.unref) this.checkInterval.unref();
   }
@@ -52,6 +80,7 @@ export class StuckProcessDetector extends EventEmitter {
       softWarningEmitted: false,
       interactivePromptWarningEmitted: false,
       lastStderrAt: 0,
+      aliveDeferrals: 0,
     });
   }
 
@@ -86,6 +115,7 @@ export class StuckProcessDetector extends EventEmitter {
       tracker.lastOutputAt = Date.now();
       tracker.softWarningEmitted = false;
       tracker.interactivePromptWarningEmitted = false;
+      tracker.aliveDeferrals = 0;
     }
   }
 
@@ -108,11 +138,21 @@ export class StuckProcessDetector extends EventEmitter {
 
       const elapsed = now - tracker.lastOutputAt;
 
-      if (elapsed >= config.hardMs) {
+      // If the CLI process is still alive (e.g. running Agent subagents,
+      // long bash commands), extend the hard kill threshold to avoid
+      // terminating active work. Soft warnings use the base threshold
+      // but are deferred while the process is alive (up to a cap).
+      const processAlive = this.isProcessAlive?.(instanceId) ?? false;
+      const hardMultiplier = processAlive ? ALIVE_PROCESS_TIMEOUT_MULTIPLIER : 1;
+      const effectiveHardMs = config.hardMs * hardMultiplier;
+
+      if (elapsed >= effectiveHardMs) {
         logger.warn('Process stuck — hard timeout exceeded', {
           instanceId,
           state: tracker.instanceState,
           elapsedMs: elapsed,
+          processAlive,
+          aliveDeferrals: tracker.aliveDeferrals,
         });
         this.emit('process:stuck', {
           instanceId,
@@ -121,10 +161,25 @@ export class StuckProcessDetector extends EventEmitter {
         });
         this.trackers.delete(instanceId);
       } else if (elapsed >= config.softMs && !tracker.softWarningEmitted) {
+        // If process is alive and we haven't exhausted deferrals, defer
+        // instead of warning — the instance is actively working.
+        if (processAlive && tracker.aliveDeferrals < MAX_ALIVE_DEFERRALS) {
+          tracker.aliveDeferrals++;
+          logger.info('Process alive — deferring stuck warning', {
+            instanceId,
+            state: tracker.instanceState,
+            elapsedMs: elapsed,
+            deferral: tracker.aliveDeferrals,
+            maxDeferrals: MAX_ALIVE_DEFERRALS,
+          });
+          continue;
+        }
+
         logger.warn('Process may be stuck — soft timeout exceeded', {
           instanceId,
           state: tracker.instanceState,
           elapsedMs: elapsed,
+          processAlive,
         });
         tracker.softWarningEmitted = true;
         this.emit('process:suspect-stuck', {

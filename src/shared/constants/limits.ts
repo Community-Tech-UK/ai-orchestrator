@@ -62,14 +62,26 @@ export const TIMEOUTS = {
 
 /**
  * Model Context Windows
- * Maximum token counts for different AI models
+ * Maximum token counts for different AI models.
+ *
+ * Claude Code CLI default context is 200k for most models.
+ * Only Opus 4.6+ and Sonnet 4.6+ natively support 1M.
+ * Older models (Sonnet 4/4.5, Opus 4/4.1/4.5) require the
+ * `context-1m-2025-08-07` beta header — use the `[1m]` model suffix
+ * in Claude Code CLI to request it.
+ *
+ * See: https://github.com/anthropics/claude-code/issues/23432
  */
 export const CONTEXT_WINDOWS = {
-  // Claude models (all support 1M context as of 2025)
-  CLAUDE_DEFAULT: 1000000,
-  CLAUDE_OPUS: 1000000,
-  CLAUDE_SONNET: 1000000,
-  CLAUDE_HAIKU: 1000000,
+  // Claude models — default (200k) context
+  CLAUDE_DEFAULT: 200000,
+  CLAUDE_OPUS: 200000,
+  CLAUDE_SONNET: 200000,
+  CLAUDE_HAIKU: 200000,
+
+  // Claude models — 1M context (Opus 4.6+, Sonnet 4.6+, or [1m] suffix)
+  CLAUDE_OPUS_1M: 1000000,
+  CLAUDE_SONNET_1M: 1000000,
 
   // OpenAI models
   GPT4_O: 128000,

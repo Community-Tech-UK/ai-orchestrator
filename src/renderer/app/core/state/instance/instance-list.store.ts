@@ -402,6 +402,7 @@ export class InstanceListStore {
       restoreMode: d['restoreMode'] as HistoryRestoreMode | undefined,
       diffStats: d['diffStats'] as Instance['diffStats'] | undefined,
       hasUnreadCompletion: false,
+      pendingApprovalCount: 0,
     };
   }
 

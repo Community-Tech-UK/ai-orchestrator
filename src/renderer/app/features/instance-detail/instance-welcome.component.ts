@@ -156,6 +156,7 @@ interface WelcomeProjectContext {
         gap: 18px;
         animation: fadeInUp 0.6s ease-out;
         max-width: 720px;
+        z-index: 2;
       }
 
       .welcome-eyebrow {

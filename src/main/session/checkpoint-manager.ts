@@ -147,8 +147,8 @@ export class CheckpointManager extends EventEmitter {
   private continuity: SessionContinuityManager;
   private transactionLog: TransactionLogEntry[] = [];
   private logDir: string;
-  private lastCheckpointTime: Map<string, number> = new Map();
-  private pendingTransactions: Map<string, TransactionLogEntry> = new Map();
+  private lastCheckpointTime = new Map<string, number>();
+  private pendingTransactions = new Map<string, TransactionLogEntry>();
 
   private constructor() {
     super();
@@ -191,13 +191,13 @@ export class CheckpointManager extends EventEmitter {
   /**
    * Begin a transaction (call before risky operation)
    */
-  beginTransaction(
+  async beginTransaction(
     sessionId: string,
     type: TransactionType,
     action: string,
     details: Record<string, unknown> = {},
     rollbackData?: unknown
-  ): string {
+  ): Promise<string> {
     const transactionId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const entry: TransactionLogEntry = {
@@ -218,7 +218,7 @@ export class CheckpointManager extends EventEmitter {
       this.config.checkpointBeforeRisky &&
       this.config.riskyOperations.includes(type)
     ) {
-      const checkpoint = this.createCheckpoint(
+      const checkpoint = await this.createCheckpoint(
         sessionId,
         CheckpointType.PRE_OPERATION,
         `Before ${action}`
@@ -255,7 +255,7 @@ export class CheckpointManager extends EventEmitter {
       this.config.checkpointBeforeRisky &&
       this.config.riskyOperations.includes(entry.type)
     ) {
-      this.createCheckpoint(
+      void this.createCheckpoint(
         entry.sessionId,
         CheckpointType.POST_OPERATION,
         `After ${entry.action}`
@@ -289,7 +289,7 @@ export class CheckpointManager extends EventEmitter {
     });
 
     // Create error recovery checkpoint
-    this.createCheckpoint(
+    void this.createCheckpoint(
       entry.sessionId,
       CheckpointType.ERROR_RECOVERY,
       `Error during ${entry.action}`
@@ -297,15 +297,16 @@ export class CheckpointManager extends EventEmitter {
   }
 
   /**
-   * Create a checkpoint for a session (async — snapshot write is non-blocking).
-   * Returns null immediately if the rate-limit interval has not elapsed.
-   * The checkpoint object is emitted via 'checkpoint:created' once the snapshot resolves.
+   * Create a checkpoint for a session.
+   * Awaits the continuity snapshot before storing the checkpoint so the
+   * checkpoint is never written with empty/placeholder state.
+   * Returns null if the rate-limit interval has not elapsed.
    */
-  createCheckpoint(
+  async createCheckpoint(
     sessionId: string,
     type: CheckpointType,
     description?: string
-  ): SessionCheckpoint | null {
+  ): Promise<SessionCheckpoint | null> {
     // Check minimum interval
     const lastTime = this.lastCheckpointTime.get(sessionId) || 0;
     if (
@@ -315,65 +316,56 @@ export class CheckpointManager extends EventEmitter {
       return null;
     }
 
-    // Create a synchronous error-recovery checkpoint using an empty state placeholder.
-    // The continuity snapshot is written asynchronously and its id is patched in later.
-    const checkpoint = this.errorRecovery.createCheckpoint(
-      sessionId,
-      type,
-      {
-        conversationState: {
-          messages: [],
-          contextUsage: { used: 0, total: 0 },
-          lastActivityAt: Date.now(),
-        },
-        activeTasks: [],
-        metadata: {
-          snapshotId: '',
-          description,
-        },
-      }
-    );
-
     this.lastCheckpointTime.set(sessionId, Date.now());
 
-    // Fire-and-forget: write the continuity snapshot and patch checkpoint metadata.
-    this.continuity
-      .createSnapshot(
+    // Create snapshot FIRST so the checkpoint is populated with real data.
+    let snapshot: SessionSnapshot | null = null;
+    try {
+      snapshot = await this.continuity.createSnapshot(
         sessionId,
         description || `Checkpoint: ${type}`,
         undefined,
         type === CheckpointType.PERIODIC ? 'auto' : 'checkpoint'
-      )
-      .then((snapshot) => {
-        if (snapshot && checkpoint.metadata) {
-          checkpoint.metadata['snapshotId'] = snapshot.id;
-          // Backfill conversation state now that we have the snapshot
-          checkpoint.conversationState.messages =
-            snapshot.state.conversationHistory.map((m) => ({
-              id: m.id,
-              role: this.mapRole(m.role),
-              content: m.content,
-              timestamp: m.timestamp,
-            }));
-          checkpoint.conversationState.contextUsage =
-            snapshot.state.contextUsage;
-          checkpoint.activeTasks = snapshot.state.pendingTasks.map((t) => ({
+      );
+    } catch (error) {
+      logger.warn('Failed to create snapshot for checkpoint', {
+        sessionId,
+        type,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Build conversation state from snapshot if available.
+    const conversationState = snapshot
+      ? {
+          messages: snapshot.state.conversationHistory.map((m) => ({
+            id: m.id,
+            role: this.mapRole(m.role),
+            content: m.content,
+            timestamp: m.timestamp,
+          })),
+          contextUsage: snapshot.state.contextUsage,
+          lastActivityAt: Date.now(),
+        }
+      : { messages: [], contextUsage: { used: 0, total: 0 }, lastActivityAt: Date.now() };
+
+    const checkpoint = this.errorRecovery.createCheckpoint(sessionId, type, {
+      conversationState,
+      activeTasks: snapshot
+        ? snapshot.state.pendingTasks.map((t) => ({
             id: t.id,
             type: t.type,
             status: 'pending' as const,
             description: t.description,
-          }));
-        }
-        this.emit('checkpoint:created', { sessionId, checkpoint, snapshot });
-      })
-      .catch((error) => {
-        logger.warn('Failed to create continuity snapshot for checkpoint', {
-          sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        this.emit('checkpoint:created', { sessionId, checkpoint, snapshot: null });
-      });
+          }))
+        : [],
+      metadata: {
+        snapshotId: snapshot?.id ?? '',
+        description,
+      },
+    });
 
+    this.emit('checkpoint:created', { sessionId, checkpoint, snapshot });
     return checkpoint;
   }
 
@@ -711,7 +703,7 @@ export class CheckpointManager extends EventEmitter {
     }
 
     // Clear pending transactions
-    for (const [id, entry] of this.pendingTransactions) {
+    for (const entry of this.pendingTransactions.values()) {
       entry.error = 'Shutdown with pending transaction';
       this.addToLog(entry);
     }

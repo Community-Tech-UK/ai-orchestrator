@@ -33,6 +33,9 @@ export interface UnifiedSpawnOptions {
   resume?: boolean;  // Resume an existing session (requires sessionId)
   forkSession?: boolean; // Fork a resumed session into a new session ID (Claude CLI)
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
+  /** Enable Chrome extension integration (Claude CLI only).
+   *  Defaults to true when omitted — the factory sets this for Claude adapters. */
+  chrome?: boolean;
 }
 
 /**
@@ -134,6 +137,10 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     resume: options.resume,
     forkSession: options.forkSession,
     mcpConfig: options.mcpConfig,
+    // Default Chrome integration to true — matches standalone Claude CLI behavior.
+    // The Chrome extension connects via native messaging, so spawned instances
+    // can use browser tools if the extension is installed and connected.
+    chrome: options.chrome ?? true,
   };
   return new ClaudeCliAdapter(claudeOptions);
 }

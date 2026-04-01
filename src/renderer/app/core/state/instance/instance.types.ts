@@ -79,6 +79,8 @@ export interface Instance {
   };
   /** True when instance completed work (busy→idle) and user hasn't viewed it yet */
   hasUnreadCompletion?: boolean;
+  /** Number of pending approval/permission requests (input_required events) */
+  pendingApprovalCount?: number;
 }
 
 // ============================================

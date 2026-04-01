@@ -69,6 +69,7 @@ import { getTriggerMatcher } from './skills/trigger-matcher';
 import { getEnhancedHookExecutor } from './hooks/enhanced-hook-executor';
 // CLI singletons
 import { getCliDetectionService } from './cli/cli-detection';
+import { BaseCliAdapter } from './cli/adapters/base-cli-adapter';
 // Child auto-announce
 import { getChildAnnouncer } from './orchestration/child-announcer';
 import type { ChildAnnouncement } from '../shared/types/child-announce.types';
@@ -840,6 +841,8 @@ class AIOrchestratorApp {
     // CRITICAL: await terminateAll so every instance is archived to history
     // before the process exits. Without this, conversations are lost on quit.
     await this.instanceManager.terminateAll();
+    // Kill any orphaned child processes that were not cleaned up by terminateAll.
+    BaseCliAdapter.killAllActiveProcesses();
     logger.info('Cleanup complete — all instances archived');
   }
 }

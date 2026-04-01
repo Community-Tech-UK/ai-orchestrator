@@ -27,15 +27,35 @@ import type {
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
 import { estimateTokens } from '../rlm/token-counter';
+import { getErrorRecoveryManager } from '../core/error-recovery';
+import { ErrorCategory } from '../../shared/types/error-recovery.types';
 
 const logger = getLogger('DebateCoordinator');
 
+/** Progress event yielded by the debate stream */
+export type DebateStreamEvent =
+  | { type: 'started'; debateId: string; topic: string; agentCount: number }
+  | { type: 'round-started'; debateId: string; round: number; roundType: string }
+  | { type: 'round-complete'; debateId: string; round: number; consensusScore: number; roundType: string }
+  | { type: 'early-terminated'; debateId: string; reason: string; bestRoundScore: number }
+  | { type: 'synthesis-started'; debateId: string }
+  | { type: 'completed'; debateId: string; status: string; finalScore: number }
+  | { type: 'error'; debateId: string; error: string };
+
 export class DebateCoordinator extends EventEmitter {
   private static instance: DebateCoordinator | null = null;
-  private activeDebates: Map<string, ActiveDebate> = new Map();
-  private completedDebates: Map<string, DebateResult> = new Map();
-  private pauseGates: Map<string, { resolve: () => void }> = new Map();
-  private interventions: Map<string, string[]> = new Map();
+
+  /** Minimum improvement needed per round to continue (2%) */
+  private static readonly MIN_IMPROVEMENT_THRESHOLD = 0.02;
+  /** Score drop that indicates divergence (-5%) */
+  private static readonly DIVERGENCE_THRESHOLD = -0.05;
+  /** Minimum rounds before divergence detection kicks in */
+  private static readonly MIN_ROUNDS_FOR_DIVERGENCE = 2;
+
+  private activeDebates = new Map<string, ActiveDebate>();
+  private completedDebates = new Map<string, DebateResult>();
+  private pauseGates = new Map<string, { resolve: () => void }>();
+  private interventions = new Map<string, string[]>();
   private stats: DebateStats;
 
   private defaultConfig: DebateConfig = {
@@ -150,6 +170,25 @@ export class DebateCoordinator extends EventEmitter {
           break;
         }
 
+        // Check for divergence: if consensus is consistently dropping, stop early
+        if (debate.rounds.length >= DebateCoordinator.MIN_ROUNDS_FOR_DIVERGENCE) {
+          const previousRound = debate.rounds[debate.rounds.length - 2];
+          const currentRound = debate.rounds[debate.rounds.length - 1];
+          const scoreTrend = currentRound.consensusScore - previousRound.consensusScore;
+
+          if (scoreTrend < DebateCoordinator.DIVERGENCE_THRESHOLD) {
+            logger.info('Debate early termination: agents diverging', {
+              debateId: debate.id,
+              round: debate.currentRound,
+              scoreTrend,
+              currentScore: currentRound.consensusScore,
+              previousScore: previousRound.consensusScore,
+            });
+            debate.status = 'early_terminated';
+            break;
+          }
+        }
+
         // Check timeout
         if (Date.now() - debate.startTime > debate.config.timeout) {
           debate.status = 'timeout';
@@ -175,8 +214,26 @@ export class DebateCoordinator extends EventEmitter {
         }
       }
 
-      // Final synthesis round
-      if (debate.status === 'in_progress') {
+      // Final synthesis round (or early-termination fallback)
+      if (debate.status === 'early_terminated') {
+        // Use the round with the highest consensus score instead of synthesizing
+        const bestRound = debate.rounds.reduce((best, round) =>
+          round.consensusScore > best.consensusScore ? round : best
+        );
+
+        logger.info('Using best round as debate result', {
+          debateId: debate.id,
+          bestRoundNumber: bestRound.roundNumber ?? debate.rounds.indexOf(bestRound),
+          bestScore: bestRound.consensusScore,
+        });
+
+        this.emit('debate:early-terminated', {
+          debateId: debate.id,
+          reason: 'divergence',
+          bestRoundScore: bestRound.consensusScore,
+          roundsCompleted: debate.rounds.length,
+        });
+      } else if (debate.status === 'in_progress') {
         await this.runSynthesisRound(debate);
         debate.status = 'completed';
       }
@@ -184,6 +241,17 @@ export class DebateCoordinator extends EventEmitter {
       // Finalize the debate
       this.finalizeDebate(debate);
     } catch (error) {
+      const classified = getErrorRecoveryManager().classifyError(error as Error, 'DebateCoordinator');
+      logger.warn('Debate failed', {
+        debateId: debate.id,
+        category: classified.category,
+        severity: classified.severity,
+        recoverable: classified.recoverable,
+        message: classified.technicalDetails,
+      });
+
+      // Always emit debate:error — runDebate has no retry loop, so suppressing
+      // transient errors would silently swallow failures with no recovery path.
       debate.status = 'cancelled';
       this.emit('debate:error', { debateId: debate.id, error: (error as Error).message });
     }
@@ -937,6 +1005,112 @@ Provide your synthesis:`;
 
   getStats(): DebateStats {
     return { ...this.stats };
+  }
+
+  /**
+   * Stream debate progress as an async generator.
+   * Provides natural backpressure and cancellation via iterator return.
+   * This is a parallel interface to the EventEmitter events — both work simultaneously.
+   */
+  async *streamDebate(debateId: string): AsyncGenerator<DebateStreamEvent> {
+    const debate = this.activeDebates.get(debateId);
+    if (!debate) {
+      yield { type: 'error', debateId, error: `Debate ${debateId} not found` };
+      return;
+    }
+
+    const queue: DebateStreamEvent[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+
+    const push = (event: DebateStreamEvent) => {
+      queue.push(event);
+      if (resolve) {
+        resolve();
+        resolve = null;
+      }
+    };
+
+    const onRoundComplete = (data: { debateId: string; round: DebateSessionRound }) => {
+      if (data.debateId === debateId) {
+        push({
+          type: 'round-complete',
+          debateId,
+          round: data.round?.roundNumber ?? 0,
+          consensusScore: data.round?.consensusScore ?? 0,
+          roundType: data.round?.type ?? 'unknown',
+        });
+      }
+    };
+
+    const onCompleted = (data: DebateResult) => {
+      if (data.id === debateId) {
+        push({
+          type: 'completed',
+          debateId,
+          status: data.status ?? 'completed',
+          finalScore: data.finalConsensusScore ?? 0,
+        });
+        done = true;
+        if (resolve) {
+          resolve();
+          resolve = null;
+        }
+      }
+    };
+
+    const onEarlyTerminated = (data: { debateId: string; reason: string; bestRoundScore: number; roundsCompleted: number }) => {
+      if (data.debateId === debateId) {
+        push({
+          type: 'early-terminated',
+          debateId,
+          reason: data.reason ?? 'divergence',
+          bestRoundScore: data.bestRoundScore ?? 0,
+        });
+      }
+    };
+
+    const onError = (data: { debateId: string; error: string }) => {
+      if (data.debateId === debateId) {
+        push({ type: 'error', debateId, error: data.error ?? 'Unknown error' });
+        done = true;
+        if (resolve) {
+          resolve();
+          resolve = null;
+        }
+      }
+    };
+
+    this.on('debate:round-complete', onRoundComplete);
+    this.on('debate:completed', onCompleted);
+    this.on('debate:early-terminated', onEarlyTerminated);
+    this.on('debate:error', onError);
+
+    yield {
+      type: 'started',
+      debateId,
+      topic: debate.query,
+      agentCount: debate.config.agents,
+    };
+
+    try {
+      while (!done) {
+        if (queue.length > 0) {
+          yield queue.shift()!;
+        } else {
+          await new Promise<void>(r => { resolve = r; });
+        }
+      }
+
+      while (queue.length > 0) {
+        yield queue.shift()!;
+      }
+    } finally {
+      this.off('debate:round-complete', onRoundComplete);
+      this.off('debate:completed', onCompleted);
+      this.off('debate:early-terminated', onEarlyTerminated);
+      this.off('debate:error', onError);
+    }
   }
 }
 

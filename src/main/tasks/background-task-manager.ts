@@ -45,6 +45,8 @@ export interface Task extends TaskDefinition {
   createdAt: number;
   startedAt?: number;
   completedAt?: number;
+  /** @internal Prevents duplicate completion events */
+  notified?: boolean;
   progress: number;
   progressMessage?: string;
   result?: unknown;
@@ -369,7 +371,21 @@ export class BackgroundTaskManager extends EventEmitter {
    */
   private getNextTask(): Task | undefined {
     const pendingTasks = this.getTasksByStatus('pending')
-      .filter(task => this.areDependenciesMet(task))
+      .filter(t => {
+        const depStatus = this.checkDependencies(t);
+        if (depStatus === 'failed') {
+          t.status = 'failed';
+          t.error = 'Dependency failed or was cancelled';
+          t.completedAt = Date.now();
+          if (!t.notified) {
+            t.notified = true;
+            this.emit('task-failed', t);
+          }
+          this.moveToHistory(t);
+          return false;
+        }
+        return depStatus === 'ready';
+      })
       .sort((a, b) => {
         // Sort by priority (higher first), then by creation time (earlier first)
         const priorityDiff = PRIORITY_VALUES[b.priority] - PRIORITY_VALUES[a.priority];
@@ -381,15 +397,18 @@ export class BackgroundTaskManager extends EventEmitter {
   }
 
   /**
-   * Check if task dependencies are met
+   * Check dependency status for a task
    */
-  private areDependenciesMet(task: Task): boolean {
-    if (!task.dependsOn || task.dependsOn.length === 0) return true;
+  private checkDependencies(task: Task): 'ready' | 'blocked' | 'failed' {
+    if (!task.dependsOn || task.dependsOn.length === 0) return 'ready';
 
-    return task.dependsOn.every(depId => {
+    for (const depId of task.dependsOn) {
       const depTask = this.tasks.get(depId) || this.taskHistory.find(t => t.id === depId);
-      return depTask?.status === 'completed';
-    });
+      if (!depTask) return 'blocked';
+      if (depTask.status === 'failed' || depTask.status === 'cancelled') return 'failed';
+      if (depTask.status !== 'completed') return 'blocked';
+    }
+    return 'ready';
   }
 
   /**
@@ -402,7 +421,10 @@ export class BackgroundTaskManager extends EventEmitter {
       task.error = `No executor registered for type: ${task.type}`;
       task.completedAt = Date.now();
       this.moveToHistory(task);
-      this.emit('task-failed', task);
+      if (!task.notified) {
+        task.notified = true;
+        this.emit('task-failed', task);
+      }
       return;
     }
 
@@ -445,13 +467,19 @@ export class BackgroundTaskManager extends EventEmitter {
       if (this.cancelledTasks.has(task.id)) {
         task.status = 'cancelled';
         task.completedAt = Date.now();
-        this.emit('task-cancelled', task);
+        if (!task.notified) {
+          task.notified = true;
+          this.emit('task-cancelled', task);
+        }
       } else {
         task.status = 'completed';
         task.result = result;
         task.progress = 100;
         task.completedAt = Date.now();
-        this.emit('task-completed', task);
+        if (!task.notified) {
+          task.notified = true;
+          this.emit('task-completed', task);
+        }
       }
     } catch (error) {
       clearTimeout(timeoutId);
@@ -467,7 +495,10 @@ export class BackgroundTaskManager extends EventEmitter {
       } else {
         task.status = 'failed';
         task.completedAt = Date.now();
-        this.emit('task-failed', task);
+        if (!task.notified) {
+          task.notified = true;
+          this.emit('task-failed', task);
+        }
       }
     } finally {
       this.runningTasks.delete(task.id);

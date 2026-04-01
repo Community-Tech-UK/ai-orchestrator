@@ -27,6 +27,8 @@ import { getVerificationCache, type VerificationCache } from './verification-cac
 import { getConfidenceAnalyzer, type ConfidenceAnalyzer } from './confidence-analyzer';
 import { getEmbeddingService as getOrchestrationEmbeddingService, type EmbeddingService, type SemanticClusterConfig, type ResponseCluster } from './embedding-service';
 import { getLogger } from '../logging/logger';
+import { getErrorRecoveryManager } from '../core/error-recovery';
+import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { getConfidenceFilter } from './confidence-filter';
 import { createCliAdapter, resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -43,11 +45,11 @@ export class InsufficientAgentsError extends Error {
 
 export class MultiVerifyCoordinator extends EventEmitter {
   private static instance: MultiVerifyCoordinator | null = null;
-  private activeVerifications: Map<string, VerificationRequest> = new Map();
-  private results: Map<string, VerificationResult> = new Map();
+  private activeVerifications = new Map<string, VerificationRequest>();
+  private results = new Map<string, VerificationResult>();
   private defaultConfig: Partial<VerificationConfig> = {};
-  private agentRetryCount: Map<string, number> = new Map();
-  private failedAgents: Set<string> = new Set();
+  private agentRetryCount = new Map<string, number>();
+  private failedAgents = new Set<string>();
 
   // Integrated services
   private cache: VerificationCache;
@@ -119,11 +121,34 @@ export class MultiVerifyCoordinator extends EventEmitter {
     const config = request.config;
     const healthConfig = this.getHealthConfig(config);
 
+    const classified = getErrorRecoveryManager().classifyError(error, `MultiVerifyCoordinator.agent[${agentId}]`);
+
+    logger.warn('Agent failure classified', {
+      requestId: request.id,
+      agentId,
+      category: classified.category,
+      severity: classified.severity,
+      recoverable: classified.recoverable,
+      message: classified.technicalDetails,
+    });
+
+    // Only fail-fast on explicitly non-recoverable categories (auth, permanent).
+    // UNKNOWN errors should respect the retry budget — unknown !== permanent.
+    const FAIL_FAST_CATEGORIES = new Set([ErrorCategory.AUTH, ErrorCategory.PERMANENT]);
+    if (FAIL_FAST_CATEGORIES.has(classified.category)) {
+      this.failedAgents.add(agentId);
+      return 'failed';
+    }
+
     const currentRetries = this.agentRetryCount.get(agentId) || 0;
 
     if (currentRetries < healthConfig.maxRetries) {
-      // Delay before retry
-      await new Promise((resolve) => setTimeout(resolve, healthConfig.retryDelayMs));
+      // Health config's retryDelayMs is authoritative (allows tests to set 0);
+      // classified delay is only used when health config doesn't specify one
+      const delayMs = healthConfig.retryDelayMs !== undefined
+        ? healthConfig.retryDelayMs
+        : (classified.retryAfterMs ?? 0);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
       this.agentRetryCount.set(agentId, currentRetries + 1);
       return 'retry';
     } else {

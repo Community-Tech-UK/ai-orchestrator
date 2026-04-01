@@ -6,12 +6,16 @@
 import { EventEmitter } from 'events';
 import type {
   WorktreeSession,
-  WorktreeConfig,
   MergeStrategy,
   WorktreeMergeResult,
   ConflictDetail,
 } from '../../shared/types/worktree.types';
 import { WorktreeManager, getWorktreeManager } from '../workspace/git/worktree-manager';
+import { getLogger } from '../logging/logger';
+import { getErrorRecoveryManager } from '../core/error-recovery';
+import { ErrorCategory } from '../../shared/types/error-recovery.types';
+
+const logger = getLogger('ParallelWorktreeCoordinator');
 
 export interface ParallelTask {
   id: string;
@@ -42,7 +46,7 @@ export interface CoordinatorConfig {
 export class ParallelWorktreeCoordinator extends EventEmitter {
   private static instance: ParallelWorktreeCoordinator | null = null;
   private worktreeManager: WorktreeManager;
-  private executions: Map<string, ParallelExecution> = new Map();
+  private executions = new Map<string, ParallelExecution>();
   private config: CoordinatorConfig;
 
   private defaultConfig: CoordinatorConfig = {
@@ -272,8 +276,7 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
   private async detectConflicts(execution: ParallelExecution): Promise<ConflictDetail[]> {
     const conflicts: ConflictDetail[] = [];
 
-    for (let i = 0; i < execution.mergeOrder.length; i++) {
-      const taskId = execution.mergeOrder[i];
+    for (const taskId of execution.mergeOrder) {
       const session = execution.sessions.get(taskId);
       if (!session) continue;
 
@@ -299,29 +302,69 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
 
   private async performMerges(execution: ParallelExecution): Promise<void> {
     const results: WorktreeMergeResult[] = [];
+    const failedMerges: string[] = [];
 
     for (const taskId of execution.mergeOrder) {
       const session = execution.sessions.get(taskId);
       if (!session) continue;
 
       try {
-        const result = await this.worktreeManager.mergeWorktree(
-          session.id,
-          { strategy: this.config.defaultMergeStrategy }
-        );
+        const result = await this.worktreeManager.mergeWorktree(session.id, {
+          strategy: this.config.defaultMergeStrategy,
+        });
         results.push(result);
-
         this.emit('task:merged', { executionId: execution.id, taskId, result });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const classified = getErrorRecoveryManager().classifyError(
+          error instanceof Error ? error : new Error(message),
+          `ParallelWorktreeCoordinator.performMerges[${taskId}]`
+        );
+
+        const isTransient =
+          classified.category === ErrorCategory.TRANSIENT ||
+          classified.category === ErrorCategory.NETWORK;
+
+        if (isTransient) {
+          logger.warn('Transient merge failure for task, continuing remaining merges', {
+            executionId: execution.id,
+            taskId,
+            category: classified.category,
+            error: message,
+          });
+        } else {
+          logger.error(
+            'Permanent merge failure for task, marking failed and continuing remaining merges',
+            undefined,
+            {
+              executionId: execution.id,
+              taskId,
+              category: classified.category,
+              recoverable: classified.recoverable,
+              error: message,
+            }
+          );
+        }
+
         this.emit('task:merge-failed', {
           executionId: execution.id,
           taskId,
-          error: (error as Error).message,
+          error: message,
+          category: classified.category,
+          recoverable: classified.recoverable,
         });
-
-        execution.status = 'failed';
-        return;
+        failedMerges.push(taskId);
+        // Continue with remaining merges instead of halting
       }
+    }
+
+    if (failedMerges.length > 0) {
+      execution.status = 'failed';
+      this.emit('execution:partial-failure', {
+        executionId: execution.id,
+        failedMerges,
+        successfulMerges: execution.mergeOrder.filter(id => !failedMerges.includes(id)),
+      });
     }
 
     // Cleanup worktrees if configured
@@ -329,12 +372,14 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
       await this.cleanup(execution);
     }
 
-    execution.status = 'completed';
-    execution.endTime = Date.now();
-    this.emit('execution:completed', {
-      executionId: execution.id,
-      duration: execution.endTime - execution.startTime,
-    });
+    if (failedMerges.length === 0) {
+      execution.status = 'completed';
+      execution.endTime = Date.now();
+      this.emit('execution:completed', {
+        executionId: execution.id,
+        duration: execution.endTime - execution.startTime,
+      });
+    }
   }
 
   // ============ Manual Conflict Resolution ============
@@ -363,13 +408,31 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
   // ============ Cleanup ============
 
   private async cleanup(execution: ParallelExecution): Promise<void> {
+    const failures: { taskId: string; error: string }[] = [];
+
     for (const [taskId, session] of execution.sessions) {
       try {
         await this.worktreeManager.abandonWorktree(session.id);
         this.emit('worktree:cleaned', { executionId: execution.id, taskId });
-      } catch {
-        // Ignore cleanup errors
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn('Failed to clean up worktree', {
+          executionId: execution.id,
+          taskId,
+          sessionId: session.id,
+          error: message,
+        });
+        failures.push({ taskId, error: message });
       }
+    }
+
+    if (failures.length > 0) {
+      this.emit('worktree:cleanup-partial', {
+        executionId: execution.id,
+        failedCount: failures.length,
+        totalCount: execution.sessions.size,
+        failures,
+      });
     }
   }
 

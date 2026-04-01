@@ -517,11 +517,14 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
     }
   }
 
-  @HostListener('document:click')
-  handleDocumentClick(): void {
-    // Close context menu if clicking outside
+  @HostListener('document:mousedown', ['$event'])
+  handleOutsideClick(event: MouseEvent): void {
     if (this.contextMenuDir()) {
       this.contextMenuDir.set(null);
+    }
+
+    if (this.isOpen() && !this.elementRef.nativeElement.contains(event.target as Node)) {
+      this.closeDropdown();
     }
   }
 

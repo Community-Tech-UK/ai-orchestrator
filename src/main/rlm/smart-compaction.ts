@@ -444,7 +444,7 @@ export class SmartCompactionManager extends EventEmitter {
     const tokensBefore = session.totalRootTokens + session.totalSubQueryTokens;
 
     // Create checkpoint before compaction
-    const transactionId = this.checkpointManager.beginTransaction(
+    const transactionId = await this.checkpointManager.beginTransaction(
       session.id,
       TransactionType.CONTEXT_COMPACTION,
       `Smart compaction: ${reason}`,

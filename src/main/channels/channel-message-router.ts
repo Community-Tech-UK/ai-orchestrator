@@ -19,12 +19,14 @@
  *   6. Default                 — create a new instance
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import type { ChannelManager, ChannelEvent } from './channel-manager';
 import type { ChannelPersistence } from './channel-persistence';
 import { RateLimiter } from './rate-limiter';
 import type { BaseChannelAdapter } from './channel-adapter';
+import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import type { InboundChannelMessage } from '../../shared/types/channels';
 
 const logger = getLogger('ChannelMessageRouter');
@@ -34,27 +36,64 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const DEBOUNCE_MS = 2000;
 
 interface ParsedIntent {
-  type: 'command' | 'thread' | 'named' | 'broadcast' | 'pinned' | 'default';
+  type:
+    | 'command'
+    | 'thread'
+    | 'explicit'
+    | 'named'
+    | 'broadcast'
+    | 'pinned-instance'
+    | 'pinned-project'
+    | 'default';
   instanceId?: string;
+  projectName?: string;
+  instanceName?: string;
+  workingDirectory?: string;
   cleanContent: string;
   command?: string;
   commandArgs?: string;
 }
 
+interface ProjectDescriptor {
+  key: string;
+  label: string;
+  workingDirectory: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  activeInstances: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  hibernatedInstances: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  historyEntries: any[];
+  lastActivity: number;
+}
+
+type ChannelPin =
+  | { kind: 'instance'; instanceId: string }
+  | { kind: 'project'; projectKey: string; label: string; workingDirectory: string | null };
+
+type ResolvedNamedTarget =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | { kind: 'instance'; instance: any }
+  | { kind: 'project'; project: ProjectDescriptor };
+
 /** Directories that must never be sent out via channel file sharing */
 const FORBIDDEN_PATHS = ['.env', 'credentials', 'tokens', 'secrets', '.ssh', 'access.json'];
+const NO_PROJECT_KEY = '__no_project__';
+const NO_PROJECT_LABEL = '(no project)';
 
 export class ChannelMessageRouter {
   private rateLimiter = new RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   private unsubscribe: (() => void) | null = null;
   private outputBuffers = new Map<string, { content: string; timer: ReturnType<typeof setTimeout> }>();
-  /** Maps Discord channelId → pinned instanceId */
-  private channelPins = new Map<string, string>();
+  /** Maps Discord channelId → pinned instance or project target */
+  private channelPins = new Map<string, ChannelPin>();
   /** Maps DM senderId → instanceId (persistent per-user DM instance) */
   private dmPins = new Map<string, string>();
   /** Maps channelId/senderId → pending pick list for interactive selection */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private pendingPicks = new Map<string, any[]>();
+  /** Maps channelId/senderId → ordered project list from last /list for numeric selection */
+  private pendingProjectPicks = new Map<string, ProjectDescriptor[]>();
   // We need InstanceManager but import it lazily to avoid circular deps
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _instanceManagerOverride: any = null;
@@ -117,14 +156,13 @@ export class ChannelMessageRouter {
   private getProjectMap(): Map<string, any[]> {
     const im = this.getInstanceManager();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const instances: any[] = im.getAllInstances?.() ?? [];
+    const instances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = new Map<string, any[]>();
 
     for (const inst of instances) {
       const dir = (inst.workingDirectory || '').trim();
-      const project = dir ? path.basename(dir) : '(no project)';
-      const key = project.toLowerCase();
+      const key = this.getProjectKey(dir);
       if (!map.has(key)) {
         map.set(key, []);
       }
@@ -134,45 +172,221 @@ export class ChannelMessageRouter {
   }
 
   /**
-   * Resolve an instance by project name and optional display name.
-   * - "claude-orchestrator" → most recent idle instance in that project
-   * - "claude-orchestrator/fix nav" → specific instance by display name
+   * Normalize a working directory into a stable project key.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private resolveByName(projectName: string, instanceName?: string): any | null {
-    const projectMap = this.getProjectMap();
-    const key = projectName.toLowerCase();
+  private getProjectKey(workingDirectory: string | null | undefined): string {
+    const normalized = (workingDirectory ?? '').trim();
+    return normalized ? normalized.toLowerCase() : NO_PROJECT_KEY;
+  }
 
-    // Try exact match first, then prefix match
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let candidates: any[] | undefined = projectMap.get(key);
-    if (!candidates) {
-      // Prefix match
-      for (const [k, v] of projectMap) {
-        if (k.startsWith(key)) {
-          candidates = v;
-          break;
+  private getProjectLabel(workingDirectory: string | null | undefined, fallbackLabel?: string): string {
+    const normalized = (workingDirectory ?? '').trim();
+    if (fallbackLabel?.trim()) {
+      return fallbackLabel.trim();
+    }
+    if (!normalized) {
+      return NO_PROJECT_LABEL;
+    }
+    return path.basename(normalized) || normalized;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getRouteableInstances(project: ProjectDescriptor): any[] {
+    const active = project.activeInstances.filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (instance: any) =>
+        instance.status === 'idle' ||
+        instance.status === 'busy' ||
+        instance.status === 'waiting_for_input'
+    );
+
+    const hibernated = project.hibernatedInstances.map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (entry: any) => ({
+        id: entry.instanceId,
+        displayName: entry.displayName,
+        workingDirectory: entry.workingDirectory || project.workingDirectory || '',
+        status: 'hibernated',
+        lastActivity: entry.hibernatedAt,
+      })
+    );
+
+    return [...active, ...hibernated].sort(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0)
+    );
+  }
+
+  private async getProjectDescriptors(): Promise<Map<string, ProjectDescriptor>> {
+    const descriptors = new Map<string, ProjectDescriptor>();
+
+    const ensureDescriptor = (
+      workingDirectory: string | null | undefined,
+      fallbackLabel?: string,
+    ): ProjectDescriptor => {
+      const normalized = (workingDirectory ?? '').trim() || null;
+      const key = this.getProjectKey(normalized);
+      const existing = descriptors.get(key);
+      if (existing) {
+        if (!existing.workingDirectory && normalized) {
+          existing.workingDirectory = normalized;
         }
+        if (existing.label === NO_PROJECT_LABEL && fallbackLabel?.trim()) {
+          existing.label = fallbackLabel.trim();
+        }
+        return existing;
+      }
+
+      const descriptor: ProjectDescriptor = {
+        key,
+        label: this.getProjectLabel(normalized, fallbackLabel),
+        workingDirectory: normalized,
+        activeInstances: [],
+        hibernatedInstances: [],
+        historyEntries: [],
+        lastActivity: 0,
+      };
+      descriptors.set(key, descriptor);
+      return descriptor;
+    };
+
+    try {
+      const recentDirectories = await getRecentDirectoriesManager().getDirectories({
+        sortBy: 'lastAccessed',
+      });
+      for (const entry of recentDirectories) {
+        const descriptor = ensureDescriptor(entry.path, entry.displayName);
+        descriptor.lastActivity = Math.max(descriptor.lastActivity, entry.lastAccessed || 0);
+      }
+    } catch {
+      // Ignore recent-directory failures; live/history state still builds a project list.
+    }
+
+    for (const instances of this.getProjectMap().values()) {
+      for (const instance of instances) {
+        const descriptor = ensureDescriptor(instance.workingDirectory);
+        descriptor.activeInstances.push(instance);
+        descriptor.lastActivity = Math.max(descriptor.lastActivity, instance.lastActivity || 0);
       }
     }
-    if (!candidates || candidates.length === 0) return null;
 
-    if (instanceName) {
-      // Match by display name (case-insensitive, partial match)
-      const needle = instanceName.toLowerCase();
-      return candidates.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (i: any) => (i.displayName || '').toLowerCase().includes(needle)
-      ) ?? null;
+    for (const instances of this.getHibernatedByProject().values()) {
+      for (const instance of instances) {
+        const descriptor = ensureDescriptor(instance.workingDirectory);
+        descriptor.hibernatedInstances.push(instance);
+        descriptor.lastActivity = Math.max(descriptor.lastActivity, instance.hibernatedAt || 0);
+      }
     }
 
-    // No instance name — pick the most recently active idle/busy instance
-    const active = candidates
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((i: any) => i.status === 'idle' || i.status === 'busy')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0));
-    return active[0] ?? candidates[0] ?? null;
+    for (const { dir, entries } of this.getHistoryByProject().values()) {
+      const descriptor = ensureDescriptor(dir);
+      descriptor.historyEntries.push(...entries);
+      for (const entry of entries) {
+        descriptor.lastActivity = Math.max(
+          descriptor.lastActivity,
+          entry.endedAt || entry.createdAt || 0,
+        );
+      }
+    }
+
+    return descriptors;
+  }
+
+  private async resolveProject(projectName: string): Promise<ProjectDescriptor | null> {
+    const normalizedQuery = projectName.trim();
+    if (!normalizedQuery) {
+      return null;
+    }
+
+    const descriptors = await this.getProjectDescriptors();
+    const queryLower = normalizedQuery.toLowerCase();
+
+    const byKey = descriptors.get(this.getProjectKey(normalizedQuery));
+    if (byKey) {
+      return byKey;
+    }
+
+    const exactLabelMatch = [...descriptors.values()].find(
+      descriptor => descriptor.label.toLowerCase() === queryLower,
+    );
+    if (exactLabelMatch) {
+      return exactLabelMatch;
+    }
+
+    const prefixMatch = [...descriptors.values()].find(descriptor => {
+      const workingDirectory = descriptor.workingDirectory?.toLowerCase() || '';
+      return descriptor.label.toLowerCase().startsWith(queryLower) || workingDirectory.startsWith(queryLower);
+    });
+    if (prefixMatch) {
+      return prefixMatch;
+    }
+
+    if (fs.existsSync(normalizedQuery)) {
+      const resolvedPath = path.resolve(normalizedQuery);
+      if (fs.statSync(resolvedPath).isDirectory()) {
+        return {
+          key: this.getProjectKey(resolvedPath),
+          label: this.getProjectLabel(resolvedPath),
+          workingDirectory: resolvedPath,
+          activeInstances: [],
+          hibernatedInstances: [],
+          historyEntries: [],
+          lastActivity: Date.now(),
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve a project by number (from last /list) or name.
+   * If the input is a number like "3", look up from the stored pendingProjectPicks.
+   * Otherwise fall through to normal resolveProject.
+   */
+  private async resolveProjectByNumberOrName(
+    input: string,
+    pickKey: string,
+  ): Promise<ProjectDescriptor | null> {
+    const num = parseInt(input, 10);
+    if (!isNaN(num) && String(num) === input.trim() && this.pendingProjectPicks.has(pickKey)) {
+      const projects = this.pendingProjectPicks.get(pickKey)!;
+      if (num >= 1 && num <= projects.length) {
+        return projects[num - 1];
+      }
+    }
+    return this.resolveProject(input);
+  }
+
+  private async resolveNamedTarget(
+    projectName: string,
+    instanceName?: string,
+    strictInstanceName = false,
+  ): Promise<ResolvedNamedTarget | null> {
+    const project = await this.resolveProject(projectName);
+    if (!project) {
+      return null;
+    }
+
+    const routeableInstances = this.getRouteableInstances(project);
+
+    if (instanceName) {
+      const needle = instanceName.toLowerCase();
+      const matchedInstance = routeableInstances.find(instance => {
+        const displayName = (instance.displayName || '').toLowerCase();
+        return displayName.includes(needle) || String(instance.id || '').toLowerCase() === needle;
+      });
+      if (matchedInstance) {
+        return { kind: 'instance', instance: matchedInstance };
+      }
+      return strictInstanceName ? null : project.workingDirectory ? { kind: 'project', project } : null;
+    }
+
+    if (routeableInstances.length > 0) {
+      return { kind: 'instance', instance: routeableInstances[0] };
+    }
+
+    return project.workingDirectory ? { kind: 'project', project } : null;
   }
 
   // ============ Command handlers ============
@@ -191,8 +405,7 @@ export class ChannelMessageRouter {
       const map = new Map<string, any[]>();
       for (const h of hibernated) {
         const dir = (h.workingDirectory || '').trim();
-        const project = dir ? path.basename(dir) : '(no project)';
-        const key = project.toLowerCase();
+        const key = this.getProjectKey(dir);
         if (!map.has(key)) map.set(key, []);
         map.get(key)!.push(h);
       }
@@ -216,8 +429,7 @@ export class ChannelMessageRouter {
       const map = new Map<string, { dir: string; entries: any[] }>();
       for (const e of entries) {
         const dir = (e.workingDirectory || '').trim();
-        const project = dir ? path.basename(dir) : '(no project)';
-        const key = project.toLowerCase();
+        const key = this.getProjectKey(dir);
         if (!map.has(key)) map.set(key, { dir, entries: [] });
         map.get(key)!.entries.push(e);
       }
@@ -229,121 +441,111 @@ export class ChannelMessageRouter {
 
   private async handleListCommand(
     msg: InboundChannelMessage,
+    args: string,
     adapter: BaseChannelAdapter,
   ): Promise<void> {
-    const projectMap = this.getProjectMap();
-    const hibernatedMap = this.getHibernatedByProject();
-    const historyMap = this.getHistoryByProject();
-
-    // Collect all project keys across all sources
-    const allProjects = new Map<string, { dir: string }>();
-    for (const [k, instances] of projectMap) {
-      const dir = instances[0]?.workingDirectory || '';
-      if (!allProjects.has(k)) allProjects.set(k, { dir });
-    }
-    for (const [k, instances] of hibernatedMap) {
-      const dir = instances[0]?.workingDirectory || '';
-      if (!allProjects.has(k)) allProjects.set(k, { dir });
-    }
-    for (const [k, { dir }] of historyMap) {
-      if (!allProjects.has(k)) allProjects.set(k, { dir });
-    }
-
-    if (allProjects.size === 0) {
+    const projectDescriptors = await this.getProjectDescriptors();
+    if (projectDescriptors.size === 0) {
       await adapter.sendMessage(msg.chatId, 'No projects or sessions found.', { replyTo: msg.messageId });
       return;
     }
 
-    // Sort projects by most recent activity
-    const projectActivity = new Map<string, number>();
-    for (const [k, instances] of projectMap) {
-      for (const inst of instances) {
-        const t = inst.lastActivity || 0;
-        projectActivity.set(k, Math.max(projectActivity.get(k) || 0, t));
-      }
-    }
-    for (const [k, { entries }] of historyMap) {
-      for (const e of entries) {
-        const t = e.endedAt || e.createdAt || 0;
-        projectActivity.set(k, Math.max(projectActivity.get(k) || 0, t));
-      }
-    }
-    const sortedKeys = [...allProjects.keys()].sort((a, b) =>
-      (projectActivity.get(b) || 0) - (projectActivity.get(a) || 0)
-    );
-
-    // Collect active instance IDs so we skip duplicates from history
-    const activeIds = new Set<string>();
-    for (const instances of projectMap.values()) {
-      for (const inst of instances) {
-        activeIds.add(inst.id);
-      }
-    }
-
     const lines: string[] = [];
+    const requestedProject = args.trim();
 
-    for (const key of sortedKeys) {
-      const active = projectMap.get(key) ?? [];
-      const hibernated = (hibernatedMap.get(key) ?? [])
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((h: any) => !activeIds.has(h.instanceId));
-      const historyEntries = (historyMap.get(key)?.entries ?? [])
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((e: any) => !activeIds.has(e.originalInstanceId));
-
-      const totalSessions = active.length + hibernated.length + historyEntries.length;
-
-      // Project header — matches UI: project name : count
-      const dir = allProjects.get(key)?.dir || '';
-      const projectLabel = dir ? path.basename(dir) : '(no project)';
-      const activeCount = active.length + hibernated.length;
-      const activeSuffix = activeCount > 0 ? ` (${activeCount} active)` : '';
-      lines.push(`**${projectLabel}** : ${totalSessions}${activeSuffix}`);
-
-      // Active instances — simple text, no emojis
-      for (const inst of active) {
-        const status = inst.status || 'unknown';
-        const name = inst.displayName || inst.id.slice(0, 8);
-        const age = this.formatAge(inst.lastActivity);
-        lines.push(`  * ${name} — ${status}, ${age}`);
+    if (requestedProject) {
+      const pickKey = `${msg.chatId}:${msg.senderId}`;
+      const project = await this.resolveProjectByNumberOrName(requestedProject, pickKey);
+      if (!project) {
+        await adapter.sendMessage(
+          msg.chatId,
+          `Could not find project "${requestedProject}". Use \`/list\` to see available projects.`,
+          { replyTo: msg.messageId },
+        );
+        return;
       }
 
-      // Hibernated
-      for (const h of hibernated) {
-        const name = h.displayName || h.instanceId?.slice(0, 8) || 'unknown';
-        const age = this.formatAge(h.hibernatedAt);
-        lines.push(`  * ${name} — hibernated, ${age}`);
+      const routeableInstances = this.getRouteableInstances(project);
+      const historyEntries = [...project.historyEntries].sort(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (a: any, b: any) => (b.endedAt || b.createdAt || 0) - (a.endedAt || a.createdAt || 0)
+      );
+      const totalSessions = routeableInstances.length + historyEntries.length;
+
+      lines.push(`**${project.label}**`);
+      if (project.workingDirectory) {
+        lines.push(`Path: \`${project.workingDirectory}\``);
+      }
+      lines.push(`Sessions: ${totalSessions} total`);
+      lines.push('');
+
+      if (routeableInstances.length === 0 && historyEntries.length === 0) {
+        lines.push('No sessions yet for this project.');
       }
 
-      // Recent history (show up to 3 most recent per project)
-      if (historyEntries.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sorted = [...historyEntries].sort((a: any, b: any) => (b.endedAt || b.createdAt || 0) - (a.endedAt || a.createdAt || 0));
-        const shown = sorted.slice(0, 3);
-        for (const e of shown) {
-          const preview = e.firstUserMessage || e.displayName || e.id?.slice(0, 8) || '';
-          const truncated = preview.length > 50 ? preview.slice(0, 47) + '...' : preview;
-          const age = this.formatAge(e.endedAt || e.createdAt);
-          lines.push(`  - ${truncated}  ${age}`);
-        }
-        if (sorted.length > 3) {
-          lines.push(`  … +${sorted.length - 3} more`);
-        }
+      for (const instance of routeableInstances) {
+        const name = instance.displayName || instance.id?.slice(0, 8) || 'unknown';
+        const status = instance.status || 'unknown';
+        const age = this.formatAge(instance.lastActivity);
+        lines.push(`* ${name} — ${status}, ${age}`);
+      }
+
+      const shownHistory = historyEntries.slice(0, 5);
+      for (const entry of shownHistory) {
+        const preview = entry.firstUserMessage || entry.displayName || entry.id?.slice(0, 8) || 'Session';
+        const truncated = preview.length > 70 ? `${preview.slice(0, 67)}...` : preview;
+        const age = this.formatAge(entry.endedAt || entry.createdAt);
+        lines.push(`- ${truncated} — archived, ${age}`);
+      }
+
+      if (historyEntries.length > shownHistory.length) {
+        lines.push(`… +${historyEntries.length - shownHistory.length} more archived sessions`);
       }
 
       lines.push('');
+      lines.push(
+        `Use \`/select ${project.label}\` to pin this project or \`/new ${project.label} -- <prompt>\` to start a new session.`,
+      );
+      await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+      return;
     }
 
-    // Pin info
-    const pinInfo = this.channelPins.get(msg.chatId);
-    if (pinInfo) {
+    const projects = [...projectDescriptors.values()].sort(
+      (a, b) => b.lastActivity - a.lastActivity || a.label.localeCompare(b.label),
+    );
+
+    // Store numbered project list for numeric selection
+    const pickKey = `${msg.chatId}:${msg.senderId}`;
+    this.pendingProjectPicks.set(pickKey, projects);
+
+    lines.push('**Projects**');
+    for (let i = 0; i < projects.length; i++) {
+      const project = projects[i];
+      const routeableCount = this.getRouteableInstances(project).length;
+      const totalSessions = routeableCount + project.historyEntries.length;
+      const activeSuffix = routeableCount > 0 ? ` (${routeableCount} active)` : '';
+      lines.push(`**${i + 1}.** **${project.label}** : ${totalSessions}${activeSuffix}`);
+      if (project.workingDirectory) {
+        lines.push(`  ${project.workingDirectory}`);
+      }
+    }
+
+    const pin = this.channelPins.get(msg.chatId);
+    if (pin?.kind === 'instance') {
       const im = this.getInstanceManager();
-      const pinned = im.getInstance?.(pinInfo);
-      const label = pinned?.displayName || pinInfo.slice(0, 8);
-      lines.push(`Pinned to: **${label}**`);
+      const pinned = im.getInstance?.(pin.instanceId);
+      const label = pinned?.displayName || pin.instanceId.slice(0, 8);
+      lines.push('');
+      lines.push(`Pinned to session: **${label}**`);
+    } else if (pin?.kind === 'project') {
+      lines.push('');
+      lines.push(`Pinned to project: **${pin.label}**`);
     }
 
-    lines.push('Use `@project message` to send, or `/new <path>` to start a session.');
+    lines.push('');
+    lines.push(
+      'Use `/list <number>` or `/list <project>` to drill into sessions, `/select <number>` to pin a project, or `/new <number> -- <prompt>` to start a session.',
+    );
 
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }
@@ -365,23 +567,49 @@ export class ChannelMessageRouter {
     const parts = args.trim().split('/');
     const projectName = parts[0].trim();
     const instanceName = parts.length > 1 ? parts.slice(1).join('/').trim() : undefined;
+    const pickKey = `${msg.chatId}:${msg.senderId}`;
 
-    const instance = this.resolveByName(projectName, instanceName);
-    if (!instance) {
+    const target = await this.resolveNamedTarget(projectName, instanceName, true);
+    if (!instanceName) {
+      const project = await this.resolveProjectByNumberOrName(projectName, pickKey);
+      if (project) {
+        this.channelPins.set(msg.chatId, {
+          kind: 'project',
+          projectKey: project.key,
+          label: project.label,
+          workingDirectory: project.workingDirectory,
+        });
+        await adapter.sendMessage(
+          msg.chatId,
+          `Pinned this channel to project **${project.label}**. New messages will use the latest session there or start a new one.\nUse \`/clear\` to unpin.`,
+          { replyTo: msg.messageId },
+        );
+        return;
+      }
       await adapter.sendMessage(
         msg.chatId,
-        `Could not find ${instanceName ? `instance "${instanceName}" in` : 'any instance for'} project "${projectName}". Use \`/list\` to see what's available.`,
+        `Could not find project "${projectName}". Use \`/list\` to see available projects.`,
         { replyTo: msg.messageId },
       );
       return;
     }
 
-    this.channelPins.set(msg.chatId, instance.id);
+    if (!target || target.kind !== 'instance') {
+      await adapter.sendMessage(
+        msg.chatId,
+        `Could not find instance "${instanceName}" in project "${projectName}". Use \`/list ${projectName}\` to see available sessions.`,
+        { replyTo: msg.messageId },
+      );
+      return;
+    }
+
+    const instance = target.instance;
+    this.channelPins.set(msg.chatId, { kind: 'instance', instanceId: instance.id });
     const label = instance.displayName || instance.id.slice(0, 8);
-    const dir = path.basename(instance.workingDirectory || '');
+    const dir = this.getProjectLabel(instance.workingDirectory);
     await adapter.sendMessage(
       msg.chatId,
-      `📌 Pinned this channel to **${dir}/${label}**. All messages here will route to that instance.\nUse \`/clear\` to unpin.`,
+      `Pinned this channel to session **${dir}/${label}**. All messages here will route to that session.\nUse \`/clear\` to unpin.`,
       { replyTo: msg.messageId },
     );
   }
@@ -411,24 +639,80 @@ export class ChannelMessageRouter {
       '',
       '**Commands:**',
       '`/help` — show this message',
-      '`/list` — show all projects and instances with status',
+      '`/list` — show numbered projects',
+      '`/list <number|project>` — show sessions in a project',
       '`/pick` — interactive numbered picker, then `/pick <number>` to select',
-      '`/select <project>` — pin this channel to a project',
+      '`/select <number|project>` — pin this channel to a project',
       '`/select <project>/<instance>` — pin to a specific instance',
+      '`/new <number|project> -- <prompt>` — start a new session in a project',
       '`/clear` — remove channel pin',
       '`/switch` — clear your DM instance (start a new conversation)',
       '',
       '**Routing:**',
-      '`@<project> <message>` — send to the most recent instance in a project',
+      '`@<project> <message>` — send to the latest session in a project, or start a new one there',
       '`@<project>/<name> <message>` — send to a specific instance by name',
       '`@all <message>` — broadcast to every active instance',
       '',
       '**Automatic routing:**',
       'Thread replies continue the same instance.',
       'In DMs, your instance is remembered until you `/switch`.',
-      'Pinned channels route all messages to the pinned instance.',
+      'Pinned channels route all messages to the pinned project or instance.',
     ];
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+  }
+
+  private async handleNewCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const trimmedArgs = args.trim();
+    const [rawProjectArg, ...rawPromptParts] = trimmedArgs.split(/\s+--\s+/);
+    const prompt = rawPromptParts.join(' -- ').trim();
+
+    const pickKey = `${msg.chatId}:${msg.senderId}`;
+    let project: ProjectDescriptor | null = null;
+    if (rawProjectArg?.trim()) {
+      project = await this.resolveProjectByNumberOrName(rawProjectArg.trim(), pickKey);
+      if (!project) {
+        await adapter.sendMessage(
+          msg.chatId,
+          `Could not find project "${rawProjectArg.trim()}". Use \`/list\` to see available projects or pass an existing directory path.`,
+          { replyTo: msg.messageId },
+        );
+        return;
+      }
+    } else {
+      const pin = this.channelPins.get(msg.chatId);
+      if (pin?.kind === 'project') {
+        project = await this.resolveProject(pin.workingDirectory || pin.label);
+      } else if (pin?.kind === 'instance') {
+        const im = this.getInstanceManager();
+        const instance = im.getInstance?.(pin.instanceId);
+        if (instance) {
+          project = await this.resolveProject(instance.workingDirectory || '');
+        }
+      }
+    }
+
+    const workingDirectory = project?.workingDirectory || process.cwd();
+    const instanceId = await this.routeDefault(msg, prompt, adapter, workingDirectory);
+
+    if (msg.isDM) {
+      this.dmPins.set(msg.senderId, instanceId);
+    } else {
+      this.channelPins.set(msg.chatId, { kind: 'instance', instanceId });
+    }
+
+    const im = this.getInstanceManager();
+    const instance = im.getInstance?.(instanceId);
+    const label = instance?.displayName || instanceId.slice(0, 8);
+    const projectLabel = project?.label || this.getProjectLabel(workingDirectory);
+    const confirmation = prompt
+      ? `Started a new session in **${projectLabel}** and sent your prompt to **${label}**.`
+      : `Started a new session in **${projectLabel}**. ${msg.isDM ? 'Your DM' : 'This channel'} is now pinned to **${label}**.`;
+
+    await adapter.sendMessage(msg.chatId, confirmation, { replyTo: msg.messageId });
   }
 
   private async handlePickCommand(
@@ -458,10 +742,10 @@ export class ChannelMessageRouter {
       if (isDm) {
         this.dmPins.set(msg.senderId, chosen.id);
       } else {
-        this.channelPins.set(msg.chatId, chosen.id);
+        this.channelPins.set(msg.chatId, { kind: 'instance', instanceId: chosen.id });
       }
 
-      const dir = path.basename(chosen.workingDirectory || '');
+      const dir = this.getProjectLabel(chosen.workingDirectory);
       const label = chosen.displayName || chosen.id.slice(0, 8);
       await adapter.sendMessage(
         msg.chatId,
@@ -474,7 +758,7 @@ export class ChannelMessageRouter {
     // Show the pick list — active + hibernated instances
     const im = this.getInstanceManager();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const instances: any[] = im.getAllInstances?.() ?? [];
+    const instances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
     const active = instances
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((i: any) => i.status === 'idle' || i.status === 'busy' || i.status === 'waiting_for_input')
@@ -558,14 +842,7 @@ export class ChannelMessageRouter {
    * For robustness, we check if the chatId contains no guild separator.
    */
   private isDm(msg: InboundChannelMessage): boolean {
-    // Discord DM channel IDs are distinct from guild channel IDs,
-    // but we don't have guild info here. Use a heuristic:
-    // DMs typically have threadId === undefined and a 1:1 chat pattern.
-    // The discord adapter sets chatId to the channel ID regardless.
-    // For safety, treat messages with no threadId in non-pinned channels as potential DMs.
-    // The actual DM detection is done by the adapter (it allows messages without @mention in DMs).
-    // We'll store DM pins by senderId which works regardless.
-    return !msg.threadId && !this.channelPins.has(msg.chatId);
+    return msg.isDM;
   }
 
   // ============ Main handler ============
@@ -599,10 +876,13 @@ export class ChannelMessageRouter {
           await this.handleHelpCommand(msg, adapter);
           return;
         case 'list':
-          await this.handleListCommand(msg, adapter);
+          await this.handleListCommand(msg, intent.commandArgs || '', adapter);
           return;
         case 'select':
           await this.handleSelectCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'new':
+          await this.handleNewCommand(msg, intent.commandArgs || '', adapter);
           return;
         case 'clear':
           await this.handleClearCommand(msg, adapter);
@@ -656,18 +936,50 @@ export class ChannelMessageRouter {
           await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
           break;
 
-        case 'named':
+        case 'explicit':
           instanceId = intent.instanceId!;
           await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
           break;
+
+        case 'named': {
+          const target = await this.resolveNamedTarget(intent.projectName!, intent.instanceName);
+          if (!target) {
+            throw new Error(`Could not find project "${intent.projectName}"`);
+          }
+
+          if (target.kind === 'instance') {
+            instanceId = target.instance.id;
+            await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          } else {
+            instanceId = await this.routeToProject(msg, intent.cleanContent, adapter, target.project);
+          }
+          break;
+        }
 
         case 'broadcast':
           await this.routeBroadcast(msg, intent.cleanContent, adapter);
           return; // broadcast handles its own completion
 
-        case 'pinned':
+        case 'pinned-instance':
           instanceId = intent.instanceId!;
           await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          break;
+
+        case 'pinned-project':
+          instanceId = await this.routeToProject(
+            msg,
+            intent.cleanContent,
+            adapter,
+            {
+              key: this.getProjectKey(intent.workingDirectory),
+              label: intent.projectName || this.getProjectLabel(intent.workingDirectory),
+              workingDirectory: intent.workingDirectory || null,
+              activeInstances: [],
+              hibernatedInstances: [],
+              historyEntries: [],
+              lastActivity: 0,
+            },
+          );
           break;
 
         case 'default':
@@ -733,6 +1045,15 @@ export class ChannelMessageRouter {
       };
     }
 
+    const explicitMatch = trimmed.match(/^@instance-([\w-]+)\s+([\s\S]+)$/);
+    if (explicitMatch) {
+      return {
+        type: 'explicit',
+        instanceId: explicitMatch[1],
+        cleanContent: explicitMatch[2].trim(),
+      };
+    }
+
     // Named routing: @project/instance message  or  @project message
     const namedMatch = trimmed.match(/^@([\w.-]+)(?:\/([\w. -]+))?\s+([\s\S]+)$/);
     if (namedMatch) {
@@ -744,11 +1065,12 @@ export class ChannelMessageRouter {
         return { type: 'broadcast', cleanContent: namedMatch[3].trim() };
       }
 
-      const instance = this.resolveByName(projectName, instanceName);
-      if (instance) {
-        return { type: 'named', instanceId: instance.id, cleanContent: namedMatch[3].trim() };
-      }
-      // Fall through to other resolution if name not found
+      return {
+        type: 'named',
+        projectName,
+        instanceName,
+        cleanContent: namedMatch[3].trim(),
+      };
     }
 
     // Thread continuity
@@ -761,16 +1083,23 @@ export class ChannelMessageRouter {
 
     // Channel pin
     if (chatId) {
-      const pinnedId = this.channelPins.get(chatId);
-      if (pinnedId) {
+      const pin = this.channelPins.get(chatId);
+      if (pin?.kind === 'instance') {
         // Verify the pinned instance still exists
         const im = this.getInstanceManager();
-        const inst = im.getInstance?.(pinnedId);
+        const inst = im.getInstance?.(pin.instanceId);
         if (inst) {
-          return { type: 'pinned', instanceId: pinnedId, cleanContent: content };
+          return { type: 'pinned-instance', instanceId: pin.instanceId, cleanContent: content };
         }
         // Instance gone — clear stale pin
         this.channelPins.delete(chatId);
+      } else if (pin?.kind === 'project') {
+        return {
+          type: 'pinned-project',
+          projectName: pin.label,
+          workingDirectory: pin.workingDirectory || undefined,
+          cleanContent: content,
+        };
       }
     }
 
@@ -784,19 +1113,53 @@ export class ChannelMessageRouter {
     msg: InboundChannelMessage,
     content: string,
     adapter: BaseChannelAdapter,
+    workingDirectory = process.cwd(),
   ): Promise<string> {
     const im = this.getInstanceManager();
+    try {
+      getRecentDirectoriesManager().addDirectory(workingDirectory);
+    } catch {
+      // Ignore missing or inaccessible directories; instance creation will surface real failures.
+    }
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
-      workingDirectory: process.cwd(),
-      initialPrompt: content,
+      workingDirectory,
+      initialPrompt: content || undefined,
       yoloMode: true,
     });
 
     // Stream results back
-    this.streamResults(msg, instance.id, adapter);
+    if (content) {
+      this.streamResults(msg, instance.id, adapter);
+    }
 
     return instance.id;
+  }
+
+  private async routeToProject(
+    msg: InboundChannelMessage,
+    content: string,
+    adapter: BaseChannelAdapter,
+    project: ProjectDescriptor,
+  ): Promise<string> {
+    const refreshedProject =
+      (project.workingDirectory
+        ? await this.resolveProject(project.workingDirectory)
+        : await this.resolveProject(project.label)) || project;
+    const latestInstance = this.getRouteableInstances(refreshedProject)[0];
+
+    if (latestInstance) {
+      await this.routeToInstance(msg, latestInstance.id, content, adapter);
+      return latestInstance.id;
+    }
+
+    if (!refreshedProject.workingDirectory) {
+      throw new Error(
+        `Project "${refreshedProject.label}" is missing a working directory, so a new session cannot be started.`,
+      );
+    }
+
+    return this.routeDefault(msg, content, adapter, refreshedProject.workingDirectory);
   }
 
   private async routeToInstance(
@@ -819,7 +1182,7 @@ export class ChannelMessageRouter {
   ): Promise<void> {
     const im = this.getInstanceManager();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const instances: any[] = im.getAllInstances?.() ?? [];
+    const instances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const activeInstances = instances.filter((i: any) =>
       i.status === 'idle' || i.status === 'busy'

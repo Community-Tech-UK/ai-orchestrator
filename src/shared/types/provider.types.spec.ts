@@ -15,13 +15,18 @@ describe('provider type helpers', () => {
     ).toBe(1000000);
   });
 
-  it('returns 1M context for Opus models (natively 1M)', () => {
-    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.OPUS)).toBe(1000000);
-    expect(getProviderModelContextWindow('claude-cli', 'claude-opus-4-5')).toBe(1000000);
+  it('returns 200k default for bare Claude model names (1M requires [1m] suffix or 4.6+)', () => {
+    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.OPUS)).toBe(200000);
+    expect(getProviderModelContextWindow('claude-cli', 'claude-opus-4-5')).toBe(200000);
+    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.SONNET)).toBe(200000);
   });
 
-  it('returns 1M context for all Claude models', () => {
-    expect(getProviderModelContextWindow('claude', CLAUDE_MODELS.SONNET)).toBe(1000000);
+  it('returns 1M for 4.6+ models that natively support it', () => {
+    expect(getProviderModelContextWindow('claude', 'claude-opus-4-6')).toBe(1000000);
+    expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-6')).toBe(1000000);
+  });
+
+  it('returns 200k for non-Claude providers', () => {
     expect(getProviderModelContextWindow('codex', 'gpt-5.4')).toBe(200000);
   });
 });

@@ -756,136 +756,145 @@ export class InstanceCommunicationManager extends EventEmitter {
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
-      if (instance) {
-        // Check if this is a context overflow error
-        const classified = getErrorRecoveryManager().classifyError(error);
-        if (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context')) {
-          logger.info('Context overflow detected, attempting compaction', { instanceId });
+      if (!instance) return;
 
-          // Add a system message to inform the user
-          const compactingMessage: OutputMessage = {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'system',
-            content: 'Context is too long. Compacting conversation history...',
-            metadata: { contextOverflow: true }
-          };
-          this.addToOutputBuffer(instance, compactingMessage);
-          this.emit('output', { instanceId, message: compactingMessage });
+      // Guard: ignore errors from a replaced adapter (e.g., late pipe errors from a
+      // killed process after respawnAfterInterrupt already installed a new adapter).
+      // Without this, the old adapter's error handler would force-cleanup the NEW adapter.
+      const currentAdapter = this.deps.getAdapter(instanceId);
+      if (currentAdapter !== adapter) {
+        logger.info('Adapter error event but adapter has been replaced - ignoring', { instanceId });
+        return;
+      }
 
-          // Attempt context compaction if handler is available
-          if (this.deps.compactContext) {
-            try {
-              await this.deps.compactContext(instanceId);
-              logger.info('Context compaction completed', { instanceId });
+      // Check if this is a context overflow error
+      const classified = getErrorRecoveryManager().classifyError(error);
+      if (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context')) {
+        logger.info('Context overflow detected, attempting compaction', { instanceId });
 
-              // Reset warning so it can fire again after compaction
-              this.contextWarningIssued.delete(instanceId);
+        // Add a system message to inform the user
+        const compactingMessage: OutputMessage = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system',
+          content: 'Context is too long. Compacting conversation history...',
+          metadata: { contextOverflow: true }
+        };
+        this.addToOutputBuffer(instance, compactingMessage);
+        this.emit('output', { instanceId, message: compactingMessage });
 
-              // Check if we already retried once — prevent infinite loop
-              if (this.contextOverflowRetried.has(instanceId)) {
-                logger.warn('Already retried after overflow, skipping retry', { instanceId });
-                const idleMessage: OutputMessage = {
-                  id: generateId(),
-                  timestamp: Date.now(),
-                  type: 'system',
-                  content: 'Context compacted. Please delegate large file reads to child instances and try again.',
-                  metadata: { contextCompacted: true }
-                };
-                this.addToOutputBuffer(instance, idleMessage);
-                this.emit('output', { instanceId, message: idleMessage });
-                instance.status = 'idle';
-                this.deps.queueUpdate(instanceId, 'idle');
-                return;
-              }
+        // Attempt context compaction if handler is available
+        if (this.deps.compactContext) {
+          try {
+            await this.deps.compactContext(instanceId);
+            logger.info('Context compaction completed', { instanceId });
 
-              // Attempt retry with delegation guidance
-              const lastMsg = this.lastSentMessages.get(instanceId);
-              const retryAdapter = this.deps.getAdapter(instanceId);
-              if (lastMsg && retryAdapter) {
-                this.contextOverflowRetried.add(instanceId);
+            // Reset warning so it can fire again after compaction
+            this.contextWarningIssued.delete(instanceId);
 
-                const delegationGuidance = [
-                  '[SYSTEM: Context Overflow Recovery]',
-                  'Your context overflowed and has been compacted. To prevent this from happening again:',
-                  '1. Do NOT read large files directly — spawn child instances for file reading.',
-                  '2. Use get_child_summary instead of get_child_output for results.',
-                  '3. Summarize rather than copying full file contents.',
-                  'Your previous message is being retried. Follow the guidance above.',
-                  '[END SYSTEM]'
-                ].join('\n');
-
-                const retryMessage = lastMsg.contextBlock
-                  ? `${lastMsg.contextBlock}\n\n${delegationGuidance}\n\n${lastMsg.message}`
-                  : `${delegationGuidance}\n\n${lastMsg.message}`;
-
-                const successMessage: OutputMessage = {
-                  id: generateId(),
-                  timestamp: Date.now(),
-                  type: 'system',
-                  content: 'Context compacted and message retried with delegation guidance.',
-                  metadata: { contextCompacted: true, retrying: true }
-                };
-                this.addToOutputBuffer(instance, successMessage);
-                this.emit('output', { instanceId, message: successMessage });
-
-                instance.status = 'busy';
-                this.deps.queueUpdate(instanceId, 'busy');
-
-                retryAdapter.sendInput(retryMessage, lastMsg.attachments).catch(retryErr => {
-                  logger.error('Retry after compaction failed', retryErr instanceof Error ? retryErr : undefined, { instanceId });
-                  instance.status = 'idle';
-                  this.deps.queueUpdate(instanceId, 'idle');
-                });
-                return;
-              }
-
-              // No stored message or adapter — fall back to idle
-              const fallbackMessage: OutputMessage = {
+            // Check if we already retried once — prevent infinite loop
+            if (this.contextOverflowRetried.has(instanceId)) {
+              logger.warn('Already retried after overflow, skipping retry', { instanceId });
+              const idleMessage: OutputMessage = {
                 id: generateId(),
                 timestamp: Date.now(),
                 type: 'system',
                 content: 'Context compacted. Please delegate large file reads to child instances and try again.',
                 metadata: { contextCompacted: true }
               };
-              this.addToOutputBuffer(instance, fallbackMessage);
-              this.emit('output', { instanceId, message: fallbackMessage });
+              this.addToOutputBuffer(instance, idleMessage);
+              this.emit('output', { instanceId, message: idleMessage });
               instance.status = 'idle';
               this.deps.queueUpdate(instanceId, 'idle');
               return;
-            } catch (compactErr) {
-              logger.error('Context compaction failed', compactErr instanceof Error ? compactErr : undefined, { instanceId });
-              // Fall through to normal error handling
             }
-          } else {
-            logger.warn('No compactContext handler available', { instanceId });
+
+            // Attempt retry with delegation guidance
+            const lastMsg = this.lastSentMessages.get(instanceId);
+            const retryAdapter = this.deps.getAdapter(instanceId);
+            if (lastMsg && retryAdapter) {
+              this.contextOverflowRetried.add(instanceId);
+
+              const delegationGuidance = [
+                '[SYSTEM: Context Overflow Recovery]',
+                'Your context overflowed and has been compacted. To prevent this from happening again:',
+                '1. Do NOT read large files directly — spawn child instances for file reading.',
+                '2. Use get_child_summary instead of get_child_output for results.',
+                '3. Summarize rather than copying full file contents.',
+                'Your previous message is being retried. Follow the guidance above.',
+                '[END SYSTEM]'
+              ].join('\n');
+
+              const retryMessage = lastMsg.contextBlock
+                ? `${lastMsg.contextBlock}\n\n${delegationGuidance}\n\n${lastMsg.message}`
+                : `${delegationGuidance}\n\n${lastMsg.message}`;
+
+              const successMessage: OutputMessage = {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'system',
+                content: 'Context compacted and message retried with delegation guidance.',
+                metadata: { contextCompacted: true, retrying: true }
+              };
+              this.addToOutputBuffer(instance, successMessage);
+              this.emit('output', { instanceId, message: successMessage });
+
+              instance.status = 'busy';
+              this.deps.queueUpdate(instanceId, 'busy');
+
+              retryAdapter.sendInput(retryMessage, lastMsg.attachments).catch(retryErr => {
+                logger.error('Retry after compaction failed', retryErr instanceof Error ? retryErr : undefined, { instanceId });
+                instance.status = 'idle';
+                this.deps.queueUpdate(instanceId, 'idle');
+              });
+              return;
+            }
+
+            // No stored message or adapter — fall back to idle
+            const fallbackMessage: OutputMessage = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system',
+              content: 'Context compacted. Please delegate large file reads to child instances and try again.',
+              metadata: { contextCompacted: true }
+            };
+            this.addToOutputBuffer(instance, fallbackMessage);
+            this.emit('output', { instanceId, message: fallbackMessage });
+            instance.status = 'idle';
+            this.deps.queueUpdate(instanceId, 'idle');
+            return;
+          } catch (compactErr) {
+            logger.error('Context compaction failed', compactErr instanceof Error ? compactErr : undefined, { instanceId });
+            // Fall through to normal error handling
           }
-        }
-
-        // Add error message to output buffer so user sees it in the UI
-        const errorMessage: OutputMessage = {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'error',
-          content: error instanceof Error ? error.message : String(error)
-        };
-        this.addToOutputBuffer(instance, errorMessage);
-        this.emit('output', { instanceId, message: errorMessage });
-
-        instance.errorCount++;
-
-        // Don't mark as error if we're in the middle of respawning - let respawnAfterInterrupt handle it
-        if (instance.status !== 'respawning') {
-          instance.status = 'error';
-          this.deps.queueUpdate(instanceId, 'error');
-
-          // Only force cleanup if not respawning - during respawn the lifecycle manager handles cleanup
-          this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
-            logger.error('Failed to cleanup adapter after error', cleanupErr instanceof Error ? cleanupErr : undefined, { instanceId });
-          });
         } else {
-          logger.info('Instance error during respawning - skipping force cleanup, letting lifecycle handle it', { instanceId });
+          logger.warn('No compactContext handler available', { instanceId });
         }
+      }
+
+      // Add error message to output buffer so user sees it in the UI
+      const errorMessage: OutputMessage = {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: error instanceof Error ? error.message : String(error)
+      };
+      this.addToOutputBuffer(instance, errorMessage);
+      this.emit('output', { instanceId, message: errorMessage });
+
+      instance.errorCount++;
+
+      // Don't mark as error if we're in the middle of respawning - let respawnAfterInterrupt handle it
+      if (instance.status !== 'respawning') {
+        instance.status = 'error';
+        this.deps.queueUpdate(instanceId, 'error');
+
+        // Only force cleanup if not respawning - during respawn the lifecycle manager handles cleanup
+        this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
+          logger.error('Failed to cleanup adapter after error', cleanupErr instanceof Error ? cleanupErr : undefined, { instanceId });
+        });
+      } else {
+        logger.info('Instance error during respawning - skipping force cleanup, letting lifecycle handle it', { instanceId });
       }
     });
 

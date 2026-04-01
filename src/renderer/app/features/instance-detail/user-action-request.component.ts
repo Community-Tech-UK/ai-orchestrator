@@ -729,6 +729,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         this.pendingRequests.update((requests) =>
           requests.filter((r) => r.instanceId !== request.instanceId || r.requestType !== 'input_required')
         );
+        this.instanceStore.clearPendingApprovals(request.instanceId);
       }
     } catch (error) {
       console.error('Failed to enable YOLO mode:', error);
@@ -791,6 +792,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             this.pendingRequests.update((requests) =>
               requests.filter((r) => r.id !== request.id)
             );
+            this.instanceStore.decrementPendingApproval(request.instanceId);
           }
           return;
         }
@@ -853,6 +855,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           this.pendingRequests.update((requests) =>
             requests.filter((r) => r.id !== request.id)
           );
+          this.instanceStore.decrementPendingApproval(request.instanceId);
         }
         return;
       }

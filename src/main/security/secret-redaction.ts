@@ -2,7 +2,7 @@
  * Secret Redaction - Mask and redact sensitive information
  */
 
-import { DetectedSecret, detectSecretsInContent, detectSecretsInEnvContent } from './secret-detector';
+import { DetectedSecret, detectSecretsInContent, detectSecretsInEnvContent, detectSecretsInKeyValue } from './secret-detector';
 
 /**
  * Redaction options
@@ -47,9 +47,11 @@ export function redactValue(value: string, options?: RedactionOptions): string {
 }
 
 /**
- * Redact detected secrets in content
+ * Redact detected secrets in content.
+ * Use redactSecretsWithOptions when you need custom masking behaviour;
+ * use redactSecrets (from secret-detector) for the simple label-based variant.
  */
-export function redactSecrets(
+export function redactSecretsWithOptions(
   content: string,
   secrets: DetectedSecret[],
   options?: RedactionOptions
@@ -63,7 +65,8 @@ export function redactSecrets(
 
   let result = content;
   for (const secret of sorted) {
-    const redacted = redactValue(secret.value, options);
+    // Use the length of the redactedValue field as a proxy for the original value length
+    const redacted = redactValue(secret.redactedValue, options);
     result = result.slice(0, secret.startIndex) + redacted + result.slice(secret.endIndex);
   }
 
@@ -98,7 +101,7 @@ export function redactEnvContent(content: string, options?: RedactionOptions): s
  */
 export function redactAllSecrets(content: string, options?: RedactionOptions): string {
   const secrets = detectSecretsInContent(content);
-  return redactSecrets(content, secrets, options);
+  return redactSecretsWithOptions(content, secrets, options);
 }
 
 /**
@@ -114,7 +117,6 @@ export function redactEnvVars(
     if (value === undefined) continue;
 
     // Check if this is a sensitive key
-    const { detectSecretsInKeyValue } = require('./secret-detector');
     const secret = detectSecretsInKeyValue(key, value);
 
     if (secret) {
@@ -154,7 +156,7 @@ export function redactLogOutput(logContent: string, options?: RedactionOptions):
 
   // Also run general secret detection
   const secrets = detectSecretsInContent(result);
-  result = redactSecrets(result, secrets, options);
+  result = redactSecretsWithOptions(result, secrets, options);
 
   return result;
 }

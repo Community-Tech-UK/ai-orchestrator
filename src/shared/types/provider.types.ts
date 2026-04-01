@@ -304,15 +304,23 @@ export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
 }
 
 /**
- * Claude Code exposes 1M context variants via the `[1m]` suffix.
- * Preserve the existing 200k defaults unless the selected model is explicit.
+ * Return the expected context window for a provider + model combination.
+ *
+ * Claude Code CLI defaults to 200k for most models.  Only Opus 4.6+ and
+ * Sonnet 4.6+ natively expose 1M.  For older models the `[1m]` suffix
+ * requests the `context-1m-2025-08-07` beta header, which also yields 1M.
+ *
+ * NOTE: Claude Code CLI has known bugs where it reports 200k even for
+ * 1M-capable models (see GitHub issues #23432, #34083, #36649).  The
+ * adapter should use `Math.max(cliReported, thisValue)` to avoid being
+ * downgraded by a buggy CLI report.
  */
 export function getProviderModelContextWindow(
   provider: string,
   modelId?: string
 ): number {
   const normalizedProvider = provider.trim().toLowerCase();
-  const normalizedModel = modelId?.trim().toLowerCase();
+  const normalizedModel = modelId?.trim().toLowerCase() ?? '';
   const isClaudeProvider =
     normalizedProvider === 'claude' ||
     normalizedProvider === 'claude-cli' ||
@@ -323,8 +331,23 @@ export function getProviderModelContextWindow(
     return 200000;
   }
 
-  // All current Claude models support 1M context
-  return 1000000;
+  // Explicit 1M request via [1m] suffix (e.g. "opus[1m]", "sonnet[1m]")
+  if (normalizedModel.includes('[1m]')) {
+    return 1000000;
+  }
+
+  // Models that natively support 1M context (no beta header needed)
+  if (
+    normalizedModel.includes('opus-4-6') ||
+    normalizedModel.includes('opus-4.6') ||
+    normalizedModel.includes('sonnet-4-6') ||
+    normalizedModel.includes('sonnet-4.6')
+  ) {
+    return 1000000;
+  }
+
+  // All other Claude models default to 200k
+  return 200000;
 }
 
 /**

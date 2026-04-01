@@ -21,7 +21,8 @@ export type SecretType =
 export interface DetectedSecret {
   type: SecretType;
   name: string;  // Variable/key name if known
-  value: string;  // The actual secret value
+  /** Redacted representation -- never stores the raw secret value */
+  redactedValue: string;
   line?: number;  // Line number if from file content
   startIndex: number;  // Start position in string
   endIndex: number;  // End position in string
@@ -189,6 +190,32 @@ const SECRET_PATTERNS: SecretPattern[] = [
 ];
 
 /**
+ * Prefix-based value patterns — matched directly against raw content
+ * (not key-value pairs) to catch inline secrets regardless of variable name.
+ */
+const VALUE_PREFIX_PATTERNS: {
+  type: SecretType;
+  name: string;
+  pattern: RegExp;
+  confidence: 'high' | 'medium';
+}[] = [
+  { type: 'token', name: 'github_pat', pattern: /ghp_[A-Za-z0-9_]{36,}/, confidence: 'high' },
+  { type: 'token', name: 'github_fine_grained', pattern: /github_pat_[A-Za-z0-9_]{22,}/, confidence: 'high' },
+  { type: 'token', name: 'github_oauth', pattern: /gho_[A-Za-z0-9_]{36,}/, confidence: 'high' },
+  { type: 'api_key', name: 'aws_access_key', pattern: /AKIA[0-9A-Z]{16}/, confidence: 'high' },
+  { type: 'api_key', name: 'anthropic_api_key', pattern: /sk-ant-api03-[A-Za-z0-9_-]{20,}/, confidence: 'high' },
+  { type: 'token', name: 'slack_token', pattern: /xox[bprs]-[0-9a-zA-Z-]{10,}/, confidence: 'high' },
+  { type: 'api_key', name: 'stripe_key', pattern: /sk_(test|live)_[A-Za-z0-9]{20,}/, confidence: 'high' },
+  { type: 'api_key', name: 'stripe_restricted', pattern: /rk_(test|live)_[A-Za-z0-9]{20,}/, confidence: 'high' },
+  { type: 'api_key', name: 'google_api_key', pattern: /AIza[A-Za-z0-9_-]{35}/, confidence: 'high' },
+  { type: 'token', name: 'npm_token', pattern: /npm_[A-Za-z0-9]{36,}/, confidence: 'high' },
+  { type: 'token', name: 'pypi_token', pattern: /pypi-[A-Za-z0-9_-]{50,}/, confidence: 'high' },
+  { type: 'private_key', name: 'pem_private_key', pattern: /-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/, confidence: 'high' },
+  { type: 'token', name: 'gitlab_token', pattern: /glpat-[A-Za-z0-9_-]{20,}/, confidence: 'high' },
+  { type: 'api_key', name: 'sendgrid_key', pattern: /SG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{22,}/, confidence: 'high' },
+];
+
+/**
  * High-entropy patterns that likely indicate secrets
  */
 const HIGH_ENTROPY_PATTERNS = [
@@ -222,7 +249,7 @@ export function detectSecretsInKeyValue(
       return {
         type: pattern.type,
         name,
-        value,
+        redactedValue: '*'.repeat(value.length),
         line: lineNumber,
         startIndex: 0,
         endIndex: value.length,
@@ -235,7 +262,7 @@ export function detectSecretsInKeyValue(
       return {
         type: pattern.type,
         name,
-        value,
+        redactedValue: '*'.repeat(value.length),
         line: lineNumber,
         startIndex: 0,
         endIndex: value.length,
@@ -252,7 +279,7 @@ export function detectSecretsInKeyValue(
       return {
         type: 'unknown',
         name,
-        value,
+        redactedValue: '*'.repeat(value.length),
         line: lineNumber,
         startIndex: 0,
         endIndex: value.length,
@@ -310,7 +337,7 @@ export function detectSecretsInContent(content: string): DetectedSecret[] {
       secrets.push({
         type: 'private_key',
         name: 'embedded_private_key',
-        value: match,
+        redactedValue: '*'.repeat(match.length),
         startIndex: index,
         endIndex: index + match.length,
         confidence: 'high',
@@ -326,7 +353,7 @@ export function detectSecretsInContent(content: string): DetectedSecret[] {
       secrets.push({
         type: 'connection_string',
         name: 'connection_string',
-        value: match,
+        redactedValue: '*'.repeat(match.length),
         startIndex: index,
         endIndex: index + match.length,
         confidence: 'high',
@@ -342,7 +369,7 @@ export function detectSecretsInContent(content: string): DetectedSecret[] {
       secrets.push({
         type: 'token',
         name: 'jwt_token',
-        value: match,
+        redactedValue: '*'.repeat(match.length),
         startIndex: index,
         endIndex: index + match.length,
         confidence: 'high',
@@ -350,7 +377,48 @@ export function detectSecretsInContent(content: string): DetectedSecret[] {
     }
   }
 
+  // Phase 2: Prefix-based value scanning
+  for (const vp of VALUE_PREFIX_PATTERNS) {
+    const re = new RegExp(vp.pattern.source, 'g');
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(content)) !== null) {
+      secrets.push({
+        type: vp.type,
+        name: vp.name,
+        redactedValue: '*'.repeat(match[0].length),
+        startIndex: match.index,
+        endIndex: match.index + match[0].length,
+        confidence: vp.confidence,
+      });
+    }
+  }
+
   return secrets;
+}
+
+/**
+ * Detect secrets in arbitrary text content.
+ * Alias for detectSecretsInContent — preferred for new callers.
+ */
+export function detectSecrets(content: string): DetectedSecret[] {
+  return detectSecretsInContent(content);
+}
+
+/**
+ * Redact detected secrets in content, replacing each match with a labelled marker.
+ */
+export function redactSecrets(content: string): string {
+  const secrets = detectSecrets(content);
+  if (secrets.length === 0) return content;
+
+  const sorted = [...secrets].sort((a, b) => b.startIndex - a.startIndex);
+  let result = content;
+  for (const secret of sorted) {
+    result = result.slice(0, secret.startIndex)
+      + `[REDACTED:${secret.name}]`
+      + result.slice(secret.endIndex);
+  }
+  return result;
 }
 
 /**

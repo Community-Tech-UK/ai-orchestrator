@@ -5,6 +5,7 @@
 import type { Writable } from 'stream';
 import type { FileAttachment } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import { ndjsonSafeStringify } from './adapters/base-cli-adapter';
 
 const logger = getLogger('InputFormatter');
 
@@ -104,7 +105,7 @@ export class InputFormatter {
    * Write JSON message to stdin
    */
   private async writeToStdin(message: Record<string, unknown>): Promise<void> {
-    const json = JSON.stringify(message);
+    const json = ndjsonSafeStringify(message);
     logger.debug('Sending JSON to stdin', { jsonLength: json.length });
     return this.sendRaw(json);
   }

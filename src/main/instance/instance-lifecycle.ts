@@ -287,9 +287,11 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.id,
       message,
       (id, title) => {
+        logger.debug('Auto-title callback (lifecycle)', { id, title, isRenamed: instance.isRenamed });
         if (!instance.isRenamed) {
           instance.displayName = title;
           this.deps.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
+          getSessionContinuityManager().updateState(id, { displayName: title });
         }
       },
       instance.isRenamed,
@@ -1318,7 +1320,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         getHibernationManager().markAwoken(instanceId);
 
         this.transitionState(instance, 'ready');
-        this.deps.queueUpdate(instanceId, 'ready', instance.contextUsage);
+        // Include displayName so the renderer picks up any name restored from session state
+        this.deps.queueUpdate(instanceId, 'ready', instance.contextUsage, undefined, instance.displayName);
         logger.info('Instance woken successfully', { instanceId, pid });
       } catch (error) {
         this.transitionState(instance, 'failed');

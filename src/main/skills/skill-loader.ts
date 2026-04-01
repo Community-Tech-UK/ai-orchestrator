@@ -57,6 +57,11 @@ export class SkillLoader extends EventEmitter {
         for (const entry of entries) {
           if (entry.isDirectory()) {
             const skillPath = path.join(searchPath, entry.name);
+            const resolvedPath = path.resolve(skillPath);
+            if (!resolvedPath.startsWith(path.resolve(searchPath) + path.sep)) {
+              console.warn('Blocked path traversal in skill directory', { skillPath, searchPath });
+              continue;
+            }
             const bundle = await this.loadSkillBundle(skillPath);
             if (bundle) {
               bundles.push(bundle);
@@ -75,6 +80,10 @@ export class SkillLoader extends EventEmitter {
     try {
       // Check for SKILL.md (required)
       const corePath = path.join(skillPath, 'SKILL.md');
+      const resolvedFile = path.resolve(corePath);
+      if (!resolvedFile.startsWith(path.resolve(skillPath) + path.sep)) {
+        throw new Error(`Path traversal blocked: ${corePath}`);
+      }
       await fs.access(corePath);
 
       // Read and parse metadata from SKILL.md frontmatter

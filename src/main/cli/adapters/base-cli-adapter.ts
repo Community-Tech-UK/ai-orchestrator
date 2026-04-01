@@ -12,6 +12,17 @@ import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 const logger = getLogger('BaseCliAdapter');
 
 /**
+ * JSON.stringify that escapes U+2028 and U+2029.
+ * These are valid JSON but act as line terminators in JavaScript,
+ * silently splitting NDJSON messages when present in string values.
+ */
+export function ndjsonSafeStringify(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+/**
  * Configuration for CLI adapters
  */
 export interface CliAdapterConfig {
@@ -184,6 +195,24 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /** Stream idle watchdog timer — resets on each stdout chunk */
   private streamIdleTimer: NodeJS.Timeout | null = null;
   private streamIdleTimeoutMs: number;
+
+  /** Tracks all active child processes across all adapter instances for orphan cleanup. */
+  private static activeProcesses = new Set<ChildProcess>();
+
+  /**
+   * Kill all active child processes. Called during app shutdown
+   * to prevent orphans when Electron exits.
+   */
+  static killAllActiveProcesses(): void {
+    for (const proc of BaseCliAdapter.activeProcesses) {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // Process may have already exited
+      }
+    }
+    BaseCliAdapter.activeProcesses.clear();
+  }
 
   /**
    * Generation counter — incremented on every spawnProcess() call so that
@@ -404,6 +433,12 @@ export abstract class BaseCliAdapter extends EventEmitter {
       this.emit('spawned', proc.pid);
     }
 
+    // Register for orphan cleanup on app shutdown.
+    BaseCliAdapter.activeProcesses.add(proc);
+    proc.on('exit', () => {
+      BaseCliAdapter.activeProcesses.delete(proc);
+    });
+
     // Wire stream idle watchdog: reset on stdout data, clear on process close.
     // We use 'close' rather than 'exit' because stdout may still have buffered
     // data after 'exit' fires (flagged by Copilot/gpt-5.2 review).
@@ -453,6 +488,21 @@ export abstract class BaseCliAdapter extends EventEmitter {
     if (this.streamIdleTimer) {
       clearTimeout(this.streamIdleTimer);
       this.streamIdleTimer = null;
+    }
+  }
+
+  /**
+   * Write to child stdin with backpressure handling.
+   * Waits for drain if the kernel buffer is full.
+   */
+  protected async safeStdinWrite(data: string): Promise<void> {
+    if (!this.process?.stdin?.writable) return;
+
+    const canContinue = this.process.stdin.write(data);
+    if (!canContinue) {
+      await new Promise<void>((resolve) => {
+        this.process!.stdin!.once('drain', resolve);
+      });
     }
   }
 

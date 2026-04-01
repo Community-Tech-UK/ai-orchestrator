@@ -23,7 +23,50 @@ import { getSessionMutex } from './session-mutex';
 
 const logger = getLogger('SessionContinuity');
 
-const SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
+
+interface SessionMigration {
+  fromVersion: number;
+  toVersion: number;
+  description: string;
+  migrate: (state: Record<string, unknown>) => Record<string, unknown>;
+}
+
+const SESSION_MIGRATIONS: SessionMigration[] = [
+  {
+    fromVersion: 1,
+    toVersion: 2,
+    description: 'Add schemaVersion field to session state',
+    migrate: (state) => ({ ...state, schemaVersion: 2 }),
+  },
+];
+
+function migrateSessionState(state: Record<string, unknown>): Record<string, unknown> {
+  let version = (state['schemaVersion'] as number) || 1;
+  let current = { ...state };
+
+  for (const migration of SESSION_MIGRATIONS) {
+    if (version === migration.fromVersion) {
+      logger.info('Running session migration', {
+        from: migration.fromVersion,
+        to: migration.toVersion,
+        description: migration.description,
+      });
+      current = migration.migrate(current);
+      version = migration.toVersion;
+    }
+  }
+
+  if (version !== CURRENT_SCHEMA_VERSION) {
+    logger.warn('Session state version mismatch after migration', {
+      expected: CURRENT_SCHEMA_VERSION,
+      actual: version,
+    });
+  }
+
+  return current;
+}
+
 const DEFAULT_RESUME_AUTOSAVE_GRACE_MS = 60_000;
 
 /**
@@ -369,7 +412,7 @@ export class SessionContinuityManager extends EventEmitter {
               historyThreadId: data.historyThreadId || data.state.historyThreadId,
               timestamp: data.timestamp,
               messageCount: data.metadata.messageCount,
-              schemaVersion: data.schemaVersion ?? SCHEMA_VERSION
+              schemaVersion: data.schemaVersion ?? CURRENT_SCHEMA_VERSION
             });
           }
         } catch (error) {
@@ -558,7 +601,7 @@ export class SessionContinuityManager extends EventEmitter {
       timestamp: Date.now(),
       name,
       description,
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       state: stateClone,
       metadata: {
         messageCount: state.conversationHistory.length,
@@ -581,7 +624,7 @@ export class SessionContinuityManager extends EventEmitter {
       historyThreadId: snapshot.historyThreadId,
       timestamp: snapshot.timestamp,
       messageCount: snapshot.metadata.messageCount,
-      schemaVersion: SCHEMA_VERSION
+      schemaVersion: CURRENT_SCHEMA_VERSION
     });
 
     // Cleanup old snapshots
@@ -832,7 +875,7 @@ export class SessionContinuityManager extends EventEmitter {
           historyThreadId: updatedSnapshot.historyThreadId,
           timestamp: updatedSnapshot.timestamp,
           messageCount: updatedSnapshot.metadata.messageCount,
-          schemaVersion: updatedSnapshot.schemaVersion ?? SCHEMA_VERSION
+          schemaVersion: updatedSnapshot.schemaVersion ?? CURRENT_SCHEMA_VERSION
         });
       }
     }
@@ -934,7 +977,12 @@ export class SessionContinuityManager extends EventEmitter {
       throw error;
     }
 
-    return this.readPayload<SessionSnapshot>(snapshotFile);
+    const snapshot = await this.readPayload<SessionSnapshot>(snapshotFile);
+    if (snapshot) {
+      const migratedState = migrateSessionState(snapshot.state as unknown as Record<string, unknown>);
+      snapshot.state = migratedState as unknown as SessionState;
+    }
+    return snapshot;
   }
 
   /**

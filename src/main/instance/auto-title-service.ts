@@ -1,11 +1,14 @@
 /**
  * Auto Title Service - Generates short session titles from the first user message
  *
- * Uses a lightweight Anthropic Haiku call to summarize the initial prompt
- * into a handful of words suitable for a tab/session title.
+ * Phase 1 (instant): applies a truncated first-message title immediately.
+ * Phase 2 (async): upgrades to an AI-generated summary using the existing
+ * CLI adapter infrastructure (no separate API key required).
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { createCliAdapter, resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
+import type { CliMessage } from '../cli/adapters/base-cli-adapter';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 
@@ -17,12 +20,50 @@ const MIN_MESSAGE_LENGTH = 10;
 /** Maximum input length sent to the model (trim very long prompts) */
 const MAX_INPUT_LENGTH = 2000;
 
+/** Maximum length of the instant fallback title */
+const MAX_FALLBACK_TITLE_LENGTH = 60;
+
+/** Timeout for the AI title generation (ms) */
+const AI_TITLE_TIMEOUT = 15_000;
+
+/**
+ * Derive a short title from the raw first user message.
+ * Takes the first line (or first sentence), trims, and truncates.
+ */
+function deriveInstantTitle(message: string): string | null {
+  const trimmed = message.trim();
+  if (trimmed.length < MIN_MESSAGE_LENGTH) return null;
+
+  // Take first line
+  let title = trimmed.split(/\r?\n/)[0].trim();
+
+  // If the first line is very long, take the first sentence
+  if (title.length > MAX_FALLBACK_TITLE_LENGTH) {
+    const sentenceEnd = title.search(/[.!?]\s/);
+    if (sentenceEnd > 0 && sentenceEnd <= MAX_FALLBACK_TITLE_LENGTH) {
+      title = title.slice(0, sentenceEnd + 1);
+    } else {
+      // Truncate at word boundary
+      title = title.slice(0, MAX_FALLBACK_TITLE_LENGTH).replace(/\s+\S*$/, '') + '...';
+    }
+  }
+
+  return title || null;
+}
+
+function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<{ content: string }> } {
+  return typeof (adapter as unknown as { sendMessage?: unknown }).sendMessage === 'function';
+}
+
 /**
  * Auto-generates a short session title from the first user message.
  *
+ * Phase 1 (instant): applies a truncated first-message title immediately.
+ * Phase 2 (async): upgrades to an AI-generated summary via the CLI adapter
+ *   (uses whichever CLI provider the user has configured — no separate key needed).
+ *
  * Fire-and-forget: callers should not await or depend on the result.
- * On failure (no API key, network error, etc.) it silently logs and
- * returns without changing anything.
+ * On failure, the instant title remains.
  */
 export class AutoTitleService {
   private static instance: AutoTitleService;
@@ -30,11 +71,8 @@ export class AutoTitleService {
   /** Instance IDs that have already been auto-titled (or are in-flight) */
   private processed = new Set<string>();
 
-  private client: Anthropic | null = null;
-
-  private constructor() {
-    this.initClient();
-  }
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  private constructor() {}
 
   static getInstance(): AutoTitleService {
     if (!this.instance) {
@@ -46,16 +84,8 @@ export class AutoTitleService {
   static _resetForTesting(): void {
     if (this.instance) {
       this.instance.processed.clear();
-      this.instance.client = null;
     }
     (this.instance as AutoTitleService | undefined) = undefined;
-  }
-
-  private initClient(): void {
-    const apiKey = process.env['ANTHROPIC_API_KEY'];
-    if (apiKey) {
-      this.client = new Anthropic({ apiKey });
-    }
   }
 
   /**
@@ -82,41 +112,50 @@ export class AutoTitleService {
     // Guard: message too short to meaningfully summarize
     if (message.trim().length < MIN_MESSAGE_LENGTH) return;
 
-    // Guard: no API client available
-    if (!this.client) {
-      // Re-check in case the env var was set after startup
-      this.initClient();
-      if (!this.client) {
-        logger.debug('Skipping auto-title: no ANTHROPIC_API_KEY');
-        return;
-      }
+    // Phase 1: Immediate fallback — truncated first message as title
+    const instantTitle = deriveInstantTitle(message);
+    if (instantTitle) {
+      applyTitle(instanceId, instantTitle);
+      logger.info('Auto-titled instance (instant)', { instanceId, title: instantTitle });
     }
 
+    // Phase 2: Upgrade with AI-generated title via CLI adapter
     try {
       const truncatedMessage = message.length > MAX_INPUT_LENGTH
         ? message.slice(0, MAX_INPUT_LENGTH) + '...'
         : message;
 
-      const response = await this.client.messages.create({
-        model: CLAUDE_MODELS.HAIKU,
-        max_tokens: 30,
-        system: 'You generate very short tab titles (3-6 words) that summarize a task. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.',
-        messages: [
-          { role: 'user', content: `Summarize this task in 3-6 words for a tab title:\n\n${truncatedMessage}` }
-        ],
+      const settings = getSettingsManager();
+      const defaultCli = settings.getAll().defaultCli;
+      const cliType = await resolveCliType(undefined, defaultCli);
+
+      const adapter = createCliAdapter(cliType, {
+        workingDirectory: process.cwd(),
+        model: CLAUDE_MODELS.FAST,
+        systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.',
+        yoloMode: false,
+        timeout: AI_TITLE_TIMEOUT,
       });
 
-      const title = response.content[0]?.type === 'text'
-        ? response.content[0].text.trim()
-        : null;
+      if (!hasSendMessage(adapter)) {
+        logger.debug('CLI adapter does not support one-shot sendMessage, keeping instant title');
+        return;
+      }
+
+      const response = await adapter.sendMessage({
+        role: 'user',
+        content: `Summarize this task in 3-6 words for a tab title:\n\n${truncatedMessage}`,
+      });
+
+      const title = response.content?.trim();
 
       if (title && title.length > 0 && title.length <= 80) {
         applyTitle(instanceId, title);
-        logger.info('Auto-titled instance', { instanceId, title });
+        logger.info('Auto-titled instance (AI)', { instanceId, title });
       }
     } catch (error) {
-      // Non-critical: just log and move on. The instance keeps its default name.
-      logger.warn('Auto-title generation failed', {
+      // Non-critical: the instant title remains. Just log and move on.
+      logger.warn('AI title upgrade failed, keeping instant title', {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
       });

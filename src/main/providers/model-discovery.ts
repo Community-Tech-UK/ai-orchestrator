@@ -61,7 +61,7 @@ interface CacheEntry {
 const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export class ModelDiscoveryService {
-  private cache: Map<string, CacheEntry> = new Map();
+  private cache = new Map<string, CacheEntry>();
   private cacheTtl: number;
 
   constructor(cacheTtlMs = DEFAULT_CACHE_TTL_MS) {
@@ -174,14 +174,40 @@ export class ModelDiscoveryService {
   private async discoverAnthropicModels(
     config: ProviderModelConfig
   ): Promise<DiscoveredModel[]> {
-    // Anthropic models are relatively static, use known list
+    // Anthropic models are relatively static, use known list.
+    // Default context is 200k; Opus 4.6+/Sonnet 4.6+ natively support 1M.
+    // The [1m] variants request extended context via beta header.
     const knownModels: DiscoveredModel[] = [
       {
         id: CLAUDE_MODELS.OPUS,
-        name: 'Claude Opus 4.5',
-        displayName: 'Claude Opus 4.5',
+        name: 'Claude Opus (latest)',
+        displayName: 'Claude Opus (latest)',
         provider: 'anthropic',
         description: 'Most capable model for complex tasks',
+        contextLength: 200000,
+        maxOutputTokens: 32000,
+        capabilities: {
+          vision: true,
+          functionCalling: true,
+          streaming: true,
+          json: true,
+          systemMessage: true,
+        },
+        pricing: {
+          inputPer1kTokens: 0.005,
+          outputPer1kTokens: 0.025,
+          cachePer1kTokens: 0.00625,
+          currency: 'USD',
+        },
+        isAvailable: true,
+        lastChecked: Date.now(),
+      },
+      {
+        id: CLAUDE_MODELS.OPUS_1M,
+        name: 'Claude Opus (latest, 1M)',
+        displayName: 'Claude Opus (latest, 1M)',
+        provider: 'anthropic',
+        description: 'Most capable model with extended 1M context',
         contextLength: 1000000,
         maxOutputTokens: 32000,
         capabilities: {
@@ -202,10 +228,34 @@ export class ModelDiscoveryService {
       },
       {
         id: CLAUDE_MODELS.SONNET,
-        name: 'Claude Sonnet 4.5',
-        displayName: 'Claude Sonnet 4.5',
+        name: 'Claude Sonnet (latest)',
+        displayName: 'Claude Sonnet (latest)',
         provider: 'anthropic',
         description: 'Balanced performance and cost',
+        contextLength: 200000,
+        maxOutputTokens: 64000,
+        capabilities: {
+          vision: true,
+          functionCalling: true,
+          streaming: true,
+          json: true,
+          systemMessage: true,
+        },
+        pricing: {
+          inputPer1kTokens: 0.003,
+          outputPer1kTokens: 0.015,
+          cachePer1kTokens: 0.00375,
+          currency: 'USD',
+        },
+        isAvailable: true,
+        lastChecked: Date.now(),
+      },
+      {
+        id: CLAUDE_MODELS.SONNET_1M,
+        name: 'Claude Sonnet (latest, 1M)',
+        displayName: 'Claude Sonnet (latest, 1M)',
+        provider: 'anthropic',
+        description: 'Balanced performance with extended 1M context',
         contextLength: 1000000,
         maxOutputTokens: 64000,
         capabilities: {
@@ -226,11 +276,11 @@ export class ModelDiscoveryService {
       },
       {
         id: CLAUDE_MODELS.HAIKU,
-        name: 'Claude Haiku 4.5',
-        displayName: 'Claude Haiku 4.5',
+        name: 'Claude Haiku (latest)',
+        displayName: 'Claude Haiku (latest)',
         provider: 'anthropic',
         description: 'Fast and cost-effective',
-        contextLength: 1000000,
+        contextLength: 200000,
         maxOutputTokens: 8192,
         capabilities: {
           vision: true,
@@ -314,7 +364,7 @@ export class ModelDiscoveryService {
         },
       });
 
-      const data = JSON.parse(response) as { data: Array<{ id: string; owned_by: string }> };
+      const data = JSON.parse(response) as { data: { id: string; owned_by: string }[] };
       const models: DiscoveredModel[] = [];
 
       for (const model of data.data) {
@@ -414,13 +464,13 @@ export class ModelDiscoveryService {
       });
 
       const data = JSON.parse(response) as {
-        models: Array<{
+        models: {
           name: string;
           displayName: string;
           description: string;
           inputTokenLimit: number;
           outputTokenLimit: number;
-        }>;
+        }[];
       };
 
       return data.models
@@ -470,7 +520,7 @@ export class ModelDiscoveryService {
       });
 
       const data = JSON.parse(response) as {
-        data: Array<{ id: string; owned_by: string }>;
+        data: { id: string; owned_by: string }[];
       };
 
       return data.data.map((model) => ({
@@ -514,7 +564,7 @@ export class ModelDiscoveryService {
       });
 
       const data = JSON.parse(response) as {
-        data: Array<{ id: string; owned_by: string; context_window?: number }>;
+        data: { id: string; owned_by: string; context_window?: number }[];
       };
 
       return data.data.map((model) => ({
@@ -557,7 +607,7 @@ export class ModelDiscoveryService {
       });
 
       const data = JSON.parse(response) as {
-        models: Array<{ name: string; modified_at: string; size: number }>;
+        models: { name: string; modified_at: string; size: number }[];
       };
 
       return data.models.map((model) => ({

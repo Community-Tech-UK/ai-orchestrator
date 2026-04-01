@@ -31,7 +31,6 @@ import {
   HistoryRestorePayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 import {
-  getConversationHistoryTitle,
   inferConversationHistoryProvider,
 } from '../../../shared/types/history.types';
 import type { ExportedSession, InstanceProvider, OutputMessage } from '../../../shared/types/instance.types';
@@ -903,7 +902,10 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
         const workingDir =
           validated.workingDirectory || data.entry.workingDirectory;
-        const displayName = getConversationHistoryTitle(data.entry);
+        // Use the saved displayName directly — getConversationHistoryTitle
+        // prefers firstUserMessage over the auto-generated displayName,
+        // which would overwrite a good title on restore.
+        const displayName = data.entry.displayName;
         const historyThreadId =
           data.entry.historyThreadId || data.entry.sessionId || data.entry.id;
         const restoreProvider = inferConversationHistoryProvider(data.entry);

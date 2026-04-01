@@ -28,7 +28,7 @@ import type {
   ForkConfig,
   OutputMessage
 } from '../../shared/types/instance.types';
-import { generateId } from '../../shared/utils/id-generator';
+import { generateId, generateInstanceId } from '../../shared/utils/id-generator';
 import {
   createCliAdapter,
   resolveCliType,
@@ -137,7 +137,12 @@ export class InstanceManager extends EventEmitter {
     // Initialize sub-managers with dependencies
     this.state = new InstanceStateManager();
     this.context = new InstanceContextManager();
-    this.stuckDetector = new StuckProcessDetector();
+    this.stuckDetector = new StuckProcessDetector({
+      isProcessAlive: (id) => {
+        const adapter = this.state.getAdapter(id);
+        return adapter?.isRunning() ?? false;
+      },
+    });
 
     // Communication manager needs dependencies
     this.communication = new InstanceCommunicationManager({
@@ -194,7 +199,7 @@ export class InstanceManager extends EventEmitter {
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       forEachInstance: (cb) => this.state.forEachInstance(cb),
-      queueUpdate: (id, status, ctx) => this.state.queueUpdate(id, status, ctx),
+      queueUpdate: (id, status, ctx, diffStats, displayName) => this.state.queueUpdate(id, status, ctx, diffStats, displayName),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),
       setupAdapterEvents: (id, adapter) => this.communication.setupAdapterEvents(id, adapter),
       initializeRlm: (inst) => this.context.initializeRlm(inst),
@@ -565,7 +570,7 @@ export class InstanceManager extends EventEmitter {
     return this.state.getInstanceCount();
   }
 
-  getIdleInstances(thresholdMs: number): Array<{ id: string; lastActivity: number }> {
+  getIdleInstances(thresholdMs: number): { id: string; lastActivity: number }[] {
     const now = Date.now();
     return this.state.getAllInstances()
       .filter(i => i.status === 'idle' && (now - i.lastActivity) >= thresholdMs)
@@ -786,6 +791,21 @@ export class InstanceManager extends EventEmitter {
     const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
     const prefix = contextBlock ? `${contextBlock}\n\n` : '';
     contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
+
+    // Auto-generate a title from the first user message (fire-and-forget)
+    getAutoTitleService().maybeGenerateTitle(
+      instanceId,
+      message,
+      (id, title) => {
+        logger.debug('Auto-title callback (sendInput)', { id, title, isRenamed: instance.isRenamed });
+        if (!instance.isRenamed) {
+          instance.displayName = title;
+          this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
+          getSessionContinuityManager().updateState(id, { displayName: title });
+        }
+      },
+      instance.isRenamed,
+    ).catch(() => { /* non-critical */ });
   }
 
     // Add user message to output buffer BEFORE sending to CLI.
@@ -830,7 +850,7 @@ export class InstanceManager extends EventEmitter {
 
     // Create a child instance directly (same internal mechanics as orchestrator-driven spawning).
     // This intentionally does not reference external repos; it uses our own child prompt format.
-    const tempChildId = generateId();
+    const tempChildId = generateInstanceId();
     const childPrompt = generateChildPrompt(tempChildId, parentId, spawnCommand.task);
 
     const resolvedProvider =
@@ -951,7 +971,7 @@ export class InstanceManager extends EventEmitter {
       throw new Error(`Parent instance ${parentId} not found`);
     }
 
-    const tempChildId = generateId();
+    const tempChildId = generateInstanceId();
 
     // Extract parent context (limited to reduce token overhead for children)
     const parentContextMessages = parent.outputBuffer
