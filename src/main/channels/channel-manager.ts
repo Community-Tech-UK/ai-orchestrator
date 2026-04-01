@@ -4,6 +4,7 @@
 
 import { getLogger } from '../logging/logger';
 import { BaseChannelAdapter } from './channel-adapter';
+import { registerCleanup } from '../util/cleanup-registry';
 import type {
   ChannelPlatform,
   ChannelConnectionStatus,
@@ -43,8 +44,9 @@ export class ChannelManager {
     (this as any).instance = undefined;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  private constructor() {}
+  private constructor() {
+    registerCleanup(() => this.shutdown());
+  }
 
   registerAdapter(adapter: BaseChannelAdapter): void {
     const existing = this.adapters.get(adapter.platform);

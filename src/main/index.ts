@@ -77,6 +77,7 @@ import type { ChildAnnouncement } from '../shared/types/child-announce.types';
 import { getAgentTreePersistence } from './session/agent-tree-persistence';
 import { getPermissionRegistry } from './orchestration/permission-registry';
 import { getOrchestrationSnapshotManager } from './orchestration/orchestration-snapshot';
+import { runCleanupFunctions } from './util/cleanup-registry';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -823,19 +824,37 @@ class AIOrchestratorApp {
     });
   }
 
+  /**
+   * Synchronous best-effort shutdown — guarantees state is saved and processes
+   * are signaled even if the async cleanup phase hangs or times out.
+   *
+   * Inspired by Claude Code's writeSync()-first pattern in gracefulShutdown.ts.
+   */
+  cleanupSync(): void {
+    // Save all dirty session states synchronously (writeFileSync)
+    try {
+      getSessionContinuityManagerIfInitialized()?.shutdown();
+    } catch (error) {
+      logger.error('Sync session save failed', error instanceof Error ? error : undefined);
+    }
+
+    // Send SIGTERM to all tracked CLI processes
+    try {
+      BaseCliAdapter.killAllActiveProcesses();
+    } catch (error) {
+      logger.error('Sync process kill failed', error instanceof Error ? error : undefined);
+    }
+  }
+
   async cleanup(): Promise<void> {
     logger.info('Cleaning up');
+    await runCleanupFunctions();
     try { getResourceGovernor().stop(); } catch { /* best effort */ }
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }
     try { getCrossModelReviewService().shutdown(); } catch { /* best effort */ }
     try { getChannelManager().shutdown(); } catch { /* best effort */ }
-    // Save all tracked session states before terminating
-    try {
-      getSessionContinuityManagerIfInitialized()?.shutdown();
-    } catch (error) {
-      logger.error('Failed to save sessions on shutdown', error instanceof Error ? error : undefined);
-    }
+    // Session state already saved synchronously in cleanupSync()
     try { await getChannelManager().shutdown(); } catch { /* best effort */ }
 
     // CRITICAL: await terminateAll so every instance is archived to history
@@ -896,9 +915,12 @@ let cleanupDone = false;
 const CLEANUP_TIMEOUT_MS = 10_000;
 
 app.on('before-quit', (event) => {
-  if (cleanupDone || !orchestratorApp) return; // Already cleaned up, let Electron quit
+  if (cleanupDone || !orchestratorApp) return;
 
-  // Prevent Electron from quitting until async cleanup finishes
+  // Phase 1: Synchronous — guaranteed state save + process signaling
+  orchestratorApp.cleanupSync();
+
+  // Phase 2: Async — thorough cleanup with timeout
   event.preventDefault();
   cleanupDone = true;
 
@@ -913,7 +935,7 @@ app.on('before-quit', (event) => {
     })
     .finally(() => {
       clearTimeout(timeout);
-      app.quit(); // Re-trigger quit now that cleanup is done
+      app.quit();
     });
 });
 

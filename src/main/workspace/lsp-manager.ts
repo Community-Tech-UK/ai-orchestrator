@@ -17,6 +17,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as readline from 'readline';
 import { getLogger } from '../logging/logger';
+import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('LspManager');
 
@@ -170,6 +171,7 @@ export class LspManager extends EventEmitter {
   constructor() {
     super();
     this.checkServerAvailability();
+    registerCleanup(() => this.shutdown());
   }
 
   /**

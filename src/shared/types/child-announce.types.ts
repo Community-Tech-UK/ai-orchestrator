@@ -50,6 +50,8 @@ export type ChildErrorCategory =
   | 'network_error'     // Network connectivity issue
   | 'task_failure'      // Child reported task failure (not a system error)
   | 'stuck'             // Child detected as stuck by StuckProcessDetector
+  | 'abort'             // Operation was aborted (cancellation, sibling abort)
+  | 'filesystem'        // Filesystem inaccessible (ENOENT, EACCES, EPERM, etc.)
   | 'unknown';          // Unclassified error
 
 export interface AnnounceConfig {

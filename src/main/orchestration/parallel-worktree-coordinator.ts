@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import * as path from 'path';
 import type {
   WorktreeSession,
   MergeStrategy,
@@ -14,6 +15,9 @@ import { WorktreeManager, getWorktreeManager } from '../workspace/git/worktree-m
 import { getLogger } from '../logging/logger';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
+import { withLock } from '../util/file-lock';
+import { scheduleOperations, type OperationDescriptor } from './concurrency-classifier';
 
 const logger = getLogger('ParallelWorktreeCoordinator');
 
@@ -180,25 +184,56 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
     repoPath: string
   ): Promise<void> {
     const batchSize = this.config.maxParallelTasks;
-    const batches: ParallelTask[][] = [];
 
-    // Group tasks into batches
-    for (let i = 0; i < execution.tasks.length; i += batchSize) {
-      batches.push(execution.tasks.slice(i, i + batchSize));
+    // Each task writes to a distinct worktree path (keyed by task-${task.id}).
+    // scheduleOperations groups tasks with overlapping targets into separate batches —
+    // tasks with distinct targets run in parallel within a batch.
+    const operations: OperationDescriptor[] = execution.tasks.map(task => ({
+      type: 'write' as const,
+      target: `task-${task.id}`,
+    }));
+    const scheduledBatches = scheduleOperations(operations);
+    // Map scheduler batches back to ParallelTask arrays, then chunk by maxParallelTasks
+    // to respect the configured concurrency cap.
+    const taskById = new Map(execution.tasks.map(t => [t.id, t]));
+    const batches: ParallelTask[][] = [];
+    for (const scheduledBatch of scheduledBatches) {
+      const batchTasks = scheduledBatch
+        .map(op => taskById.get(op.target!.replace(/^task-/, '')))
+        .filter((t): t is ParallelTask => t !== undefined);
+      for (let i = 0; i < batchTasks.length; i += batchSize) {
+        batches.push(batchTasks.slice(i, i + batchSize));
+      }
     }
 
     for (const batch of batches) {
+      const batchAbort = createAbortController();
+
       const promises = batch.map(async task => {
-        const session = await this.worktreeManager.createWorktree(
-          instanceId,
-          task.description,
-          {
-            branchName: `task-${task.id}`,
-            repoRoot: repoPath,
+        const childAbort = createChildAbortController(batchAbort);
+        if (childAbort.signal.aborted) {
+          throw new Error(`Aborted: ${childAbort.signal.reason}`);
+        }
+        try {
+          const session = await this.worktreeManager.createWorktree(
+            instanceId,
+            task.description,
+            {
+              branchName: `task-${task.id}`,
+              repoRoot: repoPath,
+            }
+          );
+          execution.sessions.set(task.id, session);
+          this.emit('worktree:created', { executionId: execution.id, taskId: task.id, session });
+        } catch (error) {
+          if (!batchAbort.signal.aborted) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+              batchAbort.abort(msg);
+            }
           }
-        );
-        execution.sessions.set(task.id, session);
-        this.emit('worktree:created', { executionId: execution.id, taskId: task.id, session });
+          throw error;
+        }
       });
 
       await Promise.all(promises);
@@ -309,9 +344,12 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
       if (!session) continue;
 
       try {
-        const result = await this.worktreeManager.mergeWorktree(session.id, {
-          strategy: this.config.defaultMergeStrategy,
-        });
+        const lockPath = path.join(session.worktreePath, '.orchestrator.lock');
+        const result = await withLock(lockPath, async () => {
+          return this.worktreeManager.mergeWorktree(session.id, {
+            strategy: this.config.defaultMergeStrategy,
+          });
+        }, { purpose: `parallel-worktree-${taskId}` });
         results.push(result);
         this.emit('task:merged', { executionId: execution.id, taskId, result });
       } catch (error) {

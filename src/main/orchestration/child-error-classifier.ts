@@ -8,6 +8,7 @@
 
 import { getLogger } from '../logging/logger';
 import type { ChildErrorClassification, ChildErrorCategory } from '../../shared/types/child-announce.types';
+import { isAbortError, isFsInaccessible } from '../util/error-utils';
 
 const logger = getLogger('ChildErrorClassifier');
 
@@ -141,8 +142,31 @@ export class ChildErrorClassifier {
     errorMessage: string,
     instanceStatus: string,
     wasStuck = false,
+    rawError?: unknown,
   ): ChildErrorClassification {
-    // Special case: stuck detection takes priority
+    // Abort errors take highest priority — cancellation should not be retried
+    if (rawError !== undefined && isAbortError(rawError)) {
+      return {
+        category: 'abort',
+        userMessage: 'Operation was aborted.',
+        retryable: false,
+        suggestedAction: 'skip',
+        rawError: errorMessage,
+      };
+    }
+
+    // Filesystem errors are non-retryable infrastructure issues
+    if (rawError !== undefined && isFsInaccessible(rawError)) {
+      return {
+        category: 'filesystem',
+        userMessage: `Filesystem inaccessible: ${(rawError as NodeJS.ErrnoException).code}`,
+        retryable: false,
+        suggestedAction: 'escalate_to_user',
+        rawError: errorMessage,
+      };
+    }
+
+    // Special case: stuck detection takes priority over pattern matching
     if (wasStuck) {
       return {
         category: 'stuck',

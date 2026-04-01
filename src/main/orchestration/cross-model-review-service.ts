@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { registerCleanup } from '../util/cleanup-registry';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -66,6 +67,7 @@ export class CrossModelReviewService extends EventEmitter {
 
   private constructor() {
     super();
+    registerCleanup(() => this.shutdown());
   }
 
   async initialize(): Promise<void> {

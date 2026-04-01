@@ -25,6 +25,7 @@ import type {
 } from './rlm-database.types';
 
 // Import from decomposed modules
+import { withLock } from '../util/file-lock';
 import { SCHEMA_VERSION, type RLMDatabaseConfig } from './rlm/rlm-types';
 import {
   createTables,
@@ -537,19 +538,22 @@ export class RLMDatabase extends EventEmitter {
   // Backup and Restore (delegated)
   // ============================================
 
-  backupDatabase(targetPath: string, options?: { includeContent?: boolean }): {
+  async backupDatabase(targetPath: string, options?: { includeContent?: boolean }): Promise<{
     dbBackupPath: string;
     contentBackupPath?: string;
     dbSizeBytes: number;
     contentSizeBytes?: number;
-  } {
-    const result = backup.backupDatabase(this.db, this.contentDir, targetPath, options);
-    this.emit('database:backed_up', {
-      targetPath,
-      dbSizeBytes: result.dbSizeBytes,
-      contentSizeBytes: result.contentSizeBytes,
-    });
-    return result;
+  }> {
+    const lockPath = `${this.config.dbPath}.lock`;
+    return withLock(lockPath, async () => {
+      const result = backup.backupDatabase(this.db, this.contentDir, targetPath, options);
+      this.emit('database:backed_up', {
+        targetPath,
+        dbSizeBytes: result.dbSizeBytes,
+        contentSizeBytes: result.contentSizeBytes,
+      });
+      return result;
+    }, { purpose: 'rlm-backup' });
   }
 
   restoreDatabase(sourcePath: string, options?: { includeContent?: boolean }): void {

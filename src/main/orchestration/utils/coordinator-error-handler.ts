@@ -8,6 +8,7 @@
 import { getErrorRecoveryManager } from '../../core/error-recovery';
 import { ClassifiedError, ErrorCategory, ErrorSeverity } from '../../../shared/types/error-recovery.types';
 import { getLogger } from '../../logging/logger';
+import { truncateErrorForContext } from '../../util/error-utils';
 
 /**
  * Result of handling a coordinator error
@@ -83,6 +84,7 @@ export function handleCoordinatorError(
     maxRetries,
     shouldRetry,
     shouldFailFast,
+    errorContext: truncateErrorForContext(error),
     ...context.metadata,
   };
 
@@ -99,7 +101,7 @@ export function handleCoordinatorError(
     shouldRetry,
     retryDelayMs,
     shouldFailFast,
-    userMessage: classified.userMessage,
+    userMessage: classified.userMessage || truncateErrorForContext(error, 200),
   };
 }
 

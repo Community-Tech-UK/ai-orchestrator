@@ -12,6 +12,7 @@ import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
 import { getLogger } from '../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../security/env-filter';
+import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('McpManager');
 import {
@@ -86,6 +87,7 @@ export class McpManager extends EventEmitter {
 
   constructor() {
     super();
+    registerCleanup(() => this.shutdown());
   }
 
   // ============================================

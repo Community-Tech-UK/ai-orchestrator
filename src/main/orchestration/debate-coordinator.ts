@@ -29,6 +29,7 @@ import { getLogger } from '../logging/logger';
 import { estimateTokens } from '../rlm/token-counter';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 
 const logger = getLogger('DebateCoordinator');
 
@@ -152,9 +153,10 @@ export class DebateCoordinator extends EventEmitter {
   }
 
   private async runDebate(debate: ActiveDebate): Promise<void> {
+    const debateAbort = createAbortController();
     try {
       // Round 1: Initial responses
-      await this.runInitialRound(debate);
+      await this.runInitialRound(debate, debateAbort);
 
       // Rounds 2-N: Critique and defense
       while (debate.currentRound < debate.config.maxRounds - 1) {
@@ -208,9 +210,9 @@ export class DebateCoordinator extends EventEmitter {
 
         // Alternate between critique and defense rounds
         if (debate.currentRound % 2 === 1) {
-          await this.runCritiqueRound(debate);
+          await this.runCritiqueRound(debate, debateAbort);
         } else {
-          await this.runDefenseRound(debate);
+          await this.runDefenseRound(debate, debateAbort);
         }
       }
 
@@ -259,15 +261,27 @@ export class DebateCoordinator extends EventEmitter {
 
   // ============ Round Implementations ============
 
-  private async runInitialRound(debate: ActiveDebate): Promise<void> {
+  private async runInitialRound(debate: ActiveDebate, debateAbort: AbortController): Promise<void> {
     const roundStart = Date.now();
     const contributions: DebateContribution[] = [];
+    const roundAbort = createChildAbortController(debateAbort);
+
+    // Debate rounds are analysis-only — concurrency classifier confirms parallel execution is safe
 
     // Generate diverse responses from each agent in parallel
     const results = await Promise.all(
       Array.from({ length: debate.config.agents }, (_, i) => {
         const temperature = this.getAgentTemperature(i, debate.config);
-        return this.generateInitialResponse(debate, i, temperature);
+        const childAbort = createChildAbortController(roundAbort);
+        return this.generateInitialResponse(debate, i, temperature, childAbort).catch((error) => {
+          if (!roundAbort.signal.aborted) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+              roundAbort.abort(msg);
+            }
+          }
+          throw error;
+        });
       })
     );
     contributions.push(...results);
@@ -287,22 +301,33 @@ export class DebateCoordinator extends EventEmitter {
     this.emit('debate:round-complete', { debateId: debate.id, round });
   }
 
-  private async runCritiqueRound(debate: ActiveDebate): Promise<void> {
+  private async runCritiqueRound(debate: ActiveDebate, debateAbort: AbortController): Promise<void> {
     const roundStart = Date.now();
     const previousRound = debate.rounds[debate.rounds.length - 1];
     const contributions: DebateContribution[] = [];
+    const roundAbort = createChildAbortController(debateAbort);
 
     // Each agent critiques the others in parallel
     const critiqueResults = await Promise.all(
       Array.from({ length: debate.config.agents }, async (_, i) => {
-        const critiques = await this.generateCritiques(debate, i, previousRound.contributions);
-        return {
-          agentId: `agent-${i}`,
-          content: previousRound.contributions[i].content,
-          critiques,
-          confidence: previousRound.contributions[i].confidence,
-          reasoning: 'Cross-critique of other positions',
-        } as DebateContribution;
+        const childAbort = createChildAbortController(roundAbort);
+        return this.generateCritiques(debate, i, previousRound.contributions, childAbort)
+          .then((critiques) => ({
+            agentId: `agent-${i}`,
+            content: previousRound.contributions[i].content,
+            critiques,
+            confidence: previousRound.contributions[i].confidence,
+            reasoning: 'Cross-critique of other positions',
+          } as DebateContribution))
+          .catch((error) => {
+            if (!roundAbort.signal.aborted) {
+              const msg = error instanceof Error ? error.message : String(error);
+              if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+                roundAbort.abort(msg);
+              }
+            }
+            throw error;
+          });
       })
     );
     contributions.push(...critiqueResults);
@@ -322,10 +347,11 @@ export class DebateCoordinator extends EventEmitter {
     this.emit('debate:round-complete', { debateId: debate.id, round });
   }
 
-  private async runDefenseRound(debate: ActiveDebate): Promise<void> {
+  private async runDefenseRound(debate: ActiveDebate, debateAbort: AbortController): Promise<void> {
     const roundStart = Date.now();
     const critiqueRound = debate.rounds[debate.rounds.length - 1];
     const contributions: DebateContribution[] = [];
+    const roundAbort = createChildAbortController(debateAbort);
 
     // Each agent defends their position and potentially revises in parallel
     const defenseResults = await Promise.all(
@@ -333,7 +359,16 @@ export class DebateCoordinator extends EventEmitter {
         const critiquesReceived = critiqueRound.contributions
           .flatMap(c => c.critiques || [])
           .filter(crit => crit.targetAgentId === `agent-${i}`);
-        return this.generateDefense(debate, i, critiquesReceived);
+        const childAbort = createChildAbortController(roundAbort);
+        return this.generateDefense(debate, i, critiquesReceived, childAbort).catch((error) => {
+          if (!roundAbort.signal.aborted) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+              roundAbort.abort(msg);
+            }
+          }
+          throw error;
+        });
       })
     );
     contributions.push(...defenseResults);
@@ -389,8 +424,13 @@ export class DebateCoordinator extends EventEmitter {
   private async generateInitialResponse(
     debate: ActiveDebate,
     agentIndex: number,
-    temperature: number
+    temperature: number,
+    abortController?: AbortController,
   ): Promise<DebateContribution> {
+    if (abortController?.signal.aborted) {
+      throw new Error(`Aborted: ${abortController.signal.reason}`);
+    }
+
     const agentId = `agent-${agentIndex}`;
 
     // Build prompt for initial response
@@ -461,8 +501,13 @@ Brief summary of your reasoning approach and key considerations.`;
   private async generateCritiques(
     debate: ActiveDebate,
     agentIndex: number,
-    contributions: DebateContribution[]
+    contributions: DebateContribution[],
+    abortController?: AbortController,
   ): Promise<AgentCritique[]> {
+    if (abortController?.signal.aborted) {
+      throw new Error(`Aborted: ${abortController.signal.reason}`);
+    }
+
     const agentId = `agent-${agentIndex}`;
 
     // Build prompt for critique generation
@@ -575,8 +620,13 @@ Provide your critiques:`;
   private async generateDefense(
     debate: ActiveDebate,
     agentIndex: number,
-    critiquesReceived: AgentCritique[]
+    critiquesReceived: AgentCritique[],
+    abortController?: AbortController,
   ): Promise<DebateContribution> {
+    if (abortController?.signal.aborted) {
+      throw new Error(`Aborted: ${abortController.signal.reason}`);
+    }
+
     const agentId = `agent-${agentIndex}`;
 
     // Get original response
