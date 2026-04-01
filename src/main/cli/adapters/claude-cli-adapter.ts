@@ -35,6 +35,7 @@ import {
   CLAUDE_MODELS,
   getProviderModelContextWindow
 } from '../../../shared/types/provider.types';
+import { classifyError } from '../cli-error-handler';
 
 const logger = getLogger('ClaudeCliAdapter');
 
@@ -291,7 +292,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           } else {
             logger.error('stdin stream error', error);
           }
-          this.emit('error', error);
+          this.emit('error', error, classifyError(error));
         });
       }
 
@@ -353,7 +354,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       // Handle stderr
       this.process.stderr?.on('data', (chunk: Buffer) => {
-        this.emit('error', new Error(chunk.toString().trim()));
+        const stderrError = new Error(chunk.toString().trim());
+        this.emit('error', stderrError, classifyError(stderrError));
       });
 
       // Handle exit
@@ -627,7 +629,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         } else {
           logger.error('stdin stream error', error);
         }
-        this.emit('error', error);
+        this.emit('error', error, classifyError(error));
       });
     }
 
@@ -648,7 +650,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     // Set up error handler
     this.process.on('error', (error) => {
-      this.emit('error', error);
+      this.emit('error', error, classifyError(error));
     });
 
     return this.process.pid;
