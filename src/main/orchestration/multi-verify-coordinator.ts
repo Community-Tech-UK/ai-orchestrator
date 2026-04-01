@@ -33,6 +33,7 @@ import { getConfidenceFilter } from './confidence-filter';
 import { createCliAdapter, resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 
 const logger = getLogger('MultiVerifyCoordinator');
 
@@ -283,7 +284,20 @@ export class MultiVerifyCoordinator extends EventEmitter {
     this.emitProgress(request, 'spawning', 0, config.agentCount, 'Preparing agents for execution');
 
     // Run all agents in parallel with timeout
-    const responses = await Promise.all(agentConfigs.map((agentConfig) => this.runAgent(request, agentConfig)));
+    // Create a per-round abort controller so non-retryable failures cancel siblings
+    const roundAbort = createAbortController();
+    const responses = await Promise.all(agentConfigs.map((agentConfig) => {
+      const childAbort = createChildAbortController(roundAbort);
+      return this.runAgent(request, agentConfig, childAbort).catch((error) => {
+        if (!roundAbort.signal.aborted) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+            roundAbort.abort(msg);
+          }
+        }
+        throw error;
+      });
+    }));
 
     // Emit progress: collecting phase
     const successfulCount = responses.filter((r) => !r.error).length;
@@ -385,11 +399,16 @@ export class MultiVerifyCoordinator extends EventEmitter {
 
   private async runAgent(
     request: VerificationRequest,
-    agentConfig: { agentId: string; agentIndex: number; model: string; personality?: PersonalityType }
+    agentConfig: { agentId: string; agentIndex: number; model: string; personality?: PersonalityType },
+    abortController?: AbortController,
   ): Promise<AgentResponse> {
     const startTime = Date.now();
 
     try {
+      if (abortController?.signal.aborted) {
+        throw new Error(`Aborted: ${abortController.signal.reason}`);
+      }
+
       // Build agent prompt with personality
       const systemPrompt = this.buildAgentPrompt(agentConfig.personality);
 
@@ -454,7 +473,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
 
       if (failureAction === 'retry') {
         // Recursively retry the agent
-        return this.runAgent(request, agentConfig);
+        return this.runAgent(request, agentConfig, abortController);
       }
 
       // Agent failed permanently

@@ -14,6 +14,7 @@ import { WorktreeManager, getWorktreeManager } from '../workspace/git/worktree-m
 import { getLogger } from '../logging/logger';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 
 const logger = getLogger('ParallelWorktreeCoordinator');
 
@@ -188,17 +189,33 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
     }
 
     for (const batch of batches) {
+      const batchAbort = createAbortController();
+
       const promises = batch.map(async task => {
-        const session = await this.worktreeManager.createWorktree(
-          instanceId,
-          task.description,
-          {
-            branchName: `task-${task.id}`,
-            repoRoot: repoPath,
+        const childAbort = createChildAbortController(batchAbort);
+        if (childAbort.signal.aborted) {
+          throw new Error(`Aborted: ${childAbort.signal.reason}`);
+        }
+        try {
+          const session = await this.worktreeManager.createWorktree(
+            instanceId,
+            task.description,
+            {
+              branchName: `task-${task.id}`,
+              repoRoot: repoPath,
+            }
+          );
+          execution.sessions.set(task.id, session);
+          this.emit('worktree:created', { executionId: execution.id, taskId: task.id, session });
+        } catch (error) {
+          if (!batchAbort.signal.aborted) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+              batchAbort.abort(msg);
+            }
           }
-        );
-        execution.sessions.set(task.id, session);
-        this.emit('worktree:created', { executionId: execution.id, taskId: task.id, session });
+          throw error;
+        }
       });
 
       await Promise.all(promises);

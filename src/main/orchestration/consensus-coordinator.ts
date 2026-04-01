@@ -26,6 +26,7 @@ import type {
 import { getLogger } from '../logging/logger';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 
 const logger = getLogger('ConsensusCoordinator');
 
@@ -126,24 +127,33 @@ export class ConsensusCoordinator extends EventEmitter {
     this.emitProgress(queryId, 'dispatching', [], providers.map(p => p.provider));
 
     // Set up abort controller for the overall query
-    let aborted = false;
-    const abortQuery = () => { aborted = true; };
-    this.activeQueries.set(queryId, { abort: abortQuery });
+    const queryAbort = createAbortController();
+    this.activeQueries.set(queryId, { abort: () => queryAbort.abort('query aborted') });
 
     const timeoutMs = (options.timeout ?? 60) * 1000;
 
     try {
       // Fan out queries to all providers in parallel
-      const responsePromises = providers.map(spec =>
-        this.queryProvider(
+      // Each provider gets a child abort controller so non-retryable errors cascade
+      const responsePromises = providers.map(spec => {
+        const childAbort = createChildAbortController(queryAbort);
+        return this.queryProvider(
           spec,
           question,
           context,
           options.workingDirectory || process.cwd(),
           timeoutMs,
-          () => aborted,
-        )
-      );
+          () => childAbort.signal.aborted,
+        ).catch((error) => {
+          if (!queryAbort.signal.aborted) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (/auth|unauthorized|forbidden|SIGKILL|SIGSEGV/i.test(msg)) {
+              queryAbort.abort(msg);
+            }
+          }
+          throw error;
+        });
+      });
 
       const responses = await Promise.all(responsePromises);
 
