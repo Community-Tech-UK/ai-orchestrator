@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import * as path from 'path';
 import type {
   WorktreeSession,
   MergeStrategy,
@@ -15,6 +16,7 @@ import { getLogger } from '../logging/logger';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
+import { withLock } from '../util/file-lock';
 
 const logger = getLogger('ParallelWorktreeCoordinator');
 
@@ -326,9 +328,12 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
       if (!session) continue;
 
       try {
-        const result = await this.worktreeManager.mergeWorktree(session.id, {
-          strategy: this.config.defaultMergeStrategy,
-        });
+        const lockPath = path.join(session.worktreePath, '.orchestrator.lock');
+        const result = await withLock(lockPath, async () => {
+          return this.worktreeManager.mergeWorktree(session.id, {
+            strategy: this.config.defaultMergeStrategy,
+          });
+        }, { purpose: `parallel-worktree-${taskId}` });
         results.push(result);
         this.emit('task:merged', { executionId: execution.id, taskId, result });
       } catch (error) {

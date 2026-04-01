@@ -14,6 +14,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import { EventEmitter } from 'events';
 import { registerCleanup } from '../util/cleanup-registry';
+import { withLock } from '../util/file-lock';
 import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -994,28 +995,31 @@ export class SessionContinuityManager extends EventEmitter {
     const serialized = this.serializePayload(data);
     const tmpFile = `${filePath}.tmp`;
     const dir = path.dirname(filePath);
+    const lockPath = `${filePath}.lock`;
 
-    const fh = await fs.promises.open(tmpFile, 'w');
-    try {
-      await fh.writeFile(serialized);
-      await fh.sync();
-    } finally {
-      await fh.close();
-    }
-
-    await fs.promises.rename(tmpFile, filePath);
-
-    // Best-effort fsync on parent directory
-    try {
-      const dirFh = await fs.promises.open(dir, 'r');
+    await withLock(lockPath, async () => {
+      const fh = await fs.promises.open(tmpFile, 'w');
       try {
-        await dirFh.sync();
+        await fh.writeFile(serialized);
+        await fh.sync();
       } finally {
-        await dirFh.close();
+        await fh.close();
       }
-    } catch {
-      // Directory fsync is not supported on all platforms (e.g. Windows)
-    }
+
+      await fs.promises.rename(tmpFile, filePath);
+
+      // Best-effort fsync on parent directory
+      try {
+        const dirFh = await fs.promises.open(dir, 'r');
+        try {
+          await dirFh.sync();
+        } finally {
+          await dirFh.close();
+        }
+      } catch {
+        // Directory fsync is not supported on all platforms (e.g. Windows)
+      }
+    }, { purpose: `snapshot-${path.basename(filePath, '.json')}` });
   }
 
   /**
