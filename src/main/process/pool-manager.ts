@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('PoolManager');
 const DEFAULT_RESUME_POOL_GRACE_MS = 60_000;
@@ -57,6 +58,7 @@ export class PoolManager extends EventEmitter {
   constructor(config?: Partial<PoolConfig>) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+    registerCleanup(() => { this.stop(); });
   }
 
   start(): void {

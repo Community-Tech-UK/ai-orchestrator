@@ -77,6 +77,7 @@ import type { ChildAnnouncement } from '../shared/types/child-announce.types';
 import { getAgentTreePersistence } from './session/agent-tree-persistence';
 import { getPermissionRegistry } from './orchestration/permission-registry';
 import { getOrchestrationSnapshotManager } from './orchestration/orchestration-snapshot';
+import { runCleanupFunctions } from './util/cleanup-registry';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -825,6 +826,7 @@ class AIOrchestratorApp {
 
   async cleanup(): Promise<void> {
     logger.info('Cleaning up');
+    await runCleanupFunctions();
     try { getResourceGovernor().stop(); } catch { /* best effort */ }
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }

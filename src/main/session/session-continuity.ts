@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { EventEmitter } from 'events';
+import { registerCleanup } from '../util/cleanup-registry';
 import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -232,6 +233,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     this.snapshotIndex = new SnapshotIndex();
     this.readyPromise = this.initAsync();
+    registerCleanup(() => this.shutdown());
   }
 
   /**

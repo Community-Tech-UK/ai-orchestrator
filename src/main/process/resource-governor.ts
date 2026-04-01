@@ -12,6 +12,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { getMemoryMonitor } from '../memory/memory-monitor';
 import type { MemoryStats, MemoryPressureLevel } from '../memory/memory-monitor';
+import { registerCleanup } from '../util/cleanup-registry';
 
 export interface ResourceGovernorConfig {
   /** Per-instance soft memory cap in MB (default: 512) */
@@ -106,6 +107,7 @@ export class ResourceGovernor extends EventEmitter {
     this.deps = { ...defaultDeps, ...deps };
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.logger = this.deps.getLogger('ResourceGovernor');
+    registerCleanup(() => { this.stop(); });
   }
 
   /**

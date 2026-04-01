@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('HibernationManager');
 
@@ -85,6 +86,7 @@ export class HibernationManager extends EventEmitter {
   constructor(config?: Partial<HibernationConfig>) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+    registerCleanup(() => { this.stop(); });
   }
 
   start(): void {

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { registerCleanup } from '../util/cleanup-registry';
 
 const logger = getLogger('StuckProcessDetector');
 
@@ -71,6 +72,7 @@ export class StuckProcessDetector extends EventEmitter {
     this.isProcessAlive = options?.isProcessAlive;
     this.checkInterval = setInterval(() => this.checkAll(), CHECK_INTERVAL_MS);
     if (this.checkInterval.unref) this.checkInterval.unref();
+    registerCleanup(() => this.shutdown());
   }
 
   startTracking(instanceId: string): void {
