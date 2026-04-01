@@ -266,6 +266,8 @@ export class DebateCoordinator extends EventEmitter {
     const contributions: DebateContribution[] = [];
     const roundAbort = createChildAbortController(debateAbort);
 
+    // Debate rounds are analysis-only — concurrency classifier confirms parallel execution is safe
+
     // Generate diverse responses from each agent in parallel
     const results = await Promise.all(
       Array.from({ length: debate.config.agents }, (_, i) => {

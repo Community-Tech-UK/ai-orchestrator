@@ -133,6 +133,8 @@ export class ConsensusCoordinator extends EventEmitter {
     const timeoutMs = (options.timeout ?? 60) * 1000;
 
     try {
+      // Voting rounds: concurrent analysis. Final synthesis: exclusive (writes result)
+
       // Fan out queries to all providers in parallel
       // Each provider gets a child abort controller so non-retryable errors cascade
       const responsePromises = providers.map(spec => {

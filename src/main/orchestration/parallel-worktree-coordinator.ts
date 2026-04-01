@@ -17,6 +17,7 @@ import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { withLock } from '../util/file-lock';
+import { scheduleOperations, type OperationDescriptor } from './concurrency-classifier';
 
 const logger = getLogger('ParallelWorktreeCoordinator');
 
@@ -183,11 +184,26 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
     repoPath: string
   ): Promise<void> {
     const batchSize = this.config.maxParallelTasks;
-    const batches: ParallelTask[][] = [];
 
-    // Group tasks into batches
-    for (let i = 0; i < execution.tasks.length; i += batchSize) {
-      batches.push(execution.tasks.slice(i, i + batchSize));
+    // Each task writes to a distinct worktree path (keyed by task-${task.id}).
+    // scheduleOperations groups tasks with overlapping targets into separate batches —
+    // tasks with distinct targets run in parallel within a batch.
+    const operations: OperationDescriptor[] = execution.tasks.map(task => ({
+      type: 'write' as const,
+      target: `task-${task.id}`,
+    }));
+    const scheduledBatches = scheduleOperations(operations);
+    // Map scheduler batches back to ParallelTask arrays, then chunk by maxParallelTasks
+    // to respect the configured concurrency cap.
+    const taskById = new Map(execution.tasks.map(t => [t.id, t]));
+    const batches: ParallelTask[][] = [];
+    for (const scheduledBatch of scheduledBatches) {
+      const batchTasks = scheduledBatch
+        .map(op => taskById.get(op.target!.replace(/^task-/, '')))
+        .filter((t): t is ParallelTask => t !== undefined);
+      for (let i = 0; i < batchTasks.length; i += batchSize) {
+        batches.push(batchTasks.slice(i, i + batchSize));
+      }
     }
 
     for (const batch of batches) {

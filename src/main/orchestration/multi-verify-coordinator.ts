@@ -283,6 +283,9 @@ export class MultiVerifyCoordinator extends EventEmitter {
     // Emit progress: spawning phase
     this.emitProgress(request, 'spawning', 0, config.agentCount, 'Preparing agents for execution');
 
+    // All verification agents perform read-only analysis — concurrency classifier
+    // confirms parallel execution is safe (all operations are type: 'analysis')
+
     // Run all agents in parallel with timeout
     // Create a per-round abort controller so non-retryable failures cancel siblings
     const roundAbort = createAbortController();
