@@ -2,6 +2,9 @@
  * ID Generation Utilities
  */
 
+import type { InstanceId } from '../types/branded-ids';
+import { toInstanceId } from '../types/branded-ids';
+
 /**
  * Generate a UUID v4
  */
@@ -99,8 +102,8 @@ export type InstanceProvider = keyof typeof INSTANCE_ID_PREFIXES;
  *   generateInstanceId('gemini')  → "gj4n7x2q1"
  *   generateInstanceId()          → "i9m3p5r7w2"
  */
-export function generateInstanceId(provider: InstanceProvider = 'generic'): string {
-  return generatePrefixedId(INSTANCE_ID_PREFIXES[provider]);
+export function generateInstanceId(provider: InstanceProvider = 'generic'): InstanceId {
+  return toInstanceId(generatePrefixedId(INSTANCE_ID_PREFIXES[provider]));
 }
 
 /** Orchestration prefixes */
