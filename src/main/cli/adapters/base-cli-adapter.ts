@@ -145,6 +145,8 @@ export interface CliStatus {
   path?: string;
   authenticated?: boolean;
   error?: string;
+  /** Adapter-specific metadata (e.g., { appServerAvailable: boolean } for Codex). */
+  metadata?: Record<string, unknown>;
 }
 
 /**

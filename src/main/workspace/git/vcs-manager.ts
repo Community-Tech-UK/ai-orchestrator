@@ -74,6 +74,8 @@ export interface DiffFile {
   hunks: DiffHunk[];
   additions: number;
   deletions: number;
+  /** True when git reports "Binary files ... differ". */
+  isBinary?: boolean;
 }
 
 export interface DiffResult {
@@ -87,6 +89,29 @@ export interface DiffStats {
   insertions: number;
   deletions: number;
 }
+
+// ============================================
+// Constants
+// ============================================
+
+/** Max size for individual untracked/file-at-commit reads (24 KB, matches codex-plugin-cc). */
+const MAX_CONTEXT_FILE_SIZE = 24 * 1024;
+
+/** Binary file extensions to skip when collecting context. */
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
+  '.zip', '.tar', '.gz', '.bz2', '.xz', '.7z', '.rar',
+  '.bin', '.o', '.obj', '.so', '.dll', '.dylib', '.exe', '.class', '.pyc', '.pyo',
+  '.woff', '.woff2', '.ttf', '.eot', '.otf',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.mp3', '.mp4', '.avi', '.mov', '.wav', '.flac', '.ogg',
+  '.sqlite', '.db',
+  '.jar', '.war', '.wasm',
+  '.apk', '.aab', '.ipa',
+]);
+
+/** Pattern git emits for binary files in unified diffs. */
+const BINARY_DIFF_MARKER = /^Binary files .+ and .+ differ$/m;
 
 // ============================================
 // VCS Manager Class
@@ -439,13 +464,33 @@ export class VcsManager {
       const newPath = pathMatch[2];
       const isRename = oldPath !== newPath;
 
-      // Determine status
+      // Determine status and detect binary markers
       let status: FileChangeStatus = 'modified';
-      for (const line of lines.slice(1, 5)) {
+      let isBinary = false;
+      for (const line of lines.slice(1, 8)) {
         if (line.startsWith('new file')) status = 'added';
         else if (line.startsWith('deleted file')) status = 'deleted';
         else if (line.startsWith('rename from')) status = 'renamed';
         else if (line.startsWith('copy from')) status = 'copied';
+        if (BINARY_DIFF_MARKER.test(line)) isBinary = true;
+      }
+
+      // Also check by file extension
+      const ext = path.extname(newPath).toLowerCase();
+      if (BINARY_EXTENSIONS.has(ext)) isBinary = true;
+
+      // Skip binary files — no useful hunks to parse
+      if (isBinary) {
+        files.push({
+          path: newPath,
+          oldPath: isRename ? oldPath : undefined,
+          status,
+          hunks: [],
+          additions: 0,
+          deletions: 0,
+          isBinary: true,
+        });
+        continue;
       }
 
       // Parse hunks
@@ -503,9 +548,29 @@ export class VcsManager {
   // ============================================
 
   /**
-   * Get file content at a specific commit
+   * Get file content at a specific commit.
+   *
+   * Guards:
+   *   - Skips known binary extensions (returns null)
+   *   - Checks object size via `git cat-file -s` before reading
+   *   - Caps at MAX_CONTEXT_FILE_SIZE (24 KB) to avoid context explosion
    */
   getFileAtCommit(filePath: string, commitHash: string): string | null {
+    // Guard: skip binary extensions
+    const ext = path.extname(filePath).toLowerCase();
+    if (BINARY_EXTENSIONS.has(ext)) {
+      return null;
+    }
+
+    // Guard: check object size before reading full content
+    const sizeStr = this.execGit(['cat-file', '-s', `${commitHash}:${filePath}`]);
+    if (sizeStr !== null) {
+      const size = parseInt(sizeStr.trim(), 10);
+      if (!isNaN(size) && size > MAX_CONTEXT_FILE_SIZE) {
+        return null;
+      }
+    }
+
     return this.execGit(['show', `${commitHash}:${filePath}`]);
   }
 

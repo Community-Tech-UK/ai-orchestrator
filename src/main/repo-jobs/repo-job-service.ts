@@ -18,6 +18,7 @@ import { getWorktreeManager, type WorktreeManager } from '../workspace/git/workt
 import { getLogger } from '../logging/logger';
 import { resolveGitHostMetadata } from '../vcs/remotes/git-host-connector';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
+import { getRepoJobStore } from './repo-job-store';
 
 const logger = getLogger('RepoJobService');
 
@@ -80,8 +81,11 @@ export class RepoJobService extends EventEmitter {
     this.instance = null;
   }
 
+  private readonly store = getRepoJobStore();
+
   private constructor() {
     super();
+    this.loadPersistedJobs();
     this.registerExecutors();
     this.bindTaskEvents();
   }
@@ -91,6 +95,59 @@ export class RepoJobService extends EventEmitter {
       ...this.deps,
       ...deps,
     };
+  }
+
+  /**
+   * Load previously persisted jobs from disk into the in-memory map.
+   * Only restores terminal jobs (completed/failed/cancelled) for history;
+   * active jobs can't be meaningfully resumed after an app restart.
+   */
+  private loadPersistedJobs(): void {
+    const terminalStatuses = new Set(['completed', 'failed', 'cancelled']);
+    try {
+      const persisted = this.store.loadAll();
+      for (const [id, job] of persisted) {
+        if (!this.jobs.has(id) && terminalStatuses.has(job.status)) {
+          this.jobs.set(id, job);
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to load persisted repo jobs', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Persist a job to disk (called on every state transition).
+   */
+  private persistJob(job: RepoJobRecord): void {
+    try {
+      this.store.saveJob(job);
+    } catch (error) {
+      logger.warn('Failed to persist repo job', {
+        jobId: job.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Run pruning after a job reaches a terminal state.
+   * Syncs pruned IDs from disk back to the in-memory map to prevent
+   * unbounded growth over long-running sessions.
+   */
+  private pruneIfNeeded(): void {
+    try {
+      const prunedIds = this.store.prune();
+      for (const id of prunedIds) {
+        this.jobs.delete(id);
+      }
+    } catch (error) {
+      logger.warn('Repo job pruning failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   submitJob(submission: RepoJobSubmission): RepoJobRecord {
@@ -129,6 +186,7 @@ export class RepoJobService extends EventEmitter {
     };
 
     this.jobs.set(job.id, job);
+    this.persistJob(job);
 
     this.taskManager.submit({
       id: job.id,
@@ -201,6 +259,7 @@ export class RepoJobService extends EventEmitter {
         job.status = 'cancelled';
         job.completedAt = Date.now();
         job.progressMessage = 'Cancelled before execution';
+        this.persistJob(job);
         this.emitRepoJobEvent('repo-job:cancelled', job);
       }
     }
@@ -254,6 +313,7 @@ export class RepoJobService extends EventEmitter {
       job.startedAt = task.startedAt || Date.now();
       job.progress = task.progress;
       job.progressMessage = task.progressMessage;
+      this.persistJob(job);
       this.emitRepoJobEvent('repo-job:started', job);
     });
 
@@ -266,6 +326,7 @@ export class RepoJobService extends EventEmitter {
       if (!job) return;
       job.progress = payload.progress;
       job.progressMessage = payload.message;
+      // Skip disk write for progress updates (too frequent) — only persist on state changes
       this.emitRepoJobEvent('repo-job:progress', job);
     });
 
@@ -279,6 +340,8 @@ export class RepoJobService extends EventEmitter {
       job.result = task.result as RepoJobResult | undefined;
       job.instanceId = job.result?.instanceId || job.instanceId;
       job.repoContext = job.result?.repoContext || job.repoContext;
+      this.persistJob(job);
+      this.pruneIfNeeded();
       this.emitRepoJobEvent('repo-job:completed', job);
     });
 
@@ -289,6 +352,8 @@ export class RepoJobService extends EventEmitter {
       job.completedAt = task.completedAt || Date.now();
       job.error = task.error || 'Repo job failed';
       job.progressMessage = job.error;
+      this.persistJob(job);
+      this.pruneIfNeeded();
       this.emitRepoJobEvent('repo-job:failed', job);
     });
 
@@ -298,6 +363,8 @@ export class RepoJobService extends EventEmitter {
       job.status = 'cancelled';
       job.completedAt = task.completedAt || Date.now();
       job.progressMessage = 'Cancelled';
+      this.persistJob(job);
+      this.pruneIfNeeded();
       this.emitRepoJobEvent('repo-job:cancelled', job);
     });
   }

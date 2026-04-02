@@ -2,8 +2,26 @@
  * Codex CLI Adapter - Spawns and manages OpenAI Codex CLI processes
  * https://github.com/openai/codex
  *
- * Uses `codex exec` / `codex exec resume` in stateless job mode while
- * preserving native Codex thread continuity across messages.
+ * Dual-mode operation:
+ *   1. **App-server mode** (preferred): persistent JSON-RPC server via
+ *      `codex app-server` with real-time streaming, native threads, and
+ *      optional broker for multi-instance process sharing.
+ *   2. **Exec mode** (fallback): `codex exec` / `codex exec resume` for
+ *      older Codex CLI versions that lack app-server support.
+ *
+ * The adapter auto-detects which mode to use at spawn time.
+ *
+ * Improvements derived from the codex-plugin-cc reference implementation:
+ *   - JSON-RPC app-server protocol for persistent connections
+ *   - Broker pattern for multi-instance process sharing
+ *   - Real-time notification streaming (not batch-after-exit)
+ *   - Native thread management (replaces conversation replay)
+ *   - Graceful turn interruption via turn/interrupt RPC
+ *   - Native context compaction via thread/compact/start
+ *   - Structured output schemas for verification/debate
+ *   - Reasoning effort control (none → xhigh)
+ *   - Cross-platform process tree termination
+ *   - Enhanced availability detection
  */
 
 import {
@@ -27,7 +45,25 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
 
+// App-server imports
+import {
+  checkAppServerAvailability,
+  terminateProcessTree,
+} from './codex/app-server-client';
+import type { AppServerClient } from './codex/app-server-client';
+import type {
+  AppServerNotification,
+  AppServerRequestParams,
+  CodexReasoningEffort,
+  ThreadItem,
+  TurnCaptureState,
+  TurnPhase,
+} from './codex/app-server-types';
+import { SERVICE_NAME } from './codex/app-server-types';
+
 const logger = getLogger('CodexCliAdapter');
+
+// ─── Local Types ────────────────────────────────────────────────────────────
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
 type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -66,16 +102,20 @@ interface CodexConversationEntry {
  * Codex CLI specific configuration
  */
 export interface CodexCliConfig {
-  /** Approval mode: suggest, auto-edit, or full-auto */
-  approvalMode?: CodexApprovalMode;
   /** Additional writable directories */
   additionalWritableDirs?: string[];
+  /** Approval mode: suggest, auto-edit, or full-auto */
+  approvalMode?: CodexApprovalMode;
   /** Run without persisting session files to disk */
   ephemeral?: boolean;
   /** Model to use (gpt-5.4, gpt-5.3-codex, etc.) */
   model?: string;
-  /** Path to a JSON schema file describing the final output */
+  /** JSON Schema object for structured output (app-server mode) */
+  outputSchema?: Record<string, unknown>;
+  /** Path to a JSON schema file describing the final output (exec mode) */
   outputSchemaPath?: string;
+  /** Reasoning effort level for the model */
+  reasoningEffort?: CodexReasoningEffort;
   /** Resume the provided session/thread on the next exec */
   resume?: boolean;
   /** Sandbox mode: read-only, workspace-write, or danger-full-access */
@@ -102,21 +142,103 @@ export interface CodexCliAdapterEvents {
   'status': (status: InstanceStatus) => void;
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+/** Inferred-completion delay after final answer + all subagents drain. */
+const INFERRED_COMPLETION_MS = 250;
+
+/** Regex to detect verification commands for progress phase reporting. */
+const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
+
+// ─── Reasoning Deduplication (ported from codex-plugin-cc) ─────────────────
+
+/** Normalize whitespace for dedup comparison. */
+function normalizeReasoningText(text: unknown): string {
+  return String(text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Recursively extracts reasoning text from the heterogeneous `summary` field
+ * that Codex sends on `reasoning` item completions. The value can be a plain
+ * string, an array of strings/objects, or a nested object with `text`,
+ * `summary`, `content`, or `parts` keys.
+ */
+function extractReasoningSections(value: unknown): string[] {
+  if (!value) return [];
+
+  if (typeof value === 'string') {
+    const normalized = normalizeReasoningText(value);
+    return normalized ? [normalized] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => extractReasoningSections(entry));
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj['text'] === 'string') return extractReasoningSections(obj['text']);
+    if ('summary' in obj) return extractReasoningSections(obj['summary']);
+    if ('content' in obj) return extractReasoningSections(obj['content']);
+    if ('parts' in obj) return extractReasoningSections(obj['parts']);
+  }
+
+  return [];
+}
+
+/** Merge new reasoning sections into existing, skipping duplicates. */
+function mergeReasoningSections(existing: string[], next: string[]): string[] {
+  const merged: string[] = [];
+  for (const section of [...existing, ...next]) {
+    const normalized = normalizeReasoningText(section);
+    if (!normalized || merged.includes(normalized)) continue;
+    merged.push(normalized);
+  }
+  return merged;
+}
+
+/** Shorten a string to maxLen chars, appending ellipsis if truncated. */
+function shorten(text: string | undefined, maxLen: number): string {
+  if (!text) return '';
+  return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + '…';
+}
+
+// ─── Adapter ────────────────────────────────────────────────────────────────
+
 /**
  * Codex CLI Adapter - Implementation for OpenAI Codex CLI
+ *
+ * Supports dual-mode operation: app-server (persistent JSON-RPC) and
+ * exec (spawn-per-message) with automatic detection and fallback.
  */
 export class CodexCliAdapter extends BaseCliAdapter {
   private static readonly MAX_REPLAY_CHARS_PER_ENTRY = 1200;
   private static readonly MAX_REPLAY_ENTRIES = 16;
 
   private cliConfig: CodexCliConfig;
-  private conversationHistory: CodexConversationEntry[] = [];
-  /** Temp directory used as CODEX_HOME to bypass user MCP servers */
+  /** Temp directory used as CODEX_HOME to bypass user MCP servers (exec mode) */
   private codexHomeDir?: string;
   private isSpawned = false;
-  private shouldResumeNextTurn: boolean;
   /** Running total of tokens used across all turns */
   private cumulativeTokensUsed = 0;
+
+  // ─── App-server mode state ────────────────────────────────────────
+  /** Whether app-server mode is active (vs exec fallback). */
+  private useAppServer = false;
+  /** Persistent app-server client (only in app-server mode). */
+  private appServerClient: AppServerClient | null = null;
+  /** Current thread ID in the app-server (replaces conversation history). */
+  private appServerThreadId: string | null = null;
+  /** Current turn ID (for interrupt support). */
+  private currentTurnId: string | null = null;
+  /** Whether a turn is currently in progress. */
+  private turnInProgress = false;
+  /** Whether the system prompt has been sent (app-server mode, first turn only). */
+  private systemPromptSent = false;
+
+  // ─── Exec mode state ──────────────────────────────────────────────
+  private conversationHistory: CodexConversationEntry[] = [];
+  private shouldResumeNextTurn: boolean;
 
   constructor(config: CodexCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -151,15 +273,26 @@ export class CodexCliAdapter extends BaseCliAdapter {
     };
   }
 
+  /**
+   * Returns runtime capabilities. Note: `supportsNativeCompaction` is dynamic —
+   * it reflects the current mode (app-server vs exec) and will be `false` before
+   * `spawn()` is called. Consumers should re-check after spawn if needed.
+   */
   override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return {
       supportsResume: this.supportsNativeResume(),
       supportsForkSession: false,
-      supportsNativeCompaction: false,
+      // App-server mode supports native compaction via thread/compact/start.
+      // This is dynamic — only true after spawn() detects app-server support.
+      supportsNativeCompaction: this.useAppServer,
       supportsPermissionPrompts: false,
     };
   }
 
+  /**
+   * Checks CLI availability and whether app-server mode is supported.
+   * Returns extended status with `appServerAvailable` metadata.
+   */
   async checkStatus(): Promise<CliStatus> {
     return new Promise((resolve) => {
       const proc = this.spawnProcess(['--version']);
@@ -175,11 +308,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
       proc.on('close', (code) => {
         if (code === 0 || output.includes('codex')) {
           const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
+          // Additionally check for app-server subcommand availability
+          const appServerAvailable = checkAppServerAvailability();
           resolve({
             available: true,
             version: versionMatch?.[1] || 'unknown',
             path: 'codex',
             authenticated: true,
+            metadata: { appServerAvailable },
           });
         } else {
           resolve({
@@ -206,6 +342,1011 @@ export class CodexCliAdapter extends BaseCliAdapter {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Spawn / Lifecycle
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async spawn(): Promise<number> {
+    if (this.isSpawned) {
+      throw new Error('Adapter already spawned');
+    }
+
+    const status = await this.checkStatus();
+    if (!status.available) {
+      throw new Error(status.error || 'Codex CLI is unavailable');
+    }
+
+    // Decide which mode to use
+    const appServerAvailable = Boolean(status.metadata?.['appServerAvailable']);
+
+    if (appServerAvailable) {
+      // App-server mode: persistent JSON-RPC connection
+      try {
+        await this.initAppServerMode();
+        this.useAppServer = true;
+        logger.info('Codex adapter using app-server mode');
+      } catch (err) {
+        logger.warn('App-server initialization failed, falling back to exec mode', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        this.useAppServer = false;
+        this.prepareCleanCodexHome();
+      }
+    } else {
+      // Exec mode: spawn per message
+      this.prepareCleanCodexHome();
+      logger.info('Codex adapter using exec mode (app-server not available)');
+    }
+
+    this.isSpawned = true;
+    const fakePid = this.appServerClient
+      ? ((this.appServerClient as { getPid?: () => number | undefined }).getPid?.() || Math.floor(Math.random() * 100000) + 10000)
+      : Math.floor(Math.random() * 100000) + 10000;
+    this.emit('spawned', fakePid);
+    this.emit('status', 'idle' as InstanceStatus);
+    return fakePid;
+  }
+
+  /**
+   * Sends a message and emits events.
+   * Routes to app-server or exec mode based on current configuration.
+   */
+  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+    if (!this.isSpawned) {
+      throw new Error('Adapter not spawned - call spawn() first');
+    }
+
+    this.emit('status', 'busy' as InstanceStatus);
+
+    try {
+      if (this.useAppServer && this.appServerClient) {
+        await this.appServerSendMessage(message, attachments);
+      } else {
+        await this.execSendMessage(message, attachments);
+      }
+
+      this.emit('status', 'idle' as InstanceStatus);
+    } catch (error) {
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: `Codex error: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      this.emit('status', 'error' as InstanceStatus);
+      throw error;
+    }
+  }
+
+  /**
+   * Gracefully interrupts the current turn.
+   * - App-server mode: sends `turn/interrupt` RPC (preserves thread state)
+   * - Exec mode: SIGINT to the process
+   */
+  override interrupt(): boolean {
+    if (this.useAppServer && this.appServerClient && this.turnInProgress) {
+      // Graceful RPC interrupt — preserves the thread for future turns
+      if (this.appServerThreadId && this.currentTurnId) {
+        this.appServerClient.request('turn/interrupt', {
+          threadId: this.appServerThreadId,
+          turnId: this.currentTurnId,
+        }).catch((err) => {
+          logger.warn('Failed to interrupt turn via RPC', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        return true;
+      }
+    }
+    // Fall back to base class SIGINT behavior
+    return super.interrupt();
+  }
+
+  /**
+   * Triggers native context compaction (app-server mode only).
+   * Sends `thread/compact/start` to reduce context window usage.
+   */
+  async compactContext(): Promise<boolean> {
+    if (!this.useAppServer || !this.appServerClient || !this.appServerThreadId) {
+      return false;
+    }
+
+    try {
+      await this.appServerClient.request('thread/compact/start', {
+        threadId: this.appServerThreadId,
+      });
+      logger.info('Context compacted via app-server', { threadId: this.appServerThreadId });
+      return true;
+    } catch (err) {
+      logger.warn('Context compaction failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  override async terminate(graceful = true): Promise<void> {
+    this.isSpawned = false;
+
+    // Close app-server connection
+    if (this.appServerClient) {
+      try {
+        await this.appServerClient.close();
+      } catch { /* best effort */ }
+      this.appServerClient = null;
+    }
+
+    this.cleanupCodexHome();
+    await super.terminate(graceful);
+  }
+
+  /** Whether app-server mode is currently active. */
+  isAppServerMode(): boolean {
+    return this.useAppServer;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  App-Server Mode Implementation
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Initializes the persistent app-server connection and starts a thread.
+   */
+  private async initAppServerMode(): Promise<void> {
+    const cwd = this.cliConfig.workingDir || process.cwd();
+
+    // For persistent mode we need to establish a connection and keep the client alive.
+    const client = await this.connectAppServer(cwd);
+
+    try {
+      const approvalPolicy = this.cliConfig.approvalMode === 'full-auto' ? 'never' : 'never';
+      const sandbox = this.mapSandboxMode();
+
+      // Resume an existing thread if config says so, otherwise start a new one.
+      const shouldResume = this.shouldResumeNextTurn && this.sessionId;
+      let threadId: string | null;
+
+      if (shouldResume) {
+        const resumeResult = await client.request('thread/resume', {
+          threadId: this.sessionId!,
+          cwd,
+          model: this.cliConfig.model || null,
+          approvalPolicy,
+          sandbox,
+        });
+        threadId = resumeResult.threadId || resumeResult.thread?.id || null;
+        // Resume consumed — subsequent turns are normal
+        this.shouldResumeNextTurn = false;
+        logger.info('App-server thread resumed', { threadId });
+      } else {
+        const startResult = await client.request('thread/start', {
+          cwd,
+          model: this.cliConfig.model || null,
+          approvalPolicy,
+          sandbox,
+          serviceName: SERVICE_NAME,
+          ephemeral: this.cliConfig.ephemeral ?? false,
+          reasoningEffort: this.cliConfig.reasoningEffort || null,
+        });
+        threadId = startResult.threadId || startResult.thread?.id || null;
+        logger.info('App-server thread started', { threadId });
+      }
+
+      // Only assign after successful thread creation/resume
+      this.appServerClient = client;
+      this.appServerThreadId = threadId;
+      if (threadId) {
+        this.sessionId = threadId;
+      }
+    } catch (err) {
+      // Thread creation/resume failed — close the client to prevent orphaning
+      try {
+        await client.close();
+      } catch { /* best-effort cleanup */ }
+      throw err;
+    }
+  }
+
+  /**
+   * Connects to the app-server, trying broker first then direct.
+   * Returns a persistent client that this adapter owns and must close.
+   */
+  private async connectAppServer(cwd: string): Promise<AppServerClient> {
+    const { connectToAppServer } = await import('./codex/app-server-client');
+    return connectToAppServer(cwd);
+  }
+
+  /**
+   * Sends a message via the app-server and emits real-time events.
+   */
+  private async appServerSendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
+    if (!this.appServerClient || !this.appServerThreadId) {
+      throw new Error('App-server not initialized');
+    }
+
+    // Process attachments — prepend file references to the user message (not replace it)
+    let content = message;
+    if (attachments && attachments.length > 0) {
+      const processed = await this.prepareAttachmentsForAppServer(attachments);
+      if (processed) {
+        content = `${processed}\n\n${message}`;
+      }
+    }
+
+    // Include system prompt on the very first turn only.
+    // Track via a dedicated flag — currentTurnId is cleared after every turn.
+    if (!this.systemPromptSent && this.cliConfig.systemPrompt?.trim()) {
+      const prompt = this.cliConfig.systemPrompt.trim();
+      if (prompt.length <= CodexCliAdapter.MAX_SYSTEM_PROMPT_CHARS) {
+        content = `[SYSTEM INSTRUCTIONS]\n${prompt}\n[/SYSTEM INSTRUCTIONS]\n\n${content}`;
+      }
+      this.systemPromptSent = true;
+    }
+
+    // Start the turn and capture notifications
+    const turnState = await this.captureTurn(content);
+
+    // Emit the final response
+    const responseContent = turnState.lastAgentMessage || '';
+    const toolCalls = this.buildToolCallsFromTurnState(turnState);
+
+    if (responseContent || toolCalls.length > 0) {
+      const extracted = extractThinkingContent(responseContent);
+
+      const thinkingContent: ThinkingContent[] | undefined = extracted.thinking.length > 0
+        ? extracted.thinking.map((block) => ({
+            id: block.id,
+            content: block.content,
+            format: block.format,
+            timestamp: block.timestamp || Date.now(),
+          }))
+        : undefined;
+
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'assistant',
+        content: extracted.response,
+        thinking: thinkingContent,
+      });
+    }
+
+    // Emit usage/context
+    if (turnState.finalTurn?.usage) {
+      const usage = turnState.finalTurn.usage;
+      const inputTokens = usage.input_tokens || 0;
+      const outputTokens = usage.output_tokens || 0;
+      this.cumulativeTokensUsed += inputTokens + outputTokens;
+
+      const contextWindow = this.getCapabilities().contextWindow;
+      this.emit('context', {
+        used: this.cumulativeTokensUsed,
+        total: contextWindow,
+        percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
+      });
+    }
+
+    // Build and emit the complete response
+    const response: CliResponse = {
+      id: this.generateResponseId(),
+      content: turnState.lastAgentMessage || '',
+      role: 'assistant',
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      usage: turnState.finalTurn?.usage ? {
+        inputTokens: turnState.finalTurn.usage.input_tokens || 0,
+        outputTokens: turnState.finalTurn.usage.output_tokens || 0,
+        totalTokens: (turnState.finalTurn.usage.input_tokens || 0) + (turnState.finalTurn.usage.output_tokens || 0),
+      } : undefined,
+    };
+    this.emit('complete', response);
+  }
+
+  /**
+   * Checks whether a notification belongs to the current turn.
+   * Notifications from unknown threads or from turns we're not tracking
+   * are considered foreign and should be routed to the previous handler.
+   *
+   * Ported from codex-plugin-cc's `belongsToTurn()`.
+   */
+  private belongsToTurn(state: TurnCaptureState, notification: AppServerNotification): boolean {
+    const messageThreadId = notification.params['threadId'] as string | undefined;
+    if (!messageThreadId || !state.threadIds.has(messageThreadId)) {
+      return false;
+    }
+    const trackedTurnId = state.threadTurnIds.get(messageThreadId) ?? null;
+    // Extract turn ID from notification (can be in params.turnId or params.turn.id)
+    const messageTurnId = (notification.params['turnId'] as string | undefined)
+      || (notification.params['turn'] && typeof notification.params['turn'] === 'object'
+        ? (notification.params['turn'] as Record<string, unknown>)['id'] as string | undefined
+        : undefined)
+      || null;
+    // If either side is unknown, assume it belongs (safe fallback)
+    return trackedTurnId === null || messageTurnId === null || messageTurnId === trackedTurnId;
+  }
+
+  /**
+   * Captures a complete turn from the app-server, routing notifications
+   * to adapter events in real-time.
+   *
+   * This is the core streaming mechanism, modeled after the codex-plugin-cc
+   * `captureTurn()` pattern. Includes multi-turn notification routing:
+   * notifications from other turns are forwarded to the previous handler.
+   */
+  private async captureTurn(content: string): Promise<TurnCaptureState> {
+    const client = this.appServerClient!;
+    const threadId = this.appServerThreadId!;
+
+    // Build turn capture state
+    const state = this.createTurnCaptureState(threadId);
+
+    // Install notification handler for real-time event routing.
+    // thread/started and thread/name/updated always apply to this turn.
+    // Other notifications are checked against belongsToTurn() — foreign
+    // notifications are forwarded to the previous handler.
+    const previousHandler = client.notificationHandler;
+    client.setNotificationHandler((notification: AppServerNotification) => {
+      // Thread-level notifications always apply
+      if (notification.method === 'thread/started' || notification.method === 'thread/name/updated') {
+        this.handleTurnNotification(state, notification);
+        return;
+      }
+      // Buffer if we don't have a turn ID yet
+      if (!state.turnId) {
+        state.bufferedNotifications.push(notification);
+        return;
+      }
+      // Route foreign notifications to the previous handler
+      if (!this.belongsToTurn(state, notification)) {
+        if (previousHandler) {
+          previousHandler(notification);
+        }
+        return;
+      }
+      this.handleTurnNotification(state, notification);
+    });
+
+    try {
+      // Start the turn
+      this.turnInProgress = true;
+      const turnParams: Record<string, unknown> = {
+        threadId,
+        input: [{ type: 'text', text: content, text_elements: [] }],
+      };
+
+      // Add structured output schema if configured
+      if (this.cliConfig.outputSchema) {
+        turnParams['outputSchema'] = this.cliConfig.outputSchema;
+      }
+
+      // Add reasoning effort if configured
+      if (this.cliConfig.reasoningEffort) {
+        turnParams['reasoningEffort'] = this.cliConfig.reasoningEffort;
+      }
+
+      const turnResult = await client.request('turn/start', turnParams as unknown as AppServerRequestParams<'turn/start'>);
+      this.currentTurnId = turnResult.turn?.id || null;
+
+      if (this.currentTurnId) {
+        state.threadTurnIds.set(threadId, this.currentTurnId);
+        state.turnId = this.currentTurnId;
+      }
+
+      // Replay buffered notifications — route foreign ones to previousHandler
+      for (const buffered of state.bufferedNotifications) {
+        if (this.belongsToTurn(state, buffered)) {
+          this.handleTurnNotification(state, buffered);
+        } else if (previousHandler) {
+          previousHandler(buffered);
+        }
+      }
+      state.bufferedNotifications.length = 0;
+
+      // If the turn completed synchronously
+      if (turnResult.turn?.status && turnResult.turn.status !== 'inProgress') {
+        this.completeTurn(state, turnResult.turn);
+      }
+
+      // Wait for completion with timeout protection.
+      // If the codex process crashes or the socket drops, the exitPromise
+      // will resolve and we reject to avoid hanging forever.
+      const timeoutMs = this.config.timeout;
+      const completionOrCrash = Promise.race([
+        state.completion,
+        client.exitPromise.then(() => {
+          if (!state.completed) {
+            throw new Error('codex app-server exited unexpectedly during turn');
+          }
+          return state;
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Codex app-server turn timed out after ${timeoutMs}ms`)), timeoutMs)
+        ),
+      ]);
+
+      return await completionOrCrash;
+    } finally {
+      this.turnInProgress = false;
+      this.currentTurnId = null;
+      // Clear any inferred-completion timer
+      if (state.completionTimer) {
+        clearTimeout(state.completionTimer);
+      }
+      client.setNotificationHandler(previousHandler);
+    }
+  }
+
+  /**
+   * Handles a single notification from the app-server during a turn.
+   * Emits real-time events to the adapter and updates turn state.
+   */
+  private handleTurnNotification(state: TurnCaptureState, notification: AppServerNotification): void {
+    // Drop notifications that arrive after the turn has already completed.
+    // This prevents orphaned output events from violating the event ordering
+    // contract (all output must arrive before 'complete').
+    if (state.completed) {
+      return;
+    }
+
+    const { method, params } = notification;
+
+    switch (method) {
+      case 'thread/started': {
+        // Handle both flat (params.threadId) and nested (params.thread.id) formats
+        const threadObj = params['thread'] as Record<string, unknown> | undefined;
+        const tId = (threadObj?.['id'] as string) || params['threadId'] as string | undefined;
+        if (tId) {
+          state.threadIds.add(tId);
+          // Extract label from multiple sources (matches codex-plugin-cc)
+          const label = (threadObj?.['name'] as string)
+            || (params['name'] as string)
+            || (threadObj?.['agentNickname'] as string)
+            || (threadObj?.['agentRole'] as string)
+            || (params['label'] as string)
+            || tId;
+          state.threadLabels.set(tId, label);
+        }
+        break;
+      }
+
+      case 'thread/name/updated': {
+        const tId = params['threadId'] as string | undefined;
+        const name = (params['threadName'] as string) || (params['name'] as string) || undefined;
+        if (tId && name) {
+          state.threadLabels.set(tId, name);
+        }
+        break;
+      }
+
+      case 'turn/started': {
+        const turnId = params['turn'] && typeof params['turn'] === 'object'
+          ? (params['turn'] as Record<string, unknown>)['id'] as string | undefined
+          : undefined;
+        const tId = params['threadId'] as string | undefined;
+        if (turnId && tId) {
+          state.threadTurnIds.set(tId, turnId);
+          // Track subagent turns
+          if (tId !== state.threadId) {
+            state.activeSubagentTurns.add(turnId);
+          }
+        }
+        break;
+      }
+
+      case 'item/started': {
+        const item = params['item'] as ThreadItem | undefined;
+        const threadId = params['threadId'] as string | undefined;
+        if (!item) break;
+
+        // Track collaboration lifecycle (started phase)
+        if (item.type === 'collabAgentToolCall') {
+          if (!threadId || threadId === state.threadId) {
+            if (item.id) {
+              state.pendingCollaborations.add(item.id);
+            }
+          }
+          // Auto-register receiver threads for subagent tracking
+          for (const receiverThreadId of item.receiverThreadIds ?? []) {
+            if (receiverThreadId) {
+              state.threadIds.add(receiverThreadId);
+              if (!state.threadLabels.has(receiverThreadId)) {
+                state.threadLabels.set(receiverThreadId, receiverThreadId);
+              }
+            }
+          }
+        }
+
+        // Emit real-time tool_use events for various item types
+        if (item.type === 'command_execution' && item.command) {
+          const phase: TurnPhase = VERIFICATION_CMD_PATTERN.test(item.command)
+            ? 'verifying'
+            : 'running';
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Running command: ${shorten(item.command, 96)}`,
+            metadata: { streaming: true, phase },
+          });
+        } else if (item.type === 'file_change') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Editing file: ${item.path || 'unknown'}`,
+            metadata: { streaming: true, phase: 'editing' as TurnPhase },
+          });
+        } else if (item.type === 'enteredReviewMode') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Reviewer started: ${item.review || 'code review'}`,
+            metadata: { streaming: true, phase: 'reviewing' as TurnPhase },
+          });
+        } else if (item.type === 'mcpToolCall') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Calling ${item.server || 'mcp'}/${item.tool || item.toolName || 'unknown'}`,
+            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+          });
+        } else if (item.type === 'dynamicToolCall') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Running tool: ${item.tool || item.toolName || 'unknown'}`,
+            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+          });
+        } else if (item.type === 'collabAgentToolCall') {
+          const subagentLabels = (item.receiverThreadIds ?? [])
+            .map((tid) => state.threadLabels.get(tid) ?? tid);
+          const summary = subagentLabels.length > 0
+            ? `Starting subagent ${subagentLabels.join(', ')} via ${item.tool || 'collaboration'}`
+            : `Starting collaboration tool: ${item.tool || 'unknown'}`;
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: summary,
+            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+          });
+        } else if (item.type === 'webSearch') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_use',
+            content: `Searching: ${shorten(item.query, 96)}`,
+            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+          });
+        }
+        break;
+      }
+
+      case 'item/completed': {
+        const item = params['item'] as ThreadItem | undefined;
+        const threadId = params['threadId'] as string | undefined;
+        if (!item) break;
+
+        // ── Collaboration lifecycle (completed phase) ──
+        if (item.type === 'collabAgentToolCall') {
+          if (!threadId || threadId === state.threadId) {
+            if (item.id) {
+              state.pendingCollaborations.delete(item.id);
+              this.scheduleInferredCompletion(state);
+            }
+          }
+          // Auto-register receiver threads even on completion
+          for (const receiverThreadId of item.receiverThreadIds ?? []) {
+            if (receiverThreadId) {
+              state.threadIds.add(receiverThreadId);
+            }
+          }
+          const subagentLabels = (item.receiverThreadIds ?? [])
+            .map((tid) => state.threadLabels.get(tid) ?? tid);
+          const summary = subagentLabels.length > 0
+            ? `Subagent ${subagentLabels.join(', ')} ${item.status || 'completed'}`
+            : `Collaboration tool ${item.tool || 'unknown'} ${item.status || 'completed'}`;
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: summary,
+            metadata: { is_error: false },
+          });
+        }
+
+        // ── Command execution ──
+        if (item.type === 'command_execution') {
+          state.commandExecutions.push(item);
+          if (item.aggregated_output) {
+            this.emit('output', {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'tool_result',
+              content: item.aggregated_output,
+              metadata: {
+                command: item.command,
+                exitCode: item.exit_code,
+                is_error: item.exit_code !== 0,
+              },
+            });
+          }
+        }
+
+        // ── Agent message ──
+        // Handle both 'agent_message' (our convention) and 'agentMessage' (codex protocol)
+        if (item.type === 'agent_message' || item.type === 'agentMessage') {
+          const text = item.text || item.content
+            || (item.message && typeof item.message === 'object' ? item.message.content : undefined)
+            || '';
+          if (text) {
+            const itemPhase = item.phase || (params['phase'] as string | undefined) || null;
+            state.messages.push({ lifecycle: 'completed', phase: itemPhase, text });
+
+            // Only update lastAgentMessage for root thread messages
+            if (!threadId || threadId === state.threadId) {
+              state.lastAgentMessage = text;
+              if (itemPhase === 'final_answer') {
+                state.finalAnswerSeen = true;
+                this.scheduleInferredCompletion(state);
+              }
+            }
+          }
+        }
+
+        // ── File change ──
+        if (item.type === 'file_change' || item.type === 'fileChange') {
+          state.fileChanges.push(item);
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: `File ${item.changeType || 'modified'}: ${item.path || 'unknown'}`,
+            metadata: { path: item.path, changeType: item.changeType, is_error: false },
+          });
+        }
+
+        // ── Reasoning (with deduplication) ──
+        if (item.type === 'reasoning') {
+          // Extract from heterogeneous summary field (string, array, or nested object)
+          const nextSections = extractReasoningSections(item.summary ?? item.summaryText);
+          if (nextSections.length > 0) {
+            state.reasoningSummary = mergeReasoningSections(state.reasoningSummary, nextSections);
+          }
+        }
+
+        // ── Review mode exited ──
+        if (item.type === 'exitedReviewMode') {
+          state.reviewText = item.review ?? '';
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: item.review || 'Review completed',
+            metadata: { is_error: false, phase: 'reviewing' },
+          });
+        }
+
+        // ── MCP tool call completed ──
+        if (item.type === 'mcpToolCall') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: `Tool ${item.server || 'mcp'}/${item.tool || item.toolName || 'unknown'} ${item.status || 'completed'}`,
+            metadata: { is_error: false, phase: 'investigating' },
+          });
+        }
+
+        // ── Dynamic tool call completed ──
+        if (item.type === 'dynamicToolCall') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: `Tool ${item.tool || item.toolName || 'unknown'} ${item.status || 'completed'}`,
+            metadata: { is_error: false, phase: 'investigating' },
+          });
+        }
+
+        // ── Web search completed ──
+        if (item.type === 'webSearch') {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: `Search completed: ${shorten(item.query, 96)}`,
+            metadata: { is_error: false, phase: 'investigating' },
+          });
+        }
+
+        break;
+      }
+
+      case 'turn/completed': {
+        const turn = params['turn'] as TurnCaptureState['finalTurn'] | undefined;
+        const tId = params['threadId'] as string | undefined;
+
+        // If this is a subagent turn completing, just remove from tracking
+        if (tId && tId !== state.threadId) {
+          const turnId = turn?.id;
+          if (turnId) {
+            state.activeSubagentTurns.delete(turnId);
+          }
+          // Check if we should infer completion
+          this.scheduleInferredCompletion(state);
+          break;
+        }
+
+        // Root thread turn completed
+        this.completeTurn(state, turn || null);
+        break;
+      }
+
+      case 'error': {
+        const errorMessage = params['message'] as string || 'Unknown error from codex app-server';
+        state.error = new Error(errorMessage);
+        logger.warn('Error notification from app-server', { error: errorMessage });
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Schedules inferred completion for cases where `turn/completed` may not fire.
+   * This handles multi-agent scenarios where the root turn finishes after
+   * a final_answer + all subagent turns drain.
+   */
+  private scheduleInferredCompletion(state: TurnCaptureState): void {
+    if (state.completed || !state.finalAnswerSeen) return;
+    if (state.activeSubagentTurns.size > 0 || state.pendingCollaborations.size > 0) return;
+
+    // Clear any existing timer
+    if (state.completionTimer) {
+      clearTimeout(state.completionTimer);
+    }
+
+    state.completionTimer = setTimeout(() => {
+      if (!state.completed) {
+        logger.debug('Inferred turn completion after final answer + subagent drain');
+        this.completeTurn(state, null);
+      }
+    }, INFERRED_COMPLETION_MS);
+    // Don't let this timer prevent clean process exit
+    if (state.completionTimer && typeof state.completionTimer === 'object' && 'unref' in state.completionTimer) {
+      (state.completionTimer as NodeJS.Timeout).unref();
+    }
+  }
+
+  /**
+   * Marks the turn as completed and resolves the completion promise.
+   */
+  private completeTurn(state: TurnCaptureState, turn: TurnCaptureState['finalTurn']): void {
+    if (state.completed) return;
+    state.completed = true;
+    state.finalTurn = turn;
+
+    if (state.completionTimer) {
+      clearTimeout(state.completionTimer);
+      state.completionTimer = null;
+    }
+
+    state.resolveCompletion(state);
+  }
+
+  /**
+   * Creates a fresh TurnCaptureState for accumulating streaming notifications.
+   */
+  private createTurnCaptureState(threadId: string): TurnCaptureState {
+    let resolveCompletion!: (state: TurnCaptureState) => void;
+    let rejectCompletion!: (error: unknown) => void;
+    const completion = new Promise<TurnCaptureState>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+
+    return {
+      threadId,
+      threadIds: new Set([threadId]),
+      threadTurnIds: new Map(),
+      threadLabels: new Map(),
+      turnId: null,
+      bufferedNotifications: [],
+      completion,
+      resolveCompletion,
+      rejectCompletion,
+      finalTurn: null,
+      completed: false,
+      finalAnswerSeen: false,
+      pendingCollaborations: new Set(),
+      activeSubagentTurns: new Set(),
+      completionTimer: null,
+      lastAgentMessage: '',
+      reviewText: '',
+      reasoningSummary: [],
+      error: null,
+      messages: [],
+      fileChanges: [],
+      commandExecutions: [],
+      onProgress: null,
+    };
+  }
+
+  /**
+   * Converts TurnCaptureState command executions and file changes into CliToolCalls.
+   */
+  private buildToolCallsFromTurnState(state: TurnCaptureState): CliToolCall[] {
+    const toolCalls: CliToolCall[] = [];
+
+    for (const cmd of state.commandExecutions) {
+      toolCalls.push({
+        id: cmd.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: 'command_execution',
+        arguments: {
+          command: cmd.command,
+          exitCode: cmd.exit_code,
+          status: cmd.status,
+        },
+        result: cmd.aggregated_output || undefined,
+      });
+    }
+
+    for (const fc of state.fileChanges) {
+      toolCalls.push({
+        id: fc.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: 'file_change',
+        arguments: {
+          path: fc.path,
+          changeType: fc.changeType,
+        },
+        result: fc.description || undefined,
+      });
+    }
+
+    return toolCalls;
+  }
+
+  /**
+   * Maps the adapter's sandbox mode to the app-server format.
+   */
+  private mapSandboxMode(): 'read-only' | 'workspace-write' | 'danger-full-access' {
+    if (this.cliConfig.approvalMode === 'full-auto') return 'workspace-write';
+    return this.cliConfig.sandboxMode || 'read-only';
+  }
+
+  private async prepareAttachmentsForAppServer(attachments: FileAttachment[]): Promise<string | null> {
+    if (attachments.length === 0) return null;
+
+    // App-server protocol only supports text input — warn about dropped images
+    const imageAttachments = attachments.filter((a) => a.type.startsWith('image/'));
+    if (imageAttachments.length > 0) {
+      const names = imageAttachments.map((a) => a.name).join(', ');
+      logger.warn('Image attachments not supported in app-server mode, dropped', {
+        count: imageAttachments.length,
+        names,
+      });
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'system',
+        content: `⚠ ${imageAttachments.length} image attachment(s) dropped — Codex app-server mode does not support images (${names})`,
+      });
+    }
+
+    const workingDirectory = this.cliConfig.workingDir || process.cwd();
+    const fileAttachments = attachments.filter((a) => !a.type.startsWith('image/'));
+    if (fileAttachments.length === 0) return null;
+    const processed = await processAttachments(fileAttachments, this.sessionId || generateId(), workingDirectory);
+    const nonImageProcessed = processed.filter((p) => !p.isImage);
+    if (nonImageProcessed.length === 0) return null;
+    return buildMessageWithFiles('', nonImageProcessed);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Exec Mode Implementation (Fallback)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Sends a message via `codex exec` (spawn-per-message fallback mode).
+   */
+  private async execSendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
+    const cliMessage: CliMessage = {
+      role: 'user',
+      content: message,
+      attachments: attachments?.map((attachment) => ({
+        type: attachment.type.startsWith('image/') ? 'image' : 'file',
+        content: attachment.data,
+        mimeType: attachment.type,
+        name: attachment.name,
+      })),
+    };
+
+    const response = await this.sendMessage(cliMessage) as CliResponse & {
+      metadata?: {
+        diagnostics?: CodexDiagnostic[];
+      };
+      thinking?: ThinkingBlock[];
+    };
+
+    this.emitDiagnostics(response.metadata?.diagnostics);
+
+    if (response.toolCalls) {
+      for (const tool of response.toolCalls) {
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'tool_use',
+          content: tool.name === 'command_execution' && typeof tool.arguments['command'] === 'string'
+            ? `Running command: ${tool.arguments['command'] as string}`
+            : `Using tool: ${tool.name}`,
+          metadata: { ...tool } as Record<string, unknown>,
+        });
+
+        if (typeof tool.result === 'string' && tool.result.trim()) {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'tool_result',
+            content: tool.result,
+            metadata: { ...tool, is_error: false } as Record<string, unknown>,
+          });
+        }
+      }
+    }
+
+    if (response.content || (response.thinking && response.thinking.length > 0)) {
+      const thinkingContent: ThinkingContent[] | undefined = response.thinking?.map((block) => ({
+        id: block.id,
+        content: block.content,
+        format: block.format,
+        timestamp: block.timestamp || Date.now(),
+      }));
+
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'assistant',
+        content: response.content,
+        thinking: thinkingContent,
+        metadata: {
+          thinkingExtracted: true,
+          metadata: response.metadata,
+        },
+      });
+    }
+
+    if (response.usage) {
+      const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
+        ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
+        : (response.usage.totalTokens || 0);
+      this.cumulativeTokensUsed += turnTokens;
+      const contextWindow = this.getCapabilities().contextWindow;
+      const contextUsage: ContextUsage = {
+        used: this.cumulativeTokensUsed,
+        total: contextWindow,
+        percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
+      };
+      this.emit('context', contextUsage);
+    }
+
+    // Emit 'complete' AFTER all output events to guarantee correct ordering.
+    // Previously this was emitted inside sendMessage() before tool/assistant
+    // output events, violating consumer expectations.
+    this.emit('complete', response);
+  }
+
+  // ─── Exec mode: message sending ──────────────────────────────────────
+
+  private async prepareMessage(message: CliMessage): Promise<CliMessage> {
+    const normalizedMessage = await this.normalizeMessage(message);
+    return this.prepareMessageForExecution(normalizedMessage);
+  }
+
   async sendMessage(message: CliMessage): Promise<CliResponse> {
     const normalizedMessage = await this.normalizeMessage(message);
     const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
@@ -224,7 +1365,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
         if (!shouldRetry) {
           this.recordConversationTurn(normalizedMessage, response);
-          this.emit('complete', response);
+          // Note: 'complete' is emitted by execSendMessage() AFTER all
+          // output events, to guarantee correct event ordering.
           return response;
         }
 
@@ -308,132 +1450,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return args;
   }
 
-  async spawn(): Promise<number> {
-    if (this.isSpawned) {
-      throw new Error('Adapter already spawned');
-    }
-
-    const status = await this.checkStatus();
-    if (!status.available) {
-      throw new Error(status.error || 'Codex CLI is unavailable');
-    }
-
-    // Prepare a clean CODEX_HOME to bypass user-configured MCP servers.
-    // The `-c mcp_servers={}` CLI override does NOT work — the Codex CLI
-    // still loads all MCP tool descriptions from config.toml, inflating
-    // input tokens (87K+) and adding 60+ seconds of latency per exec call.
-    this.prepareCleanCodexHome();
-
-    this.isSpawned = true;
-    const fakePid = Math.floor(Math.random() * 100000) + 10000;
-    this.emit('spawned', fakePid);
-    this.emit('status', 'idle' as InstanceStatus);
-    return fakePid;
-  }
-
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
-    if (!this.isSpawned) {
-      throw new Error('Adapter not spawned - call spawn() first');
-    }
-
-    this.emit('status', 'busy' as InstanceStatus);
-
-    try {
-      const cliMessage: CliMessage = {
-        role: 'user',
-        content: message,
-        attachments: attachments?.map((attachment) => ({
-          type: attachment.type.startsWith('image/') ? 'image' : 'file',
-          content: attachment.data,
-          mimeType: attachment.type,
-          name: attachment.name,
-        })),
-      };
-
-      const response = await this.sendMessage(cliMessage) as CliResponse & {
-        metadata?: {
-          diagnostics?: CodexDiagnostic[];
-        };
-        thinking?: ThinkingBlock[];
-      };
-
-      this.emitDiagnostics(response.metadata?.diagnostics);
-
-      if (response.toolCalls) {
-        for (const tool of response.toolCalls) {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'tool_use',
-            content: tool.name === 'command_execution' && typeof tool.arguments['command'] === 'string'
-              ? `Running command: ${tool.arguments['command'] as string}`
-              : `Using tool: ${tool.name}`,
-            metadata: { ...tool } as Record<string, unknown>,
-          });
-
-          if (typeof tool.result === 'string' && tool.result.trim()) {
-            this.emit('output', {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'tool_result',
-              content: tool.result,
-              metadata: { ...tool, is_error: false } as Record<string, unknown>,
-            });
-          }
-        }
-      }
-
-      if (response.content || (response.thinking && response.thinking.length > 0)) {
-        const thinkingContent: ThinkingContent[] | undefined = response.thinking?.map((block) => ({
-          id: block.id,
-          content: block.content,
-          format: block.format,
-          timestamp: block.timestamp || Date.now(),
-        }));
-
-        this.emit('output', {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'assistant',
-          content: response.content,
-          thinking: thinkingContent,
-          thinkingExtracted: true,
-          metadata: response.metadata,
-        });
-      }
-
-      if (response.usage) {
-        const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
-          ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
-          : (response.usage.totalTokens || 0);
-        this.cumulativeTokensUsed += turnTokens;
-        const contextWindow = this.getCapabilities().contextWindow;
-        const contextUsage: ContextUsage = {
-          used: this.cumulativeTokensUsed,
-          total: contextWindow,
-          percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
-        };
-        this.emit('context', contextUsage);
-      }
-
-      this.emit('status', 'idle' as InstanceStatus);
-    } catch (error) {
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: `Codex error: ${error instanceof Error ? error.message : String(error)}`,
-      });
-      this.emit('status', 'error' as InstanceStatus);
-      throw error;
-    }
-  }
-
-  override async terminate(graceful = true): Promise<void> {
-    this.isSpawned = false;
-    this.cleanupCodexHome();
-    await super.terminate(graceful);
-  }
+  // ─── Exec mode: internal methods ─────────────────────────────────────
 
   private classifyDiagnostic(line: string): CodexDiagnostic {
     const trimmed = line.trim();
@@ -525,7 +1542,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private async executePreparedMessage(message: CliMessage): Promise<CodexExecutionResult> {
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
-      const process = this.spawnProcess(args);
+      const childProcess = this.spawnProcess(args);
       const state: CodexExecutionState = {
         diagnostics: [],
         partialStderr: '',
@@ -535,17 +1552,17 @@ export class CodexCliAdapter extends BaseCliAdapter {
         toolCalls: [],
       };
 
-      this.process = process;
+      this.process = childProcess;
 
       // Write the prompt to stdin — modern Codex CLI reads from stdin, not positional args
-      if (process.stdin) {
+      if (childProcess.stdin) {
         if (message.content) {
-          process.stdin.write(message.content);
+          childProcess.stdin.write(message.content);
         }
-        process.stdin.end();
+        childProcess.stdin.end();
       }
 
-      process.stdout?.on('data', (data) => {
+      childProcess.stdout?.on('data', (data) => {
         const chunk = data.toString();
         state.rawStdout += chunk;
         state.partialStdout = this.consumeLines(chunk, state.partialStdout, (line) => {
@@ -553,7 +1570,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
       });
 
-      process.stderr?.on('data', (data) => {
+      childProcess.stderr?.on('data', (data) => {
         const chunk = data.toString();
         state.rawStderr += chunk;
         state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
@@ -576,19 +1593,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       const timeout = setTimeout(() => {
         if (this.process) {
-          this.process.kill('SIGTERM');
+          // Use cross-platform process tree termination
+          terminateProcessTree(this.process.pid);
           this.process = null;
           reject(new Error('Codex CLI timeout'));
         }
       }, this.config.timeout);
 
-      process.on('error', (error) => {
+      childProcess.on('error', (error) => {
         clearTimeout(timeout);
         this.process = null;
         reject(error);
       });
 
-      process.on('close', (code, signal) => {
+      childProcess.on('close', (code, signal) => {
         clearTimeout(timeout);
 
         if (state.partialStdout.trim()) {
@@ -630,11 +1648,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
       });
     });
-  }
-
-  private async prepareMessage(message: CliMessage): Promise<CliMessage> {
-    const normalizedMessage = await this.normalizeMessage(message);
-    return this.prepareMessageForExecution(normalizedMessage);
   }
 
   private async normalizeMessage(message: CliMessage): Promise<CliMessage> {
@@ -954,10 +1967,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   /**
    * Whether the adapter can use `codex exec resume` for subsequent turns.
    * Thread resumption is a Codex thread-continuity feature and is independent
-   * of the approval policy.  Previously this was gated on `full-auto`, which
-   * meant resume was never used for suggest/read-only instances — causing every
-   * turn to re-send the full system prompt + conversation history and
-   * burning 100K+ tokens per message.
+   * of the approval policy.
    */
   private supportsNativeResume(): boolean {
     return true;
@@ -1103,7 +2113,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
   }
 
-  // ============ MCP-free CODEX_HOME ============
+  // ============ MCP-free CODEX_HOME (exec mode only) ============
 
   /**
    * Create a clean CODEX_HOME directory that mirrors ~/.codex/ but without

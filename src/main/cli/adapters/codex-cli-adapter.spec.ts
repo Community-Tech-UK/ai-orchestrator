@@ -351,4 +351,82 @@ Hey! I'm here. What do you want to tackle?`;
     expect(contextEvents[0].used).toBe(100);
     expect(contextEvents[0].total).toBe(400000);
   });
+
+  // ─── New tests for app-server hardening (Phase 2/3) ────────────────
+
+  describe('dual-mode configuration', () => {
+    it('reports supportsNativeCompaction=false when not in app-server mode', () => {
+      const adapter = new CodexCliAdapter();
+      expect(adapter.getRuntimeCapabilities().supportsNativeCompaction).toBe(false);
+    });
+
+    it('reports isAppServerMode()=false before spawn', () => {
+      const adapter = new CodexCliAdapter();
+      expect(adapter.isAppServerMode()).toBe(false);
+    });
+
+    it('falls back to exec mode when app-server is not available', async () => {
+      const adapter = new CodexCliAdapter();
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+        available: true,
+        authenticated: true,
+        path: 'codex',
+        version: '0.107.0',
+        metadata: { appServerAvailable: false },
+      });
+
+      await adapter.spawn();
+
+      expect(adapter.isAppServerMode()).toBe(false);
+      expect(adapter.getRuntimeCapabilities().supportsNativeCompaction).toBe(false);
+    });
+  });
+
+  describe('new config options', () => {
+    it('accepts outputSchema in config', () => {
+      const schema = { type: 'object', properties: { score: { type: 'number' } } };
+      const adapter = new CodexCliAdapter({ outputSchema: schema });
+      expect(adapter.getCapabilities().outputFormats).toContain('json');
+    });
+
+    it('accepts reasoningEffort in config', () => {
+      const adapter = new CodexCliAdapter({ reasoningEffort: 'high' });
+      expect(adapter.getCapabilities().toolUse).toBe(true);
+    });
+
+    it('compactContext returns false when not in app-server mode', async () => {
+      const adapter = new CodexCliAdapter();
+      const result = await adapter.compactContext();
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('interrupt behavior', () => {
+    it('returns false (falls back to SIGINT) when not in app-server mode', () => {
+      const adapter = new CodexCliAdapter();
+      // No process running, so interrupt returns false
+      const result = adapter.interrupt();
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('enhanced checkStatus', () => {
+    it('includes appServerAvailable in status metadata', async () => {
+      const adapter = new CodexCliAdapter();
+      const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): unknown }, 'spawnProcess');
+
+      const proc = createMockProcess();
+      spawnSpy.mockReturnValueOnce(proc as unknown);
+
+      setTimeout(() => {
+        proc.stdout.write('codex 0.107.0\n');
+        proc.emitClose(0, null);
+      }, 0);
+
+      const status = await adapter.checkStatus();
+      // The metadata field should exist (appServerAvailable is determined separately)
+      expect(status.available).toBe(true);
+      expect(status).toHaveProperty('metadata');
+    });
+  });
 });

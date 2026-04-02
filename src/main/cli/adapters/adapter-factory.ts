@@ -36,6 +36,10 @@ export interface UnifiedSpawnOptions {
   /** Enable Chrome extension integration (Claude CLI only).
    *  Defaults to true when omitted — the factory sets this for Claude adapters. */
   chrome?: boolean;
+  /** JSON Schema object for structured output (Codex app-server mode). */
+  outputSchema?: Record<string, unknown>;
+  /** Reasoning effort level for the model (Codex: none → xhigh). */
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 }
 
 /**
@@ -158,6 +162,8 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     approvalMode: options.yoloMode ? 'full-auto' : 'suggest',
     sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
     timeout: options.timeout,
+    outputSchema: options.outputSchema,
+    reasoningEffort: options.reasoningEffort,
   };
   return new CodexCliAdapter(codexConfig);
 }

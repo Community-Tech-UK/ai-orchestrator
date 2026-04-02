@@ -156,12 +156,46 @@ export interface PendingTask {
 }
 
 /**
+ * Pre-termination validation gate result.
+ * Inspired by codex-plugin-cc's stop-review-gate-hook pattern.
+ */
+export interface TerminationGateResult {
+  /** Whether the gate allows termination to proceed. */
+  pass: boolean;
+  /** Human-readable reason (displayed when blocked). */
+  reason?: string;
+  /** Optional structured data (review findings, verification results, etc.). */
+  data?: unknown;
+}
+
+/**
+ * A pluggable gate that can block or allow session termination.
+ * Register gates via `SessionContinuityManager.registerTerminationGate()`.
+ *
+ * Example: wire multi-verification or debate-coordinator as a gate to ensure
+ * code changes pass review before an instance is torn down.
+ */
+export interface SessionTerminationGate {
+  /** Unique name for logging/identification. */
+  name: string;
+  /**
+   * Validate whether the session may terminate.
+   * Receives the full session state; should return within `timeoutMs`.
+   */
+  validate(state: SessionState): Promise<TerminationGateResult>;
+  /** Max time to wait for this gate (ms). Defaults to 60 000. */
+  timeoutMs?: number;
+}
+
+/**
  * Session continuity configuration
  */
 export interface ContinuityConfig {
   autoSaveEnabled: boolean;
   autoSaveIntervalMs: number;
   maxSnapshots: number;
+  /** Global cap across ALL sessions. Oldest snapshots pruned first. */
+  maxTotalSnapshots: number;
   snapshotRetentionDays: number;
   compressOldSnapshots: boolean;
   resumeOnStartup: boolean;
@@ -195,6 +229,7 @@ const DEFAULT_CONFIG: ContinuityConfig = {
   autoSaveEnabled: true,
   autoSaveIntervalMs: 60000, // 1 minute
   maxSnapshots: 50,
+  maxTotalSnapshots: 500,
   snapshotRetentionDays: 30,
   compressOldSnapshots: true,
   resumeOnStartup: true,
@@ -221,6 +256,7 @@ export class SessionContinuityManager extends EventEmitter {
   private pendingAutoSaveTimers = new Map<string, NodeJS.Timeout>();
   private autoSaveDeferredUntil = 0;
   private snapshotIndex: SnapshotIndex;
+  private terminationGates: SessionTerminationGate[] = [];
 
   constructor(config: Partial<ContinuityConfig> = {}) {
     super();
@@ -255,6 +291,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     await this.loadActiveStates();
     await this.buildSnapshotIndex();
+    await this.pruneOnStartup();
     this.startGlobalAutoSave();
   }
 
@@ -464,11 +501,94 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
-   * Stop tracking a session
+   * Register a pre-termination validation gate.
+   *
+   * Gates are evaluated (in order) when `stopTracking()` is called.
+   * If any gate returns `{ pass: false }`, a `'gate:blocked'` event is emitted
+   * but termination proceeds (gates are advisory — we never hang shutdown).
+   *
+   * Wire multi-verification, debate, or code-review as gates to get
+   * visibility into whether changes pass quality checks before teardown.
+   */
+  registerTerminationGate(gate: SessionTerminationGate): void {
+    this.terminationGates.push(gate);
+    logger.info('Registered termination gate', { name: gate.name });
+  }
+
+  /**
+   * Unregister a termination gate by name.
+   */
+  unregisterTerminationGate(name: string): void {
+    this.terminationGates = this.terminationGates.filter((g) => g.name !== name);
+  }
+
+  /**
+   * Run all registered termination gates for an instance.
+   * Returns combined results — gates that time out return `{ pass: true }` (fail-open).
+   */
+  private async runTerminationGates(state: SessionState): Promise<TerminationGateResult[]> {
+    if (this.terminationGates.length === 0) return [];
+
+    const results: TerminationGateResult[] = [];
+    for (const gate of this.terminationGates) {
+      const timeoutMs = gate.timeoutMs ?? 60_000;
+      try {
+        const result = await Promise.race([
+          gate.validate(state),
+          new Promise<TerminationGateResult>((resolve) =>
+            setTimeout(() => resolve({ pass: true, reason: `Gate '${gate.name}' timed out after ${timeoutMs}ms` }), timeoutMs)
+          ),
+        ]);
+        results.push(result);
+
+        if (!result.pass) {
+          logger.warn('Termination gate blocked', {
+            gate: gate.name,
+            instanceId: state.instanceId,
+            reason: result.reason,
+          });
+          this.emit('gate:blocked', {
+            gate: gate.name,
+            instanceId: state.instanceId,
+            result,
+          });
+        }
+      } catch (error) {
+        // Gates must not block shutdown — fail-open on errors
+        logger.warn('Termination gate threw', {
+          gate: gate.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        results.push({ pass: true, reason: `Gate '${gate.name}' error: ${error instanceof Error ? error.message : String(error)}` });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Stop tracking a session.
+   *
+   * Runs registered termination gates before finalising teardown.
+   * Gates are advisory (fail-open) — they emit events but never block shutdown.
    */
   async stopTracking(instanceId: string, archive = false): Promise<void> {
     await this.readyPromise;
     this.clearPendingAutoSaveTimer(instanceId);
+
+    // Run termination gates before teardown
+    const state = this.sessionStates.get(instanceId);
+    if (state && this.terminationGates.length > 0) {
+      const gateResults = await this.runTerminationGates(state);
+      const blocked = gateResults.filter((r) => !r.pass);
+      if (blocked.length > 0) {
+        this.emit('gate:summary', {
+          instanceId,
+          totalGates: gateResults.length,
+          blocked: blocked.length,
+          reasons: blocked.map((r) => r.reason).filter(Boolean),
+        });
+      }
+    }
 
     // Final save before stopping
     if (this.dirty.has(instanceId)) {
@@ -488,6 +608,68 @@ export class SessionContinuityManager extends EventEmitter {
     }
 
     this.emit('tracking:stopped', { instanceId, archived: archive });
+  }
+
+  /**
+   * Terminate all instances belonging to a logical session.
+   *
+   * Inspired by codex-plugin-cc's session lifecycle hook which tags every job
+   * with a sessionId and cleans up only matching jobs on session end.
+   *
+   * @param sessionId  The logical session identifier (e.g. CLI session or Codex thread group)
+   * @param options    Control archival and parallelism
+   * @returns The instance IDs that were stopped
+   */
+  async terminateSession(
+    sessionId: string,
+    options: { archive?: boolean } = {},
+  ): Promise<string[]> {
+    await this.readyPromise;
+    const { archive = true } = options;
+
+    // Find all instances belonging to this session
+    const instanceIds: string[] = [];
+    for (const [instanceId, state] of this.sessionStates.entries()) {
+      if (state.sessionId === sessionId) {
+        instanceIds.push(instanceId);
+      }
+    }
+
+    if (instanceIds.length === 0) {
+      logger.debug('No instances found for session', { sessionId });
+      return [];
+    }
+
+    logger.info('Terminating session', {
+      sessionId,
+      instanceCount: instanceIds.length,
+      archive,
+    });
+
+    // Stop tracking in parallel — gates run for each instance
+    const results = await Promise.allSettled(
+      instanceIds.map((id) => this.stopTracking(id, archive)),
+    );
+
+    // Log any failures (but don't block — fail-open)
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'rejected') {
+        logger.warn('Failed to stop tracking instance during session termination', {
+          instanceId: instanceIds[i],
+          sessionId,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    }
+
+    this.emit('session:terminated', {
+      sessionId,
+      instanceIds,
+      failedCount: results.filter((r) => r.status === 'rejected').length,
+    });
+
+    return instanceIds;
   }
 
   /**
@@ -1132,7 +1314,14 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
-   * Cleanup old snapshots — single-pass using index
+   * Cleanup old snapshots — single-pass using index.
+   *
+   * Three pruning strategies (in order):
+   *   1. Age-based: Remove snapshots older than snapshotRetentionDays
+   *   2. Per-session: Cap each session at maxSnapshots (default 50)
+   *   3. Global cap: Keep total snapshot count under maxTotalSnapshots (default 500)
+   *
+   * Inspired by the codex-plugin-cc state pruning pattern (MAX_JOBS = 50).
    */
   private async cleanupSnapshots(instanceId: string): Promise<void> {
     const cutoffTime =
@@ -1141,13 +1330,12 @@ export class SessionContinuityManager extends EventEmitter {
     // Collect IDs to remove: expired by age + excess by count
     const toRemoveIds = new Set<string>();
 
-    // Expired snapshots (all sessions)
+    // 1. Expired snapshots (all sessions)
     for (const meta of this.snapshotIndex.getExpiredBefore(cutoffTime)) {
       toRemoveIds.add(meta.id);
     }
 
-    // After removing expired, compute excess for this session
-    // Build what the session list would look like after removals
+    // 2. After removing expired, compute excess for this session
     const sessionMetas = this.snapshotIndex
       .listForSession(instanceId)
       .filter((m) => !toRemoveIds.has(m.id));
@@ -1159,6 +1347,26 @@ export class SessionContinuityManager extends EventEmitter {
       }
     }
 
+    // 3. Global cap — remove oldest snapshots across all sessions if over limit
+    const remainingTotal = this.snapshotIndex.size - toRemoveIds.size;
+    if (remainingTotal > this.config.maxTotalSnapshots) {
+      const allMetas = this.snapshotIndex.listAll() // newest-first
+        .filter((m) => !toRemoveIds.has(m.id));
+      // Keep the newest maxTotalSnapshots, mark the rest for removal
+      const globalExcess = allMetas.slice(this.config.maxTotalSnapshots);
+      for (const meta of globalExcess) {
+        toRemoveIds.add(meta.id);
+      }
+    }
+
+    if (toRemoveIds.size > 0) {
+      logger.info('Pruning snapshots', {
+        count: toRemoveIds.size,
+        remainingAfter: this.snapshotIndex.size - toRemoveIds.size,
+        trigger: instanceId,
+      });
+    }
+
     for (const id of toRemoveIds) {
       const snapshotFile = path.join(this.snapshotDir, `${id}.json`);
       try {
@@ -1166,6 +1374,55 @@ export class SessionContinuityManager extends EventEmitter {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
           logger.warn('Failed to delete snapshot', { id, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      this.snapshotIndex.remove(id);
+    }
+  }
+
+  /**
+   * Global pruning pass — runs at startup to clean up snapshots that
+   * accumulated across previous app sessions. Removes age-expired and
+   * globally over-limit snapshots without requiring an instanceId.
+   */
+  private async pruneOnStartup(): Promise<void> {
+    const cutoffTime =
+      Date.now() - this.config.snapshotRetentionDays * 24 * 60 * 60 * 1000;
+
+    const toRemoveIds = new Set<string>();
+
+    // Age-based pruning
+    for (const meta of this.snapshotIndex.getExpiredBefore(cutoffTime)) {
+      toRemoveIds.add(meta.id);
+    }
+
+    // Global cap pruning
+    const remainingTotal = this.snapshotIndex.size - toRemoveIds.size;
+    if (remainingTotal > this.config.maxTotalSnapshots) {
+      const allMetas = this.snapshotIndex.listAll()
+        .filter((m) => !toRemoveIds.has(m.id));
+      const globalExcess = allMetas.slice(this.config.maxTotalSnapshots);
+      for (const meta of globalExcess) {
+        toRemoveIds.add(meta.id);
+      }
+    }
+
+    if (toRemoveIds.size === 0) return;
+
+    logger.info('Startup snapshot pruning', {
+      count: toRemoveIds.size,
+      remainingAfter: this.snapshotIndex.size - toRemoveIds.size,
+    });
+
+    for (const id of toRemoveIds) {
+      const snapshotFile = path.join(this.snapshotDir, `${id}.json`);
+      try {
+        await fs.promises.unlink(snapshotFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          logger.warn('Failed to delete snapshot during startup prune', {
+            id, error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
       this.snapshotIndex.remove(id);
