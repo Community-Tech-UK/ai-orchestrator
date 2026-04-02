@@ -22,6 +22,8 @@ import { getLogger } from '../logging/logger';
 import { SnapshotIndex } from './snapshot-index';
 import { cleanupOrphanedTmpFiles, repairFile, validateTranscript } from './session-repair';
 import { getSessionMutex } from './session-mutex';
+import { measureAsync } from '../util/slow-operations';
+import { getResumeHintManager } from './resume-hint';
 
 const logger = getLogger('SessionContinuity');
 
@@ -1138,7 +1140,7 @@ export class SessionContinuityManager extends EventEmitter {
       state.lastWriteSource = 'auto-save';
 
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-      await this.writePayload(stateFile, state);
+      await measureAsync('session.save', () => this.writePayload(stateFile, state));
       this.dirty.delete(instanceId);
       this.emit('state:saved', { instanceId });
     } catch (error) {
@@ -1535,6 +1537,26 @@ export class SessionContinuityManager extends EventEmitter {
       } catch (error) {
         logger.error('Failed to save session state during shutdown', error instanceof Error ? error : undefined, { instanceId });
       }
+    }
+
+    // Persist resume hint for quick restart on next launch
+    try {
+      const states = [...this.sessionStates.values()];
+      const mostRecent = states.sort((a, b) => (b.lastWriteTimestamp ?? 0) - (a.lastWriteTimestamp ?? 0))[0];
+      if (mostRecent) {
+        getResumeHintManager().saveHint({
+          sessionId: mostRecent.sessionId ?? mostRecent.instanceId,
+          instanceId: mostRecent.instanceId,
+          displayName: mostRecent.displayName,
+          timestamp: Date.now(),
+          workingDirectory: mostRecent.workingDirectory,
+          instanceCount: this.sessionStates.size,
+          provider: mostRecent.provider ?? 'claude',
+          model: mostRecent.modelId,
+        });
+      }
+    } catch {
+      // Best effort — never block shutdown
     }
   }
 
