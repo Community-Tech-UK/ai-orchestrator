@@ -26,6 +26,7 @@ export class WorkerNodeHealth {
     (this.instance as unknown) = undefined;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
 
   // ---------------------------------------------------------------------------

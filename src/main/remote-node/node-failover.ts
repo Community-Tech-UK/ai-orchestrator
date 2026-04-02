@@ -28,7 +28,7 @@ export function handleNodeFailover(nodeId: string): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const instanceManager = getInstanceManager() as any;
 
-  const affected: Array<{ id: string; originalStatus: string }> = instanceManager
+  const affected: { id: string; originalStatus: string }[] = instanceManager
     .getInstancesByNode(nodeId)
     .map((inst: { id: string; status: string }) => ({
       id: inst.id,

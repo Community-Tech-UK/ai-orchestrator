@@ -101,7 +101,8 @@ export class RemoteCliAdapter extends EventEmitter {
     return true;
   }
 
-  async terminate(_graceful?: boolean): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async terminate(graceful?: boolean): Promise<void> {
     if (!this.remoteInstanceId) return;
 
     const instanceId = this.remoteInstanceId;
