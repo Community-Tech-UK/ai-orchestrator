@@ -43,7 +43,11 @@ export class RemoteCliAdapter extends EventEmitter {
   // Core operations — all proxy to RPC
   // ---------------------------------------------------------------------------
 
-  async spawn(): Promise<void> {
+  /**
+   * Spawn a remote instance via RPC.
+   * Returns -1 as PID since the process runs on a remote machine.
+   */
+  async spawn(): Promise<number> {
     const response = await this.nodeConnection.sendRpc<SpawnResponse>(
       this.targetNodeId,
       'instance.spawn',
@@ -58,7 +62,8 @@ export class RemoteCliAdapter extends EventEmitter {
       nodeId: this.targetNodeId,
       instanceId: this.remoteInstanceId,
     });
-    this.emit('spawned');
+    this.emit('spawned', -1);
+    return -1; // No local PID for remote instances
   }
 
   async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
@@ -77,17 +82,26 @@ export class RemoteCliAdapter extends EventEmitter {
     );
   }
 
-  async interrupt(): Promise<void> {
-    if (!this.remoteInstanceId) return;
+  /**
+   * Interrupt the remote instance. Returns true if RPC was sent.
+   * Synchronous return for compatibility with BaseCliAdapter.interrupt().
+   */
+  interrupt(): boolean {
+    if (!this.remoteInstanceId) return false;
 
-    await this.nodeConnection.sendRpc(
+    // Fire-and-forget: send interrupt RPC without awaiting
+    this.nodeConnection.sendRpc(
       this.targetNodeId,
       'instance.interrupt',
       { instanceId: this.remoteInstanceId },
-    );
+    ).catch((err: Error) => {
+      logger.warn('Failed to interrupt remote instance', { error: err.message });
+    });
+
+    return true;
   }
 
-  async terminate(): Promise<void> {
+  async terminate(_graceful?: boolean): Promise<void> {
     if (!this.remoteInstanceId) return;
 
     const instanceId = this.remoteInstanceId;
@@ -99,6 +113,26 @@ export class RemoteCliAdapter extends EventEmitter {
 
     this.remoteInstanceId = null;
     logger.info('Remote instance terminated', { nodeId: this.targetNodeId, instanceId });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Compatibility with CliAdapter interface (methods from BaseCliAdapter)
+  // ---------------------------------------------------------------------------
+
+  getName(): string {
+    return `remote:${this.requestedCliType}`;
+  }
+
+  async checkStatus(): Promise<{ available: boolean; error?: string }> {
+    return { available: this.remoteInstanceId !== null };
+  }
+
+  getSessionId(): string | null {
+    return this.remoteInstanceId;
+  }
+
+  getPid(): number | null {
+    return null; // No local process for remote instances
   }
 
   // ---------------------------------------------------------------------------
