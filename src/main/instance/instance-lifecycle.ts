@@ -558,6 +558,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       workingDirectory: resolvedWorkingDir,
       yoloMode: resolvedYoloMode,
       provider: config.provider || 'auto',
+      executionLocation: { type: 'local' },
       diffStats: undefined,
 
       outputBuffer: config.initialOutputBuffer || [],
