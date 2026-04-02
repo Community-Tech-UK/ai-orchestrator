@@ -46,6 +46,15 @@ export interface HookExecutionContext {
   command?: string;
   content?: string;
   dryRun?: boolean;
+
+  // PreSampling context
+  messageCount?: number;
+  estimatedTokens?: number;
+
+  // PostSampling context
+  modelResponse?: string;
+  responseTokens?: number;
+  modelId?: string;
 }
 
 export interface HookExecutorResult {

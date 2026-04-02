@@ -60,6 +60,10 @@ export class InstanceOrchestrationManager {
   private deps: OrchestrationDependencies;
   /** Per-instance write queues to prevent concurrent stdin writes */
   private writeQueues = new Map<string, Promise<void>>();
+  /** Mutable settings ref — handlers read this, so they always see current values */
+  private orchestrationSettings = { maxTotalInstances: 0, maxChildrenPerParent: 0, allowNestedOrchestration: false };
+  /** Guard to prevent duplicate listener registration */
+  private handlersRegistered = false;
 
   constructor(deps: OrchestrationDependencies) {
     this.deps = deps;
@@ -106,13 +110,30 @@ export class InstanceOrchestrationManager {
   // ============================================
 
   /**
-   * Set up orchestration event handlers
+   * Set up orchestration event handlers.
+   *
+   * Separates settings update from listener registration to prevent
+   * duplicate listener accumulation (each .on() call appends a new listener).
+   * Handlers read from this.orchestrationSettings so they always see current values.
    */
   setupOrchestrationHandlers(
     settings: { maxTotalInstances: number; maxChildrenPerParent: number; allowNestedOrchestration: boolean },
     addToOutputBuffer: (instance: Instance, message: OutputMessage) => void,
     emit: (event: string, payload: any) => void
   ): void {
+    // Always update the mutable settings ref — handlers read from this field
+    this.orchestrationSettings = { ...settings };
+
+    // Only register listeners once — subsequent calls just update settings above
+    if (this.handlersRegistered) {
+      logger.debug('Orchestration settings updated (handlers already registered)', {
+        maxTotalInstances: settings.maxTotalInstances,
+        maxChildrenPerParent: settings.maxChildrenPerParent,
+      });
+      return;
+    }
+    this.handlersRegistered = true;
+
     // Handle spawn child requests
     this.orchestration.on(
       'spawn-child',
@@ -122,13 +143,13 @@ export class InstanceOrchestrationManager {
 
         // Check max total instances limit
         if (
-          settings.maxTotalInstances > 0 &&
-          this.deps.getInstanceCount() >= settings.maxTotalInstances
+          this.orchestrationSettings.maxTotalInstances > 0 &&
+          this.deps.getInstanceCount() >= this.orchestrationSettings.maxTotalInstances
         ) {
-          logger.info('Cannot spawn child: max total instances reached', { maxTotalInstances: settings.maxTotalInstances });
+          logger.info('Cannot spawn child: max total instances reached', { maxTotalInstances: this.orchestrationSettings.maxTotalInstances });
           this.orchestration.notifyError(
             parentId,
-            `Cannot spawn child: maximum total instances (${settings.maxTotalInstances}) reached`
+            `Cannot spawn child: maximum total instances (${this.orchestrationSettings.maxTotalInstances}) reached`
           );
           return;
         }
@@ -137,23 +158,23 @@ export class InstanceOrchestrationManager {
         const completedChildCount = this.orchestration.getCompletedChildIds(parentId).length;
         const totalChildrenSpawned = parent.childrenIds.length + completedChildCount;
         if (
-          settings.maxChildrenPerParent > 0 &&
-          totalChildrenSpawned >= settings.maxChildrenPerParent
+          this.orchestrationSettings.maxChildrenPerParent > 0 &&
+          totalChildrenSpawned >= this.orchestrationSettings.maxChildrenPerParent
         ) {
           logger.info('Cannot spawn child: max children per parent reached', {
-            maxChildrenPerParent: settings.maxChildrenPerParent,
+            maxChildrenPerParent: this.orchestrationSettings.maxChildrenPerParent,
             active: parent.childrenIds.length,
             completed: completedChildCount,
           });
           this.orchestration.notifyError(
             parentId,
-            `Cannot spawn child: maximum children per parent (${settings.maxChildrenPerParent}) reached (${parent.childrenIds.length} active, ${completedChildCount} completed)`
+            `Cannot spawn child: maximum children per parent (${this.orchestrationSettings.maxChildrenPerParent}) reached (${parent.childrenIds.length} active, ${completedChildCount} completed)`
           );
           return;
         }
 
         // Check if parent is already a child (nested orchestration)
-        if (!settings.allowNestedOrchestration && parent.depth > 0) {
+        if (!this.orchestrationSettings.allowNestedOrchestration && parent.depth > 0) {
           logger.info('Cannot spawn child: nested orchestration is disabled');
           this.orchestration.notifyError(
             parentId,

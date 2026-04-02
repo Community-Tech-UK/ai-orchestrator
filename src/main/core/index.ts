@@ -20,6 +20,10 @@ export {
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
 } from './circuit-breaker';
 
+// Startup & Migration
+export { StartupOptimizer, type StartupTask, type StartupPhase, type TaskResult } from './startup-optimizer';
+export { MigrationManager, type Migration, type MigrationResult } from './migration-manager';
+
 // Re-export from subdirectories
 export * from './config';
 export * from './system';

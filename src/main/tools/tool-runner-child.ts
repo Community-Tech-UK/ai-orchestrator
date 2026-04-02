@@ -14,6 +14,8 @@ type RunnerRequest = {
   ctx: { instanceId: string; workingDirectory: string };
 };
 
+type ProgressMessage = { type: 'progress'; message: string; timestamp: number };
+
 type RunnerResponse =
   | { ok: true; output: unknown }
   | { ok: false; error: string };
@@ -33,7 +35,13 @@ async function main(req: RunnerRequest): Promise<RunnerResponse> {
     if (typeof def.execute !== 'function') {
       return { ok: false, error: 'Tool module missing execute()' };
     }
-    const out = await def.execute(req.args ?? {}, req.ctx);
+    // Provide a progress callback to the tool
+    const progress = (message: string) => {
+      const msg: ProgressMessage = { type: 'progress', message, timestamp: Date.now() };
+      if (process.send) process.send(msg);
+    };
+
+    const out = await def.execute(req.args ?? {}, { ...req.ctx, progress });
     return { ok: true, output: out };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

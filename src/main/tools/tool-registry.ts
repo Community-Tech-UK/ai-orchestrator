@@ -20,6 +20,7 @@
  * - `execute(args, ctx): Promise<any> | any`
  */
 
+import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
@@ -34,6 +35,8 @@ export interface ToolContext {
 export interface ToolModule {
   description: string;
   args?: z.ZodRawShape | z.ZodTypeAny;
+  /** Whether this tool can run concurrently with other tools (default: true) */
+  concurrencySafe?: boolean;
   execute: (args: any, ctx: ToolContext) => unknown | Promise<unknown>;
 }
 
@@ -42,6 +45,7 @@ interface LoadedTool {
   description: string;
   filePath: string;
   schema: z.ZodTypeAny;
+  concurrencySafe: boolean;
 }
 
 interface CacheEntry {
@@ -54,7 +58,7 @@ interface CacheEntry {
 
 const CACHE_TTL_MS = 10_000;
 
-export class ToolRegistry {
+export class ToolRegistry extends EventEmitter {
   private static instance: ToolRegistry | null = null;
   private cacheByWorkingDir = new Map<string, CacheEntry>();
 
@@ -69,7 +73,9 @@ export class ToolRegistry {
     ToolRegistry.instance = null;
   }
 
-  private constructor() {}
+  private constructor() {
+    super();
+  }
 
   private getHomeDir(): string | null {
     try {
@@ -170,6 +176,7 @@ export class ToolRegistry {
       description: def.description,
       filePath,
       schema,
+      concurrencySafe: def.concurrencySafe !== false, // Default true
     };
   }
 
@@ -309,15 +316,28 @@ export class ToolRegistry {
         resolve({ ok: false, error: 'Tool execution timed out' });
       }, params.timeoutMs);
 
-      child.once('message', (msg: any) => {
+      const progressHandler = (msg: any) => {
+        if (msg && msg.type === 'progress') {
+          // Forward to caller — stored for streaming executor
+          this.emit('tool:progress', {
+            toolFilePath: params.toolFilePath,
+            message: msg.message,
+            timestamp: msg.timestamp,
+          });
+          return;
+        }
+        // Final result
         clearTimeout(timer);
+        child.off('message', progressHandler);
         try { child.kill(); } catch { /* ignore */ }
         if (msg && msg.ok === true) {
           resolve({ ok: true, output: msg.output });
           return;
         }
         resolve({ ok: false, error: msg?.error ? String(msg.error) : 'Tool execution failed' });
-      });
+      };
+
+      child.on('message', progressHandler);
 
       child.once('error', (err) => {
         clearTimeout(timer);

@@ -10,6 +10,8 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import type { ContextUsage } from '../../shared/types/instance.types';
+import { TokenBudgetTracker } from './token-budget-tracker';
+import { CompactionEpochTracker } from './compaction-epoch';
 
 const logger = getLogger('CompactionCoordinator');
 
@@ -43,6 +45,10 @@ export class CompactionCoordinator extends EventEmitter {
 
   // Track latest context usage per instance (for populating CompactionResult)
   private latestUsage = new Map<string, ContextUsage>();
+
+  // Per-instance budget and epoch trackers
+  private budgetTrackers = new Map<string, TokenBudgetTracker>();
+  private epochTrackers = new Map<string, CompactionEpochTracker>();
 
   // Auto-compact enabled (default true)
   private autoCompactEnabled = true;
@@ -183,6 +189,24 @@ export class CompactionCoordinator extends EventEmitter {
     return this.executeCompaction(instanceId);
   }
 
+  getBudgetTracker(instanceId: string, totalBudget = 200000): TokenBudgetTracker {
+    let tracker = this.budgetTrackers.get(instanceId);
+    if (!tracker) {
+      tracker = new TokenBudgetTracker({ totalBudget });
+      this.budgetTrackers.set(instanceId, tracker);
+    }
+    return tracker;
+  }
+
+  getEpochTracker(instanceId: string): CompactionEpochTracker {
+    let tracker = this.epochTrackers.get(instanceId);
+    if (!tracker) {
+      tracker = new CompactionEpochTracker();
+      this.epochTrackers.set(instanceId, tracker);
+    }
+    return tracker;
+  }
+
   /**
    * Clean up tracking for a terminated instance
    */
@@ -192,6 +216,8 @@ export class CompactionCoordinator extends EventEmitter {
     this.lastCompactionTime.delete(instanceId);
     this.dismissedWarnings.delete(instanceId);
     this.latestUsage.delete(instanceId);
+    this.budgetTrackers.delete(instanceId);
+    this.epochTrackers.delete(instanceId);
   }
 
   /**

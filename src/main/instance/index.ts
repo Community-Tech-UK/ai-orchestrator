@@ -30,3 +30,6 @@ export type {
   UnifiedMemoryContextInfo,
   FastPathResult
 } from './instance-types';
+
+// Orphaned message cleanup
+export { OrphanedMessageCleaner, type CleanableMessage, type CleanResult } from './orphaned-message-cleaner';

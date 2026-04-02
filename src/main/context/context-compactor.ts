@@ -12,6 +12,8 @@ import { EventEmitter } from 'events';
 import { getLLMService, type LLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
 import { LIMITS } from '../../shared/constants/limits';
+import { Microcompact, type MicrocompactTurn, type MicrocompactResult } from './microcompact';
+import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
 
 const compactorLogger = getLogger('ContextCompactor');
 
@@ -107,6 +109,8 @@ export class ContextCompactor extends EventEmitter {
   private state: ContextState;
   private compactionHistory: CompactionResult[] = [];
   private compactionInProgress = false;
+  private microcompact = new Microcompact();
+  private contextCollapse = new ContextCollapse();
   private metrics = {
     attempts: 0,
     successes: 0,
@@ -592,6 +596,127 @@ ${[...topics].slice(0, 5).map(t => `- ${t}`).join('\n')}`;
         })),
       };
     });
+  }
+
+  /**
+   * Layered compaction pipeline (inspired by Claude Code):
+   * 1. Microcompact — surgical tool output removal (cheapest)
+   * 2. Context collapse — read-time projection (cheap)
+   * 3. Prune tool outputs — existing pruneToolOutputs()
+   * 4. Full summarization — existing summarize (most expensive)
+   *
+   * Returns after the first stage that brings usage below threshold.
+   */
+  async compactLayered(): Promise<CompactionResult & { stage: string }> {
+    this.metrics.attempts++;
+    const originalTokens = this.state.totalTokens;
+
+    // Stage 1: Microcompact
+    const mcTurns: MicrocompactTurn[] = this.state.turns.map(t => ({
+      id: t.id,
+      role: t.role,
+      content: t.content,
+      tokenCount: t.tokenCount,
+      timestamp: t.timestamp,
+      toolCalls: t.toolCalls?.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        input: tc.input,
+        output: tc.output,
+        inputTokens: tc.inputTokens,
+        outputTokens: tc.outputTokens,
+      })),
+    }));
+
+    const mcResult = this.microcompact.compact(mcTurns);
+    if (!mcResult.skipped && mcResult.tokensSaved > 0) {
+      this.applyMicrocompactResult(mcResult);
+      this.updateFillRatio();
+
+      if (!this.shouldCompact()) {
+        this.metrics.successes++;
+        this.metrics.totalTokensSaved += mcResult.tokensSaved;
+        return this.buildResult(originalTokens, 'microcompact');
+      }
+    }
+
+    // Stage 2: Context Collapse
+    const collapseTurns: CollapsibleTurn[] = this.state.turns.map(t => ({
+      id: t.id,
+      role: t.role,
+      content: t.content,
+      tokenCount: t.tokenCount,
+      timestamp: t.timestamp,
+      collapsible: true,
+      toolCalls: t.toolCalls?.map(tc => ({ name: tc.name, id: tc.id })),
+    }));
+
+    const staged = this.contextCollapse.stageCollapses(collapseTurns);
+    if (staged.collapsedTurnIds.length > 0) {
+      const applied = this.contextCollapse.applyCollapses(collapseTurns, staged);
+      this.applyCollapseResult(applied);
+      this.updateFillRatio();
+
+      if (!this.shouldCompact()) {
+        this.metrics.successes++;
+        this.metrics.totalTokensSaved += applied.tokensSaved;
+        return this.buildResult(originalTokens, 'context_collapse');
+      }
+    }
+
+    // Stage 3 + 4: Existing prune + summarize
+    const result = await this.compact();
+    return { ...result, stage: 'full_compact' };
+  }
+
+  private applyMicrocompactResult(mcResult: MicrocompactResult): void {
+    for (let i = 0; i < this.state.turns.length && i < mcResult.turns.length; i++) {
+      const turn = this.state.turns[i];
+      const mcTurn = mcResult.turns[i];
+      if (turn.toolCalls && mcTurn.toolCalls) {
+        for (let j = 0; j < turn.toolCalls.length; j++) {
+          if (mcTurn.toolCalls[j]) {
+            turn.toolCalls[j].output = mcTurn.toolCalls[j].output;
+            turn.toolCalls[j].outputTokens = mcTurn.toolCalls[j].outputTokens;
+          }
+        }
+      }
+      turn.tokenCount = mcTurn.tokenCount;
+    }
+    this.state.totalTokens -= mcResult.tokensSaved;
+  }
+
+  private applyCollapseResult(result: ApplyResult): void {
+    for (let i = 0; i < this.state.turns.length && i < result.turns.length; i++) {
+      this.state.turns[i].content = result.turns[i].content;
+      this.state.turns[i].tokenCount = result.turns[i].tokenCount;
+      this.state.turns[i].toolCalls = undefined;
+    }
+    this.state.totalTokens -= result.tokensSaved;
+  }
+
+  private buildResult(originalTokens: number, stage: string): CompactionResult & { stage: string } {
+    const result: CompactionResult & { stage: string } = {
+      originalTokens,
+      compactedTokens: this.state.totalTokens,
+      reductionRatio: 1 - (this.state.totalTokens / originalTokens),
+      turnsRemoved: 0,
+      turnsPreserved: this.state.turns.length,
+      summaryGenerated: false,
+      timestamp: Date.now(),
+      stage,
+    };
+    this.recordCompaction(result);
+    return result;
+  }
+
+  private recordCompaction(result: CompactionResult): void {
+    this.state.lastCompaction = result;
+    this.compactionHistory.push(result);
+    if (this.compactionHistory.length > MAX_COMPACTION_HISTORY) {
+      this.compactionHistory = this.compactionHistory.slice(-MAX_COMPACTION_HISTORY);
+    }
+    this.emit('compaction-completed', result);
   }
 
   /**

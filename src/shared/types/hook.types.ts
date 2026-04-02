@@ -6,6 +6,8 @@
 export type HookEvent =
   | 'PreToolUse' // Before tool executes
   | 'PostToolUse' // After tool completes
+  | 'PreSampling' // Before API call to model
+  | 'PostSampling' // After model response, before tool execution
   | 'Stop' // When Claude signals done
   | 'StopFailure' // When instance stops due to API/provider error (CC 2.1.78)
   | 'PostCompact' // After context compaction completes (CC 2.1.76)
@@ -110,6 +112,15 @@ export interface HookContext {
   changeType?: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
   changedPath?: string;
   changedRelativePath?: string;
+
+  // PreSampling context
+  messageCount?: number;
+  estimatedTokens?: number;
+
+  // PostSampling context
+  modelResponse?: string;
+  responseTokens?: number;
+  modelId?: string;
 }
 
 // IPC payload types
