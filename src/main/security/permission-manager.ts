@@ -18,6 +18,89 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('PermissionManager');
 
+// ============================================================
+// Compiled Matcher — pre-compiles glob patterns to RegExp
+// ============================================================
+
+export interface CompiledMatcher {
+  test(input: string): boolean;
+  ruleHash: string;
+}
+
+/**
+ * Convert a glob pattern to a RegExp. No external dependencies.
+ * Supported wildcards: * (single segment), ** (multi-segment), ? (single char).
+ */
+export function globToRegex(glob: string): RegExp {
+  // Process character by character to correctly handle **/ and /**/ patterns.
+  // ** surrounded by / separators (or at the start/end) means zero-or-more path segments.
+  let result = '';
+  let i = 0;
+  while (i < glob.length) {
+    const ch = glob[i];
+
+    if (ch === '*' && glob[i + 1] === '*') {
+      // Double-star: check if preceded by / (or at start) and followed by / (or at end)
+      const prevSlash = i === 0 || glob[i - 1] === '/';
+      const nextSlash = i + 2 >= glob.length || glob[i + 2] === '/';
+
+      if (prevSlash && nextSlash) {
+        // /**/  or /**  or **/  — matches zero or more path segments
+        if (glob[i + 2] === '/') {
+          // consume the trailing slash into the pattern
+          result += '(?:.+/)?';
+          i += 3; // skip **  /
+        } else {
+          result += '.*';
+          i += 2;
+        }
+      } else {
+        // ** not at segment boundary — treat as greedy multi-segment match
+        result += '.*';
+        i += 2;
+      }
+    } else if (ch === '*') {
+      result += '[^/]*';
+      i++;
+    } else if (ch === '?') {
+      result += '[^/]';
+      i++;
+    } else if ('.+^${}()|[]\\'.includes(ch!)) {
+      result += '\\' + ch;
+      i++;
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+  return new RegExp(`^${result}$`);
+}
+
+/**
+ * Produce a stable hash string for a rule list (used as cache key).
+ */
+function hashRules(rules: PermissionRule[]): string {
+  return rules
+    .filter(r => r.enabled)
+    .map(r => `${r.id}:${r.pattern}:${r.action}:${r.priority}`)
+    .join('|');
+}
+
+/**
+ * Compile a list of PermissionRules into a single CompiledMatcher.
+ * Only enabled rules are compiled. The ruleHash uniquely identifies
+ * this combination of rules so results can be cached by hash.
+ */
+export function compileRules(rules: PermissionRule[]): CompiledMatcher {
+  const enabledRules = rules.filter(r => r.enabled);
+  const regexes = enabledRules.map(r => globToRegex(r.pattern));
+  const ruleHash = hashRules(rules);
+  return {
+    test: (input: string) => regexes.some(re => re.test(input)),
+    ruleHash,
+  };
+}
+
 /**
  * Permission action types
  */
@@ -317,6 +400,7 @@ export class PermissionManager extends EventEmitter {
   private decisionCache: Map<string, CachedDecision> = new Map();
   private sessionRules: Map<string, PermissionRule[]> = new Map(); // Per-session rules
   private loadedProjectRuleRoots: Set<string> = new Set();
+  private matcherCache = new Map<string, CompiledMatcher>();
 
   private constructor() {
     super();
@@ -963,6 +1047,16 @@ export class PermissionManager extends EventEmitter {
 
   private invalidateCache(): void {
     this.decisionCache.clear();
+    this.matcherCache.clear();
+  }
+
+  private getCompiledMatcher(rules: PermissionRule[]): CompiledMatcher {
+    const hash = hashRules(rules);
+    const cached = this.matcherCache.get(hash);
+    if (cached) return cached;
+    const matcher = compileRules(rules);
+    this.matcherCache.set(hash, matcher);
+    return matcher;
   }
 
   private resourceToPattern(resource: string): string {
