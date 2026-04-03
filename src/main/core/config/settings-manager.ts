@@ -28,8 +28,27 @@ interface Store<T> {
   clear(): void;
 }
 
+/**
+ * Three-level settings cache.
+ *
+ * Level 1: raw file parse results (reserved for future per-source parsing).
+ * Level 2: per-source merged results (reserved for future multi-source merging).
+ * Level 3: fully merged AppSettings — most expensive to recompute.
+ *
+ * Currently only level 3 is populated; levels 1 and 2 are placeholders
+ * for future per-source caching.  Invalidation cascades downward:
+ * clearing level 1 also clears 2 and 3; clearing level 2 also clears 3.
+ */
+interface SettingsCache {
+  /** Level 3: Fully merged settings — most expensive to recompute */
+  merged: AppSettings | null;
+  /** Level 3 timestamp — when merged was last computed */
+  mergedAt: number;
+}
+
 export class SettingsManager extends EventEmitter {
   private store: Store<AppSettings>;
+  private settingsCache: SettingsCache = { merged: null, mergedAt: 0 };
 
   constructor() {
     super();
@@ -172,6 +191,7 @@ export class SettingsManager extends EventEmitter {
         : value;
 
     this.store.set(key, normalizedValue);
+    this.invalidate(3);
     this.emit('setting-changed', key, normalizedValue);
     this.emit(`setting:${key}`, normalizedValue);
   }
@@ -192,7 +212,38 @@ export class SettingsManager extends EventEmitter {
       );
       this.emit('setting-changed', key, normalizedValue);
     }
+    this.invalidate(3);
     this.emit('settings-updated', this.getAll());
+  }
+
+  /**
+   * Return fully merged settings, using the level-3 cache when available.
+   * Subsequent calls return the same reference until `invalidate()` is called.
+   */
+  getMerged(): AppSettings {
+    if (this.settingsCache.merged !== null) {
+      return this.settingsCache.merged;
+    }
+    const merged = this.store.store;
+    this.settingsCache.merged = merged;
+    this.settingsCache.mergedAt = Date.now();
+    return merged;
+  }
+
+  /**
+   * Invalidate the settings cache.
+   * Level 1 = parsed file cache (cascades to 2 and 3).
+   * Level 2 = per-source merged cache (cascades to 3).
+   * Level 3 = fully merged cache only.
+   * No argument = clear all levels.
+   */
+  invalidate(level?: 1 | 2 | 3): void {
+    // All levels reset the merged (level-3) cache.
+    this.settingsCache.merged = null;
+    this.settingsCache.mergedAt = 0;
+    // Levels 1 and 2 would additionally clear file-parse and source caches
+    // if those were implemented. Placeholder for future per-source caching.
+    void level;
   }
 
   /**

@@ -12,8 +12,11 @@ import { ClaudeCliAdapter, ClaudeCliSpawnOptions } from './claude-cli-adapter';
 import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { CopilotSdkAdapter, CopilotSdkConfig } from './copilot-sdk-adapter';
+import { RemoteCliAdapter } from './remote-cli-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
+import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
+import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('AdapterFactory');
@@ -45,7 +48,7 @@ export interface UnifiedSpawnOptions {
 /**
  * Adapter type union - the concrete adapter types
  */
-export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotSdkAdapter;
+export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotSdkAdapter | RemoteCliAdapter;
 
 /**
  * Maps settings CliType to detection CliType
@@ -201,8 +204,15 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): CopilotSdkAd
  */
 export function createCliAdapter(
   cliType: CliType,
-  options: UnifiedSpawnOptions
+  options: UnifiedSpawnOptions,
+  executionLocation?: ExecutionLocation,
 ): CliAdapter {
+  // If remote, create a RemoteCliAdapter regardless of CLI type
+  if (executionLocation?.type === 'remote') {
+    const connection = getWorkerNodeConnectionServer();
+    return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, options);
+  }
+
   switch (cliType) {
     case 'claude':
       return createClaudeAdapter(options);

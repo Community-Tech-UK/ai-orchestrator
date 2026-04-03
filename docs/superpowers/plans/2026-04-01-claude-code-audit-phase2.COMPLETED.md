@@ -8,6 +8,25 @@
 
 **Tech Stack:** TypeScript 5.9, Vitest, Node.js `crypto` for randomness, `AbortController` for cancellation.
 
+## Implementation Status (verified 2026-04-02)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| 1. Unicode Sanitizer | ✅ DONE | Implementation + tests |
+| 2. AbortController Tree | ✅ DONE | Implementation + tests |
+| 3. Cleanup Registry | ✅ DONE | Implementation + tests |
+| 4. Sleep/Wake Detection | ✅ DONE | Both approaches implemented: wall-clock gap detection (`lastCheckTime` + `SLEEP_DETECTION_THRESHOLD_MS`) AND process-alive deferral (`isProcessAlive` + `aliveDeferrals`). They're complementary. |
+| 5. Task Notification Dedup | ✅ DONE | `notified` flag + `checkDependencies()` implemented. Tests in `src/main/tasks/__tests__/background-task-manager.spec.ts`. |
+| 6. Secret Scanning | ✅ DONE | Implementation + tests |
+| 7. Path Traversal Protection | ✅ DONE | Plugin + skill loaders protected |
+| 8. NDJSON Safety | ✅ DONE | `ndjsonSafeStringify()` implemented + used |
+| 9. Orphan Process Detection | ✅ DONE | `activeProcesses` + `killAllActiveProcesses()` + wired into index.ts |
+| 10. Session Migration Runner | ✅ DONE | `migrateSessionState()` + `SESSION_MIGRATIONS[]` |
+| 11. Write Backpressure | ✅ DONE | `safeStdinWrite()` on BaseCliAdapter + `InputFormatter.sendRaw()` already has drain-event backpressure handling. Primary write path goes through InputFormatter. |
+| 12. Full Verification | N/A | Meta-task |
+
+**All tasks complete.**
+
 ---
 
 ## File Map

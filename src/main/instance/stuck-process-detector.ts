@@ -6,6 +6,13 @@ const logger = getLogger('StuckProcessDetector');
 
 const CHECK_INTERVAL_MS = 10_000;
 
+/**
+ * If wall-clock gap between consecutive checkAll() calls exceeds this,
+ * assume the system was asleep (laptop lid close, VM pause, etc.).
+ * All tracker timers are reset to prevent mass false-kills on wake.
+ */
+const SLEEP_DETECTION_THRESHOLD_MS = 60_000;
+
 interface TimeoutConfig {
   softMs: number;
   hardMs: number;
@@ -66,6 +73,7 @@ export class StuckProcessDetector extends EventEmitter {
   private trackers = new Map<string, ProcessTracker>();
   private checkInterval: NodeJS.Timeout | null = null;
   private isProcessAlive: ((instanceId: string) => boolean) | undefined;
+  private lastCheckTime = Date.now();
 
   constructor(options?: StuckDetectorOptions) {
     super();
@@ -131,6 +139,26 @@ export class StuckProcessDetector extends EventEmitter {
 
   private checkAll(): void {
     const now = Date.now();
+    const checkGap = now - this.lastCheckTime;
+    this.lastCheckTime = now;
+
+    // Sleep/wake detection: if the gap between checks far exceeds the
+    // interval, the system was likely asleep. Reset all timers to prevent
+    // every tracked instance from immediately triggering hard timeouts.
+    if (checkGap > SLEEP_DETECTION_THRESHOLD_MS) {
+      logger.info('System sleep detected — resetting stuck-process timers', {
+        gapMs: checkGap,
+        expectedMs: CHECK_INTERVAL_MS,
+        trackerCount: this.trackers.size,
+      });
+      for (const tracker of this.trackers.values()) {
+        tracker.lastOutputAt = now;
+        tracker.softWarningEmitted = false;
+        tracker.interactivePromptWarningEmitted = false;
+        tracker.aliveDeferrals = 0;
+      }
+      return;
+    }
 
     for (const [instanceId, tracker] of this.trackers) {
       if (tracker.instanceState === 'idle') continue;

@@ -16,6 +16,7 @@
  */
 
 import * as fs from 'fs/promises';
+import type { Stats } from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import type { CommandTemplate } from '../../shared/types/command.types';
@@ -47,6 +48,13 @@ export class MarkdownCommandRegistry {
 
   // Cache per working directory, because project-level commands are scoped.
   private cacheByWorkingDir = new Map<string, CacheEntry>();
+
+  /**
+   * Per-directory mtime cache.  Keyed by absolute directory path.
+   * Populated after each successful directory walk; used to skip re-walking
+   * unchanged directories within the TTL window.
+   */
+  private dirMtimeCache = new Map<string, number>();
 
   static getInstance(): MarkdownCommandRegistry {
     if (!MarkdownCommandRegistry.instance) {
@@ -150,6 +158,7 @@ export class MarkdownCommandRegistry {
     model?: string;
     agent?: string;
     subtask?: boolean;
+    priority?: number;
   }): CommandTemplate {
     const now = Date.now();
     return {
@@ -166,6 +175,7 @@ export class MarkdownCommandRegistry {
       model: params.model,
       agent: params.agent,
       subtask: params.subtask,
+      priority: params.priority,
     };
   }
 
@@ -174,11 +184,52 @@ export class MarkdownCommandRegistry {
     const candidatesByName = new Map<string, CommandTemplate[]>();
 
     const roots = this.getScanRoots(workingDirectory);
-    // Load low-to-high priority so later wins.
+    // Load low-to-high priority so later wins.  sourcePriority increments per
+    // directory so each directory's commands carry a distinct priority level.
+    let sourcePriority = 0;
     for (const root of roots) {
       const dirs = this.getCommandDirs(root);
       for (const commandsDir of dirs) {
+        // Per-directory mtime optimisation: stat the directory and skip
+        // re-walking if the mtime is unchanged since the last scan.
+        let currentMtime: number | undefined;
+        try {
+          const statResult: Stats = await fs.stat(commandsDir);
+          currentMtime = statResult.mtimeMs;
+        } catch {
+          // Directory does not exist — skip.
+          sourcePriority++;
+          continue;
+        }
+
+        const cachedMtime = this.dirMtimeCache.get(commandsDir);
+        if (cachedMtime !== undefined && cachedMtime === currentMtime) {
+          // Mtime unchanged — reuse already-loaded commands for this directory
+          // by re-inserting candidates from the existing cache entry if present.
+          const existing = this.cacheByWorkingDir.get(workingDirectory);
+          if (existing) {
+            for (const [name, candidates] of existing.candidatesByName.entries()) {
+              for (const cmd of candidates) {
+                if (cmd.filePath?.startsWith(commandsDir + path.sep) ||
+                    cmd.filePath?.startsWith(commandsDir + '/')) {
+                  const existingCandidates = candidatesByName.get(name) || [];
+                  existingCandidates.push(cmd);
+                  candidatesByName.set(name, existingCandidates);
+                  commandsByName.set(name, cmd);
+                }
+              }
+            }
+          }
+          sourcePriority++;
+          continue;
+        }
+
         const files = await this.walkMarkdownFiles(commandsDir);
+        // Update the mtime cache for this directory after walking.
+        if (currentMtime !== undefined) {
+          this.dirMtimeCache.set(commandsDir, currentMtime);
+        }
+
         for (const filePath of files) {
           let raw: string;
           try {
@@ -221,6 +272,7 @@ export class MarkdownCommandRegistry {
             model,
             agent,
             subtask,
+            priority: sourcePriority,
           });
 
           const existing = candidatesByName.get(name) || [];
@@ -228,6 +280,8 @@ export class MarkdownCommandRegistry {
           candidatesByName.set(name, existing);
           commandsByName.set(name, cmd);
         }
+
+        sourcePriority++;
       }
     }
 
@@ -286,6 +340,22 @@ export class MarkdownCommandRegistry {
       return;
     }
     this.cacheByWorkingDir.delete(workingDirectory);
+  }
+
+  /**
+   * Clear the per-directory mtime cache so the next load will re-stat and
+   * potentially re-walk directories.  Pass a workingDirectory to clear only
+   * directories belonging to that project; omit to clear everything.
+   */
+  clearDirectoryMtimeCache(workingDirectory?: string): void {
+    if (!workingDirectory) {
+      this.dirMtimeCache.clear();
+      return;
+    }
+    const dirsForWorkingDir = this.getAllScanDirs(workingDirectory);
+    for (const dir of dirsForWorkingDir) {
+      this.dirMtimeCache.delete(dir);
+    }
   }
 }
 

@@ -219,4 +219,88 @@ describe('StuckProcessDetector', () => {
       expect(hardHandler).toHaveBeenCalled();
     });
   });
+
+  describe('sleep/wake detection', () => {
+    // Sleep detection requires a large wall-clock gap between checkAll() calls.
+    // Fake timers fire intervals incrementally (no gap), so we invoke checkAll()
+    // directly after setting lastCheckTime far in the past.
+
+    it('resets all tracker timers after detecting system sleep', () => {
+      const stuckHandler = vi.fn();
+      detector.on('process:stuck', stuckHandler);
+      detector.on('process:suspect-stuck', stuckHandler);
+
+      detector.startTracking('inst-1');
+      detector.updateState('inst-1', 'generating');
+
+      // Simulate: lastOutputAt was 200s ago, lastCheckTime was 120s ago (system slept)
+      const d = detector as any;
+      const now = Date.now();
+      d.trackers.get('inst-1')!.lastOutputAt = now - 200_000;
+      d.lastCheckTime = now - 120_000;
+
+      // This checkAll() sees a 120s gap (>> 60s threshold) → resets timers
+      d.checkAll();
+
+      expect(stuckHandler).not.toHaveBeenCalled();
+      // Verify timer was actually reset to ~now
+      expect(now - d.trackers.get('inst-1')!.lastOutputAt).toBeLessThan(1000);
+    });
+
+    it('does not reset timers for normal check intervals', () => {
+      const softHandler = vi.fn();
+      detector.on('process:suspect-stuck', softHandler);
+
+      detector.startTracking('inst-1');
+      detector.updateState('inst-1', 'generating');
+
+      // Advance past soft timeout (120s) in normal 10s increments — no sleep detected
+      vi.advanceTimersByTime(130_000);
+      expect(softHandler).toHaveBeenCalled();
+    });
+
+    it('resets timers for all tracked instances on sleep', () => {
+      const stuckHandler = vi.fn();
+      detector.on('process:stuck', stuckHandler);
+      detector.on('process:suspect-stuck', stuckHandler);
+
+      detector.startTracking('inst-1');
+      detector.startTracking('inst-2');
+      detector.updateState('inst-1', 'generating');
+      detector.updateState('inst-2', 'tool_executing');
+
+      // Simulate system sleep: both instances had output 300s ago
+      const d = detector as any;
+      const now = Date.now();
+      d.trackers.get('inst-1')!.lastOutputAt = now - 300_000;
+      d.trackers.get('inst-2')!.lastOutputAt = now - 300_000;
+      d.lastCheckTime = now - 120_000;
+
+      d.checkAll();
+
+      // Sleep detected → timers reset, no stuck events
+      expect(stuckHandler).not.toHaveBeenCalled();
+      expect(now - d.trackers.get('inst-1')!.lastOutputAt).toBeLessThan(1000);
+      expect(now - d.trackers.get('inst-2')!.lastOutputAt).toBeLessThan(1000);
+    });
+
+    it('clears warning flags and deferral counts on sleep reset', () => {
+      const d = detector as any;
+      detector.startTracking('inst-1');
+      detector.updateState('inst-1', 'generating');
+
+      // Manually set flags that should be cleared
+      const tracker = d.trackers.get('inst-1')!;
+      tracker.softWarningEmitted = true;
+      tracker.interactivePromptWarningEmitted = true;
+      tracker.aliveDeferrals = 3;
+      d.lastCheckTime = Date.now() - 120_000;
+
+      d.checkAll();
+
+      expect(tracker.softWarningEmitted).toBe(false);
+      expect(tracker.interactivePromptWarningEmitted).toBe(false);
+      expect(tracker.aliveDeferrals).toBe(0);
+    });
+  });
 });

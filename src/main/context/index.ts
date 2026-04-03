@@ -13,3 +13,10 @@ export { Microcompact, type MicrocompactConfig, type MicrocompactTurn, type Micr
 export { TokenBudgetTracker, BudgetAction, type BudgetCheckResult, type TokenBudgetConfig } from './token-budget-tracker';
 export { CompactionEpochTracker, type CompactionEpoch, type CompactionRecord } from './compaction-epoch';
 export { ContextCollapse, type ContextCollapseConfig, type CollapsibleTurn } from './context-collapse';
+export {
+  executeWithPTLRetry,
+  isContextOverflowError,
+  extractOverflowTokenCount,
+  type PTLTurn,
+  type PTLRetryResult,
+} from './ptl-retry';

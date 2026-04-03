@@ -32,6 +32,14 @@ import { getResourceGovernor } from './process/resource-governor';
 import { getHibernationManager } from './process/hibernation-manager';
 import { getPoolManager } from './process/pool-manager';
 import { getLoadBalancer } from './process/load-balancer';
+import {
+  getWorkerNodeRegistry,
+  getWorkerNodeConnectionServer,
+  getWorkerNodeHealth,
+  handleNodeFailover,
+  RpcEventRouter,
+  getRemoteNodeConfig,
+} from './remote-node';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
@@ -78,6 +86,10 @@ import { getAgentTreePersistence } from './session/agent-tree-persistence';
 import { getPermissionRegistry } from './orchestration/permission-registry';
 import { getOrchestrationSnapshotManager } from './orchestration/orchestration-snapshot';
 import { runCleanupFunctions } from './util/cleanup-registry';
+import { getAppStore, addInstance, removeInstance, updateInstance, setGlobalState } from './state';
+import type { InstanceSlice } from './state';
+import type { Instance } from '../shared/types/instance.types';
+import { getMemoryMonitor } from './memory';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -264,6 +276,46 @@ class AIOrchestratorApp {
           });
         } },
         { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
+        { name: 'Worker node subsystem', fn: async () => {
+          const config = getRemoteNodeConfig();
+          if (!config.enabled) {
+            logger.info('Remote node subsystem disabled');
+            return;
+          }
+
+          const registry = getWorkerNodeRegistry();
+          const connection = getWorkerNodeConnectionServer();
+
+          // Start RPC event router
+          const rpcRouter = new RpcEventRouter(connection, registry);
+          rpcRouter.start();
+
+          // Wire node disconnect → failover
+          registry.on('node:disconnected', (node) => {
+            handleNodeFailover(typeof node === 'string' ? node : node.id);
+          });
+
+          // Wire node events → renderer
+          registry.on('node:connected', (node) => {
+            this.windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
+          });
+          registry.on('node:disconnected', (node) => {
+            this.windowManager.sendToRenderer('remote-node:event', {
+              type: 'disconnected',
+              nodeId: typeof node === 'string' ? node : node.id,
+            });
+          });
+          registry.on('node:updated', (node) => {
+            this.windowManager.sendToRenderer('remote-node:event', { type: 'updated', node });
+          });
+
+          // Start WebSocket server
+          await connection.start(config.serverPort, config.serverHost);
+          logger.info('Worker node subsystem started', {
+            port: config.serverPort,
+            host: config.serverHost,
+          });
+        } },
         { name: 'Cross-model review', fn: async () => {
           const crossModelReview = getCrossModelReviewService();
           await crossModelReview.initialize();
@@ -653,6 +705,70 @@ class AIOrchestratorApp {
       getDebateCoordinator(),
       getMultiVerifyCoordinator()
     );
+
+    // ── Shadow events into immutable store (additive — existing wiring above unchanged) ──
+
+    function toSlice(instance: Instance): InstanceSlice {
+      return {
+        id: instance.id,
+        displayName: instance.displayName,
+        status: instance.status,
+        contextUsage: instance.contextUsage,
+        lastActivity: instance.lastActivity,
+        provider: instance.provider,
+        currentModel: instance.currentModel,
+        parentId: instance.parentId,
+        childrenIds: instance.childrenIds,
+        agentId: instance.agentId,
+        workingDirectory: instance.workingDirectory,
+        processId: instance.processId,
+        errorCount: instance.errorCount,
+        totalTokensUsed: instance.totalTokensUsed,
+      };
+    }
+
+    this.instanceManager.on('instance:created', (instance: Instance) => {
+      try { addInstance(toSlice(instance)); } catch { /* store failure must not block main flow */ }
+    });
+
+    this.instanceManager.on('instance:removed', (instanceId: string) => {
+      try { removeInstance(instanceId); } catch { /* non-critical */ }
+    });
+
+    this.instanceManager.on('instance:state-update', (update: Record<string, unknown>) => {
+      const id = update['instanceId'] as string | undefined;
+      if (!id) return;
+      const instance = this.instanceManager.getInstance(id);
+      if (!instance) return;
+      try { updateInstance(id, toSlice(instance)); } catch { /* non-critical */ }
+    });
+
+    this.instanceManager.on('instance:batch-update', (payload: {
+      updates?: { instanceId: string; status?: string; contextUsage?: { used: number; total: number; percentage: number } }[]
+    }) => {
+      if (!payload.updates) return;
+      for (const update of payload.updates) {
+        const partial: Partial<InstanceSlice> = {};
+        if (update.status) partial.status = update.status as InstanceSlice['status'];
+        if (update.contextUsage) partial.contextUsage = update.contextUsage;
+        try { updateInstance(update.instanceId, partial); } catch { /* non-critical */ }
+      }
+    });
+
+    // Mirror memory pressure into the global app store
+    const memMonitor = getMemoryMonitor();
+    memMonitor.on('memory:warning', () => {
+      try { setGlobalState({ memoryPressure: 'warning' }); } catch { /* non-critical */ }
+    });
+    memMonitor.on('memory:critical', () => {
+      try { setGlobalState({ memoryPressure: 'critical' }); } catch { /* non-critical */ }
+    });
+    memMonitor.on('memory:normal', () => {
+      try { setGlobalState({ memoryPressure: 'normal' }); } catch { /* non-critical */ }
+    });
+
+    // Eagerly initialize the app store so it's ready before any event fires
+    getAppStore();
   }
 
   private setupCompactionCoordinator(): void {
@@ -847,8 +963,11 @@ class AIOrchestratorApp {
   }
 
   async cleanup(): Promise<void> {
+    try { setGlobalState({ shutdownRequested: true }); } catch { /* non-critical */ }
     logger.info('Cleaning up');
     await runCleanupFunctions();
+    try { getWorkerNodeHealth().stopAll(); } catch { /* best effort */ }
+    try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
     try { getResourceGovernor().stop(); } catch { /* best effort */ }
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }

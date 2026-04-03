@@ -8,6 +8,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
+import { getOutputPersistenceManager } from '../../context/output-persistence';
 
 const logger = getLogger('BaseCliAdapter');
 
@@ -40,6 +41,12 @@ export interface CliAdapterConfig {
   maxRetries?: number;
   /** Support session persistence/resumption */
   sessionPersistence?: boolean;
+  /**
+   * When true (default), large accumulated output buffers are persisted to disk
+   * and replaced with a compact preview before being processed further.
+   * Disable only in contexts where full output must be retained in-process.
+   */
+  persistLargeOutputs?: boolean;
 }
 
 /**
@@ -192,7 +199,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
   protected config: CliAdapterConfig;
   protected process: ChildProcess | null = null;
   protected sessionId: string | null = null;
-  protected outputBuffer: string = '';
+  protected outputBuffer = '';
 
   /** Stream idle watchdog timer — resets on each stdout chunk */
   private streamIdleTimer: NodeJS.Timeout | null = null;
@@ -207,13 +214,28 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   static killAllActiveProcesses(): void {
     for (const proc of BaseCliAdapter.activeProcesses) {
-      try {
-        proc.kill('SIGTERM');
-      } catch {
-        // Process may have already exited
-      }
+      BaseCliAdapter.killProcessGroup(proc.pid, 'SIGTERM');
     }
     BaseCliAdapter.activeProcesses.clear();
+  }
+
+  /**
+   * Kill an entire process group (the CLI process and all its children,
+   * including MCP servers). Requires the process to have been spawned
+   * with `detached: true` so it has its own process group.
+   * Falls back to single-process kill if group kill fails.
+   */
+  private static killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
+    if (pid === undefined) return;
+    try {
+      // Negative PID sends signal to the entire process group
+      process.kill(-pid, signal);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
+        // Group kill failed for non-ESRCH reason — try single process
+        try { process.kill(pid, signal); } catch { /* already dead */ }
+      }
+    }
   }
 
   /**
@@ -289,18 +311,20 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /**
    * Terminate the CLI process
    */
-  async terminate(graceful: boolean = true): Promise<void> {
+  async terminate(graceful = true): Promise<void> {
     if (!this.process) return;
 
+    const pid = this.process.pid;
+
     if (graceful) {
-      // Send SIGTERM first
-      this.process.kill('SIGTERM');
+      // Send SIGTERM to entire process group (CLI + MCP servers)
+      BaseCliAdapter.killProcessGroup(pid, 'SIGTERM');
 
       // Wait for graceful shutdown with timeout
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
           if (this.process && !this.process.killed) {
-            this.process.kill('SIGKILL');
+            BaseCliAdapter.killProcessGroup(pid, 'SIGKILL');
           }
           resolve();
         }, 5000);
@@ -311,7 +335,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
         });
       });
     } else {
-      this.process.kill('SIGKILL');
+      BaseCliAdapter.killProcessGroup(pid, 'SIGKILL');
     }
 
     this.process = null;
@@ -424,6 +448,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       cwd: this.config.cwd,
       env: { ...safeEnv, ...this.config.env, PATH: extendedPath },
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
 
     // Increment generation so stale watchdog callbacks from a previous
@@ -451,7 +476,41 @@ export abstract class BaseCliAdapter extends EventEmitter {
       this.clearStreamIdleWatchdog();
     });
 
+    // Guard against EPIPE errors on stdin/stdout — these occur when the CLI
+    // process closes its pipe end before we finish writing (common on early exit).
+    proc.stdin?.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EPIPE') {
+        logger.debug('EPIPE on stdin — CLI process closed pipe', {
+          adapter: this.getName(),
+          pid: proc.pid,
+        });
+        return;
+      }
+      // Non-EPIPE stdin errors are re-emitted as adapter errors
+      this.emit('error', err);
+    });
+
+    proc.stdout?.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EPIPE') {
+        logger.debug('EPIPE on stdout — consumer closed pipe', {
+          adapter: this.getName(),
+          pid: proc.pid,
+        });
+        return;
+      }
+      this.emit('error', err);
+    });
+
     return proc;
+  }
+
+  /**
+   * Returns true if the spawned process's stdin pipe is open and writable.
+   * Use this guard before writing to stdin to avoid EPIPE errors on
+   * processes that have already closed their pipe end.
+   */
+  protected isRealPipe(): boolean {
+    return this.process?.stdin?.writable === true && !this.process.stdin.destroyed;
   }
 
   // ============ Stream Idle Watchdog ============
@@ -506,6 +565,30 @@ export abstract class BaseCliAdapter extends EventEmitter {
         this.process!.stdin!.once('drain', resolve);
       });
     }
+  }
+
+  /**
+   * Flush the accumulated output buffer, optionally externalising large content.
+   *
+   * Subclasses that accumulate output in `this.outputBuffer` and then process it
+   * should call this instead of reading `this.outputBuffer` directly.  When
+   * `persistLargeOutputs` is true (the default) and the buffer exceeds the
+   * default threshold (50 K chars), the full content is saved to disk and a
+   * compact preview is returned instead — preventing large tool outputs from
+   * inflating the context window.
+   *
+   * The method resets `this.outputBuffer` to `''` after reading.
+   */
+  protected async flushOutputBuffer(toolName = 'default'): Promise<string> {
+    const content = this.outputBuffer;
+    this.outputBuffer = '';
+
+    const persist = this.config.persistLargeOutputs ?? true;
+    if (!persist) {
+      return content;
+    }
+
+    return getOutputPersistenceManager().maybeExternalize(toolName, content);
   }
 
   /**

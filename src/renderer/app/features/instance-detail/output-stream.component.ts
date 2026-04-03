@@ -61,7 +61,13 @@ interface RenderedDisplayItem extends DisplayItem {
         } @else if (hasOlderMessages()) {
           <button class="load-more-btn" (click)="loadOlderMessages()">Load earlier messages</button>
         }
-        @for (item of displayItems(); track item.id; let i = $index) {
+        @if (hiddenToolGroupCount() > 0) {
+          <button class="tool-calls-toggle" (click)="toggleToolCalls()">
+            <span class="toggle-icon">{{ effectiveShowToolCalls() ? '▾' : '▸' }}</span>
+            {{ hiddenToolGroupCount() }} tool call{{ hiddenToolGroupCount() !== 1 ? ' groups' : ' group' }} hidden
+          </button>
+        }
+        @for (item of visibleItems(); track item.id; let i = $index) {
           <div class="transcript-item" [attr.data-item-index]="i" (contextmenu)="onContextMenu($event, item)">
           @if (item.type === 'thought-group') {
             @if (hasThoughtGroupContent(item)) {
@@ -687,6 +693,33 @@ interface RenderedDisplayItem extends DisplayItem {
           color: var(--text-secondary);
         }
       }
+
+      .tool-calls-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 4px 0 8px;
+        padding: 5px 12px;
+        background: transparent;
+        border: 1px dashed rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.03);
+          border-color: rgba(255, 255, 255, 0.12);
+          color: var(--text-secondary);
+        }
+
+        .toggle-icon {
+          font-size: 9px;
+          opacity: 0.6;
+        }
+      }
     `
   ],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -697,8 +730,12 @@ export class OutputStreamComponent {
   provider = input<string>('claude');
   showThinking = input<boolean>(true);
   thinkingDefaultExpanded = input<boolean>(false);
+  isChild = input<boolean>(false);
 
   container = viewChild<ElementRef<HTMLDivElement>>('container');
+
+  /** Whether tool call groups are visible in the stream. Defaults to hidden for child instances. */
+  showToolCalls = signal<boolean | null>(null); // null = use isChild default
 
   // Scroll state - stored per instance
   protected showScrollToTop = signal(false);
@@ -760,6 +797,26 @@ export class OutputStreamComponent {
 
     // Safe cast: renderItemMarkdown() populates renderedMessage/renderedResponse with RenderedMarkdown
     return items as RenderedDisplayItem[];
+  });
+
+  /** Whether tool calls are effectively shown (explicit toggle, or default based on isChild) */
+  protected effectiveShowToolCalls = computed(() => {
+    const explicit = this.showToolCalls();
+    if (explicit !== null) return explicit;
+    return !this.isChild();
+  });
+
+  /** Display items filtered by tool call visibility */
+  protected visibleItems = computed<RenderedDisplayItem[]>(() => {
+    const items = this.displayItems();
+    if (this.effectiveShowToolCalls()) return items;
+    return items.filter(item => item.type !== 'tool-group');
+  });
+
+  /** Count of hidden tool-group items (for the toggle bar) */
+  protected hiddenToolGroupCount = computed(() => {
+    if (this.effectiveShowToolCalls()) return 0;
+    return this.displayItems().filter(item => item.type === 'tool-group').length;
   });
 
   constructor() {
@@ -983,6 +1040,11 @@ export class OutputStreamComponent {
   /**
    * Scroll to the top of the container
    */
+  toggleToolCalls(): void {
+    const current = this.effectiveShowToolCalls();
+    this.showToolCalls.set(!current);
+  }
+
   scrollToTop(): void {
     const el = this.getViewportElement();
     if (!el) return;

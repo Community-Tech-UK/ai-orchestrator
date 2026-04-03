@@ -2,22 +2,29 @@
  * Compaction Coordinator
  *
  * Monitors instance context usage and coordinates automatic compaction.
+ *
+ * Dual-threshold strategy (inspired by Copilot SDK):
  * - Warning at 75% (notifies renderer)
- * - Auto-compact at 80%
- * - Emergency mode at 95% (blocks input until compacted)
+ * - Background compact at 80% (non-blocking — instance continues working)
+ * - Blocking compact at 95% (blocks input until compacted)
+ *
+ * Circuit breaker: stops retrying after 3 consecutive failures per instance.
  */
 
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { LIMITS } from '../../shared/constants/limits';
 import type { ContextUsage } from '../../shared/types/instance.types';
 import { TokenBudgetTracker } from './token-budget-tracker';
 import { CompactionEpochTracker } from './compaction-epoch';
+import { measureAsync } from '../util/slow-operations';
 
 const logger = getLogger('CompactionCoordinator');
 
 export interface CompactionResult {
   success: boolean;
   method: 'native' | 'restart-with-summary';
+  blocking: boolean;
   previousUsage?: ContextUsage;
   newUsage?: ContextUsage;
   summary?: string;
@@ -26,19 +33,33 @@ export interface CompactionResult {
 
 export type CompactionStrategy = (instanceId: string) => Promise<boolean>;
 
+/** Circuit breaker state per instance */
+interface CircuitBreakerState {
+  consecutiveFailures: number;
+  lastFailureTime: number;
+}
+
+/** Maximum consecutive compaction failures before circuit breaker trips */
+const CIRCUIT_BREAKER_MAX_FAILURES = 3;
+/** Time after which the circuit breaker resets (5 minutes) */
+const CIRCUIT_BREAKER_RESET_MS = 5 * 60 * 1000;
+
 export class CompactionCoordinator extends EventEmitter {
-  // Thresholds
-  private readonly WARNING_THRESHOLD = 75;
-  private readonly COMPACT_THRESHOLD = 80;
-  private readonly EMERGENCY_THRESHOLD = 95;
+  // Thresholds (centralized in LIMITS for discoverability)
+  private readonly WARNING_THRESHOLD = LIMITS.COMPACTION_WARNING_THRESHOLD;
+  private readonly BACKGROUND_THRESHOLD = LIMITS.COMPACTION_BACKGROUND_THRESHOLD;
+  private readonly BLOCKING_THRESHOLD = LIMITS.COMPACTION_BLOCKING_THRESHOLD;
 
   // Track which instances have been warned/compacted to avoid re-triggering
   private warnedInstances = new Set<string>();
   private compactingInstances = new Set<string>();
 
+  /** Instances currently undergoing background (non-blocking) compaction */
+  private backgroundCompactingInstances = new Set<string>();
+
   // Debounce: track last compaction time per instance
   private lastCompactionTime = new Map<string, number>();
-  private readonly COMPACTION_COOLDOWN_MS = 30000; // 30 second cooldown
+  private readonly COMPACTION_COOLDOWN_MS = LIMITS.COMPACTION_COOLDOWN_MS;
 
   // Dismissed warnings (reset if percentage increases by >5%)
   private dismissedWarnings = new Map<string, number>(); // instanceId -> percentage when dismissed
@@ -49,6 +70,9 @@ export class CompactionCoordinator extends EventEmitter {
   // Per-instance budget and epoch trackers
   private budgetTrackers = new Map<string, TokenBudgetTracker>();
   private epochTrackers = new Map<string, CompactionEpochTracker>();
+
+  // Circuit breaker per instance
+  private circuitBreakers = new Map<string, CircuitBreakerState>();
 
   // Auto-compact enabled (default true)
   private autoCompactEnabled = true;
@@ -83,6 +107,8 @@ export class CompactionCoordinator extends EventEmitter {
   static _resetForTesting(): void {
     if (CompactionCoordinator.instance) {
       CompactionCoordinator.instance.removeAllListeners();
+      CompactionCoordinator.instance.circuitBreakers.clear();
+      CompactionCoordinator.instance.backgroundCompactingInstances.clear();
       CompactionCoordinator.instance = null;
     }
   }
@@ -111,7 +137,12 @@ export class CompactionCoordinator extends EventEmitter {
   }
 
   /**
-   * Called on every contextUsage update (from batch-update events)
+   * Called on every contextUsage update (from batch-update events).
+   *
+   * Dual-threshold compaction (inspired by Copilot SDK):
+   * - 75%: Warning (UI notification only)
+   * - 80%: Background compaction (non-blocking — instance keeps working)
+   * - 95%: Blocking compaction (halts input until context is freed)
    */
   onContextUpdate(instanceId: string, usage: ContextUsage): void {
     this.latestUsage.set(instanceId, usage);
@@ -123,8 +154,18 @@ export class CompactionCoordinator extends EventEmitter {
       this.dismissedWarnings.delete(instanceId);
     }
 
-    // Emergency threshold (95%+)
-    if (percentage >= this.EMERGENCY_THRESHOLD) {
+    // Check circuit breaker — skip auto-compaction if tripped
+    if (this.isCircuitBreakerTripped(instanceId)) {
+      // Still emit warnings for the UI, but don't try to auto-compact
+      if (percentage >= this.BLOCKING_THRESHOLD) {
+        this.emit('context-warning', { instanceId, percentage, level: 'emergency' as const });
+      }
+      return;
+    }
+
+    // ── BLOCKING threshold (95%+) ──
+    // Instance MUST stop and wait for compaction to complete.
+    if (percentage >= this.BLOCKING_THRESHOLD) {
       this.emit('context-warning', {
         instanceId,
         percentage,
@@ -132,13 +173,14 @@ export class CompactionCoordinator extends EventEmitter {
       });
 
       if (this.autoCompactEnabled && !this.compactingInstances.has(instanceId)) {
-        void this.triggerAutoCompact(instanceId, usage);
+        void this.triggerBlockingCompact(instanceId, usage);
       }
       return;
     }
 
-    // Auto-compact threshold (80%+)
-    if (percentage >= this.COMPACT_THRESHOLD) {
+    // ── BACKGROUND threshold (80%+) ──
+    // Start compaction in the background — instance keeps working.
+    if (percentage >= this.BACKGROUND_THRESHOLD) {
       if (!this.dismissedWarnings.has(instanceId)) {
         this.emit('context-warning', {
           instanceId,
@@ -147,13 +189,17 @@ export class CompactionCoordinator extends EventEmitter {
         });
       }
 
-      if (this.autoCompactEnabled && !this.compactingInstances.has(instanceId)) {
-        void this.triggerAutoCompact(instanceId, usage);
+      if (
+        this.autoCompactEnabled &&
+        !this.compactingInstances.has(instanceId) &&
+        !this.backgroundCompactingInstances.has(instanceId)
+      ) {
+        void this.triggerBackgroundCompact(instanceId, usage);
       }
       return;
     }
 
-    // Warning threshold (75%+)
+    // ── WARNING threshold (75%+) ──
     if (percentage >= this.WARNING_THRESHOLD) {
       if (!this.warnedInstances.has(instanceId) && !this.dismissedWarnings.has(instanceId)) {
         this.warnedInstances.add(instanceId);
@@ -183,10 +229,10 @@ export class CompactionCoordinator extends EventEmitter {
    */
   async compactInstance(instanceId: string): Promise<CompactionResult> {
     if (this.compactingInstances.has(instanceId)) {
-      return { success: false, method: 'native', error: 'Compaction already in progress' };
+      return { success: false, method: 'native', blocking: true, error: 'Compaction already in progress' };
     }
 
-    return this.executeCompaction(instanceId);
+    return this.executeCompaction(instanceId, true);
   }
 
   getBudgetTracker(instanceId: string, totalBudget = 200000): TokenBudgetTracker {
@@ -213,11 +259,13 @@ export class CompactionCoordinator extends EventEmitter {
   cleanupInstance(instanceId: string): void {
     this.warnedInstances.delete(instanceId);
     this.compactingInstances.delete(instanceId);
+    this.backgroundCompactingInstances.delete(instanceId);
     this.lastCompactionTime.delete(instanceId);
     this.dismissedWarnings.delete(instanceId);
     this.latestUsage.delete(instanceId);
     this.budgetTrackers.delete(instanceId);
     this.epochTrackers.delete(instanceId);
+    this.circuitBreakers.delete(instanceId);
   }
 
   /**
@@ -227,21 +275,98 @@ export class CompactionCoordinator extends EventEmitter {
     return this.compactingInstances.has(instanceId);
   }
 
-  private async triggerAutoCompact(instanceId: string, usage: ContextUsage): Promise<void> {
+  /**
+   * Background compaction (non-blocking).
+   * The instance continues processing while compaction runs.
+   * Fires-and-forgets without awaiting — caller is not blocked.
+   */
+  private async triggerBackgroundCompact(instanceId: string, usage: ContextUsage): Promise<void> {
     // Check cooldown
     const lastTime = this.lastCompactionTime.get(instanceId);
     if (lastTime && Date.now() - lastTime < this.COMPACTION_COOLDOWN_MS) {
-      logger.debug('Skipping auto-compact (cooldown)', { instanceId });
+      logger.debug('Skipping background compact (cooldown)', { instanceId });
       return;
     }
 
-    logger.info('Auto-compact triggered', { instanceId, percentage: usage.percentage });
+    this.backgroundCompactingInstances.add(instanceId);
+    logger.info('Background compact triggered (non-blocking)', {
+      instanceId,
+      percentage: usage.percentage,
+    });
 
-    const result = await this.executeCompaction(instanceId);
+    try {
+      const result = await this.executeCompaction(instanceId, false);
+      if (!result.success) {
+        this.recordCircuitBreakerFailure(instanceId);
+        logger.warn('Background compact failed', { instanceId, error: result.error });
+      } else {
+        this.resetCircuitBreaker(instanceId);
+      }
+    } finally {
+      this.backgroundCompactingInstances.delete(instanceId);
+    }
+  }
+
+  /**
+   * Blocking compaction (emergency).
+   * The instance is halted until compaction completes or fails.
+   */
+  private async triggerBlockingCompact(instanceId: string, usage: ContextUsage): Promise<void> {
+    // Check cooldown (shorter for blocking — urgency is higher)
+    const lastTime = this.lastCompactionTime.get(instanceId);
+    const blockingCooldown = this.COMPACTION_COOLDOWN_MS / 2; // 15s for emergencies
+    if (lastTime && Date.now() - lastTime < blockingCooldown) {
+      logger.debug('Skipping blocking compact (cooldown)', { instanceId });
+      return;
+    }
+
+    logger.warn('Blocking compact triggered — instance halted', {
+      instanceId,
+      percentage: usage.percentage,
+    });
+
+    const result = await this.executeCompaction(instanceId, true);
 
     if (!result.success) {
-      logger.warn('Auto-compact failed', { instanceId, error: result.error });
+      this.recordCircuitBreakerFailure(instanceId);
+      logger.error('Blocking compact failed — instance may be stuck', new Error(result.error ?? 'unknown'), { instanceId });
+    } else {
+      this.resetCircuitBreaker(instanceId);
     }
+  }
+
+  // ── Circuit Breaker ──
+
+  private isCircuitBreakerTripped(instanceId: string): boolean {
+    const state = this.circuitBreakers.get(instanceId);
+    if (!state) return false;
+
+    // Reset if enough time has passed since last failure
+    if (Date.now() - state.lastFailureTime > CIRCUIT_BREAKER_RESET_MS) {
+      this.circuitBreakers.delete(instanceId);
+      return false;
+    }
+
+    return state.consecutiveFailures >= CIRCUIT_BREAKER_MAX_FAILURES;
+  }
+
+  private recordCircuitBreakerFailure(instanceId: string): void {
+    const state = this.circuitBreakers.get(instanceId) ?? { consecutiveFailures: 0, lastFailureTime: 0 };
+    state.consecutiveFailures++;
+    state.lastFailureTime = Date.now();
+    this.circuitBreakers.set(instanceId, state);
+
+    if (state.consecutiveFailures >= CIRCUIT_BREAKER_MAX_FAILURES) {
+      logger.error('Compaction circuit breaker tripped', new Error('Too many consecutive failures'), {
+        instanceId,
+        failures: state.consecutiveFailures,
+      });
+      this.emit('compaction-circuit-breaker-tripped', { instanceId, failures: state.consecutiveFailures });
+    }
+  }
+
+  private resetCircuitBreaker(instanceId: string): void {
+    this.circuitBreakers.delete(instanceId);
   }
 
   /**
@@ -254,7 +379,7 @@ export class CompactionCoordinator extends EventEmitter {
     return usage.used >= this.CHUNKED_COMPACTION_THRESHOLD_TOKENS;
   }
 
-  private async executeCompaction(instanceId: string): Promise<CompactionResult> {
+  private async executeCompaction(instanceId: string, blocking = true): Promise<CompactionResult> {
     this.compactingInstances.add(instanceId);
     const previousUsage = this.latestUsage.get(instanceId);
     this.emit('compaction-started', { instanceId });
@@ -281,13 +406,15 @@ export class CompactionCoordinator extends EventEmitter {
 
       if (nativeCompactionSupported && this.nativeCompactStrategy) {
         // Try native strategy first when provider supports it
-        success = await this.nativeCompactStrategy(instanceId);
+        const strategy = this.nativeCompactStrategy;
+        success = await measureAsync('context.compact', () => strategy(instanceId));
         method = 'native';
       }
 
       if (!success && this.restartCompactStrategy) {
         // Fallback to restart-with-summary
-        success = await this.restartCompactStrategy(instanceId);
+        const strategy = this.restartCompactStrategy;
+        success = await measureAsync('context.compact', () => strategy(instanceId));
         method = 'restart-with-summary';
       }
 
@@ -298,6 +425,7 @@ export class CompactionCoordinator extends EventEmitter {
         const result: CompactionResult = {
           success: false,
           method,
+          blocking,
           previousUsage,
           error: 'No compaction strategy available or all strategies failed',
         };
@@ -308,7 +436,7 @@ export class CompactionCoordinator extends EventEmitter {
       this.warnedInstances.delete(instanceId);
       this.dismissedWarnings.delete(instanceId);
 
-      const result: CompactionResult = { success: true, method, previousUsage };
+      const result: CompactionResult = { success: true, method, blocking, previousUsage };
       this.emit('compaction-completed', { instanceId, result });
 
       // Emit PostCompact hook event for downstream processing
@@ -328,6 +456,7 @@ export class CompactionCoordinator extends EventEmitter {
       const result: CompactionResult = {
         success: false,
         method: 'native',
+        blocking,
         previousUsage,
         error: (error as Error).message,
       };

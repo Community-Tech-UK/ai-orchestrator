@@ -8,6 +8,7 @@ import type {
   TerminationPolicy,
   ContextInheritanceConfig,
 } from './supervision.types';
+import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
 import { createDefaultContextInheritance } from './supervision.types';
 import { getProviderModelContextWindow } from './provider.types';
 
@@ -189,6 +190,9 @@ export interface Instance {
   provider: InstanceProvider; // Which CLI provider is being used
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
 
+  /** Where this instance is executing (local or remote node) */
+  executionLocation: ExecutionLocation;
+
   /** Accumulated diff stats for the session (file content snapshots) */
   diffStats?: SessionDiffStats;
 
@@ -239,6 +243,12 @@ export interface InstanceCreateConfig {
    * Inspired by Claude Code 2.1.81 --bare flag for scripted calls.
    */
   bareMode?: boolean;
+
+  /** Placement preferences for remote execution */
+  nodePlacement?: NodePlacementPrefs;
+
+  /** Force execution on a specific node (overrides placement logic) */
+  forceNodeId?: string;
 }
 
 export interface InstanceSummary {
@@ -309,6 +319,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
     provider, // Default to auto (resolved by instance manager)
+    executionLocation: { type: 'local' },
     diffStats: undefined,
 
     outputBuffer: config.initialOutputBuffer || [],

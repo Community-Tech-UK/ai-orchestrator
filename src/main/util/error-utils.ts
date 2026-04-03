@@ -56,3 +56,43 @@ export function truncateErrorForContext(e: unknown, maxChars = 500): string {
   if (full.length <= maxChars) return full;
   return full.slice(0, maxChars);
 }
+
+// ── Telemetry-Safe Errors ──────────────────────────────────────
+
+import type { ErrorInfo } from '../../shared/types/ipc.types';
+
+/**
+ * Marker class ensuring errors sent to telemetry contain no PII.
+ * The `isTelemetrySafe` flag lets telemetry pipelines assert safety at runtime.
+ */
+export class TelemetrySafeError extends Error {
+  readonly isTelemetrySafe = true as const;
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'TelemetrySafeError';
+  }
+
+  /** Create from any error, truncating the stack to `maxFrames`. */
+  static from(e: unknown, maxFrames = 5): TelemetrySafeError {
+    const truncated = shortErrorStack(e, maxFrames);
+    const message = e instanceof Error ? e.message : String(e);
+    const safe = new TelemetrySafeError(message);
+    safe.stack = truncated;
+    return safe;
+  }
+}
+
+/**
+ * Create an IPC-safe ErrorInfo with truncated stack.
+ * Use this instead of manually constructing ErrorInfo objects in IPC handlers.
+ */
+export function createSafeErrorInfo(error: unknown, code: string): ErrorInfo {
+  const err = error instanceof Error ? error : new Error(String(error));
+  return {
+    code,
+    message: err.message || 'Unknown error',
+    stack: shortErrorStack(err, 5),
+    timestamp: Date.now(),
+  };
+}

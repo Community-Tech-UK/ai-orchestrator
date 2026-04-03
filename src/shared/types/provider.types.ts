@@ -350,6 +350,13 @@ export function getProviderModelContextWindow(
     return 1000000;
   }
 
+  // When model is unspecified (empty string), bare "opus"/"sonnet" is the
+  // server-side default and resolves to 4.6+ which natively supports 1M.
+  // Only fall back to 200k for explicitly pinned older models or haiku.
+  if (normalizedModel === '' || normalizedModel === 'default') {
+    return 1000000;
+  }
+
   // All other Claude models (haiku, pinned older versions) default to 200k
   return 200000;
 }

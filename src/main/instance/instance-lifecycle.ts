@@ -15,6 +15,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
   getModelsForProvider,
   getProviderModelContextWindow,
@@ -46,6 +47,7 @@ import type {
   SessionDiffStats
 } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import type { CoreDeps } from './instance-deps';
 import { getPolicyAdapter } from '../observation/policy-adapter';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
@@ -178,6 +180,12 @@ export interface LifecycleDependencies {
   getStateMachine?: (instanceId: string) => InstanceStateMachine | undefined;
   setStateMachine?: (instanceId: string, machine: InstanceStateMachine) => void;
   deleteStateMachine?: (instanceId: string) => void;
+  /**
+   * Narrow dependency interfaces for the core execution loop.
+   * When provided, lifecycle methods should prefer these over direct singleton access.
+   * Optional for backward compatibility — existing code paths continue to work.
+   */
+  coreDeps?: CoreDeps;
 }
 
 // MCP config file for spawned CLI instances (LSP server, etc.)
@@ -211,6 +219,47 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
     }
     return [];
+  }
+
+  /**
+   * Determine where an instance should execute based on its creation config.
+   * Returns { type: 'local' } by default. Only returns remote if:
+   * 1. A specific node is forced via forceNodeId, OR
+   * 2. Placement preferences match an available remote node
+   */
+  private resolveExecutionLocation(config: InstanceCreateConfig): ExecutionLocation {
+    // 1. Explicit node override
+    if (config.forceNodeId) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getWorkerNodeRegistry } = require('../remote-node');
+        const registry = getWorkerNodeRegistry();
+        const node = registry.getNode(config.forceNodeId);
+        if (node?.status === 'connected') {
+          return { type: 'remote', nodeId: config.forceNodeId };
+        }
+      } catch {
+        // Remote node module not available — fall through to local
+      }
+    }
+
+    // 2. Placement preferences
+    if (config.nodePlacement) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getWorkerNodeRegistry } = require('../remote-node');
+        const registry = getWorkerNodeRegistry();
+        const node = registry.selectNode(config.nodePlacement);
+        if (node) {
+          return { type: 'remote', nodeId: node.id };
+        }
+      } catch {
+        // Remote node module not available — fall through to local
+      }
+    }
+
+    // 3. Default: local
+    return { type: 'local' };
   }
 
   constructor(deps: LifecycleDependencies) {
@@ -558,6 +607,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       workingDirectory: resolvedWorkingDir,
       yoloMode: resolvedYoloMode,
       provider: config.provider || 'auto',
+      executionLocation: { type: 'local' },
       diffStats: undefined,
 
       outputBuffer: config.initialOutputBuffer || [],
@@ -832,7 +882,9 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
           }
         } else {
-          adapter = createCliAdapter(resolvedCliType, spawnOptions);
+          const executionLocation = this.resolveExecutionLocation(config);
+          instance.executionLocation = executionLocation;
+          adapter = createCliAdapter(resolvedCliType, spawnOptions, executionLocation);
 
           // Set up adapter events
           this.deps.setupAdapterEvents(instance.id, adapter);

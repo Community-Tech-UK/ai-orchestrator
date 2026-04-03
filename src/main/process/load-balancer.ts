@@ -10,6 +10,8 @@ export interface LoadMetrics {
   memoryPressure: MemoryPressureLevel;
   status: string;
   lastUpdated?: number;
+  /** Network latency to remote node (undefined for local instances) */
+  nodeLatencyMs?: number;
 }
 
 export interface LoadBalancerConfig {
@@ -144,11 +146,13 @@ export class LoadBalancer extends EventEmitter {
     const taskScore = Math.min(m.activeTasks * 25, 100); // Normalize: 4 tasks = 100
     const contextScore = m.contextUsagePercent;
     const pressureScore = PRESSURE_SCORES[m.memoryPressure] ?? 0;
+    const latencyPenalty = m.nodeLatencyMs ? Math.min(m.nodeLatencyMs / 10, 20) : 0;
 
     return (
       this.config.weightActiveTasks * taskScore +
       this.config.weightContextUsage * contextScore +
-      this.config.weightMemoryPressure * pressureScore
+      this.config.weightMemoryPressure * pressureScore +
+      latencyPenalty
     );
   }
 }

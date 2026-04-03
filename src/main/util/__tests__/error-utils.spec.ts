@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shortErrorStack, isAbortError, isFsInaccessible, truncateErrorForContext } from '../error-utils';
+import { shortErrorStack, isAbortError, isFsInaccessible, truncateErrorForContext, TelemetrySafeError, createSafeErrorInfo } from '../error-utils';
 
 describe('shortErrorStack', () => {
   it('returns string representation of non-Error values', () => {
@@ -155,5 +155,102 @@ describe('truncateErrorForContext', () => {
     const err = new Error('y'.repeat(2000));
     const result = truncateErrorForContext(err);
     expect(result.length).toBeLessThanOrEqual(500);
+  });
+});
+
+describe('TelemetrySafeError', () => {
+  it('has isTelemetrySafe marker', () => {
+    const err = new TelemetrySafeError('safe message');
+    expect(err.isTelemetrySafe).toBe(true);
+    expect(err.name).toBe('TelemetrySafeError');
+    expect(err.message).toBe('safe message');
+  });
+
+  it('is an instance of Error', () => {
+    const err = new TelemetrySafeError('test');
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(TelemetrySafeError);
+  });
+
+  it('supports cause via ErrorOptions', () => {
+    const cause = new Error('original');
+    const err = new TelemetrySafeError('wrapped', { cause });
+    expect(err.cause).toBe(cause);
+  });
+
+  describe('from()', () => {
+    it('creates TelemetrySafeError from Error with truncated stack', () => {
+      const original = new Error('deep error');
+      original.stack = [
+        'Error: deep error',
+        '    at fn1 (file1.ts:1:1)',
+        '    at fn2 (file2.ts:2:2)',
+        '    at fn3 (file3.ts:3:3)',
+        '    at fn4 (file4.ts:4:4)',
+        '    at fn5 (file5.ts:5:5)',
+        '    at fn6 (file6.ts:6:6)',
+        '    at fn7 (file7.ts:7:7)',
+      ].join('\n');
+
+      const safe = TelemetrySafeError.from(original, 3);
+      expect(safe.isTelemetrySafe).toBe(true);
+      expect(safe.message).toBe('deep error');
+      const lines = safe.stack!.split('\n');
+      expect(lines).toHaveLength(4);
+    });
+
+    it('creates TelemetrySafeError from non-Error values', () => {
+      const safe = TelemetrySafeError.from('string error');
+      expect(safe.isTelemetrySafe).toBe(true);
+      expect(safe.message).toBe('string error');
+    });
+
+    it('creates TelemetrySafeError from null', () => {
+      const safe = TelemetrySafeError.from(null);
+      expect(safe.message).toBe('null');
+    });
+
+    it('defaults to 5 stack frames', () => {
+      const original = new Error('default');
+      original.stack = [
+        'Error: default',
+        ...Array.from({ length: 10 }, (_, i) => `    at fn${i} (file.ts:${i}:1)`),
+      ].join('\n');
+
+      const safe = TelemetrySafeError.from(original);
+      const frames = safe.stack!.split('\n').filter(l => l.trim().startsWith('at '));
+      expect(frames).toHaveLength(5);
+    });
+  });
+});
+
+describe('createSafeErrorInfo', () => {
+  it('creates ErrorInfo with truncated stack', () => {
+    const err = new Error('test error');
+    err.stack = [
+      'Error: test error',
+      ...Array.from({ length: 10 }, (_, i) => `    at fn${i} (file.ts:${i}:1)`),
+    ].join('\n');
+
+    const info = createSafeErrorInfo(err, 'TEST_CODE');
+    expect(info.code).toBe('TEST_CODE');
+    expect(info.message).toBe('test error');
+    expect(info.timestamp).toBeGreaterThan(0);
+    const frames = info.stack!.split('\n').filter(l => l.trim().startsWith('at '));
+    expect(frames).toHaveLength(5);
+  });
+
+  it('handles non-Error input', () => {
+    const info = createSafeErrorInfo('string error', 'STR_ERR');
+    expect(info.code).toBe('STR_ERR');
+    expect(info.message).toBe('string error');
+    expect(info.timestamp).toBeGreaterThan(0);
+  });
+
+  it('handles errors with no message', () => {
+    const err = new Error();
+    const info = createSafeErrorInfo(err, 'EMPTY');
+    expect(info.code).toBe('EMPTY');
+    expect(info.message).toBe('Unknown error');
   });
 });

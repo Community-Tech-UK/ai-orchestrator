@@ -62,6 +62,7 @@ import {
   registerCommunicationHandlers,
   registerParallelWorktreeHandlers,
   registerRemoteObserverHandlers,
+  registerRemoteNodeHandlers,
   registerImageHandlers,
   registerChannelHandlers,
 } from './handlers';
@@ -283,6 +284,9 @@ export class IpcMainHandler {
 
     // Remote observer handlers (read-only local web observer)
     registerRemoteObserverHandlers();
+
+    // Remote node handlers (worker node management)
+    registerRemoteNodeHandlers();
 
     // Channel handlers (Discord/WhatsApp messaging)
     registerChannelHandlers();
