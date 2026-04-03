@@ -32,6 +32,14 @@ import { getResourceGovernor } from './process/resource-governor';
 import { getHibernationManager } from './process/hibernation-manager';
 import { getPoolManager } from './process/pool-manager';
 import { getLoadBalancer } from './process/load-balancer';
+import {
+  getWorkerNodeRegistry,
+  getWorkerNodeConnectionServer,
+  getWorkerNodeHealth,
+  handleNodeFailover,
+  RpcEventRouter,
+  getRemoteNodeConfig,
+} from './remote-node';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
@@ -268,6 +276,46 @@ class AIOrchestratorApp {
           });
         } },
         { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
+        { name: 'Worker node subsystem', fn: async () => {
+          const config = getRemoteNodeConfig();
+          if (!config.enabled) {
+            logger.info('Remote node subsystem disabled');
+            return;
+          }
+
+          const registry = getWorkerNodeRegistry();
+          const connection = getWorkerNodeConnectionServer();
+
+          // Start RPC event router
+          const rpcRouter = new RpcEventRouter(connection, registry);
+          rpcRouter.start();
+
+          // Wire node disconnect → failover
+          registry.on('node:disconnected', (node) => {
+            handleNodeFailover(typeof node === 'string' ? node : node.id);
+          });
+
+          // Wire node events → renderer
+          registry.on('node:connected', (node) => {
+            this.windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
+          });
+          registry.on('node:disconnected', (node) => {
+            this.windowManager.sendToRenderer('remote-node:event', {
+              type: 'disconnected',
+              nodeId: typeof node === 'string' ? node : node.id,
+            });
+          });
+          registry.on('node:updated', (node) => {
+            this.windowManager.sendToRenderer('remote-node:event', { type: 'updated', node });
+          });
+
+          // Start WebSocket server
+          await connection.start(config.serverPort, config.serverHost);
+          logger.info('Worker node subsystem started', {
+            port: config.serverPort,
+            host: config.serverHost,
+          });
+        } },
         { name: 'Cross-model review', fn: async () => {
           const crossModelReview = getCrossModelReviewService();
           await crossModelReview.initialize();
@@ -918,6 +966,8 @@ class AIOrchestratorApp {
     try { setGlobalState({ shutdownRequested: true }); } catch { /* non-critical */ }
     logger.info('Cleaning up');
     await runCleanupFunctions();
+    try { getWorkerNodeHealth().stopAll(); } catch { /* best effort */ }
+    try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
     try { getResourceGovernor().stop(); } catch { /* best effort */ }
     try { getHibernationManager().stop(); } catch { /* best effort */ }
     try { getPoolManager().stop(); } catch { /* best effort */ }
