@@ -476,7 +476,41 @@ export abstract class BaseCliAdapter extends EventEmitter {
       this.clearStreamIdleWatchdog();
     });
 
+    // Guard against EPIPE errors on stdin/stdout — these occur when the CLI
+    // process closes its pipe end before we finish writing (common on early exit).
+    proc.stdin?.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EPIPE') {
+        logger.debug('EPIPE on stdin — CLI process closed pipe', {
+          adapter: this.getName(),
+          pid: proc.pid,
+        });
+        return;
+      }
+      // Non-EPIPE stdin errors are re-emitted as adapter errors
+      this.emit('error', err);
+    });
+
+    proc.stdout?.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EPIPE') {
+        logger.debug('EPIPE on stdout — consumer closed pipe', {
+          adapter: this.getName(),
+          pid: proc.pid,
+        });
+        return;
+      }
+      this.emit('error', err);
+    });
+
     return proc;
+  }
+
+  /**
+   * Returns true if the spawned process's stdin pipe is open and writable.
+   * Use this guard before writing to stdin to avoid EPIPE errors on
+   * processes that have already closed their pipe end.
+   */
+  protected isRealPipe(): boolean {
+    return this.process?.stdin?.writable === true && !this.process.stdin.destroyed;
   }
 
   // ============ Stream Idle Watchdog ============
