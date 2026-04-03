@@ -158,6 +158,25 @@ export class ResourceGovernor extends EventEmitter {
     return true;
   }
 
+  /**
+   * Check if creation is allowed on a specific remote node.
+   * Checks node's own capacity limit independently from local limits.
+   */
+  isRemoteCreationAllowed(nodeId: string): boolean {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getWorkerNodeRegistry } = require('../remote-node');
+      const registry = getWorkerNodeRegistry();
+      const node = registry.getNode(nodeId);
+      if (!node) return false;
+      if (node.status !== 'connected') return false;
+      return node.activeInstances < node.capabilities.maxConcurrentInstances;
+    } catch {
+      // Remote node module may not be initialized — fail closed
+      return false;
+    }
+  }
+
   getConfig(): ResourceGovernorConfig {
     return { ...this.config };
   }
