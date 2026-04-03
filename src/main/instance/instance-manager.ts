@@ -572,6 +572,13 @@ export class InstanceManager extends EventEmitter {
     return this.state.getInstanceCount();
   }
 
+  /** Return all instances executing on a given worker node */
+  getInstancesByNode(nodeId: string): Instance[] {
+    return this.state.getAllInstances().filter(
+      (i) => i.executionLocation?.type === 'remote' && i.executionLocation.nodeId === nodeId
+    );
+  }
+
   getIdleInstances(thresholdMs: number): { id: string; lastActivity: number }[] {
     const now = Date.now();
     return this.state.getAllInstances()
