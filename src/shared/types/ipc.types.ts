@@ -341,6 +341,13 @@ export const IPC_CHANNELS = {
   REMOTE_OBSERVER_STOP: 'remote-observer:stop',
   REMOTE_OBSERVER_ROTATE_TOKEN: 'remote-observer:rotate-token',
 
+  // Remote nodes
+  REMOTE_NODE_LIST: 'remote-node:list',
+  REMOTE_NODE_GET: 'remote-node:get',
+  REMOTE_NODE_START_SERVER: 'remote-node:start-server',
+  REMOTE_NODE_STOP_SERVER: 'remote-node:stop-server',
+  REMOTE_NODE_EVENT: 'remote-node:event',
+
   // External Editor (9.2)
   EDITOR_DETECT: 'editor:detect',
   EDITOR_OPEN: 'editor:open',
