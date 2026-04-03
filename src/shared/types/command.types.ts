@@ -23,6 +23,12 @@ export interface CommandTemplate {
   agent?: string;
   /** If true, run command in a child/subtask instance by default */
   subtask?: boolean;
+  /**
+   * Source priority index assigned at load time.
+   * Higher values indicate higher-priority (later) sources such as project-level overrides.
+   * Callers can use this to render override indicators in the UI.
+   */
+  priority?: number;
   createdAt: number;
   updatedAt: number;
 }
