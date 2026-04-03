@@ -292,7 +292,9 @@ class AIOrchestratorApp {
 
           // Wire node disconnect → failover
           registry.on('node:disconnected', (node) => {
-            handleNodeFailover(typeof node === 'string' ? node : node.id);
+            const nodeId = typeof node === 'string' ? node : node.id;
+            handleNodeFailover(nodeId);
+            this.syncRemoteNodeMetricsToLoadBalancer(nodeId);
           });
 
           // Wire node events → renderer
@@ -306,6 +308,7 @@ class AIOrchestratorApp {
             });
           });
           registry.on('node:updated', (node) => {
+            this.syncRemoteNodeMetricsToLoadBalancer(node.id);
             this.windowManager.sendToRenderer('remote-node:event', { type: 'updated', node });
           });
 
@@ -448,6 +451,30 @@ class AIOrchestratorApp {
     return provider === 'codex' || provider === 'gemini';
   }
 
+  private getNodeLatencyForInstance(instanceId: string): number | undefined {
+    const instance = this.instanceManager.getInstance(instanceId);
+    if (!instance || instance.executionLocation.type !== 'remote') {
+      return undefined;
+    }
+
+    return getWorkerNodeRegistry().getNode(instance.executionLocation.nodeId)?.latencyMs;
+  }
+
+  private syncRemoteNodeMetricsToLoadBalancer(nodeId: string): void {
+    const loadBalancer = getLoadBalancer();
+    const nodeLatencyMs = getWorkerNodeRegistry().getNode(nodeId)?.latencyMs;
+
+    for (const instance of this.instanceManager.getInstancesByNode(nodeId)) {
+      loadBalancer.updateMetrics(instance.id, {
+        activeTasks: 0,
+        contextUsagePercent: instance.contextUsage?.percentage ?? 0,
+        memoryPressure: 'normal',
+        status: instance.status,
+        nodeLatencyMs,
+      });
+    }
+  }
+
   private setupInstanceEventForwarding(): void {
     const observer = getRemoteObserverServer();
     const repoJobs = getRepoJobService();
@@ -579,6 +606,7 @@ class AIOrchestratorApp {
                 : 0,
               memoryPressure: 'normal',
               status: update.status || 'idle',
+              nodeLatencyMs: this.getNodeLatencyForInstance(update.instanceId),
             });
           }
         }

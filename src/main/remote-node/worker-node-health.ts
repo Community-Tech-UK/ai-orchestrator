@@ -1,5 +1,7 @@
 import { getLogger } from '../logging/logger';
 import { getWorkerNodeRegistry } from './worker-node-registry';
+import { getWorkerNodeConnectionServer } from './worker-node-connection';
+import { COORDINATOR_TO_NODE } from './worker-node-rpc';
 
 const logger = getLogger('WorkerNodeHealth');
 
@@ -11,6 +13,7 @@ export class WorkerNodeHealth {
   private static instance: WorkerNodeHealth;
 
   private intervals = new Map<string, ReturnType<typeof setInterval>>();
+  private pingInFlight = new Set<string>();
 
   static getInstance(): WorkerNodeHealth {
     if (!this.instance) {
@@ -49,6 +52,7 @@ export class WorkerNodeHealth {
     if (handle === undefined) return;
     clearInterval(handle);
     this.intervals.delete(nodeId);
+    this.pingInFlight.delete(nodeId);
     logger.info('Health monitoring stopped', { nodeId });
   }
 
@@ -90,6 +94,36 @@ export class WorkerNodeHealth {
       logger.warn('Node exceeded degraded threshold', { nodeId, timeSinceHeartbeat });
       registry.updateNodeMetrics(nodeId, { status: 'degraded' });
     }
+
+    this.measureLatency(nodeId);
+  }
+
+  private measureLatency(nodeId: string): void {
+    if (this.pingInFlight.has(nodeId)) {
+      return;
+    }
+
+    this.pingInFlight.add(nodeId);
+    const startedAt = Date.now();
+
+    void getWorkerNodeConnectionServer()
+      .sendRpc<{ pong: number }>(nodeId, COORDINATOR_TO_NODE.NODE_PING)
+      .then(() => {
+        const latencyMs = Math.max(0, Date.now() - startedAt);
+        const registry = getWorkerNodeRegistry();
+        if (registry.getNode(nodeId)) {
+          registry.updateNodeMetrics(nodeId, { latencyMs });
+        }
+      })
+      .catch((error) => {
+        logger.debug('Worker node ping failed', {
+          nodeId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.pingInFlight.delete(nodeId);
+      });
   }
 }
 

@@ -90,24 +90,44 @@ export class RpcEventRouter {
       }
     }
 
-    switch (request.method) {
-      case NODE_TO_COORDINATOR.REGISTER:
-        this.handleNodeRegister(nodeId, request);
-        break;
-      case NODE_TO_COORDINATOR.HEARTBEAT:
-        this.handleNodeHeartbeat(nodeId, request);
-        break;
-      case NODE_TO_COORDINATOR.INSTANCE_OUTPUT:
-        this.handleInstanceOutput(nodeId, request);
-        break;
-      case NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE:
-        this.handleInstanceStateChange(nodeId, request);
-        break;
-      case NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST:
-        this.handleInstancePermissionRequest(nodeId, request);
-        break;
-      default:
-        logger.warn('Unknown RPC method received', { nodeId, method: request.method });
+    try {
+      switch (request.method) {
+        case NODE_TO_COORDINATOR.REGISTER:
+          this.handleNodeRegister(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.HEARTBEAT:
+          this.handleNodeHeartbeat(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.INSTANCE_OUTPUT:
+          this.handleInstanceOutput(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE:
+          this.handleInstanceStateChange(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST:
+          this.handleInstancePermissionRequest(nodeId, request);
+          break;
+        default:
+          logger.warn('Unknown RPC method received', { nodeId, method: request.method });
+          this.connection.sendResponse(
+            nodeId,
+            createRpcError(
+              request.id,
+              RPC_ERROR_CODES.METHOD_NOT_FOUND,
+              `Unknown RPC method: ${request.method}`,
+            ),
+          );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'RPC handler failed';
+      logger.error('RPC request handler failed', err instanceof Error ? err : undefined, {
+        nodeId,
+        method: request.method,
+      });
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
+      );
     }
   }
 
@@ -127,7 +147,17 @@ export class RpcEventRouter {
     switch (notification.method) {
       case NODE_TO_COORDINATOR.HEARTBEAT: {
         const hbParams = notification.params as Record<string, unknown> | undefined;
+        const node = this.registry.getNode(nodeId);
+        if (!node) {
+          logger.warn('Heartbeat notification received for unknown node', { nodeId });
+          return;
+        }
         this.registry.updateHeartbeat(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities);
+        this.registry.updateNodeMetrics(nodeId, {
+          activeInstances: typeof hbParams?.['activeInstances'] === 'number'
+            ? hbParams['activeInstances']
+            : node.activeInstances,
+        });
         break;
       }
       default:
@@ -165,14 +195,34 @@ export class RpcEventRouter {
   }
 
   private handleNodeHeartbeat(nodeId: string, request: RpcRequest): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const params = request.params as Record<string, any> | undefined;
+    const node = this.registry.getNode(nodeId);
+    if (!node) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
+
+    const params = request.params as Record<string, unknown> | undefined;
     const capabilities = params?.['capabilities'] as WorkerNodeCapabilities;
     this.registry.updateHeartbeat(nodeId, capabilities);
+    this.registry.updateNodeMetrics(nodeId, {
+      activeInstances: typeof params?.['activeInstances'] === 'number'
+        ? params['activeInstances']
+        : node.activeInstances,
+    });
     this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
   }
 
   private handleInstanceOutput(nodeId: string, request: RpcRequest): void {
+    if (!this.registry.getNode(nodeId)) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = request.params as Record<string, any> | undefined;
     this.registry.emit('remote:instance-output', {
@@ -184,17 +234,32 @@ export class RpcEventRouter {
   }
 
   private handleInstanceStateChange(nodeId: string, request: RpcRequest): void {
+    if (!this.registry.getNode(nodeId)) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = request.params as Record<string, any> | undefined;
     this.registry.emit('remote:instance-state-change', {
       nodeId,
       instanceId: params?.['instanceId'],
       state: params?.['state'],
+      info: params?.['info'],
     });
     this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
   }
 
   private handleInstancePermissionRequest(nodeId: string, request: RpcRequest): void {
+    if (!this.registry.getNode(nodeId)) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = request.params as Record<string, any> | undefined;
     this.registry.emit('remote:instance-permission-request', {

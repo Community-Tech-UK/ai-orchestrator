@@ -4,6 +4,7 @@ import { reportCapabilities } from './capability-reporter';
 import { LocalInstanceManager, type SpawnParams } from './local-instance-manager';
 import type { WorkerConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
+import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
 
 interface RpcMessage {
   jsonrpc: '2.0';
@@ -95,7 +96,7 @@ export class WorkerAgent extends EventEmitter {
     return {
       jsonrpc: '2.0',
       id: `reg-${Date.now()}`,
-      method: 'node.register',
+      method: NODE_TO_COORDINATOR.REGISTER,
       params: {
         nodeId: this.config.nodeId,
         name: this.config.name,
@@ -118,7 +119,7 @@ export class WorkerAgent extends EventEmitter {
       );
       this.send({
         jsonrpc: '2.0',
-        method: 'node.heartbeat',
+        method: NODE_TO_COORDINATOR.HEARTBEAT,
         params: {
           nodeId: this.config.nodeId,
           capabilities: this.capabilities,
@@ -176,37 +177,48 @@ export class WorkerAgent extends EventEmitter {
     try {
       let result: unknown;
       switch (msg.method) {
-        case 'instance.spawn':
+        case COORDINATOR_TO_NODE.INSTANCE_SPAWN:
           await this.instanceManager.spawn(params as unknown as SpawnParams);
           result = { instanceId: params['instanceId'] };
           break;
-        case 'instance.sendInput':
+        case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT:
           await this.instanceManager.sendInput(
             params['instanceId'] as string,
             params['message'] as string,
           );
           result = { ok: true };
           break;
-        case 'instance.terminate':
+        case COORDINATOR_TO_NODE.INSTANCE_TERMINATE:
           await this.instanceManager.terminate(params['instanceId'] as string);
           result = { ok: true };
           break;
-        case 'instance.interrupt':
+        case COORDINATOR_TO_NODE.INSTANCE_INTERRUPT:
           await this.instanceManager.interrupt(params['instanceId'] as string);
           result = { ok: true };
           break;
-        case 'node.ping':
+        case COORDINATOR_TO_NODE.NODE_PING:
           result = { pong: Date.now() };
           break;
         default:
-          this.sendError(msg.id!, -32601, `Unknown method: ${msg.method}`);
+          this.sendError(msg.id!, RPC_ERROR_CODES.METHOD_NOT_FOUND, `Unknown method: ${msg.method}`);
           return;
       }
       this.sendResult(msg.id!, result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.sendError(msg.id!, -32603, message);
+      this.sendError(msg.id!, this.getRpcErrorCode(msg.method, err), message);
     }
+  }
+
+  private getRpcErrorCode(method: string | undefined, err: unknown): number {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Instance not found')) {
+      return RPC_ERROR_CODES.INSTANCE_NOT_FOUND;
+    }
+    if (method === COORDINATOR_TO_NODE.INSTANCE_SPAWN) {
+      return RPC_ERROR_CODES.SPAWN_FAILED;
+    }
+    return RPC_ERROR_CODES.INTERNAL_ERROR;
   }
 
   // -- Instance event forwarding ----------------------------------------------
@@ -216,7 +228,7 @@ export class WorkerAgent extends EventEmitter {
       this.send({
         jsonrpc: '2.0',
         id: `out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        method: 'instance.output',
+        method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
         params: { instanceId, message, token: this.config.authToken },
       });
     });
@@ -225,7 +237,7 @@ export class WorkerAgent extends EventEmitter {
       this.send({
         jsonrpc: '2.0',
         id: `sc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        method: 'instance.stateChange',
+        method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
         params: { instanceId, state, token: this.config.authToken },
       });
     });
@@ -234,8 +246,17 @@ export class WorkerAgent extends EventEmitter {
       this.send({
         jsonrpc: '2.0',
         id: `exit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        method: 'instance.stateChange',
+        method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
         params: { instanceId, state: 'exited', info, token: this.config.authToken },
+      });
+    });
+
+    this.instanceManager.on('instance:permissionRequest', (instanceId: string, permission: unknown) => {
+      this.send({
+        jsonrpc: '2.0',
+        id: `perm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        method: NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST,
+        params: { instanceId, permission, token: this.config.authToken },
       });
     });
   }

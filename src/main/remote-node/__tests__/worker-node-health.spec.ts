@@ -10,6 +10,14 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
+const mockConnection = {
+  sendRpc: vi.fn(),
+};
+
+vi.mock('../worker-node-connection', () => ({
+  getWorkerNodeConnectionServer: () => mockConnection,
+}));
+
 import { WorkerNodeRegistry } from '../worker-node-registry';
 import { WorkerNodeHealth } from '../worker-node-health';
 import type { WorkerNodeInfo, WorkerNodeCapabilities } from '../../../shared/types/worker-node.types';
@@ -58,6 +66,8 @@ describe('WorkerNodeHealth', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    mockConnection.sendRpc.mockReset();
+    mockConnection.sendRpc.mockResolvedValue({ pong: Date.now() });
     WorkerNodeRegistry._resetForTesting();
     WorkerNodeHealth._resetForTesting();
     registry = WorkerNodeRegistry.getInstance();
@@ -77,6 +87,16 @@ describe('WorkerNodeHealth', () => {
     registry.registerNode(makeNode('n1'));
     health.startMonitoring('n1');
     expect(health.isMonitoring('n1')).toBe(true);
+  });
+
+  it('records latency from node pings while monitoring', async () => {
+    registry.registerNode(makeNode('n1-latency'));
+    health.startMonitoring('n1-latency');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mockConnection.sendRpc).toHaveBeenCalledWith('n1-latency', 'node.ping');
+    expect(registry.getNode('n1-latency')?.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
   // -------------------------------------------------------------------------

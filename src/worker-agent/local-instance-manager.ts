@@ -1,9 +1,10 @@
 import { EventEmitter } from 'events';
 import * as path from 'path';
+import type { CliType } from '../main/cli/cli-detection';
 
 export interface SpawnParams {
   instanceId: string;
-  cliType: string;
+  cliType: CliType;
   workingDirectory: string;
   systemPrompt?: string;
   model?: string;
@@ -12,11 +13,18 @@ export interface SpawnParams {
   disallowedTools?: string[];
 }
 
+type WorkerManagedAdapter = EventEmitter & {
+  spawn: () => Promise<number | void>;
+  sendInput: (message: string) => Promise<void>;
+  terminate: (graceful?: boolean) => Promise<void>;
+  interrupt: () => boolean | Promise<void>;
+};
+
 export interface ManagedInstance {
   instanceId: string;
-  cliType: string;
+  cliType: CliType;
   workingDirectory: string;
-  adapter: unknown; // CliAdapter — typed loosely to avoid Electron imports at compile time
+  adapter: WorkerManagedAdapter;
   createdAt: number;
 }
 
@@ -68,7 +76,7 @@ export class LocalInstanceManager extends EventEmitter {
     // In the bundled worker agent, the adapter factory is tree-shaken to
     // only include the CLI adapters that are used.
     const { createCliAdapter } = await import('../main/cli/adapters/adapter-factory');
-    const adapter = createCliAdapter(params.cliType as Parameters<typeof createCliAdapter>[0], {
+    const adapter: WorkerManagedAdapter = createCliAdapter(params.cliType, {
       sessionId: params.instanceId,
       workingDirectory: params.workingDirectory,
       systemPrompt: params.systemPrompt,
@@ -79,16 +87,18 @@ export class LocalInstanceManager extends EventEmitter {
     });
 
     // Wire adapter events to emit them on this manager
-    const ad = adapter as EventEmitter;
-    ad.on('output', (msg: unknown) => this.emit('instance:output', params.instanceId, msg));
-    ad.on('exit', (info: unknown) => {
+    adapter.on('output', (msg: unknown) => this.emit('instance:output', params.instanceId, msg));
+    adapter.on('exit', (code: number | null, signal: string | null) => {
       this.instances.delete(params.instanceId);
-      this.emit('instance:exit', params.instanceId, info);
+      this.emit('instance:exit', params.instanceId, { code, signal });
     });
-    ad.on('stateChange', (state: unknown) => this.emit('instance:stateChange', params.instanceId, state));
+    adapter.on('status', (state: unknown) => this.emit('instance:stateChange', params.instanceId, state));
+    adapter.on('input_required', (permission: unknown) => {
+      this.emit('instance:permissionRequest', params.instanceId, permission);
+    });
 
     // Spawn the process
-    await (adapter as unknown as { spawn?: () => Promise<void> }).spawn?.();
+    await adapter.spawn();
 
     this.instances.set(params.instanceId, {
       instanceId: params.instanceId,
@@ -102,23 +112,20 @@ export class LocalInstanceManager extends EventEmitter {
   async sendInput(instanceId: string, message: string): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
-    const adapter = inst.adapter as { sendInput?: (msg: string) => Promise<void>; sendMessage?: (msg: string) => Promise<void> };
-    await (adapter.sendInput ?? adapter.sendMessage)?.call(adapter, message);
+    await inst.adapter.sendInput(message);
   }
 
   async terminate(instanceId: string): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) return;
-    const adapter = inst.adapter as { terminate?: () => Promise<void> };
-    await adapter.terminate?.();
+    await inst.adapter.terminate();
     this.instances.delete(instanceId);
   }
 
   async interrupt(instanceId: string): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
-    const adapter = inst.adapter as { interrupt?: () => Promise<void> };
-    await adapter.interrupt?.();
+    await inst.adapter.interrupt();
   }
 
   async terminateAll(): Promise<void> {

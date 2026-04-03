@@ -195,12 +195,13 @@ describe('RpcEventRouter', () => {
     registry.registerNode(makeNode('node-4', { status: 'degraded' }));
 
     const newCaps = makeCapabilities({ availableMemoryMB: 7000 });
-    const request = makeRpcRequest('node.heartbeat', { capabilities: newCaps }, 2);
+    const request = makeRpcRequest('node.heartbeat', { capabilities: newCaps, activeInstances: 3 }, 2);
 
     mockConnection.emit('rpc:request', 'node-4', request);
 
     const node = registry.getNode('node-4');
     expect(node?.capabilities.availableMemoryMB).toBe(7000);
+    expect(node?.activeInstances).toBe(3);
     expect(node?.lastHeartbeat).toBeGreaterThan(0);
     // Heartbeat should restore a degraded node to connected
     expect(node?.status).toBe('connected');
@@ -211,11 +212,28 @@ describe('RpcEventRouter', () => {
     );
   });
 
+  it('returns NODE_NOT_FOUND when heartbeat arrives for an unknown node', () => {
+    const request = makeRpcRequest('node.heartbeat', {
+      capabilities: makeCapabilities(),
+      activeInstances: 1,
+    }, 22);
+
+    mockConnection.emit('rpc:request', 'missing-node', request);
+
+    expect(mockConnection.sendResponse).toHaveBeenCalledWith(
+      'missing-node',
+      expect.objectContaining({
+        error: expect.objectContaining({ code: -32001 }),
+      }),
+    );
+  });
+
   // -------------------------------------------------------------------------
   // rpc:request instance.output — emits remote:instance-output on registry
   // -------------------------------------------------------------------------
 
   it('emits remote:instance-output on registry for instance.output request', () => {
+    registry.registerNode(makeNode('node-5'));
     const outputHandler = vi.fn();
     registry.on('remote:instance-output', outputHandler);
 
@@ -242,12 +260,14 @@ describe('RpcEventRouter', () => {
   // -------------------------------------------------------------------------
 
   it('emits remote:instance-state-change on registry for instance.stateChange request', () => {
+    registry.registerNode(makeNode('node-6'));
     const stateHandler = vi.fn();
     registry.on('remote:instance-state-change', stateHandler);
 
     const request = makeRpcRequest('instance.stateChange', {
       instanceId: 'inst-2',
       state: 'idle',
+      info: { reason: 'done' },
     }, 4);
 
     mockConnection.emit('rpc:request', 'node-6', request);
@@ -256,6 +276,7 @@ describe('RpcEventRouter', () => {
       nodeId: 'node-6',
       instanceId: 'inst-2',
       state: 'idle',
+      info: { reason: 'done' },
     });
     expect(mockConnection.sendResponse).toHaveBeenCalledWith(
       'node-6',
@@ -268,6 +289,7 @@ describe('RpcEventRouter', () => {
   // -------------------------------------------------------------------------
 
   it('emits remote:instance-permission-request on registry for instance.permissionRequest request', () => {
+    registry.registerNode(makeNode('node-7'));
     const permHandler = vi.fn();
     registry.on('remote:instance-permission-request', permHandler);
 
@@ -300,11 +322,23 @@ describe('RpcEventRouter', () => {
     mockConnection.emit('rpc:notification', 'node-8', {
       jsonrpc: '2.0',
       method: 'node.heartbeat',
-      params: { capabilities: newCaps },
+      params: { capabilities: newCaps, activeInstances: 2 },
     });
 
     expect(registry.getNode('node-8')?.capabilities.availableMemoryMB).toBe(5000);
+    expect(registry.getNode('node-8')?.activeInstances).toBe(2);
     expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('returns METHOD_NOT_FOUND for unknown RPC requests', () => {
+    mockConnection.emit('rpc:request', 'node-10', makeRpcRequest('node.unknown', {}, 99));
+
+    expect(mockConnection.sendResponse).toHaveBeenCalledWith(
+      'node-10',
+      expect.objectContaining({
+        error: expect.objectContaining({ code: -32601 }),
+      }),
+    );
   });
 
   // -------------------------------------------------------------------------

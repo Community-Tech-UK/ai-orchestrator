@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // Mock logger to avoid side-effects during tests.
@@ -8,6 +9,12 @@ vi.mock('../../../logging/logger', () => ({
     debug: vi.fn(),
     error: vi.fn(),
   }),
+}));
+
+const mockRegistry = new EventEmitter();
+
+vi.mock('../../../remote-node/worker-node-registry', () => ({
+  getWorkerNodeRegistry: () => mockRegistry,
 }));
 
 import { RemoteCliAdapter } from '../remote-cli-adapter';
@@ -26,6 +33,7 @@ function createMockConnection() {
 const TARGET_NODE_ID = 'node-worker-1';
 const REMOTE_INSTANCE_ID = 'remote-instance-abc';
 const DEFAULT_OPTIONS: UnifiedSpawnOptions = {
+  sessionId: 'session-123',
   workingDirectory: '/tmp/work',
   systemPrompt: 'Be helpful',
   model: 'claude-opus-4',
@@ -36,6 +44,7 @@ describe('RemoteCliAdapter', () => {
   let adapter: RemoteCliAdapter;
 
   beforeEach(() => {
+    mockRegistry.removeAllListeners();
     connection = createMockConnection();
     adapter = new RemoteCliAdapter(connection, TARGET_NODE_ID, 'claude', DEFAULT_OPTIONS);
   });
@@ -44,7 +53,7 @@ describe('RemoteCliAdapter', () => {
   // 1. spawn
   // ---------------------------------------------------------------------------
   describe('spawn', () => {
-    it('sends instance.spawn RPC with cliType and options, stores remote instance ID, emits spawned', async () => {
+    it('sends instance.spawn RPC with flat worker spawn params, stores remote instance ID, emits spawned', async () => {
       (connection.sendRpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         instanceId: REMOTE_INSTANCE_ID,
       });
@@ -55,13 +64,27 @@ describe('RemoteCliAdapter', () => {
       await adapter.spawn();
 
       expect(connection.sendRpc).toHaveBeenCalledWith(TARGET_NODE_ID, 'instance.spawn', {
-        requestedCliType: 'claude',
-        options: DEFAULT_OPTIONS,
+        instanceId: 'session-123',
+        cliType: 'claude',
+        workingDirectory: '/tmp/work',
+        systemPrompt: 'Be helpful',
+        model: 'claude-opus-4',
+        yoloMode: undefined,
+        allowedTools: undefined,
+        disallowedTools: undefined,
       });
 
       expect(adapter.getRemoteInstanceId()).toBe(REMOTE_INSTANCE_ID);
       expect(adapter.isRunning()).toBe(true);
       expect(spawnedHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when sessionId is missing from spawn options', async () => {
+      const missingSessionAdapter = new RemoteCliAdapter(connection, TARGET_NODE_ID, 'claude', {
+        workingDirectory: '/tmp/work',
+      });
+
+      await expect(missingSessionAdapter.spawn()).rejects.toThrow(/sessionId/i);
     });
   });
 
@@ -196,7 +219,7 @@ describe('RemoteCliAdapter', () => {
   // 7. handleRemoteExit
   // ---------------------------------------------------------------------------
   describe('handleRemoteExit', () => {
-    it('emits exit event with code and clears remote instance ID', async () => {
+    it('emits exit event with code and signal and clears remote instance ID', async () => {
       (connection.sendRpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
         instanceId: REMOTE_INSTANCE_ID,
       });
@@ -207,10 +230,99 @@ describe('RemoteCliAdapter', () => {
       const exitHandler = vi.fn();
       adapter.on('exit', exitHandler);
 
-      adapter.handleRemoteExit(0);
+      adapter.handleRemoteExit(0, null);
 
-      expect(exitHandler).toHaveBeenCalledWith({ code: 0 });
+      expect(exitHandler).toHaveBeenCalledWith(0, null);
       expect(adapter.getRemoteInstanceId()).toBeNull();
+      expect(adapter.isRunning()).toBe(false);
+    });
+  });
+
+  describe('registry event forwarding', () => {
+    it('forwards matching registry output, state, and permission events after spawning', async () => {
+      (connection.sendRpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        instanceId: REMOTE_INSTANCE_ID,
+      });
+
+      const outputHandler = vi.fn();
+      const stateChangeHandler = vi.fn();
+      const statusHandler = vi.fn();
+      const permissionHandler = vi.fn();
+
+      adapter.on('output', outputHandler);
+      adapter.on('stateChange', stateChangeHandler);
+      adapter.on('status', statusHandler);
+      adapter.on('input_required', permissionHandler);
+
+      await adapter.spawn();
+
+      const message = { type: 'text', content: 'remote output', timestamp: 1234 };
+      const permission = { tool: 'bash', command: 'pwd' };
+
+      mockRegistry.emit('remote:instance-output', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+        message,
+      });
+      mockRegistry.emit('remote:instance-state-change', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+        state: 'busy',
+      });
+      mockRegistry.emit('remote:instance-permission-request', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+        permission,
+      });
+
+      expect(outputHandler).toHaveBeenCalledWith(message);
+      expect(stateChangeHandler).toHaveBeenCalledWith('busy');
+      expect(statusHandler).toHaveBeenCalledWith('busy');
+      expect(permissionHandler).toHaveBeenCalledWith(permission);
+    });
+
+    it('ignores registry events for other nodes or instances', async () => {
+      (connection.sendRpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        instanceId: REMOTE_INSTANCE_ID,
+      });
+
+      const outputHandler = vi.fn();
+      adapter.on('output', outputHandler);
+
+      await adapter.spawn();
+
+      mockRegistry.emit('remote:instance-output', {
+        nodeId: 'other-node',
+        instanceId: REMOTE_INSTANCE_ID,
+        message: { type: 'text', content: 'ignored', timestamp: 1 },
+      });
+      mockRegistry.emit('remote:instance-output', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: 'other-instance',
+        message: { type: 'text', content: 'ignored', timestamp: 2 },
+      });
+
+      expect(outputHandler).not.toHaveBeenCalled();
+    });
+
+    it('converts matching exited state events into exit events', async () => {
+      (connection.sendRpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        instanceId: REMOTE_INSTANCE_ID,
+      });
+
+      const exitHandler = vi.fn();
+      adapter.on('exit', exitHandler);
+
+      await adapter.spawn();
+
+      mockRegistry.emit('remote:instance-state-change', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+        state: 'exited',
+        info: { code: 17, signal: 'SIGTERM' },
+      });
+
+      expect(exitHandler).toHaveBeenCalledWith(17, 'SIGTERM');
       expect(adapter.isRunning()).toBe(false);
     });
   });

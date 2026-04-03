@@ -11,9 +11,10 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
+import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { FileAttachment } from '../../../shared/types/instance.types';
+import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 
 const logger = getLogger('RemoteCliAdapter');
 
@@ -21,14 +22,60 @@ interface SpawnResponse {
   instanceId: string;
 }
 
-interface RemoteOutputMessage {
-  type: string;
-  content: string;
-  timestamp: number;
+interface RemoteOutputEvent {
+  nodeId: string;
+  instanceId: string;
+  message: OutputMessage;
+}
+
+interface RemoteStateChangeEvent {
+  nodeId: string;
+  instanceId: string;
+  state: string;
+  info?: unknown;
+}
+
+interface RemotePermissionRequestEvent {
+  nodeId: string;
+  instanceId: string;
+  permission: unknown;
 }
 
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
+  private readonly registry = getWorkerNodeRegistry();
+  private registryListenersAttached = false;
+  private readonly onRemoteOutputEvent = (event: RemoteOutputEvent): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    this.handleRemoteOutput(event.message);
+  };
+  private readonly onRemoteStateChangeEvent = (event: RemoteStateChangeEvent): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    if (event.state === 'exited') {
+      const info = event.info;
+      const code = typeof info === 'number'
+        ? info
+        : typeof info === 'object' && info !== null && typeof (info as { code?: unknown }).code === 'number'
+          ? (info as { code: number }).code
+          : 0;
+      const signal = typeof info === 'object' && info !== null && typeof (info as { signal?: unknown }).signal === 'string'
+        ? (info as { signal: string }).signal
+        : null;
+      this.handleRemoteExit(code, signal);
+      return;
+    }
+    this.handleRemoteStateChange(event.state);
+  };
+  private readonly onRemotePermissionRequestEvent = (event: RemotePermissionRequestEvent): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    this.handleRemotePermissionRequest(event.permission);
+  };
 
   constructor(
     private readonly nodeConnection: WorkerNodeConnectionServer,
@@ -48,16 +95,30 @@ export class RemoteCliAdapter extends EventEmitter {
    * Returns -1 as PID since the process runs on a remote machine.
    */
   async spawn(): Promise<number> {
+    if (!this.spawnOptions.sessionId) {
+      throw new Error('RemoteCliAdapter requires spawnOptions.sessionId for remote execution');
+    }
+    if (!this.spawnOptions.workingDirectory) {
+      throw new Error('RemoteCliAdapter requires spawnOptions.workingDirectory for remote execution');
+    }
+
     const response = await this.nodeConnection.sendRpc<SpawnResponse>(
       this.targetNodeId,
       'instance.spawn',
       {
-        requestedCliType: this.requestedCliType,
-        options: this.spawnOptions,
+        instanceId: this.spawnOptions.sessionId,
+        cliType: this.requestedCliType,
+        workingDirectory: this.spawnOptions.workingDirectory,
+        systemPrompt: this.spawnOptions.systemPrompt,
+        model: this.spawnOptions.model,
+        yoloMode: this.spawnOptions.yoloMode,
+        allowedTools: this.spawnOptions.allowedTools,
+        disallowedTools: this.spawnOptions.disallowedTools,
       },
     );
 
     this.remoteInstanceId = response.instanceId;
+    this.attachRegistryListeners();
     logger.info('Remote instance spawned', {
       nodeId: this.targetNodeId,
       instanceId: this.remoteInstanceId,
@@ -113,6 +174,7 @@ export class RemoteCliAdapter extends EventEmitter {
     );
 
     this.remoteInstanceId = null;
+    this.detachRegistryListeners();
     logger.info('Remote instance terminated', { nodeId: this.targetNodeId, instanceId });
   }
 
@@ -156,13 +218,14 @@ export class RemoteCliAdapter extends EventEmitter {
   // Remote event handlers — called by connection server when output arrives
   // ---------------------------------------------------------------------------
 
-  handleRemoteOutput(message: RemoteOutputMessage): void {
+  handleRemoteOutput(message: OutputMessage): void {
     this.emit('output', message);
   }
 
-  handleRemoteExit(code: number): void {
+  handleRemoteExit(code: number | null, signal: string | null): void {
     this.remoteInstanceId = null;
-    this.emit('exit', { code });
+    this.detachRegistryListeners();
+    this.emit('exit', code, signal);
   }
 
   handleRemoteStateChange(status: string): void {
@@ -176,5 +239,35 @@ export class RemoteCliAdapter extends EventEmitter {
 
   handleRemotePermissionRequest(payload: unknown): void {
     this.emit('input_required', payload);
+  }
+
+  private matchesRemoteInstance(nodeId: string, instanceId: string): boolean {
+    return (
+      nodeId === this.targetNodeId &&
+      this.remoteInstanceId !== null &&
+      instanceId === this.remoteInstanceId
+    );
+  }
+
+  private attachRegistryListeners(): void {
+    if (this.registryListenersAttached) {
+      return;
+    }
+
+    this.registry.on('remote:instance-output', this.onRemoteOutputEvent);
+    this.registry.on('remote:instance-state-change', this.onRemoteStateChangeEvent);
+    this.registry.on('remote:instance-permission-request', this.onRemotePermissionRequestEvent);
+    this.registryListenersAttached = true;
+  }
+
+  private detachRegistryListeners(): void {
+    if (!this.registryListenersAttached) {
+      return;
+    }
+
+    this.registry.off('remote:instance-output', this.onRemoteOutputEvent);
+    this.registry.off('remote:instance-state-change', this.onRemoteStateChangeEvent);
+    this.registry.off('remote:instance-permission-request', this.onRemotePermissionRequestEvent);
+    this.registryListenersAttached = false;
   }
 }

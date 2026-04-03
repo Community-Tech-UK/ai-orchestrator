@@ -1,15 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { WorkerAgent } from '../worker-agent';
+import { EventEmitter } from 'events';
 import type { WorkerConfig } from '../worker-config';
 
 // Mock WebSocket
 vi.mock('ws', () => {
-  const EventEmitter = require('events').EventEmitter;
-  class MockWebSocket extends EventEmitter {
+  class MockWebSocket {
     static OPEN = 1;
     readyState = 1;
+    private listeners = new Map<string, ((...args: unknown[]) => void)[]>();
     send = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
     close = vi.fn();
+
+    on(event: string, listener: (...args: unknown[]) => void): this {
+      const handlers = this.listeners.get(event) ?? [];
+      handlers.push(listener);
+      this.listeners.set(event, handlers);
+      return this;
+    }
+
+    emit(event: string, ...args: unknown[]): boolean {
+      const handlers = this.listeners.get(event) ?? [];
+      for (const handler of handlers) {
+        handler(...args);
+      }
+      return handlers.length > 0;
+    }
   }
   return { WebSocket: MockWebSocket, default: { WebSocket: MockWebSocket } };
 });
@@ -31,6 +46,26 @@ vi.mock('../capability-reporter', () => ({
   })),
 }));
 
+class MockLocalInstanceManager extends EventEmitter {
+  spawn = vi.fn(async () => undefined);
+  sendInput = vi.fn(async () => undefined);
+  terminate = vi.fn(async () => undefined);
+  interrupt = vi.fn(async () => undefined);
+  terminateAll = vi.fn(async () => undefined);
+  getInstanceCount = vi.fn(() => 0);
+}
+
+let mockInstanceManager: MockLocalInstanceManager;
+
+vi.mock('../local-instance-manager', () => ({
+  LocalInstanceManager: vi.fn().mockImplementation(() => {
+    mockInstanceManager = new MockLocalInstanceManager();
+    return mockInstanceManager;
+  }),
+}));
+
+import { WorkerAgent } from '../worker-agent';
+
 const mockConfig: WorkerConfig = {
   nodeId: 'test-node-1',
   name: 'test-pc',
@@ -44,10 +79,17 @@ const mockConfig: WorkerConfig = {
 
 describe('WorkerAgent', () => {
   let agent: WorkerAgent;
+  let wsSend: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     agent = new WorkerAgent(mockConfig);
+    wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
+    (agent as unknown as { ws: { readyState: number; send: typeof wsSend; close: ReturnType<typeof vi.fn> } }).ws = {
+      readyState: 1,
+      send: wsSend,
+      close: vi.fn(),
+    };
   });
 
   afterEach(async () => {
@@ -69,6 +111,58 @@ describe('WorkerAgent', () => {
         name: 'test-pc',
         token: 'test-token',
       },
+    });
+  });
+
+  it('maps instance.sendInput failures to INSTANCE_NOT_FOUND', async () => {
+    mockInstanceManager.sendInput.mockRejectedValueOnce(new Error('Instance not found: missing'));
+
+    await (agent as unknown as {
+      handleRpcRequest: (msg: unknown) => Promise<void>;
+    }).handleRpcRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'instance.sendInput',
+      params: { instanceId: 'missing', message: 'hello' },
+    });
+
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.error.code).toBe(-32002);
+  });
+
+  it('maps instance.spawn failures to SPAWN_FAILED', async () => {
+    mockInstanceManager.spawn.mockRejectedValueOnce(new Error('Worker at capacity (10 instances)'));
+
+    await (agent as unknown as {
+      handleRpcRequest: (msg: unknown) => Promise<void>;
+    }).handleRpcRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'instance.spawn',
+      params: { instanceId: 'spawn-1', cliType: 'claude', workingDirectory: '/tmp/work' },
+    });
+
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.error.code).toBe(-32003);
+  });
+
+  it('forwards permission requests from the local instance manager', () => {
+    mockInstanceManager.emit('instance:permissionRequest', 'inst-1', {
+      id: 'perm-1',
+      prompt: 'Allow command?',
+      timestamp: 1234,
+    });
+
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.permissionRequest');
+    expect(payload.params).toMatchObject({
+      instanceId: 'inst-1',
+      permission: {
+        id: 'perm-1',
+        prompt: 'Allow command?',
+        timestamp: 1234,
+      },
+      token: 'test-token',
     });
   });
 });
