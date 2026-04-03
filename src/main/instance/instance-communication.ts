@@ -4,7 +4,7 @@
 
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
-import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
@@ -13,6 +13,7 @@ import { getHookManager } from '../hooks/hook-manager';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import type {
+  FileAttachment,
   Instance,
   InstanceStatus,
   ContextUsage,
@@ -126,8 +127,8 @@ export class InstanceCommunicationManager extends EventEmitter {
   }
 
   private getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
-    if (typeof (adapter as any).getRuntimeCapabilities === 'function') {
-      return (adapter as any).getRuntimeCapabilities() as AdapterRuntimeCapabilities;
+    if (adapter instanceof BaseCliAdapter) {
+      return adapter.getRuntimeCapabilities();
     }
     return {
       supportsResume: false,
@@ -270,7 +271,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   async sendInput(
     instanceId: string,
     message: string,
-    attachments?: any[],
+    attachments?: FileAttachment[],
     contextBlock?: string | null
   ): Promise<void> {
     logger.info('sendInput called', { instanceId });
@@ -395,8 +396,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       throw new Error('This provider does not support interactive permission prompts.');
     }
 
-    if ('sendRaw' in adapter && typeof (adapter as any).sendRaw === 'function') {
-      await (adapter as any).sendRaw(response, permissionKey);
+    if ('sendRaw' in adapter && typeof (adapter as { sendRaw?: (...args: unknown[]) => Promise<void> }).sendRaw === 'function') {
+      await (adapter as { sendRaw: (response: string, permissionKey?: string) => Promise<void> }).sendRaw(response, permissionKey);
     } else {
       throw new Error('Permission prompt response is not supported by this adapter.');
     }

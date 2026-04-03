@@ -211,7 +211,7 @@ export function registerInstanceHandlers(deps: {
         await instanceManager.sendInput(
           validatedPayload.instanceId,
           validatedPayload.message,
-          validatedPayload.attachments
+          validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined
         );
 
         return { success: true };

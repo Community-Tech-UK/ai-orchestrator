@@ -10,6 +10,8 @@
 
 **Spec:** `docs/bigchange_remote-nodes.md` (phases 3, 4, 6, 7 sections)
 
+**Status:** ✅ ALL TASKS COMPLETE (verified 2026-04-03)
+
 ---
 
 ## File Structure
@@ -73,13 +75,13 @@
 - Modify: `package.json`
 - Create: `tsconfig.worker.json`
 
-- [ ] **Step 1: Install esbuild as dev dependency**
+- [x] **Step 1: Install esbuild as dev dependency**
 
 ```bash
 cd /Users/suas/work/orchestrat0r/ai-orchestrator && npm install -D esbuild
 ```
 
-- [ ] **Step 2: Create tsconfig.worker.json**
+- [x] **Step 2: Create tsconfig.worker.json**
 
 ```json
 {
@@ -108,7 +110,7 @@ cd /Users/suas/work/orchestrat0r/ai-orchestrator && npm install -D esbuild
 }
 ```
 
-- [ ] **Step 3: Verify tsconfig compiles**
+- [x] **Step 3: Verify tsconfig compiles**
 
 ```bash
 npx tsc --noEmit -p tsconfig.worker.json
@@ -116,7 +118,7 @@ npx tsc --noEmit -p tsconfig.worker.json
 
 Expected: Errors because worker-agent source files don't exist yet — that's fine. No config-level errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tsconfig.worker.json package.json package-lock.json
@@ -130,7 +132,7 @@ git commit -m "chore: add esbuild and worker agent tsconfig"
 **Files:**
 - Create: `src/worker-agent/worker-config.ts`
 
-- [ ] **Step 1: Create worker-config.ts**
+- [x] **Step 1: Create worker-config.ts**
 
 ```typescript
 import * as fs from 'fs';
@@ -214,7 +216,7 @@ function persistConfig(configPath: string, config: WorkerConfig): void {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/worker-agent/worker-config.ts
@@ -229,7 +231,7 @@ git commit -m "feat(worker-agent): add config loader with CLI overrides"
 - Create: `src/worker-agent/capability-reporter.ts`
 - Create: `src/worker-agent/__tests__/capability-reporter.spec.ts`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```typescript
 // src/worker-agent/__tests__/capability-reporter.spec.ts
@@ -265,7 +267,7 @@ describe('capability-reporter', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/capability-reporter.spec.ts
@@ -273,7 +275,7 @@ npx vitest run src/worker-agent/__tests__/capability-reporter.spec.ts
 
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```typescript
 // src/worker-agent/capability-reporter.ts
@@ -382,7 +384,7 @@ function detectDocker(): boolean {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/capability-reporter.spec.ts
@@ -390,7 +392,7 @@ npx vitest run src/worker-agent/__tests__/capability-reporter.spec.ts
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/worker-agent/capability-reporter.ts src/worker-agent/__tests__/capability-reporter.spec.ts
@@ -405,7 +407,7 @@ git commit -m "feat(worker-agent): add capability reporter for CLI/GPU/browser d
 - Create: `src/worker-agent/local-instance-manager.ts`
 - Create: `src/worker-agent/__tests__/local-instance-manager.spec.ts`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```typescript
 // src/worker-agent/__tests__/local-instance-manager.spec.ts
@@ -449,7 +451,7 @@ describe('LocalInstanceManager', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/local-instance-manager.spec.ts
@@ -457,7 +459,7 @@ npx vitest run src/worker-agent/__tests__/local-instance-manager.spec.ts
 
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```typescript
 // src/worker-agent/local-instance-manager.ts
@@ -591,7 +593,7 @@ export class LocalInstanceManager extends EventEmitter {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/local-instance-manager.spec.ts
@@ -599,7 +601,7 @@ npx vitest run src/worker-agent/__tests__/local-instance-manager.spec.ts
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/worker-agent/local-instance-manager.ts src/worker-agent/__tests__/local-instance-manager.spec.ts
@@ -614,7 +616,7 @@ git commit -m "feat(worker-agent): add local instance manager with dir sandboxin
 - Create: `src/worker-agent/worker-agent.ts`
 - Create: `src/worker-agent/__tests__/worker-agent.spec.ts`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```typescript
 // src/worker-agent/__tests__/worker-agent.spec.ts
@@ -694,7 +696,7 @@ describe('WorkerAgent', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/worker-agent.spec.ts
@@ -702,7 +704,7 @@ npx vitest run src/worker-agent/__tests__/worker-agent.spec.ts
 
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```typescript
 // src/worker-agent/worker-agent.ts
@@ -968,7 +970,7 @@ export class WorkerAgent extends EventEmitter {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/worker-agent.spec.ts
@@ -976,7 +978,7 @@ npx vitest run src/worker-agent/__tests__/worker-agent.spec.ts
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/worker-agent/worker-agent.ts src/worker-agent/__tests__/worker-agent.spec.ts
@@ -992,7 +994,7 @@ git commit -m "feat(worker-agent): add main agent class with WebSocket RPC"
 - Create: `build-worker-agent.ts`
 - Modify: `package.json` (add script)
 
-- [ ] **Step 1: Create entry point**
+- [x] **Step 1: Create entry point**
 
 ```typescript
 // src/worker-agent/index.ts
@@ -1032,7 +1034,7 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 2: Create build script**
+- [x] **Step 2: Create build script**
 
 ```typescript
 // build-worker-agent.ts
@@ -1056,7 +1058,7 @@ await esbuild.build({
 console.log('Worker agent built -> dist/worker-agent/index.js');
 ```
 
-- [ ] **Step 3: Add build script to package.json**
+- [x] **Step 3: Add build script to package.json**
 
 In `package.json` scripts, add:
 
@@ -1064,7 +1066,7 @@ In `package.json` scripts, add:
 "build:worker-agent": "tsx build-worker-agent.ts"
 ```
 
-- [ ] **Step 4: Verify build works**
+- [x] **Step 4: Verify build works**
 
 ```bash
 npm run build:worker-agent
@@ -1078,7 +1080,7 @@ head -1 dist/worker-agent/index.js
 
 Expected: `#!/usr/bin/env node`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/worker-agent/index.ts build-worker-agent.ts package.json
@@ -1095,7 +1097,7 @@ git commit -m "feat(worker-agent): add entry point and esbuild bundle script"
 - Create: `src/main/channels/browser-intent.ts`
 - Create: `src/main/channels/__tests__/browser-intent.spec.ts`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```typescript
 // src/main/channels/__tests__/browser-intent.spec.ts
@@ -1126,7 +1128,7 @@ describe('detectBrowserIntent', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run src/main/channels/__tests__/browser-intent.spec.ts
@@ -1134,7 +1136,7 @@ npx vitest run src/main/channels/__tests__/browser-intent.spec.ts
 
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```typescript
 // src/main/channels/browser-intent.ts
@@ -1172,7 +1174,7 @@ export function detectBrowserIntent(content: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 npx vitest run src/main/channels/__tests__/browser-intent.spec.ts
@@ -1180,7 +1182,7 @@ npx vitest run src/main/channels/__tests__/browser-intent.spec.ts
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/channels/browser-intent.ts src/main/channels/__tests__/browser-intent.spec.ts
@@ -1194,7 +1196,7 @@ git commit -m "feat(channels): add browser intent detection heuristic"
 **Files:**
 - Modify: `src/main/channels/channel-message-router.ts`
 
-- [ ] **Step 1: Add import at top of file**
+- [x] **Step 1: Add import at top of file**
 
 Add after the existing imports:
 
@@ -1204,7 +1206,7 @@ import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
 import { getWorkerNodeRegistry } from '../remote-node';
 ```
 
-- [ ] **Step 2: Modify `routeDefault()` to pass `nodePlacement`**
+- [x] **Step 2: Modify `routeDefault()` to pass `nodePlacement`**
 
 Replace the `createInstance` call in `routeDefault()` (lines 1124-1129) with:
 
@@ -1222,7 +1224,7 @@ Replace the `createInstance` call in `routeDefault()` (lines 1124-1129) with:
     });
 ```
 
-- [ ] **Step 3: Add new command cases in the command switch**
+- [x] **Step 3: Add new command cases in the command switch**
 
 In the command `switch` block (around line 874), add before the `default` case:
 
@@ -1235,7 +1237,7 @@ In the command `switch` block (around line 874), add before the `default` case:
           return;
 ```
 
-- [ ] **Step 4: Add handler methods**
+- [x] **Step 4: Add handler methods**
 
 Add these methods to the class (before the `routeDefault` method):
 
@@ -1320,7 +1322,7 @@ Add these methods to the class (before the `routeDefault` method):
   }
 ```
 
-- [ ] **Step 5: Run typecheck**
+- [x] **Step 5: Run typecheck**
 
 ```bash
 npx tsc --noEmit
@@ -1328,7 +1330,7 @@ npx tsc --noEmit
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/main/channels/channel-message-router.ts
@@ -1345,7 +1347,7 @@ git commit -m "feat(channels): wire browser intent + add /nodes and /run-on comm
 - Create: `src/main/remote-node/auth-validator.ts`
 - Create: `src/main/remote-node/__tests__/auth-validator.spec.ts`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```typescript
 // src/main/remote-node/__tests__/auth-validator.spec.ts
@@ -1406,7 +1408,7 @@ describe('auth-validator', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run src/main/remote-node/__tests__/auth-validator.spec.ts
@@ -1414,7 +1416,7 @@ npx vitest run src/main/remote-node/__tests__/auth-validator.spec.ts
 
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```typescript
 // src/main/remote-node/auth-validator.ts
@@ -1465,7 +1467,7 @@ export function ensureAuthToken(): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 npx vitest run src/main/remote-node/__tests__/auth-validator.spec.ts
@@ -1473,7 +1475,7 @@ npx vitest run src/main/remote-node/__tests__/auth-validator.spec.ts
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/remote-node/auth-validator.ts src/main/remote-node/__tests__/auth-validator.spec.ts
@@ -1488,7 +1490,7 @@ git commit -m "feat(remote-node): add timing-safe auth token validation"
 - Create: `src/main/remote-node/rpc-schemas.ts`
 - Create: `src/main/remote-node/__tests__/rpc-schemas.spec.ts`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```typescript
 // src/main/remote-node/__tests__/rpc-schemas.spec.ts
@@ -1559,7 +1561,7 @@ describe('rpc-schemas', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run src/main/remote-node/__tests__/rpc-schemas.spec.ts
@@ -1567,7 +1569,7 @@ npx vitest run src/main/remote-node/__tests__/rpc-schemas.spec.ts
 
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 ```typescript
 // src/main/remote-node/rpc-schemas.ts
@@ -1677,7 +1679,7 @@ export function validateRpcParams<T>(schema: z.ZodType<T>, params: unknown): T {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 npx vitest run src/main/remote-node/__tests__/rpc-schemas.spec.ts
@@ -1685,7 +1687,7 @@ npx vitest run src/main/remote-node/__tests__/rpc-schemas.spec.ts
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/main/remote-node/rpc-schemas.ts src/main/remote-node/__tests__/rpc-schemas.spec.ts
@@ -1702,7 +1704,7 @@ git commit -m "feat(remote-node): add Zod schemas for RPC payload validation"
 - Modify: `src/main/remote-node/remote-node-config.ts`
 - Modify: `src/main/remote-node/index.ts`
 
-- [ ] **Step 1: Add TLS cert fields to config**
+- [x] **Step 1: Add TLS cert fields to config**
 
 In `src/main/remote-node/remote-node-config.ts`, extend the `RemoteNodeConfig` interface by adding these fields after `maxRemoteInstances`:
 
@@ -1715,7 +1717,7 @@ In `src/main/remote-node/remote-node-config.ts`, extend the `RemoteNodeConfig` i
   tlsCaPath?: string;
 ```
 
-- [ ] **Step 2: Add TLS + auth imports to connection server**
+- [x] **Step 2: Add TLS + auth imports to connection server**
 
 In `src/main/remote-node/worker-node-connection.ts`, add these imports at the top:
 
@@ -1726,7 +1728,7 @@ import { getRemoteNodeConfig } from './remote-node-config';
 import { validateAuthToken } from './auth-validator';
 ```
 
-- [ ] **Step 3: Replace the `start()` method to support TLS**
+- [x] **Step 3: Replace the `start()` method to support TLS**
 
 Replace the `start()` method body (lines 56-84) with this version that creates an HTTPS server when TLS certs are configured:
 
@@ -1784,7 +1786,7 @@ Replace the `start()` method body (lines 56-84) with this version that creates a
   }
 ```
 
-- [ ] **Step 4: Add auth token validation to `handleRegistration()`**
+- [x] **Step 4: Add auth token validation to `handleRegistration()`**
 
 In `handleRegistration()`, add this block after the `newNodeId` check and before the "Replace any existing socket" section (after line ~277):
 
@@ -1804,7 +1806,7 @@ In `handleRegistration()`, add this block after the `newNodeId` check and before
     }
 ```
 
-- [ ] **Step 5: Add auth + schema validation to RPC event router**
+- [x] **Step 5: Add auth + schema validation to RPC event router**
 
 In `src/main/remote-node/rpc-event-router.ts`, add these imports:
 
@@ -1889,7 +1891,7 @@ Replace the `handleRpcNotification()` method with token validation:
   }
 ```
 
-- [ ] **Step 6: Update barrel exports**
+- [x] **Step 6: Update barrel exports**
 
 In `src/main/remote-node/index.ts`, add these export lines:
 
@@ -1898,7 +1900,7 @@ export { generateAuthToken, validateAuthToken, ensureAuthToken } from './auth-va
 export { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 ```
 
-- [ ] **Step 7: Run typecheck**
+- [x] **Step 7: Run typecheck**
 
 ```bash
 npx tsc --noEmit
@@ -1906,7 +1908,7 @@ npx tsc --noEmit
 
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/main/remote-node/worker-node-connection.ts src/main/remote-node/rpc-event-router.ts src/main/remote-node/remote-node-config.ts src/main/remote-node/index.ts
@@ -1920,7 +1922,7 @@ git commit -m "feat(remote-node): add TLS support, auth validation, and RPC sche
 **Files:**
 - Create: `src/worker-agent/path-sandbox.ts`
 
-- [ ] **Step 1: Create path-sandbox.ts**
+- [x] **Step 1: Create path-sandbox.ts**
 
 ```typescript
 // src/worker-agent/path-sandbox.ts
@@ -1948,7 +1950,7 @@ export function isPathAllowed(
 
 Note: This is already enforced by `LocalInstanceManager.spawn()` (Task 4), but this module provides a reusable utility. The `LocalInstanceManager` already calls an equivalent check.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/worker-agent/path-sandbox.ts
@@ -1964,7 +1966,7 @@ git commit -m "feat(worker-agent): add path sandbox utility"
 **Files:**
 - Create: `src/renderer/app/core/services/ipc/remote-node-ipc.service.ts`
 
-- [ ] **Step 1: Create the service**
+- [x] **Step 1: Create the service**
 
 ```typescript
 // src/renderer/app/core/services/ipc/remote-node-ipc.service.ts
@@ -2017,7 +2019,7 @@ export class RemoteNodeIpcService {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/renderer/app/core/services/ipc/remote-node-ipc.service.ts
@@ -2031,7 +2033,7 @@ git commit -m "feat(renderer): add remote node IPC service"
 **Files:**
 - Create: `src/renderer/app/features/remote-nodes/remote-nodes.store.ts`
 
-- [ ] **Step 1: Create the store**
+- [x] **Step 1: Create the store**
 
 ```typescript
 // src/renderer/app/features/remote-nodes/remote-nodes.store.ts
@@ -2117,7 +2119,7 @@ export class RemoteNodesStore implements OnDestroy {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/renderer/app/features/remote-nodes/remote-nodes.store.ts
@@ -2131,7 +2133,7 @@ git commit -m "feat(renderer): add remote nodes signal store"
 **Files:**
 - Create: `src/renderer/app/features/remote-nodes/node-card.component.ts`
 
-- [ ] **Step 1: Create node-card component**
+- [x] **Step 1: Create node-card component**
 
 ```typescript
 // src/renderer/app/features/remote-nodes/node-card.component.ts
@@ -2316,7 +2318,7 @@ export class NodeCardComponent {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/renderer/app/features/remote-nodes/node-card.component.ts
@@ -2331,7 +2333,7 @@ git commit -m "feat(renderer): add node card component"
 - Create: `src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts`
 - Modify: `src/renderer/app/app.routes.ts`
 
-- [ ] **Step 1: Create page component**
+- [x] **Step 1: Create page component**
 
 ```typescript
 // src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts
@@ -2490,7 +2492,7 @@ export class RemoteNodesPageComponent implements OnInit {
 }
 ```
 
-- [ ] **Step 2: Add route to app.routes.ts**
+- [x] **Step 2: Add route to app.routes.ts**
 
 In `src/renderer/app/app.routes.ts`, add a new route entry before the catch-all `**` redirect:
 
@@ -2504,7 +2506,7 @@ In `src/renderer/app/app.routes.ts`, add a new route entry before the catch-all 
   },
 ```
 
-- [ ] **Step 3: Run typecheck**
+- [x] **Step 3: Run typecheck**
 
 ```bash
 npx tsc --noEmit
@@ -2512,7 +2514,7 @@ npx tsc --noEmit
 
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts src/renderer/app/app.routes.ts
@@ -2526,7 +2528,7 @@ git commit -m "feat(renderer): add remote nodes page with grid layout and route"
 **Files:**
 - Modify: `src/renderer/app/features/instance-list/instance-row.component.ts`
 
-- [ ] **Step 1: Add remote node badge to template**
+- [x] **Step 1: Add remote node badge to template**
 
 After the `instance-name-row` div closing tag (the `</div>` after the collapsed-badge), add:
 
@@ -2538,7 +2540,7 @@ After the `instance-name-row` div closing tag (the `</div>` after the collapsed-
         }
 ```
 
-- [ ] **Step 2: Add computed signals to the component class**
+- [x] **Step 2: Add computed signals to the component class**
 
 In the component class, add these computed properties:
 
@@ -2553,7 +2555,7 @@ In the component class, add these computed properties:
   });
 ```
 
-- [ ] **Step 3: Add CSS for the badge**
+- [x] **Step 3: Add CSS for the badge**
 
 In the styles section, add:
 
@@ -2572,7 +2574,7 @@ In the styles section, add:
     }
 ```
 
-- [ ] **Step 4: Add SlicePipe import**
+- [x] **Step 4: Add SlicePipe import**
 
 In the imports array of the component decorator, add `SlicePipe`:
 
@@ -2586,7 +2588,7 @@ import { SlicePipe } from '@angular/common';
 })
 ```
 
-- [ ] **Step 5: Run typecheck**
+- [x] **Step 5: Run typecheck**
 
 ```bash
 npx tsc --noEmit
@@ -2594,7 +2596,7 @@ npx tsc --noEmit
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/renderer/app/features/instance-list/instance-row.component.ts
@@ -2607,7 +2609,7 @@ git commit -m "feat(renderer): add execution location badge to instance row"
 
 ### Task 18: Full verification pass
 
-- [ ] **Step 1: TypeScript compilation (source)**
+- [x] **Step 1: TypeScript compilation (source)**
 
 ```bash
 npx tsc --noEmit
@@ -2615,7 +2617,7 @@ npx tsc --noEmit
 
 Expected: PASS with 0 errors
 
-- [ ] **Step 2: TypeScript compilation (specs)**
+- [x] **Step 2: TypeScript compilation (specs)**
 
 ```bash
 npx tsc --noEmit -p tsconfig.spec.json
@@ -2623,7 +2625,7 @@ npx tsc --noEmit -p tsconfig.spec.json
 
 Expected: PASS with 0 errors
 
-- [ ] **Step 3: ESLint**
+- [x] **Step 3: ESLint**
 
 ```bash
 npm run lint
@@ -2631,7 +2633,7 @@ npm run lint
 
 Expected: PASS (or only pre-existing warnings)
 
-- [ ] **Step 4: Run all new tests**
+- [x] **Step 4: Run all new tests**
 
 ```bash
 npx vitest run src/worker-agent/__tests__/ src/main/channels/__tests__/browser-intent.spec.ts src/main/remote-node/__tests__/auth-validator.spec.ts src/main/remote-node/__tests__/rpc-schemas.spec.ts
@@ -2639,7 +2641,7 @@ npx vitest run src/worker-agent/__tests__/ src/main/channels/__tests__/browser-i
 
 Expected: All PASS
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
 ```bash
 npm run test
@@ -2647,7 +2649,7 @@ npm run test
 
 Expected: No regressions
 
-- [ ] **Step 6: Verify worker agent build**
+- [x] **Step 6: Verify worker agent build**
 
 ```bash
 npm run build:worker-agent

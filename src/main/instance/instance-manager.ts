@@ -12,7 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
-import { generateChildPrompt } from '../orchestration/orchestration-protocol';
+import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { parseCommandString, resolveTemplate } from '../../shared/types/command.types';
 import { getCommandManager } from '../commands/command-manager';
 import { getMarkdownCommandRegistry } from '../commands/markdown-command-registry';
@@ -25,6 +25,7 @@ import type {
   Instance,
   InstanceCreateConfig,
   ExportedSession,
+  FileAttachment,
   ForkConfig,
   OutputMessage
 } from '../../shared/types/instance.types';
@@ -49,7 +50,7 @@ import { getSessionContinuityManager } from '../session/session-continuity';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
-import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -437,8 +438,8 @@ export class InstanceManager extends EventEmitter {
       /* intentionally ignored: project rules are optional */
     }
 
-    const meta = payload.metadata || {};
-    const metaType = String((meta as any)['type'] || '');
+    const meta: Record<string, unknown> = payload.metadata || {};
+    const metaType = String(meta['type'] || '');
     const approvalTraceId = typeof meta['approvalTraceId'] === 'string'
       ? String(meta['approvalTraceId'])
       : `approval-manager-${payload.requestId}`;
@@ -451,9 +452,9 @@ export class InstanceManager extends EventEmitter {
 
     // Only gate the known CLI permission denial prompts (Claude CLI emits these for tool_result denial).
     if (metaType === 'permission_denial') {
-      const action = (meta as any)['action'] as string | undefined;
-      const rawPath = (meta as any)['path'] as string | undefined;
-      const permissionKey = (meta as any)['permissionKey'] as string | undefined;
+      const action = meta['action'] as string | undefined;
+      const rawPath = meta['path'] as string | undefined;
+      const permissionKey = meta['permissionKey'] as string | undefined;
 
       const scope = this.mapCliPermissionActionToScope(action);
       const resource =
@@ -469,9 +470,9 @@ export class InstanceManager extends EventEmitter {
         context: {
           toolName: 'claude-cli',
           workingDirectory,
-          isChildInstance: Boolean((instance as any)?.parentId),
-          depth: (instance as any)?.depth ?? 0,
-          yoloMode: Boolean((instance as any)?.yoloMode),
+          isChildInstance: Boolean(instance?.parentId),
+          depth: instance?.depth ?? 0,
+          yoloMode: Boolean(instance?.yoloMode),
         },
         timestamp: Date.now(),
       };
@@ -647,7 +648,7 @@ export class InstanceManager extends EventEmitter {
   // Public API - Communication
   // ============================================
 
-  async sendInput(instanceId: string, message: string, attachments?: any[]): Promise<void> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -960,10 +961,10 @@ export class InstanceManager extends EventEmitter {
 
   getAdapterRuntimeCapabilities(instanceId: string): AdapterRuntimeCapabilities | null {
     const adapter = this.state.getAdapter(instanceId);
-    if (!adapter || typeof (adapter as any).getRuntimeCapabilities !== 'function') {
+    if (!adapter || !(adapter instanceof BaseCliAdapter)) {
       return null;
     }
-    return (adapter as any).getRuntimeCapabilities() as AdapterRuntimeCapabilities;
+    return adapter.getRuntimeCapabilities();
   }
 
   // ============================================
@@ -983,14 +984,17 @@ export class InstanceManager extends EventEmitter {
     const tempChildId = generateInstanceId();
 
     // Extract parent context (limited to reduce token overhead for children)
+    // Strip orchestration markers to prevent children from echoing parent commands
     const parentContextMessages = parent.outputBuffer
       .slice(-10)
       .filter((msg) => msg.type === 'assistant' || msg.type === 'user' || msg.type === 'tool_result')
       .map((msg) => {
         const prefix = msg.type === 'assistant' ? '[Assistant]' : msg.type === 'user' ? '[User]' : '[Tool Result]';
-        const content = msg.content.length > 500 ? msg.content.substring(0, 500) + '...[truncated]' : msg.content;
-        return `${prefix} ${content}`;
-      });
+        const rawContent = msg.content.length > 500 ? msg.content.substring(0, 500) + '...[truncated]' : msg.content;
+        const content = stripOrchestrationMarkers(rawContent);
+        return content ? `${prefix} ${content}` : '';
+      })
+      .filter((msg) => msg.length > 0);
     const parentContext = parentContextMessages.length > 0 ? parentContextMessages.join('\n\n') : undefined;
 
     const childPrompt = generateChildPrompt(
@@ -1011,9 +1015,15 @@ export class InstanceManager extends EventEmitter {
       'auto';
 
     // Pass relevant parent output to child for RLM indexing (limited for short-lived children)
+    // Strip orchestration markers to prevent children from seeing parent commands
     const initialOutputForChild = parent.outputBuffer
       .slice(-20)
-      .filter((msg) => msg.type === 'assistant' || msg.type === 'user' || msg.type === 'tool_result');
+      .filter((msg) => msg.type === 'assistant' || msg.type === 'user' || msg.type === 'tool_result')
+      .map((msg) => ({
+        ...msg,
+        content: stripOrchestrationMarkers(msg.content)
+      }))
+      .filter((msg) => msg.content.length > 0);
 
     const child = await this.createInstance({
       workingDirectory: command.workingDirectory || parent.workingDirectory,

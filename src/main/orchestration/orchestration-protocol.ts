@@ -514,6 +514,35 @@ function escapeRegex(str: string): string {
 }
 
 /**
+ * Strip orchestration command blocks and response blocks from text.
+ * Used to sanitize parent context before embedding in child prompts,
+ * preventing children from echoing/re-executing parent commands.
+ */
+export function stripOrchestrationMarkers(text: string): string {
+  let cleaned = text;
+
+  // Strip orchestration command blocks
+  cleaned = cleaned.replace(
+    new RegExp(
+      `${escapeRegex(ORCHESTRATION_MARKER_START)}\\s*[\\s\\S]*?\\s*${escapeRegex(ORCHESTRATION_MARKER_END)}`,
+      'g'
+    ),
+    ''
+  );
+
+  // Strip orchestrator response blocks
+  cleaned = cleaned.replace(
+    /\[Orchestrator Response\][\s\S]*?\[\/Orchestrator Response\]/g,
+    ''
+  );
+
+  // Clean up extra whitespace left behind
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+  return cleaned;
+}
+
+/**
  * Format a response to send back to a parent instance about command execution
  */
 export function formatCommandResponse(

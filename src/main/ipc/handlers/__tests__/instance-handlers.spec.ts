@@ -58,6 +58,18 @@ vi.mock('../../../core/config/settings-manager', () => ({
 }));
 
 // ============================================================
+// 3b. Mock command-manager (avoids transitive ElectronStore init)
+// ============================================================
+
+vi.mock('../../../commands/command-manager', () => ({
+  getCommandManager: () => ({
+    executeCommand: vi.fn(),
+    getCommands: vi.fn().mockReturnValue([]),
+  }),
+  CommandManager: vi.fn(),
+}));
+
+// ============================================================
 // 4. Import SUT + helpers (after mocks are registered)
 // ============================================================
 
