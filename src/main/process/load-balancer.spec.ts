@@ -64,4 +64,23 @@ describe('LoadBalancer', () => {
     const selected = balancer.selectLeastLoaded([]);
     expect(selected).toBeNull();
   });
+
+  it('should penalize remote instances with high latency', () => {
+    balancer.updateMetrics('local-1', {
+      activeTasks: 1,
+      contextUsagePercent: 50,
+      memoryPressure: 'normal',
+      status: 'busy',
+    });
+    balancer.updateMetrics('remote-1', {
+      activeTasks: 1,
+      contextUsagePercent: 50,
+      memoryPressure: 'normal',
+      status: 'busy',
+      nodeLatencyMs: 200,
+    });
+    // Local should be preferred (lower score = less loaded)
+    const selected = balancer.selectLeastLoaded(['local-1', 'remote-1']);
+    expect(selected).toBe('local-1');
+  });
 });
