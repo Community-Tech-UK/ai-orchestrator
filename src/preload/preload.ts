@@ -275,6 +275,13 @@ const IPC_CHANNELS = {
   REMOTE_OBSERVER_STOP: 'remote-observer:stop',
   REMOTE_OBSERVER_ROTATE_TOKEN: 'remote-observer:rotate-token',
 
+  // Remote nodes
+  REMOTE_NODE_LIST: 'remote-node:list',
+  REMOTE_NODE_GET: 'remote-node:get',
+  REMOTE_NODE_START_SERVER: 'remote-node:start-server',
+  REMOTE_NODE_STOP_SERVER: 'remote-node:stop-server',
+  REMOTE_NODE_EVENT: 'remote-node:event',
+
   // Cost Tracking (5.3)
   COST_RECORD_USAGE: 'cost:record-usage',
   COST_GET_SUMMARY: 'cost:get-summary',
@@ -2720,6 +2727,28 @@ const electronAPI = {
 
   remoteObserverRotateToken: (): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_OBSERVER_ROTATE_TOKEN);
+  },
+
+  // ============================================
+  // Remote Nodes
+  // ============================================
+
+  remoteNodeList: (): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_LIST),
+
+  remoteNodeGet: (nodeId: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_GET, { nodeId }),
+
+  remoteNodeStartServer: (config?: { port?: number; host?: string }): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_START_SERVER, config),
+
+  remoteNodeStopServer: (): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_STOP_SERVER),
+
+  onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.REMOTE_NODE_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.REMOTE_NODE_EVENT, handler);
   },
 
   // ============================================
