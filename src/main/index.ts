@@ -78,6 +78,10 @@ import { getAgentTreePersistence } from './session/agent-tree-persistence';
 import { getPermissionRegistry } from './orchestration/permission-registry';
 import { getOrchestrationSnapshotManager } from './orchestration/orchestration-snapshot';
 import { runCleanupFunctions } from './util/cleanup-registry';
+import { getAppStore, addInstance, removeInstance, updateInstance, setGlobalState } from './state';
+import type { InstanceSlice } from './state';
+import type { Instance } from '../shared/types/instance.types';
+import { getMemoryMonitor } from './memory';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -653,6 +657,70 @@ class AIOrchestratorApp {
       getDebateCoordinator(),
       getMultiVerifyCoordinator()
     );
+
+    // ── Shadow events into immutable store (additive — existing wiring above unchanged) ──
+
+    function toSlice(instance: Instance): InstanceSlice {
+      return {
+        id: instance.id,
+        displayName: instance.displayName,
+        status: instance.status,
+        contextUsage: instance.contextUsage,
+        lastActivity: instance.lastActivity,
+        provider: instance.provider,
+        currentModel: instance.currentModel,
+        parentId: instance.parentId,
+        childrenIds: instance.childrenIds,
+        agentId: instance.agentId,
+        workingDirectory: instance.workingDirectory,
+        processId: instance.processId,
+        errorCount: instance.errorCount,
+        totalTokensUsed: instance.totalTokensUsed,
+      };
+    }
+
+    this.instanceManager.on('instance:created', (instance: Instance) => {
+      try { addInstance(toSlice(instance)); } catch { /* store failure must not block main flow */ }
+    });
+
+    this.instanceManager.on('instance:removed', (instanceId: string) => {
+      try { removeInstance(instanceId); } catch { /* non-critical */ }
+    });
+
+    this.instanceManager.on('instance:state-update', (update: Record<string, unknown>) => {
+      const id = update['instanceId'] as string | undefined;
+      if (!id) return;
+      const instance = this.instanceManager.getInstance(id);
+      if (!instance) return;
+      try { updateInstance(id, toSlice(instance)); } catch { /* non-critical */ }
+    });
+
+    this.instanceManager.on('instance:batch-update', (payload: {
+      updates?: { instanceId: string; status?: string; contextUsage?: { used: number; total: number; percentage: number } }[]
+    }) => {
+      if (!payload.updates) return;
+      for (const update of payload.updates) {
+        const partial: Partial<InstanceSlice> = {};
+        if (update.status) partial.status = update.status as InstanceSlice['status'];
+        if (update.contextUsage) partial.contextUsage = update.contextUsage;
+        try { updateInstance(update.instanceId, partial); } catch { /* non-critical */ }
+      }
+    });
+
+    // Mirror memory pressure into the global app store
+    const memMonitor = getMemoryMonitor();
+    memMonitor.on('memory:warning', () => {
+      try { setGlobalState({ memoryPressure: 'warning' }); } catch { /* non-critical */ }
+    });
+    memMonitor.on('memory:critical', () => {
+      try { setGlobalState({ memoryPressure: 'critical' }); } catch { /* non-critical */ }
+    });
+    memMonitor.on('memory:normal', () => {
+      try { setGlobalState({ memoryPressure: 'normal' }); } catch { /* non-critical */ }
+    });
+
+    // Eagerly initialize the app store so it's ready before any event fires
+    getAppStore();
   }
 
   private setupCompactionCoordinator(): void {
@@ -847,6 +915,7 @@ class AIOrchestratorApp {
   }
 
   async cleanup(): Promise<void> {
+    try { setGlobalState({ shutdownRequested: true }); } catch { /* non-critical */ }
     logger.info('Cleaning up');
     await runCleanupFunctions();
     try { getResourceGovernor().stop(); } catch { /* best effort */ }
