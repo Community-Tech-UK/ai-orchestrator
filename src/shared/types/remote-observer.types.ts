@@ -1,6 +1,7 @@
 import type { OutputMessage } from './instance.types';
 import type { RepoJobRecord } from './repo-job.types';
 import type { SessionShareBundle } from './session-share.types';
+import type { WorkerNodeInfo } from './worker-node.types';
 
 export interface RemoteObserverPrompt {
   id: string;
@@ -43,6 +44,7 @@ export interface RemoteObserverSnapshot {
   instances: RemoteObserverInstanceSummary[];
   jobs: RepoJobRecord[];
   pendingPrompts: RemoteObserverPrompt[];
+  workerNodes?: WorkerNodeInfo[];
 }
 
 export type RemoteObserverEventType =

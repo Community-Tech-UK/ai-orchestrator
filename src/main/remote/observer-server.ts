@@ -8,6 +8,7 @@ import { getLogger } from '../logging/logger';
 import { getRepoJobService } from '../repo-jobs';
 import { getSessionShareService } from '../session/session-share-service';
 import { getRemoteObserverAuth } from './observer-auth';
+import { getWorkerNodeRegistry } from '../remote-node';
 import type {
   RemoteObserverEventEnvelope,
   RemoteObserverInstanceSummary,
@@ -168,6 +169,7 @@ export class RemoteObserverServer {
       instances: this.listInstances(),
       jobs: getRepoJobService().listJobs({ limit: 50 }),
       pendingPrompts: Array.from(this.prompts.values()).sort((a, b) => b.createdAt - a.createdAt),
+      workerNodes: getWorkerNodeRegistry().getAllNodes(),
     };
   }
 
