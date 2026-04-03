@@ -5,6 +5,7 @@
 import type { AgentMode } from '../../../../../shared/types/agent.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { FileAttachment, ThinkingContent } from '../../../../../shared/types/instance.types';
+import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
 
 // ============================================
 // Core Types
@@ -81,6 +82,8 @@ export interface Instance {
   hasUnreadCompletion?: boolean;
   /** Number of pending approval/permission requests (input_required events) */
   pendingApprovalCount?: number;
+  /** Where this instance is executing (local or remote node) */
+  executionLocation?: ExecutionLocation;
 }
 
 // ============================================

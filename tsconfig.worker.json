@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/worker-agent",
+    "rootDir": "src",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/worker-agent/**/*.ts",
+    "src/main/cli/**/*.ts",
+    "src/main/logging/**/*.ts",
+    "src/main/security/env-filter.ts",
+    "src/main/security/secret-detector.ts",
+    "src/shared/types/**/*.ts"
+  ],
+  "exclude": [
+    "src/main/cli/adapters/codex/app-server-broker.ts",
+    "**/*.spec.ts",
+    "**/__tests__/**"
+  ]
+}

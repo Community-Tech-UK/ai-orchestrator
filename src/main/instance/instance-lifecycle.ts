@@ -31,7 +31,7 @@ import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
 import { getAgentRegistry } from '../agents/agent-registry';
 import { getPermissionManager } from '../security/permission-manager';
 import { getDisallowedTools } from '../../shared/utils/permission-mapper';
-import { generateId } from '../../shared/utils/id-generator';
+import { generateId, generateInstanceId, type InstanceProvider, INSTANCE_ID_PREFIXES } from '../../shared/utils/id-generator';
 import { LIMITS } from '../../shared/constants/limits';
 import {
   createDefaultContextInheritance,
@@ -569,9 +569,12 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     const abortController = new AbortController();
 
-    // Create instance object
+    // Create instance object — use provider-prefixed ID for debuggability
+    const providerKey = (config.provider && config.provider in INSTANCE_ID_PREFIXES)
+      ? config.provider as InstanceProvider
+      : 'generic';
     const instance: Instance = {
-      id: generateId(),
+      id: generateInstanceId(providerKey),
       displayName: config.displayName || path.basename(resolvedWorkingDir) || `Instance ${Date.now()}`,
       createdAt: Date.now(),
       historyThreadId,

@@ -1,6 +1,8 @@
 import { getLogger } from '../logging/logger';
-import { NODE_TO_COORDINATOR, createRpcResponse } from './worker-node-rpc';
+import { NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
 import { getWorkerNodeHealth } from './worker-node-health';
+import { validateAuthToken } from './auth-validator';
+import { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 import type { WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
@@ -62,6 +64,32 @@ export class RpcEventRouter {
   // ---------------------------------------------------------------------------
 
   private handleRpcRequest(nodeId: string, request: RpcRequest): void {
+    // Auth: validate token on every request
+    const params = request.params as Record<string, unknown> | undefined;
+    const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
+    if (!validateAuthToken(token)) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.UNAUTHORIZED, 'Invalid auth token'),
+      );
+      return;
+    }
+
+    // Validate payload schema if one is defined for this method
+    const schema = RPC_PARAM_SCHEMAS[request.method];
+    if (schema) {
+      try {
+        validateRpcParams(schema, request.params);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Validation failed';
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.INVALID_PARAMS, message),
+        );
+        return;
+      }
+    }
+
     switch (request.method) {
       case NODE_TO_COORDINATOR.REGISTER:
         this.handleNodeRegister(nodeId, request);
@@ -88,11 +116,18 @@ export class RpcEventRouter {
   // ---------------------------------------------------------------------------
 
   private handleRpcNotification(nodeId: string, notification: RpcNotification): void {
+    // Auth: validate token on notifications too
+    const params = notification.params as Record<string, unknown> | undefined;
+    const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
+    if (!validateAuthToken(token)) {
+      logger.warn('Notification rejected: invalid auth token', { nodeId, method: notification.method });
+      return;
+    }
+
     switch (notification.method) {
       case NODE_TO_COORDINATOR.HEARTBEAT: {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const params = notification.params as Record<string, any> | undefined;
-        this.registry.updateHeartbeat(nodeId, params?.['capabilities'] as WorkerNodeCapabilities);
+        const hbParams = notification.params as Record<string, unknown> | undefined;
+        this.registry.updateHeartbeat(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities);
         break;
       }
       default:

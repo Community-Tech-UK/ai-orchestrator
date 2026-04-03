@@ -77,6 +77,7 @@ export type InstanceStatus =
   | 'hibernating'     // Saving state to disk before suspend
   | 'hibernated'      // State saved, process killed, can wake
   | 'waking'          // Restoring from hibernation
+  | 'degraded'        // Remote worker node disconnected; awaiting reconnection or failover
   | 'error'
   | 'failed'          // Unrecoverable init/wake failure
   | 'terminated';

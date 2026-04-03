@@ -28,6 +28,9 @@ import { RateLimiter } from './rate-limiter';
 import type { BaseChannelAdapter } from './channel-adapter';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import type { InboundChannelMessage } from '../../shared/types/channels';
+import { detectBrowserIntent } from './browser-intent';
+import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
+import { getWorkerNodeRegistry } from '../remote-node';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -893,6 +896,12 @@ export class ChannelMessageRouter {
         case 'switch':
           await this.handleSwitchCommand(msg, adapter);
           return;
+        case 'nodes':
+          await this.handleNodesCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'run-on':
+          await this.handleRunOnCommand(msg, intent.commandArgs || '', adapter);
+          return;
         default:
           await adapter.sendMessage(
             msg.chatId,
@@ -1109,6 +1118,85 @@ export class ChannelMessageRouter {
 
   // ============ Routing ============
 
+  private async handleNodesCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const registry = getWorkerNodeRegistry();
+    const nodes = registry.getAllNodes();
+
+    if (args.trim()) {
+      // /nodes <name> - show details for a specific node
+      const node = nodes.find((n) => n.name === args.trim() || n.id === args.trim());
+      if (!node) {
+        await adapter.sendMessage(msg.chatId, `Node "${args.trim()}" not found.`, { replyTo: msg.messageId });
+        return;
+      }
+      const detail = [
+        `**${node.name}** (${node.id})`,
+        `Status: ${node.status}`,
+        `Platform: ${node.capabilities.platform} / ${node.capabilities.arch}`,
+        `CPU: ${node.capabilities.cpuCores} cores`,
+        `Memory: ${node.capabilities.availableMemoryMB}/${node.capabilities.totalMemoryMB} MB`,
+        node.capabilities.gpuName ? `GPU: ${node.capabilities.gpuName} (${node.capabilities.gpuMemoryMB} MB)` : null,
+        `CLIs: ${node.capabilities.supportedClis.join(', ') || 'none'}`,
+        `Browser: ${node.capabilities.hasBrowserRuntime ? 'yes' : 'no'}`,
+        `Active instances: ${node.activeInstances}`,
+        node.latencyMs !== undefined ? `Latency: ${node.latencyMs}ms` : null,
+      ].filter(Boolean).join('\n');
+      await adapter.sendMessage(msg.chatId, detail, { replyTo: msg.messageId });
+      return;
+    }
+
+    // /nodes - list all
+    if (nodes.length === 0) {
+      await adapter.sendMessage(msg.chatId, 'No worker nodes connected.', { replyTo: msg.messageId });
+      return;
+    }
+
+    const lines = nodes.map(
+      (n) => `- **${n.name}** - ${n.status} | ${n.activeInstances} instances | ${n.capabilities.platform}`,
+    );
+    await adapter.sendMessage(msg.chatId, `**Worker Nodes (${nodes.length}):**\n${lines.join('\n')}`, { replyTo: msg.messageId });
+  }
+
+  private async handleRunOnCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    // /run-on <node> <message>
+    const spaceIdx = args.indexOf(' ');
+    if (spaceIdx === -1 || !args.trim()) {
+      await adapter.sendMessage(msg.chatId, 'Usage: /run-on <node-name> <message>', { replyTo: msg.messageId });
+      return;
+    }
+
+    const nodeName = args.slice(0, spaceIdx).trim();
+    const content = args.slice(spaceIdx + 1).trim();
+
+    const registry = getWorkerNodeRegistry();
+    const node = registry.getAllNodes().find((n) => n.name === nodeName || n.id === nodeName);
+    if (!node) {
+      await adapter.sendMessage(msg.chatId, `Node "${nodeName}" not found.`, { replyTo: msg.messageId });
+      return;
+    }
+
+    const im = this.getInstanceManager();
+    const workingDirectory = process.cwd();
+    const instance = await im.createInstance({
+      displayName: `${msg.platform}:${msg.senderName}`,
+      workingDirectory,
+      initialPrompt: content,
+      yoloMode: true,
+      forceNodeId: node.id,
+    });
+
+    this.streamResults(msg, instance.id, adapter);
+    await adapter.sendMessage(msg.chatId, `Running on **${node.name}**...`, { replyTo: msg.messageId });
+  }
+
   private async routeDefault(
     msg: InboundChannelMessage,
     content: string,
@@ -1121,11 +1209,16 @@ export class ChannelMessageRouter {
     } catch {
       // Ignore missing or inaccessible directories; instance creation will surface real failures.
     }
+    // Detect browser intent for auto-offloading
+    const remoteConfig = getRemoteNodeConfig();
+    const needsBrowser = remoteConfig.autoOffloadBrowser && detectBrowserIntent(content);
+
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory,
       initialPrompt: content || undefined,
       yoloMode: true,
+      ...(needsBrowser ? { nodePlacement: { requiresBrowser: true } } : {}),
     });
 
     // Stream results back

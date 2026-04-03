@@ -13,6 +13,12 @@ export interface RemoteNodeConfig {
   autoOffloadGpu: boolean;
   /** Global cap on total remote instances */
   maxRemoteInstances: number;
+  /** Path to TLS certificate file (PEM). If set with tlsKeyPath, enables WSS. */
+  tlsCertPath?: string;
+  /** Path to TLS private key file (PEM). */
+  tlsKeyPath?: string;
+  /** Path to CA certificate for client cert verification (mutual TLS). */
+  tlsCaPath?: string;
 }
 
 const DEFAULT_CONFIG: RemoteNodeConfig = {

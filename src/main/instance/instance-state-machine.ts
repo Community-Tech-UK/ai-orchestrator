@@ -18,7 +18,7 @@ const TERMINAL_STATES = new Set<InstanceStatus>(['terminated', 'failed']);
 /**
  * Universal target states — reachable from any non-terminal state.
  */
-const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed']);
+const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degraded']);
 
 /**
  * Explicit allowed transitions (excluding universal targets).
@@ -36,6 +36,7 @@ const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>
   hibernated:         ['waking'],
   waking:             ['ready', 'error'],
   error:              ['ready', 'idle', 'respawning'],
+  degraded:           ['ready', 'idle', 'error'],  // Reconnected → ready/idle, grace period expired → error
   // Terminal states have no outgoing transitions.
   failed:             [],
   terminated:         [],

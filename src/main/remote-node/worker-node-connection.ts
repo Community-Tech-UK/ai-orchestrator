@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import * as https from 'https';
+import * as fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getLogger } from '../logging/logger';
 import {
@@ -11,6 +13,8 @@ import {
   RPC_ERROR_CODES,
 } from './worker-node-rpc';
 import type { RpcRequest, RpcResponse, RpcNotification } from './worker-node-rpc';
+import { getRemoteNodeConfig } from './remote-node-config';
+import { validateAuthToken } from './auth-validator';
 
 const logger = getLogger('WorkerNodeConnection');
 
@@ -59,23 +63,45 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       return;
     }
 
+    const config = getRemoteNodeConfig();
+    const useTls = config.tlsCertPath && config.tlsKeyPath;
+
     await new Promise<void>((resolve, reject) => {
-      const wss = new WebSocketServer({ host, port });
+      let wss: WebSocketServer;
 
-      wss.on('error', (err) => {
-        if (!this.wss) {
-          // Startup error — reject the promise
-          reject(err);
-        } else {
-          logger.error('WebSocket server error', err);
-        }
-      });
+      if (useTls) {
+        const server = https.createServer({
+          cert: fs.readFileSync(config.tlsCertPath!),
+          key: fs.readFileSync(config.tlsKeyPath!),
+          ...(config.tlsCaPath ? { ca: fs.readFileSync(config.tlsCaPath), requestCert: true, rejectUnauthorized: true } : {}),
+        });
 
-      wss.on('listening', () => {
-        this.wss = wss;
-        logger.info('WorkerNodeConnectionServer listening', { host, port });
-        resolve();
-      });
+        wss = new WebSocketServer({ server });
+
+        server.on('error', (err) => {
+          if (!this.wss) reject(err);
+          else logger.error('HTTPS server error', err);
+        });
+
+        server.listen(port, host, () => {
+          this.wss = wss;
+          logger.info('WorkerNodeConnectionServer listening (WSS/TLS)', { host, port });
+          resolve();
+        });
+      } else {
+        wss = new WebSocketServer({ host, port });
+
+        wss.on('error', (err) => {
+          if (!this.wss) reject(err);
+          else logger.error('WebSocket server error', err);
+        });
+
+        wss.on('listening', () => {
+          this.wss = wss;
+          logger.info('WorkerNodeConnectionServer listening', { host, port });
+          resolve();
+        });
+      }
 
       wss.on('connection', (ws) => {
         this.handleConnection(ws);
@@ -273,6 +299,20 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       );
       ws.send(JSON.stringify(errorResponse));
       ws.close(1008, 'Missing nodeId');
+      return;
+    }
+
+    // Validate auth token
+    const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
+    if (!validateAuthToken(token)) {
+      const errorResponse = createRpcError(
+        msg.id,
+        RPC_ERROR_CODES.UNAUTHORIZED,
+        'Invalid or missing auth token',
+      );
+      ws.send(JSON.stringify(errorResponse));
+      ws.close(4001, 'Unauthorized');
+      logger.warn('Node registration rejected: invalid auth token', { nodeId: newNodeId });
       return;
     }
 

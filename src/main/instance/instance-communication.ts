@@ -22,6 +22,7 @@ import type {
 import type { SessionDiffTracker } from './session-diff-tracker';
 import { ToolOutputParser } from './tool-output-parser';
 import { generateId } from '../../shared/utils/id-generator';
+import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { getTokenStatsService } from '../memory/token-stats';
 
 /**
@@ -595,7 +596,13 @@ export class InstanceCommunicationManager extends EventEmitter {
         // Detect context-overflow errors arriving via NDJSON stdout path
         // (these bypass the adapter 'error' event and need explicit handling)
         if (message.type === 'error' && this.isContextOverflowMessage(message.content)) {
-          logger.warn('Context overflow detected via output path', { instanceId, content: message.content });
+          const tokenInfo = extractOverflowTokenCount(message.content);
+          logger.warn('Context overflow detected via output path', {
+            instanceId,
+            content: message.content,
+            observedTokens: tokenInfo.observed,
+            maximumTokens: tokenInfo.maximum,
+          });
 
           // Only show the first occurrence; suppress duplicates
           if (!this.contextOverflowSeen.has(instanceId)) {
@@ -778,7 +785,13 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Check if this is a context overflow error
       const classified = getErrorRecoveryManager().classifyError(error);
       if (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context')) {
-        logger.info('Context overflow detected, attempting compaction', { instanceId });
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const tokenInfo = extractOverflowTokenCount(errorMsg);
+        logger.info('Context overflow detected, attempting compaction', {
+          instanceId,
+          observedTokens: tokenInfo.observed,
+          maximumTokens: tokenInfo.maximum,
+        });
 
         // Add a system message to inform the user
         const compactingMessage: OutputMessage = {
@@ -1173,21 +1186,12 @@ export class InstanceCommunicationManager extends EventEmitter {
   // ============================================
 
   /**
-   * Check if a message content indicates a context overflow / prompt-too-long error
+   * Check if a message content indicates a context overflow / prompt-too-long error.
+   * Delegates to the PTL retry module's pattern set for comprehensive detection.
    */
   private isContextOverflowMessage(content: string): boolean {
     if (!content) return false;
-    const lower = content.toLowerCase();
-    return (
-      lower.includes('prompt is too long') ||
-      lower.includes('context window limit') ||
-      lower.includes('context length exceeded') ||
-      lower.includes('context_length_exceeded') ||
-      lower.includes('max_tokens_exceeded') ||
-      lower.includes('maximum context') ||
-      lower.includes('reached its context window') ||
-      lower.includes('token limit')
-    );
+    return isContextOverflowError(content);
   }
 
   /**

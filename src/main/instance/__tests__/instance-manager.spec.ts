@@ -459,6 +459,14 @@ vi.mock('../../../shared/constants/limits', () => ({
 let idCounter = 0;
 vi.mock('../../../shared/utils/id-generator', () => ({
   generateId: vi.fn(() => `test-id-${++idCounter}`),
+  generateInstanceId: vi.fn(() => `test-id-${++idCounter}`),
+  generatePrefixedId: vi.fn((prefix: string) => `${prefix}-test-${++idCounter}`),
+  generateShortId: vi.fn(() => `short-${++idCounter}`),
+  generateToken: vi.fn(() => `token-${++idCounter}`),
+  generateTimestampedId: vi.fn(() => `ts-${++idCounter}`),
+  generateOrchestrationId: vi.fn((type: string) => `${type}-${++idCounter}`),
+  INSTANCE_ID_PREFIXES: { claude: 'c', gemini: 'g', codex: 'x', copilot: 'p', generic: 'i' },
+  ORCHESTRATION_ID_PREFIXES: { debate: 'd', consensus: 'n', verification: 'v', worktree: 'w' },
 }));
 
 // ---------------------------------------------------------------------------

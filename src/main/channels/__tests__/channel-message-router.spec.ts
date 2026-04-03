@@ -18,6 +18,24 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
+// Mock remote-node barrel to prevent transitive import chain reaching
+// command-manager.ts → ElectronStore (which requires Electron runtime)
+vi.mock('../../remote-node', () => ({
+  getWorkerNodeRegistry: () => ({
+    getAllNodes: vi.fn(() => []),
+    selectNodeForPlacement: vi.fn(() => null),
+  }),
+}));
+
+vi.mock('../../remote-node/remote-node-config', () => ({
+  getRemoteNodeConfig: () => ({
+    enabled: false,
+    autoOffloadBrowser: false,
+    autoOffloadGpu: false,
+    maxRemoteInstances: 20,
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

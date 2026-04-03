@@ -9,11 +9,13 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { SlicePipe } from '@angular/common';
 import { Instance } from '../../core/state/instance.store';
 
 @Component({
   selector: 'app-instance-row',
   standalone: true,
+  imports: [SlicePipe],
   template: `
     <div
       class="instance-row"
@@ -110,6 +112,11 @@ import { Instance } from '../../core/state/instance.store';
             <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
           }
         </div>
+        @if (isRemote()) {
+          <span class="remote-badge" [title]="'Running on node: ' + remoteNodeId()">
+            {{ remoteNodeId() | slice:0:8 }}
+          </span>
+        }
       </div>
 
       @if (hasDiffStats()) {
@@ -542,6 +549,19 @@ import { Instance } from '../../core/state/instance.store';
       cursor: not-allowed;
     }
 
+    .remote-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      background: rgba(var(--info-rgb), 0.12);
+      color: var(--color-info);
+      white-space: nowrap;
+      margin-left: 4px;
+    }
+
     @keyframes spin {
       from {
         transform: rotate(0deg);
@@ -637,6 +657,16 @@ export class InstanceRowComponent {
     this.instance().status === 'hibernating'
   );
   readonly isHibernated = computed(() => this.instance().status === 'hibernated');
+
+  readonly isRemote = computed(() =>
+    this.instance().executionLocation?.type === 'remote',
+  );
+
+  readonly remoteNodeId = computed(() => {
+    const loc = this.instance().executionLocation;
+    return loc?.type === 'remote' ? loc.nodeId : '';
+  });
+
   readonly activityLabel = computed(() => {
     switch (this.instance().status) {
       case 'busy':

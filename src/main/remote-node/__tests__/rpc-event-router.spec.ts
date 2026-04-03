@@ -21,6 +21,30 @@ vi.mock('../worker-node-health', () => ({
   getWorkerNodeHealth: vi.fn(() => mockHealth),
 }));
 
+// ---------------------------------------------------------------------------
+// Mock auth-validator — auth is tested in its own spec
+// ---------------------------------------------------------------------------
+
+vi.mock('../auth-validator', () => ({
+  validateAuthToken: vi.fn(() => true),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock rpc-schemas — schema validation is tested in its own spec.
+// The router spec focuses on routing logic only.
+// ---------------------------------------------------------------------------
+
+vi.mock('../rpc-schemas', () => ({
+  validateRpcParams: vi.fn(),
+  RPC_PARAM_SCHEMAS: {
+    'node.register': {},
+    'node.heartbeat': {},
+    'instance.output': {},
+    'instance.stateChange': {},
+    'instance.permissionRequest': {},
+  },
+}));
+
 import { WorkerNodeRegistry } from '../worker-node-registry';
 import { RpcEventRouter } from '../rpc-event-router';
 import type { WorkerNodeCapabilities, WorkerNodeInfo } from '../../../shared/types/worker-node.types';

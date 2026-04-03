@@ -1,4 +1,6 @@
 export { WorkerNodeRegistry, getWorkerNodeRegistry } from './worker-node-registry';
+export { generateAuthToken, validateAuthToken, ensureAuthToken } from './auth-validator';
+export { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 export { WorkerNodeConnectionServer, getWorkerNodeConnectionServer } from './worker-node-connection';
 export { WorkerNodeHealth, getWorkerNodeHealth } from './worker-node-health';
 export { handleNodeFailover } from './node-failover';

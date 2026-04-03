@@ -359,6 +359,15 @@ export const routes: Routes = [
         .then(m => m.CHANNELS_ROUTES),
   },
 
+  // Remote Worker Nodes
+  {
+    path: 'remote-nodes',
+    loadComponent: () =>
+      import('./features/remote-nodes/remote-nodes-page.component').then(
+        (m) => m.RemoteNodesPageComponent,
+      ),
+  },
+
   // Catch-all redirect to dashboard
   {
     path: '**',
