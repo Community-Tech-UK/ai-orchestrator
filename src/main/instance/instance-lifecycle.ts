@@ -46,6 +46,7 @@ import type {
   SessionDiffStats
 } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import type { CoreDeps } from './instance-deps';
 import { getPolicyAdapter } from '../observation/policy-adapter';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
@@ -178,6 +179,12 @@ export interface LifecycleDependencies {
   getStateMachine?: (instanceId: string) => InstanceStateMachine | undefined;
   setStateMachine?: (instanceId: string, machine: InstanceStateMachine) => void;
   deleteStateMachine?: (instanceId: string) => void;
+  /**
+   * Narrow dependency interfaces for the core execution loop.
+   * When provided, lifecycle methods should prefer these over direct singleton access.
+   * Optional for backward compatibility — existing code paths continue to work.
+   */
+  coreDeps?: CoreDeps;
 }
 
 // MCP config file for spawned CLI instances (LSP server, etc.)

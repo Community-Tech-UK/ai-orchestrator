@@ -44,6 +44,7 @@ import { InstancePersistenceManager } from './instance-persistence';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
 import { getAutoTitleService } from './auto-title-service';
+import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
@@ -218,6 +219,7 @@ export class InstanceManager extends EventEmitter {
       getStateMachine: (id) => this.state.getStateMachine(id),
       setStateMachine: (id, machine) => this.state.setStateMachine(id, machine),
       deleteStateMachine: (id) => this.state.deleteStateMachine(id),
+      coreDeps: (() => { try { return productionCoreDeps(); } catch { return undefined; } })(),
     });
 
     // Persistence manager needs dependencies
@@ -1161,6 +1163,22 @@ export class InstanceManager extends EventEmitter {
       if (summaries.length > 0) {
         orchestration.notifyAllChildrenCompleted(child.parentId, summaries);
         logger.info('All children completed, synthesis prompt injected', { parentId: child.parentId, childCount: summaries.length });
+      }
+
+      // Clean up all completed child instances now that synthesis data is gathered
+      for (const cId of completedIds) {
+        try {
+          await this.terminateInstance(cId, false);
+        } catch (err) {
+          logger.error('Failed to clean up completed child instance', err instanceof Error ? err : undefined, { childId: cId });
+        }
+      }
+    } else {
+      // Not all children done yet — clean up just this child
+      try {
+        await this.terminateInstance(childId, false);
+      } catch (err) {
+        logger.error('Failed to clean up child instance', err instanceof Error ? err : undefined, { childId });
       }
     }
   }
