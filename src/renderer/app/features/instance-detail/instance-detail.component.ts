@@ -142,6 +142,7 @@ interface WelcomeProjectContext {
               [provider]="inst.provider"
               [showThinking]="showThinking()"
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
+              [isChild]="!!inst.parentId"
             />
             @if (inst.status === 'busy' || inst.status === 'initializing') {
               <app-activity-status

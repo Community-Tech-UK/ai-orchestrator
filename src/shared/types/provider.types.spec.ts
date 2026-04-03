@@ -30,6 +30,11 @@ describe('provider type helpers', () => {
     expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-6')).toBe(1000000);
   });
 
+  it('returns 1M when Claude provider model is undefined or empty', () => {
+    expect(getProviderModelContextWindow('claude-cli', undefined)).toBe(1000000);
+    expect(getProviderModelContextWindow('claude', '')).toBe(1000000);
+  });
+
   it('returns 200k for non-Claude providers', () => {
     expect(getProviderModelContextWindow('codex', 'gpt-5.4')).toBe(200000);
   });

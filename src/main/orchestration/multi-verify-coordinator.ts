@@ -27,8 +27,7 @@ import { getVerificationCache, type VerificationCache } from './verification-cac
 import { getConfidenceAnalyzer, type ConfidenceAnalyzer } from './confidence-analyzer';
 import { getEmbeddingService as getOrchestrationEmbeddingService, type EmbeddingService, type SemanticClusterConfig, type ResponseCluster } from './embedding-service';
 import { getLogger } from '../logging/logger';
-import { getErrorRecoveryManager } from '../core/error-recovery';
-import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { getConfidenceFilter } from './confidence-filter';
 import { createCliAdapter, resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -122,21 +121,14 @@ export class MultiVerifyCoordinator extends EventEmitter {
     const config = request.config;
     const healthConfig = this.getHealthConfig(config);
 
-    const classified = getErrorRecoveryManager().classifyError(error, `MultiVerifyCoordinator.agent[${agentId}]`);
-
-    logger.warn('Agent failure classified', {
-      requestId: request.id,
-      agentId,
-      category: classified.category,
-      severity: classified.severity,
-      recoverable: classified.recoverable,
-      message: classified.technicalDetails,
+    const { classified, shouldFailFast } = handleCoordinatorError(error, {
+      coordinatorName: 'MultiVerifyCoordinator',
+      operationName: 'handleAgentFailure',
+      metadata: { requestId: request.id, agentId },
     });
 
-    // Only fail-fast on explicitly non-recoverable categories (auth, permanent).
-    // UNKNOWN errors should respect the retry budget — unknown !== permanent.
-    const FAIL_FAST_CATEGORIES = new Set([ErrorCategory.AUTH, ErrorCategory.PERMANENT]);
-    if (FAIL_FAST_CATEGORIES.has(classified.category)) {
+    // handleCoordinatorError already classifies AUTH/PERMANENT as fail-fast
+    if (shouldFailFast) {
       this.failedAgents.add(agentId);
       return 'failed';
     }

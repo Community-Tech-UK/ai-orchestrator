@@ -101,7 +101,9 @@ export function handleCoordinatorError(
     shouldRetry,
     retryDelayMs,
     shouldFailFast,
-    userMessage: classified.userMessage || truncateErrorForContext(error, 200),
+    userMessage: classified.category === ErrorCategory.UNKNOWN
+      ? truncateErrorForContext(error, 200)
+      : (classified.userMessage || truncateErrorForContext(error, 200)),
   };
 }
 

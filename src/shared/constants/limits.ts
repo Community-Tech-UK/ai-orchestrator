@@ -19,6 +19,21 @@ export const LIMITS = {
   // Context (conservative fallback for unknown providers; Claude-specific values in CONTEXT_WINDOWS)
   DEFAULT_MAX_CONTEXT_TOKENS: 200000,
 
+  // Token estimation safety margin (multiplier applied to heuristic estimates)
+  // Prevents overflow from inaccurate char-per-token heuristics.
+  // 1.15 = 15% buffer. OpenClaw uses 1.2; we use 1.15 as a balanced choice.
+  TOKEN_SAFETY_MARGIN: 1.15,
+
+  // PTL (prompt-too-long) retry configuration
+  PTL_MAX_RETRIES: 3,
+  PTL_DROP_RATIO: 0.20, // Drop oldest 20% of turns per retry
+
+  // Compaction thresholds (percentage of context window)
+  COMPACTION_WARNING_THRESHOLD: 75,
+  COMPACTION_BACKGROUND_THRESHOLD: 80,   // Non-blocking background compaction
+  COMPACTION_BLOCKING_THRESHOLD: 95,     // Blocking — must compact before continuing
+  COMPACTION_COOLDOWN_MS: 30000,         // 30s between compaction attempts
+
   // IPC
   IPC_TIMEOUT_MS: 30000,
 

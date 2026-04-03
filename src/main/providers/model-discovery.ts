@@ -184,7 +184,7 @@ export class ModelDiscoveryService {
         displayName: 'Claude Opus (latest)',
         provider: 'anthropic',
         description: 'Most capable model for complex tasks',
-        contextLength: 200000,
+        contextLength: 1000000,
         maxOutputTokens: 32000,
         capabilities: {
           vision: true,
@@ -232,7 +232,7 @@ export class ModelDiscoveryService {
         displayName: 'Claude Sonnet (latest)',
         provider: 'anthropic',
         description: 'Balanced performance and cost',
-        contextLength: 200000,
+        contextLength: 1000000,
         maxOutputTokens: 64000,
         capabilities: {
           vision: true,

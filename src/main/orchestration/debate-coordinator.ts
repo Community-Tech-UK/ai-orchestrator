@@ -27,8 +27,7 @@ import type {
 } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
 import { estimateTokens } from '../rlm/token-counter';
-import { getErrorRecoveryManager } from '../core/error-recovery';
-import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 
 const logger = getLogger('DebateCoordinator');
@@ -243,19 +242,16 @@ export class DebateCoordinator extends EventEmitter {
       // Finalize the debate
       this.finalizeDebate(debate);
     } catch (error) {
-      const classified = getErrorRecoveryManager().classifyError(error as Error, 'DebateCoordinator');
-      logger.warn('Debate failed', {
-        debateId: debate.id,
-        category: classified.category,
-        severity: classified.severity,
-        recoverable: classified.recoverable,
-        message: classified.technicalDetails,
+      const { userMessage } = handleCoordinatorError(error, {
+        coordinatorName: 'DebateCoordinator',
+        operationName: 'runDebate',
+        metadata: { debateId: debate.id },
       });
 
       // Always emit debate:error — runDebate has no retry loop, so suppressing
       // transient errors would silently swallow failures with no recovery path.
       debate.status = 'cancelled';
-      this.emit('debate:error', { debateId: debate.id, error: (error as Error).message });
+      this.emit('debate:error', { debateId: debate.id, error: userMessage });
     }
   }
 

@@ -24,7 +24,7 @@ import type {
   ConsensusProgressEvent,
 } from '../../shared/types/consensus.types';
 import { getLogger } from '../logging/logger';
-import { getErrorRecoveryManager } from '../core/error-recovery';
+import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 
@@ -186,15 +186,10 @@ export class ConsensusCoordinator extends EventEmitter {
 
       return result;
     } catch (error) {
-      const classified = getErrorRecoveryManager().classifyError(
-        error instanceof Error ? error : new Error(String(error)),
-        'ConsensusCoordinator'
-      );
-      logger.error('Consensus query failed', error instanceof Error ? error : undefined, {
-        queryId,
-        category: classified.category,
-        severity: classified.severity,
-        recoverable: classified.recoverable,
+      handleCoordinatorError(error, {
+        coordinatorName: 'ConsensusCoordinator',
+        operationName: 'query',
+        metadata: { queryId },
       });
       this.emitProgress(queryId, 'error', [], []);
       return this.emptyResult(startTime, error instanceof Error ? error.message : String(error));
@@ -255,22 +250,15 @@ export class ConsensusCoordinator extends EventEmitter {
       const durationMs = Date.now() - providerStart;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      const classified = getErrorRecoveryManager().classifyError(
-        error instanceof Error ? error : new Error(errorMessage),
-        `ConsensusCoordinator.queryProvider[${spec.provider}]`
-      );
+      const { classified } = handleCoordinatorError(error, {
+        coordinatorName: 'ConsensusCoordinator',
+        operationName: 'queryProvider',
+        metadata: { provider: spec.provider },
+      });
 
       const isTransient =
         classified.category === ErrorCategory.TRANSIENT ||
         classified.category === ErrorCategory.RATE_LIMITED;
-
-      logger.warn('Provider query failed', {
-        provider: spec.provider,
-        error: errorMessage,
-        category: classified.category,
-        recoverable: classified.recoverable,
-        isTransient,
-      });
 
       return {
         provider: spec.provider,

@@ -13,8 +13,7 @@ import type {
 } from '../../shared/types/worktree.types';
 import { WorktreeManager, getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getLogger } from '../logging/logger';
-import { getErrorRecoveryManager } from '../core/error-recovery';
-import { ErrorCategory } from '../../shared/types/error-recovery.types';
+import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { withLock } from '../util/file-lock';
 import { scheduleOperations, type OperationDescriptor } from './concurrency-classifier';
@@ -354,35 +353,11 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
         this.emit('task:merged', { executionId: execution.id, taskId, result });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const classified = getErrorRecoveryManager().classifyError(
-          error instanceof Error ? error : new Error(message),
-          `ParallelWorktreeCoordinator.performMerges[${taskId}]`
-        );
-
-        const isTransient =
-          classified.category === ErrorCategory.TRANSIENT ||
-          classified.category === ErrorCategory.NETWORK;
-
-        if (isTransient) {
-          logger.warn('Transient merge failure for task, continuing remaining merges', {
-            executionId: execution.id,
-            taskId,
-            category: classified.category,
-            error: message,
-          });
-        } else {
-          logger.error(
-            'Permanent merge failure for task, marking failed and continuing remaining merges',
-            undefined,
-            {
-              executionId: execution.id,
-              taskId,
-              category: classified.category,
-              recoverable: classified.recoverable,
-              error: message,
-            }
-          );
-        }
+        const { classified } = handleCoordinatorError(error, {
+          coordinatorName: 'ParallelWorktreeCoordinator',
+          operationName: 'performMerges',
+          metadata: { executionId: execution.id, taskId },
+        });
 
         this.emit('task:merge-failed', {
           executionId: execution.id,

@@ -8,6 +8,10 @@
 
 **Tech Stack:** TypeScript, Node.js EventEmitter, Vitest
 
+## Status: COMPLETED (all 5 tasks done)
+
+**Note:** The file structure table listed "Modify `src/main/providers/failover-manager.ts`" but no task step had checkboxes for this integration. `OrphanedMessageCleaner` is created, tested, and exported from `src/main/instance/index.ts` but NOT yet wired into `failover-manager.ts`. Consider this a future integration step.
+
 ---
 
 ## File Structure
