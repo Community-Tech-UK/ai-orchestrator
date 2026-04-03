@@ -26,6 +26,9 @@ import * as path from 'path';
 import { app } from 'electron';
 import z from 'zod';
 import { fork } from 'child_process';
+import type { ToolSafetyMetadata } from '../../shared/types/tool.types';
+
+export type { ToolSafetyMetadata } from '../../shared/types/tool.types';
 
 export interface ToolContext {
   instanceId: string;
@@ -37,7 +40,22 @@ export interface ToolModule {
   args?: z.ZodRawShape | z.ZodTypeAny;
   /** Whether this tool can run concurrently with other tools (default: true) */
   concurrencySafe?: boolean;
+  /** Richer safety metadata — takes precedence over concurrencySafe when present */
+  safety?: ToolSafetyMetadata;
   execute: (args: any, ctx: ToolContext) => unknown | Promise<unknown>;
+}
+
+/**
+ * Return safety metadata for a tool, falling back to legacy concurrencySafe
+ * flag for backward compatibility with tools that predate the richer metadata.
+ */
+export function getToolSafety(tool: ToolModule): ToolSafetyMetadata {
+  if (tool.safety) return tool.safety;
+  return {
+    isConcurrencySafe: tool.concurrencySafe ?? true,
+    isReadOnly: false,
+    isDestructive: false,
+  };
 }
 
 interface LoadedTool {
