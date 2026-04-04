@@ -54,6 +54,12 @@ export interface RpcError {
   data?: unknown;
 }
 
+/** Response sent to worker after successful enrollment */
+export interface EnrollmentResult {
+  nodeId: string;
+  token: string;
+}
+
 // -- Standard JSON-RPC Error Codes --
 
 export const RPC_ERROR_CODES = {
