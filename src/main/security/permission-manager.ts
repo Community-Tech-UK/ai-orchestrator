@@ -15,6 +15,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getLogger } from '../logging/logger';
+import type { PermissionDecisionStore } from './permission-decision-store.js';
 
 const logger = getLogger('PermissionManager');
 
@@ -401,6 +402,7 @@ export class PermissionManager extends EventEmitter {
   private sessionRules: Map<string, PermissionRule[]> = new Map(); // Per-session rules
   private loadedProjectRuleRoots: Set<string> = new Set();
   private matcherCache = new Map<string, CompiledMatcher>();
+  private decisionStore?: PermissionDecisionStore;
 
   private constructor() {
     super();
@@ -408,6 +410,27 @@ export class PermissionManager extends EventEmitter {
     this.initializeSystemRules();
     this.loadUserRulesFromDisk();
     this.startCacheCleanup();
+
+    this.on('permission:decided', (decision: PermissionDecision) => {
+      if (this.decisionStore) {
+        this.decisionStore.record({
+          instanceId: decision.request.instanceId ?? 'unknown',
+          scope: decision.request.scope,
+          resource: decision.request.resource,
+          action: decision.action,
+          decidedBy: decision.matchedRule?.source,
+          ruleId: decision.matchedRule?.id,
+          reason: decision.reason,
+          toolName: decision.request.context?.toolName,
+          isCached: decision.fromCache,
+          decidedAt: new Date(decision.decidedAt).toISOString(),
+        });
+      }
+    });
+  }
+
+  setDecisionStore(store: PermissionDecisionStore): void {
+    this.decisionStore = store;
   }
 
   static getInstance(): PermissionManager {

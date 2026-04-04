@@ -296,6 +296,33 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS channel_credentials;
     `
   },
+
+  // Migration 008: Add permission decisions audit trail
+  {
+    name: '008_permission_decisions',
+    up: `
+      CREATE TABLE IF NOT EXISTS permission_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        instance_id TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN ('allow', 'deny', 'ask')),
+        decided_by TEXT,
+        rule_id TEXT,
+        reason TEXT,
+        tool_name TEXT,
+        is_cached INTEGER NOT NULL DEFAULT 0,
+        decided_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_perm_decisions_instance ON permission_decisions(instance_id);
+      CREATE INDEX idx_perm_decisions_scope ON permission_decisions(scope);
+      CREATE INDEX idx_perm_decisions_created ON permission_decisions(created_at);
+    `,
+    down: `
+      DROP TABLE IF EXISTS permission_decisions;
+    `,
+  },
 ];
 
 /**

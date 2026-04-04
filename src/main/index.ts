@@ -91,6 +91,8 @@ import type { InstanceSlice } from './state';
 import type { Instance } from '../shared/types/instance.types';
 import { getMemoryMonitor } from './memory';
 import { getWorkflowManager } from './workflows/workflow-manager';
+import { getPermissionManager } from './security/permission-manager';
+import { PermissionDecisionStore } from './security/permission-decision-store';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -410,6 +412,14 @@ class AIOrchestratorApp {
           getAgentTreePersistence().initialize().catch((err) => {
             logger.warn('Agent tree persistence initialization failed', { error: err instanceof Error ? err.message : String(err) });
           });
+
+          // Wire permission decision persistence
+          try {
+            const decisionStore = new PermissionDecisionStore(getRLMDatabase().getRawDb());
+            getPermissionManager().setDecisionStore(decisionStore);
+          } catch (err) {
+            logger.warn('Failed to initialize permission decision store', { error: err instanceof Error ? err.message : String(err) });
+          }
 
           // Initialize permission registry cleanup on instance removal
           const permissionRegistry = getPermissionRegistry();
