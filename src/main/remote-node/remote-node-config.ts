@@ -13,6 +13,8 @@ export interface RemoteNodeConfig {
   autoOffloadGpu: boolean;
   /** Global cap on total remote instances */
   maxRemoteInstances: number;
+  /** Logical namespace for grouping nodes */
+  namespace: string;
   /** Path to TLS certificate file (PEM). If set with tlsKeyPath, enables WSS. */
   tlsCertPath?: string;
   /** Path to TLS private key file (PEM). */
@@ -28,6 +30,7 @@ const DEFAULT_CONFIG: RemoteNodeConfig = {
   autoOffloadBrowser: true,
   autoOffloadGpu: false,
   maxRemoteInstances: 20,
+  namespace: 'default',
 };
 
 let currentConfig: RemoteNodeConfig = { ...DEFAULT_CONFIG };
@@ -43,4 +46,19 @@ export function updateRemoteNodeConfig(partial: Partial<RemoteNodeConfig>): void
 /** Reset to defaults (for testing) */
 export function resetRemoteNodeConfig(): void {
   currentConfig = { ...DEFAULT_CONFIG };
+}
+
+/** Hydrate the live config from persisted AppSettings. Call once on startup. */
+export function hydrateRemoteNodeConfig(settings: import('../../shared/types/settings.types').AppSettings): void {
+  updateRemoteNodeConfig({
+    enabled: settings.remoteNodesEnabled,
+    serverPort: settings.remoteNodesServerPort,
+    serverHost: settings.remoteNodesServerHost,
+    authToken: settings.remoteNodesEnrollmentToken || undefined,
+    autoOffloadBrowser: settings.remoteNodesAutoOffloadBrowser,
+    autoOffloadGpu: settings.remoteNodesAutoOffloadGpu,
+    namespace: settings.remoteNodesNamespace,
+    tlsCertPath: settings.remoteNodesTlsCertPath || undefined,
+    tlsKeyPath: settings.remoteNodesTlsKeyPath || undefined,
+  });
 }
