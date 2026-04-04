@@ -966,7 +966,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           logger.error('Failed to respawn instance after interrupt', err instanceof Error ? err : undefined, { instanceId });
           instance.status = 'error';
           instance.processId = null;
-          this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError('Failed to respawn after interrupt'));
+          this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError(`Failed to respawn after interrupt: ${err instanceof Error ? err.message : String(err)}`));
         });
         return;
       }
@@ -1000,7 +1000,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             logger.error('Auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });
             instance.status = 'error';
             instance.processId = null;
-            this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError('Auto-respawn failed'));
+            this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError(`Auto-respawn failed: ${err instanceof Error ? err.message : String(err)}`));
           });
           return;
         }
