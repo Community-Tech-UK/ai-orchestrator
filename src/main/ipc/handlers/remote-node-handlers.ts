@@ -2,7 +2,14 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getWorkerNodeRegistry, getWorkerNodeConnectionServer } from '../../remote-node';
-import { getRemoteNodeConfig } from '../../remote-node/remote-node-config';
+import { getRemoteNodeConfig, updateRemoteNodeConfig } from '../../remote-node/remote-node-config';
+import { generateAuthToken } from '../../remote-node/auth-validator';
+import { getNodeIdentityStore } from '../../remote-node/node-identity-store';
+import {
+  RemoteNodeSetTokenPayloadSchema,
+  RemoteNodeRevokePayloadSchema,
+} from '../../../shared/validation/ipc-schemas';
+import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('RemoteNodeHandlers');
@@ -84,6 +91,104 @@ export function registerRemoteNodeHandlers(): void {
           success: false,
           error: {
             code: 'REMOTE_NODE_STOP_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_REGENERATE_TOKEN,
+    async (): Promise<IpcResponse> => {
+      try {
+        const token = generateAuthToken();
+        getSettingsManager().set('remoteNodesEnrollmentToken', token);
+        updateRemoteNodeConfig({ authToken: token });
+        return { success: true, data: { token } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_REGENERATE_TOKEN_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_SET_TOKEN,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeSetTokenPayloadSchema.parse(payload);
+        getSettingsManager().set('remoteNodesEnrollmentToken', validated.token);
+        updateRemoteNodeConfig({ authToken: validated.token });
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_SET_TOKEN_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_REVOKE,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeRevokePayloadSchema.parse(payload);
+        const store = getNodeIdentityStore();
+        store.remove(validated.nodeId);
+        getSettingsManager().set('remoteNodesRegisteredNodes', store.toJson());
+        const server = getWorkerNodeConnectionServer();
+        if (server.isNodeConnected(validated.nodeId)) {
+          server.disconnectNode(validated.nodeId);
+        }
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_REVOKE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_GET_SERVER_STATUS,
+    async (): Promise<IpcResponse> => {
+      try {
+        const server = getWorkerNodeConnectionServer();
+        const config = getRemoteNodeConfig();
+        return {
+          success: true,
+          data: {
+            connectedCount: server.getConnectedNodeIds().length,
+            runningConfig: {
+              port: config.serverPort,
+              host: config.serverHost,
+              namespace: config.namespace,
+            },
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_GET_SERVER_STATUS_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },
