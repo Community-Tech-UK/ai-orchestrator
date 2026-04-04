@@ -90,6 +90,7 @@ import { getAppStore, addInstance, removeInstance, updateInstance, setGlobalStat
 import type { InstanceSlice } from './state';
 import type { Instance } from '../shared/types/instance.types';
 import { getMemoryMonitor } from './memory';
+import { getWorkflowManager } from './workflows/workflow-manager';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -501,6 +502,7 @@ class AIOrchestratorApp {
       getCompactionCoordinator().cleanupInstance(instanceId as string);
       getDoomLoopDetector().cleanupInstance(instanceId as string);
       getLoadBalancer().removeMetrics(instanceId as string);
+      getWorkflowManager().cleanupInstance(instanceId as string);
       observer.publishInstanceState({
         type: 'removed',
         instanceId,
