@@ -37,6 +37,7 @@ export class WorkerAgent extends EventEmitter {
   private reconnectAttempt = 0;
   private connectedAt = 0;
   private pendingRegistrationId: string | number | null = null;
+  private discoveryClient: DiscoveryClient | null = null;
 
   constructor(private readonly config: WorkerConfig) {
     super();
@@ -76,6 +77,7 @@ export class WorkerAgent extends EventEmitter {
         this.ws = ws;
         this.sendRegistration();
         this.startHeartbeat();
+        this.startContinuousDiscovery();
         resolve();
       });
 
@@ -104,6 +106,7 @@ export class WorkerAgent extends EventEmitter {
   async disconnect(): Promise<void> {
     this.isShuttingDown = true;
     this.stopHeartbeat();
+    this.stopContinuousDiscovery();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -183,6 +186,37 @@ export class WorkerAgent extends EventEmitter {
         // connect() failed — close handler schedules next retry
       }
     }, delay);
+  }
+
+  // -- Continuous discovery ----------------------------------------------------
+
+  /**
+   * Keep mDNS browser running so the worker detects coordinator restarts
+   * or IP changes. Only used when coordinatorUrl is not explicitly set.
+   */
+  private startContinuousDiscovery(): void {
+    if (this.config.coordinatorUrl) return; // explicit URL — skip mDNS
+    this.stopContinuousDiscovery();
+
+    this.discoveryClient = new DiscoveryClient();
+    this.discoveryClient.startContinuous(
+      this.config.namespace,
+      (coordinator) => {
+        // Coordinator re-appeared or changed IP — reconnect if we're disconnected
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          console.log(`Coordinator re-discovered at ${coordinator.host}:${coordinator.port}, reconnecting...`);
+          this.scheduleReconnect();
+        }
+      },
+      (name) => {
+        console.warn(`Coordinator ${name} disappeared from mDNS`);
+      },
+    );
+  }
+
+  private stopContinuousDiscovery(): void {
+    this.discoveryClient?.stopContinuous();
+    this.discoveryClient = null;
   }
 
   // -- Message handling -------------------------------------------------------
