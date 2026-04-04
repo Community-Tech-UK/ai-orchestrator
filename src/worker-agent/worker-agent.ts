@@ -1,5 +1,7 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import * as os from 'os';
+import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager, type SpawnParams } from './local-instance-manager';
@@ -9,6 +11,8 @@ import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
 import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
+
+const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
 interface RpcMessage {
   jsonrpc: '2.0';
@@ -148,7 +152,7 @@ export class WorkerAgent extends EventEmitter {
           nodeId: this.config.nodeId,
           capabilities: this.capabilities,
           activeInstances: this.instanceManager.getInstanceCount(),
-          token: this.config.authToken,
+          token: this.config.nodeToken ?? this.config.authToken,
         },
       });
     }, this.config.heartbeatIntervalMs);
@@ -162,15 +166,23 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private scheduleReconnect(): void {
-    console.log(`Connection lost. Reconnecting in ${this.config.reconnectIntervalMs}ms...`);
+    if (this.connectedAt > 0 && Date.now() - this.connectedAt > RECONNECT_CONFIG.stableConnectionResetMs) {
+      this.reconnectAttempt = 0;
+    }
+
+    const delay = nextReconnectDelayMs(this.reconnectAttempt);
+    this.reconnectAttempt++;
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})...`);
+
     this.reconnectTimer = setTimeout(async () => {
       try {
         await this.connect();
-        console.log('Reconnected to coordinator');
+        this.connectedAt = Date.now();
+        this.reconnectAttempt = 0;
       } catch {
-        // connect() failed — close handler will schedule next retry
+        // connect() failed — close handler schedules next retry
       }
-    }, this.config.reconnectIntervalMs);
+    }, delay);
   }
 
   // -- Message handling -------------------------------------------------------
@@ -186,7 +198,21 @@ export class WorkerAgent extends EventEmitter {
 
     // Response to one of our requests
     if (msg.result !== undefined || msg.error !== undefined) {
-      return; // Responses are informational for now
+      // Check if this is the enrollment response to our registration
+      if (
+        msg.id !== undefined &&
+        msg.id === this.pendingRegistrationId &&
+        msg.result !== null &&
+        typeof msg.result === 'object'
+      ) {
+        const enrollment = msg.result as EnrollmentResult;
+        if (enrollment.token) {
+          this.config.nodeToken = enrollment.token;
+          persistConfig(DEFAULT_CONFIG_PATH, this.config);
+          this.pendingRegistrationId = null;
+        }
+      }
+      return;
     }
 
     // RPC request from coordinator
@@ -253,7 +279,7 @@ export class WorkerAgent extends EventEmitter {
         jsonrpc: '2.0',
         id: `out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
-        params: { instanceId, message, token: this.config.authToken },
+        params: { instanceId, message, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
 
@@ -262,7 +288,7 @@ export class WorkerAgent extends EventEmitter {
         jsonrpc: '2.0',
         id: `sc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-        params: { instanceId, state, token: this.config.authToken },
+        params: { instanceId, state, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
 
@@ -271,7 +297,7 @@ export class WorkerAgent extends EventEmitter {
         jsonrpc: '2.0',
         id: `exit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-        params: { instanceId, state: 'exited', info, token: this.config.authToken },
+        params: { instanceId, state: 'exited', info, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
 
@@ -280,7 +306,7 @@ export class WorkerAgent extends EventEmitter {
         jsonrpc: '2.0',
         id: `perm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         method: NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST,
-        params: { instanceId, permission, token: this.config.authToken },
+        params: { instanceId, permission, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
   }
