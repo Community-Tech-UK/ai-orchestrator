@@ -281,6 +281,10 @@ const IPC_CHANNELS = {
   REMOTE_NODE_START_SERVER: 'remote-node:start-server',
   REMOTE_NODE_STOP_SERVER: 'remote-node:stop-server',
   REMOTE_NODE_EVENT: 'remote-node:event',
+  REMOTE_NODE_REGENERATE_TOKEN: 'remote-node:regenerate-token',
+  REMOTE_NODE_SET_TOKEN: 'remote-node:set-token',
+  REMOTE_NODE_REVOKE: 'remote-node:revoke',
+  REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
 
   // Cost Tracking (5.3)
   COST_RECORD_USAGE: 'cost:record-usage',
@@ -2744,6 +2748,18 @@ const electronAPI = {
 
   remoteNodeStopServer: (): Promise<unknown> =>
     ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_STOP_SERVER),
+
+  remoteNodeRegenerateToken: (): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_REGENERATE_TOKEN),
+
+  remoteNodeSetToken: (token: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_SET_TOKEN, { token }),
+
+  remoteNodeRevokeNode: (nodeId: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_REVOKE, { nodeId }),
+
+  remoteNodeGetServerStatus: (): Promise<unknown> =>
+    ipcRenderer.invoke(IPC_CHANNELS.REMOTE_NODE_GET_SERVER_STATUS),
 
   onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
