@@ -22,6 +22,7 @@ import {
 } from '../../shared/validation/ipc-schemas';
 import { getSpecialistRegistry } from '../agents/specialists/specialist-registry';
 import type { SpecialistProfile, SpecialistStatus, SpecialistFinding, SpecialistCategory } from '../../shared/types/specialist.types';
+import { applySpecialistConstraints } from '../../shared/utils/permission-mapper';
 
 export function registerSpecialistHandlers(): void {
   // ============================================
@@ -492,7 +493,14 @@ export function registerSpecialistHandlers(): void {
       try {
         const validated = validateIpcPayload(SpecialistGetPromptAdditionPayloadSchema, payload, 'SPECIALIST_GET_PROMPT_ADDITION');
         const prompt = getSpecialistRegistry().getSystemPromptAddition(validated.profileId);
-        return { success: true, data: prompt };
+        const profile = getSpecialistRegistry().getProfile(validated.profileId);
+        const permissionOverrides = profile?.constraints
+          ? applySpecialistConstraints(
+              { read: 'allow', write: 'allow', bash: 'allow', web: 'allow', task: 'allow' },
+              profile.constraints
+            )
+          : undefined;
+        return { success: true, data: { prompt, permissionOverrides } };
       } catch (error) {
         return {
           success: false,

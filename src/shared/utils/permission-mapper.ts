@@ -10,6 +10,7 @@
  */
 
 import type { AgentToolPermissions, ToolPermission } from '../types/agent.types';
+import type { SpecialistConstraints } from '../types/specialist.types';
 
 // Tool categories mapped to Claude Code tool names
 export const TOOL_CATEGORIES = {
@@ -167,4 +168,28 @@ export function getFilePermission(
   }
   // Default: allow
   return 'allow';
+}
+
+/**
+ * Applies specialist constraints as hard permission overrides.
+ * Never weakens existing permissions — only tightens them.
+ */
+export function applySpecialistConstraints(
+  permissions: AgentToolPermissions,
+  constraints: SpecialistConstraints
+): AgentToolPermissions {
+  const result = { ...permissions };
+
+  if (constraints.readOnlyMode) {
+    result.write = 'deny';
+  }
+
+  if (constraints.sandboxedExecution) {
+    // Only tighten: deny stays deny, allow becomes ask
+    if (result.bash !== 'deny') {
+      result.bash = 'ask';
+    }
+  }
+
+  return result;
 }
