@@ -21,8 +21,8 @@ const WorkerNodeCapabilitiesSchema = z.object({
 // -- Node -> Coordinator schemas -----------------------------------------------
 
 export const NodeRegisterParamsSchema = z.object({
-  nodeId: z.string().min(1),
-  name: z.string().min(1),
+  nodeId: z.string().uuid(),
+  name: z.string().min(1).max(100),
   capabilities: WorkerNodeCapabilitiesSchema,
   token: z.string().optional(),
 });
