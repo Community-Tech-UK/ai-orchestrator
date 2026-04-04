@@ -152,7 +152,7 @@ export class InstanceManager extends EventEmitter {
       getAdapter: (id) => this.state.getAdapter(id),
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
       deleteAdapter: (id) => this.state.deleteAdapter(id),
-      queueUpdate: (id, status, ctx, diffStats) => this.state.queueUpdate(id, status, ctx, diffStats),
+      queueUpdate: (id, status, ctx, diffStats, error) => this.state.queueUpdate(id, status, ctx, diffStats, undefined, error),
       getDiffTracker: (id) => this.state.getDiffTracker(id),
       processOrchestrationOutput: (id, content) => this.orchestrationMgr.processOrchestrationOutput(id, content),
       onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),

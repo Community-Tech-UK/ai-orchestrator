@@ -15,7 +15,8 @@ import type {
 } from '../../shared/types/instance.types';
 import type {
   InstanceStateUpdatePayload,
-  BatchUpdatePayload
+  BatchUpdatePayload,
+  ErrorInfo
 } from '../../shared/types/ipc.types';
 import { LIMITS } from '../../shared/constants/limits';
 
@@ -198,7 +199,8 @@ export class InstanceStateManager extends EventEmitter {
     status: InstanceStatus,
     contextUsage?: ContextUsage,
     diffStats?: SessionDiffStats,
-    displayName?: string
+    displayName?: string,
+    error?: ErrorInfo
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
@@ -206,7 +208,8 @@ export class InstanceStateManager extends EventEmitter {
       status,
       contextUsage: contextUsage ?? existing?.contextUsage,
       diffStats: diffStats ?? existing?.diffStats,
-      displayName: displayName ?? existing?.displayName
+      displayName: displayName ?? existing?.displayName,
+      error: error ?? existing?.error
     });
   }
 

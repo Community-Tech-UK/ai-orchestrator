@@ -20,6 +20,7 @@ import type {
   OutputMessage,
   SessionDiffStats
 } from '../../shared/types/instance.types';
+import type { ErrorInfo } from '../../shared/types/ipc.types';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import { ToolOutputParser } from './tool-output-parser';
 import { generateId } from '../../shared/utils/id-generator';
@@ -34,7 +35,7 @@ export interface CommunicationDependencies {
   getAdapter: (id: string) => CliAdapter | undefined;
   setAdapter: (id: string, adapter: CliAdapter) => void;
   deleteAdapter: (id: string) => boolean;
-  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats) => void;
+  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats, error?: ErrorInfo) => void;
   getDiffTracker?: (id: string) => SessionDiffTracker | undefined;
   processOrchestrationOutput: (instanceId: string, content: string) => void;
   onInterruptedExit: (instanceId: string) => Promise<void>;
@@ -929,6 +930,12 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
 
+      const buildCrashError = (reason: string): ErrorInfo => ({
+        code: signal ? `SIGNAL_${signal}` : `EXIT_${code ?? 'unknown'}`,
+        message: reason,
+        timestamp: Date.now(),
+      });
+
       // Check if this adapter is still the current adapter for this instance
       // If not, a new adapter has been set (e.g., during YOLO toggle) and we should
       // not delete it or modify instance state
@@ -959,7 +966,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           logger.error('Failed to respawn instance after interrupt', err instanceof Error ? err : undefined, { instanceId });
           instance.status = 'error';
           instance.processId = null;
-          this.deps.queueUpdate(instanceId, 'error');
+          this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError('Failed to respawn after interrupt'));
         });
         return;
       }
@@ -993,7 +1000,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             logger.error('Auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });
             instance.status = 'error';
             instance.processId = null;
-            this.deps.queueUpdate(instanceId, 'error');
+            this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError('Auto-respawn failed'));
           });
           return;
         }
@@ -1002,7 +1009,13 @@ export class InstanceCommunicationManager extends EventEmitter {
         logger.info('Instance exited unexpectedly', { instanceId, newStatus, code, signal });
         instance.status = newStatus;
         instance.processId = null;
-        this.deps.queueUpdate(instanceId, instance.status);
+        this.deps.queueUpdate(
+          instanceId,
+          instance.status,
+          undefined,
+          undefined,
+          newStatus === 'error' ? buildCrashError(`Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`) : undefined
+        );
 
         this.deps.deleteAdapter(instanceId);
 
