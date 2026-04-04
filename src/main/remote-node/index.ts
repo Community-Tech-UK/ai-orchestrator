@@ -25,3 +25,10 @@ export type {
   RpcNotification,
   RpcError,
 } from './worker-node-rpc';
+export { ServerLifecycle, type ServerState } from './server-lifecycle';
+export { IpRateLimiter, type RateLimitConfig } from './ip-rate-limiter';
+export { DiscoveryService, getDiscoveryService } from './discovery-service';
+export { NodeIdentityStore, getNodeIdentityStore } from './node-identity-store';
+export { hydrateRemoteNodeConfig } from './remote-node-config';
+export { validateTokenTwoTier, ensureEnrollmentToken, type AuthResult } from './auth-validator';
+export type { EnrollmentResult } from './worker-node-rpc';
