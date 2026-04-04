@@ -167,7 +167,7 @@ describe('InstanceCommunicationManager', () => {
 
     expect(instance.status).toBe('terminated');
     expect(instance.processId).toBeNull();
-    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated');
+    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined);
   });
 
   it('captures baselines from tool_result messages', async () => {
