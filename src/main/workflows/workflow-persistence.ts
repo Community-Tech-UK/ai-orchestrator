@@ -17,7 +17,16 @@ export class WorkflowPersistence {
            updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       `);
-      const status = execution.completedAt ? 'completed' : 'active';
+      // Derive persisted status from execution state
+      let status: 'active' | 'completed' | 'cancelled' | 'failed';
+      if (!execution.completedAt) {
+        status = 'active';
+      } else if (execution.phaseStatuses[execution.currentPhaseId] === 'failed') {
+        // cancelWorkflow() sets currentPhaseId status to 'failed' before completedAt
+        status = 'cancelled';
+      } else {
+        status = 'completed';
+      }
       stmt.run(
         execution.id,
         execution.instanceId,

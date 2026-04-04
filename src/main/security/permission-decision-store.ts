@@ -61,7 +61,9 @@ export class PermissionDecisionStore {
         WHERE instance_id = ?
         ORDER BY created_at DESC
       `);
-      return stmt.all(instanceId) as PermissionDecisionRecord[];
+      // SQLite returns INTEGER 0/1 for is_cached; normalize to boolean
+      const rows = stmt.all(instanceId) as Array<Omit<PermissionDecisionRecord, 'isCached'> & { isCached: number }>;
+      return rows.map(r => ({ ...r, isCached: r.isCached === 1 }));
     } catch (err) {
       logger.error('Failed to query permission decisions', err as Error);
       return [];
