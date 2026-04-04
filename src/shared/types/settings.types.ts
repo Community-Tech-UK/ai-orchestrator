@@ -58,6 +58,20 @@ export interface AppSettings {
   crossModelReviewProviders: string[];
   crossModelReviewTimeout: number;
   crossModelReviewTypes: string[];
+
+  // Remote Nodes
+  remoteNodesEnabled: boolean;
+  remoteNodesServerPort: number;
+  remoteNodesServerHost: string;
+  remoteNodesEnrollmentToken: string;
+  remoteNodesAutoOffloadBrowser: boolean;
+  remoteNodesAutoOffloadGpu: boolean;
+  remoteNodesNamespace: string;
+  remoteNodesRequireTls: boolean;
+  remoteNodesTlsMode: 'auto' | 'custom';
+  remoteNodesTlsCertPath: string;
+  remoteNodesTlsKeyPath: string;
+  remoteNodesRegisteredNodes: string;
 }
 
 /**
@@ -106,6 +120,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewProviders: [],
   crossModelReviewTimeout: 30,
   crossModelReviewTypes: ['code', 'plan', 'architecture'],
+
+  // Remote Nodes
+  remoteNodesEnabled: false,
+  remoteNodesServerPort: 4878,
+  remoteNodesServerHost: '0.0.0.0',
+  remoteNodesEnrollmentToken: '',
+  remoteNodesAutoOffloadBrowser: true,
+  remoteNodesAutoOffloadGpu: false,
+  remoteNodesNamespace: 'default',
+  remoteNodesRequireTls: false,
+  remoteNodesTlsMode: 'auto' as const,
+  remoteNodesTlsCertPath: '',
+  remoteNodesTlsKeyPath: '',
+  remoteNodesRegisteredNodes: '{}',
 };
 
 /**
