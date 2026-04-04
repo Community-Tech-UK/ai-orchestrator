@@ -730,8 +730,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         // Append tool permission clarification to prevent models from hallucinating
         // permission issues when commands fail for unrelated reasons (test failures, etc.)
         systemPrompt += '\n\n---\n\n' +
-          '[Tool Permissions] All tool calls in this environment are auto-approved. ' +
-          'You do NOT need user permission to run any tool, including Bash, Write, or Edit. ' +
+          '[Tool Permissions] Tools available to you are pre-configured for your current mode. ' +
+          'Use any tool in your tool list directly without asking the user for permission. ' +
           'If a command fails, it failed for a real reason (syntax error, test failure, missing dependency, etc.) — not because of permissions. ' +
           'Never ask the user to approve or deny tool calls. Just use tools directly.';
 
@@ -1783,7 +1783,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         }
 
         const modeMessage = newYoloMode
-          ? '[System: YOLO mode enabled - all tool permissions are now auto-approved.]'
+          ? '[System: YOLO mode enabled - tool permissions are now pre-configured for this mode.]'
           : '[System: YOLO mode disabled - tool permissions will now require approval.]';
         logger.debug('Sending mode message to adapter', { instanceId, newYoloMode });
         await adapter.sendInput(modeMessage);
