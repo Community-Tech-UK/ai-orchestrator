@@ -16,6 +16,7 @@ import { PermissionsSettingsTabComponent } from './permissions-settings-tab.comp
 import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.component';
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { ConnectionsSettingsTabComponent } from './connections-settings-tab.component';
+import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 
 type SettingsTab =
   | 'general'
@@ -27,7 +28,8 @@ type SettingsTab =
   | 'permissions'
   | 'review'
   | 'advanced'
-  | 'keyboard';
+  | 'keyboard'
+  | 'remote-nodes';
 
 interface SettingsNavItem {
   id: SettingsTab;
@@ -44,6 +46,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'orchestration', label: 'Orchestration', group: 'Agents' },
   { id: 'review', label: 'Cross-Model Review', group: 'Agents' },
   { id: 'memory', label: 'Memory', group: 'Agents' },
+  { id: 'remote-nodes', label: 'Remote Nodes', group: 'Advanced' },
   { id: 'ecosystem', label: 'Ecosystem', group: 'Advanced' },
   { id: 'advanced', label: 'Advanced', group: 'Advanced' },
 ];
@@ -61,7 +64,8 @@ const NAV_ITEMS: SettingsNavItem[] = [
     AdvancedSettingsTabComponent,
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent,
-    ConnectionsSettingsTabComponent
+    ConnectionsSettingsTabComponent,
+    RemoteNodesSettingsTabComponent
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -135,6 +139,9 @@ const NAV_ITEMS: SettingsNavItem[] = [
             }
             @case ('keyboard') {
               <app-keyboard-settings-tab />
+            }
+            @case ('remote-nodes') {
+              <app-remote-nodes-settings-tab />
             }
           }
         </div>
