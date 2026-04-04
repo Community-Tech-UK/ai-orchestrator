@@ -6,8 +6,10 @@ import * as crypto from 'crypto';
 export interface WorkerConfig {
   nodeId: string;
   name: string;
-  coordinatorUrl: string;
+  coordinatorUrl?: string;
   authToken: string;
+  nodeToken?: string;
+  namespace: string;
   maxConcurrentInstances: number;
   workingDirectories: string[];
   reconnectIntervalMs: number;
@@ -19,8 +21,10 @@ const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-nod
 const DEFAULTS: WorkerConfig = {
   nodeId: '',
   name: os.hostname(),
-  coordinatorUrl: 'ws://localhost:4878',
+  coordinatorUrl: undefined,
   authToken: '',
+  nodeToken: undefined,
+  namespace: 'default',
   maxConcurrentInstances: 10,
   workingDirectories: [],
   reconnectIntervalMs: 5_000,
@@ -51,6 +55,7 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   if (args['coordinator']) merged.coordinatorUrl = args['coordinator'];
   if (args['name']) merged.name = args['name'];
   if (args['token']) merged.authToken = args['token'];
+  if (args['namespace']) merged.namespace = args['namespace'];
 
   // Persist generated values back
   persistConfig(configPath, merged);
@@ -70,7 +75,7 @@ function parseCliArgs(argv: string[]): Record<string, string> {
   return result;
 }
 
-function persistConfig(configPath: string, config: WorkerConfig): void {
+export function persistConfig(configPath: string, config: WorkerConfig): void {
   const dir = path.dirname(configPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

@@ -1,10 +1,14 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import { reportCapabilities } from './capability-reporter';
+import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager, type SpawnParams } from './local-instance-manager';
+import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
 import type { WorkerConfig } from './worker-config';
+import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
 import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
+import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
 
 interface RpcMessage {
   jsonrpc: '2.0';
@@ -26,6 +30,9 @@ export class WorkerAgent extends EventEmitter {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private capabilities: WorkerNodeCapabilities | null = null;
   private isShuttingDown = false;
+  private reconnectAttempt = 0;
+  private connectedAt = 0;
+  private pendingRegistrationId: string | number | null = null;
 
   constructor(private readonly config: WorkerConfig) {
     super();
@@ -43,8 +50,23 @@ export class WorkerAgent extends EventEmitter {
       this.config.maxConcurrentInstances,
     );
 
+    // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
+    let coordinatorUrl = this.config.coordinatorUrl;
+    if (!coordinatorUrl) {
+      const discovery = new DiscoveryClient();
+      const found = await discovery.discover(this.config.namespace, 10_000);
+      if (!found) {
+        throw new Error(`mDNS discovery found no coordinator for namespace "${this.config.namespace}"`);
+      }
+      coordinatorUrl = `ws://${found.host}:${found.port}`;
+    }
+
+    const token = this.config.nodeToken ?? this.config.authToken;
+
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(this.config.coordinatorUrl);
+      const ws = new WebSocket(coordinatorUrl as string, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       ws.on('open', () => {
         this.ws = ws;
@@ -93,15 +115,17 @@ export class WorkerAgent extends EventEmitter {
 
   /** Exposed for testing. */
   buildRegistrationMessage(): RpcMessage {
+    const id = `reg-${Date.now()}`;
+    this.pendingRegistrationId = id;
     return {
       jsonrpc: '2.0',
-      id: `reg-${Date.now()}`,
+      id,
       method: NODE_TO_COORDINATOR.REGISTER,
       params: {
         nodeId: this.config.nodeId,
         name: this.config.name,
         capabilities: this.capabilities,
-        token: this.config.authToken,
+        token: this.config.nodeToken ?? this.config.authToken,
       },
     };
   }
