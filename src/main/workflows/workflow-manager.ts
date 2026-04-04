@@ -16,6 +16,7 @@ import {
   createWorkflowExecution,
 } from '../../shared/types/workflow.types';
 import { builtInTemplates } from './templates';
+import { WorkflowPersistence } from './workflow-persistence';
 
 const logger = getLogger('WorkflowManager');
 
@@ -24,6 +25,20 @@ export class WorkflowManager extends EventEmitter {
   private templates: Map<string, WorkflowTemplate> = new Map();
   private executions: Map<string, WorkflowExecution> = new Map();
   private instanceExecutions: Map<string, string> = new Map(); // instanceId -> executionId
+  private persistence?: WorkflowPersistence;
+
+  setPersistence(persistence: WorkflowPersistence): void {
+    this.persistence = persistence;
+  }
+
+  private persistExecution(execution: WorkflowExecution): void {
+    if (!this.persistence) return;
+    try {
+      this.persistence.save(execution);
+    } catch (err) {
+      logger.error('Failed to persist workflow execution', err instanceof Error ? err : undefined);
+    }
+  }
 
   static getInstance(): WorkflowManager {
     if (!this.instance) {
@@ -89,6 +104,7 @@ export class WorkflowManager extends EventEmitter {
 
     this.executions.set(execution.id, execution);
     this.instanceExecutions.set(instanceId, execution.id);
+    this.persistExecution(execution);
 
     this.emit('workflow:started', { execution, template });
 
@@ -138,6 +154,7 @@ export class WorkflowManager extends EventEmitter {
         submittedAt: Date.now(),
       };
       this.emit('workflow:gate-pending', { execution, phase: currentPhase });
+      this.persistExecution(execution);
       return execution;
     }
 
@@ -162,6 +179,7 @@ export class WorkflowManager extends EventEmitter {
       }
     }
 
+    this.persistExecution(execution);
     return execution;
   }
 
@@ -197,6 +215,7 @@ export class WorkflowManager extends EventEmitter {
       case 'user_approval':
         if (!response.approved) {
           this.emit('workflow:gate-rejected', { execution, phase });
+          this.persistExecution(execution);
           return execution;
         }
         break;
@@ -210,6 +229,7 @@ export class WorkflowManager extends EventEmitter {
       logger.error('Error completing phase after gate satisfaction', err instanceof Error ? err : undefined);
     });
 
+    this.persistExecution(execution);
     return execution;
   }
 
@@ -352,6 +372,7 @@ export class WorkflowManager extends EventEmitter {
       this.emit('workflow:phase-changed', { execution, phase: nextPhase });
     }
 
+    this.persistExecution(execution);
     return execution;
   }
 
@@ -425,6 +446,7 @@ export class WorkflowManager extends EventEmitter {
 
     execution.completedAt = Date.now();
     execution.phaseStatuses[execution.currentPhaseId] = 'failed';
+    this.persistExecution(execution);
 
     this.emit('workflow:cancelled', execution);
   }

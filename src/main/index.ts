@@ -93,6 +93,7 @@ import { getMemoryMonitor } from './memory';
 import { getWorkflowManager } from './workflows/workflow-manager';
 import { getPermissionManager } from './security/permission-manager';
 import { PermissionDecisionStore } from './security/permission-decision-store';
+import { WorkflowPersistence } from './workflows/workflow-persistence';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -419,6 +420,14 @@ class AIOrchestratorApp {
             getPermissionManager().setDecisionStore(decisionStore);
           } catch (err) {
             logger.warn('Failed to initialize permission decision store', { error: err instanceof Error ? err.message : String(err) });
+          }
+
+          // Wire workflow execution persistence
+          try {
+            const workflowPersistence = new WorkflowPersistence(getRLMDatabase().getRawDb());
+            getWorkflowManager().setPersistence(workflowPersistence);
+          } catch (err) {
+            logger.warn('Failed to initialize workflow persistence', { error: err instanceof Error ? err.message : String(err) });
           }
 
           // Initialize permission registry cleanup on instance removal

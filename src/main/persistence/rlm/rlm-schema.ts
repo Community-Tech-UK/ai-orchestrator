@@ -323,6 +323,33 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS permission_decisions;
     `,
   },
+  // Migration 009: Add workflow executions persistence
+  {
+    name: '009_workflow_executions',
+    up: `
+      CREATE TABLE IF NOT EXISTS workflow_executions (
+        id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL,
+        template_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('active', 'completed', 'cancelled', 'failed')),
+        current_phase_id TEXT,
+        phase_statuses_json TEXT NOT NULL DEFAULT '{}',
+        phase_data_json TEXT NOT NULL DEFAULT '{}',
+        pending_gate_json TEXT,
+        started_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        agent_invocations INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        total_cost REAL NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_wf_exec_instance ON workflow_executions(instance_id);
+      CREATE INDEX idx_wf_exec_status ON workflow_executions(status);
+    `,
+    down: `
+      DROP TABLE IF EXISTS workflow_executions;
+    `,
+  },
 ];
 
 /**
