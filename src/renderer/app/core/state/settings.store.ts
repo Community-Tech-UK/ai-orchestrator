@@ -56,6 +56,24 @@ export class SettingsStore {
     SETTINGS_METADATA.filter(s => s.category === 'review')
   );
 
+  // Remote Nodes
+  readonly remoteNodesEnabled = computed(() => this._settings().remoteNodesEnabled);
+  readonly remoteNodesServerPort = computed(() => this._settings().remoteNodesServerPort);
+  readonly remoteNodesServerHost = computed(() => this._settings().remoteNodesServerHost);
+  readonly remoteNodesEnrollmentToken = computed(() => this._settings().remoteNodesEnrollmentToken);
+  readonly remoteNodesAutoOffloadBrowser = computed(() => this._settings().remoteNodesAutoOffloadBrowser);
+  readonly remoteNodesAutoOffloadGpu = computed(() => this._settings().remoteNodesAutoOffloadGpu);
+  readonly remoteNodesNamespace = computed(() => this._settings().remoteNodesNamespace);
+  readonly remoteNodesRequireTls = computed(() => this._settings().remoteNodesRequireTls);
+  readonly remoteNodesTlsMode = computed(() => this._settings().remoteNodesTlsMode);
+  readonly remoteNodesRegisteredNodes = computed(() => {
+    try {
+      return JSON.parse(this._settings().remoteNodesRegisteredNodes) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  });
+
   private unsubscribe: (() => void) | null = null;
 
   constructor() {
