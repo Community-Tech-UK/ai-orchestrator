@@ -31,7 +31,10 @@
     "hardenedRuntime": true,
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
-    "notarize": false
+    "notarize": false,
+    "extendInfo": {
+      "NSLocalNetworkUsageDescription": "AI Orchestrator uses your local network to discover and connect to worker nodes on other machines."
+    }
   },
   "linux": {
     "target": [
