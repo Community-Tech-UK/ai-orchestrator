@@ -56,11 +56,11 @@ Key points:
 - `autoOffloadBrowser: true` means any task the router detects as needing a browser will prefer a remote node that has one.
 - `autoOffloadGpu` is off by default — flip it if you want GPU-heavy tasks routed to your Windows rig.
 
-## Step 3 — Get the Auth Token
+## Step 3 — Get the Enrollment Token
 
-The coordinator auto-generates a 64-character hex token the first time remote nodes are enabled (or you can set one manually). You need this token for the worker config.
+The coordinator auto-generates a 64-character hex enrollment token the first time remote nodes are enabled (or you can set one manually). This token is used **for first-time enrollment only** — once a worker registers, it receives its own per-node token and no longer needs the enrollment token.
 
-Find it in the app's settings panel under Remote Nodes, or in the config file at `~/.orchestrator/settings.json` on the Mac under `remoteNodes.authToken`.
+Find it in the app's settings panel under Remote Nodes, or in the config file at `~/.orchestrator/settings.json` on the Mac under `remoteNodes.enrollmentToken`.
 
 ## Step 4 — Configure the Worker Agent
 
@@ -75,25 +75,25 @@ Contents:
 ```json
 {
   "name": "windows-pc",
-  "coordinatorUrl": "ws://<mac-ip>:4878",
-  "authToken": "<paste-the-64-char-hex-token>",
+  "authToken": "<paste-the-enrollment-token>",
+  "namespace": "default",
   "maxConcurrentInstances": 10,
   "workingDirectories": [
-    "C:\\Users\\James\\projects",
-    "C:\\Users\\James\\repos"
-  ],
-  "reconnectIntervalMs": 5000,
-  "heartbeatIntervalMs": 10000
+    "C:\\Users\\James\\projects"
+  ]
 }
 ```
+
+> **Note:** The worker auto-discovers the coordinator via mDNS. To skip discovery and connect directly, add `"coordinatorUrl": "ws://<mac-ip>:4878"`.
 
 Field reference:
 
 | Field | What it does |
 |---|---|
 | `name` | Human-readable name shown in the orchestrator UI. |
-| `coordinatorUrl` | WebSocket URL of the Mac coordinator. Use `ws://` or `wss://` if you've configured TLS. |
-| `authToken` | Must match the coordinator's token exactly. |
+| `authToken` | Enrollment token from the coordinator (first-time registration only). |
+| `namespace` | Logical group — must match the coordinator's namespace to be discovered (default `"default"`). |
+| `coordinatorUrl` | *(Optional)* WebSocket URL of the Mac coordinator. Overrides mDNS discovery. Use `ws://` or `wss://` if you've configured TLS. |
 | `maxConcurrentInstances` | How many CLI instances this node can run simultaneously. |
 | `workingDirectories` | Paths the worker is allowed to use as working directories. The agent enforces path sandboxing — it will reject any spawn request targeting a directory outside these roots. |
 | `reconnectIntervalMs` | How quickly to retry if the connection drops (default 5s). |
@@ -134,6 +134,14 @@ pm2 startup
 ```
 
 Or create a Windows service with `node-windows`, or simply run it in a terminal that stays open.
+
+## Auto-Discovery via mDNS
+
+When `coordinatorUrl` is not set in the worker config, the worker automatically discovers the coordinator on the local network using mDNS (Bonjour). The coordinator advertises itself as an `_ai-orchestrator._tcp` service on the LAN. The worker finds it, checks that the `namespace` in the service record matches its own `namespace` setting, and connects.
+
+This means you typically don't need to know or hardcode the Mac's IP address — just make sure both machines are on the same subnet and the Mac firewall allows port 4878 inbound.
+
+To use a specific coordinator instead of auto-discovery (e.g. across subnets, or to prefer a particular machine), add `"coordinatorUrl": "ws://<mac-ip>:4878"` to the worker config.
 
 ## Step 6 — Verify the Connection
 
