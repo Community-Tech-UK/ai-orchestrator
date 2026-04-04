@@ -216,6 +216,9 @@ export interface Instance {
   requestCount: number;
   errorCount: number;
   restartCount: number;
+
+  /** Extensible metadata bag (e.g. toolFilter for proactive tool filtering) */
+  metadata?: Record<string, unknown>;
 }
 
 export interface InstanceCreateConfig {

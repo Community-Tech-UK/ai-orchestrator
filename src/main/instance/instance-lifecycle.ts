@@ -59,6 +59,8 @@ import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 import { InstanceStateMachine } from './instance-state-machine';
 import { getAutoTitleService } from './auto-title-service';
+import { ToolListFilter } from '../tools/tool-list-filter';
+import type { DenyRule } from '../tools/tool-list-filter';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -696,6 +698,17 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // Get disallowed tools based on agent permissions + print-mode-incompatible tools
         const disallowedTools = [...getDisallowedTools(resolvedAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+
+        // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
+        const denyRules: DenyRule[] = disallowedTools.map(tool => ({
+          pattern: tool,
+          type: 'blanket' as const,
+        }));
+        const toolFilter = new ToolListFilter(denyRules);
+
+        // Store filter on instance for downstream consumers
+        if (!instance.metadata) instance.metadata = {};
+        instance.metadata['toolFilter'] = toolFilter;
 
         // Load instruction hierarchy (skip for child instances to reduce token overhead)
         const instructionPrompts = instance.depth === 0
@@ -1530,6 +1543,18 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       const disallowedTools = [...getDisallowedTools(newAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+
+      // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
+      const denyRules: DenyRule[] = disallowedTools.map(tool => ({
+        pattern: tool,
+        type: 'blanket' as const,
+      }));
+      const toolFilter = new ToolListFilter(denyRules);
+
+      // Store filter on instance for downstream consumers
+      if (!instance.metadata) instance.metadata = {};
+      instance.metadata['toolFilter'] = toolFilter;
+
       const defaultAllowedTools = instance.yoloMode ? undefined : [
         'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
         'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
@@ -1698,6 +1723,18 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
       const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+
+      // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
+      const denyRules: DenyRule[] = disallowedTools.map(tool => ({
+        pattern: tool,
+        type: 'blanket' as const,
+      }));
+      const toolFilter = new ToolListFilter(denyRules);
+
+      // Store filter on instance for downstream consumers
+      if (!instance.metadata) instance.metadata = {};
+      instance.metadata['toolFilter'] = toolFilter;
+
       const allowedTools = newYoloMode ? undefined : [
         'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
         'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
@@ -1857,6 +1894,18 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       // Resolve agent and permissions (same as toggleYoloMode)
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
       const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
+
+      // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
+      const denyRules: DenyRule[] = disallowedTools.map(tool => ({
+        pattern: tool,
+        type: 'blanket' as const,
+      }));
+      const toolFilter = new ToolListFilter(denyRules);
+
+      // Store filter on instance for downstream consumers
+      if (!instance.metadata) instance.metadata = {};
+      instance.metadata['toolFilter'] = toolFilter;
+
       const allowedTools = instance.yoloMode ? undefined : [
         'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
         'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
