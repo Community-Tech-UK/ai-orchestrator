@@ -42,3 +42,10 @@ export interface NodePlacementPrefs {
   requiresCli?: CanonicalCliType;
   requiresWorkingDirectory?: string;
 }
+
+export interface NodeIdentity {
+  nodeId: string;
+  nodeName: string;
+  token: string;
+  createdAt: number;
+}

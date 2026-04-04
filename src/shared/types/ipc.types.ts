@@ -347,6 +347,10 @@ export const IPC_CHANNELS = {
   REMOTE_NODE_START_SERVER: 'remote-node:start-server',
   REMOTE_NODE_STOP_SERVER: 'remote-node:stop-server',
   REMOTE_NODE_EVENT: 'remote-node:event',
+  REMOTE_NODE_REGENERATE_TOKEN: 'remote-node:regenerate-token',
+  REMOTE_NODE_SET_TOKEN: 'remote-node:set-token',
+  REMOTE_NODE_REVOKE: 'remote-node:revoke',
+  REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
 
   // External Editor (9.2)
   EDITOR_DETECT: 'editor:detect',
