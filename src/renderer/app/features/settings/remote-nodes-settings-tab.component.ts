@@ -610,7 +610,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.syncDraftsFromStore();
     await this.refreshStatus();
 
-    this.unsubscribeNodeEvent = this.ipc.onNodeEvent(event => {
+    this.unsubscribeNodeEvent = this.ipc.onNodeEvent(() => {
       void this.refreshNodes();
       this.connectedCount.set(
         this.liveNodes().filter(n => n.status === 'connected').length
