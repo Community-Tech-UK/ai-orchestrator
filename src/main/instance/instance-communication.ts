@@ -25,6 +25,7 @@ import type { SessionDiffTracker } from './session-diff-tracker';
 import { ToolOutputParser } from './tool-output-parser';
 import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
+import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
 import { getTokenStatsService } from '../memory/token-stats';
 
 /**
@@ -47,6 +48,8 @@ export interface CommunicationDependencies {
   onOutput?: (instanceId: string) => void;
   onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
+  getBudgetTracker?: (instanceId: string) => TokenBudgetTracker | undefined;
+  getContextUsage?: (instanceId: string) => ContextUsage | undefined;
 }
 
 /**
@@ -356,6 +359,34 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
     // Reset autonomous tool counter on user input
     this.autonomousToolCounts.set(instanceId, 0);
+
+    // Budget enforcement: check before API call
+    const budgetTracker = this.deps.getBudgetTracker?.(instanceId);
+    if (budgetTracker) {
+      const contextUsage = this.deps.getContextUsage?.(instanceId);
+      const turnTokens = contextUsage?.used ?? 0;
+      const budgetCheck = budgetTracker.checkBudget({ turnTokens });
+
+      if (budgetCheck.action === BudgetAction.STOP) {
+        logger.warn('Token budget exceeded, halting before API call', {
+          instanceId,
+          reason: budgetCheck.reason,
+          turnTokens,
+        });
+
+        // Push a system message so user sees why execution stopped
+        const budgetNotification: OutputMessage = {
+          id: generateId(),
+          type: 'system',
+          content: `Token budget limit reached: ${budgetCheck.reason}. ${budgetCheck.nudgeMessage ?? 'Consider starting a new conversation.'}`,
+          timestamp: Date.now(),
+        };
+        instance.outputBuffer.push(budgetNotification);
+        this.emit('output', { instanceId, message: budgetNotification });
+
+        return; // Do NOT call adapter.sendInput
+      }
+    }
 
     logger.info('Sending message to adapter');
     await adapter.sendInput(finalMessage, attachments);

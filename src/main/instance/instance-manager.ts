@@ -51,6 +51,7 @@ import { getPermissionManager, type PermissionRequest, type PermissionScope } fr
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -176,6 +177,17 @@ export class InstanceManager extends EventEmitter {
         } catch {
           // Non-critical — don't fail the operation
         }
+      },
+      getBudgetTracker: (id) => {
+        try {
+          return getCompactionCoordinator().getBudgetTracker(id);
+        } catch {
+          return undefined;
+        }
+      },
+      getContextUsage: (id) => {
+        const inst = this.state.getInstance(id);
+        return inst?.contextUsage;
       },
     });
 
