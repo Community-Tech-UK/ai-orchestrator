@@ -31,6 +31,7 @@ import {
   shouldAllowEnvVar,
   DEFAULT_ENV_FILTER_CONFIG
 } from '../../security/env-filter';
+import { getBashValidationPipeline } from '../../security/bash-validation';
 import { getBashValidator } from '../../security/bash-validator';
 import { getPermissionManager } from '../../security/permission-manager';
 import { validatedHandler } from '../validated-handler';
@@ -254,7 +255,8 @@ export function registerSecurityHandlers(): void {
   // Bash Validation Handlers
   // ============================================
 
-  const bashValidator = getBashValidator();
+  const bashValidator = getBashValidationPipeline();
+  const bashValidatorLegacy = getBashValidator();
 
   // Validate a bash command
   ipcMain.handle(
@@ -274,14 +276,14 @@ export function registerSecurityHandlers(): void {
     IPC_CHANNELS.BASH_GET_CONFIG,
     async (): Promise<IpcResponse> => {
       try {
-        const config = bashValidator.getConfig();
+        const config = bashValidatorLegacy.getConfig();
         // Serialize RegExp patterns to strings for IPC
         const serializedConfig = {
           ...config,
-          warningPatterns: config.warningPatterns.map((p) =>
+          warningPatterns: config.warningPatterns.map((p: string | RegExp) =>
             p instanceof RegExp ? p.source : p
           ),
-          blockedPatterns: config.blockedPatterns.map((p) =>
+          blockedPatterns: config.blockedPatterns.map((p: string | RegExp) =>
             p instanceof RegExp ? p.source : p
           )
         };
@@ -306,7 +308,7 @@ export function registerSecurityHandlers(): void {
       'BASH_ADD_ALLOWED',
       BashCommandPayloadSchema,
       async (payload) => {
-        bashValidator.addAllowedCommand(payload.command);
+        bashValidatorLegacy.addAllowedCommand(payload.command);
         return { success: true, data: { command: payload.command, added: true } };
       }
     )
@@ -319,7 +321,7 @@ export function registerSecurityHandlers(): void {
       'BASH_ADD_BLOCKED',
       BashCommandPayloadSchema,
       async (payload) => {
-        bashValidator.addBlockedCommand(payload.command);
+        bashValidatorLegacy.addBlockedCommand(payload.command);
         return { success: true, data: { command: payload.command, added: true } };
       }
     )

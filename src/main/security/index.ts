@@ -19,3 +19,4 @@ export * from './bash-validator';
 export * from './secret-detector';
 export * from './secret-redaction';
 export * from './env-filter';
+export * from './bash-validation';
