@@ -36,11 +36,23 @@ export type ServerId = Brand<string, 'ServerId'>;
 export type SnapshotId = Brand<string, 'SnapshotId'>;
 export type WorkflowId = Brand<string, 'WorkflowId'>;
 export type ArtifactId = Brand<string, 'ArtifactId'>;
+export type StoreId = Brand<string, 'StoreId'>;
+export type SectionId = Brand<string, 'SectionId'>;
 
 // ── Hierarchy ID Types ─────────────────────────────────────────
 
 export type SupervisorNodeId = Brand<string, 'SupervisorNodeId'>;
 export type WorkerNodeId = Brand<string, 'WorkerNodeId'>;
+
+// ── Request / Permission ID Types ─────────────────────────────
+
+export type RequestId = Brand<string, 'RequestId'>;
+
+// ── Channel ID Types ──────────────────────────────────────────
+
+export type ChatId = Brand<string, 'ChatId'>;
+export type MessageId = Brand<string, 'MessageId'>;
+export type SenderId = Brand<string, 'SenderId'>;
 
 // ── Factory Functions (zero-cost casts) ────────────────────────
 
@@ -60,9 +72,16 @@ export function toWorkflowId(raw: string): WorkflowId { return raw as WorkflowId
 export function toArtifactId(raw: string): ArtifactId { return raw as ArtifactId; }
 export function toSupervisorNodeId(raw: string): SupervisorNodeId { return raw as SupervisorNodeId; }
 export function toWorkerNodeId(raw: string): WorkerNodeId { return raw as WorkerNodeId; }
+export function toRequestId(raw: string): RequestId { return raw as RequestId; }
+export function toStoreId(raw: string): StoreId { return raw as StoreId; }
+export function toSectionId(raw: string): SectionId { return raw as SectionId; }
+export function toChatId(raw: string): ChatId { return raw as ChatId; }
+export function toMessageId(raw: string): MessageId { return raw as MessageId; }
+export function toSenderId(raw: string): SenderId { return raw as SenderId; }
 
 /** Union of all branded ID types — useful for generic ID parameters. */
 export type AnyId = InstanceId | SessionId | AgentId | DebateId
   | VerificationId | ConsensusId | ReviewId | WorktreeId
   | TaskId | SkillId | ServerId | SnapshotId | WorkflowId | ArtifactId
-  | SupervisorNodeId | WorkerNodeId;
+  | SupervisorNodeId | WorkerNodeId | RequestId | StoreId | SectionId
+  | ChatId | MessageId | SenderId;

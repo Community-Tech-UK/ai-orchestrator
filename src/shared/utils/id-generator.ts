@@ -2,8 +2,8 @@
  * ID Generation Utilities
  */
 
-import type { InstanceId } from '../types/branded-ids';
-import { toInstanceId } from '../types/branded-ids';
+import type { InstanceId, DebateId, VerificationId, ConsensusId, WorktreeId, SessionId } from '../types/branded-ids';
+import { toInstanceId, toDebateId, toVerificationId, toConsensusId, toWorktreeId, toSessionId } from '../types/branded-ids';
 
 /**
  * Generate a UUID v4
@@ -117,13 +117,30 @@ export const ORCHESTRATION_ID_PREFIXES = {
 
 export type OrchestrationType = keyof typeof ORCHESTRATION_ID_PREFIXES;
 
+/** Return-type map so each orchestration kind returns its own branded ID. */
+interface OrchestrationIdMap {
+  debate: DebateId;
+  verification: VerificationId;
+  consensus: ConsensusId;
+  worktree: WorktreeId;
+  session: SessionId;
+}
+
 /**
- * Generate an orchestration-type-prefixed ID.
+ * Generate an orchestration-type-prefixed ID, branded to its kind.
  *
  * Examples:
- *   generateOrchestrationId('debate')  → "d5k2m8n3p"
- *   generateOrchestrationId('session') → "s7j4x1q9w"
+ *   generateOrchestrationId('debate')  → DebateId "d5k2m8n3p"
+ *   generateOrchestrationId('session') → SessionId "s7j4x1q9w"
  */
-export function generateOrchestrationId(type: OrchestrationType): string {
-  return generatePrefixedId(ORCHESTRATION_ID_PREFIXES[type]);
+export function generateOrchestrationId<T extends OrchestrationType>(type: T): OrchestrationIdMap[T] {
+  const raw = generatePrefixedId(ORCHESTRATION_ID_PREFIXES[type]);
+  const casters: Record<OrchestrationType, (s: string) => unknown> = {
+    debate: toDebateId,
+    verification: toVerificationId,
+    consensus: toConsensusId,
+    worktree: toWorktreeId,
+    session: toSessionId,
+  };
+  return casters[type](raw) as OrchestrationIdMap[T];
 }

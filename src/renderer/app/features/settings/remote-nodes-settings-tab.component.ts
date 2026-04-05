@@ -438,37 +438,47 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       box-sizing: border-box;
     }
 
-    .btn {
+    .remote-nodes-tab .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.25rem;
       padding: 0.5rem 1rem;
       border: none;
       border-radius: 4px;
       cursor: pointer;
       font-size: 0.875rem;
       font-weight: 500;
+      line-height: 1.2;
+      white-space: nowrap;
       align-self: flex-start;
+      font-family: inherit;
     }
 
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-primary { background: var(--primary-color, #3b82f6); color: white; }
-    .btn-primary:hover:not(:disabled) { opacity: 0.9; }
-    .btn-secondary { background: var(--bg-primary, #0f0f0f); color: var(--text-primary, #e5e5e5); border: 1px solid var(--border-color, #333); }
-    .btn-secondary:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
-    .btn-danger { background: var(--error-color, #ef4444); color: white; }
-    .btn-danger:hover:not(:disabled) { opacity: 0.9; }
+    .remote-nodes-tab .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .remote-nodes-tab .btn-primary { background: var(--primary-color, #3b82f6); color: #000; }
+    .remote-nodes-tab .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+    .remote-nodes-tab .btn-secondary { background: var(--bg-primary, #0f0f0f); color: var(--text-primary, #e5e5e5); border: 1px solid var(--border-color, #333); }
+    .remote-nodes-tab .btn-secondary:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+    .remote-nodes-tab .btn-danger { background: var(--error-color, #ef4444); color: white; }
+    .remote-nodes-tab .btn-danger:hover:not(:disabled) { opacity: 0.9; }
 
-    .btn-icon {
+    .remote-nodes-tab .btn-icon {
+      width: auto;
+      height: auto;
+      min-height: 0;
       padding: 0.5rem;
       background: var(--bg-primary, #0f0f0f);
       border: 1px solid var(--border-color, #333);
       color: var(--text-muted, #888);
-      display: flex;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
       align-self: auto;
       flex-shrink: 0;
     }
 
-    .btn-icon:hover:not(:disabled) {
+    .remote-nodes-tab .btn-icon:hover:not(:disabled) {
       color: var(--text-primary, #e5e5e5);
       background: rgba(255,255,255,0.06);
     }
