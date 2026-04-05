@@ -1,4 +1,4 @@
-import type { BashValidatorSubmodule, ParsedCommand, ValidationContext, SubmoduleResult } from '../types';
+import type { BashValidatorSubmodule, ParsedCommand, SubmoduleResult } from '../types';
 
 interface PatternRule { pattern: RegExp; message: string; }
 
@@ -23,7 +23,7 @@ const WARN_PATTERNS: PatternRule[] = [
 export class DockerValidator implements BashValidatorSubmodule {
   readonly name = 'DockerValidator';
 
-  validate(raw: string, parsed: ParsedCommand, _context: ValidationContext): SubmoduleResult {
+  validate(raw: string, parsed: ParsedCommand): SubmoduleResult {
     const hasDocker = parsed.segments.some(s =>
       ['docker', 'podman', 'nsenter'].includes(s.mainCommand)
     );

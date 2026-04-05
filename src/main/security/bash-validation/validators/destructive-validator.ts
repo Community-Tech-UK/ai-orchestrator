@@ -1,4 +1,4 @@
-import type { BashValidatorSubmodule, ParsedCommand, ValidationContext, SubmoduleResult } from '../types';
+import type { BashValidatorSubmodule, ParsedCommand, SubmoduleResult } from '../types';
 
 const ALWAYS_BLOCKED = new Set([
   'mkfs', 'fdisk', 'parted',
@@ -43,7 +43,7 @@ const WARN_PATTERNS: PatternRule[] = [
 export class DestructiveValidator implements BashValidatorSubmodule {
   readonly name = 'DestructiveValidator';
 
-  validate(raw: string, parsed: ParsedCommand, _context: ValidationContext): SubmoduleResult {
+  validate(raw: string, parsed: ParsedCommand): SubmoduleResult {
     for (const rule of BLOCK_PATTERNS) {
       if (rule.pattern.test(raw)) {
         return { action: 'block', reason: rule.message, submodule: this.name };

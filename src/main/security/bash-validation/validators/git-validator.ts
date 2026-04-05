@@ -1,4 +1,4 @@
-import type { BashValidatorSubmodule, ParsedCommand, ValidationContext, SubmoduleResult } from '../types';
+import type { BashValidatorSubmodule, ParsedCommand, SubmoduleResult } from '../types';
 
 interface PatternRule {
   pattern: RegExp;
@@ -29,7 +29,7 @@ const WARN_PATTERNS: PatternRule[] = [
 export class GitValidator implements BashValidatorSubmodule {
   readonly name = 'GitValidator';
 
-  validate(raw: string, parsed: ParsedCommand, _context: ValidationContext): SubmoduleResult {
+  validate(raw: string, parsed: ParsedCommand): SubmoduleResult {
     const hasGit = parsed.segments.some(s => s.mainCommand === 'git');
     if (!hasGit) return { action: 'allow' };
 

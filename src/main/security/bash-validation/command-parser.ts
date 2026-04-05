@@ -17,8 +17,8 @@ export class CommandParser {
     };
   }
 
-  private splitCompound(command: string): Array<{ text: string; backgrounded: boolean }> {
-    const segments: Array<{ text: string; backgrounded: boolean }> = [];
+  private splitCompound(command: string): { text: string; backgrounded: boolean }[] {
+    const segments: { text: string; backgrounded: boolean }[] = [];
     let current = '';
     let inSingle = false;
     let inDouble = false;

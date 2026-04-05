@@ -1,12 +1,12 @@
 // src/main/security/bash-validation/validators/evasion-detector.ts
 import type {
-  BashValidatorSubmodule, ParsedCommand, ValidationContext, SubmoduleResult, EvasionFlags,
+  BashValidatorSubmodule, SubmoduleResult, EvasionFlags,
 } from '../types';
 
 export class EvasionDetector implements BashValidatorSubmodule {
   readonly name = 'EvasionDetector';
 
-  validate(raw: string, _parsed: ParsedCommand, _context: ValidationContext): SubmoduleResult {
+  validate(raw: string): SubmoduleResult {
     const evasionFlags = this.detectFlags(raw);
     const flagCount = this.countFlags(evasionFlags);
 

@@ -47,7 +47,7 @@ export class BashValidationPipeline {
 
     const parsed = this.parser.parse(trimmed);
     const evasionFlags = this.evasionDetector.detectFlags(trimmed);
-    const evasionResult = this.evasionDetector.validate(trimmed, parsed, ctx);
+    const evasionResult = this.evasionDetector.validate(trimmed);
     const intent = this.classifier.classify(parsed.segments);
 
     const allResults: SubmoduleResult[] = [];

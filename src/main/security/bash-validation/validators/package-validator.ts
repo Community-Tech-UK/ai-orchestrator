@@ -1,6 +1,5 @@
-import type { BashValidatorSubmodule, ParsedCommand, ValidationContext, SubmoduleResult } from '../types';
+import type { BashValidatorSubmodule, ParsedCommand, SubmoduleResult } from '../types';
 
-const PACKAGE_MANAGERS = new Set(['npm', 'yarn', 'pnpm', 'bun', 'pip', 'pip3', 'cargo', 'gem']);
 const BUILD_TOOLS = new Set(['make', 'gradle', 'mvn']);
 
 const SAFE_NPM_SUBCOMMANDS = new Set([
@@ -16,7 +15,7 @@ const SAFE_PIP_SUBCOMMANDS = new Set([
 export class PackageValidator implements BashValidatorSubmodule {
   readonly name = 'PackageValidator';
 
-  validate(raw: string, parsed: ParsedCommand, _context: ValidationContext): SubmoduleResult {
+  validate(raw: string, parsed: ParsedCommand): SubmoduleResult {
     // Block: piped remote install
     if (/\bcurl\b.*\|\s*pip\s+install\b/.test(raw) || /\bwget\b.*&&\s*pip\s+install\b/.test(raw)) {
       return { action: 'block', reason: 'Piped remote package install', submodule: this.name };
@@ -75,7 +74,7 @@ export class PackageValidator implements BashValidatorSubmodule {
           if (installArgs.length === 0) continue;
 
           // Check if we have -r or --requirement flags (safe, installing from file)
-          const hasRequirementsFlag = installArgs.some((arg, i) => {
+          const hasRequirementsFlag = installArgs.some((arg) => {
             return (arg === '-r' || arg === '--requirement' || arg.startsWith('--requirement='));
           });
           if (hasRequirementsFlag) continue;

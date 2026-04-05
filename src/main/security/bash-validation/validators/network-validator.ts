@@ -1,4 +1,4 @@
-import type { BashValidatorSubmodule, ParsedCommand, ValidationContext, SubmoduleResult } from '../types';
+import type { BashValidatorSubmodule, ParsedCommand, SubmoduleResult } from '../types';
 
 const ALWAYS_BLOCKED = new Set(['nmap', 'netcat', 'nc']);
 
@@ -37,7 +37,7 @@ const WARN_PATTERNS: PatternRule[] = [
 export class NetworkValidator implements BashValidatorSubmodule {
   readonly name = 'NetworkValidator';
 
-  validate(raw: string, parsed: ParsedCommand, _context: ValidationContext): SubmoduleResult {
+  validate(raw: string, parsed: ParsedCommand): SubmoduleResult {
     for (const seg of parsed.segments) {
       if (ALWAYS_BLOCKED.has(seg.mainCommand)) {
         return { action: 'block', reason: `Network tool '${seg.mainCommand}' is blocked`, submodule: this.name };

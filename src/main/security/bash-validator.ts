@@ -2,7 +2,7 @@
  * @deprecated Use BashValidationPipeline from './bash-validation' instead.
  * This file is preserved for backward compatibility only.
  */
-import { BashValidationPipeline, getBashValidationPipeline } from './bash-validation';
+import { BashValidationPipeline } from './bash-validation';
 import type { BashValidationResult } from './bash-validation';
 
 export type { BashValidationResult };
@@ -20,7 +20,8 @@ export interface BashValidatorConfig {
 export class BashValidator {
   private pipeline: BashValidationPipeline;
 
-  constructor(_config?: Partial<BashValidatorConfig>) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  constructor(config?: Partial<BashValidatorConfig>) {
     this.pipeline = new BashValidationPipeline();
   }
 
@@ -29,13 +30,17 @@ export class BashValidator {
   }
 
   /** @deprecated No-op in new pipeline */
-  updateConfig(_config: Partial<BashValidatorConfig>): void { /* no-op */ }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  updateConfig(config: Partial<BashValidatorConfig>): void { /* no-op */ }
   /** @deprecated No-op in new pipeline */
-  addBlockedCommand(_command: string): void { /* no-op */ }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  addBlockedCommand(command: string): void { /* no-op */ }
   /** @deprecated No-op in new pipeline */
-  addBlockedPattern(_pattern: string | RegExp): void { /* no-op */ }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  addBlockedPattern(pattern: string | RegExp): void { /* no-op */ }
   /** @deprecated No-op in new pipeline */
-  addAllowedCommand(_command: string): void { /* no-op */ }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  addAllowedCommand(command: string): void { /* no-op */ }
   /** @deprecated Returns empty config in new pipeline */
   getConfig(): BashValidatorConfig {
     return { blockedCommands: [], warningPatterns: [], blockedPatterns: [], allowedCommands: [], maxCommandLength: 10000 };
