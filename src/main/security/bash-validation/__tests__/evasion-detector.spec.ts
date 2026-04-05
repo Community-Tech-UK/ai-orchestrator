@@ -97,6 +97,8 @@ describe('EvasionDetector', () => {
       'eval "rm -rf /"',
       'exec /bin/sh',
       'source /tmp/script.sh',
+      '. /tmp/script.sh',
+      'git pull && . /tmp/evil.sh',
     ])('detects eval/exec in "%s"', (cmd) => {
       expect(flags(cmd).hasEvalExec).toBe(true);
     });
@@ -107,8 +109,17 @@ describe('EvasionDetector', () => {
       "w'h'o'am'i",
       'c"a"t /etc/passwd',
       'c\\at /etc/passwd',
+      "ls | c'a't /etc/passwd",
     ])('detects quote insertion in "%s"', (cmd) => {
       expect(flags(cmd).hasQuoteInsertion).toBe(true);
+    });
+
+    it.each([
+      "git commit -m \"it's ready\"",
+      "echo \"don't do that\"",
+      "grep 'can\\'t find' file.txt",
+    ])('does not flag legitimate quoting in "%s"', (cmd) => {
+      expect(flags(cmd).hasQuoteInsertion).toBe(false);
     });
   });
 

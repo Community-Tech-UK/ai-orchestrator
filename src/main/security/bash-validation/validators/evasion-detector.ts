@@ -117,14 +117,20 @@ export class EvasionDetector implements BashValidatorSubmodule {
     return /\beval\s/.test(raw) ||
            /\bexec\s/.test(raw) ||
            /\bsource\s/.test(raw) ||
-           /^\.\s+\S/.test(raw);
+           /(?:^|[;&|]\s*)\.\s+\S/.test(raw);
   }
 
   private checkQuoteInsertion(raw: string): boolean {
-    // letter-quote-letter: w'h'oami, c"a"t
-    if (/[a-zA-Z]['"][a-zA-Z]/.test(raw)) return true;
-    // letter-backslash-letter: c\at
-    if (/[a-zA-Z]\\[a-zA-Z]/.test(raw)) return true;
+    // Only check the first token of each command segment to avoid
+    // false positives on legitimate quoted arguments (e.g. "it's ready")
+    const segments = raw.split(/[|;&]+/).map(s => s.trim());
+    for (const segment of segments) {
+      const firstToken = segment.split(/\s+/)[0];
+      // letter-quote-letter: w'h'oami, c"a"t
+      if (/[a-zA-Z]['"][a-zA-Z]/.test(firstToken)) return true;
+      // letter-backslash-letter: c\at
+      if (/[a-zA-Z]\\[a-zA-Z]/.test(firstToken)) return true;
+    }
     return false;
   }
 
