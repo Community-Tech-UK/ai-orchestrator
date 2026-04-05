@@ -254,33 +254,10 @@ export class CrossModelReviewService extends EventEmitter {
       durationMs,
     };
 
-    let cleaned = rawResponse;
-    const fenceMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-    if (fenceMatch) cleaned = fenceMatch[1];
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          parsed = JSON.parse(jsonMatch[0]);
-        } catch {
-          logger.warn('Failed to parse review response', { reviewerId });
-          return {
-            ...baseResult,
-            scores: this.emptyScores(),
-            overallVerdict: 'CONCERNS' as ReviewVerdict,
-            summary: 'Unable to parse reviewer response',
-            parseSuccess: false,
-            rawResponse,
-          } as ReviewResult;
-        }
-      }
-    }
+    const parsed = this.extractJson(rawResponse);
 
     if (!parsed) {
+      logger.warn('Failed to extract JSON from review response', { reviewerId, responseLength: rawResponse.length });
       return {
         ...baseResult,
         scores: this.emptyScores(),
@@ -291,15 +268,18 @@ export class CrossModelReviewService extends EventEmitter {
       } as ReviewResult;
     }
 
+    // Pre-coerce common model quirks before schema validation
+    const coerced = this.coerceReviewJson(parsed);
+
     const schema = reviewDepth === 'tiered' ? TieredReviewResultJsonSchema : ReviewResultJsonSchema;
-    const validated = schema.safeParse(parsed);
+    const validated = schema.safeParse(coerced);
 
     if (!validated.success) {
       logger.warn('Review response failed schema validation', {
         reviewerId,
         errors: validated.error.issues.slice(0, 3),
       });
-      return this.buildPartialResult(baseResult, parsed, durationMs);
+      return this.buildPartialResult(baseResult, coerced, durationMs);
     }
 
     const data = validated.data;
@@ -323,6 +303,121 @@ export class CrossModelReviewService extends EventEmitter {
       integrationRisks: 'integration_risks' in data ? data.integration_risks : undefined,
       parseSuccess: true,
     } as ReviewResult;
+  }
+
+  /**
+   * Extract JSON from a reviewer response, handling common model output quirks:
+   * markdown fences, preamble text, trailing commentary, nested braces.
+   */
+  private extractJson(rawResponse: string): unknown | null {
+    let cleaned = rawResponse.trim();
+
+    // Strategy 1: Extract from markdown fences (```json ... ``` or ``` ... ```)
+    const fenceMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) cleaned = fenceMatch[1].trim();
+
+    // Strategy 2: Direct parse (works when model follows instructions perfectly)
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      // continue to fallback strategies
+    }
+
+    // Strategy 3: Find the outermost balanced JSON object
+    const jsonStart = cleaned.indexOf('{');
+    if (jsonStart >= 0) {
+      const candidate = this.extractBalancedJson(cleaned, jsonStart);
+      if (candidate) {
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          // continue
+        }
+      }
+
+      // Strategy 4: Greedy regex fallback (last resort)
+      const greedyMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (greedyMatch) {
+        try {
+          return JSON.parse(greedyMatch[0]);
+        } catch {
+          // all strategies exhausted
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract a balanced JSON object starting at the given index.
+   * Tracks brace depth to avoid grabbing trailing text.
+   */
+  private extractBalancedJson(text: string, startIdx: number): string | null {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = startIdx; i < text.length; i++) {
+      const ch = text[i];
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\' && inString) { escaped = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return text.slice(startIdx, i + 1);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Coerce common model output quirks to match the expected schema:
+   * - String-typed scores ("3" → 3)
+   * - Missing issues arrays (undefined → [])
+   * - Verdict case variations ("approve" → "APPROVE")
+   */
+  private coerceReviewJson(raw: unknown): unknown {
+    if (typeof raw !== 'object' || raw === null) return raw;
+    const obj = raw as Record<string, unknown>;
+
+    // Coerce overall_verdict case
+    if (typeof obj['overall_verdict'] === 'string') {
+      obj['overall_verdict'] = obj['overall_verdict'].toUpperCase();
+    }
+
+    // Coerce dimension scores (both flat and nested under "scores")
+    const scoreSections = obj['scores'] ? [obj['scores'] as Record<string, unknown>] : [obj];
+    // Also coerce top-level dimensions for structured format
+    if (!obj['scores']) scoreSections.push(obj);
+    else scoreSections.push(obj['scores'] as Record<string, unknown>);
+
+    const dimensions = ['correctness', 'completeness', 'security', 'consistency', 'feasibility'];
+    for (const section of scoreSections) {
+      if (typeof section !== 'object' || section === null) continue;
+      for (const dim of dimensions) {
+        const dimObj = (section as Record<string, unknown>)[dim];
+        if (typeof dimObj === 'object' && dimObj !== null) {
+          const d = dimObj as Record<string, unknown>;
+          // Coerce string scores to numbers
+          if (typeof d['score'] === 'string') {
+            const num = parseInt(d['score'], 10);
+            if (!isNaN(num)) d['score'] = num;
+          }
+          // Ensure issues is an array
+          if (!Array.isArray(d['issues'])) {
+            d['issues'] = d['issues'] ? [String(d['issues'])] : [];
+          }
+          // Ensure reasoning is a string
+          if (typeof d['reasoning'] !== 'string') {
+            d['reasoning'] = d['reasoning'] ? String(d['reasoning']) : 'No reasoning provided';
+          }
+        }
+      }
+    }
+
+    return obj;
   }
 
   private buildPartialResult(base: Partial<ReviewResult>, raw: unknown, durationMs: number): ReviewResult {

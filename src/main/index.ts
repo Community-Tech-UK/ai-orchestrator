@@ -90,6 +90,7 @@ import { getAppStore, addInstance, removeInstance, updateInstance, setGlobalStat
 import type { InstanceSlice } from './state';
 import type { Instance } from '../shared/types/instance.types';
 import { getMemoryMonitor } from './memory';
+import { getReactionEngine } from './reactions';
 import { getWorkflowManager } from './workflows/workflow-manager';
 import { getPermissionManager } from './security/permission-manager';
 import { PermissionDecisionStore } from './security/permission-decision-store';
@@ -244,6 +245,7 @@ class AIOrchestratorApp {
           });
         } },
         { name: 'Plugin manager', fn: () => getOrchestratorPluginManager().initialize(this.instanceManager) },
+        { name: 'Reaction engine', fn: () => getReactionEngine().initialize(this.instanceManager) },
         { name: 'Observation ingestor', fn: () => getObservationIngestor().initialize(this.instanceManager) },
         { name: 'Observer agent', fn: () => { getObserverAgent(); } },
         { name: 'Reflector agent', fn: () => { getReflectorAgent(); } },

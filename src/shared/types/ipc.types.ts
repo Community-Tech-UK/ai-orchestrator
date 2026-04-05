@@ -791,6 +791,8 @@ export const IPC_CHANNELS = {
   PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
   PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
   PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
+  PARALLEL_WORKTREE_RESOLVE_CONFLICT: 'parallel-worktree:resolve-conflict',
+  PARALLEL_WORKTREE_MERGE: 'parallel-worktree:merge',
 
   // Event forwarding channels (main → renderer)
   DEBATE_EVENT_STARTED: 'debate:event:started',
@@ -841,6 +843,18 @@ export const IPC_CHANNELS = {
   CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
   CHANNEL_RESPONSE_SENT: 'channel:response-sent',
   CHANNEL_ERROR: 'channel:error',
+
+  // Reaction Engine
+  REACTION_GET_CONFIG: 'reaction:get-config',
+  REACTION_UPDATE_CONFIG: 'reaction:update-config',
+  REACTION_TRACK_INSTANCE: 'reaction:track-instance',
+  REACTION_UNTRACK_INSTANCE: 'reaction:untrack-instance',
+  REACTION_GET_TRACKED: 'reaction:get-tracked',
+  REACTION_GET_STATE: 'reaction:get-state',
+
+  // Reaction Engine push events (main -> renderer)
+  REACTION_EVENT: 'reaction:event',
+  REACTION_ESCALATED: 'reaction:escalated',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

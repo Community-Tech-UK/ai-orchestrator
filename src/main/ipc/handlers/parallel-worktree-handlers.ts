@@ -11,6 +11,8 @@ import {
   ParallelWorktreeGetStatusPayloadSchema,
   ParallelWorktreeCancelPayloadSchema,
   ParallelWorktreeGetResultsPayloadSchema,
+  ParallelWorktreeResolveConflictPayloadSchema,
+  ParallelWorktreeMergePayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 import { getParallelWorktreeCoordinator } from '../../orchestration/parallel-worktree-coordinator';
 
@@ -214,6 +216,83 @@ export function registerParallelWorktreeHandlers(): void {
           success: false,
           error: {
             code: 'PARALLEL_WORKTREE_LIST_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Resolve a conflict in a parallel execution
+  ipcMain.handle(
+    IPC_CHANNELS.PARALLEL_WORKTREE_RESOLVE_CONFLICT,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          ParallelWorktreeResolveConflictPayloadSchema,
+          payload,
+          'PARALLEL_WORKTREE_RESOLVE_CONFLICT'
+        );
+        const coordinator = getParallelWorktreeCoordinator();
+        await coordinator.resolveConflict(
+          validated.executionId,
+          validated.taskId,
+          validated.resolution
+        );
+        const execution = coordinator.getExecution(validated.executionId);
+        return {
+          success: true,
+          data: {
+            executionId: validated.executionId,
+            remainingConflicts: execution?.conflicts.length ?? 0,
+            status: execution?.status,
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PARALLEL_WORKTREE_RESOLVE_CONFLICT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Trigger merge for a parallel execution (after conflicts are resolved or force merge)
+  ipcMain.handle(
+    IPC_CHANNELS.PARALLEL_WORKTREE_MERGE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          ParallelWorktreeMergePayloadSchema,
+          payload,
+          'PARALLEL_WORKTREE_MERGE'
+        );
+        const coordinator = getParallelWorktreeCoordinator();
+        await coordinator.forceMerge(validated.executionId, validated.strategy);
+        const execution = coordinator.getExecution(validated.executionId);
+        return {
+          success: true,
+          data: {
+            executionId: validated.executionId,
+            status: execution?.status,
+          }
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PARALLEL_WORKTREE_MERGE_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

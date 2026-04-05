@@ -343,10 +343,12 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
       if (!session) continue;
 
       try {
+        const conflictResolution = (session as WorktreeSession & { conflictResolution?: string }).conflictResolution;
         const lockPath = path.join(session.worktreePath, '.orchestrator.lock');
         const result = await withLock(lockPath, async () => {
           return this.worktreeManager.mergeWorktree(session.id, {
             strategy: this.config.defaultMergeStrategy,
+            allowConflicts: conflictResolution === 'ours' || conflictResolution === 'theirs',
           });
         }, { purpose: `parallel-worktree-${taskId}` });
         results.push(result);
@@ -405,10 +407,24 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
     const execution = this.executions.get(executionId);
     if (!execution) throw new Error(`Execution ${executionId} not found`);
 
-    // Mark conflict as resolved
-    execution.conflicts = execution.conflicts.filter(
-      c => !(c.file && execution.sessions.get(taskId)?.filesChanged?.includes(c.file))
-    );
+    if (resolution === 'manual') {
+      // For manual resolution, just mark the conflict as resolved (user will handle it externally)
+      execution.conflicts = execution.conflicts.filter(
+        c => !(c.file && execution.sessions.get(taskId)?.filesChanged?.includes(c.file))
+      );
+    } else {
+      // For ours/theirs, remove task-related conflicts and set the merge strategy
+      // so performMerges can use allowConflicts + the right git strategy
+      const session = execution.sessions.get(taskId);
+      if (!session) throw new Error(`Task ${taskId} not found in execution ${executionId}`);
+
+      execution.conflicts = execution.conflicts.filter(
+        c => !(c.file && session.filesChanged?.includes(c.file))
+      );
+
+      // Store resolution strategy on session metadata for use during merge
+      (session as WorktreeSession & { conflictResolution?: string }).conflictResolution = resolution;
+    }
 
     this.emit('conflict:resolved', { executionId, taskId, resolution });
 
@@ -416,6 +432,30 @@ export class ParallelWorktreeCoordinator extends EventEmitter {
     if (execution.conflicts.length === 0) {
       await this.performMerges(execution);
     }
+  }
+
+  /**
+   * Force-merge an execution that has unresolved conflicts.
+   * Uses allowConflicts: true and optionally overrides the merge strategy.
+   */
+  async forceMerge(executionId: string, strategy?: MergeStrategy): Promise<void> {
+    const execution = this.executions.get(executionId);
+    if (!execution) throw new Error(`Execution ${executionId} not found`);
+
+    if (execution.status !== 'merging') {
+      throw new Error(`Execution ${executionId} is not in merging state (current: ${execution.status})`);
+    }
+
+    // Clear remaining conflicts — user has chosen to force-merge
+    execution.conflicts = [];
+    this.emit('conflicts:force-cleared', { executionId });
+
+    // Override strategy if provided
+    if (strategy) {
+      this.config.defaultMergeStrategy = strategy;
+    }
+
+    await this.performMerges(execution);
   }
 
   // ============ Cleanup ============

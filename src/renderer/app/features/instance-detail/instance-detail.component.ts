@@ -973,7 +973,16 @@ export class InstanceDetailComponent {
       const review = this.currentReview();
       if (!review) return;
 
-      const concerns = review.reviews
+      // Filter out reviews where parsing failed — these have meaningless default scores
+      const successfulReviews = review.reviews.filter(r => r.parseSuccess);
+      if (successfulReviews.length === 0) {
+        // All reviews failed to parse — nothing actionable to send
+        console.warn('All cross-model reviews failed to parse, skipping feedback injection');
+        this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
+        return;
+      }
+
+      const concerns = successfulReviews
         .flatMap(r => Object.values(r.scores).flatMap(s => s?.issues ?? []))
         .filter(Boolean);
 
@@ -983,18 +992,25 @@ export class InstanceDetailComponent {
       } else {
         // Fallback: issues arrays are empty but scores are low — build message from scores and summaries
         const scoreLines: string[] = [];
-        for (const result of review.reviews) {
+        for (const result of successfulReviews) {
           for (const [category, data] of Object.entries(result.scores)) {
             if (data && data.score <= 2) {
-              const reasoning = data.reasoning && data.reasoning !== 'No data' ? `: ${data.reasoning}` : '';
+              const reasoning = data.reasoning && data.reasoning !== 'No data' && data.reasoning !== 'Unable to parse'
+                ? `: ${data.reasoning}` : '';
               scoreLines.push(`- ${category} scored ${data.score}/4${reasoning}`);
             }
           }
         }
 
-        const summaries = review.reviews
+        const summaries = successfulReviews
           .map(r => r.summary)
-          .filter(Boolean);
+          .filter(s => s && s !== 'Unable to parse reviewer response' && s !== 'Partially parsed response');
+
+        if (scoreLines.length === 0 && summaries.length === 0) {
+          // Successfully parsed but nothing actionable — don't inject empty feedback
+          this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
+          return;
+        }
 
         const parts: string[] = ['Cross-model review flagged concerns with your last response.'];
         if (scoreLines.length > 0) {

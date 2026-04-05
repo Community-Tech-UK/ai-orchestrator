@@ -388,6 +388,40 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
 
+    // Pre-validate attachments against adapter capabilities
+    if (attachments && attachments.length > 0 && adapter instanceof BaseCliAdapter) {
+      const caps = adapter.getCapabilities();
+      const imageAttachments = attachments.filter(a => a.type.startsWith('image/'));
+      const fileAttachments = attachments.filter(a => !a.type.startsWith('image/'));
+
+      if (imageAttachments.length > 0 && !caps.vision) {
+        const adapterName = adapter.getName();
+        const warning: OutputMessage = {
+          id: generateId(),
+          type: 'system',
+          content: `${adapterName} does not support image attachments. ${imageAttachments.length} image(s) will be dropped.`,
+          timestamp: Date.now(),
+        };
+        instance.outputBuffer.push(warning);
+        this.emit('output', { instanceId, message: warning });
+        // Filter out images, keep file attachments
+        attachments = fileAttachments.length > 0 ? fileAttachments : undefined;
+      }
+
+      if (fileAttachments.length > 0 && !caps.fileAccess) {
+        const adapterName = adapter.getName();
+        const warning: OutputMessage = {
+          id: generateId(),
+          type: 'system',
+          content: `${adapterName} does not support file attachments. ${fileAttachments.length} file(s) will be dropped.`,
+          timestamp: Date.now(),
+        };
+        instance.outputBuffer.push(warning);
+        this.emit('output', { instanceId, message: warning });
+        attachments = imageAttachments.length > 0 && caps.vision ? imageAttachments : undefined;
+      }
+    }
+
     logger.info('Sending message to adapter');
     await adapter.sendInput(finalMessage, attachments);
     logger.info('Message sent to adapter');

@@ -354,7 +354,11 @@ export class Supervisor extends EventEmitter {
       const err = error as { message?: string };
       worker.status = 'failed';
       worker.lastError = err.message;
+      worker.consecutiveFailures++;
       this.emit('worker:restart-failed', { tree, worker, error: err.message });
+
+      // Escalate: if restart failed, treat it as a new failure for the supervisor to handle
+      await this.handleExhaustedIfNeeded(tree, supervisor, worker, err.message ?? 'restart failed');
     }
   }
 
@@ -458,6 +462,22 @@ export class Supervisor extends EventEmitter {
     // For simple-one strategy, just log and don't restart
     logger.warn('Worker failed (simple-one strategy)', { workerName: worker.name, error });
     this.emit('worker:logged-failure', { tree, supervisor, worker, error });
+  }
+
+  private async handleExhaustedIfNeeded(
+    tree: SupervisionTree,
+    supervisor: SupervisorNode,
+    worker: WorkerNode,
+    error: string
+  ): Promise<void> {
+    const config = supervisor.config;
+    const recentRestarts = supervisor.restartHistory
+      .filter((r) => Date.now() - r.timestamp < config.maxTime).length;
+
+    if (worker.consecutiveFailures >= config.maxRestarts || recentRestarts >= config.maxRestarts) {
+      await this.handleExhausted(tree, supervisor, worker, error);
+    }
+    // Otherwise the failure is tracked but we don't escalate yet
   }
 
   private async handleExhausted(

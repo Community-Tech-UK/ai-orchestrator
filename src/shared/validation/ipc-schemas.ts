@@ -1909,6 +1909,26 @@ export const RepoJobRerunPayloadSchema = z.object({
   jobId: z.string().min(1).max(200),
 });
 
+// ============ Reaction Engine Payloads ============
+
+export const ReactionTrackInstancePayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+  prUrl: z.string().url().max(2000),
+});
+
+export const ReactionUntrackInstancePayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+});
+
+export const ReactionGetStatePayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+});
+
+export const ReactionUpdateConfigPayloadSchema = z.object({
+  enabled: z.boolean().optional(),
+  pollIntervalMs: z.number().int().min(5000).max(600_000).optional(),
+});
+
 // ============ Todo Payloads ============
 
 export const TodoGetListPayloadSchema = z.object({
@@ -2091,6 +2111,17 @@ export const ParallelWorktreeCancelPayloadSchema = z.object({
 
 export const ParallelWorktreeGetResultsPayloadSchema = z.object({
   executionId: z.string().min(1).max(200),
+});
+
+export const ParallelWorktreeResolveConflictPayloadSchema = z.object({
+  executionId: z.string().min(1).max(200),
+  taskId: z.string().min(1).max(200),
+  resolution: z.enum(['ours', 'theirs', 'manual']),
+});
+
+export const ParallelWorktreeMergePayloadSchema = z.object({
+  executionId: z.string().min(1).max(200),
+  strategy: z.enum(['auto', 'squash', 'rebase', 'manual']).optional(),
 });
 
 // ============ Remote Node Schemas ============

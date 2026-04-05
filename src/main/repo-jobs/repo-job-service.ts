@@ -18,6 +18,7 @@ import { getWorktreeManager, type WorktreeManager } from '../workspace/git/workt
 import { getLogger } from '../logging/logger';
 import { resolveGitHostMetadata } from '../vcs/remotes/git-host-connector';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
+import { getReactionEngine } from '../reactions';
 import { getRepoJobStore } from './repo-job-store';
 
 const logger = getLogger('RepoJobService');
@@ -394,6 +395,12 @@ export class RepoJobService extends EventEmitter {
     );
 
     job.instanceId = instance.id;
+
+    // Track PR for CI/review reaction monitoring
+    if (job.issueOrPrUrl) {
+      getReactionEngine().trackInstance(instance.id, job.issueOrPrUrl);
+    }
+
     context.reportProgress(30, 'Running PR review agent');
 
     const settled = await this.waitForInstanceSettled(job, instance.id, context, DEFAULT_TIMEOUTS_MS['pr-review']);
@@ -459,6 +466,11 @@ export class RepoJobService extends EventEmitter {
       'build',
     );
     job.instanceId = instance.id;
+
+    // Track PR for CI/review reaction monitoring
+    if (job.issueOrPrUrl) {
+      getReactionEngine().trackInstance(instance.id, job.issueOrPrUrl);
+    }
 
     context.reportProgress(30, 'Running implementation agent');
     const settled = await this.waitForInstanceSettled(

@@ -145,7 +145,9 @@ export class DebateCoordinator extends EventEmitter {
 
     // Start the debate process
     this.runDebate(debate).catch(err => {
-      this.emit('debate:error', { debateId, error: err.message });
+      debate.status = 'failed';
+      logger.error('Debate failed', err instanceof Error ? err : new Error(String(err)), { debateId });
+      this.emit('debate:error', { debateId, error: err instanceof Error ? err.message : String(err) });
     });
 
     return debateId;

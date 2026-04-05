@@ -235,6 +235,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
 
     // Run verification asynchronously
     this.runVerification(request).catch((error) => {
+      logger.error('Verification failed', error instanceof Error ? error : new Error(String(error)), { requestId: request.id });
       this.emit('verification:error', { request, error });
       this.activeVerifications.delete(request.id);
     });

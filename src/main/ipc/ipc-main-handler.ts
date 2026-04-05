@@ -30,6 +30,7 @@ import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordin
 import { getTrainingLoop } from '../memory/training-loop';
 import { getHotModelSwitcher } from '../routing/hot-model-switcher';
 import { getChannelManager } from '../channels';
+import { getReactionEngine } from '../reactions';
 
 // Import extracted handlers
 import {
@@ -65,6 +66,7 @@ import {
   registerRemoteNodeHandlers,
   registerImageHandlers,
   registerChannelHandlers,
+  registerReactionHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -291,6 +293,9 @@ export class IpcMainHandler {
     // Channel handlers (Discord/WhatsApp messaging)
     registerChannelHandlers();
 
+    // Reaction engine handlers (CI/PR monitoring)
+    registerReactionHandlers();
+
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();
     this.setupRlmEventForwarding();
@@ -299,6 +304,7 @@ export class IpcMainHandler {
     this.setupTrainingEventForwarding();
     this.setupHotSwitchEventForwarding();
     this.setupChannelEventForwarding();
+    this.setupReactionEventForwarding();
 
     logger.info('IPC handlers registered');
   }
@@ -641,6 +647,22 @@ export class IpcMainHandler {
           mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_ERROR, event.data);
           break;
       }
+    });
+  }
+
+  private setupReactionEventForwarding(): void {
+    const engine = getReactionEngine();
+
+    engine.on('reaction:event', (event: unknown) => {
+      const mainWindow = this.windowManager.getMainWindow();
+      if (!mainWindow) return;
+      mainWindow.webContents.send(IPC_CHANNELS.REACTION_EVENT, event);
+    });
+
+    engine.on('reaction:escalated', (event: unknown) => {
+      const mainWindow = this.windowManager.getMainWindow();
+      if (!mainWindow) return;
+      mainWindow.webContents.send(IPC_CHANNELS.REACTION_ESCALATED, event);
     });
   }
 

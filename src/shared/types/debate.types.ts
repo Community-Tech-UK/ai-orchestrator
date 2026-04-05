@@ -69,7 +69,7 @@ export interface DebateResult {
   status: DebateStatus;
 }
 
-export type DebateStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'timeout' | 'paused' | 'early_terminated';
+export type DebateStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'timeout' | 'paused' | 'early_terminated';
 
 // ============ Active Debate State ============
 
