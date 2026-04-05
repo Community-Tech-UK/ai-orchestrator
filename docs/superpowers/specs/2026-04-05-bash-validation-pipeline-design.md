@@ -588,6 +588,111 @@ Before checking paths, PathValidator normalizes:
 3. Expand `~` to workspace context (not actual $HOME)
 4. Flag but do not resolve symlinks (symlink resolution requires filesystem access)
 
+## Pipeline Semantics
+
+### Default ValidationContext
+
+When `validate(command)` is called without a context (backward-compatible overload), the pipeline uses these defaults:
+
+```typescript
+const DEFAULT_CONTEXT: ValidationContext = {
+  mode: 'prompt',           // Most permissive non-YOLO mode
+  workspacePath: process.cwd(),
+  instanceDepth: 0,
+  yoloMode: false,
+  instanceId: 'unknown',
+};
+```
+
+This means: without context, mode-specific validators (ReadOnlyValidator, workspace boundary checks) are effectively inactive, but all other validators (EvasionDetector, DestructiveValidator, GitValidator, NetworkValidator, etc.) still run. This matches the current BashValidator behavior, which has no mode awareness.
+
+### Result computation algorithm
+
+The pipeline computes `valid` and `risk` from submodule results as follows:
+
+```
+1. If ANY submodule returns Block → valid=false, risk='blocked'
+2. If EvasionDetector sets 3+ flags → valid=false, risk='blocked'
+3. If ANY submodule returns Warn with intent=destructive → valid=true, risk='dangerous'
+4. If ANY submodule returns Warn → valid=true, risk='warning'
+5. Otherwise → valid=true, risk='safe'
+```
+
+The `message` field is set from the first Block reason, or a concatenation of Warn messages.
+
+The `details.warnings` array is populated from all Warn results. The `details.blockedPatterns` array is populated from all Block results. This preserves backward compatibility with code that reads these arrays.
+
+### Compound command handling
+
+For compound commands (`cmd1 && cmd2`, `cmd1 ; cmd2`, `cmd1 || cmd2`):
+- CommandParser splits into segments
+- Each segment is validated independently through ALL submodules
+- The pipeline result is the **most severe** result across all segments
+- If segment 1 is safe and segment 2 is blocked, the overall result is blocked
+- The `submoduleResults` array contains results from all segments, annotated with which segment they came from
+
+### Pipe analysis
+
+For piped commands (`cmd1 | cmd2 | cmd3`):
+- Each pipe segment is extracted and validated as a separate command
+- Special attention to the **last** pipe segment (the one that actually executes output): `| sh`, `| bash` triggers EvasionDetector
+- The pipe targets are also checked against all submodules — `echo / | xargs rm -rf` is caught because `xargs rm -rf` is validated as its own segment
+
+### sudo/doas/pkexec/su handling
+
+CommandParser strips privilege escalation wrappers before extracting mainCommand:
+- `sudo CMD` → validate CMD (and add a Warn for privilege escalation)
+- `sudo -u root CMD` → validate CMD (and Warn)
+- `doas CMD` → validate CMD (and Warn)
+- `pkexec CMD` → validate CMD (and Warn)
+- `su -c "CMD"` → validate CMD (and Warn)
+
+The inner command goes through the full pipeline. The privilege escalation itself is always a Warn (never silently allowed).
+
+### find -exec and find -delete handling
+
+`find` with execution flags is handled by the EvasionDetector as indirect execution:
+- `find ... -exec CMD {} \;` → extract CMD and validate it through the pipeline
+- `find ... -exec CMD {} +` → same
+- `find ... -execdir CMD {} \;` → same
+- `find ... -delete` → treated as a write/destructive operation, validated by DestructiveValidator
+- `find ... -ok CMD {} \;` → same as -exec (interactive, but still executes)
+
+### xargs handling
+
+`xargs` in a pipe is handled by pipe analysis:
+- `echo / | xargs rm -rf` → the pipe segment `xargs rm -rf` is parsed; `rm -rf` is extracted as the inner command and validated
+- `find . -name "*.tmp" | xargs rm` → `xargs rm` validated; `rm` is the inner command
+- `xargs -I {} sh -c '{}'` → the `sh -c` pattern triggers EvasionDetector
+
+### YOLO mode scope
+
+YOLO mode (`context.yoloMode === true`) affects ONLY ModeValidator — it makes the mode-based checks (ReadOnly enforcement, workspace boundary checks) return Allow.
+
+YOLO mode does NOT bypass:
+- **EvasionDetector** — obfuscation is suspicious regardless of user preferences
+- **DestructiveValidator** — `rm -rf /` is never acceptable, even opted-in
+- **NetworkValidator** — reverse shells are never acceptable
+- **DockerValidator** — container escape is never acceptable
+- **All other submodules** — they continue to run normally
+
+Rationale: YOLO mode means "don't prompt me for tool use confirmations." It does NOT mean "allow the AI to destroy my system." The user is trusting the AI to be reasonable, not giving it root-level destructive permission.
+
+### Submodule count clarification
+
+The spec describes **10 validator classes**, but the pipeline runs **9 steps**:
+1. EvasionDetector
+2. DestructiveValidator
+3. ModeValidator (internally delegates to ReadOnlyValidator when mode is read_only)
+4. GitValidator
+5. SedValidator
+6. NetworkValidator
+7. DockerValidator
+8. PackageValidator
+9. PathValidator
+
+ReadOnlyValidator is a standalone class (for independent unit testing) but is not a direct pipeline step. The architecture diagram lists it for completeness.
+
 ## Integration
 
 ### Drop-in replacement
