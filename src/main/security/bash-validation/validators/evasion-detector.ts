@@ -184,6 +184,7 @@ export class EvasionDetector implements BashValidatorSubmodule {
     if (f.hasWrapperCommand) names.push('wrapper-command');
     if (f.hasStringSplitting) names.push('string-splitting');
     if (f.hasBraceExpansion) names.push('brace-expansion');
+    if (f.hasGlobAsCommand) names.push('glob-as-command');
     if (f.hasIfsManipulation) names.push('ifs-manipulation');
     if (f.hasQuoteInsertion) names.push('quote-insertion');
     if (f.hasEmptySubstitution) names.push('empty-substitution');

