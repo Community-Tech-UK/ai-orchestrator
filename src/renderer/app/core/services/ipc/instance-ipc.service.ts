@@ -15,6 +15,7 @@ export interface CreateInstanceConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
   model?: string;
+  forceNodeId?: string;
 }
 
 export interface CreateInstanceWithMessageConfig {
@@ -23,6 +24,7 @@ export interface CreateInstanceWithMessageConfig {
   attachments?: FileAttachment[];
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
   model?: string;
+  forceNodeId?: string;
 }
 
 @Injectable({ providedIn: 'root' })

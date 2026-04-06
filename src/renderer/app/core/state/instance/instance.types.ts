@@ -118,6 +118,7 @@ export interface CreateInstanceConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
   model?: string;
+  forceNodeId?: string;
 }
 
 // ============================================
