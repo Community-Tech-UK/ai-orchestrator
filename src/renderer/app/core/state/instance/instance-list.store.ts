@@ -91,6 +91,7 @@ export class InstanceListStore {
         agentId: config.agentId,
         provider: config.provider,
         model: config.model,
+        forceNodeId: config.forceNodeId,
       });
       console.log('InstanceListStore: createInstance result:', result);
       this.stateService.setLoading(false);
@@ -109,7 +110,8 @@ export class InstanceListStore {
     files?: File[],
     workingDirectory?: string,
     provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
-    model?: string
+    model?: string,
+    forceNodeId?: string
   ): Promise<boolean> {
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
@@ -145,6 +147,7 @@ export class InstanceListStore {
         attachments,
         provider: provider === 'auto' ? undefined : provider,
         model,
+        forceNodeId,
       });
       console.log('InstanceListStore: createInstanceWithMessage result:', result);
       this.stateService.setLoading(false);
