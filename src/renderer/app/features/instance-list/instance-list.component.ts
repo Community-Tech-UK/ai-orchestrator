@@ -18,6 +18,7 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 import { InstanceStore, type Instance } from '../../core/state/instance.store';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { HistoryStore } from '../../core/state/history.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
@@ -124,6 +125,20 @@ interface RailChangeSummary {
               <option value="error">Error</option>
             </select>
           </label>
+          @if (remoteNodeStore.hasNodes()) {
+            <label class="filter-select-group">
+              <span class="filter-select-label">Location</span>
+              <select
+                class="status-filter"
+                [value]="locationFilter()"
+                (change)="onLocationFilterChange($event)"
+              >
+                <option value="all">All</option>
+                <option value="local">Local</option>
+                <option value="remote">Remote</option>
+              </select>
+            </label>
+          }
         </div>
       </div>
 
@@ -457,7 +472,7 @@ interface RailChangeSummary {
           </section>
         } @empty {
           <div class="empty-state">
-            @if (filterText() || statusFilter() !== 'all') {
+            @if (filterText() || statusFilter() !== 'all' || locationFilter() !== 'all') {
               <p>No projects match your filters</p>
             } @else {
               <p>No projects yet</p>
@@ -1306,9 +1321,11 @@ export class InstanceListComponent {
   private recentDirectoriesService = inject(RecentDirectoriesIpcService);
   private fileIpc = inject(FileIpcService);
   private newSessionDraft = inject(NewSessionDraftService);
+  protected readonly remoteNodeStore = inject(RemoteNodeStore);
 
   filterText = signal('');
   statusFilter = signal<string>('all');
+  locationFilter = signal<'all' | 'local' | 'remote'>('all');
   collapsedIds = signal<Set<string>>(new Set());
   collapsedProjectKeys = signal<Set<string>>(new Set());
   rootInstanceOrder = signal<string[]>(this.loadOrder());
@@ -1326,10 +1343,10 @@ export class InstanceListComponent {
   private projectMenuTrigger: HTMLButtonElement | null = null;
 
   isDragDisabled = computed(() =>
-    this.filterText().length > 0 || this.statusFilter() !== 'all'
+    this.filterText().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all'
   );
   isProjectDragDisabled = computed(() =>
-    this.filterText().length > 0 || this.statusFilter() !== 'all' || this.openProjectMenuKey() !== null
+    this.filterText().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all' || this.openProjectMenuKey() !== null
   );
 
   projectGroups = computed(() => {
@@ -1339,6 +1356,7 @@ export class InstanceListComponent {
     const recentDirectories = this.recentDirectories();
     const filter = this.filterText().trim().toLowerCase();
     const status = this.statusFilter();
+    const location = this.locationFilter();
     const childrenByParent = this.buildChildrenMap(instances);
     const instanceMap = new Map(instances.map((instance) => [instance.id, instance]));
     const selectedId = this.selectedId();
@@ -1369,6 +1387,7 @@ export class InstanceListComponent {
         {
           filter,
           status,
+          location,
           projectMatches,
           collapsed,
           childrenByParent,
@@ -1635,6 +1654,10 @@ export class InstanceListComponent {
     const select = event.target as HTMLSelectElement;
     this.statusFilter.set(select.value);
     this.closeProjectMenu({ restoreFocus: false });
+  }
+
+  onLocationFilterChange(event: Event): void {
+    this.locationFilter.set((event.target as HTMLSelectElement).value as 'all' | 'local' | 'remote');
   }
 
   onSortModeChange(event: Event): void {
@@ -1998,6 +2021,7 @@ export class InstanceListComponent {
     context: {
       filter: string;
       status: string;
+      location: 'all' | 'local' | 'remote';
       projectMatches: boolean;
       collapsed: Set<string>;
       childrenByParent: Map<string, string[]>;
@@ -2029,7 +2053,11 @@ export class InstanceListComponent {
       instance.displayName.toLowerCase().includes(context.filter) ||
       instance.id.toLowerCase().includes(context.filter);
     const statusMatches = context.status === 'all' || instance.status === context.status;
-    const selfVisible = textMatches && statusMatches;
+    const locationMatches =
+      context.location === 'all' ||
+      (context.location === 'remote' && instance.executionLocation?.type === 'remote') ||
+      (context.location === 'local' && (instance.executionLocation === undefined || instance.executionLocation.type === 'local'));
+    const selfVisible = textMatches && statusMatches && locationMatches;
 
     if (!selfVisible && visibleChildren.length === 0) {
       return [];
