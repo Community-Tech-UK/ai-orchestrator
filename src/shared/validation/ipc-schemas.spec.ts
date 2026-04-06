@@ -4,6 +4,33 @@ import {
   InstanceCreateWithMessagePayloadSchema,
 } from './ipc-schemas';
 
+describe('InstanceCreatePayloadSchema forceNodeId', () => {
+  const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+
+  it('accepts an optional forceNodeId as a valid UUID', () => {
+    const result = InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      forceNodeId: validUuid,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects forceNodeId that is not a UUID', () => {
+    const result = InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      forceNodeId: 'not-a-uuid',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts payload without forceNodeId', () => {
+    const result = InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('IPC provider schema parity', () => {
   const canonicalProviders = ['auto', 'claude', 'codex', 'gemini', 'copilot'] as const;
 

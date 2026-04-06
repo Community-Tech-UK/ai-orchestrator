@@ -40,6 +40,7 @@ export const InstanceCreatePayloadSchema = z.object({
   agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot']).optional(),
   model: z.string().max(100).optional(),
+  forceNodeId: z.string().uuid().optional(),
 });
 
 export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloadSchema>;
