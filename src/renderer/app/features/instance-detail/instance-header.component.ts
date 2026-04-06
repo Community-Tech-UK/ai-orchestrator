@@ -22,6 +22,7 @@ import { ContextBarComponent } from './context-bar.component';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
 import { SkillStore } from '../../core/state/skill.store';
 import { HookStore } from '../../core/state/hook.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import type { ContextUsage, Instance } from '../../core/state/instance.store';
@@ -65,6 +66,9 @@ interface EditorMenuItem {
                 <span class="instance-name-text">{{ instance().displayName }}</span>
                 <span class="edit-icon">rename</span>
               </h2>
+            }
+            @if (isRemote() && instance().status === 'initializing') {
+              <span class="remote-connecting">Connecting to {{ remoteNodeName() }}...</span>
             }
           </div>
         </div>
@@ -160,6 +164,15 @@ interface EditorMenuItem {
           >
             {{ providerDisplayName() }}
           </span>
+          @if (isRemote()) {
+            <span
+              class="node-badge"
+              [class.node-badge-warning]="remoteNodeDisconnected()"
+              [title]="remoteNodeTooltip()"
+            >
+              {{ remoteNodeName() }}
+            </span>
+          }
           @if (availableModels().length > 0) {
             <div class="model-selector-inline">
               <button
@@ -756,6 +769,35 @@ interface EditorMenuItem {
           font-size: 16px;
         }
       }
+
+      .node-badge {
+        padding: 2px 8px;
+        border-radius: var(--radius-sm, 4px);
+        font-size: 11px;
+        font-weight: 500;
+        background: rgba(59, 130, 246, 0.15);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        cursor: help;
+        white-space: pre-line;
+      }
+
+      .node-badge-warning {
+        background: rgba(234, 179, 8, 0.15);
+        color: #eab308;
+        border-color: rgba(234, 179, 8, 0.3);
+      }
+
+      .remote-connecting {
+        font-size: 11px;
+        color: var(--text-muted);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+      }
     `
   ],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -765,6 +807,7 @@ export class InstanceHeaderComponent implements OnInit {
   private hookStore = inject(HookStore);
   private fileIpc = inject(FileIpcService);
   private electronIpc = inject(ElectronIpcService);
+  private readonly remoteNodeStore = inject(RemoteNodeStore);
 
   private nameInput = viewChild<ElementRef<HTMLInputElement>>('nameInput');
 
@@ -798,6 +841,48 @@ export class InstanceHeaderComponent implements OnInit {
     const hooks = this.hookStore.enabledHooks();
     if (hooks.length === 0) return '';
     return 'Enabled hooks:\n' + hooks.map(h => `• ${h.name}`).join('\n');
+  });
+
+  readonly isRemote = computed(() =>
+    this.instance().executionLocation?.type === 'remote',
+  );
+
+  readonly remoteNodeId = computed(() => {
+    const loc = this.instance().executionLocation;
+    return loc?.type === 'remote' ? loc.nodeId : null;
+  });
+
+  readonly remoteNode = computed(() => {
+    const id = this.remoteNodeId();
+    return id ? this.remoteNodeStore.nodeById(id) ?? null : null;
+  });
+
+  readonly remoteNodeName = computed(() =>
+    this.remoteNode()?.name ?? this.remoteNodeId()?.slice(0, 8) ?? '',
+  );
+
+  readonly remoteNodeDisconnected = computed(() => {
+    const node = this.remoteNode();
+    return this.isRemote() && (!node || (node.status !== 'connected' && node.status !== 'degraded'));
+  });
+
+  readonly remoteNodeTooltip = computed(() => {
+    const node = this.remoteNode();
+    if (!node) return `Node ${this.remoteNodeId()?.slice(0, 8)} — no longer registered`;
+    const caps = node.capabilities;
+    const platform = caps.platform === 'win32' ? 'Windows' : caps.platform === 'darwin' ? 'macOS' : 'Linux';
+    const lines = [
+      node.name,
+      `Platform: ${platform} (${caps.arch})`,
+      `Latency: ${node.latencyMs !== null && node.latencyMs !== undefined ? node.latencyMs + 'ms' : 'unknown'}`,
+      `CPU: ${caps.cpuCores} cores`,
+      `Memory: ${caps.availableMemoryMB !== null && caps.availableMemoryMB !== undefined ? (caps.availableMemoryMB / 1024).toFixed(1) : '?'} / ${(caps.totalMemoryMB / 1024).toFixed(1)} GB`,
+    ];
+    if (caps.gpuName) lines.push(`GPU: ${caps.gpuName}${caps.gpuMemoryMB ? ' (' + (caps.gpuMemoryMB / 1024).toFixed(0) + ' GB)' : ''}`);
+    lines.push(`CLIs: ${caps.supportedClis.join(', ')}`);
+    lines.push(`Sessions: ${node.activeInstances} active`);
+    lines.push(`Status: ${node.status}`);
+    return lines.join('\n');
   });
 
   constructor() {
