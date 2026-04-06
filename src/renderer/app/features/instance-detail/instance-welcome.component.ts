@@ -6,11 +6,13 @@ import {
   Component,
   input,
   output,
+  signal,
   ChangeDetectionStrategy
 } from '@angular/core';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { InputPanelComponent } from './input-panel.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
+import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
 
 interface WelcomeProjectContext {
   branch: string | null;
@@ -24,7 +26,7 @@ interface WelcomeProjectContext {
 @Component({
   selector: 'app-instance-welcome',
   standalone: true,
-  imports: [DropZoneComponent, InputPanelComponent, RecentDirectoriesDropdownComponent],
+  imports: [DropZoneComponent, InputPanelComponent, RecentDirectoriesDropdownComponent, NodePickerComponent],
   template: `
     <app-drop-zone
       class="full-drop-zone"
@@ -79,6 +81,12 @@ interface WelcomeProjectContext {
               </div>
             </div>
           </div>
+
+          <app-node-picker
+            [selectedNodeId]="selectedNodeId()"
+            [selectedCli]="selectedCli()"
+            (nodeSelected)="onNodeSelected($event)"
+          />
 
           <div class="welcome-input-shell">
             <div class="welcome-input-header">
@@ -337,10 +345,15 @@ export class InstanceWelcomeComponent {
   pendingFolders = input<string[]>([]);
   projectContext = input<WelcomeProjectContext | null>(null);
   isProjectContextLoading = input(false);
+  selectedCli = input<string>('auto');
+
+  // Node picker state
+  selectedNodeId = signal<string | null>(null);
 
   // Actions
   selectFolder = output<string>();
   sendMessage = output<string>();
+  nodeChange = output<string | null>();
   filesDropped = output<File[]>();
   imagesPasted = output<File[]>();
   folderDropped = output<string>();
@@ -350,6 +363,11 @@ export class InstanceWelcomeComponent {
   removeFolder = output<string>();
   discardDraft = output<void>();
   addFiles = output<void>();
+
+  onNodeSelected(nodeId: string | null): void {
+    this.selectedNodeId.set(nodeId);
+    this.nodeChange.emit(nodeId);
+  }
 
   formatRelativeTime(timestamp: number): string {
     const delta = timestamp - Date.now();

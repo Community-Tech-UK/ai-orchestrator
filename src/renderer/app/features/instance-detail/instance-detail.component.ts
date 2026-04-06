@@ -36,6 +36,7 @@ import { InstanceReviewPanelComponent } from './instance-review-panel.component'
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { TodoStore } from '../../core/state/todo.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 
 interface WelcomeProjectContext {
@@ -296,8 +297,10 @@ interface WelcomeProjectContext {
         [pendingFolders]="welcomePendingFolders()"
         [projectContext]="welcomeProjectContext()"
         [isProjectContextLoading]="isWelcomeProjectContextLoading()"
+        [selectedCli]="welcomeSelectedCli()"
         (selectFolder)="onSelectWelcomeFolder($event)"
         (sendMessage)="onWelcomeSendMessage($event)"
+        (nodeChange)="onWelcomeNodeChange($event)"
         (filesDropped)="onWelcomeFilesDropped($event)"
         (imagesPasted)="onWelcomeImagesPasted($event)"
         (folderDropped)="onWelcomeFolderDropped($event)"
@@ -641,6 +644,7 @@ export class InstanceDetailComponent {
   private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
+  private remoteNodeStore = inject(RemoteNodeStore);
   todoStore = inject(TodoStore);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
@@ -720,6 +724,10 @@ export class InstanceDetailComponent {
   welcomePendingFiles = this.newSessionDraft.pendingFiles;
   welcomePendingFolders = this.newSessionDraft.pendingFolders;
   welcomeWorkingDirectory = this.newSessionDraft.workingDirectory;
+  welcomeSelectedNodeId = signal<string | null>(null);
+  welcomeSelectedCli = computed(() =>
+    this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation() ?? 'auto',
+  );
   private welcomeProjectSnapshot = signal<{
     branch: string | null;
     hasChanges: boolean;
@@ -1273,12 +1281,26 @@ export class InstanceDetailComponent {
     }
   }
 
+  onWelcomeNodeChange(nodeId: string | null): void {
+    this.welcomeSelectedNodeId.set(nodeId);
+  }
+
   async onWelcomeSendMessage(message: string): Promise<void> {
     const workingDir = this.welcomeWorkingDirectory() || '.';
     const provider = this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation();
     const model = this.newSessionDraft.model() ?? this.providerState.getModelForCreation();
     const pendingFolders = this.welcomePendingFolders();
     const finalMessage = this.prependPendingFolders(message, pendingFolders);
+    const forceNodeId = this.welcomeSelectedNodeId() ?? undefined;
+
+    // Validate selected remote node is still reachable
+    if (forceNodeId) {
+      const node = this.remoteNodeStore.nodeById(forceNodeId);
+      if (!node || (node.status !== 'connected' && node.status !== 'degraded')) {
+        this.store.setError('Selected remote node is no longer connected. Please choose another node or use Local.');
+        return;
+      }
+    }
 
     this.isCreatingInstance.set(true);
     const launched = await this.store.createInstanceWithMessage(
@@ -1286,7 +1308,8 @@ export class InstanceDetailComponent {
       this.welcomePendingFiles(),
       workingDir,
       provider,
-      model
+      model,
+      forceNodeId
     );
 
     if (!launched) {
@@ -1298,6 +1321,7 @@ export class InstanceDetailComponent {
       return;
     }
 
+    this.welcomeSelectedNodeId.set(null);
     this.newSessionDraft.clearActiveComposer();
     await this.recentDirsService.addDirectory(workingDir);
   }

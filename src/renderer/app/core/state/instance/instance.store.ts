@@ -412,15 +412,22 @@ export class InstanceStore implements OnDestroy {
     files?: File[],
     workingDirectory?: string,
     provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
-    model?: string
+    model?: string,
+    forceNodeId?: string
   ): Promise<boolean> {
     return this.listStore.createInstanceWithMessage(
       message,
       files,
       workingDirectory,
       provider,
-      model
+      model,
+      forceNodeId
     );
+  }
+
+  /** Set an error message */
+  setError(error: string | null): void {
+    this.stateService.setError(error);
   }
 
   /** Create a child instance */
