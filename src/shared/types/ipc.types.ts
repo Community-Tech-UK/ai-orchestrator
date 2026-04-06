@@ -347,6 +347,7 @@ export const IPC_CHANNELS = {
   REMOTE_NODE_START_SERVER: 'remote-node:start-server',
   REMOTE_NODE_STOP_SERVER: 'remote-node:stop-server',
   REMOTE_NODE_EVENT: 'remote-node:event',
+  REMOTE_NODE_NODES_CHANGED: 'remote-node:nodes-changed',
   REMOTE_NODE_REGENERATE_TOKEN: 'remote-node:regenerate-token',
   REMOTE_NODE_SET_TOKEN: 'remote-node:set-token',
   REMOTE_NODE_REVOKE: 'remote-node:revoke',

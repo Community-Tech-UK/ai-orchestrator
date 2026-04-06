@@ -15,6 +15,9 @@ import {
 import type { RpcRequest, RpcResponse, RpcNotification } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
 import { validateAuthToken } from './auth-validator';
+import { IPC_CHANNELS } from '../../shared/types/ipc.types';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import { getWorkerNodeRegistry } from './worker-node-registry';
 
 const logger = getLogger('WorkerNodeConnection');
 
@@ -34,6 +37,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   private readonly socketToNode = new Map<WebSocket, string>();
   private readonly pending = new Map<string | number, PendingRpc>();
   private requestCounter = 0;
+  private broadcastAll: (() => void) | null = null;
 
   static getInstance(): WorkerNodeConnectionServer {
     if (!this.instance) {
@@ -107,9 +111,23 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         this.handleConnection(ws);
       });
     });
+
+    const registry = getWorkerNodeRegistry();
+    this.broadcastAll = () => this.broadcastNodesToRenderer(registry.getAllNodes());
+    registry.on('node:connected', this.broadcastAll);
+    registry.on('node:disconnected', this.broadcastAll);
+    registry.on('node:updated', this.broadcastAll);
   }
 
   stop(): void {
+    if (this.broadcastAll) {
+      const registry = getWorkerNodeRegistry();
+      registry.removeListener('node:connected', this.broadcastAll);
+      registry.removeListener('node:disconnected', this.broadcastAll);
+      registry.removeListener('node:updated', this.broadcastAll);
+      this.broadcastAll = null;
+    }
+
     if (!this.wss) return;
 
     // Cancel all pending RPC requests
@@ -135,6 +153,17 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       }
     });
     this.wss = null;
+  }
+
+  broadcastNodesToRenderer(nodes: WorkerNodeInfo[]): void {
+    try {
+      const { BrowserWindow } = require('electron');
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
+      }
+    } catch {
+      // Not in Electron context (e.g., tests)
+    }
   }
 
   // ---------------------------------------------------------------------------
