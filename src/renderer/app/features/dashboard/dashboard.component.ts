@@ -17,6 +17,7 @@ import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
@@ -56,6 +57,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   store = inject(InstanceStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
+  private remoteNodeStore = inject(RemoteNodeStore);
   private electronIpc = inject(ElectronIpcService);
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
@@ -140,6 +142,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.cliStore.initialize();
       }
     });
+
+    // Initialize remote node store (seeds from IPC + subscribes to live updates)
+    void this.remoteNodeStore.initialize();
 
     // Register keybinding handlers
     this.registerKeybindingHandlers();

@@ -104,4 +104,10 @@ export class RemoteNodeIpcService {
     if (!this.api) return () => {};
     return this.api.onRemoteNodeEvent(callback as (event: unknown) => void);
   }
+
+  onNodesChanged(callback: (nodes: WorkerNodeInfo[]) => void): () => void {
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    if (!this.api) return () => {};
+    return this.api.onRemoteNodeNodesChanged(callback as (nodes: unknown) => void);
+  }
 }
