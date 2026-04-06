@@ -191,7 +191,7 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
           @if (!customTokenMode()) {
             <div class="token-row">
               <input
-                type="{{ tokenRevealed() ? 'text' : 'password' }}"
+                [type]="tokenRevealed() ? 'text' : 'password'"
                 class="field-input token-input"
                 [value]="store.remoteNodesEnrollmentToken() || '(not set)'"
                 readonly
