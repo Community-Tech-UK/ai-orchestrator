@@ -7,15 +7,16 @@ import {
   input,
   output,
   computed,
+  inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { SlicePipe } from '@angular/common';
 import { Instance } from '../../core/state/instance.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 
 @Component({
   selector: 'app-instance-row',
   standalone: true,
-  imports: [SlicePipe],
+  imports: [],
   template: `
     <div
       class="instance-row"
@@ -113,8 +114,12 @@ import { Instance } from '../../core/state/instance.store';
           }
         </div>
         @if (isRemote()) {
-          <span class="remote-badge" [title]="'Running on node: ' + remoteNodeId()">
-            {{ remoteNodeId() | slice:0:8 }}
+          <span
+            class="remote-badge"
+            [class.remote-badge-warning]="remoteNodeDisconnected()"
+            [title]="remoteNodeBadgeTitle()"
+          >
+            {{ remoteNodeName() }}
           </span>
         }
       </div>
@@ -562,6 +567,12 @@ import { Instance } from '../../core/state/instance.store';
       margin-left: 4px;
     }
 
+    .remote-badge-warning {
+      background: rgba(234, 179, 8, 0.15) !important;
+      color: #eab308 !important;
+      border-color: rgba(234, 179, 8, 0.3) !important;
+    }
+
     @keyframes spin {
       from {
         transform: rotate(0deg);
@@ -574,6 +585,8 @@ import { Instance } from '../../core/state/instance.store';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InstanceRowComponent {
+  private readonly remoteNodeStore = inject(RemoteNodeStore);
+
   // Required inputs
   instance = input.required<Instance>();
   displayTitle = input<string | null>(null);
@@ -665,6 +678,27 @@ export class InstanceRowComponent {
   readonly remoteNodeId = computed(() => {
     const loc = this.instance().executionLocation;
     return loc?.type === 'remote' ? loc.nodeId : '';
+  });
+
+  readonly remoteNodeName = computed(() => {
+    const nodeId = this.remoteNodeId();
+    if (!nodeId) return '';
+    const node = this.remoteNodeStore.nodeById(nodeId);
+    return node?.name ?? nodeId.slice(0, 8);
+  });
+
+  readonly remoteNodeDisconnected = computed(() => {
+    const nodeId = this.remoteNodeId();
+    if (!nodeId) return false;
+    const node = this.remoteNodeStore.nodeById(nodeId);
+    return !node || (node.status !== 'connected' && node.status !== 'degraded');
+  });
+
+  readonly remoteNodeBadgeTitle = computed(() => {
+    const name = this.remoteNodeName();
+    return this.remoteNodeDisconnected()
+      ? `Node '${name}' disconnected — session may be interrupted`
+      : `Running on node: ${name}`;
   });
 
   readonly activityLabel = computed(() => {
