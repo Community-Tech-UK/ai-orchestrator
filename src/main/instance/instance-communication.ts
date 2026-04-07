@@ -299,7 +299,27 @@ export class InstanceCommunicationManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} has been terminated`);
     }
 
-    if (instance.status === 'respawning') {
+    // If the instance is respawning after interrupt, wait for it to finish
+    // rather than rejecting. The renderer has queued the message and we should
+    // deliver it once the new adapter is ready (inspired by t3code's pattern
+    // of only accepting input when session status === "ready").
+    if (instance.status === 'respawning' && instance.respawnPromise) {
+      logger.info('sendInput: instance is respawning, waiting for respawn to complete', { instanceId });
+      const respawnTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Instance respawn timed out after 30s')), 30_000)
+      );
+      await Promise.race([instance.respawnPromise, respawnTimeout]);
+      // After respawn, re-check status — it may have gone to 'error'.
+      // Cast via string to bypass TS narrowing (status was mutated during await).
+      const postRespawnStatus = instance.status as string;
+      if (postRespawnStatus === 'error' || postRespawnStatus === 'failed') {
+        throw new Error(`Instance ${instanceId} failed to respawn after interrupt`);
+      }
+      if (postRespawnStatus === 'terminated') {
+        throw new Error(`Instance ${instanceId} was terminated during respawn`);
+      }
+      logger.info('sendInput: respawn complete, proceeding with send', { instanceId, status: postRespawnStatus });
+    } else if (instance.status === 'respawning') {
       throw new Error(`Instance ${instanceId} is respawning after interrupt. Please wait for it to be ready.`);
     }
 

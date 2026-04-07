@@ -684,6 +684,19 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // If the instance is respawning after an interrupt, wait for it to finish.
+    // This holds the IPC call instead of rejecting, so the renderer's queued
+    // message is delivered once the new CLI process is ready.
+    if (instance.respawnPromise) {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Instance respawn timed out')), 30_000)
+      );
+      await Promise.race([instance.respawnPromise, timeoutPromise]);
+      if (instance.status === 'error' || instance.status === 'failed') {
+        throw new Error('Instance respawn after interrupt failed');
+      }
+    }
+
     if (await this.maybeHandleSwitchModeReply(instanceId, message)) {
       return;
     }

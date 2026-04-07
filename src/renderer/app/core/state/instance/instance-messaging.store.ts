@@ -204,7 +204,7 @@ export class InstanceMessagingStore {
     const result = await this.ipc.sendInput(instanceId, message, attachments);
     console.log('InstanceMessagingStore: sendInput result', result);
 
-    // If send failed, re-queue the message and revert status
+    // If send failed, decide whether to retry or drop
     if (!result.success) {
       console.error('InstanceMessagingStore: sendInput failed', result.error);
 
@@ -212,20 +212,27 @@ export class InstanceMessagingStore {
       const currentInstance = this.stateService.getInstance(instanceId);
       const retryDisposition = this.getRetryDisposition(currentInstance?.status, errorMessage);
 
+      if (!retryDisposition.shouldRetry) {
+        // Permanent failure: revert optimistic 'busy' to previous status and show error
+        if (currentInstance && currentInstance.status === 'busy') {
+          this.stateService.updateInstance(instanceId, {
+            status: retryDisposition.nextStatus ?? previousStatus ?? 'idle',
+          });
+        }
+        this.addErrorToOutput(instanceId, `Failed to send message:\n${errorMessage}`);
+        return;
+      }
+
+      // Transient failure: revert optimistic status and re-queue for retry
       if (currentInstance && currentInstance.status === 'busy') {
         this.stateService.updateInstance(instanceId, {
           status: retryDisposition.nextStatus ?? previousStatus ?? 'idle',
         });
       }
 
-      if (!retryDisposition.shouldRetry) {
-        this.addErrorToOutput(instanceId, `Failed to send message:\n${errorMessage}`);
-        return;
-      }
-
-      // Re-queue the message at the front so it's retried when the instance is ready
       console.log('InstanceMessagingStore: Re-queuing failed message at front of queue', {
         instanceId,
+        errorMessage,
       });
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
@@ -234,15 +241,10 @@ export class InstanceMessagingStore {
         return newMap;
       });
 
-      // Revert status only if we were the ones who set it to busy.
-      // Don't revert to 'idle' if the instance is in a transitional state
-      // (respawning, error, terminated) — let the main process drive those.
+      // Schedule a retry. The primary drain trigger is batch-update → idle,
+      // but if we're already idle locally we need to re-trigger ourselves.
       const nextStatus = retryDisposition.nextStatus ?? previousStatus ?? 'idle';
       if (nextStatus === 'idle' || nextStatus === 'waiting_for_input') {
-        // The local ready status set above won't generate a main process
-        // batch update, so processMessageQueue won't be re-triggered by the
-        // normal path. Schedule a retry so the re-queued message gets another
-        // chance once the instance is actually ready.
         setTimeout(() => {
           this.processMessageQueue(instanceId);
         }, 2000);
@@ -309,10 +311,22 @@ export class InstanceMessagingStore {
   ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
     const normalized = errorMessage.toLowerCase();
 
+    // Transient: instance is respawning after interrupt
     if (status === 'respawning' || normalized.includes('respawning')) {
       return { shouldRetry: true, nextStatus: 'respawning' };
     }
 
+    // Transient: instance is still initializing or waking
+    if (status === 'initializing' || status === 'waking') {
+      return { shouldRetry: true, nextStatus: status };
+    }
+
+    // Transient: CLI adapter not yet ready (common immediately after respawn)
+    if (normalized.includes('not ready') || normalized.includes('not spawned')) {
+      return { shouldRetry: true };
+    }
+
+    // Permanent: instance is in a fatal state
     if (status === 'error' || normalized.includes('error state') || normalized.includes('inconsistent state')) {
       return { shouldRetry: false, nextStatus: 'error' };
     }
@@ -321,7 +335,10 @@ export class InstanceMessagingStore {
       return { shouldRetry: false, nextStatus: 'terminated' };
     }
 
-    return { shouldRetry: false, nextStatus: status };
+    // Default: retry unknown errors — the watchdog and batch updates will
+    // correct the status if the instance is actually in a permanent state.
+    // This prevents message loss from transient post-respawn timing issues.
+    return { shouldRetry: true };
   }
 
   /**

@@ -65,6 +65,9 @@ import type { DenyRule } from '../tools/tool-list-filter';
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
 
+/** Stash for respawn-promise resolvers. Stored externally to avoid casting Instance. */
+const respawnResolvers = new WeakMap<Instance, () => void>();
+
 // Tools that require Claude CLI's interactive terminal and auto-deny in --print mode.
 // Always disallow these so Claude doesn't attempt them and misinterpret the auto-denial
 // as user rejection. Claude will ask questions as regular text messages instead.
@@ -455,6 +458,57 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (!isHealthy()) {
           cleanup();
           resolve(false);
+        }
+      }, pollIntervalMs);
+
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        clearInterval(poll);
+      };
+    });
+  }
+
+  /**
+   * Wait for the CLI adapter's stdin pipe to become writable after spawn/respawn.
+   * For Claude CLI adapters this polls the internal formatter; for exec-based
+   * adapters (Codex, Gemini, Copilot) the spawn() return is sufficient.
+   * Falls through on timeout (fail-open) so the caller can still proceed.
+   */
+  private async waitForAdapterWritable(
+    instanceId: string,
+    timeoutMs = 3000,
+    pollIntervalMs = 100
+  ): Promise<boolean> {
+    const isWritable = (): boolean => {
+      const adapter = this.deps.getAdapter(instanceId);
+      if (!adapter) return false;
+
+      // Claude CLI uses a persistent process with a stdin formatter.
+      // After respawn, the new process's stdin may not be immediately writable.
+      // Access the private `formatter` field via duck-typing at runtime.
+      // (TS `private` compiles to a plain property — it's accessible at runtime.)
+      if (adapter.getName() === 'claude-cli') {
+        const formatter = (adapter as unknown as { formatter: { isWritable(): boolean } | null }).formatter;
+        return formatter !== null && formatter.isWritable();
+      }
+
+      // Exec-based adapters (Codex, Gemini, Copilot) are ready once spawn() returns.
+      return true;
+    };
+
+    if (isWritable()) return true;
+
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        logger.debug('waitForAdapterWritable timed out, proceeding anyway', { instanceId });
+        resolve(isWritable());
+      }, timeoutMs);
+
+      const poll = setInterval(() => {
+        if (isWritable()) {
+          cleanup();
+          resolve(true);
         }
       }, pollIntervalMs);
 
@@ -2070,6 +2124,15 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       this.transitionState(instance, 'respawning');
       instance.lastActivity = Date.now();
       this.deps.queueUpdate(instanceId, 'respawning', instance.contextUsage);
+
+      // Expose a promise that resolves when respawn completes.
+      // sendInput() awaits this so messages sent during respawning are
+      // held (not rejected) until the new adapter is ready.
+      let resolveRespawn!: () => void;
+      instance.respawnPromise = new Promise<void>((resolve) => {
+        resolveRespawn = resolve;
+      });
+      respawnResolvers.set(instance, resolveRespawn);
     } else {
       this.deps.clearInterrupted(instanceId);
     }
@@ -2173,6 +2236,18 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
 
         instance.processId = pid;
+
+        // Verify the adapter is ready to accept input before declaring idle.
+        // After spawn, the CLI process needs a moment for its stdin pipe to
+        // become writable. Without this gate, sendInput() can race ahead and
+        // fail with "CLI not ready for input".
+        const currentAdapter = this.deps.getAdapter(instanceId);
+        if (currentAdapter && currentAdapter !== adapter) {
+          logger.warn('Adapter was replaced during respawn, skipping idle transition', { instanceId });
+        } else {
+          await this.waitForAdapterWritable(instanceId, 3000);
+        }
+
         this.transitionState(instance, 'idle');
         instance.lastActivity = Date.now();
 
@@ -2202,6 +2277,15 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }
     } finally {
       release();
+
+      // Resolve the respawn promise so any sendInput() calls waiting on it
+      // can proceed (or fail cleanly if the instance is now in error state).
+      const resolveRespawn = respawnResolvers.get(instance);
+      if (resolveRespawn) {
+        resolveRespawn();
+        respawnResolvers.delete(instance);
+        instance.respawnPromise = undefined;
+      }
     }
   }
 

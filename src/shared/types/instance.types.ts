@@ -208,6 +208,8 @@ export interface Instance {
   // Lifecycle promises (not serialized)
   /** Resolves when init/wake completes. sendInput() awaits this. */
   readyPromise?: Promise<void>;
+  /** Resolves when respawn-after-interrupt completes. sendInput() awaits this. */
+  respawnPromise?: Promise<void>;
   /** Signals cancellation of in-progress init/wake. */
   abortController?: AbortController;
 
