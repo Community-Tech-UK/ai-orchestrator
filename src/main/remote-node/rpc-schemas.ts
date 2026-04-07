@@ -16,6 +16,12 @@ const WorkerNodeCapabilitiesSchema = z.object({
   hasDocker: z.boolean(),
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
+  browsableRoots: z.array(z.string()).default([]),
+  discoveredProjects: z.array(z.object({
+    path: z.string(),
+    name: z.string(),
+    markers: z.array(z.string()),
+  })).default([]),
 });
 
 // -- Node -> Coordinator schemas -----------------------------------------------

@@ -29,6 +29,8 @@ export async function reportCapabilities(
     hasDocker: detectDocker(),
     maxConcurrentInstances,
     workingDirectories,
+    browsableRoots: [],
+    discoveredProjects: [],
   };
 }
 

@@ -1,4 +1,5 @@
 import type { CanonicalCliType } from './settings.types';
+import type { DiscoveredProject } from './remote-fs.types';
 
 export type NodePlatform = 'darwin' | 'win32' | 'linux';
 
@@ -16,6 +17,8 @@ export interface WorkerNodeCapabilities {
   hasDocker: boolean;
   maxConcurrentInstances: number;
   workingDirectories: string[];
+  browsableRoots: string[];
+  discoveredProjects: DiscoveredProject[];
 }
 
 export interface WorkerNodeInfo {
