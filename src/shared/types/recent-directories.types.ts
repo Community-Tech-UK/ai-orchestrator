@@ -2,6 +2,8 @@
  * Recent Directories Types - Types for recently opened directories feature
  */
 
+import type { NodePlatform } from './worker-node.types';
+
 /**
  * A single entry in the recent directories list
  */
@@ -16,6 +18,10 @@ export interface RecentDirectoryEntry {
   accessCount: number;
   /** Whether this directory is pinned to the top */
   isPinned: boolean;
+  /** 'local' or node UUID; undefined = local (backward compat) */
+  nodeId?: string;
+  /** Platform of the node this path belongs to */
+  platform?: NodePlatform;
 }
 
 /**

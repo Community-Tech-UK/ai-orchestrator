@@ -431,9 +431,11 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   // Inputs
   currentPath = input<string>('');
   placeholder = input<string>('No folder selected');
+  selectedNodeId = input<string | null>(null);
 
   // Outputs
   folderSelected = output<string>();
+  browseRemote = output<string>();
 
   // State
   isOpen = signal(false);
@@ -448,12 +450,21 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   private recentDirsService = inject(RecentDirectoriesIpcService);
   private elementRef = inject(ElementRef<HTMLElement>);
   // Computed
+  private readonly nodeFilteredDirectories = computed(() => {
+    const nodeId = this.selectedNodeId();
+    const dirs = this.directories();
+    if (!nodeId || nodeId === 'local') {
+      return dirs.filter(d => !d.nodeId || d.nodeId === 'local');
+    }
+    return dirs.filter(d => d.nodeId === nodeId);
+  });
+
   pinnedDirectories = computed(() =>
-    this.directories().filter((d) => d.isPinned)
+    this.nodeFilteredDirectories().filter((d) => d.isPinned)
   );
 
   recentDirectories = computed(() =>
-    this.directories().filter((d) => !d.isPinned)
+    this.nodeFilteredDirectories().filter((d) => !d.isPinned)
   );
 
   filteredPinnedDirectories = computed(() =>
@@ -584,6 +595,13 @@ export class RecentDirectoriesDropdownComponent implements OnInit {
   }
 
   async browseForFolder(): Promise<void> {
+    const nodeId = this.selectedNodeId();
+    if (nodeId && nodeId !== 'local') {
+      this.browseRemote.emit(nodeId);
+      this.closeDropdown();
+      return;
+    }
+
     this.closeDropdown();
 
     const path = await this.recentDirsService.selectFolderAndTrack();
