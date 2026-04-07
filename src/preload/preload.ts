@@ -5424,7 +5424,7 @@ const electronAPI = {
   // Remote Filesystem
   // ============================================
 
-  remoteFsReadDirectory: (nodeId: string, path: string, options?: { depth?: number; includeHidden?: boolean }): Promise<IpcResponse> => {
+  remoteFsReadDirectory: (nodeId: string, path: string, options?: { depth?: number; includeHidden?: boolean; cursor?: string; limit?: number }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_READ_DIR, { nodeId, path, ...options });
   },
 

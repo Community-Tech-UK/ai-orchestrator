@@ -144,6 +144,8 @@ export class RecentDirectoriesManager extends EventEmitter {
 
     const checks = entries.map(async (e): Promise<RecentDirectoryEntry | null> => {
       if (!includePinned && e.isPinned) return null;
+      // Skip filesystem validation for remote entries — path is on another machine
+      if (e.nodeId) return e;
       try {
         await Promise.race([
           fsp.access(e.path),
