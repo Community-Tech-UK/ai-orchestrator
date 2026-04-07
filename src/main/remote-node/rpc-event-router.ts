@@ -1,8 +1,9 @@
 import { getLogger } from '../logging/logger';
-import { NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
+import { NODE_TO_COORDINATOR, COORDINATOR_TO_NODE, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
 import { getWorkerNodeHealth } from './worker-node-health';
 import { validateAuthToken } from './auth-validator';
 import { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
+import { NodeFilesystemHandler, FsRpcError } from './node-filesystem-handler';
 import type { WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
@@ -13,6 +14,7 @@ const logger = getLogger('RpcEventRouter');
 export class RpcEventRouter {
   private readonly connection: WorkerNodeConnectionServer;
   private readonly registry: WorkerNodeRegistry;
+  private readonly fsHandlers = new Map<string, NodeFilesystemHandler>();
 
   // Bound handler references so stop() can cleanly remove them
   private readonly onWsConnected: (nodeId: string) => void;
@@ -56,6 +58,11 @@ export class RpcEventRouter {
     getWorkerNodeHealth().stopMonitoring(nodeId);
     if (this.registry.getNode(nodeId)) {
       this.registry.deregisterNode(nodeId);
+    }
+    const handler = this.fsHandlers.get(nodeId);
+    if (handler) {
+      handler.cleanupAllWatchers();
+      this.fsHandlers.delete(nodeId);
     }
   }
 
@@ -106,6 +113,21 @@ export class RpcEventRouter {
           break;
         case NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST:
           this.handleInstancePermissionRequest(nodeId, request);
+          break;
+        case COORDINATOR_TO_NODE.FS_READ_DIRECTORY:
+          void this.handleFsReadDirectory(nodeId, request);
+          break;
+        case COORDINATOR_TO_NODE.FS_STAT:
+          void this.handleFsStat(nodeId, request);
+          break;
+        case COORDINATOR_TO_NODE.FS_SEARCH:
+          void this.handleFsSearch(nodeId, request);
+          break;
+        case COORDINATOR_TO_NODE.FS_WATCH:
+          void this.handleFsWatch(nodeId, request);
+          break;
+        case COORDINATOR_TO_NODE.FS_UNWATCH:
+          void this.handleFsUnwatch(nodeId, request);
           break;
         default:
           logger.warn('Unknown RPC method received', { nodeId, method: request.method });
@@ -268,5 +290,191 @@ export class RpcEventRouter {
       permission: params?.['permission'],
     });
     this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Filesystem handler helpers
+  // ---------------------------------------------------------------------------
+
+  private getFsHandler(nodeId: string): NodeFilesystemHandler | null {
+    if (this.fsHandlers.has(nodeId)) return this.fsHandlers.get(nodeId)!;
+    const node = this.registry.getNode(nodeId);
+    if (!node) return null;
+    const roots = node.capabilities.browsableRoots?.length > 0
+      ? node.capabilities.browsableRoots
+      : node.capabilities.workingDirectories;
+    const handler = new NodeFilesystemHandler(roots);
+    this.fsHandlers.set(nodeId, handler);
+    return handler;
+  }
+
+  private async handleFsReadDirectory(nodeId: string, request: RpcRequest): Promise<void> {
+    const fsHandler = this.getFsHandler(nodeId);
+    if (!fsHandler) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await fsHandler.readDirectory(request.params as any);
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    } catch (err) {
+      if (err instanceof FsRpcError) {
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.FILESYSTEM_ERROR, err.message, {
+            fsCode: err.fsCode,
+            path: err.fsPath,
+            retryable: err.retryable,
+            suggestion: err.suggestion,
+          }),
+        );
+      } else {
+        const message = err instanceof Error ? err.message : 'Filesystem operation failed';
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
+        );
+      }
+    }
+  }
+
+  private async handleFsStat(nodeId: string, request: RpcRequest): Promise<void> {
+    const fsHandler = this.getFsHandler(nodeId);
+    if (!fsHandler) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await fsHandler.stat(request.params as any);
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    } catch (err) {
+      if (err instanceof FsRpcError) {
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.FILESYSTEM_ERROR, err.message, {
+            fsCode: err.fsCode,
+            path: err.fsPath,
+            retryable: err.retryable,
+            suggestion: err.suggestion,
+          }),
+        );
+      } else {
+        const message = err instanceof Error ? err.message : 'Filesystem operation failed';
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
+        );
+      }
+    }
+  }
+
+  private async handleFsSearch(nodeId: string, request: RpcRequest): Promise<void> {
+    const fsHandler = this.getFsHandler(nodeId);
+    if (!fsHandler) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await fsHandler.search(request.params as any);
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    } catch (err) {
+      if (err instanceof FsRpcError) {
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.FILESYSTEM_ERROR, err.message, {
+            fsCode: err.fsCode,
+            path: err.fsPath,
+            retryable: err.retryable,
+            suggestion: err.suggestion,
+          }),
+        );
+      } else {
+        const message = err instanceof Error ? err.message : 'Filesystem operation failed';
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
+        );
+      }
+    }
+  }
+
+  private async handleFsWatch(nodeId: string, request: RpcRequest): Promise<void> {
+    const fsHandler = this.getFsHandler(nodeId);
+    if (!fsHandler) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await fsHandler.watch(request.params as any);
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+    } catch (err) {
+      if (err instanceof FsRpcError) {
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.FILESYSTEM_ERROR, err.message, {
+            fsCode: err.fsCode,
+            path: err.fsPath,
+            retryable: err.retryable,
+            suggestion: err.suggestion,
+          }),
+        );
+      } else {
+        const message = err instanceof Error ? err.message : 'Filesystem operation failed';
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
+        );
+      }
+    }
+  }
+
+  private async handleFsUnwatch(nodeId: string, request: RpcRequest): Promise<void> {
+    const fsHandler = this.getFsHandler(nodeId);
+    if (!fsHandler) {
+      this.connection.sendResponse(
+        nodeId,
+        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
+      );
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await fsHandler.unwatch(request.params as any);
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
+    } catch (err) {
+      if (err instanceof FsRpcError) {
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.FILESYSTEM_ERROR, err.message, {
+            fsCode: err.fsCode,
+            path: err.fsPath,
+            retryable: err.retryable,
+            suggestion: err.suggestion,
+          }),
+        );
+      } else {
+        const message = err instanceof Error ? err.message : 'Filesystem operation failed';
+        this.connection.sendResponse(
+          nodeId,
+          createRpcError(request.id, RPC_ERROR_CODES.INTERNAL_ERROR, message),
+        );
+      }
+    }
   }
 }
