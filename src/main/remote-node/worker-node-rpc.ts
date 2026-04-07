@@ -11,6 +11,7 @@ export const NODE_TO_COORDINATOR = {
   INSTANCE_OUTPUT: 'instance.output',
   INSTANCE_STATE_CHANGE: 'instance.stateChange',
   INSTANCE_PERMISSION_REQUEST: 'instance.permissionRequest',
+  FS_EVENT: 'fs.event',
 } as const;
 
 /** Methods sent FROM coordinator TO worker node */
@@ -22,6 +23,11 @@ export const COORDINATOR_TO_NODE = {
   INSTANCE_HIBERNATE: 'instance.hibernate',
   INSTANCE_WAKE: 'instance.wake',
   NODE_PING: 'node.ping',
+  FS_READ_DIRECTORY: 'fs.readDirectory',
+  FS_STAT: 'fs.stat',
+  FS_SEARCH: 'fs.search',
+  FS_WATCH: 'fs.watch',
+  FS_UNWATCH: 'fs.unwatch',
 } as const;
 
 // -- JSON-RPC 2.0 Message Types --
@@ -72,6 +78,7 @@ export const RPC_ERROR_CODES = {
   NODE_NOT_FOUND: -32001,
   INSTANCE_NOT_FOUND: -32002,
   SPAWN_FAILED: -32003,
+  FILESYSTEM_ERROR: -32004,
 } as const;
 
 // -- Helpers --

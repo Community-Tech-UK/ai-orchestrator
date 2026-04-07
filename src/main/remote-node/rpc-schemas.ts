@@ -1,4 +1,12 @@
 import { z } from 'zod/v4';
+import {
+  FsReadDirectoryParamsSchema,
+  FsStatParamsSchema,
+  FsSearchParamsSchema,
+  FsWatchParamsSchema,
+  FsUnwatchParamsSchema,
+  FsEventParamsSchema,
+} from '../../shared/validation/remote-fs-schemas';
 
 // -- Shared sub-schemas -------------------------------------------------------
 
@@ -95,6 +103,12 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'instance.interrupt': InstanceIdParamsSchema,
   'instance.hibernate': InstanceIdParamsSchema,
   'instance.wake': InstanceIdParamsSchema,
+  'fs.readDirectory': FsReadDirectoryParamsSchema,
+  'fs.stat': FsStatParamsSchema,
+  'fs.search': FsSearchParamsSchema,
+  'fs.watch': FsWatchParamsSchema,
+  'fs.unwatch': FsUnwatchParamsSchema,
+  'fs.event': FsEventParamsSchema,
 };
 
 /**
