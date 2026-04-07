@@ -11,6 +11,7 @@ import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
 import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
+import { NodeFilesystemHandler, FsRpcError } from '../main/remote-node/node-filesystem-handler';
 
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
@@ -38,6 +39,7 @@ export class WorkerAgent extends EventEmitter {
   private connectedAt = 0;
   private pendingRegistrationId: string | number | null = null;
   private discoveryClient: DiscoveryClient | null = null;
+  private fsHandler: NodeFilesystemHandler | null = null;
 
   constructor(private readonly config: WorkerConfig) {
     super();
@@ -54,6 +56,7 @@ export class WorkerAgent extends EventEmitter {
       this.config.workingDirectories,
       this.config.maxConcurrentInstances,
     );
+    this.fsHandler = new NodeFilesystemHandler(this.config.workingDirectories);
 
     // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
     let coordinatorUrl = this.config.coordinatorUrl;
@@ -112,6 +115,7 @@ export class WorkerAgent extends EventEmitter {
       this.reconnectTimer = undefined;
     }
     await this.instanceManager.terminateAll();
+    this.fsHandler?.cleanupAllWatchers();
     if (this.ws) {
       this.ws.close(1000, 'Worker shutting down');
       this.ws = null;
@@ -283,6 +287,22 @@ export class WorkerAgent extends EventEmitter {
         case COORDINATOR_TO_NODE.NODE_PING:
           result = { pong: Date.now() };
           break;
+        case COORDINATOR_TO_NODE.FS_READ_DIRECTORY:
+          result = await this.fsHandler!.readDirectory(params as any);
+          break;
+        case COORDINATOR_TO_NODE.FS_STAT:
+          result = await this.fsHandler!.stat(params as any);
+          break;
+        case COORDINATOR_TO_NODE.FS_SEARCH:
+          result = await this.fsHandler!.search(params as any);
+          break;
+        case COORDINATOR_TO_NODE.FS_WATCH:
+          result = await this.fsHandler!.watch(params as any);
+          break;
+        case COORDINATOR_TO_NODE.FS_UNWATCH:
+          await this.fsHandler!.unwatch(params as any);
+          result = { ok: true };
+          break;
         default:
           this.sendError(msg.id!, RPC_ERROR_CODES.METHOD_NOT_FOUND, `Unknown method: ${msg.method}`);
           return;
@@ -295,6 +315,9 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private getRpcErrorCode(method: string | undefined, err: unknown): number {
+    if (err instanceof FsRpcError) {
+      return RPC_ERROR_CODES.FILESYSTEM_ERROR;
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('Instance not found')) {
       return RPC_ERROR_CODES.INSTANCE_NOT_FOUND;

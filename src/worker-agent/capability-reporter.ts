@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import type { WorkerNodeCapabilities, NodePlatform } from '../shared/types/worker-node.types';
 import type { CanonicalCliType } from '../shared/types/settings.types';
+import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 
 /**
  * Detect local capabilities (CLIs, browser, GPU, memory) for reporting
@@ -14,6 +15,9 @@ export async function reportCapabilities(
 ): Promise<WorkerNodeCapabilities> {
   const supportedClis = detectClis();
   const gpu = detectGpu();
+
+  const discovery = new ProjectDiscovery();
+  const projects = await discovery.scan(workingDirectories);
 
   return {
     platform: process.platform as NodePlatform,
@@ -29,8 +33,8 @@ export async function reportCapabilities(
     hasDocker: detectDocker(),
     maxConcurrentInstances,
     workingDirectories,
-    browsableRoots: [],
-    discoveredProjects: [],
+    browsableRoots: workingDirectories,
+    discoveredProjects: projects,
   };
 }
 
