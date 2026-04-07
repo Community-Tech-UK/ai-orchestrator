@@ -13,6 +13,7 @@ import {
   effect,
   ChangeDetectionStrategy,
   HostListener,
+  OnDestroy,
 } from '@angular/core';
 import { ElectronIpcService, FileEntry } from '../../core/services/ipc';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
@@ -468,7 +469,7 @@ interface TreeNode extends FileEntry {
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class FileExplorerComponent {
+export class FileExplorerComponent implements OnDestroy {
   private ipc = inject(ElectronIpcService);
   private viewLayoutService = inject(ViewLayoutService);
   private remoteFsIpc = inject(RemoteFsIpcService);
@@ -484,6 +485,13 @@ export class FileExplorerComponent {
       if (path) {
         // Always sync to the selected instance's working directory
         if (path !== this.rootPath()) {
+          // Clean up any existing remote watch before switching paths
+          const prevWatchId = this.remoteWatchId();
+          const prevNodeId = this.executionNodeId();
+          if (prevWatchId && prevNodeId) {
+            void this.remoteFsIpc.unwatch(prevNodeId, prevWatchId);
+            this.remoteWatchId.set(null);
+          }
           // Reset and load the new root directory
           this.treeData.set(new Map());
           this.expandedPaths.set(new Set());
@@ -492,6 +500,13 @@ export class FileExplorerComponent {
           this.loadDirectory(path, true);
         }
       } else {
+        // Clean up any existing remote watch when path is cleared
+        const prevWatchId = this.remoteWatchId();
+        const prevNodeId = this.executionNodeId();
+        if (prevWatchId && prevNodeId) {
+          void this.remoteFsIpc.unwatch(prevNodeId, prevWatchId);
+          this.remoteWatchId.set(null);
+        }
         // Clear the file explorer when no path is provided
         this.rootPath.set(null);
         this.treeData.set(new Map());
@@ -525,6 +540,9 @@ export class FileExplorerComponent {
   // Tree data: Map of path -> TreeNode
   private treeData = signal<Map<string, TreeNode>>(new Map());
   private expandedPaths = signal<Set<string>>(new Set());
+
+  // Remote watch tracking
+  private remoteWatchId = signal<string | null>(null);
 
   // Computed: root folder name
   rootName = computed(() => {
@@ -931,6 +949,20 @@ export class FileExplorerComponent {
           });
           if (isRoot) this.isLoading.set(false);
           this.updateNodeLoading(path, false);
+
+          // Set up a file watcher for the root remote directory
+          if (isRoot && nodeId) {
+            const prevWatch = this.remoteWatchId();
+            if (prevWatch) {
+              void this.remoteFsIpc.unwatch(nodeId, prevWatch);
+            }
+            this.remoteFsIpc.watch(nodeId, path).then(watchResult => {
+              if (watchResult?.watchId) {
+                this.remoteWatchId.set(watchResult.watchId);
+              }
+            }).catch(() => { /* watch is best-effort */ });
+          }
+
           return;
         }
       }
@@ -994,6 +1026,14 @@ export class FileExplorerComponent {
       }
       return newTree;
     });
+  }
+
+  ngOnDestroy(): void {
+    const watchId = this.remoteWatchId();
+    const nodeId = this.executionNodeId();
+    if (watchId && nodeId) {
+      void this.remoteFsIpc.unwatch(nodeId, watchId);
+    }
   }
 
   private findNode(tree: Map<string, TreeNode>, path: string): TreeNode | undefined {
