@@ -38,6 +38,7 @@ import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-
 import { TodoStore } from '../../core/state/todo.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
+import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
 
 interface WelcomeProjectContext {
   branch: string | null;
@@ -63,7 +64,8 @@ interface WelcomeProjectContext {
     InstanceHeaderComponent,
     InstanceWelcomeComponent,
     InstanceReviewPanelComponent,
-    CrossModelReviewPanelComponent
+    CrossModelReviewPanelComponent,
+    RemoteBrowseModalComponent
   ],
   template: `
     @if (instance(); as inst) {
@@ -310,8 +312,15 @@ interface WelcomeProjectContext {
         (removeFolder)="onWelcomeRemoveFolder($event)"
         (discardDraft)="onWelcomeDiscardDraft()"
         (addFiles)="onWelcomeAddFiles()"
+        (browseRemote)="onWelcomeBrowseRemote($event)"
       />
     }
+    <app-remote-browse-modal
+      [nodeId]="remoteBrowseNodeId() || ''"
+      [isOpen]="remoteBrowseOpen()"
+      (folderSelected)="onRemoteFolderSelected($event)"
+      (closed)="remoteBrowseOpen.set(false)"
+    />
   `,
   styles: [
     `
@@ -725,6 +734,8 @@ export class InstanceDetailComponent {
   welcomePendingFolders = this.newSessionDraft.pendingFolders;
   welcomeWorkingDirectory = this.newSessionDraft.workingDirectory;
   welcomeSelectedNodeId = signal<string | null>(null);
+  remoteBrowseOpen = signal(false);
+  remoteBrowseNodeId = signal<string | null>(null);
   welcomeSelectedCli = computed(() =>
     this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation() ?? 'auto',
   );
@@ -1368,6 +1379,16 @@ export class InstanceDetailComponent {
 
   onWelcomeDiscardDraft(): void {
     this.newSessionDraft.clearActiveComposer();
+  }
+
+  onWelcomeBrowseRemote(nodeId: string): void {
+    this.remoteBrowseNodeId.set(nodeId);
+    this.remoteBrowseOpen.set(true);
+  }
+
+  onRemoteFolderSelected(path: string): void {
+    this.newSessionDraft.setWorkingDirectory(path);
+    this.remoteBrowseOpen.set(false);
   }
 
   async onAddFiles(): Promise<void> {

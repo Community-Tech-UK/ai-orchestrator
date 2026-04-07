@@ -50,7 +50,9 @@ interface WelcomeProjectContext {
               <app-recent-directories-dropdown
                 [currentPath]="workingDirectory() || ''"
                 placeholder="Select working folder..."
+                [selectedNodeId]="selectedNodeId()"
                 (folderSelected)="selectFolder.emit($event)"
+                (browseRemote)="browseRemote.emit($event)"
               />
 
               <div class="project-context-shell">
@@ -363,6 +365,7 @@ export class InstanceWelcomeComponent {
   removeFolder = output<string>();
   discardDraft = output<void>();
   addFiles = output<void>();
+  browseRemote = output<string>();
 
   onNodeSelected(nodeId: string | null): void {
     this.selectedNodeId.set(nodeId);
