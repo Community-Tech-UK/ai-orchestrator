@@ -21,8 +21,8 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
   imports: [CommonModule, FormsModule, NodePathPipe],
   template: `
     @if (isOpen()) {
-      <div class="modal-overlay" (click)="close()">
-        <div class="modal-container" (click)="$event.stopPropagation()">
+      <div class="modal-overlay" (click)="close()" (keydown.escape)="close()" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-container" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()" role="document">
 
           <!-- Header -->
           <div class="modal-header">
@@ -98,7 +98,7 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
                   placeholder="Search for a project folder…"
                   [ngModel]="searchQuery()"
                   (ngModelChange)="onSearchInput($event)"
-                  autofocus
+
                 />
                 <div class="search-results">
                   @if (searchResults().length === 0 && searchQuery().length > 0) {
@@ -513,7 +513,7 @@ export class RemoteBrowseModalComponent {
     return node?.capabilities.platform ?? 'linux';
   });
 
-  readonly breadcrumbs = computed((): Array<{ name: string; path: string }> => {
+  readonly breadcrumbs = computed((): { name: string; path: string }[] => {
     const path = this.currentPath();
     if (!path) return [];
 
