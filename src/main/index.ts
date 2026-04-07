@@ -8,6 +8,7 @@ import * as path from 'path';
 import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
 import { InstanceManager, setInstanceManager } from './instance/instance-manager';
+import { getSettingsManager } from './core/config/settings-manager';
 import { getHookManager } from './hooks/hook-manager';
 import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker, registerDefaultWorkflowInvoker } from './orchestration/default-invokers';
 import { getOrchestratorPluginManager } from './plugins/plugin-manager';
@@ -39,6 +40,7 @@ import {
   handleNodeFailover,
   RpcEventRouter,
   getRemoteNodeConfig,
+  hydrateRemoteNodeConfig,
 } from './remote-node';
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
@@ -283,6 +285,7 @@ class AIOrchestratorApp {
         } },
         { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
         { name: 'Worker node subsystem', fn: async () => {
+          hydrateRemoteNodeConfig(getSettingsManager().getAll());
           const config = getRemoteNodeConfig();
           if (!config.enabled) {
             logger.info('Remote node subsystem disabled');
