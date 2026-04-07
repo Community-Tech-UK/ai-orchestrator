@@ -1389,6 +1389,12 @@ export class InstanceDetailComponent {
   onRemoteFolderSelected(path: string): void {
     this.newSessionDraft.setWorkingDirectory(path);
     this.remoteBrowseOpen.set(false);
+
+    // Track as recent directory with remote context
+    const nodeId = this.remoteBrowseNodeId();
+    if (nodeId) {
+      void this.recentDirsService.addDirectory(path, { nodeId });
+    }
   }
 
   async onAddFiles(): Promise<void> {

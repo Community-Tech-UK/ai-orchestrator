@@ -90,7 +90,10 @@ export function registerRecentDirectoriesHandlers(): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(RecentDirsAddPayloadSchema, payload, 'RECENT_DIRS_ADD');
-        const entry = manager.addDirectory(validated.path);
+        const entry = manager.addDirectory(validated.path, {
+          nodeId: validated.nodeId,
+          platform: validated.platform,
+        });
 
         return {
           success: true,

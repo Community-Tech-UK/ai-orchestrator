@@ -1120,6 +1120,8 @@ export const RecentDirsGetPayloadSchema = z.object({
 
 export const RecentDirsAddPayloadSchema = z.object({
   path: DirectoryPathSchema,
+  nodeId: z.string().min(1).max(200).optional(),
+  platform: z.enum(['darwin', 'win32', 'linux']).optional(),
 });
 
 export const RecentDirsRemovePayloadSchema = z.object({

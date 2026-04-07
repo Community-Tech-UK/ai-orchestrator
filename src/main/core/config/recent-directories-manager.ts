@@ -13,6 +13,7 @@ import type {
   RecentDirectoriesOptions,
   RecentDirectoriesStore
 } from '../../../shared/types/recent-directories.types';
+import type { NodePlatform } from '../../../shared/types/worker-node.types';
 import { RECENT_DIRECTORIES_DEFAULTS } from '../../../shared/types/recent-directories.types';
 
 // Type for the internal store with the methods we need
@@ -62,20 +63,23 @@ export class RecentDirectoriesManager extends EventEmitter {
   /**
    * Add a directory to the recent list
    * If it already exists, update lastAccessed and increment accessCount
+   * Pass options.nodeId to skip local existence check for remote paths
    */
-  addDirectory(dirPath: string): RecentDirectoryEntry {
-    const normalizedPath = this.normalizePath(dirPath);
+  addDirectory(dirPath: string, options?: { nodeId?: string; platform?: string }): RecentDirectoryEntry {
+    const isRemote = !!options?.nodeId;
+    const normalizedPath = isRemote ? dirPath : this.normalizePath(dirPath);
     const displayName = path.basename(normalizedPath) || normalizedPath;
     const entries = this.store.get('entries');
 
-    // Check if directory exists (skip if it doesn't)
-    if (!fs.existsSync(normalizedPath)) {
+    // Check if directory exists locally (skip for remote paths)
+    if (!isRemote && !fs.existsSync(normalizedPath)) {
       throw new Error(`Directory does not exist: ${normalizedPath}`);
     }
 
     // Check if already in list
     const existingIndex = entries.findIndex(
-      (e) => this.normalizePath(e.path) === normalizedPath
+      (e) => (isRemote ? e.path : this.normalizePath(e.path)) === normalizedPath &&
+              e.nodeId === options?.nodeId
     );
 
     let entry: RecentDirectoryEntry;
@@ -96,7 +100,9 @@ export class RecentDirectoriesManager extends EventEmitter {
         displayName,
         lastAccessed: Date.now(),
         accessCount: 1,
-        isPinned: false
+        isPinned: false,
+        ...(options?.nodeId ? { nodeId: options.nodeId } : {}),
+        ...(options?.platform ? { platform: options.platform as NodePlatform } : {}),
       };
       entries.unshift(entry);
     }

@@ -26,10 +26,11 @@ export class RecentDirectoriesIpcService {
   /**
    * Add a directory to recent list
    * Returns the added/updated entry or null on failure
+   * Pass options.nodeId for remote paths to skip local existence validation
    */
-  async addDirectory(path: string): Promise<RecentDirectoryEntry | null> {
+  async addDirectory(path: string, options?: { nodeId?: string; platform?: string }): Promise<RecentDirectoryEntry | null> {
     if (!this.api) return null;
-    const response = await this.api.addRecentDirectory(path);
+    const response = await this.api.addRecentDirectory(path, options);
     return response.success ? (response.data as RecentDirectoryEntry) : null;
   }
 

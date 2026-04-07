@@ -1184,8 +1184,8 @@ const electronAPI = {
   /**
    * Add a directory to recent list
    */
-  addRecentDirectory: (path: string): Promise<IpcResponse> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.RECENT_DIRS_ADD, { path });
+  addRecentDirectory: (path: string, options?: { nodeId?: string; platform?: string }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RECENT_DIRS_ADD, { path, ...options });
   },
 
   /**
@@ -5424,7 +5424,7 @@ const electronAPI = {
   // Remote Filesystem
   // ============================================
 
-  remoteFsReadDir: (nodeId: string, path: string, options?: { depth?: number; includeHidden?: boolean }): Promise<IpcResponse> => {
+  remoteFsReadDirectory: (nodeId: string, path: string, options?: { depth?: number; includeHidden?: boolean }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_READ_DIR, { nodeId, path, ...options });
   },
 
