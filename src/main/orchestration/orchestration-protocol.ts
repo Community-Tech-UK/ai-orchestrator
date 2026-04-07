@@ -293,6 +293,21 @@ You have LSP (Language Server Protocol) tools available via MCP. **Use them when
 
 Prefer LSP tools over grep when tracing imports, finding callers, understanding types, or navigating definitions. Use grep/glob for text pattern searches and file discovery.
 
+### Cross-LLM Coordination
+
+**IMPORTANT:** When you need to coordinate with other LLMs (Copilot, Gemini, Codex), **always use \`spawn_child\` with the \`provider\` field** — never use MCP server tools (\`mcp__copilot__*\`, \`mcp__gemini-cli__*\`, \`mcp__codex-cli__*\`).
+
+The orchestrator has native CLI adapters with streaming, session management, and proper timeout handling. MCP server wrappers are slower, lack streaming, and frequently time out.
+
+**Examples:**
+\`\`\`json
+{"action": "spawn_child", "task": "Review this code for security issues", "provider": "copilot", "name": "copilot-review"}
+{"action": "spawn_child", "task": "Analyze this architecture", "provider": "gemini", "name": "gemini-analysis"}
+{"action": "consensus_query", "question": "Is this migration safe?", "providers": ["claude", "gemini", "copilot"]}
+\`\`\`
+
+**Do NOT use:** \`mcp__copilot__copilot_chat\`, \`mcp__gemini-cli__gemini\`, or similar MCP wrappers. These are for standalone Claude Code sessions only.
+
 ---
 **Model tiers:** \`fast\`, \`balanced\`, \`powerful\` (or set an explicit model ID)
 **Providers:** \`claude\`, \`codex\`, \`gemini\`, \`copilot\`, \`auto\` (default)
