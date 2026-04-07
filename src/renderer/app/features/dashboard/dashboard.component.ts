@@ -75,6 +75,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return instance?.workingDirectory || null;
   });
 
+  // Computed: selected instance's execution node ID (null for local)
+  selectedInstanceExecutionNodeId = computed(() => {
+    const inst = this.store.selectedInstance();
+    if (!inst?.executionLocation || inst.executionLocation.type === 'local') return null;
+    return inst.executionLocation.nodeId;
+  });
+
   isBenchmarkMode = computed(() => {
     if (typeof window === 'undefined') {
       return false;

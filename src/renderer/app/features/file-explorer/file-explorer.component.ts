@@ -16,6 +16,7 @@ import {
 } from '@angular/core';
 import { ElectronIpcService, FileEntry } from '../../core/services/ipc';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
+import { RemoteFsIpcService } from '../../core/services/ipc/remote-fs-ipc.service';
 
 interface TreeNode extends FileEntry {
   children?: TreeNode[];
@@ -470,9 +471,11 @@ interface TreeNode extends FileEntry {
 export class FileExplorerComponent {
   private ipc = inject(ElectronIpcService);
   private viewLayoutService = inject(ViewLayoutService);
+  private remoteFsIpc = inject(RemoteFsIpcService);
 
   // Inputs - path to auto-load when it changes (e.g., from selected instance)
   initialPath = input<string | null>(null);
+  executionNodeId = input<string | null>(null);
 
   constructor() {
     // Watch for initialPath changes and sync with selected instance's working directory
@@ -895,6 +898,43 @@ export class FileExplorerComponent {
     this.updateNodeLoading(path, true);
 
     try {
+      const nodeId = this.executionNodeId();
+      if (nodeId && nodeId !== 'local') {
+        const result = await this.remoteFsIpc.readDirectory(nodeId, path, {
+          includeHidden: this.showHidden(),
+        });
+        if (result) {
+          const children: TreeNode[] = result.entries.map(entry => ({
+            name: entry.name,
+            path: entry.path,
+            isDirectory: entry.isDirectory,
+            isSymlink: entry.isSymlink,
+            size: entry.size,
+            modifiedAt: entry.modifiedAt,
+            extension: entry.extension,
+            depth: 0,
+            isExpanded: false,
+          }));
+          this.treeData.update(tree => {
+            const newTree = new Map(tree);
+            const node: TreeNode = newTree.get(path) || {
+              name: path.split('/').pop() || path,
+              path,
+              isDirectory: true,
+              isSymlink: false,
+              size: 0,
+              modifiedAt: Date.now(),
+              depth: 0,
+            };
+            newTree.set(path, { ...node, children, isLoading: false });
+            return newTree;
+          });
+          if (isRoot) this.isLoading.set(false);
+          this.updateNodeLoading(path, false);
+          return;
+        }
+      }
+
       const entries = await this.ipc.readDir(path, this.showHidden());
 
       if (!entries) {

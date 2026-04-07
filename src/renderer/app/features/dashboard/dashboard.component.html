@@ -124,6 +124,7 @@
     @if (canShowFileExplorer() && showFileExplorer()) {
       <app-file-explorer
         [initialPath]="selectedInstanceWorkingDir()"
+        [executionNodeId]="selectedInstanceExecutionNodeId()"
         (fileDragged)="onFileDragged($event)"
         (filesDragged)="onFilesDragged($event)"
       />
