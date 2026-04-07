@@ -368,13 +368,9 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     logger.info('Node registered via WebSocket', { nodeId: newNodeId });
     this.emit('node:ws-connected', newNodeId);
 
-    // Send success response
-    const successResponse: RpcResponse = {
-      jsonrpc: '2.0',
-      id: msg.id,
-      result: { nodeId: newNodeId },
-    };
-    ws.send(JSON.stringify(successResponse));
+    // Forward the registration to the RPC router so it registers the node
+    // in the registry and starts health monitoring.
+    this.emit('rpc:request', newNodeId, msg as RpcRequest);
   }
 
   private handleMessage(nodeId: string, msg: unknown): void {
