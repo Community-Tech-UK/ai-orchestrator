@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   output,
@@ -507,6 +508,22 @@ export class RemoteBrowseModalComponent {
   readonly searchResults = signal<FsProjectMatch[]>([]);
 
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly openEffect = effect(() => {
+    const open = this.isOpen();
+    if (!open) return;
+
+    const node = this.nodeStore.nodeById(this.nodeId());
+    const roots = node?.capabilities?.browsableRoots ?? [];
+    const startPath = roots[0] ?? (this.platform() === 'win32' ? 'C:\\' : '/');
+
+    this.currentPath.set(startPath);
+    this.selectedPath.set(null);
+    this.mode.set('browse');
+    this.searchQuery.set('');
+    this.searchResults.set([]);
+    this.loadDirectory(startPath);
+  });
 
   readonly platform = computed(() => {
     const node = this.nodeStore.nodeById(this.nodeId());
