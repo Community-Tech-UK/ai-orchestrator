@@ -51,6 +51,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot']).optional(),
   model: z.string().max(100).optional(),
+  forceNodeId: z.string().uuid().optional(),
 });
 
 // ============ Instance Input ============
