@@ -693,7 +693,14 @@ const IPC_CHANNELS = {
   CHANNEL_STATUS_CHANGED: 'channel:status-changed',
   CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
   CHANNEL_RESPONSE_SENT: 'channel:response-sent',
-  CHANNEL_ERROR: 'channel:error'
+  CHANNEL_ERROR: 'channel:error',
+
+  // Remote Filesystem operations
+  REMOTE_FS_READ_DIR: 'remote-fs:read-dir',
+  REMOTE_FS_STAT: 'remote-fs:stat',
+  REMOTE_FS_SEARCH: 'remote-fs:search',
+  REMOTE_FS_WATCH: 'remote-fs:watch',
+  REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
 } as const;
 
 
@@ -5411,6 +5418,30 @@ const electronAPI = {
     const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.CHANNEL_ERROR, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.CHANNEL_ERROR, handler);
+  },
+
+  // ============================================
+  // Remote Filesystem
+  // ============================================
+
+  remoteFsReadDir: (nodeId: string, path: string, options?: { depth?: number; includeHidden?: boolean }): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_READ_DIR, { nodeId, path, ...options });
+  },
+
+  remoteFsStat: (nodeId: string, path: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_STAT, { nodeId, path });
+  },
+
+  remoteFsSearch: (nodeId: string, query: string, maxResults?: number): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_SEARCH, { nodeId, query, maxResults });
+  },
+
+  remoteFsWatch: (nodeId: string, path: string, recursive?: boolean): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_WATCH, { nodeId, path, recursive });
+  },
+
+  remoteFsUnwatch: (nodeId: string, watchId: string): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.REMOTE_FS_UNWATCH, { nodeId, watchId });
   },
 
   // ============================================

@@ -36,3 +36,4 @@ export { registerRemoteNodeHandlers } from './remote-node-handlers';
 export { registerImageHandlers } from './image-handlers';
 export { registerChannelHandlers } from './channel-handlers';
 export { registerReactionHandlers } from './reaction-handlers';
+export { registerRemoteFsHandlers } from './remote-fs-handlers';

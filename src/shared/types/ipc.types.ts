@@ -856,6 +856,13 @@ export const IPC_CHANNELS = {
   // Reaction Engine push events (main -> renderer)
   REACTION_EVENT: 'reaction:event',
   REACTION_ESCALATED: 'reaction:escalated',
+
+  // Remote Filesystem operations
+  REMOTE_FS_READ_DIR: 'remote-fs:read-dir',
+  REMOTE_FS_STAT: 'remote-fs:stat',
+  REMOTE_FS_SEARCH: 'remote-fs:search',
+  REMOTE_FS_WATCH: 'remote-fs:watch',
+  REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

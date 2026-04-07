@@ -67,6 +67,7 @@ import {
   registerImageHandlers,
   registerChannelHandlers,
   registerReactionHandlers,
+  registerRemoteFsHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -289,6 +290,9 @@ export class IpcMainHandler {
 
     // Remote node handlers (worker node management)
     registerRemoteNodeHandlers();
+
+    // Remote filesystem handlers (read-dir, stat, search, watch, unwatch)
+    registerRemoteFsHandlers();
 
     // Channel handlers (Discord/WhatsApp messaging)
     registerChannelHandlers();
