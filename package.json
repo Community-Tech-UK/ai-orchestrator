@@ -47,7 +47,9 @@
   "author": "James",
   "license": "MIT",
   "overrides": {
-    "undici": "^7.8.0"
+    "undici": "^7.8.0",
+    "picomatch": "^4.0.4",
+    "vite": "^7.3.2"
   },
   "dependencies": {
     "@angular/animations": "^21.2.5",

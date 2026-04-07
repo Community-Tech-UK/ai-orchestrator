@@ -53,8 +53,10 @@ export class WindowManager {
       // Hide default menu bar on Windows/Linux
       autoHideMenuBar: !isMac,
 
-      // Frame - frameless on all platforms, we handle title bar ourselves
-      frame: false,
+      // On macOS, hiddenInset provides a frameless look with traffic lights.
+      // On Windows/Linux, titleBarOverlay provides native window controls,
+      // but requires frame:true (the default) to work — frame:false disables drag.
+      frame: !isMac ? true : false,
 
       webPreferences: {
         preload: path.join(__dirname, '../preload/preload.js'),

@@ -7,8 +7,9 @@
  * with Electron's version of Node.js. It runs automatically after npm install via
  * the postinstall script.
  *
- * Note: Uses execSync with hardcoded commands (no user input) - this is safe
- * as the command strings are static and controlled by this script.
+ * Strategy:
+ * 1. Try prebuild-install to download a prebuilt binary for Electron (no compiler needed)
+ * 2. Fall back to @electron/rebuild (needs Python + C++ build tools)
  */
 
 const { execSync } = require('child_process');
@@ -18,96 +19,64 @@ const fs = require('fs');
 // Native modules that need to be rebuilt for Electron
 const NATIVE_MODULES = ['better-sqlite3'];
 
-// Get the project root directory
 const projectRoot = path.resolve(__dirname, '..');
 
-/**
- * Get the installed Electron version from package.json or node_modules
- */
 function getElectronVersion() {
-  // Try to get from node_modules first (actual installed version)
   const electronPkgPath = path.join(projectRoot, 'node_modules', 'electron', 'package.json');
   if (fs.existsSync(electronPkgPath)) {
-    const electronPkg = JSON.parse(fs.readFileSync(electronPkgPath, 'utf8'));
-    return electronPkg.version;
+    return JSON.parse(fs.readFileSync(electronPkgPath, 'utf8')).version;
   }
-
-  // Fall back to package.json (may have ^ or ~ prefix)
-  const pkgPath = path.join(projectRoot, 'package.json');
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  const electronVersion = pkg.devDependencies?.electron || pkg.dependencies?.electron;
-
-  if (electronVersion) {
-    // Remove ^ or ~ prefix if present
-    return electronVersion.replace(/^[\^~]/, '');
-  }
-
-  throw new Error('Could not determine Electron version');
+  throw new Error('Could not determine Electron version — is electron installed?');
 }
 
-/**
- * Get the system architecture
- */
-function getArch() {
-  return process.arch; // 'x64', 'arm64', etc.
-}
-
-/**
- * Get the platform
- */
-function getPlatform() {
-  return process.platform; // 'darwin', 'win32', 'linux'
-}
-
-/**
- * Check if a native module exists and needs rebuilding
- */
 function moduleExists(moduleName) {
-  const modulePath = path.join(projectRoot, 'node_modules', moduleName);
-  return fs.existsSync(modulePath);
+  return fs.existsSync(path.join(projectRoot, 'node_modules', moduleName));
 }
 
 /**
- * Rebuild a native module using node-gyp
+ * Try to download a prebuilt binary using prebuild-install.
+ * This avoids needing a C++ compiler on the host.
  */
-function rebuildModule(moduleName, electronVersion, arch) {
+function tryPrebuildInstall(moduleName, electronVersion) {
   const modulePath = path.join(projectRoot, 'node_modules', moduleName);
+  const prebuildBin = path.join(projectRoot, 'node_modules', '.bin', 'prebuild-install');
 
-  if (!moduleExists(moduleName)) {
-    console.log(`  Skipping ${moduleName} (not installed)`);
-    return true;
+  if (!fs.existsSync(prebuildBin) && !fs.existsSync(prebuildBin + '.cmd')) {
+    return false;
   }
-
-  console.log(`  Rebuilding ${moduleName}...`);
 
   try {
-    // Use node-gyp rebuild with Electron-specific flags
-    // Note: This command is fully static - no user input is interpolated
-    const command = `npx node-gyp rebuild --runtime=electron --target=${electronVersion} --arch=${arch} --dist-url=https://electronjs.org/headers`;
-
-    execSync(command, {
-      cwd: modulePath,
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        npm_config_runtime: 'electron',
-        npm_config_target: electronVersion,
-        npm_config_arch: arch,
-        npm_config_disturl: 'https://electronjs.org/headers',
-      },
-    });
-
-    console.log(`  ✓ ${moduleName} rebuilt successfully`);
+    console.log(`  Trying prebuild-install for Electron ${electronVersion}...`);
+    execSync(
+      `npx prebuild-install --runtime electron --target ${electronVersion} --arch ${process.arch}`,
+      { cwd: modulePath, stdio: 'pipe' }
+    );
+    console.log(`  ✓ ${moduleName} — prebuilt binary installed`);
     return true;
-  } catch (error) {
-    console.error(`  ✗ Failed to rebuild ${moduleName}:`, error.message);
+  } catch {
+    console.log(`  ⚠ No prebuilt binary available, will try electron-rebuild...`);
     return false;
   }
 }
 
 /**
- * Main function
+ * Fall back to @electron/rebuild (requires C++ toolchain).
  */
+function tryElectronRebuild(moduleName) {
+  try {
+    console.log(`  Rebuilding ${moduleName} with electron-rebuild...`);
+    execSync(`npx electron-rebuild -f -w ${moduleName}`, {
+      cwd: projectRoot,
+      stdio: 'inherit',
+    });
+    console.log(`  ✓ ${moduleName} rebuilt successfully`);
+    return true;
+  } catch (error) {
+    console.error(`  ✗ electron-rebuild failed: ${error.message}`);
+    return false;
+  }
+}
+
 function main() {
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
@@ -115,43 +84,49 @@ function main() {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 
+  const present = NATIVE_MODULES.filter(m => moduleExists(m));
+
+  if (present.length === 0) {
+    console.log('No native modules to rebuild.');
+    process.exit(0);
+  }
+
+  let electronVersion;
   try {
-    const electronVersion = getElectronVersion();
-    const arch = getArch();
-    const platform = getPlatform();
-
-    console.log(`Platform:         ${platform}`);
-    console.log(`Architecture:     ${arch}`);
-    console.log(`Electron version: ${electronVersion}`);
-    console.log(`Modules to rebuild: ${NATIVE_MODULES.join(', ')}`);
-    console.log('');
-
-    let allSucceeded = true;
-
-    for (const moduleName of NATIVE_MODULES) {
-      if (!rebuildModule(moduleName, electronVersion, arch)) {
-        allSucceeded = false;
-      }
-    }
-
-    console.log('');
-
-    if (allSucceeded) {
-      console.log('✓ All native modules rebuilt successfully!');
-      console.log('');
-      process.exit(0);
-    } else {
-      console.error('✗ Some modules failed to rebuild. See errors above.');
-      console.log('');
-      process.exit(1);
-    }
+    electronVersion = getElectronVersion();
   } catch (error) {
+    console.log('Electron not yet installed — skipping native module rebuild.');
+    console.log('(This is normal during initial npm install; postinstall will re-run.)');
+    process.exit(0);
+  }
+
+  console.log(`Platform:  ${process.platform} / ${process.arch}`);
+  console.log(`Electron:  ${electronVersion}`);
+  console.log(`Modules:   ${present.join(', ')}`);
+  console.log('');
+
+  let allSucceeded = true;
+
+  for (const moduleName of present) {
+    // Try prebuilt binary first, fall back to compilation
+    const ok = tryPrebuildInstall(moduleName, electronVersion) || tryElectronRebuild(moduleName);
+    if (!ok) allSucceeded = false;
+  }
+
+  console.log('');
+
+  if (allSucceeded) {
+    console.log('✓ All native modules ready!');
+    process.exit(0);
+  } else {
+    console.error('✗ Some modules failed to rebuild.');
     console.error('');
-    console.error('Error:', error.message);
-    console.error('');
+    console.error('Troubleshooting:');
+    console.error('  - Try: npx electron-rebuild -f -w better-sqlite3');
+    console.error('  - Windows may need C++ build tools: npm install -g windows-build-tools');
+    console.error('  - Or install Visual Studio Build Tools with "Desktop development with C++"');
     process.exit(1);
   }
 }
 
-// Run the script
 main();

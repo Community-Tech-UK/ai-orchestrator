@@ -24,10 +24,8 @@ declare global {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="app-container" [class.macos]="isMacOS">
-      <!-- Draggable title bar area for macOS -->
-      @if (isMacOS) {
-        <div class="title-bar-drag-area"></div>
-      }
+      <!-- Draggable title bar area -->
+      <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
 
       <main class="app-main">
         <router-outlet />
@@ -55,7 +53,10 @@ declare global {
       height: 52px;
       -webkit-app-region: drag;
       z-index: 1000;
-      /* Allow clicks on buttons within the drag area */
+    }
+
+    .title-bar-drag-area.windows {
+      height: 40px;
     }
 
     .app-main {
