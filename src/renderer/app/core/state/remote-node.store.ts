@@ -6,7 +6,8 @@ import { RemoteNodeIpcService } from '../services/ipc/remote-node-ipc.service';
 export class RemoteNodeStore {
   private readonly ipc = inject(RemoteNodeIpcService);
   private readonly _nodes = signal<WorkerNodeInfo[]>([]);
-  private unsubscribe: (() => void) | null = null;
+  private cleanupFns: (() => void)[] = [];
+  private initialized = false;
 
   /** All known nodes (connected, degraded, disconnected). */
   readonly nodes = this._nodes.asReadonly();
@@ -26,17 +27,39 @@ export class RemoteNodeStore {
 
   /** Seed from IPC and subscribe to live updates. Call once on app init. */
   async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
+
     const nodes = await this.ipc.listNodes();
     this._nodes.set(nodes);
 
-    this.unsubscribe = this.ipc.onNodesChanged((updatedNodes) => {
+    // Primary: listen for bulk node list broadcasts
+    const unsubNodes = this.ipc.onNodesChanged((updatedNodes) => {
       this._nodes.set(updatedNodes);
     });
+    this.cleanupFns.push(unsubNodes);
+
+    // Fallback: listen for individual node events and refresh from IPC.
+    // The nodes-changed broadcast can be unreliable (timing, serialization)
+    // but node events are always delivered via the window manager.
+    const unsubEvent = this.ipc.onNodeEvent(() => {
+      void this.refresh();
+    });
+    this.cleanupFns.push(unsubEvent);
   }
 
-  /** Cleanup subscription. */
+  /** Re-fetch the full node list from the main process. */
+  async refresh(): Promise<void> {
+    const nodes = await this.ipc.listNodes();
+    this._nodes.set(nodes);
+  }
+
+  /** Cleanup subscriptions. */
   destroy(): void {
-    this.unsubscribe?.();
-    this.unsubscribe = null;
+    for (const fn of this.cleanupFns) {
+      fn();
+    }
+    this.cleanupFns = [];
+    this.initialized = false;
   }
 }

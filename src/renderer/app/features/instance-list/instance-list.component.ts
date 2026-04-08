@@ -1362,7 +1362,7 @@ export class InstanceListComponent {
     const selectedId = this.selectedId();
     const collapsed = this.collapsedIds();
     const collapsedProjects = this.collapsedProjectKeys();
-    const historyByProject = this.buildHistoryEntriesByProject(historyEntries, filter, status);
+    const historyByProject = this.buildHistoryEntriesByProject(historyEntries, filter, status, location);
     const recentDirectoriesByKey = new Map(
       recentDirectories.map((entry) => [this.getProjectKey(entry.path), entry])
     );
@@ -1492,7 +1492,7 @@ export class InstanceListComponent {
       recentDirectoriesByKey.delete(projectKey);
     }
 
-    if (status === 'all') {
+    if (status === 'all' && location !== 'remote') {
       for (const recentDirectory of recentDirectoriesByKey.values()) {
         const title = recentDirectory.displayName || this.getProjectTitle(recentDirectory.path);
         const subtitle = this.getProjectSubtitle(recentDirectory.path);
@@ -2166,10 +2166,11 @@ export class InstanceListComponent {
   private buildHistoryEntriesByProject(
     entries: ConversationHistoryEntry[],
     filter: string,
-    status: string
+    status: string,
+    location: 'all' | 'local' | 'remote' = 'all'
   ): Map<string, ConversationHistoryEntry[]> {
     const groups = new Map<string, ConversationHistoryEntry[]>();
-    if (status !== 'all') {
+    if (status !== 'all' || location === 'remote') {
       return groups;
     }
 
