@@ -10,6 +10,7 @@ import type {
   ChannelConnectionStatus,
   ChannelStatusEvent,
   ChannelErrorEvent,
+  ChannelResponse,
   InboundChannelMessage,
 } from '../../shared/types/channels';
 
@@ -19,7 +20,8 @@ export type ChannelEvent =
   | { type: 'message'; data: InboundChannelMessage }
   | { type: 'status'; data: ChannelStatusEvent }
   | { type: 'error'; data: ChannelErrorEvent }
-  | { type: 'qr'; data: string };
+  | { type: 'qr'; data: string }
+  | { type: 'response-sent'; data: ChannelResponse };
 
 type ChannelEventListener = (event: ChannelEvent) => void;
 
@@ -86,6 +88,10 @@ export class ChannelManager {
     };
   }
 
+  emitResponseSent(data: ChannelResponse): void {
+    this.notifyListeners({ type: 'response-sent', data });
+  }
+
   async shutdown(): Promise<void> {
     logger.info('Shutting down all channel adapters');
     const promises: Promise<void>[] = [];
@@ -116,6 +122,14 @@ export class ChannelManager {
 
     adapter.on('qr', (data: string) => {
       this.notifyListeners({ type: 'qr', data });
+      this.notifyListeners({
+        type: 'status',
+        data: {
+          platform: adapter.platform,
+          status: 'connecting',
+          qrCode: data,
+        },
+      });
     });
   }
 

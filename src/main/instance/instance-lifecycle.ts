@@ -17,6 +17,7 @@ import type { CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
+  getDefaultModelForCli,
   getModelsForProvider,
   getProviderModelContextWindow,
   isModelTier,
@@ -366,7 +367,6 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       },
       instance.isRenamed,
-      instance.provider,
     ).catch(() => { /* non-critical */ });
   }
 
@@ -869,13 +869,14 @@ export class InstanceLifecycleManager extends EventEmitter {
               const isValid = providerModels.some(m => m.id === resolvedModel);
               const allowCodexDynamicModel = resolvedCliType === 'codex' && looksLikeCodexModelId(resolvedModel);
               if (!isValid && !allowCodexDynamicModel) {
-                logger.warn('Model not valid for target provider, using provider default', {
+                const providerDefault = getDefaultModelForCli(resolvedCliType);
+                logger.warn('Model not valid for target provider, falling back to provider default', {
                   model: resolvedModel,
                   provider: resolvedCliType,
                   validModels: providerModels.map(m => m.id),
-                  fallbackModel: 'provider-default',
+                  fallbackModel: providerDefault ?? 'none',
                 });
-                resolvedModel = undefined;
+                resolvedModel = providerDefault;
               }
             }
           }

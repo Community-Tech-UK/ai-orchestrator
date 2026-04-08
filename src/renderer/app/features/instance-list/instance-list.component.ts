@@ -1801,8 +1801,28 @@ export class InstanceListComponent {
     event.preventDefault();
     event.stopPropagation();
     this.closeProjectMenu({ restoreFocus: false });
-    this.newSessionDraft.open(group.path);
+    const nodeId = this.getProjectNodeId(group);
+    this.newSessionDraft.open(group.path, nodeId);
     this.store.setSelectedInstance(null);
+  }
+
+  private getProjectNodeId(group: ProjectGroup): string | null {
+    // Check recent directories first (authoritative source for node mapping)
+    if (group.path) {
+      const recentEntry = this.recentDirectories().find(
+        (entry) => this.getProjectKey(entry.path) === group.key,
+      );
+      if (recentEntry?.nodeId) {
+        return recentEntry.nodeId;
+      }
+    }
+
+    // Fall back to live instances' execution location
+    const remoteItem = group.liveItems.find(
+      (item) => item.instance.executionLocation?.type === 'remote',
+    );
+    const remoteLoc = remoteItem?.instance.executionLocation;
+    return remoteLoc?.type === 'remote' ? remoteLoc.nodeId : null;
   }
 
   onDrop(event: CdkDragDrop<HierarchicalInstance[]>, group: ProjectGroup): void {

@@ -12,6 +12,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal
 } from '@angular/core';
 import { ElectronIpcService } from '../../core/services/ipc';
@@ -65,8 +66,7 @@ interface ReviewSessionData {
   imports: [ReviewResultsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (visible()) {
-      <div class="panel">
+    <div class="panel">
         <div class="header" role="button" tabindex="0" (click)="expanded.set(!expanded())" (keydown.enter)="expanded.set(!expanded())" (keydown.space)="expanded.set(!expanded()); $event.preventDefault()">
           <div class="title">
             <span class="chevron" [class.open]="expanded()">&#9656;</span>
@@ -147,7 +147,6 @@ interface ReviewSessionData {
           </div>
         }
       </div>
-    }
   `,
   styles: [
     `
@@ -339,6 +338,8 @@ export class InstanceReviewPanelComponent {
 
   instanceId = input.required<string>();
   workingDirectory = input.required<string>();
+  reviewStarted = output<void>();
+  reviewCompleted = output<{ issueCount: number; hasErrors: boolean }>();
 
   agents = signal<ReviewAgent[]>([]);
   selectedAgentSet = signal(new Set<string>());
@@ -357,11 +358,7 @@ export class InstanceReviewPanelComponent {
 
   selectedAgentIds = computed(() => Array.from(this.selectedAgentSet()));
 
-  /** User must explicitly expand the panel; auto-expand only for active review sessions */
   expanded = signal(false);
-  visible = computed(() =>
-    this.expanded() || this.sessionStatus() !== null || this.files().length > 0
-  );
 
   constructor() {
     effect(() => {
@@ -447,6 +444,7 @@ export class InstanceReviewPanelComponent {
     const files = this.files();
     if (agentIds.length === 0 || files.length === 0) return;
 
+    this.reviewStarted.emit();
     this.busy.set(true);
     this.error.set(null);
     this.sessionStatus.set('pending');
@@ -543,6 +541,10 @@ export class InstanceReviewPanelComponent {
         const issues = (session?.aggregatedIssues || []) as ReviewIssue[];
         this.issues.set(issues);
         this.summary.set(this.buildSummary(issues));
+        const hasErrors = issues.some(
+          (issue) => issue.severity === 'critical' || issue.severity === 'high'
+        );
+        this.reviewCompleted.emit({ issueCount: issues.length, hasErrors });
         return;
       }
 

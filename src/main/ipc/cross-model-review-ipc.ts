@@ -10,6 +10,7 @@ import {
 } from '../../shared/validation/cross-model-review-schemas';
 import { validateIpcPayload } from '../../shared/validation/ipc-schemas';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
+import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('CrossModelReviewIPC');
@@ -38,7 +39,37 @@ export function registerCrossModelReviewIpcHandlers(): void {
         return { action: 'ask-primary', concerns: [] };
       }
       case 'start-debate':
-        return { action: 'start-debate', reviewId: validated.reviewId };
+      {
+        const review = service.getReviewHistory(validated.instanceId)
+          .find(entry => entry.id === validated.reviewId);
+        const reviewContext = service.getReviewContext(validated.reviewId);
+
+        if (!review || !reviewContext) {
+          return { action: 'start-debate', started: false };
+        }
+
+        const issues = review.reviews
+          .flatMap(result => Object.values(result.scores).flatMap(score => score?.issues ?? []))
+          .filter(Boolean);
+
+        const summaries = review.reviews.map(result => `${result.reviewerId}: ${result.summary}`);
+        const debateContext = [
+          `Task context:\n${reviewContext.taskDescription}`,
+          `Primary output under review:\n${reviewContext.content}`,
+          issues.length > 0
+            ? `Reviewer concerns:\n${issues.map(issue => `- ${issue}`).join('\n')}`
+            : `Reviewer summaries:\n${summaries.map(summary => `- ${summary}`).join('\n')}`,
+        ].join('\n\n');
+
+        const debateId = await getDebateCoordinator().startDebate(
+          `Should the primary ${review.outputType} response be revised based on the cross-model review findings?`,
+          debateContext,
+          undefined,
+          { instanceId: validated.instanceId, provider: reviewContext.primaryProvider },
+        );
+
+        return { action: 'start-debate', debateId };
+      }
       default:
         return { success: true };
     }

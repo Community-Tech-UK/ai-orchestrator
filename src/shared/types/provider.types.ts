@@ -420,3 +420,25 @@ export function getModelShortName(modelId: string, provider: string): string {
   }
   return modelId.replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/-/g, ' ');
 }
+
+/**
+ * Maps CLI type identifiers to ProviderType keys used in DEFAULT_MODELS.
+ * Mirrors the mapping in default-invokers.ts but exposed for shared use.
+ */
+const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
+  claude: 'claude-cli',
+  codex: 'openai',
+  gemini: 'google',
+  copilot: 'claude-cli',
+  ollama: 'ollama',
+};
+
+/**
+ * Get the default model for a CLI type.
+ * Uses DEFAULT_MODELS to ensure the CLI always gets an explicit model
+ * rather than falling back to its own (potentially outdated) built-in default.
+ */
+export function getDefaultModelForCli(cliType: string): string | undefined {
+  const providerType = CLI_TO_PROVIDER_TYPE[cliType];
+  return providerType ? DEFAULT_MODELS[providerType] : undefined;
+}

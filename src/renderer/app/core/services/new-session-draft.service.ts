@@ -19,6 +19,7 @@ export class NewSessionDraftService {
   readonly model = computed(() => this.activeDraft().model);
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
+  readonly nodeId = computed(() => this.activeDraft().nodeId);
   readonly updatedAt = computed(() => this.activeDraft().updatedAt);
   readonly pendingFiles = computed(() => this.pendingFilesByKey()[this.state().activeKey] ?? []);
   readonly hasActiveContent = computed(() => this.draftHasContent(this.activeDraft()));
@@ -29,18 +30,21 @@ export class NewSessionDraftService {
     }
   }
 
-  open(workingDirectory?: string | null): void {
+  open(workingDirectory?: string | null, nodeId?: string | null): void {
     const normalized = this.normalizePath(workingDirectory);
     const draftKey = this.getDraftKey(normalized);
-    this.patchState((current) => ({
-      ...current,
-      activeKey: draftKey,
-      drafts: {
-        ...current.drafts,
-        [draftKey]: this.ensureDraft(current.drafts[draftKey], normalized),
-      },
-      revision: current.revision + 1,
-    }));
+    this.patchState((current) => {
+      const draft = this.ensureDraft(current.drafts[draftKey], normalized);
+      return {
+        ...current,
+        activeKey: draftKey,
+        drafts: {
+          ...current.drafts,
+          [draftKey]: nodeId !== undefined ? { ...draft, nodeId: nodeId ?? null } : draft,
+        },
+        revision: current.revision + 1,
+      };
+    });
   }
 
   setWorkingDirectory(workingDirectory?: string | null): void {
@@ -122,6 +126,14 @@ export class NewSessionDraftService {
     this.updateActiveDraft((draft) => ({
       ...draft,
       model,
+      updatedAt: Date.now(),
+    }));
+  }
+
+  setNodeId(nodeId: string | null): void {
+    this.updateActiveDraft((draft) => ({
+      ...draft,
+      nodeId,
       updatedAt: Date.now(),
     }));
   }
@@ -327,6 +339,7 @@ export class NewSessionDraftService {
       prompt: typeof draft?.prompt === 'string' ? draft.prompt : '',
       provider: this.isProviderType(draft?.provider) ? draft.provider : null,
       model: typeof draft?.model === 'string' && draft.model.trim().length > 0 ? draft.model : null,
+      nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
       pendingFolders: Array.isArray(draft?.pendingFolders)
         ? draft.pendingFolders
@@ -398,6 +411,7 @@ export class NewSessionDraftService {
       prompt: '',
       provider: null,
       model: null,
+      nodeId: null,
       yoloMode: null,
       pendingFolders: [],
       updatedAt: Date.now(),
@@ -499,6 +513,7 @@ interface NewSessionDraftState {
   prompt: string;
   provider: ProviderType | null;
   model: string | null;
+  nodeId: string | null;
   yoloMode: boolean | null; // null = use settings default
   pendingFolders: string[];
   updatedAt: number;
@@ -515,6 +530,7 @@ interface PersistedNewSessionDraft {
   prompt: string;
   provider: ProviderType | null;
   model: string | null;
+  nodeId?: string | null;
   yoloMode?: boolean | null;
   pendingFolders: string[];
   updatedAt: number;

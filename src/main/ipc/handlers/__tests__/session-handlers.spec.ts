@@ -91,6 +91,11 @@ vi.mock('../../../session/session-continuity', () => ({
   }),
 }));
 
+const mockIsRemoteNodeReachable = vi.fn().mockReturnValue(true);
+vi.mock('../remote-node-check', () => ({
+  isRemoteNodeReachable: (...args: unknown[]) => mockIsRemoteNodeReachable(...args),
+}));
+
 import { registerSessionHandlers } from '../session-handlers';
 import { IPC_CHANNELS } from '../../../../shared/types/ipc.types';
 
@@ -122,6 +127,7 @@ describe('session-handlers', () => {
     handlers.clear();
     vi.clearAllMocks();
     mockMarkNativeResumeFailed.mockReset();
+    mockIsRemoteNodeReachable.mockReset();
 
     mockInstanceManager = makeMockInstanceManager();
 
@@ -334,6 +340,129 @@ describe('session-handlers', () => {
       });
       expect(mockMarkNativeResumeFailed).not.toHaveBeenCalled();
       expect(mockInstanceManager.queueContinuityPreamble).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes forceNodeId when restoring a remote session with a connected node', async () => {
+      vi.useFakeTimers();
+      try {
+        const resumeInstance = {
+          id: 'remote-resume-1',
+          outputBuffer: [{ type: 'assistant', content: 'Remote response' }],
+          readyPromise: Promise.resolve(),
+        };
+
+        mockLoadConversation.mockResolvedValue({
+          entry: {
+            id: 'entry-remote-1',
+            displayName: 'Remote Claude thread',
+            createdAt: Date.now() - 10_000,
+            endedAt: Date.now(),
+            workingDirectory: '/remote/project',
+            messageCount: 1,
+            firstUserMessage: 'Hello from remote',
+            lastUserMessage: 'Continue',
+            status: 'completed',
+            originalInstanceId: 'instance-remote-1',
+            parentId: null,
+            sessionId: 'remote-session-1',
+            executionLocation: { type: 'remote', nodeId: 'node-abc' },
+          },
+          messages: [],
+        });
+
+        // Remote node is connected
+        mockIsRemoteNodeReachable.mockReturnValue(true);
+
+        vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+          resumeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+        );
+
+        vi.mocked(mockInstanceManager.getInstance).mockReturnValue({
+          id: 'remote-resume-1',
+          status: 'busy',
+          outputBuffer: resumeInstance.outputBuffer,
+          contextUsage: { used: 0, total: 200_000, percentage: 0 },
+        } as unknown as ReturnType<typeof mockInstanceManager.getInstance>);
+
+        const resultPromise = invoke(IPC_CHANNELS.HISTORY_RESTORE, {
+          entryId: 'entry-remote-1',
+        });
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        const result = await resultPromise;
+
+        expect(result.success).toBe(true);
+        expect(result.data).toMatchObject({
+          instanceId: 'remote-resume-1',
+          restoreMode: 'native-resume',
+        });
+
+        // Verify forceNodeId was passed to createInstance
+        const createCall = vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0];
+        expect(createCall).toMatchObject({
+          resume: true,
+          forceNodeId: 'node-abc',
+          sessionId: 'remote-session-1',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('skips native resume and falls back when remote node is disconnected', async () => {
+      const fallbackInstance: { id: string; outputBuffer: MockOutputMessage[] } = {
+        id: 'fallback-remote-1',
+        outputBuffer: [],
+      };
+
+      mockLoadConversation.mockResolvedValue({
+        entry: {
+          id: 'entry-remote-2',
+          displayName: 'Remote session (node gone)',
+          createdAt: Date.now() - 10_000,
+          endedAt: Date.now(),
+          workingDirectory: '/remote/project',
+          messageCount: 2,
+          firstUserMessage: 'Hello from remote',
+          lastUserMessage: 'Continue',
+          status: 'completed',
+          originalInstanceId: 'instance-remote-2',
+          parentId: null,
+          sessionId: 'remote-session-2',
+          executionLocation: { type: 'remote', nodeId: 'node-xyz' },
+        },
+        messages: [
+          { id: 'u1', type: 'user', content: 'Hello from remote', timestamp: Date.now() - 2_000 },
+          { id: 'a1', type: 'assistant', content: 'Working on it remotely.', timestamp: Date.now() - 1_500 },
+        ],
+      });
+
+      // Remote node is NOT connected
+      mockIsRemoteNodeReachable.mockReturnValue(false);
+
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fallbackInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      const result = await invoke(IPC_CHANNELS.HISTORY_RESTORE, {
+        entryId: 'entry-remote-2',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        instanceId: 'fallback-remote-1',
+        restoreMode: 'replay-fallback',
+      });
+
+      // Should only create one instance (fallback), not attempt native resume
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
+      const createCall = vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0];
+      expect(createCall).not.toMatchObject({ resume: true });
+      // forceNodeId is still passed for the fallback (resolveExecutionLocation handles node availability)
+      expect(createCall).toMatchObject({ forceNodeId: 'node-xyz' });
+
+      // Should NOT mark native resume as failed (it wasn't attempted; the node is just offline)
+      expect(mockMarkNativeResumeFailed).not.toHaveBeenCalled();
     });
   });
 });

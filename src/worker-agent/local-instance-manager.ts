@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
+import type { FileAttachment } from '../shared/types/instance.types';
 
 export interface SpawnParams {
   instanceId: string;
@@ -15,7 +16,7 @@ export interface SpawnParams {
 
 type WorkerManagedAdapter = EventEmitter & {
   spawn: () => Promise<number | void>;
-  sendInput: (message: string) => Promise<void>;
+  sendInput: (message: string, attachments?: FileAttachment[]) => Promise<void>;
   terminate: (graceful?: boolean) => Promise<void>;
   interrupt: () => boolean | Promise<void>;
 };
@@ -109,10 +110,10 @@ export class LocalInstanceManager extends EventEmitter {
     });
   }
 
-  async sendInput(instanceId: string, message: string): Promise<void> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
-    await inst.adapter.sendInput(message);
+    await inst.adapter.sendInput(message, attachments);
   }
 
   async terminate(instanceId: string): Promise<void> {

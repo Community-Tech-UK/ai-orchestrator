@@ -53,6 +53,11 @@ describe('ReviewerPool', () => {
       const selected = pool.selectReviewers('gemini', 3);
       expect(selected).not.toContain('gemini');
     });
+
+    it('excludes reviewers already attempted for the current review', () => {
+      const selected = pool.selectReviewers('claude', 3, ['gemini', 'codex']);
+      expect(selected).toEqual(['copilot']);
+    });
   });
 
   describe('failover', () => {

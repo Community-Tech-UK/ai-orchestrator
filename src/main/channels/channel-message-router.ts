@@ -1335,27 +1335,37 @@ export class ChannelMessageRouter {
         this.outputBuffers.delete(bufferKey);
         im.removeListener('instance:output', handler);
 
-        // Send accumulated output
-        adapter.sendMessage(msg.chatId, buffer.content, {
+        void adapter.sendMessage(msg.chatId, buffer.content, {
           replyTo: msg.messageId,
+        }).then((sentMessage) => {
+          this.persistence.saveMessage({
+            id: `out-${msg.platform}-${sentMessage.messageId}`,
+            platform: msg.platform,
+            chat_id: msg.chatId,
+            message_id: sentMessage.messageId,
+            thread_id: msg.threadId ?? null,
+            sender_id: 'bot',
+            sender_name: 'Orchestrator',
+            content: buffer.content,
+            direction: 'outbound',
+            instance_id: instanceId,
+            reply_to_message_id: msg.messageId,
+            timestamp: sentMessage.timestamp,
+          });
+
+          this.channelManager.emitResponseSent({
+            channelMessageId: msg.messageId,
+            platform: msg.platform,
+            chatId: msg.chatId,
+            messageId: sentMessage.messageId,
+            instanceId,
+            content: buffer.content,
+            status: 'complete',
+            replyToMessageId: msg.messageId,
+            timestamp: sentMessage.timestamp,
+          });
         }).catch((err: unknown) => {
           logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
-        });
-
-        // Save outbound message
-        this.persistence.saveMessage({
-          id: `out-${msg.id}-${instanceId}`,
-          platform: msg.platform,
-          chat_id: msg.chatId,
-          message_id: '',
-          thread_id: msg.threadId ?? null,
-          sender_id: 'bot',
-          sender_name: 'Orchestrator',
-          content: buffer.content,
-          direction: 'outbound',
-          instance_id: instanceId,
-          reply_to_message_id: msg.messageId,
-          timestamp: Date.now(),
         });
       }, DEBOUNCE_MS);
     };

@@ -249,6 +249,8 @@ interface WelcomeProjectContext {
                 <app-instance-review-panel
                   [instanceId]="inst.id"
                   [workingDirectory]="inst.workingDirectory"
+                  (reviewStarted)="onReviewStarted()"
+                  (reviewCompleted)="onReviewCompleted($event)"
                 />
               }
               @if (showChildrenInspector()) {
@@ -712,12 +714,14 @@ export class InstanceDetailComponent {
     this.showTodoInspector.set(false);
     this.showReviewInspector.set(false);
     this.showChildrenInspector.set(false);
+    this.todoAutoExpandedForInstance.set(null);
     this.reviewHasContent.set(false);
     this.reviewBadgeInfo.set(null);
 
-    // Reset remote node selection so a stale choice from a previous session
-    // doesn't accidentally route the next new session to a remote worker.
-    this.welcomeSelectedNodeId.set(null);
+    // Sync remote node selection from the draft so that sessions opened from a
+    // remote project group pre-select the correct node.  Falls back to null
+    // (local) when the draft has no node context.
+    this.welcomeSelectedNodeId.set(this.newSessionDraft.nodeId());
 
     // Reset remote-browse dialog state so it doesn't bleed across sessions.
     this.remoteBrowseOpen.set(false);
@@ -1302,6 +1306,7 @@ export class InstanceDetailComponent {
 
   onWelcomeNodeChange(nodeId: string | null): void {
     this.welcomeSelectedNodeId.set(nodeId);
+    this.newSessionDraft.setNodeId(nodeId);
   }
 
   async onWelcomeSendMessage(message: string): Promise<void> {
@@ -1355,10 +1360,12 @@ export class InstanceDetailComponent {
       this.isCreatingInstance.set(false);
       // Still clear node selection so it doesn't leak into the next attempt
       this.welcomeSelectedNodeId.set(null);
+      this.newSessionDraft.setNodeId(null);
       return;
     }
 
     this.welcomeSelectedNodeId.set(null);
+    this.newSessionDraft.setNodeId(null);
     this.newSessionDraft.clearActiveComposer();
     await this.recentDirsService.addDirectory(
       effectiveWorkingDir,
@@ -1556,9 +1563,11 @@ export class InstanceDetailComponent {
 
   onReviewStarted(): void {
     this.reviewHasContent.set(true);
+    this.reviewBadgeInfo.set(null);
   }
 
   onReviewCompleted(result: { issueCount: number; hasErrors: boolean }): void {
+    this.reviewHasContent.set(true);
     this.reviewBadgeInfo.set(result);
   }
 

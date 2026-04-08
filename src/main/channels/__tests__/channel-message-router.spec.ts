@@ -95,11 +95,15 @@ function makeMockChannelManager(adapter: ReturnType<typeof makeMockAdapter>) {
       listeners.add(cb);
       return () => listeners.delete(cb);
     }),
+    emitResponseSent: vi.fn(),
     // helper for tests to emit events
     _emit: (event: ChannelEvent) => {
       for (const l of listeners) l(event);
     },
-  } as unknown as ChannelManager & { _emit: (event: ChannelEvent) => void };
+  } as unknown as ChannelManager & {
+    emitResponseSent: ReturnType<typeof vi.fn>;
+    _emit: (event: ChannelEvent) => void;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +405,19 @@ describe('ChannelMessageRouter', () => {
           direction: 'outbound',
           content: 'Response text',
           instance_id: 'inst-1',
+          message_id: 'sent-1',
           reply_to_message_id: 'dm1',
+        })
+      );
+      expect(channelManager.emitResponseSent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channelMessageId: 'dm1',
+          platform: 'discord',
+          chatId: 'c1',
+          messageId: 'sent-1',
+          instanceId: 'inst-1',
+          content: 'Response text',
+          status: 'complete',
         })
       );
     });

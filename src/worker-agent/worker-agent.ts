@@ -9,6 +9,7 @@ import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
 import type { WorkerConfig } from './worker-config';
 import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
+import type { FileAttachment } from '../shared/types/instance.types';
 import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
 import { NodeFilesystemHandler, FsRpcError } from '../main/remote-node/node-filesystem-handler';
@@ -273,6 +274,7 @@ export class WorkerAgent extends EventEmitter {
           await this.instanceManager.sendInput(
             params['instanceId'] as string,
             params['message'] as string,
+            params['attachments'] as FileAttachment[] | undefined,
           );
           result = { ok: true };
           break;

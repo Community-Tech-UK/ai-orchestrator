@@ -650,6 +650,9 @@ export class IpcMainHandler {
         case 'error':
           mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_ERROR, event.data);
           break;
+        case 'response-sent':
+          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, event.data);
+          break;
       }
     });
   }
@@ -670,13 +673,19 @@ export class IpcMainHandler {
     });
   }
 
-  private serializeInstance(instance: any): Record<string, unknown> {
+  private serializeInstance(instance: unknown): Record<string, unknown> {
+    const record = (
+      typeof instance === 'object' && instance !== null
+        ? instance
+        : {}
+    ) as Record<string, unknown> & { communicationTokens?: unknown };
+
     return {
-      ...instance,
+      ...record,
       communicationTokens:
-        instance.communicationTokens instanceof Map
-          ? Object.fromEntries(instance.communicationTokens)
-          : instance.communicationTokens
+        record.communicationTokens instanceof Map
+          ? Object.fromEntries(record.communicationTokens)
+          : record.communicationTokens
     };
   }
 }

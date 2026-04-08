@@ -2,10 +2,17 @@
  * Channel Store - Signal-based state for Discord/WhatsApp channels
  */
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
+import type {
+  ChannelConnectionStatus,
+  ChannelErrorEvent,
+  ChannelPlatform,
+  ChannelResponse,
+  ChannelStatusEvent,
+  InboundChannelMessage,
+} from '../../../../shared/types/channels';
 import { ChannelIpcService } from '../services/ipc/channel-ipc.service';
 
-export type ChannelPlatform = 'discord' | 'whatsapp';
-export type ChannelStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'unregistered';
+export type ChannelStatus = ChannelConnectionStatus | 'unregistered';
 
 export interface ChannelState {
   status: ChannelStatus;
@@ -53,7 +60,7 @@ export class ChannelStore implements OnDestroy {
 
   constructor() {
     this.subscribeToEvents();
-    this.loadInitialStatus();
+    void this.loadInitialStatus();
   }
 
   ngOnDestroy(): void {
@@ -65,13 +72,14 @@ export class ChannelStore implements OnDestroy {
 
   private subscribeToEvents(): void {
     const statusCleanup = this.ipcService.onStatusChanged((data: unknown) => {
-      const event = data as { platform: ChannelPlatform; status: ChannelStatus; botUsername?: string; phoneNumber?: string };
+      const event = data as ChannelStatusEvent & { status: ChannelStatus };
       if (event.platform === 'discord') {
         this._discord.update(prev => ({
           ...prev,
           status: event.status,
           botUsername: event.botUsername ?? prev.botUsername,
           error: event.status === 'error' ? prev.error : undefined,
+          qrCode: undefined,
         }));
       } else if (event.platform === 'whatsapp') {
         this._whatsapp.update(prev => ({
@@ -79,23 +87,49 @@ export class ChannelStore implements OnDestroy {
           status: event.status,
           phoneNumber: event.phoneNumber ?? prev.phoneNumber,
           error: event.status === 'error' ? prev.error : undefined,
+          qrCode: event.status === 'connecting' ? event.qrCode ?? prev.qrCode : undefined,
         }));
       }
     });
     if (statusCleanup) this.cleanups.push(statusCleanup);
 
     const messageCleanup = this.ipcService.onMessageReceived((data: unknown) => {
-      const msg = data as ChannelMessageItem;
-      this._messages.update(prev => [msg, ...prev]);
+      const msg = data as InboundChannelMessage;
+      this._messages.update(prev => [{
+        id: msg.id,
+        platform: msg.platform,
+        chatId: msg.chatId,
+        senderId: msg.senderId,
+        senderName: msg.senderName,
+        content: msg.content,
+        direction: 'inbound',
+        timestamp: msg.timestamp,
+      }, ...prev]);
     });
     if (messageCleanup) this.cleanups.push(messageCleanup);
 
+    const responseCleanup = this.ipcService.onResponseSent((data: unknown) => {
+      const response = data as ChannelResponse;
+      this._messages.update(prev => [{
+        id: 'out-' + response.messageId,
+        platform: response.platform,
+        chatId: response.chatId,
+        senderId: 'bot',
+        senderName: 'Orchestrator',
+        content: response.content,
+        direction: 'outbound',
+        instanceId: response.instanceId,
+        timestamp: response.timestamp,
+      }, ...prev]);
+    });
+    if (responseCleanup) this.cleanups.push(responseCleanup);
+
     const errorCleanup = this.ipcService.onError((data: unknown) => {
-      const event = data as { platform: ChannelPlatform; error: string };
+      const event = data as ChannelErrorEvent;
       if (event.platform === 'discord') {
         this._discord.update(prev => ({ ...prev, error: event.error }));
       } else if (event.platform === 'whatsapp') {
-        this._whatsapp.update(prev => ({ ...prev, error: event.error }));
+        this._whatsapp.update(prev => ({ ...prev, error: event.error, qrCode: undefined }));
       }
     });
     if (errorCleanup) this.cleanups.push(errorCleanup);
@@ -116,7 +150,7 @@ export class ChannelStore implements OnDestroy {
     this._discord.update(prev => ({ ...prev, status: 'connecting', error: undefined }));
     try {
       const res = await this.ipcService.connect('discord', token);
-      if (!res.success) {
+      if (res.success === false) {
         this._discord.update(prev => ({ ...prev, status: 'error', error: res.error?.message ?? 'Connection failed' }));
       }
     } catch (err) {
@@ -128,10 +162,10 @@ export class ChannelStore implements OnDestroy {
 
   async connectWhatsApp(): Promise<void> {
     this._loading.set(true);
-    this._whatsapp.update(prev => ({ ...prev, status: 'connecting', error: undefined }));
+    this._whatsapp.update(prev => ({ ...prev, status: 'connecting', error: undefined, qrCode: undefined }));
     try {
       const res = await this.ipcService.connect('whatsapp');
-      if (!res.success) {
+      if (res.success === false) {
         this._whatsapp.update(prev => ({ ...prev, status: 'error', error: res.error?.message ?? 'Connection failed' }));
       }
     } catch (err) {

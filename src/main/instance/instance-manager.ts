@@ -1050,6 +1050,13 @@ export class InstanceManager extends EventEmitter {
       }))
       .filter((msg) => msg.content.length > 0);
 
+    // Inherit execution location from parent so children of remote sessions
+    // also run on the same remote node (they share the same working directory
+    // and filesystem, which only exists on that node).
+    const forceNodeId = parent.executionLocation?.type === 'remote'
+      ? parent.executionLocation.nodeId
+      : undefined;
+
     const child = await this.createInstance({
       workingDirectory: command.workingDirectory || parent.workingDirectory,
       displayName: command.name || `Child of ${parent.displayName}`,
@@ -1059,7 +1066,8 @@ export class InstanceManager extends EventEmitter {
       agentId: childAgentId,
       modelOverride: routingDecision.model,
       provider: resolvedProvider,
-      initialOutputBuffer: initialOutputForChild
+      initialOutputBuffer: initialOutputForChild,
+      forceNodeId,
     });
 
     // Mark this child as already having received its first message

@@ -8,7 +8,7 @@
 
 import { createCliAdapter, resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMessage } from '../cli/adapters/base-cli-adapter';
-import { getSettingsManager } from '../core/config/settings-manager';
+import { isCliAvailable } from '../cli/cli-detection';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 
@@ -25,6 +25,9 @@ const MAX_FALLBACK_TITLE_LENGTH = 60;
 
 /** Timeout for the AI title generation (ms) */
 const AI_TITLE_TIMEOUT = 15_000;
+
+/** Provider preference order for title generation (fastest first) */
+const FAST_PROVIDER_PREFERENCE = ['claude', 'gemini', 'copilot', 'codex'] as const;
 
 /**
  * Derive a short title from the raw first user message.
@@ -101,7 +104,6 @@ export class AutoTitleService {
     message: string,
     applyTitle: (instanceId: string, title: string) => void,
     isRenamed?: boolean,
-    requestedProvider?: Parameters<typeof resolveCliType>[0],
   ): Promise<void> {
     // Guard: already processed or in-flight
     if (this.processed.has(instanceId)) return;
@@ -120,15 +122,32 @@ export class AutoTitleService {
       logger.info('Auto-titled instance (instant)', { instanceId, title: instantTitle });
     }
 
-    // Phase 2: Upgrade with AI-generated title via CLI adapter
+    // Phase 2: Upgrade with AI-generated title via CLI adapter.
+    // Always use the fastest available CLI — title generation doesn't need
+    // provider consistency with the session.
     try {
       const truncatedMessage = message.length > MAX_INPUT_LENGTH
         ? message.slice(0, MAX_INPUT_LENGTH) + '...'
         : message;
 
-      const settings = getSettingsManager();
-      const defaultCli = settings.getAll().defaultCli;
-      const cliType = await resolveCliType(requestedProvider, defaultCli);
+      let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
+      for (const candidate of FAST_PROVIDER_PREFERENCE) {
+        try {
+          const info = await isCliAvailable(candidate);
+          if (info.installed) {
+            cliType = await resolveCliType(candidate);
+            break;
+          }
+        } catch {
+          // Skip unavailable providers
+        }
+      }
+
+      if (!cliType) {
+        logger.debug('No CLI available for AI title generation');
+        return;
+      }
+
       const model = resolveModelForTier('fast', cliType);
 
       const adapter = createCliAdapter(cliType, {

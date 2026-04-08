@@ -10,7 +10,6 @@ import {
   WorkflowExecution,
   WorkflowPhase,
   GateType,
-  WorkflowPhaseStatus,
   PhaseData,
   AgentResult,
   createWorkflowExecution,
@@ -22,13 +21,14 @@ const logger = getLogger('WorkflowManager');
 
 export class WorkflowManager extends EventEmitter {
   private static instance: WorkflowManager | null = null;
-  private templates: Map<string, WorkflowTemplate> = new Map();
-  private executions: Map<string, WorkflowExecution> = new Map();
-  private instanceExecutions: Map<string, string> = new Map(); // instanceId -> executionId
+  private templates = new Map<string, WorkflowTemplate>();
+  private executions = new Map<string, WorkflowExecution>();
+  private instanceExecutions = new Map<string, string>(); // instanceId -> executionId
   private persistence?: WorkflowPersistence;
 
   setPersistence(persistence: WorkflowPersistence): void {
     this.persistence = persistence;
+    this.restoreActiveExecutions();
   }
 
   private persistExecution(execution: WorkflowExecution): void {
@@ -37,6 +37,38 @@ export class WorkflowManager extends EventEmitter {
       this.persistence.save(execution);
     } catch (err) {
       logger.error('Failed to persist workflow execution', err instanceof Error ? err : undefined);
+    }
+  }
+
+  private restoreActiveExecutions(): void {
+    if (!this.persistence) return;
+
+    try {
+      const activeExecutions = this.persistence.loadActive();
+
+      for (const execution of activeExecutions) {
+        if (this.executions.has(execution.id)) {
+          continue;
+        }
+
+        const existingExecutionId = this.instanceExecutions.get(execution.instanceId);
+        if (existingExecutionId) {
+          const existingExecution = this.executions.get(existingExecutionId);
+          if (existingExecution && !existingExecution.completedAt) {
+            logger.warn('Skipping persisted workflow restore because instance already has an active execution', {
+              instanceId: execution.instanceId,
+              existingExecutionId,
+              restoredExecutionId: execution.id,
+            });
+            continue;
+          }
+        }
+
+        this.executions.set(execution.id, execution);
+        this.instanceExecutions.set(execution.instanceId, execution.id);
+      }
+    } catch (err) {
+      logger.error('Failed to restore persisted workflow executions', err instanceof Error ? err : undefined);
     }
   }
 

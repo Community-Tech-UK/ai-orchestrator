@@ -7,6 +7,7 @@ import {
   FsUnwatchParamsSchema,
   FsEventParamsSchema,
 } from '../../shared/validation/remote-fs-schemas';
+import { FileAttachmentSchema } from '../../shared/validation/ipc-schemas';
 
 // -- Shared sub-schemas -------------------------------------------------------
 
@@ -83,6 +84,7 @@ export const InstanceSpawnParamsSchema = z.object({
 export const InstanceSendInputParamsSchema = z.object({
   instanceId: z.string().min(1),
   message: z.string().min(1),
+  attachments: z.array(FileAttachmentSchema).max(10).optional(),
 });
 
 export const InstanceIdParamsSchema = z.object({

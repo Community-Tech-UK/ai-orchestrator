@@ -5,6 +5,7 @@ export interface ReviewDispatchRequest {
   id: string;
   instanceId: string;
   primaryProvider: string;
+  workingDirectory: string;
   content: string;
   taskDescription: string;
   classification: OutputClassification;

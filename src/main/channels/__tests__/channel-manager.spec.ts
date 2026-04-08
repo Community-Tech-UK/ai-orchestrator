@@ -7,6 +7,7 @@ import type {
   InboundChannelMessage,
   ChannelStatusEvent,
   ChannelErrorEvent,
+  ChannelResponse,
 } from '../../../shared/types/channels';
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,19 @@ function makeStatusEvent(platform: ChannelPlatform): ChannelStatusEvent {
 
 function makeErrorEvent(platform: ChannelPlatform): ChannelErrorEvent {
   return { platform, error: 'test error', recoverable: true };
+}
+
+function makeResponseEvent(platform: ChannelPlatform): ChannelResponse {
+  return {
+    channelMessageId: 'channel-msg-1',
+    platform,
+    chatId: 'chat-1',
+    messageId: 'response-msg-1',
+    instanceId: 'instance-1',
+    content: 'Done.',
+    status: 'complete',
+    timestamp: Date.now(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +297,25 @@ describe('ChannelManager', () => {
       adapter.emit('qr', 'qr-data-string');
 
       expect(listener).toHaveBeenCalledWith({ type: 'qr', data: 'qr-data-string' });
+      expect(listener).toHaveBeenCalledWith({
+        type: 'status',
+        data: {
+          platform: 'whatsapp',
+          status: 'connecting',
+          qrCode: 'qr-data-string',
+        },
+      });
+    });
+
+    it('forwards response-sent events to listeners', () => {
+      const manager = ChannelManager.getInstance();
+      const listener = vi.fn();
+      manager.onEvent(listener);
+
+      const response = makeResponseEvent('discord');
+      manager.emitResponseSent(response);
+
+      expect(listener).toHaveBeenCalledWith({ type: 'response-sent', data: response });
     });
 
     it('onEvent returns a cleanup function that removes the listener', () => {

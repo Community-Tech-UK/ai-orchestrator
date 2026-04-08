@@ -240,6 +240,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private cumulativeTokensUsed = 0;
   /** Per-turn token occupancy from the most recent API call (for context bar). */
   private lastTurnTokens = 0;
+  /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
+  private hasTokenUsageNotification = false;
 
   // ─── App-server mode state ────────────────────────────────────────
   /** Whether app-server mode is active (vs exec fallback). */
@@ -598,6 +600,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
       throw new Error('App-server not initialized');
     }
 
+    // Reset per-turn flag so the fallback path works if this turn doesn't
+    // receive a thread/tokenUsage/updated notification.
+    this.hasTokenUsageNotification = false;
+
     // Process attachments — prepend file references to the user message (not replace it)
     let content = message;
     if (attachments && attachments.length > 0) {
@@ -645,25 +651,38 @@ export class CodexCliAdapter extends BaseCliAdapter {
       });
     }
 
-    // Emit usage/context — use per-turn occupancy, NOT cumulative spend.
-    // input_tokens reflects the full conversation history sent to the model
-    // for this turn, so it (+ output) is the true context-window occupancy.
+    // Context tracking: prefer thread/tokenUsage/updated notifications (accurate
+    // per-call data with last/total breakdown). Only fall back to turn/completed
+    // usage when the notification wasn't received (e.g. older Codex versions).
+    // turn/completed usage contains AGGREGATE input_tokens across all internal
+    // agentic sub-calls, NOT actual context window occupancy.
     if (turnState.finalTurn?.usage) {
       const usage = turnState.finalTurn.usage;
       const inputTokens = usage.input_tokens || 0;
       const outputTokens = usage.output_tokens || 0;
       const turnTokens = inputTokens + outputTokens;
 
-      this.cumulativeTokensUsed += turnTokens;
-      this.lastTurnTokens = turnTokens;
+      if (!this.hasTokenUsageNotification) {
+        // No accurate notification received — fall back to turn-level usage.
+        // Clamp to context window since aggregate tokens can wildly exceed it.
+        const contextWindow = this.resolveContextWindow();
+        const clampedUsed = Math.min(turnTokens, contextWindow);
+        this.cumulativeTokensUsed += turnTokens;
+        this.lastTurnTokens = clampedUsed;
 
-      const contextWindow = this.resolveContextWindow();
-      this.emit('context', {
-        used: turnTokens,
-        total: contextWindow,
-        percentage: Math.min((turnTokens / contextWindow) * 100, 100),
-        cumulativeTokens: this.cumulativeTokensUsed,
-      });
+        this.emit('context', {
+          used: clampedUsed,
+          total: contextWindow,
+          percentage: Math.min((clampedUsed / contextWindow) * 100, 100),
+          cumulativeTokens: this.cumulativeTokensUsed,
+        });
+      } else {
+        // Accurate notification was already emitted — just update cumulative
+        // spend for cost tracking if the notification didn't cover it.
+        if (this.cumulativeTokensUsed === 0) {
+          this.cumulativeTokensUsed += turnTokens;
+        }
+      }
     }
 
     // Build and emit the complete response
@@ -1125,6 +1144,41 @@ export class CodexCliAdapter extends BaseCliAdapter {
         break;
       }
 
+      case 'thread/tokenUsage/updated': {
+        // Codex app-server provides accurate per-turn and cumulative token data.
+        // Structure: { tokenUsage: { total: {...}, last: {...}, modelContextWindow: N } }
+        // Field names may be camelCase or snake_case depending on Codex version.
+        const tokenUsage = (params['tokenUsage'] ?? params['token_usage']) as Record<string, unknown> | undefined;
+        if (!tokenUsage) break;
+
+        const last = (tokenUsage['last'] ?? tokenUsage['last_token_usage']) as Record<string, unknown> | undefined;
+        const total = (tokenUsage['total'] ?? tokenUsage['total_token_usage']) as Record<string, unknown> | undefined;
+
+        // last.totalTokens = actual context window occupancy for the most recent API call.
+        // Guard against NaN from malformed fields (empty strings, objects, etc.).
+        const lastTotal = Number(last?.['totalTokens'] ?? last?.['total_tokens'] ?? 0) || 0;
+        const cumulativeTotal = Number(total?.['totalTokens'] ?? total?.['total_tokens'] ?? 0) || 0;
+
+        // Use model_context_window from Codex when available (authoritative source)
+        const codexContextWindow = Number(tokenUsage['modelContextWindow'] ?? tokenUsage['model_context_window'] ?? 0) || 0;
+        const contextWindow = codexContextWindow > 0 ? codexContextWindow : this.resolveContextWindow();
+
+        const used = lastTotal > 0 ? lastTotal : cumulativeTotal;
+        this.lastTurnTokens = used;
+        if (cumulativeTotal > 0) {
+          this.cumulativeTokensUsed = cumulativeTotal;
+        }
+        this.hasTokenUsageNotification = true;
+
+        this.emit('context', {
+          used,
+          total: contextWindow,
+          percentage: Math.min((used / contextWindow) * 100, 100),
+          cumulativeTokens: this.cumulativeTokensUsed,
+        });
+        break;
+      }
+
       case 'error': {
         const errorMessage = params['message'] as string || 'Unknown error from codex app-server';
         state.error = new Error(errorMessage);
@@ -1364,20 +1418,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     if (response.usage) {
-      // Per-turn occupancy: input_tokens includes the full conversation
-      // history for this API call, so input + output = context occupancy.
+      // Exec-mode fallback: token usage from CLI JSON output is aggregate
+      // across all internal agentic sub-calls, not context window occupancy.
+      // Clamp to context window to avoid displaying impossible numbers.
       const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
         ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
         : (response.usage.totalTokens || 0);
 
       this.cumulativeTokensUsed += turnTokens;
-      this.lastTurnTokens = turnTokens;
-
       const contextWindow = this.resolveContextWindow();
+      const clampedUsed = Math.min(turnTokens, contextWindow);
+      this.lastTurnTokens = clampedUsed;
+
       const contextUsage: ContextUsage = {
-        used: turnTokens,
+        used: clampedUsed,
         total: contextWindow,
-        percentage: Math.min((turnTokens / contextWindow) * 100, 100),
+        percentage: Math.min((clampedUsed / contextWindow) * 100, 100),
         cumulativeTokens: this.cumulativeTokensUsed,
       };
       this.emit('context', contextUsage);

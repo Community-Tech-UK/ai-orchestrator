@@ -803,7 +803,6 @@ describe('InstanceManager', () => {
           'Investigate the failed deployment and summarize the root cause.',
           expect.any(Function),
           undefined,
-          'codex',
         );
       });
       expect(mockAdapterSendInput).toHaveBeenCalledWith(

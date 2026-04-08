@@ -30,10 +30,15 @@ export interface InboundChannelMessage {
 
 export interface ChannelResponse {
   channelMessageId: string;
+  platform: ChannelPlatform;
+  chatId: string;
+  messageId: string;
   instanceId: string;
   content: string;
   files?: string[];
   status: 'streaming' | 'complete' | 'error';
+  replyToMessageId?: string;
+  timestamp: number;
 }
 
 export interface SendOptions {
@@ -82,6 +87,7 @@ export interface ChannelStatusEvent {
   status: ChannelConnectionStatus;
   botUsername?: string;
   phoneNumber?: string;
+  qrCode?: string;
 }
 
 export interface ChannelErrorEvent {

@@ -45,9 +45,10 @@ export class ReviewerPool {
     }
   }
 
-  selectReviewers(primaryProvider: string, maxReviewers: number): string[] {
+  selectReviewers(primaryProvider: string, maxReviewers: number, excludeCliTypes: readonly string[] = []): string[] {
+    const excluded = new Set(excludeCliTypes);
     const candidates = Array.from(this.reviewers.values())
-      .filter(r => r.available && !r.rateLimited && r.cliType !== primaryProvider)
+      .filter(r => r.available && !r.rateLimited && r.cliType !== primaryProvider && !excluded.has(r.cliType))
       .sort((a, b) => a.lastUsed - b.lastUsed);
 
     const selected = candidates.slice(0, maxReviewers).map(r => r.cliType);

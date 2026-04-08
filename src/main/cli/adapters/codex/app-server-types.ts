@@ -244,6 +244,7 @@ export type AppServerNotification = JsonRpcNotification & {
 export type AppServerNotificationMethod =
   | 'thread/started'
   | 'thread/name/updated'
+  | 'thread/tokenUsage/updated'
   | 'turn/started'
   | 'turn/completed'
   | 'item/started'

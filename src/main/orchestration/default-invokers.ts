@@ -17,29 +17,14 @@ import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { coerceToFailoverError } from '../core/failover-error';
-import { DEFAULT_MODELS, type ProviderType } from '../../shared/types/provider.types';
+import { getDefaultModelForCli } from '../../shared/types/provider.types';
 import type { CliType } from '../cli/cli-detection';
 
 const logger = getLogger('DefaultInvokers');
 
-/**
- * Maps CLI type to ProviderType key used in DEFAULT_MODELS.
- * When an invoker has no explicit model (payload model is 'default' or absent),
- * this lets us pass the correct default for the resolved CLI rather than
- * letting the CLI binary pick its own (potentially outdated) default.
- */
-const CLI_TO_PROVIDER: Record<CliType, ProviderType> = {
-  claude: 'claude-cli',
-  codex: 'openai',
-  gemini: 'google',
-  copilot: 'claude-cli', // Copilot routes through multiple providers; leave model to caller
-  ollama: 'ollama',
-};
-
 function resolveDefaultModel(cliType: CliType, payloadModel?: string): string | undefined {
   if (typeof payloadModel === 'string' && payloadModel !== 'default') return payloadModel;
-  const providerType = CLI_TO_PROVIDER[cliType];
-  return providerType ? DEFAULT_MODELS[providerType] : undefined;
+  return getDefaultModelForCli(cliType);
 }
 
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {

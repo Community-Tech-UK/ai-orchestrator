@@ -4,6 +4,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
+import { getInstanceManager } from '../instance/instance-manager';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { CliDetectionService } from '../cli/cli-detection';
@@ -23,7 +24,6 @@ import type {
   ReviewOutputType,
   ReviewResult,
   ReviewVerdict,
-  ReviewDimensionScore,
   CrossModelReviewStatus,
 } from '../../shared/types/cross-model-review.types';
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
@@ -46,6 +46,7 @@ export class CrossModelReviewService extends EventEmitter {
   private buffers = new Map<string, OutputBuffer>();
   private lastReviewTime = new Map<string, number>();
   private reviewHistory = new Map<string, AggregatedReview[]>();
+  private reviewContexts = new Map<string, ReviewDispatchRequest>();
   private pendingReviews = new Map<string, AbortController>();
   private pendingReviewInstances = new Map<string, string>();
   private rateLimitTimer: ReturnType<typeof setInterval> | null = null;
@@ -126,6 +127,11 @@ export class CrossModelReviewService extends EventEmitter {
     const classification = this.classifier.classify(aggregatedContent);
     if (!classification.shouldReview) return;
 
+    const instance = getInstanceManager().getInstance(instanceId);
+    const firstUserPrompt = instance?.outputBuffer
+      .find(message => message.type === 'user' && message.content.trim().length > 0)
+      ?.content.trim();
+
     const enabledTypes = settings.crossModelReviewTypes as string[];
     if (!enabledTypes.includes(classification.type)) return;
 
@@ -153,12 +159,15 @@ export class CrossModelReviewService extends EventEmitter {
       id: reviewId,
       instanceId,
       primaryProvider: buffer.primaryProvider,
+      workingDirectory: instance?.workingDirectory || process.cwd(),
       content: truncateForReview(aggregatedContent),
-      taskDescription: buffer.firstUserPrompt || 'No task description available',
+      taskDescription: firstUserPrompt || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
       classification,
       reviewDepth,
       timestamp: Date.now(),
     };
+
+    this.reviewContexts.set(reviewId, request);
 
     this.executeReviews(request, selectedReviewers, settings.crossModelReviewTimeout)
       .catch(err => logger.error('Review execution failed', err, { reviewId }));
@@ -172,14 +181,13 @@ export class CrossModelReviewService extends EventEmitter {
     this.pendingReviewInstances.set(request.id, request.instanceId);
 
     try {
-      const reviewPromises = reviewerClis.map(cliType =>
-        this.executeOneReview(request, cliType, timeoutSeconds, abort.signal)
-      );
+      const successfulResults = await this.collectSuccessfulReviews(request, reviewerClis, timeoutSeconds, abort.signal);
 
-      const results = await Promise.allSettled(reviewPromises);
-      const successfulResults = results
-        .filter((r): r is PromiseFulfilledResult<ReviewResult> => r.status === 'fulfilled')
-        .map(r => r.value);
+      if (successfulResults.length === 0) {
+        this.reviewContexts.delete(request.id);
+        this.emit('review:all-unavailable', { instanceId: request.instanceId });
+        return;
+      }
 
       const hasDisagreement = this.detectDisagreement(successfulResults);
 
@@ -201,7 +209,44 @@ export class CrossModelReviewService extends EventEmitter {
     }
   }
 
-  private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal): Promise<ReviewResult> {
+  private async collectSuccessfulReviews(
+    request: ReviewDispatchRequest,
+    reviewerClis: string[],
+    timeoutSeconds: number,
+    signal: AbortSignal,
+  ): Promise<ReviewResult[]> {
+    const attempted = new Set<string>();
+    const successful: ReviewResult[] = [];
+    let candidates = [...reviewerClis];
+    const desiredCount = reviewerClis.length;
+
+    while (candidates.length > 0 && successful.length < desiredCount) {
+      for (const cliType of candidates) attempted.add(cliType);
+
+      const results = await Promise.allSettled(
+        candidates.map(cliType => this.executeOneReview(request, cliType, timeoutSeconds, signal))
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value) {
+          successful.push(result.value);
+        }
+      }
+
+      const remaining = desiredCount - successful.length;
+      if (remaining <= 0) break;
+
+      candidates = this.reviewerPool.selectReviewers(
+        request.primaryProvider,
+        remaining,
+        Array.from(attempted),
+      );
+    }
+
+    return successful;
+  }
+
+  private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal): Promise<ReviewResult | null> {
     const startTime = Date.now();
     const breaker = getCircuitBreakerRegistry().getBreaker(`cross-review-${cliType}`, {
       failureThreshold: 3,
@@ -214,7 +259,7 @@ export class CrossModelReviewService extends EventEmitter {
 
         const resolvedCli = await resolveCliType(cliType as SettingsCliType);
         const adapter = createCliAdapter(resolvedCli, {
-          workingDirectory: process.cwd(),
+          workingDirectory: request.workingDirectory,
           timeout: timeoutSeconds * 1000,
           yoloMode: false,
         });
@@ -230,8 +275,14 @@ export class CrossModelReviewService extends EventEmitter {
         return adapter.sendMessage({ role: 'user', content: prompt });
       });
 
+      const parsed = this.parseReviewResponse(cliType, response.content, request.reviewDepth, Date.now() - startTime);
+      if (!parsed) {
+        logger.warn('Skipping unparseable reviewer response', { cliType, reviewId: request.id });
+        return null;
+      }
+
       this.reviewerPool.recordSuccess(cliType);
-      return this.parseReviewResponse(cliType, response.content, request.reviewDepth, Date.now() - startTime);
+      return parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('429') || message.toLowerCase().includes('rate limit') || message.toLowerCase().includes('quota')) {
@@ -246,7 +297,7 @@ export class CrossModelReviewService extends EventEmitter {
 
   // === Response Parsing ===
 
-  private parseReviewResponse(reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number): ReviewResult {
+  private parseReviewResponse(reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number): ReviewResult | null {
     const baseResult: Partial<ReviewResult> = {
       reviewerId,
       reviewType: reviewDepth,
@@ -258,14 +309,7 @@ export class CrossModelReviewService extends EventEmitter {
 
     if (!parsed) {
       logger.warn('Failed to extract JSON from review response', { reviewerId, responseLength: rawResponse.length });
-      return {
-        ...baseResult,
-        scores: this.emptyScores(),
-        overallVerdict: 'CONCERNS' as ReviewVerdict,
-        summary: 'Unable to parse reviewer response',
-        parseSuccess: false,
-        rawResponse,
-      } as ReviewResult;
+      return null;
     }
 
     // Pre-coerce common model quirks before schema validation
@@ -279,7 +323,7 @@ export class CrossModelReviewService extends EventEmitter {
         reviewerId,
         errors: validated.error.issues.slice(0, 3),
       });
-      return this.buildPartialResult(baseResult, coerced, durationMs);
+      return null;
     }
 
     const data = validated.data;
@@ -420,40 +464,6 @@ export class CrossModelReviewService extends EventEmitter {
     return obj;
   }
 
-  private buildPartialResult(base: Partial<ReviewResult>, raw: unknown, durationMs: number): ReviewResult {
-    const extractScore = (obj: unknown): ReviewDimensionScore => {
-      const o = obj as Record<string, unknown> | null | undefined;
-      return {
-        reasoning: typeof o?.['reasoning'] === 'string' ? o['reasoning'] : 'Unable to parse',
-        score: typeof o?.['score'] === 'number' ? Math.min(4, Math.max(1, o['score'])) : 2,
-        issues: Array.isArray(o?.['issues']) ? (o['issues'] as string[]) : [],
-      };
-    };
-    const r = raw as Record<string, unknown> | null | undefined;
-    const scores = (r?.['scores'] ?? r) as Record<string, unknown> | null | undefined;
-    return {
-      ...base,
-      scores: {
-        correctness: extractScore(scores?.['correctness']),
-        completeness: extractScore(scores?.['completeness']),
-        security: extractScore(scores?.['security']),
-        consistency: extractScore(scores?.['consistency']),
-      },
-      overallVerdict: (['APPROVE', 'CONCERNS', 'REJECT'].includes(r?.['overall_verdict'] as string)
-        ? r?.['overall_verdict'] : 'CONCERNS') as ReviewVerdict,
-      summary: typeof r?.['summary'] === 'string' ? r['summary'] : 'Partially parsed response',
-      parseSuccess: false,
-      rawResponse: JSON.stringify(raw),
-      timestamp: Date.now(),
-      durationMs,
-    } as ReviewResult;
-  }
-
-  private emptyScores() {
-    const empty: ReviewDimensionScore = { reasoning: 'No data', score: 2, issues: [] };
-    return { correctness: { ...empty }, completeness: { ...empty }, security: { ...empty }, consistency: { ...empty } };
-  }
-
   // === Disagreement Detection ===
 
   private detectDisagreement(reviews: ReviewResult[]): boolean {
@@ -480,6 +490,10 @@ export class CrossModelReviewService extends EventEmitter {
     return this.reviewHistory.get(instanceId) ?? [];
   }
 
+  getReviewContext(reviewId: string): ReviewDispatchRequest | null {
+    return this.reviewContexts.get(reviewId) ?? null;
+  }
+
   private addToHistory(instanceId: string, review: AggregatedReview): void {
     let history = this.reviewHistory.get(instanceId);
     if (!history) {
@@ -488,7 +502,10 @@ export class CrossModelReviewService extends EventEmitter {
     }
     history.push(review);
     if (history.length > MAX_REVIEW_HISTORY) {
-      history.splice(0, history.length - MAX_REVIEW_HISTORY);
+      const removed = history.splice(0, history.length - MAX_REVIEW_HISTORY);
+      for (const entry of removed) {
+        this.reviewContexts.delete(entry.id);
+      }
     }
   }
 
@@ -534,6 +551,11 @@ export class CrossModelReviewService extends EventEmitter {
     }
     this.clearBuffer(instanceId);
     this.reviewHistory.delete(instanceId);
+    for (const [reviewId, context] of this.reviewContexts) {
+      if (context.instanceId === instanceId) {
+        this.reviewContexts.delete(reviewId);
+      }
+    }
   }
 
   shutdown(): void {
@@ -544,6 +566,7 @@ export class CrossModelReviewService extends EventEmitter {
     this.pendingReviewInstances.clear();
     this.buffers.clear();
     this.reviewHistory.clear();
+    this.reviewContexts.clear();
     this.lastReviewTime.clear();
     this.removeAllListeners();
     this.initialized = false;

@@ -44,6 +44,7 @@ import { getOutputStorageManager } from '../../memory/output-storage';
 import type { ResumeOptions } from '../../session/session-continuity';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
+import { isRemoteNodeReachable } from './remote-node-check';
 
 const logger = getLogger('SessionHandlers');
 
@@ -910,9 +911,29 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           data.entry.historyThreadId || data.entry.sessionId || data.entry.id;
         const restoreProvider = inferConversationHistoryProvider(data.entry);
         const restoreModel = data.entry.currentModel?.trim() || undefined;
+
+        // If the session originally ran on a remote node, extract the nodeId
+        // so createInstance routes the CLI to the same node.
+        const restoreNodeId = data.entry.executionLocation?.type === 'remote'
+          ? data.entry.executionLocation.nodeId
+          : undefined;
+
+        // For remote sessions, check whether the node is still connected.
+        // Native resume (--resume <sessionId>) only works on the node that
+        // holds the session — attempting it locally is guaranteed to fail.
+        const remoteNodeAvailable = restoreNodeId
+          ? isRemoteNodeReachable(restoreNodeId)
+          : true;
+        if (restoreNodeId && !remoteNodeAvailable) {
+          logger.info('History restore: remote node unavailable, skipping native resume', {
+            nodeId: restoreNodeId,
+          });
+        }
+
         const canAttemptNativeResume =
           Boolean(data.entry.sessionId?.trim())
-          && !data.entry.nativeResumeFailedAt;
+          && !data.entry.nativeResumeFailedAt
+          && remoteNodeAvailable;
         let resumeFailed = false;
 
         // Phase 1: Try to resume the CLI session
@@ -926,7 +947,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               resume: true,
               initialOutputBuffer: data.messages,
               provider: restoreProvider,
-              modelOverride: restoreModel
+              modelOverride: restoreModel,
+              forceNodeId: restoreNodeId,
             });
 
             // Wait for Phase 2 (background init) to complete before checking resume.
@@ -1064,10 +1086,12 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           }
         } else {
           resumeFailed = true;
-          logger.info('History restore: skipping native resume due to previously failed session handle', {
+          logger.info('History restore: skipping native resume', {
             entryId: validated.entryId,
             sessionId: data.entry.sessionId,
             nativeResumeFailedAt: data.entry.nativeResumeFailedAt ?? null,
+            remoteNodeAvailable: restoreNodeId ? remoteNodeAvailable : undefined,
+            restoreNodeId: restoreNodeId ?? null,
           });
         }
 
@@ -1093,7 +1117,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             historyThreadId,
             initialOutputBuffer: displayMessages,
             provider: restoreProvider,
-            modelOverride: restoreModel
+            modelOverride: restoreModel,
+            forceNodeId: restoreNodeId,
             // No resume, no sessionId — fresh session
           });
 
@@ -1146,6 +1171,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               continuityInjectionQueued: Boolean(replayContinuity),
               nativeResumeFailedAt: canAttemptNativeResume ? Date.now() : (data.entry.nativeResumeFailedAt ?? null),
               originalSessionId: data.entry.sessionId,
+              restoreNodeId: restoreNodeId ?? null,
+              remoteNodeAvailable: restoreNodeId ? remoteNodeAvailable : undefined,
             }
           };
           instance.outputBuffer.push(systemMessage);
@@ -1154,7 +1181,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           logger.info('History restore: created fresh instance with restored messages', {
             instanceId: instance.id,
             messageCount: restoredMessages.length,
-            provider: restoreProvider
+            provider: restoreProvider,
+            restoreNodeId: restoreNodeId ?? null,
           });
 
           return {

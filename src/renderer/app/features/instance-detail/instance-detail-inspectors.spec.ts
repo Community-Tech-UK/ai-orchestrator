@@ -72,10 +72,26 @@ describe('Inspector Toggle Visibility Logic', () => {
 });
 
 describe('Review Badge Info', () => {
+  it('clears stale badge state when a new review starts', () => {
+    const reviewHasContent = signal(false);
+    const reviewBadgeInfo = signal<{ issueCount: number; hasErrors: boolean } | null>(
+      { issueCount: 2, hasErrors: true }
+    );
+
+    reviewHasContent.set(true);
+    reviewBadgeInfo.set(null);
+
+    expect(reviewHasContent()).toBe(true);
+    expect(reviewBadgeInfo()).toBeNull();
+  });
+
   it('stores issue count and error flag from review completion', () => {
+    const reviewHasContent = signal(false);
     const reviewBadgeInfo = signal<{ issueCount: number; hasErrors: boolean } | null>(null);
 
+    reviewHasContent.set(true);
     reviewBadgeInfo.set({ issueCount: 3, hasErrors: true });
+    expect(reviewHasContent()).toBe(true);
     expect(reviewBadgeInfo()).toEqual({ issueCount: 3, hasErrors: true });
   });
 
@@ -174,6 +190,7 @@ describe('Instance Change State Reset', () => {
     const showTodoInspector = signal(true);
     const showReviewInspector = signal(true);
     const showChildrenInspector = signal(true);
+    const todoAutoExpandedForInstance = signal<string | null>('instance-1');
     const reviewHasContent = signal(true);
     const reviewBadgeInfo = signal<{ issueCount: number; hasErrors: boolean } | null>(
       { issueCount: 5, hasErrors: true }
@@ -183,12 +200,14 @@ describe('Instance Change State Reset', () => {
     showTodoInspector.set(false);
     showReviewInspector.set(false);
     showChildrenInspector.set(false);
+    todoAutoExpandedForInstance.set(null);
     reviewHasContent.set(false);
     reviewBadgeInfo.set(null);
 
     expect(showTodoInspector()).toBe(false);
     expect(showReviewInspector()).toBe(false);
     expect(showChildrenInspector()).toBe(false);
+    expect(todoAutoExpandedForInstance()).toBeNull();
     expect(reviewHasContent()).toBe(false);
     expect(reviewBadgeInfo()).toBeNull();
   });

@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CrossModelReviewService } from './cross-model-review-service';
+import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
+import type { ReviewDispatchRequest } from './cross-model-review.types';
+import type { ReviewResult } from '../../shared/types/cross-model-review.types';
+import type { ReviewerPool } from './reviewer-pool';
+import type { CliType } from '../cli/cli-detection';
+
+type TestReviewService = CrossModelReviewService & {
+  reviewerPool: ReviewerPool;
+  parseReviewResponse: (reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number) => ReviewResult | null;
+  collectSuccessfulReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult[]>;
+  executeReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number) => Promise<void>;
+};
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
@@ -18,9 +30,21 @@ vi.mock('../cli/adapters/adapter-factory', () => ({
 vi.mock('../cli/cli-detection', () => ({
   CliDetectionService: {
     getInstance: () => ({
-      detectAll: vi.fn().mockResolvedValue({ available: [] }),
+      detectAll: vi.fn().mockResolvedValue({
+        available: [{ name: 'gemini' }, { name: 'codex' }, { name: 'copilot' }],
+      }),
     }),
   },
+}));
+
+vi.mock('../instance/instance-manager', () => ({
+  getInstanceManager: () => ({
+    getInstance: () => ({
+      displayName: 'Test instance',
+      workingDirectory: '/tmp/review-context',
+      outputBuffer: [{ type: 'user', content: 'Implement the review service carefully.' }],
+    }),
+  }),
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
@@ -39,7 +63,7 @@ vi.mock('../core/config/settings-manager', () => ({
 vi.mock('../core/circuit-breaker', () => ({
   getCircuitBreakerRegistry: () => ({
     getBreaker: () => ({
-      execute: async (fn: () => Promise<any>) => fn(),
+      execute: async <T>(fn: () => Promise<T>) => fn(),
     }),
   }),
 }));
@@ -47,6 +71,11 @@ vi.mock('../core/circuit-breaker', () => ({
 describe('CrossModelReviewService', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
+    vi.mocked(resolveCliType).mockImplementation(async (cli) => {
+      if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
+      return cli as CliType;
+    });
+    vi.mocked(createCliAdapter).mockReset();
   });
 
   it('creates singleton instance', () => {
@@ -90,5 +119,77 @@ describe('CrossModelReviewService', () => {
     const status = service.getStatus();
     expect(status.enabled).toBe(true);
     expect(status.pendingReviews).toBe(0);
+  });
+
+  it('skips unparsable reviewer responses instead of surfacing concerns', () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    expect(service.parseReviewResponse('gemini', 'not valid json', 'structured', 42)).toBeNull();
+  });
+
+  it('uses failover reviewers when an initially selected reviewer fails', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    service.reviewerPool.setAvailable(['gemini', 'codex', 'copilot']);
+
+    vi.mocked(createCliAdapter).mockImplementation((cliType, options) => ({
+      sendMessage: async ({ content }: { content: string }) => {
+        expect(options.workingDirectory).toBe('/tmp/review-context');
+        expect(content).toContain('Implement the review service carefully.');
+        if (cliType === 'gemini') {
+          throw new Error('rate limit');
+        }
+        return {
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: `${cliType} approved`,
+          }),
+        };
+      },
+    }));
+
+    const results = await service.collectSuccessfulReviews({
+      id: 'review-1',
+      instanceId: 'inst-1',
+      primaryProvider: 'claude',
+      workingDirectory: '/tmp/review-context',
+      content: '```ts\nconst x = 1;\n```',
+      taskDescription: 'Implement the review service carefully.',
+      classification: { type: 'code', shouldReview: true, isComplex: false, complexityReasons: [], codeLineCount: 1, fileCount: 1, stepCount: 0 },
+      reviewDepth: 'structured',
+      timestamp: Date.now(),
+    }, ['gemini', 'codex'], 30, new AbortController().signal);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((result) => result.reviewerId)).toEqual(expect.arrayContaining(['codex', 'copilot']));
+  });
+
+  it('emits all-unavailable when every reviewer response is unusable', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const allUnavailable = vi.fn();
+    const result = vi.fn();
+    service.on('review:all-unavailable', allUnavailable);
+    service.on('review:result', result);
+
+    vi.mocked(createCliAdapter).mockImplementation(() => ({
+      sendMessage: async () => ({ content: 'not valid json' }),
+    }));
+
+    await service.executeReviews({
+      id: 'review-2',
+      instanceId: 'inst-2',
+      primaryProvider: 'claude',
+      workingDirectory: '/tmp/review-context',
+      content: '```ts\nconst x = 1;\n```',
+      taskDescription: 'Implement the review service carefully.',
+      classification: { type: 'code', shouldReview: true, isComplex: false, complexityReasons: [], codeLineCount: 1, fileCount: 1, stepCount: 0 },
+      reviewDepth: 'structured',
+      timestamp: Date.now(),
+    }, ['gemini'], 30);
+
+    expect(allUnavailable).toHaveBeenCalledWith({ instanceId: 'inst-2' });
+    expect(result).not.toHaveBeenCalled();
   });
 });
