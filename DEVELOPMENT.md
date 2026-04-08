@@ -270,7 +270,9 @@ npx tsc --noEmit -p tsconfig.spec.json  # spec files too
 - Dev server uses port 4567 by default (configured in package.json start script)
 
 **Native module errors (better-sqlite3)**
-- Run `npm rebuild` when switching between Electron and system Node
+- Run `npx electron-rebuild -f -w better-sqlite3` to rebuild for Electron
+- The postinstall script does this automatically, but may fail on Windows without C++ build tools
+- If you see "Could not locate the bindings file", this is the fix
 
 ---
 

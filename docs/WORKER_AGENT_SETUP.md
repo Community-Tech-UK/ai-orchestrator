@@ -36,6 +36,8 @@ npm run build:worker-agent
 
 This runs esbuild and produces a single bundled file at `dist/worker-agent/index.js`.
 
+**Note:** `npm install` runs a postinstall script that rebuilds `better-sqlite3` for Electron. This is only needed if you plan to run the full Electron app on this machine — the worker agent itself doesn't use SQLite. If the postinstall fails (e.g. missing C++ build tools), the worker agent will still work fine.
+
 ## Step 2 — Enable Remote Nodes on the Coordinator (Mac)
 
 On the Mac where the Electron app runs:
@@ -77,6 +79,7 @@ If you used **Copy Connection Config** on the Mac, paste it directly. Otherwise,
 {
   "name": "windows-pc",
   "authToken": "<paste-the-enrollment-token>",
+  "coordinatorUrl": "ws://<mac-ip>:4878",
   "namespace": "default",
   "maxConcurrentInstances": 10,
   "workingDirectories": [
@@ -94,7 +97,7 @@ Field reference:
 | `namespace` | Yes | Must match the coordinator's namespace to be discovered via mDNS (default `"default"`). |
 | `maxConcurrentInstances` | No | How many CLI instances this node can run simultaneously (default 10). |
 | `workingDirectories` | No | Paths the worker is allowed to use. The agent enforces path sandboxing — it rejects spawn requests outside these roots. |
-| `coordinatorUrl` | No | Override mDNS discovery with an explicit WebSocket URL (e.g. `"ws://192.168.0.15:4878"`). Only needed if mDNS doesn't work on your network. |
+| `coordinatorUrl` | Recommended | WebSocket URL of the coordinator (e.g. `"ws://192.168.0.15:4878"`). Without this, the worker relies on mDNS auto-discovery, which is unreliable on Windows. Use `wss://` if TLS is enabled on the coordinator. |
 | `heartbeatIntervalMs` | No | Interval for heartbeat + capability refresh (default 10000ms). |
 
 **Auto-generated fields** (don't set these manually):
@@ -111,8 +114,8 @@ node dist/worker-agent/index.js
 You should see something like:
 
 ```
-Auto-discovered coordinator at 192.168.x.x:4878
 Worker node "windows-pc" (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+Connecting to coordinator at ws://192.168.x.x:4878...
 Connected! Listening for work.
 ```
 
@@ -191,13 +194,13 @@ Then set `"coordinatorUrl": "ws://localhost:4878"` in the worker config.
 
 **To find the Mac's IP:** On the Mac, run `ifconfig | grep "inet "` in Terminal, or check System Settings > Network. Look for the LAN IP (usually `192.168.x.x` or `10.x.x.x`).
 
-**TLS:** For untrusted networks, enable TLS in Settings > Remote Nodes > Require TLS. In auto mode, the coordinator generates a self-signed certificate. In custom mode, provide your own cert/key paths. Workers connect with `wss://` when TLS is enabled.
+**TLS:** For untrusted networks, enable TLS in Settings > Remote Nodes > Require TLS. In auto mode, the coordinator generates a self-signed certificate. In custom mode, provide your own cert/key paths. Workers connect with `wss://` when TLS is enabled. **Important:** If TLS is enabled on the coordinator, you must use `wss://` in the `coordinatorUrl`. If TLS is disabled, use `ws://`. A mismatch will cause SSL errors or connection refused.
 
 ## Troubleshooting
 
 **"Failed to connect" on startup** — Check that the coordinator has remote nodes enabled in Settings, the port is open, and both machines can reach each other (`ping` / `Test-NetConnection <mac-ip> -Port 4878`).
 
-**"No coordinator discovered" on startup** — mDNS discovery failed. Check that both machines are on the same subnet, the Mac firewall allows incoming connections, and the `namespace` matches. Try setting `coordinatorUrl` explicitly as a workaround.
+**"No coordinator discovered" on startup** — mDNS discovery failed. This is common on Windows. Set `coordinatorUrl` explicitly in the worker config (e.g. `"ws://192.168.0.14:4878"`). Also check that both machines are on the same subnet, the Mac firewall allows incoming connections, and the `namespace` matches.
 
 **Node shows "degraded" in the UI** — The coordinator hasn't received a heartbeat in 30 seconds. Check the worker agent process is still running and there are no network interruptions. It auto-recovers on reconnect within the 30s grace period.
 
@@ -208,6 +211,30 @@ Then set `"coordinatorUrl": "ws://localhost:4878"` in the worker config.
 **GPU not detected** — The reporter runs `nvidia-smi`. Make sure NVIDIA drivers are installed and `nvidia-smi` is on your PATH. AMD GPUs aren't detected yet (only NVIDIA via nvidia-smi).
 
 **Browser not detected** — The reporter checks `C:\Program Files\Google\Chrome\Application\chrome.exe` and `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`. If Chrome/Edge is installed elsewhere, this won't pick it up currently.
+
+## Running the Full Electron App on Windows (Optional)
+
+If you want to run the full orchestrator UI on Windows (not just the worker agent), you need a few extra steps after `npm install`:
+
+1. **Rebuild native modules for Electron:**
+   ```bash
+   npx electron-rebuild -f -w better-sqlite3
+   ```
+   The postinstall script tries this automatically, but it may fail on Windows if C++ build tools aren't installed. Running it manually with `npx electron-rebuild` downloads prebuilt binaries and usually works without a compiler.
+
+2. **Start in dev mode:**
+   ```bash
+   npm run dev
+   ```
+   This builds the main process, starts the Angular dev server on port 4567, and launches the Electron window.
+
+3. **If you get "port 4567 in use"** — a previous dev server is still running. Kill it:
+   ```bash
+   netstat -ano | findstr 4567
+   taskkill /PID <pid> /F
+   ```
+
+**Note:** Packaging the app for Windows with `electron-builder` may fail without admin privileges due to symlink creation during code signing. For local development, `npm run dev` is the recommended approach.
 
 ## Architecture Reference
 
