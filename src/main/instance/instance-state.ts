@@ -18,6 +18,7 @@ import type {
   BatchUpdatePayload,
   ErrorInfo
 } from '../../shared/types/ipc.types';
+import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import { LIMITS } from '../../shared/constants/limits';
 
 const logger = getLogger('InstanceState');
@@ -200,7 +201,8 @@ export class InstanceStateManager extends EventEmitter {
     contextUsage?: ContextUsage,
     diffStats?: SessionDiffStats,
     displayName?: string,
-    error?: ErrorInfo
+    error?: ErrorInfo,
+    executionLocation?: ExecutionLocation
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
@@ -209,7 +211,8 @@ export class InstanceStateManager extends EventEmitter {
       contextUsage: contextUsage ?? existing?.contextUsage,
       diffStats: diffStats ?? existing?.diffStats,
       displayName: displayName ?? existing?.displayName,
-      error: error ?? existing?.error
+      error: error ?? existing?.error,
+      executionLocation: executionLocation ?? existing?.executionLocation,
     });
   }
 

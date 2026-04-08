@@ -123,6 +123,7 @@ export class HistoryManager {
         sessionId: instance.sessionId,
         provider: instance.provider,
         currentModel: instance.currentModel,
+        executionLocation: instance.executionLocation,
       };
 
       // Create conversation data

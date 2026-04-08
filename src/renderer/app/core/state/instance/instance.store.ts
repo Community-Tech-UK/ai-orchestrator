@@ -269,6 +269,7 @@ export class InstanceStore implements OnDestroy {
           lastActivity: Date.now(),
           diffStats: update.diffStats ?? inst.diffStats,
           ...(update.displayName ? { displayName: update.displayName } : {}),
+          ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
       }
 
@@ -326,6 +327,7 @@ export class InstanceStore implements OnDestroy {
             lastActivity: Date.now(),
             diffStats: update.diffStats ?? instance.diffStats,
             ...(update.displayName ? { displayName: update.displayName } : {}),
+            ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });
         }
       }

@@ -759,6 +759,7 @@ const electronAPI = {
     attachments?: unknown[];
     provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
     model?: string;
+    forceNodeId?: string;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(
       IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE,

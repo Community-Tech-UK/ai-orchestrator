@@ -2170,11 +2170,20 @@ export class InstanceListComponent {
     location: 'all' | 'local' | 'remote' = 'all'
   ): Map<string, ConversationHistoryEntry[]> {
     const groups = new Map<string, ConversationHistoryEntry[]>();
-    if (status !== 'all' || location === 'remote') {
+    if (status !== 'all') {
       return groups;
     }
 
     for (const entry of entries) {
+      // Location filter: match history entries by their archived executionLocation.
+      // Entries without executionLocation are treated as local (pre-remote-node history).
+      if (location === 'remote' && entry.executionLocation?.type !== 'remote') {
+        continue;
+      }
+      if (location === 'local' && entry.executionLocation?.type === 'remote') {
+        continue;
+      }
+
       const title = this.getProjectTitle(entry.workingDirectory);
       const subtitle = this.getProjectSubtitle(entry.workingDirectory);
 

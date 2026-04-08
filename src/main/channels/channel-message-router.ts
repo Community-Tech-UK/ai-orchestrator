@@ -1184,7 +1184,8 @@ export class ChannelMessageRouter {
     }
 
     const im = this.getInstanceManager();
-    const workingDirectory = process.cwd();
+    const allowedDirs = node.capabilities?.workingDirectories ?? [];
+    const workingDirectory = allowedDirs[0] || process.cwd();
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory,

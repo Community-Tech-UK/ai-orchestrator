@@ -11,6 +11,7 @@ import type {
   SessionDiffStats
 } from './instance.types';
 import type { RepoJobStatus, RepoJobType } from './repo-job.types';
+import type { ExecutionLocation } from './worker-node.types';
 import type { ChannelPlatform } from './channels';
 
 /**
@@ -915,6 +916,7 @@ export interface InstanceStateUpdatePayload {
   error?: ErrorInfo;
   diffStats?: SessionDiffStats;
   displayName?: string;
+  executionLocation?: ExecutionLocation;
 }
 
 export interface InstanceOutputPayload {

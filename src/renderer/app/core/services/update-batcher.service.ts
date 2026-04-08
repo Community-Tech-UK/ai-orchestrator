@@ -3,6 +3,7 @@
  */
 
 import { Injectable } from '@angular/core';
+import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 
 export interface StateUpdate {
   instanceId: string;
@@ -18,6 +19,7 @@ export interface StateUpdate {
     files: Record<string, { path: string; status: 'added' | 'modified' | 'deleted'; added: number; deleted: number }>;
   };
   displayName?: string;
+  executionLocation?: ExecutionLocation;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;
@@ -46,6 +48,8 @@ export class UpdateBatcherService {
       diffStats: update.diffStats ?? existing?.diffStats,
       // Preserve displayName if the new update doesn't carry it
       displayName: update.displayName ?? existing?.displayName,
+      // Preserve executionLocation if the new update doesn't carry it
+      executionLocation: update.executionLocation ?? existing?.executionLocation,
     });
   }
 

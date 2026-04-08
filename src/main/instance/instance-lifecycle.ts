@@ -145,6 +145,8 @@ function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Record<str
     provider: config.provider,
     terminationPolicy: config.terminationPolicy,
     hasContextInheritanceOverride: Boolean(config.contextInheritance),
+    forceNodeId: config.forceNodeId ?? null,
+    hasNodePlacement: Boolean(config.nodePlacement),
   };
 }
 
@@ -160,7 +162,7 @@ export interface LifecycleDependencies {
   deleteAdapter: (id: string) => boolean;
   getInstanceCount: () => number;
   forEachInstance: (callback: (instance: Instance, id: string) => void) => void;
-  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats, displayName?: string) => void;
+  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats, displayName?: string, executionLocation?: ExecutionLocation) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;
   initializeRlm: (instance: Instance) => Promise<void>;
@@ -241,6 +243,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         const registry = getWorkerNodeRegistry();
         const node = registry.getNode(config.forceNodeId);
         if (node?.status === 'connected') {
+          logger.info('Resolved execution location', {
+            type: 'remote',
+            reason: 'forceNodeId',
+            nodeId: config.forceNodeId,
+          });
           return { type: 'remote', nodeId: config.forceNodeId };
         }
       } catch {
@@ -256,6 +263,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         const registry = getWorkerNodeRegistry();
         const node = registry.selectNode(config.nodePlacement);
         if (node) {
+          logger.info('Resolved execution location', {
+            type: 'remote',
+            reason: 'nodePlacement',
+            nodeId: node.id,
+          });
           return { type: 'remote', nodeId: node.id };
         }
       } catch {
@@ -264,6 +276,11 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     // 3. Default: local
+    logger.info('Resolved execution location', {
+      type: 'local',
+      forceNodeId: config.forceNodeId ?? null,
+      hasNodePlacement: Boolean(config.nodePlacement),
+    });
     return { type: 'local' };
   }
 
@@ -899,7 +916,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         // NEVER use warm-start for resume operations — warm adapters have fresh sessions
         // with no conversation context. Resume requires --resume <sessionId> on a freshly
         // spawned CLI process.
-        const warmAdapter = config.resume
+        // NEVER use warm-start for remote sessions — warm adapters are local processes
+        // and cannot proxy commands to a remote worker node.
+        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement)
           ? null
           : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
 
@@ -985,7 +1004,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             instance.processId = pid;
             this.transitionState(instance, 'idle');
-            this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage);
+            this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage, undefined, undefined, instance.executionLocation);
             this.deps.startStuckTracking?.(instance.id);
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
@@ -1364,7 +1383,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           mcpConfig: this.getMcpConfig(),
         };
 
-        let adapter = createCliAdapter(cliType, spawnOptions);
+        let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
         this.deps.setupAdapterEvents(instanceId, adapter);
         this.deps.setAdapter(instanceId, adapter);
         if (this.deps.setDiffTracker) {
@@ -1406,7 +1425,7 @@ export class InstanceLifecycleManager extends EventEmitter {
               resume: false,
               forkSession: false,
             };
-            adapter = createCliAdapter(cliType, fallbackOptions);
+            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
             if (this.deps.setDiffTracker) {
@@ -1509,7 +1528,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       mcpConfig: this.getMcpConfig(),
     };
 
-    const adapter = createCliAdapter(cliType, spawnOptions);
+    const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
 
     this.deps.setupAdapterEvents(instanceId, adapter);
     this.deps.setAdapter(instanceId, adapter);
@@ -1637,7 +1656,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         mcpConfig: this.getMcpConfig(),
       };
 
-      let adapter = createCliAdapter(cliType, spawnOptions);
+      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
 
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
@@ -1657,7 +1676,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = createCliAdapter(cliType, fallbackOptions);
+            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
@@ -1822,7 +1841,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         sessionId: spawnOptions.sessionId
       });
 
-      let adapter = createCliAdapter(cliType, spawnOptions);
+      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
 
       logger.debug('Setting up adapter events', { instanceId });
       this.deps.setupAdapterEvents(instanceId, adapter);
@@ -1850,7 +1869,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             // Retry without resume
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = createCliAdapter(cliType, fallbackOptions);
+            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
@@ -2026,7 +2045,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         mcpConfig: this.getMcpConfig(),
       };
 
-      let adapter = createCliAdapter(cliType, spawnOptions);
+      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
 
@@ -2045,7 +2064,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = createCliAdapter(cliType, fallbackOptions);
+            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
@@ -2184,7 +2203,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         forkSession: shouldForkSession,
         mcpConfig: this.getMcpConfig(),
       };
-      const adapter = createCliAdapter(cliType, spawnOptions);
+      const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
 
@@ -2217,7 +2236,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
               forkSession: false,
               sessionId: fallbackSessionId,
             };
-            const fallbackAdapter = createCliAdapter(cliType, fallbackOptions);
+            const fallbackAdapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, fallbackAdapter);
             this.deps.setAdapter(instanceId, fallbackAdapter);
 
@@ -2331,7 +2350,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         forkSession: shouldForkSession,
         mcpConfig: this.getMcpConfig(),
       };
-      let adapter = createCliAdapter(cliType, spawnOptions);
+      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
 
@@ -2360,7 +2379,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
               forkSession: false,
               sessionId: fallbackSessionId,
             };
-            adapter = createCliAdapter(cliType, fallbackOptions);
+            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 

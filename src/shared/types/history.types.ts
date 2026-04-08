@@ -3,6 +3,7 @@
  */
 
 import type { InstanceProvider, OutputMessage } from './instance.types';
+import type { ExecutionLocation } from './worker-node.types';
 
 /**
  * Status when the conversation ended
@@ -73,6 +74,9 @@ export interface ConversationHistoryEntry {
 
   /** Model active when the conversation was archived */
   currentModel?: string;
+
+  /** Where the instance ran (local or remote node) */
+  executionLocation?: ExecutionLocation;
 }
 
 /**

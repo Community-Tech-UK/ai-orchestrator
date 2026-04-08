@@ -213,7 +213,7 @@ export class InstanceManager extends EventEmitter {
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       forEachInstance: (cb) => this.state.forEachInstance(cb),
-      queueUpdate: (id, status, ctx, diffStats, displayName) => this.state.queueUpdate(id, status, ctx, diffStats, displayName),
+      queueUpdate: (id, status, ctx, diffStats, displayName, executionLocation) => this.state.queueUpdate(id, status, ctx, diffStats, displayName, undefined, executionLocation),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),
       setupAdapterEvents: (id, adapter) => this.communication.setupAdapterEvents(id, adapter),
       initializeRlm: (inst) => this.context.initializeRlm(inst),

@@ -714,6 +714,14 @@ export class InstanceDetailComponent {
     this.showChildrenInspector.set(false);
     this.reviewHasContent.set(false);
     this.reviewBadgeInfo.set(null);
+
+    // Reset remote node selection so a stale choice from a previous session
+    // doesn't accidentally route the next new session to a remote worker.
+    this.welcomeSelectedNodeId.set(null);
+
+    // Reset remote-browse dialog state so it doesn't bleed across sessions.
+    this.remoteBrowseOpen.set(false);
+    this.remoteBrowseNodeId.set(null);
   });
 
   // Computed: any inspector is open
@@ -1305,10 +1313,26 @@ export class InstanceDetailComponent {
     const forceNodeId = this.welcomeSelectedNodeId() ?? undefined;
 
     // Validate selected remote node is still reachable
+    let effectiveWorkingDir = workingDir;
     if (forceNodeId) {
       const node = this.remoteNodeStore.nodeById(forceNodeId);
       if (!node || (node.status !== 'connected' && node.status !== 'degraded')) {
         this.store.setError('Selected remote node is no longer connected. Please choose another node or use Local.');
+        return;
+      }
+
+      // If the working directory is a local path that doesn't exist on the
+      // remote node, fall back to the first browsable root from that node.
+      const allowedDirs = node.capabilities?.workingDirectories ?? [];
+      const isWorkingDirOnNode = allowedDirs.some(
+        (d) => workingDir === d || workingDir.startsWith(d + '/') || workingDir.startsWith(d + '\\'),
+      );
+      if (!isWorkingDirOnNode && allowedDirs.length > 0) {
+        effectiveWorkingDir = allowedDirs[0];
+      } else if (!isWorkingDirOnNode) {
+        this.store.setError(
+          'The current working directory is not available on the remote node. Please browse and select a remote folder first.',
+        );
         return;
       }
     }
@@ -1317,7 +1341,7 @@ export class InstanceDetailComponent {
     const launched = await this.store.createInstanceWithMessage(
       finalMessage,
       this.welcomePendingFiles(),
-      workingDir,
+      effectiveWorkingDir,
       provider,
       model,
       forceNodeId
@@ -1329,12 +1353,17 @@ export class InstanceDetailComponent {
       // event arrives.  Resetting eagerly here races with that event and
       // can briefly flash back to the welcome view.
       this.isCreatingInstance.set(false);
+      // Still clear node selection so it doesn't leak into the next attempt
+      this.welcomeSelectedNodeId.set(null);
       return;
     }
 
     this.welcomeSelectedNodeId.set(null);
     this.newSessionDraft.clearActiveComposer();
-    await this.recentDirsService.addDirectory(workingDir);
+    await this.recentDirsService.addDirectory(
+      effectiveWorkingDir,
+      forceNodeId ? { nodeId: forceNodeId } : undefined,
+    );
   }
 
   onSelectWelcomeFolder(folder: string): void {
