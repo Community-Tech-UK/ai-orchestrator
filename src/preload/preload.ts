@@ -12,26 +12,31 @@ const IPC_CHANNELS = {
   // Instance management
   INSTANCE_CREATE: 'instance:create',
   INSTANCE_CREATE_WITH_MESSAGE: 'instance:create-with-message',
-  INSTANCE_SEND_INPUT: 'instance:send-input',
   INSTANCE_TERMINATE: 'instance:terminate',
   INSTANCE_TERMINATE_ALL: 'instance:terminate-all',
-  INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_RESTART: 'instance:restart',
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_CHANGE_AGENT_MODE: 'instance:change-agent-mode',
   INSTANCE_TOGGLE_YOLO_MODE: 'instance:toggle-yolo-mode',
   INSTANCE_CHANGE_MODEL: 'instance:change-model',
-  INSTANCE_LIST: 'instance:list',
-
-  // Instance events (main -> renderer)
-  INSTANCE_CREATED: 'instance:created',
-  INSTANCE_REMOVED: 'instance:removed',
+  INSTANCE_SEND_INPUT: 'instance:send-input',
+  INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
   INSTANCE_OUTPUT: 'instance:output',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',
+  INSTANCE_CREATED: 'instance:created',
+  INSTANCE_REMOVED: 'instance:removed',
+  INSTANCE_LIST: 'instance:list',
 
-  // Output history
+  // Output history (load older messages from disk)
   INSTANCE_LOAD_OLDER_MESSAGES: 'instance:load-older-messages',
+
+  // Hibernation lifecycle
+  INSTANCE_HIBERNATE: 'instance:hibernate',
+  INSTANCE_HIBERNATED: 'instance:hibernated',
+  INSTANCE_WAKE: 'instance:wake',
+  INSTANCE_WAKING: 'instance:waking',
+  INSTANCE_TRANSCRIPT_CHUNK: 'instance:transcript-chunk',
 
   // Context compaction
   INSTANCE_COMPACT: 'instance:compact',
@@ -41,19 +46,41 @@ const IPC_CHANNELS = {
   // Orchestration activity (real-time status updates)
   ORCHESTRATION_ACTIVITY: 'orchestration:activity',
 
-  // User action requests (orchestrator -> user)
-  USER_ACTION_REQUEST: 'user-action:request',
-  USER_ACTION_RESPOND: 'user-action:respond',
-  USER_ACTION_LIST: 'user-action:list',
-  USER_ACTION_LIST_FOR_INSTANCE: 'user-action:list-for-instance',
+  // Cross-instance communication
+  COMM_REQUEST_TOKEN: 'comm:request-token',
+  COMM_SEND_MESSAGE: 'comm:send-message',
+  COMM_SUBSCRIBE: 'comm:subscribe',
+  COMM_CONTROL: 'comm:control-instance',
+  COMM_CREATE_BRIDGE: 'comm:create-bridge',
+  COMM_GET_MESSAGES: 'comm:get-messages',
+  COMM_GET_BRIDGES: 'comm:get-bridges',
+  COMM_DELETE_BRIDGE: 'comm:delete-bridge',
 
-  // Input required events (CLI permission prompts, etc.)
-  INPUT_REQUIRED: 'instance:input-required',
-  INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
+  // Supervisor operations
+  SUPERVISOR_STATUS: 'supervisor:status',
+  SUPERVISOR_METRICS: 'supervisor:metrics',
 
-  // App
+  // File operations
+  FILE_DROP: 'file:drop',
+  IMAGE_PASTE: 'image:paste',
+  IMAGE_COPY_TO_CLIPBOARD: 'image:copy-to-clipboard',
+  IMAGE_CONTEXT_MENU: 'image:context-menu',
+  FILE_READ_DIR: 'file:read-dir',
+  FILE_GET_STATS: 'file:get-stats',
+  FILE_READ_TEXT: 'file:read-text',
+  FILE_WRITE_TEXT: 'file:write-text',
+  FILE_OPEN_PATH: 'file:open-path',
+
+  // Ecosystem operations (file-based extensibility)
+  ECOSYSTEM_LIST: 'ecosystem:list',
+  ECOSYSTEM_WATCH_START: 'ecosystem:watch-start',
+  ECOSYSTEM_WATCH_STOP: 'ecosystem:watch-stop',
+  ECOSYSTEM_CHANGED: 'ecosystem:changed',
+
+  // App operations
   APP_READY: 'app:ready',
   APP_GET_VERSION: 'app:get-version',
+  APP_OPEN_DOCS: 'app:open-docs',
 
   // CLI detection
   CLI_DETECT_ALL: 'cli:detect-all',
@@ -61,37 +88,17 @@ const IPC_CHANNELS = {
   CLI_CHECK: 'cli:check',
   CLI_TEST_CONNECTION: 'cli:test-connection',
 
-  // Copilot
+  // Copilot operations
   COPILOT_LIST_MODELS: 'copilot:list-models',
 
   // Provider model listing (generic)
   PROVIDER_LIST_MODELS: 'provider:list-models',
 
-  // Dialogs
+  // Dialog operations
   DIALOG_SELECT_FOLDER: 'dialog:select-folder',
   DIALOG_SELECT_FILES: 'dialog:select-files',
 
-  // Recent Directories
-  RECENT_DIRS_GET: 'recent-dirs:get',
-  RECENT_DIRS_ADD: 'recent-dirs:add',
-  RECENT_DIRS_REMOVE: 'recent-dirs:remove',
-  RECENT_DIRS_PIN: 'recent-dirs:pin',
-  RECENT_DIRS_REORDER: 'recent-dirs:reorder',
-  RECENT_DIRS_CLEAR: 'recent-dirs:clear',
-
-  // File operations
-  FILE_READ_DIR: 'file:read-dir',
-  FILE_GET_STATS: 'file:get-stats',
-  FILE_OPEN_PATH: 'file:open-path',
-
-  // Image operations
-  IMAGE_COPY_TO_CLIPBOARD: 'image:copy-to-clipboard',
-  IMAGE_CONTEXT_MENU: 'image:context-menu',
-
-  // App operations
-  APP_OPEN_DOCS: 'app:open-docs',
-
-  // Settings
+  // Settings operations
   SETTINGS_GET_ALL: 'settings:get-all',
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
@@ -153,6 +160,8 @@ const IPC_CHANNELS = {
   CONFIG_SAVE_PROJECT: 'config:save-project',
   CONFIG_CREATE_PROJECT: 'config:create-project',
   CONFIG_FIND_PROJECT: 'config:find-project',
+
+  // Instruction inspection and migration
   INSTRUCTIONS_RESOLVE: 'instructions:resolve',
   INSTRUCTIONS_CREATE_DRAFT: 'instructions:create-draft',
 
@@ -162,6 +171,16 @@ const IPC_CHANNELS = {
   PLAN_MODE_APPROVE: 'plan:approve',
   PLAN_MODE_UPDATE: 'plan:update',
   PLAN_MODE_GET_STATE: 'plan:get-state',
+
+  // User action requests (orchestrator -> user)
+  USER_ACTION_REQUEST: 'user-action:request',
+  USER_ACTION_RESPOND: 'user-action:respond',
+  USER_ACTION_LIST: 'user-action:list',
+  USER_ACTION_LIST_FOR_INSTANCE: 'user-action:list-for-instance',
+
+  // Input required events (CLI permission prompts, etc.)
+  INPUT_REQUIRED: 'instance:input-required',
+  INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
 
   // VCS operations (Git)
   VCS_IS_REPO: 'vcs:is-repo',
@@ -198,25 +217,6 @@ const IPC_CHANNELS = {
   TODO_GET_CURRENT: 'todo:get-current',
   TODO_LIST_CHANGED: 'todo:list-changed',
 
-  // MCP operations
-  MCP_GET_STATE: 'mcp:get-state',
-  MCP_GET_SERVERS: 'mcp:get-servers',
-  MCP_ADD_SERVER: 'mcp:add-server',
-  MCP_REMOVE_SERVER: 'mcp:remove-server',
-  MCP_CONNECT: 'mcp:connect',
-  MCP_DISCONNECT: 'mcp:disconnect',
-  MCP_RESTART: 'mcp:restart',
-  MCP_GET_TOOLS: 'mcp:get-tools',
-  MCP_GET_RESOURCES: 'mcp:get-resources',
-  MCP_GET_PROMPTS: 'mcp:get-prompts',
-  MCP_CALL_TOOL: 'mcp:call-tool',
-  MCP_READ_RESOURCE: 'mcp:read-resource',
-  MCP_GET_PROMPT: 'mcp:get-prompt',
-  MCP_GET_PRESETS: 'mcp:get-presets',
-  MCP_GET_BROWSER_AUTOMATION_HEALTH: 'mcp:get-browser-automation-health',
-  MCP_STATE_CHANGED: 'mcp:state-changed',
-  MCP_SERVER_STATUS_CHANGED: 'mcp:server-status-changed',
-
   // LSP operations
   LSP_GET_AVAILABLE_SERVERS: 'lsp:get-available-servers',
   LSP_GET_STATUS: 'lsp:get-status',
@@ -239,6 +239,25 @@ const IPC_CHANNELS = {
   BASH_ADD_ALLOWED: 'bash:add-allowed',
   BASH_ADD_BLOCKED: 'bash:add-blocked',
 
+  // MCP operations
+  MCP_GET_STATE: 'mcp:get-state',
+  MCP_GET_SERVERS: 'mcp:get-servers',
+  MCP_ADD_SERVER: 'mcp:add-server',
+  MCP_REMOVE_SERVER: 'mcp:remove-server',
+  MCP_CONNECT: 'mcp:connect',
+  MCP_DISCONNECT: 'mcp:disconnect',
+  MCP_RESTART: 'mcp:restart',
+  MCP_GET_TOOLS: 'mcp:get-tools',
+  MCP_GET_RESOURCES: 'mcp:get-resources',
+  MCP_GET_PROMPTS: 'mcp:get-prompts',
+  MCP_CALL_TOOL: 'mcp:call-tool',
+  MCP_READ_RESOURCE: 'mcp:read-resource',
+  MCP_GET_PROMPT: 'mcp:get-prompt',
+  MCP_GET_PRESETS: 'mcp:get-presets',
+  MCP_GET_BROWSER_AUTOMATION_HEALTH: 'mcp:get-browser-automation-health',
+  MCP_STATE_CHANGED: 'mcp:state-changed',
+  MCP_SERVER_STATUS_CHANGED: 'mcp:server-status-changed',
+
   // Task management (subagent spawning)
   TASK_GET_STATUS: 'task:get-status',
   TASK_GET_HISTORY: 'task:get-history',
@@ -247,6 +266,9 @@ const IPC_CHANNELS = {
   TASK_CANCEL: 'task:cancel',
   TASK_GET_QUEUE: 'task:get-queue',
   TASK_GET_PREFLIGHT: 'task:get-preflight',
+  TASK_COMPLETE: 'task:complete',
+  TASK_PROGRESS: 'task:progress',
+  TASK_ERROR: 'task:error',
 
   // Background repo jobs
   REPO_JOB_SUBMIT: 'repo-job:submit',
@@ -262,15 +284,52 @@ const IPC_CHANNELS = {
   SECURITY_CHECK_FILE: 'security:check-file',
   SECURITY_GET_AUDIT_LOG: 'security:get-audit-log',
   SECURITY_CLEAR_AUDIT_LOG: 'security:clear-audit-log',
-  SECURITY_GET_PERMISSION_CONFIG: 'security:get-permission-config',
-  SECURITY_SET_PERMISSION_PRESET: 'security:set-permission-preset',
 
   // Security - Environment filtering
   SECURITY_GET_SAFE_ENV: 'security:get-safe-env',
   SECURITY_CHECK_ENV_VAR: 'security:check-env-var',
   SECURITY_GET_ENV_FILTER_CONFIG: 'security:get-env-filter-config',
+  SECURITY_UPDATE_ENV_FILTER_CONFIG: 'security:update-env-filter-config',
+  SECURITY_GET_PERMISSION_CONFIG: 'security:get-permission-config',
+  SECURITY_SET_PERMISSION_PRESET: 'security:set-permission-preset',
 
-  // Remote observer
+  // Cost Tracking (5.3)
+  COST_RECORD_USAGE: 'cost:record-usage',
+  COST_GET_SUMMARY: 'cost:get-summary',
+  COST_GET_HISTORY: 'cost:get-history',
+  COST_GET_SESSION_COST: 'cost:get-session-cost',
+  COST_GET_BUDGET: 'cost:get-budget',
+  COST_SET_BUDGET: 'cost:set-budget',
+  COST_GET_BUDGET_STATUS: 'cost:get-budget-status',
+  COST_GET_ENTRIES: 'cost:get-entries',
+  COST_CLEAR_ENTRIES: 'cost:clear-entries',
+  COST_BUDGET_ALERT: 'cost:budget-alert',
+
+  // Session Archiving (1.3)
+  ARCHIVE_SESSION: 'archive:session',
+  ARCHIVE_RESTORE: 'archive:restore',
+  ARCHIVE_DELETE: 'archive:delete',
+  ARCHIVE_LIST: 'archive:list',
+  ARCHIVE_SEARCH: 'archive:search',
+  ARCHIVE_GET_META: 'archive:get-meta',
+  ARCHIVE_UPDATE_TAGS: 'archive:update-tags',
+  ARCHIVE_GET_STATS: 'archive:get-stats',
+  ARCHIVE_CLEANUP: 'archive:cleanup',
+
+  // Remote Configuration (6.2)
+  REMOTE_CONFIG_FETCH: 'remote-config:fetch',
+  REMOTE_CONFIG_FETCH_URL: 'remote-config:fetch-url',
+  REMOTE_CONFIG_FETCH_WELL_KNOWN: 'remote-config:fetch-well-known',
+  REMOTE_CONFIG_FETCH_GITHUB: 'remote-config:fetch-github',
+  REMOTE_CONFIG_DISCOVER_GIT: 'remote-config:discover-git',
+  REMOTE_CONFIG_GET: 'remote-config:get',
+  REMOTE_CONFIG_GET_CACHED: 'remote-config:get-cached',
+  REMOTE_CONFIG_SET_SOURCE: 'remote-config:set-source',
+  REMOTE_CONFIG_STATUS: 'remote-config:status',
+  REMOTE_CONFIG_CLEAR_CACHE: 'remote-config:clear-cache',
+  REMOTE_CONFIG_INVALIDATE: 'remote-config:invalidate',
+
+  // Remote observer / read-only access
   REMOTE_OBSERVER_GET_STATUS: 'remote-observer:get-status',
   REMOTE_OBSERVER_START: 'remote-observer:start',
   REMOTE_OBSERVER_STOP: 'remote-observer:stop',
@@ -288,89 +347,93 @@ const IPC_CHANNELS = {
   REMOTE_NODE_REVOKE: 'remote-node:revoke',
   REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
 
-  // Cost Tracking (5.3)
-  COST_RECORD_USAGE: 'cost:record-usage',
-  COST_GET_SUMMARY: 'cost:get-summary',
-  COST_GET_HISTORY: 'cost:get-history',
-  COST_SET_BUDGET: 'cost:set-budget',
-  COST_GET_BUDGET_STATUS: 'cost:get-budget-status',
-
-  // Session Archive (1.3)
-  ARCHIVE_SESSION: 'archive:session',
-  ARCHIVE_LIST: 'archive:list',
-  ARCHIVE_RESTORE: 'archive:restore',
-  ARCHIVE_DELETE: 'archive:delete',
-  ARCHIVE_SEARCH: 'archive:search',
-
-  // Remote Config (6.2)
-  REMOTE_CONFIG_FETCH: 'remote-config:fetch',
-  REMOTE_CONFIG_GET: 'remote-config:get',
-  REMOTE_CONFIG_SET_SOURCE: 'remote-config:set-source',
-  REMOTE_CONFIG_STATUS: 'remote-config:status',
-
   // External Editor (9.2)
   EDITOR_DETECT: 'editor:detect',
   EDITOR_OPEN: 'editor:open',
-  EDITOR_GET_AVAILABLE: 'editor:get-available',
+  EDITOR_OPEN_FILE: 'editor:open-file',
+  EDITOR_OPEN_FILE_AT_LINE: 'editor:open-file-at-line',
+  EDITOR_OPEN_DIRECTORY: 'editor:open-directory',
+  EDITOR_SET_PREFERRED: 'editor:set-preferred',
   EDITOR_SET_DEFAULT: 'editor:set-default',
+  EDITOR_GET_PREFERRED: 'editor:get-preferred',
   EDITOR_GET_DEFAULT: 'editor:get-default',
+  EDITOR_GET_AVAILABLE: 'editor:get-available',
 
   // File Watcher (10.1)
+  WATCHER_START: 'watcher:start',
+  WATCHER_STOP: 'watcher:stop',
+  WATCHER_STOP_ALL: 'watcher:stop-all',
   WATCHER_WATCH: 'watcher:watch',
   WATCHER_UNWATCH: 'watcher:unwatch',
   WATCHER_GET_ACTIVE: 'watcher:get-active',
+  WATCHER_GET_SESSIONS: 'watcher:get-sessions',
+  WATCHER_GET_CHANGES: 'watcher:get-changes',
+  WATCHER_CLEAR_BUFFER: 'watcher:clear-buffer',
+  WATCHER_FILE_CHANGED: 'watcher:file-changed',
 
-  // Logging (13.1)
+  // Structured Logging (13.1)
   LOG_MESSAGE: 'log:message',
   LOG_GET_LOGS: 'log:get-logs',
+  LOG_GET_RECENT: 'log:get-recent',
+  LOG_GET_CONFIG: 'log:get-config',
   LOG_SET_LEVEL: 'log:set-level',
-  LOG_EXPORT: 'log:export',
+  LOG_SET_SUBSYSTEM_LEVEL: 'log:set-subsystem-level',
   LOG_CLEAR: 'log:clear',
+  LOG_CLEAR_BUFFER: 'log:clear-buffer',
+  LOG_EXPORT: 'log:export',
+  LOG_GET_SUBSYSTEMS: 'log:get-subsystems',
+  LOG_GET_FILES: 'log:get-files',
 
   // Debug Commands (13.2)
   DEBUG_EXECUTE: 'debug:execute',
   DEBUG_GET_COMMANDS: 'debug:get-commands',
   DEBUG_GET_INFO: 'debug:get-info',
   DEBUG_RUN_DIAGNOSTICS: 'debug:run-diagnostics',
+  DEBUG_AGENT: 'debug:agent',
+  DEBUG_CONFIG: 'debug:config',
+  DEBUG_FILE: 'debug:file',
+  DEBUG_MEMORY: 'debug:memory',
+  DEBUG_SYSTEM: 'debug:system',
+  DEBUG_PROCESS: 'debug:process',
+  DEBUG_ALL: 'debug:all',
+  DEBUG_GET_MEMORY_HISTORY: 'debug:get-memory-history',
+  DEBUG_CLEAR_MEMORY_HISTORY: 'debug:clear-memory-history',
 
-  // Usage Stats (14.1)
+  // Usage Statistics (14.1)
+  STATS_GET: 'stats:get',
+  STATS_GET_STATS: 'stats:get-stats',
+  STATS_GET_SESSION: 'stats:get-session',
+  STATS_GET_ACTIVE_SESSIONS: 'stats:get-active-sessions',
+  STATS_GET_TOOL_USAGE: 'stats:get-tool-usage',
   STATS_RECORD_SESSION_START: 'stats:record-session-start',
   STATS_RECORD_SESSION_END: 'stats:record-session-end',
   STATS_RECORD_MESSAGE: 'stats:record-message',
   STATS_RECORD_TOOL_USAGE: 'stats:record-tool-usage',
-  STATS_GET_STATS: 'stats:get-stats',
   STATS_EXPORT: 'stats:export',
+  STATS_CLEAR: 'stats:clear',
+  STATS_GET_STORAGE: 'stats:get-storage',
 
   // Semantic Search (4.7)
   SEARCH_SEMANTIC: 'search:semantic',
   SEARCH_BUILD_INDEX: 'search:build-index',
-  SEARCH_CONFIGURE_EXA: 'search:configure-exa',
+  SEARCH_CLEAR_INDEX: 'search:clear-index',
   SEARCH_GET_INDEX_STATS: 'search:get-index-stats',
-
-  // Codebase Indexing
-  CODEBASE_INDEX_STORE: 'codebase:index:store',
-  CODEBASE_INDEX_FILE: 'codebase:index:file',
-  CODEBASE_INDEX_CANCEL: 'codebase:index:cancel',
-  CODEBASE_INDEX_STATUS: 'codebase:index:status',
-  CODEBASE_INDEX_STATS: 'codebase:index:stats',
-  CODEBASE_INDEX_PROGRESS: 'codebase:index:progress',
-  CODEBASE_SEARCH: 'codebase:search',
-  CODEBASE_SEARCH_SYMBOLS: 'codebase:search:symbols',
-  CODEBASE_WATCHER_START: 'codebase:watcher:start',
-  CODEBASE_WATCHER_STOP: 'codebase:watcher:stop',
-  CODEBASE_WATCHER_STATUS: 'codebase:watcher:status',
-  CODEBASE_WATCHER_CHANGES: 'codebase:watcher:changes',
+  SEARCH_CONFIGURE_EXA: 'search:configure-exa',
+  SEARCH_IS_EXA_CONFIGURED: 'search:is-exa-configured',
 
   // Provider Plugins (12.2)
   PLUGINS_DISCOVER: 'plugins:discover',
   PLUGINS_LOAD: 'plugins:load',
   PLUGINS_UNLOAD: 'plugins:unload',
+  PLUGINS_GET: 'plugins:get',
+  PLUGINS_GET_ALL: 'plugins:get-all',
+  PLUGINS_GET_LOADED: 'plugins:get-loaded',
+  PLUGINS_GET_META: 'plugins:get-meta',
   PLUGINS_INSTALL: 'plugins:install',
   PLUGINS_UNINSTALL: 'plugins:uninstall',
-  PLUGINS_GET_LOADED: 'plugins:get-loaded',
   PLUGINS_CREATE_TEMPLATE: 'plugins:create-template',
 
-  // Phase 6: Workflows (6.1)
+  // Workflow operations (6.1)
   WORKFLOW_LIST_TEMPLATES: 'workflow:list-templates',
   WORKFLOW_GET_TEMPLATE: 'workflow:get-template',
   WORKFLOW_START: 'workflow:start',
@@ -381,8 +444,12 @@ const IPC_CHANNELS = {
   WORKFLOW_SKIP_PHASE: 'workflow:skip-phase',
   WORKFLOW_CANCEL: 'workflow:cancel',
   WORKFLOW_GET_PROMPT_ADDITION: 'workflow:get-prompt-addition',
+  WORKFLOW_STARTED: 'workflow:started',
+  WORKFLOW_COMPLETED: 'workflow:completed',
+  WORKFLOW_PHASE_CHANGED: 'workflow:phase-changed',
+  WORKFLOW_GATE_PENDING: 'workflow:gate-pending',
 
-  // Phase 6: Review Agents (6.2)
+  // Review agent operations (6.2)
   REVIEW_LIST_AGENTS: 'review:list-agents',
   REVIEW_GET_AGENT: 'review:get-agent',
   REVIEW_START_SESSION: 'review:start-session',
@@ -392,7 +459,7 @@ const IPC_CHANNELS = {
   REVIEW_SESSION_STARTED: 'review:session-started',
   REVIEW_SESSION_COMPLETED: 'review:session-completed',
 
-  // Phase 6: Hooks (6.3)
+  // Hook operations (6.3)
   HOOKS_LIST: 'hooks:list',
   HOOKS_GET: 'hooks:get',
   HOOKS_CREATE: 'hooks:create',
@@ -404,8 +471,9 @@ const IPC_CHANNELS = {
   HOOK_APPROVALS_LIST: 'hooks:approvals:list',
   HOOK_APPROVALS_UPDATE: 'hooks:approvals:update',
   HOOK_APPROVALS_CLEAR: 'hooks:approvals:clear',
+  HOOKS_TRIGGERED: 'hooks:triggered',
 
-  // Phase 6: Skills (6.4)
+  // Skill operations (6.4)
   SKILLS_DISCOVER: 'skills:discover',
   SKILLS_LIST: 'skills:list',
   SKILLS_GET: 'skills:get',
@@ -416,7 +484,7 @@ const IPC_CHANNELS = {
   SKILLS_MATCH: 'skills:match',
   SKILLS_GET_MEMORY: 'skills:get-memory',
 
-  // Phase 7: Worktrees (7.1)
+  // Git Worktree operations (7.1)
   WORKTREE_CREATE: 'worktree:create',
   WORKTREE_LIST: 'worktree:list',
   WORKTREE_DELETE: 'worktree:delete',
@@ -434,26 +502,39 @@ const IPC_CHANNELS = {
   WORKTREE_SESSION_COMPLETED: 'worktree:session-completed',
   WORKTREE_CONFLICT_DETECTED: 'worktree:conflict-detected',
 
-  // Phase 7: Specialists (7.4)
-  SPECIALIST_LIST: 'specialist:list',
-  SPECIALIST_LIST_BUILTIN: 'specialist:list-builtin',
-  SPECIALIST_LIST_CUSTOM: 'specialist:list-custom',
-  SPECIALIST_GET: 'specialist:get',
-  SPECIALIST_GET_BY_CATEGORY: 'specialist:get-by-category',
-  SPECIALIST_ADD_CUSTOM: 'specialist:add-custom',
-  SPECIALIST_UPDATE_CUSTOM: 'specialist:update-custom',
-  SPECIALIST_REMOVE_CUSTOM: 'specialist:remove-custom',
-  SPECIALIST_RECOMMEND: 'specialist:recommend',
-  SPECIALIST_CREATE_INSTANCE: 'specialist:create-instance',
-  SPECIALIST_GET_INSTANCE: 'specialist:get-instance',
-  SPECIALIST_GET_ACTIVE_INSTANCES: 'specialist:get-active-instances',
-  SPECIALIST_UPDATE_STATUS: 'specialist:update-status',
-  SPECIALIST_ADD_FINDING: 'specialist:add-finding',
-  SPECIALIST_UPDATE_METRICS: 'specialist:update-metrics',
-  SPECIALIST_GET_PROMPT_ADDITION: 'specialist:get-prompt-addition',
+  // Multi-Agent Verification operations (7.2)
+  VERIFY_START: 'verify:start',
+  VERIFY_GET_RESULT: 'verify:get-result',
+  VERIFY_GET_ACTIVE: 'verify:get-active',
+  VERIFY_CANCEL: 'verify:cancel',
+  VERIFY_GET_PERSONALITIES: 'verify:get-personalities',
+  VERIFY_CONFIGURE: 'verify:configure',
+  VERIFY_STARTED: 'verify:started',
+  VERIFY_AGENT_RESPONDED: 'verify:agent-responded',
+  VERIFY_COMPLETED: 'verify:completed',
 
-  // Phase 7: Supervision (7.3)
+  // Verification operations (Phase 8.3 - alternative naming)
+  VERIFICATION_VERIFY_MULTI: 'verification:verify-multi',
+  VERIFICATION_START_CLI: 'verification:start-cli',
+  VERIFICATION_CANCEL: 'verification:cancel',
+  VERIFICATION_GET_ACTIVE: 'verification:get-active',
+  VERIFICATION_GET_RESULT: 'verification:get-result',
+
+  // Verification (streaming events)
+  VERIFICATION_AGENT_START: 'verification:agent-start',
+  VERIFICATION_AGENT_STREAM: 'verification:agent-stream',
+  VERIFICATION_AGENT_COMPLETE: 'verification:agent-complete',
+  VERIFICATION_AGENT_ERROR: 'verification:agent-error',
+  VERIFICATION_ROUND_PROGRESS: 'verification:round-progress',
+  VERIFICATION_CONSENSUS_UPDATE: 'verification:consensus-update',
+  VERIFICATION_COMPLETE: 'verification:complete',
+  VERIFICATION_ERROR: 'verification:error',
+
+  // Cascade Supervision operations (7.3)
   SUPERVISION_CREATE_TREE: 'supervision:create-tree',
+  SUPERVISION_ADD_WORKER: 'supervision:add-worker',
+  SUPERVISION_START_WORKER: 'supervision:start-worker',
+  SUPERVISION_STOP_WORKER: 'supervision:stop-worker',
   SUPERVISION_HANDLE_FAILURE: 'supervision:handle-failure',
   SUPERVISION_GET_TREE: 'supervision:get-tree',
   SUPERVISION_GET_HEALTH: 'supervision:get-health',
@@ -467,7 +548,7 @@ const IPC_CHANNELS = {
   SUPERVISION_WORKER_RESTARTED: 'supervision:worker-restarted',
   SUPERVISION_CIRCUIT_BREAKER_CHANGED: 'supervision:circuit-breaker-changed',
 
-  // Phase 8: RLM Context (8.1)
+  // RLM Context Management operations (8.1)
   RLM_CREATE_STORE: 'rlm:create-store',
   RLM_ADD_SECTION: 'rlm:add-section',
   RLM_REMOVE_SECTION: 'rlm:remove-section',
@@ -487,7 +568,40 @@ const IPC_CHANNELS = {
   RLM_GET_PATTERNS: 'rlm:get-patterns',
   RLM_GET_STRATEGY_SUGGESTIONS: 'rlm:get-strategy-suggestions',
 
-  // Phase 9: Memory-R1 (9.1)
+  // RLM analytics
+  RLM_GET_TOKEN_SAVINGS_HISTORY: 'rlm:get-token-savings-history',
+  RLM_GET_QUERY_STATS: 'rlm:get-query-stats',
+  RLM_GET_STORAGE_STATS: 'rlm:get-storage-stats',
+
+  // Self-Improvement operations (8.2)
+  LEARNING_RECORD_OUTCOME: 'learning:record-outcome',
+  LEARNING_GET_OUTCOME: 'learning:get-outcome',
+  LEARNING_GET_RECENT_OUTCOMES: 'learning:get-recent-outcomes',
+  LEARNING_GET_EXPERIENCE: 'learning:get-experience',
+  LEARNING_GET_ALL_EXPERIENCES: 'learning:get-all-experiences',
+  LEARNING_GET_INSIGHTS: 'learning:get-insights',
+  LEARNING_GET_PATTERNS: 'learning:get-patterns',
+  LEARNING_GET_SUGGESTIONS: 'learning:get-suggestions',
+  LEARNING_GET_RECOMMENDATION: 'learning:get-recommendation',
+  LEARNING_ENHANCE_PROMPT: 'learning:enhance-prompt',
+  LEARNING_GET_STATS: 'learning:get-stats',
+  LEARNING_GET_TASK_STATS: 'learning:get-task-stats',
+  LEARNING_RATE_OUTCOME: 'learning:rate-outcome',
+  LEARNING_CONFIGURE: 'learning:configure',
+
+  // Model Discovery operations (8.3)
+  MODEL_DISCOVER: 'model:discover',
+  MODEL_GET_ALL: 'model:get-all',
+  MODEL_GET: 'model:get',
+  MODEL_SELECT: 'model:select',
+  MODEL_CONFIGURE_PROVIDER: 'model:configure-provider',
+  MODEL_GET_PROVIDER_STATUS: 'model:get-provider-status',
+  MODEL_GET_STATS: 'model:get-stats',
+  MODEL_VERIFY: 'model:verify',
+  MODEL_SET_OVERRIDE: 'model:set-override',
+  MODEL_REMOVE_OVERRIDE: 'model:remove-override',
+
+  // Memory-R1 operations
   MEMORY_R1_DECIDE_OPERATION: 'memory-r1:decide-operation',
   MEMORY_R1_EXECUTE_OPERATION: 'memory-r1:execute-operation',
   MEMORY_R1_ADD_ENTRY: 'memory-r1:add-entry',
@@ -500,7 +614,7 @@ const IPC_CHANNELS = {
   MEMORY_R1_LOAD: 'memory-r1:load',
   MEMORY_R1_CONFIGURE: 'memory-r1:configure',
 
-  // Phase 9: Unified Memory (9.2)
+  // Unified Memory operations
   UNIFIED_MEMORY_PROCESS_INPUT: 'unified-memory:process-input',
   UNIFIED_MEMORY_RETRIEVE: 'unified-memory:retrieve',
   UNIFIED_MEMORY_RECORD_SESSION_END: 'unified-memory:record-session-end',
@@ -515,14 +629,19 @@ const IPC_CHANNELS = {
   UNIFIED_MEMORY_LOAD: 'unified-memory:load',
   UNIFIED_MEMORY_CONFIGURE: 'unified-memory:configure',
 
-  // Phase 9: Debate (9.3)
+  // Debate operations
   DEBATE_START: 'debate:start',
   DEBATE_GET_RESULT: 'debate:get-result',
   DEBATE_GET_ACTIVE: 'debate:get-active',
   DEBATE_CANCEL: 'debate:cancel',
   DEBATE_GET_STATS: 'debate:get-stats',
+  DEBATE_PAUSE: 'debate:pause',
+  DEBATE_RESUME: 'debate:resume',
+  DEBATE_STOP: 'debate:stop',
+  DEBATE_INTERVENE: 'debate:intervene',
+  DEBATE_EVENT: 'debate:event',
 
-  // Phase 9: Training (9.4)
+  // Training operations (GRPO)
   TRAINING_RECORD_OUTCOME: 'training:record-outcome',
   TRAINING_GET_STATS: 'training:get-stats',
   TRAINING_EXPORT_DATA: 'training:export-data',
@@ -530,137 +649,6 @@ const IPC_CHANNELS = {
   TRAINING_GET_TREND: 'training:get-trend',
   TRAINING_GET_TOP_STRATEGIES: 'training:get-top-strategies',
   TRAINING_CONFIGURE: 'training:configure',
-
-  // Phase 8: Learning (8.2)
-  LEARNING_RECORD_OUTCOME: 'learning:record-outcome',
-  LEARNING_GET_PATTERNS: 'learning:get-patterns',
-  LEARNING_GET_SUGGESTIONS: 'learning:get-suggestions',
-  LEARNING_ENHANCE_PROMPT: 'learning:enhance-prompt',
-
-  // Phase 8: Verification (8.3)
-  VERIFICATION_VERIFY_MULTI: 'verification:verify-multi',
-  VERIFICATION_START_CLI: 'verification:start-cli',
-  VERIFICATION_CANCEL: 'verification:cancel',
-  VERIFICATION_GET_ACTIVE: 'verification:get-active',
-  VERIFICATION_GET_RESULT: 'verification:get-result',
-
-  // Observation Memory
-  OBSERVATION_GET_STATS: 'observation:get-stats',
-  OBSERVATION_GET_REFLECTIONS: 'observation:get-reflections',
-  OBSERVATION_GET_OBSERVATIONS: 'observation:get-observations',
-  OBSERVATION_CONFIGURE: 'observation:configure',
-  OBSERVATION_GET_CONFIG: 'observation:get-config',
-  OBSERVATION_FORCE_REFLECT: 'observation:force-reflect',
-  OBSERVATION_CLEANUP: 'observation:cleanup',
-
-  // A/B Testing
-  AB_CREATE_EXPERIMENT: 'ab:create-experiment',
-  AB_GET_EXPERIMENT: 'ab:get-experiment',
-  AB_LIST_EXPERIMENTS: 'ab:list-experiments',
-  AB_START_EXPERIMENT: 'ab:start-experiment',
-  AB_PAUSE_EXPERIMENT: 'ab:pause-experiment',
-  AB_COMPLETE_EXPERIMENT: 'ab:complete-experiment',
-  AB_GET_VARIANT: 'ab:get-variant',
-  AB_RECORD_OUTCOME: 'ab:record-outcome',
-  AB_GET_RESULTS: 'ab:get-results',
-  AB_GET_WINNER: 'ab:get-winner',
-  AB_GET_STATS: 'ab:get-stats',
-  AB_CONFIGURE: 'ab:configure',
-
-  // Model Discovery
-  MODEL_DISCOVER: 'model:discover',
-  MODEL_VERIFY: 'model:verify',
-  MODEL_SET_OVERRIDE: 'model:set-override',
-  MODEL_REMOVE_OVERRIDE: 'model:remove-override',
-
-  // LLM Service
-  LLM_COUNT_TOKENS: 'llm:count-tokens',
-  LLM_STREAM_CHUNK: 'llm:stream-chunk',
-
-  // Consensus
-  CONSENSUS_QUERY: 'consensus:query',
-  CONSENSUS_ABORT: 'consensus:abort',
-  CONSENSUS_GET_ACTIVE: 'consensus:get-active',
-
-  // Model Routing
-  ROUTING_GET_CONFIG: 'routing:get-config',
-  ROUTING_UPDATE_CONFIG: 'routing:update-config',
-  ROUTING_PREVIEW: 'routing:preview',
-  ROUTING_GET_TIER: 'routing:get-tier',
-
-  // Hot Model Switching
-  HOT_SWITCH_GET_CONFIG: 'hot-switch:get-config',
-  HOT_SWITCH_UPDATE_CONFIG: 'hot-switch:update-config',
-  HOT_SWITCH_PERFORM: 'hot-switch:perform',
-  HOT_SWITCH_GET_STATS: 'hot-switch:get-stats',
-
-  // Cross-Instance Communication
-  COMM_CREATE_BRIDGE: 'comm:create-bridge',
-  COMM_DELETE_BRIDGE: 'comm:delete-bridge',
-  COMM_GET_BRIDGES: 'comm:get-bridges',
-  COMM_SEND_MESSAGE: 'comm:send-message',
-  COMM_GET_MESSAGES: 'comm:get-messages',
-  COMM_SUBSCRIBE: 'comm:subscribe',
-  COMM_REQUEST_TOKEN: 'comm:request-token',
-
-  // Parallel Worktrees
-  PARALLEL_WORKTREE_START: 'parallel-worktree:start',
-  PARALLEL_WORKTREE_GET_STATUS: 'parallel-worktree:get-status',
-  PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
-  PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
-  PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
-
-  // Ecosystem (file-based extensibility)
-  ECOSYSTEM_LIST: 'ecosystem:list',
-  ECOSYSTEM_WATCH_START: 'ecosystem:watch-start',
-  ECOSYSTEM_WATCH_STOP: 'ecosystem:watch-stop',
-  ECOSYSTEM_CHANGED: 'ecosystem:changed',
-
-  // File text operations
-  FILE_READ_TEXT: 'file:read-text',
-  FILE_WRITE_TEXT: 'file:write-text',
-
-  // Editor (extended)
-  EDITOR_OPEN_FILE: 'editor:open-file',
-  EDITOR_OPEN_FILE_AT_LINE: 'editor:open-file-at-line',
-  EDITOR_OPEN_DIRECTORY: 'editor:open-directory',
-  EDITOR_SET_PREFERRED: 'editor:set-preferred',
-  EDITOR_GET_PREFERRED: 'editor:get-preferred',
-
-  // Debate (streaming control)
-  DEBATE_PAUSE: 'debate:pause',
-  DEBATE_RESUME: 'debate:resume',
-  DEBATE_STOP: 'debate:stop',
-  DEBATE_INTERVENE: 'debate:intervene',
-  DEBATE_EVENT: 'debate:event',
-
-  // Verification (streaming events)
-  VERIFICATION_AGENT_START: 'verification:agent-start',
-  VERIFICATION_AGENT_STREAM: 'verification:agent-stream',
-  VERIFICATION_AGENT_COMPLETE: 'verification:agent-complete',
-  VERIFICATION_AGENT_ERROR: 'verification:agent-error',
-  VERIFICATION_ROUND_PROGRESS: 'verification:round-progress',
-  VERIFICATION_CONSENSUS_UPDATE: 'verification:consensus-update',
-  VERIFICATION_COMPLETE: 'verification:complete',
-  VERIFICATION_ERROR: 'verification:error',
-
-  // RLM (push events)
-  RLM_STORE_UPDATED: 'rlm:store-updated',
-  RLM_QUERY_COMPLETE: 'rlm:query-complete',
-  RLM_SECTION_ADDED: 'rlm:section-added',
-  RLM_SECTION_REMOVED: 'rlm:section-removed',
-
-  // RLM analytics
-  RLM_GET_TOKEN_SAVINGS_HISTORY: 'rlm:get-token-savings-history',
-  RLM_GET_QUERY_STATS: 'rlm:get-query-stats',
-  RLM_GET_STORAGE_STATS: 'rlm:get-storage-stats',
-
-  // Learning (extended)
-  LEARNING_GET_INSIGHTS: 'learning:get-insights',
-
-  // A/B testing (extended)
-  AB_UPDATE_EXPERIMENT: 'ab:update-experiment',
-  AB_DELETE_EXPERIMENT: 'ab:delete-experiment',
 
   // Training (extended)
   TRAINING_GET_REWARD_DATA: 'training:get-reward-data',
@@ -673,6 +661,155 @@ const IPC_CHANNELS = {
   TRAINING_DISMISS_INSIGHT: 'training:dismiss-insight',
   TRAINING_UPDATE_CONFIG: 'training:update-config',
 
+  // Specialist operations (7.4)
+  SPECIALIST_LIST: 'specialist:list',
+  SPECIALIST_LIST_BUILTIN: 'specialist:list-builtin',
+  SPECIALIST_LIST_CUSTOM: 'specialist:list-custom',
+  SPECIALIST_GET: 'specialist:get',
+  SPECIALIST_GET_BY_CATEGORY: 'specialist:get-by-category',
+  SPECIALIST_ADD_CUSTOM: 'specialist:add-custom',
+  SPECIALIST_UPDATE_CUSTOM: 'specialist:update-custom',
+  SPECIALIST_REMOVE_CUSTOM: 'specialist:remove-custom',
+  SPECIALIST_RECOMMEND: 'specialist:recommend',
+  SPECIALIST_CREATE_INSTANCE: 'specialist:create-instance',
+  SPECIALIST_GET_INSTANCE: 'specialist:get-instance',
+  SPECIALIST_GET_ACTIVE_INSTANCES: 'specialist:get-active-instances',
+  SPECIALIST_UPDATE_STATUS: 'specialist:update-status',
+  SPECIALIST_ADD_FINDING: 'specialist:add-finding',
+  SPECIALIST_UPDATE_METRICS: 'specialist:update-metrics',
+  SPECIALIST_GET_PROMPT_ADDITION: 'specialist:get-prompt-addition',
+  SPECIALIST_INSTANCE_CREATED: 'specialist:instance-created',
+  SPECIALIST_INSTANCE_STATUS_CHANGED: 'specialist:instance-status-changed',
+  SPECIALIST_FINDING_ADDED: 'specialist:finding-added',
+
+  // LLM Service operations (streaming)
+  LLM_SUMMARIZE: 'llm:summarize',
+  LLM_SUMMARIZE_STREAM: 'llm:summarize-stream',
+  LLM_SUBQUERY: 'llm:subquery',
+  LLM_SUBQUERY_STREAM: 'llm:subquery-stream',
+  LLM_CANCEL_STREAM: 'llm:cancel-stream',
+  LLM_STREAM_CHUNK: 'llm:stream-chunk',
+  LLM_COUNT_TOKENS: 'llm:count-tokens',
+  LLM_TRUNCATE_TOKENS: 'llm:truncate-tokens',
+  LLM_GET_CONFIG: 'llm:get-config',
+  LLM_SET_CONFIG: 'llm:set-config',
+  LLM_GET_STATUS: 'llm:get-status',
+
+  // Codebase Indexing operations
+  CODEBASE_INDEX_STORE: 'codebase:index:store',
+  CODEBASE_INDEX_FILE: 'codebase:index:file',
+  CODEBASE_INDEX_CANCEL: 'codebase:index:cancel',
+  CODEBASE_INDEX_STATUS: 'codebase:index:status',
+  CODEBASE_INDEX_STATS: 'codebase:index:stats',
+  CODEBASE_INDEX_PROGRESS: 'codebase:index:progress',
+  CODEBASE_SEARCH: 'codebase:search',
+  CODEBASE_SEARCH_SYMBOLS: 'codebase:search:symbols',
+  CODEBASE_WATCHER_START: 'codebase:watcher:start',
+  CODEBASE_WATCHER_STOP: 'codebase:watcher:stop',
+  CODEBASE_WATCHER_STATUS: 'codebase:watcher:status',
+  CODEBASE_WATCHER_CHANGES: 'codebase:watcher:changes',
+
+  // A/B Testing operations (Phase 6)
+  AB_CREATE_EXPERIMENT: 'ab:create-experiment',
+  AB_UPDATE_EXPERIMENT: 'ab:update-experiment',
+  AB_DELETE_EXPERIMENT: 'ab:delete-experiment',
+  AB_START_EXPERIMENT: 'ab:start-experiment',
+  AB_PAUSE_EXPERIMENT: 'ab:pause-experiment',
+  AB_COMPLETE_EXPERIMENT: 'ab:complete-experiment',
+  AB_GET_EXPERIMENT: 'ab:get-experiment',
+  AB_LIST_EXPERIMENTS: 'ab:list-experiments',
+  AB_GET_VARIANT: 'ab:get-variant',
+  AB_RECORD_OUTCOME: 'ab:record-outcome',
+  AB_GET_RESULTS: 'ab:get-results',
+  AB_GET_WINNER: 'ab:get-winner',
+  AB_GET_STATS: 'ab:get-stats',
+  AB_CONFIGURE: 'ab:configure',
+
+  // Observation Memory operations
+  OBSERVATION_GET_STATS: 'observation:get-stats',
+  OBSERVATION_GET_REFLECTIONS: 'observation:get-reflections',
+  OBSERVATION_GET_OBSERVATIONS: 'observation:get-observations',
+  OBSERVATION_CONFIGURE: 'observation:configure',
+  OBSERVATION_GET_CONFIG: 'observation:get-config',
+  OBSERVATION_FORCE_REFLECT: 'observation:force-reflect',
+  OBSERVATION_CLEANUP: 'observation:cleanup',
+
+  // Recent Directories operations
+  RECENT_DIRS_GET: 'recent-dirs:get',
+  RECENT_DIRS_ADD: 'recent-dirs:add',
+  RECENT_DIRS_REMOVE: 'recent-dirs:remove',
+  RECENT_DIRS_PIN: 'recent-dirs:pin',
+  RECENT_DIRS_REORDER: 'recent-dirs:reorder',
+  RECENT_DIRS_CLEAR: 'recent-dirs:clear',
+
+  // Plugin lifecycle events (renderer-bound)
+  PLUGINS_LOADED: 'plugins:loaded',
+  PLUGINS_UNLOADED: 'plugins:unloaded',
+  PLUGINS_ERROR: 'plugins:error',
+
+  // File watcher events (renderer-bound)
+  WATCHER_ERROR: 'watcher:error',
+
+  // Cost events (renderer-bound)
+  COST_USAGE_RECORDED: 'cost:usage-recorded',
+
+  // RLM events (renderer-bound)
+  RLM_STORE_UPDATED: 'rlm:store-updated',
+  RLM_SECTION_ADDED: 'rlm:section-added',
+  RLM_SECTION_REMOVED: 'rlm:section-removed',
+  RLM_QUERY_COMPLETE: 'rlm:query-complete',
+
+  // User action response (renderer → main)
+  USER_ACTION_RESPONSE: 'user-action-response',
+
+  // Menu events (renderer-bound)
+  MENU_NEW_INSTANCE: 'menu:new-instance',
+
+  // Consensus operations
+  CONSENSUS_QUERY: 'consensus:query',
+  CONSENSUS_ABORT: 'consensus:abort',
+  CONSENSUS_GET_ACTIVE: 'consensus:get-active',
+
+  // Model routing operations
+  ROUTING_GET_CONFIG: 'routing:get-config',
+  ROUTING_UPDATE_CONFIG: 'routing:update-config',
+  ROUTING_PREVIEW: 'routing:preview',
+  ROUTING_GET_TIER: 'routing:get-tier',
+  HOT_SWITCH_GET_CONFIG: 'hot-switch:get-config',
+  HOT_SWITCH_UPDATE_CONFIG: 'hot-switch:update-config',
+  HOT_SWITCH_PERFORM: 'hot-switch:perform',
+  HOT_SWITCH_GET_STATS: 'hot-switch:get-stats',
+
+  // Parallel worktree operations
+  PARALLEL_WORKTREE_START: 'parallel-worktree:start',
+  PARALLEL_WORKTREE_GET_STATUS: 'parallel-worktree:get-status',
+  PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
+  PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
+  PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
+  PARALLEL_WORKTREE_RESOLVE_CONFLICT: 'parallel-worktree:resolve-conflict',
+  PARALLEL_WORKTREE_MERGE: 'parallel-worktree:merge',
+
+  // Event forwarding channels (main → renderer)
+  DEBATE_EVENT_STARTED: 'debate:event:started',
+  DEBATE_EVENT_ROUND_COMPLETE: 'debate:event:round-complete',
+  DEBATE_EVENT_COMPLETED: 'debate:event:completed',
+  DEBATE_EVENT_ERROR: 'debate:event:error',
+  DEBATE_EVENT_PAUSED: 'debate:event:paused',
+  DEBATE_EVENT_RESUMED: 'debate:event:resumed',
+
+  VERIFICATION_EVENT_STARTED: 'verification:event:started',
+  VERIFICATION_EVENT_PROGRESS: 'verification:event:progress',
+  VERIFICATION_EVENT_COMPLETED: 'verification:event:completed',
+  VERIFICATION_EVENT_ERROR: 'verification:event:error',
+
+  TRAINING_EVENT_STARTED: 'training:event:started',
+  TRAINING_EVENT_COMPLETED: 'training:event:completed',
+  TRAINING_EVENT_ERROR: 'training:event:error',
+
+  HOT_SWITCH_EVENT_STARTED: 'hot-switch:event:started',
+  HOT_SWITCH_EVENT_COMPLETED: 'hot-switch:event:completed',
+  HOT_SWITCH_EVENT_FAILED: 'hot-switch:event:failed',
+
   // Cross-Model Review
   CROSS_MODEL_REVIEW_RESULT: 'cross-model-review:result',
   CROSS_MODEL_REVIEW_STARTED: 'cross-model-review:started',
@@ -681,7 +818,12 @@ const IPC_CHANNELS = {
   CROSS_MODEL_REVIEW_DISMISS: 'cross-model-review:dismiss',
   CROSS_MODEL_REVIEW_ACTION: 'cross-model-review:action',
 
-  // Channels (Discord/WhatsApp)
+  // Token Stats operations
+  TOKEN_STATS_GET_SUMMARY: 'token-stats:get-summary',
+  TOKEN_STATS_GET_RECENT: 'token-stats:get-recent',
+  TOKEN_STATS_CLEANUP: 'token-stats:cleanup',
+
+  // Channel management (request/response)
   CHANNEL_CONNECT: 'channel:connect',
   CHANNEL_DISCONNECT: 'channel:disconnect',
   CHANNEL_GET_STATUS: 'channel:get-status',
@@ -690,11 +832,24 @@ const IPC_CHANNELS = {
   CHANNEL_PAIR_SENDER: 'channel:pair-sender',
   CHANNEL_SET_ACCESS_POLICY: 'channel:set-access-policy',
   CHANNEL_GET_ACCESS_POLICY: 'channel:get-access-policy',
-  // Channel events (main -> renderer)
+
+  // Channel push events (main -> renderer)
   CHANNEL_STATUS_CHANGED: 'channel:status-changed',
   CHANNEL_MESSAGE_RECEIVED: 'channel:message-received',
   CHANNEL_RESPONSE_SENT: 'channel:response-sent',
   CHANNEL_ERROR: 'channel:error',
+
+  // Reaction Engine
+  REACTION_GET_CONFIG: 'reaction:get-config',
+  REACTION_UPDATE_CONFIG: 'reaction:update-config',
+  REACTION_TRACK_INSTANCE: 'reaction:track-instance',
+  REACTION_UNTRACK_INSTANCE: 'reaction:untrack-instance',
+  REACTION_GET_TRACKED: 'reaction:get-tracked',
+  REACTION_GET_STATE: 'reaction:get-state',
+
+  // Reaction Engine push events (main -> renderer)
+  REACTION_EVENT: 'reaction:event',
+  REACTION_ESCALATED: 'reaction:escalated',
 
   // Remote Filesystem operations
   REMOTE_FS_READ_DIR: 'remote-fs:read-dir',

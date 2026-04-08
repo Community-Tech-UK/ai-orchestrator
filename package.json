@@ -30,6 +30,7 @@
     "test:load": "vitest run src/main/indexing/__tests__/load/",
     "lint": "ng lint",
     "verify:ipc": "node scripts/verify-ipc-channels.js",
+    "generate:ipc": "node scripts/generate-preload-channels.js",
     "postinstall": "node scripts/rebuild-native-modules.js",
     "rebuild:native": "node scripts/rebuild-native-modules.js",
     "build:worker-agent": "tsx build-worker-agent.ts"
