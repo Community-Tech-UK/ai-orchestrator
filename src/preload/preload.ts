@@ -7,8 +7,7 @@
 
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
-// IPC Channel names - must match main process exactly
-// (Duplicated here because preload can't import from shared)
+// --- GENERATED: IPC_CHANNELS START (do not edit manually — run `npm run generate:ipc`) ---
 const IPC_CHANNELS = {
   // Instance management
   INSTANCE_CREATE: 'instance:create',
@@ -100,6 +99,8 @@ const IPC_CHANNELS = {
   SETTINGS_RESET: 'settings:reset',
   SETTINGS_RESET_ONE: 'settings:reset-one',
   SETTINGS_CHANGED: 'settings:changed',
+  SETTINGS_EXPORT: 'settings:export',
+  SETTINGS_IMPORT: 'settings:import',
 
   // Memory management
   MEMORY_GET_STATS: 'memory:get-stats',
@@ -702,6 +703,7 @@ const IPC_CHANNELS = {
   REMOTE_FS_WATCH: 'remote-fs:watch',
   REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
 } as const;
+// --- GENERATED: IPC_CHANNELS END ---
 
 
 // Response type
@@ -1435,6 +1437,20 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.SETTINGS_CHANGED, handler);
     return () =>
       ipcRenderer.removeListener(IPC_CHANNELS.SETTINGS_CHANGED, handler);
+  },
+
+  /**
+   * Export all settings to a JSON file (shows save dialog)
+   */
+  exportSettings: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_EXPORT);
+  },
+
+  /**
+   * Import settings from a JSON file (shows open dialog)
+   */
+  importSettings: (): Promise<IpcResponse> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_IMPORT);
   },
 
   // ============================================
