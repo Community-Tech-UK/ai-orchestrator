@@ -113,6 +113,13 @@ export class LocalInstanceManager extends EventEmitter {
   async sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) throw new Error(`Instance not found: ${instanceId}`);
+    console.log('[LocalInstanceManager] sendInput', {
+      instanceId,
+      messageLength: message?.length,
+      attachmentsCount: attachments?.length ?? 0,
+      attachmentTypes: attachments?.map(a => a.type),
+      attachmentDataLengths: attachments?.map(a => a.data?.length ?? 0),
+    });
     await inst.adapter.sendInput(message, attachments);
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReviewerPool } from './reviewer-pool';
 
 vi.mock('../logging/logger', () => ({
@@ -12,10 +12,18 @@ vi.mock('../logging/logger', () => ({
 
 describe('ReviewerPool', () => {
   let pool: ReviewerPool;
+  let now: number;
 
   beforeEach(() => {
+    now = 1_700_000_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
     pool = new ReviewerPool();
     pool.setAvailable(['gemini', 'codex', 'copilot']);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('selectReviewers', () => {
@@ -77,6 +85,19 @@ describe('ReviewerPool', () => {
       const selected = pool.selectReviewers('claude', 3);
       expect(selected).toContain('gemini');
     });
+
+    it('keeps failed reviewers out of rotation until the cooldown expires', () => {
+      pool.recordFailure('gemini');
+      pool.recordFailure('gemini');
+      pool.recordFailure('gemini');
+
+      pool.setAvailable(['gemini', 'codex', 'copilot']);
+      expect(pool.selectReviewers('claude', 3)).not.toContain('gemini');
+
+      vi.setSystemTime(now + 5 * 60_000 + 1);
+      pool.setAvailable(['gemini', 'codex', 'copilot']);
+      expect(pool.selectReviewers('claude', 3)).toContain('gemini');
+    });
   });
 
   describe('rate limit recovery', () => {
@@ -85,6 +106,22 @@ describe('ReviewerPool', () => {
       pool.checkRateLimitRecovery();
       const selected = pool.selectReviewers('claude', 3);
       expect(selected).toContain('gemini');
+    });
+  });
+
+  describe('availability recovery', () => {
+    it('only restores failed reviewers after the next availability refresh', () => {
+      pool.recordFailure('gemini');
+      pool.recordFailure('gemini');
+      pool.recordFailure('gemini');
+
+      vi.setSystemTime(now + 5 * 60_000 + 1);
+      pool.checkAvailabilityRecovery();
+      expect(pool.selectReviewers('claude', 3)).not.toContain('gemini');
+
+      pool.setAvailable(['gemini', 'codex', 'copilot']);
+
+      expect(pool.selectReviewers('claude', 3)).toContain('gemini');
     });
   });
 

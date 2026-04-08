@@ -33,6 +33,8 @@ const logger = getLogger('CrossModelReviewService');
 const MIN_COOLDOWN_MS = 10_000;
 const MAX_REVIEW_HISTORY = 50;
 const RATE_LIMIT_CHECK_INTERVAL_MS = 30_000;
+const AVAILABILITY_REFRESH_INTERVAL_MS = 5 * 60_000;
+const SUPPORTED_REVIEWER_CLIS = new Set(['gemini', 'codex', 'copilot']);
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
@@ -50,6 +52,7 @@ export class CrossModelReviewService extends EventEmitter {
   private pendingReviews = new Map<string, AbortController>();
   private pendingReviewInstances = new Map<string, string>();
   private rateLimitTimer: ReturnType<typeof setInterval> | null = null;
+  private availabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
 
   static getInstance(): CrossModelReviewService {
@@ -77,7 +80,11 @@ export class CrossModelReviewService extends EventEmitter {
     await this.refreshAvailability();
     this.rateLimitTimer = setInterval(() => {
       this.reviewerPool.checkRateLimitRecovery();
+      this.reviewerPool.checkAvailabilityRecovery();
     }, RATE_LIMIT_CHECK_INTERVAL_MS);
+    this.availabilityRefreshTimer = setInterval(() => {
+      void this.refreshAvailability();
+    }, AVAILABILITY_REFRESH_INTERVAL_MS);
     logger.info('CrossModelReviewService initialized', {
       reviewers: this.reviewerPool.getStatus(),
     });
@@ -515,9 +522,12 @@ export class CrossModelReviewService extends EventEmitter {
     try {
       const detection = CliDetectionService.getInstance();
       const result = await detection.detectAll();
-      const available = result.available.map(c => c.name);
+      const available = result.available
+        .map(c => c.name)
+        .filter(cliType => SUPPORTED_REVIEWER_CLIS.has(cliType));
       const settings = getSettingsManager().getAll();
-      const configured = settings.crossModelReviewProviders as string[];
+      const configured = (settings.crossModelReviewProviders as string[])
+        .filter(cliType => SUPPORTED_REVIEWER_CLIS.has(cliType));
       const effectiveList = configured.length > 0
         ? configured.filter(p => available.includes(p))
         : available;
@@ -561,6 +571,8 @@ export class CrossModelReviewService extends EventEmitter {
   shutdown(): void {
     if (this.rateLimitTimer) clearInterval(this.rateLimitTimer);
     this.rateLimitTimer = null;
+    if (this.availabilityRefreshTimer) clearInterval(this.availabilityRefreshTimer);
+    this.availabilityRefreshTimer = null;
     for (const abort of this.pendingReviews.values()) abort.abort();
     this.pendingReviews.clear();
     this.pendingReviewInstances.clear();

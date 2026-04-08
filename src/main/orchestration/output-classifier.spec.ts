@@ -11,6 +11,15 @@ describe('OutputClassifier', () => {
       expect(result.shouldReview).toBe(true);
     });
 
+    it('classifies file edit summaries as code even without fenced blocks', () => {
+      const result = classifier.classify(
+        'I updated the implementation by editing `src/main/foo.ts` and creating `src/shared/bar.ts` to support the new flow.'
+      );
+      expect(result.type).toBe('code');
+      expect(result.shouldReview).toBe(true);
+      expect(result.fileCount).toBe(2);
+    });
+
     it('classifies numbered step lists as plan', () => {
       const result = classifier.classify('## Implementation Plan\n1. Create the service\n2. Add tests\n3. Wire IPC\n4. Build UI\n5. Integration test\n6. Deploy');
       expect(result.type).toBe('plan');
@@ -63,6 +72,13 @@ describe('OutputClassifier', () => {
       const result = classifier.classify('```typescript\nconst x = 1;\n```\nCreate `src/foo.ts`\nModify `src/bar.ts`\nEdit `src/baz.ts`\nUpdate `src/qux.ts`');
       expect(result.fileCount).toBeGreaterThanOrEqual(4);
       expect(result.isComplex).toBe(true);
+    });
+
+    it('deduplicates repeated mentions of the same touched file', () => {
+      const result = classifier.classify(
+        '```typescript\nconst x = 1;\n```\nUpdate `src/foo.ts`\nEdit `src/foo.ts`\nModify `src/bar.ts`'
+      );
+      expect(result.fileCount).toBe(2);
     });
   });
 });

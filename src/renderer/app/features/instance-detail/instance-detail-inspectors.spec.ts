@@ -214,15 +214,92 @@ describe('Instance Change State Reset', () => {
 });
 
 describe('openReviewPanel', () => {
-  it('sets both reviewHasContent and showReviewInspector to true', () => {
+  it('opens the review panel without surfacing the toggle before a review starts', () => {
     const reviewHasContent = signal(false);
     const showReviewInspector = signal(false);
 
     // Simulate openReviewPanel
-    reviewHasContent.set(true);
     showReviewInspector.set(true);
 
-    expect(reviewHasContent()).toBe(true);
+    expect(reviewHasContent()).toBe(false);
     expect(showReviewInspector()).toBe(true);
+  });
+});
+
+describe('Inspector entrance pulse', () => {
+  it('marks the first visible toggle as entering when the bar appears', () => {
+    const hasTodos = signal(true);
+    const reviewHasContent = signal(false);
+    const hasChildren = signal(false);
+    const enteringInspectorToggle = signal<'todo' | 'review' | 'children' | null>(null);
+    let inspectorBarWasVisible = false;
+
+    const syncEntranceState = (): void => {
+      const barVisible = hasTodos() || reviewHasContent() || hasChildren();
+      let nextEnteringToggle: 'todo' | 'review' | 'children' | null = null;
+      if (hasTodos()) {
+        nextEnteringToggle = 'todo';
+      } else if (reviewHasContent()) {
+        nextEnteringToggle = 'review';
+      } else if (hasChildren()) {
+        nextEnteringToggle = 'children';
+      }
+
+      if (!barVisible) {
+        inspectorBarWasVisible = false;
+        enteringInspectorToggle.set(null);
+        return;
+      }
+
+      if (!inspectorBarWasVisible) {
+        enteringInspectorToggle.set(nextEnteringToggle);
+      }
+
+      inspectorBarWasVisible = true;
+    };
+
+    syncEntranceState();
+
+    expect(enteringInspectorToggle()).toBe('todo');
+  });
+
+  it('does not retrigger the pulse when another toggle appears later', () => {
+    const hasTodos = signal(true);
+    const reviewHasContent = signal(false);
+    const hasChildren = signal(false);
+    const enteringInspectorToggle = signal<'todo' | 'review' | 'children' | null>(null);
+    let inspectorBarWasVisible = false;
+
+    const syncEntranceState = (): void => {
+      const barVisible = hasTodos() || reviewHasContent() || hasChildren();
+      let nextEnteringToggle: 'todo' | 'review' | 'children' | null = null;
+      if (hasTodos()) {
+        nextEnteringToggle = 'todo';
+      } else if (reviewHasContent()) {
+        nextEnteringToggle = 'review';
+      } else if (hasChildren()) {
+        nextEnteringToggle = 'children';
+      }
+
+      if (!barVisible) {
+        inspectorBarWasVisible = false;
+        enteringInspectorToggle.set(null);
+        return;
+      }
+
+      if (!inspectorBarWasVisible) {
+        enteringInspectorToggle.set(nextEnteringToggle);
+      }
+
+      inspectorBarWasVisible = true;
+    };
+
+    syncEntranceState();
+    enteringInspectorToggle.set(null);
+
+    reviewHasContent.set(true);
+    syncEntranceState();
+
+    expect(enteringInspectorToggle()).toBeNull();
   });
 });

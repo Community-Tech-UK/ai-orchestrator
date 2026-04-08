@@ -270,14 +270,22 @@ export class WorkerAgent extends EventEmitter {
           await this.instanceManager.spawn(params as unknown as SpawnParams);
           result = { instanceId: params['instanceId'] };
           break;
-        case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT:
+        case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT: {
+          const attachments = params['attachments'] as FileAttachment[] | undefined;
+          console.log('[WorkerAgent] INSTANCE_SEND_INPUT received', {
+            instanceId: params['instanceId'],
+            messageLength: (params['message'] as string)?.length,
+            attachmentsCount: attachments?.length ?? 0,
+            attachmentNames: attachments?.map(a => a.name),
+          });
           await this.instanceManager.sendInput(
             params['instanceId'] as string,
             params['message'] as string,
-            params['attachments'] as FileAttachment[] | undefined,
+            attachments,
           );
           result = { ok: true };
           break;
+        }
         case COORDINATOR_TO_NODE.INSTANCE_TERMINATE:
           await this.instanceManager.terminate(params['instanceId'] as string);
           result = { ok: true };

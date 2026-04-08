@@ -458,8 +458,12 @@ describe('session-handlers', () => {
       expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
       const createCall = vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0];
       expect(createCall).not.toMatchObject({ resume: true });
-      // forceNodeId is still passed for the fallback (resolveExecutionLocation handles node availability)
-      expect(createCall).toMatchObject({ forceNodeId: 'node-xyz' });
+      // forceNodeId should NOT be passed when the remote node is disconnected —
+      // otherwise resolveExecutionLocation falls through to local with the remote
+      // working directory (which doesn't exist on the local machine).
+      expect(createCall.forceNodeId).toBeUndefined();
+      // Working directory should fall back to something local, not the remote path
+      expect(createCall.workingDirectory).not.toBe('/remote/project');
 
       // Should NOT mark native resume as failed (it wasn't attempted; the node is just offline)
       expect(mockMarkNativeResumeFailed).not.toHaveBeenCalled();

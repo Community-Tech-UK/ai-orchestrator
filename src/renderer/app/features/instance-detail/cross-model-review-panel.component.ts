@@ -22,9 +22,19 @@ import type {
     @if (review()) {
       <div class="review-panel">
         <div class="review-panel-header" role="button" tabindex="0" (click)="expanded.set(!expanded())" (keydown.enter)="expanded.set(!expanded())" (keydown.space)="expanded.set(!expanded())"  >
-          <span class="review-icon">&#x26A0;</span>
+          <span class="review-icon">
+            @if (hasConcerns()) {
+              &#x26A0;
+            } @else {
+              &#x2713;
+            }
+          </span>
           <span class="review-title">
-            Cross-Model Review: {{ concernCount() }} concern{{ concernCount() !== 1 ? 's' : '' }} found
+            @if (hasConcerns()) {
+              Cross-Model Review: {{ concernCount() }} concern{{ concernCount() !== 1 ? 's' : '' }} found
+            } @else {
+              Cross-Model Review: verified
+            }
           </span>
           <span class="review-toggle">{{ expanded() ? '&#x25B2;' : '&#x25BC;' }}</span>
         </div>
@@ -59,15 +69,19 @@ import type {
 
             <div class="review-actions">
               <button class="btn-review-action" (click)="onAction('dismiss')">Dismiss</button>
-              <button class="btn-review-action btn-primary" (click)="onAction('ask-primary')">
-                Ask Claude to Address
-              </button>
+              @if (hasConcerns()) {
+                <button class="btn-review-action btn-primary" (click)="onAction('ask-primary')">
+                  Ask Claude to Address
+                </button>
+              }
               <button class="btn-review-action" (click)="showingFull.set(!showingFull())">
                 {{ showingFull() ? 'Hide' : 'Full' }} Review
               </button>
-              <button class="btn-review-action" (click)="onAction('start-debate')">
-                Start Debate
-              </button>
+              @if (hasConcerns()) {
+                <button class="btn-review-action" (click)="onAction('start-debate')">
+                  Start Debate
+                </button>
+              }
             </div>
 
             @if (showingFull()) {
@@ -151,6 +165,8 @@ export class CrossModelReviewPanelComponent {
     if (!r) return 0;
     return r.reviews.filter(rev => rev.overallVerdict !== 'APPROVE').length;
   });
+
+  hasConcerns = computed(() => this.concernCount() > 0);
 
   fullReviewJson = computed(() => {
     const r = this.review();

@@ -35,6 +35,7 @@ export class CrossModelReviewIpcService {
   readonly latestReview = signal(new Map<string, AggregatedReview>());
   readonly status = signal<CrossModelReviewStatus | null>(null);
   readonly pendingInstances = signal(new Set<string>());
+  readonly skippedInstances = signal(new Set<string>());
 
   constructor() {
     this.listenForResults();
@@ -50,6 +51,10 @@ export class CrossModelReviewIpcService {
         const pending = new Set(this.pendingInstances());
         pending.add(data.instanceId);
         this.pendingInstances.set(pending);
+
+        const skipped = new Set(this.skippedInstances());
+        skipped.delete(data.instanceId);
+        this.skippedInstances.set(skipped);
       });
     });
 
@@ -62,6 +67,10 @@ export class CrossModelReviewIpcService {
         const pending = new Set(this.pendingInstances());
         pending.delete(data.instanceId);
         this.pendingInstances.set(pending);
+
+        const skipped = new Set(this.skippedInstances());
+        skipped.delete(data.instanceId);
+        this.skippedInstances.set(skipped);
       });
     });
 
@@ -70,6 +79,10 @@ export class CrossModelReviewIpcService {
         const pending = new Set(this.pendingInstances());
         pending.delete(data.instanceId);
         this.pendingInstances.set(pending);
+
+        const skipped = new Set(this.skippedInstances());
+        skipped.add(data.instanceId);
+        this.skippedInstances.set(skipped);
       });
     });
   }
@@ -88,6 +101,10 @@ export class CrossModelReviewIpcService {
     const map = new Map(this.latestReview());
     map.delete(payload.instanceId);
     this.latestReview.set(map);
+
+    const skipped = new Set(this.skippedInstances());
+    skipped.delete(payload.instanceId);
+    this.skippedInstances.set(skipped);
   }
 
   async performAction(payload: ReviewActionPayload): Promise<unknown> {

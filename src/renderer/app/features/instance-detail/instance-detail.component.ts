@@ -104,6 +104,7 @@ interface WelcomeProjectContext {
             (closeModelDropdown)="showModelDropdown.set(false)"
             (selectModel)="onChangeModel($event)"
             (toggleFileExplorer)="toggleFileExplorer.emit()"
+            (reviewPanelToggle)="toggleCrossModelReviewPanel()"
           />
 
           <!-- Context warning -->
@@ -157,7 +158,7 @@ interface WelcomeProjectContext {
           </div>
 
           <!-- Cross-model review panel -->
-          @if (currentReview()?.hasDisagreement) {
+          @if (showCrossModelReviewPanel() && currentReview()) {
             <app-cross-model-review-panel
               [review]="currentReview()"
               (actionPerformed)="onReviewAction($event)"
@@ -166,13 +167,16 @@ interface WelcomeProjectContext {
 
           <!-- Inspector toggles — only rendered when at least one has content -->
           @if (anyInspectorVisible()) {
-            <div class="inspector-toggles"
-                 role="toolbar"
-                 aria-label="Session inspectors">
+            <div class="inspector-toggles-shell">
+              <div class="inspector-toggles"
+                   role="toolbar"
+                   aria-label="Session inspectors">
               @if (todoStore.hasTodos()) {
                 <button
                   class="inspector-toggle"
                   [class.active]="showTodoInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'todo'"
+                  (animationend)="onInspectorToggleAnimationEnd('todo')"
                   (click)="showTodoInspector.set(!showTodoInspector())"
                   [attr.aria-expanded]="showTodoInspector()"
                   title="Toggle task list"
@@ -191,6 +195,8 @@ interface WelcomeProjectContext {
                 <button
                   class="inspector-toggle"
                   [class.active]="showReviewInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'review'"
+                  (animationend)="onInspectorToggleAnimationEnd('review')"
                   (click)="showReviewInspector.set(!showReviewInspector())"
                   [attr.aria-expanded]="showReviewInspector()"
                   title="Toggle review panel"
@@ -216,6 +222,8 @@ interface WelcomeProjectContext {
                 <button
                   class="inspector-toggle"
                   [class.active]="showChildrenInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'children'"
+                  (animationend)="onInspectorToggleAnimationEnd('children')"
                   (click)="showChildrenInspector.set(!showChildrenInspector())"
                   [attr.aria-expanded]="showChildrenInspector()"
                   title="Toggle child agents"
@@ -235,6 +243,7 @@ interface WelcomeProjectContext {
                 @if (todoStore.hasTodos()) { Task list available. }
                 @if (reviewHasContent()) { Review results available. }
               </span>
+              </div>
             </div>
           }
 
@@ -462,11 +471,18 @@ interface WelcomeProjectContext {
         padding: 0 10px 8px;
       }
 
+      .inspector-toggles-shell {
+        display: grid;
+        grid-template-rows: 1fr;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+
       .inspector-toggles {
         display: flex;
         gap: var(--spacing-xs);
-        flex-shrink: 0;
         flex-wrap: wrap;
+        min-height: 0;
       }
 
       .inspector-toggle {
@@ -524,18 +540,37 @@ interface WelcomeProjectContext {
 
       /* Entrance animation for the toggle bar */
       @media (prefers-reduced-motion: no-preference) {
-        .inspector-toggles {
+        .inspector-toggles-shell {
           animation: inspectorSlideIn 200ms ease-out;
         }
 
         @keyframes inspectorSlideIn {
           from {
+            grid-template-rows: 0fr;
             opacity: 0;
-            transform: translateY(-4px);
           }
           to {
+            grid-template-rows: 1fr;
             opacity: 1;
-            transform: translateY(0);
+          }
+        }
+
+        .inspector-toggle.entering {
+          animation: inspectorPulse 600ms ease-out 1;
+        }
+
+        @keyframes inspectorPulse {
+          0% {
+            border-color: rgba(var(--primary-rgb), 0.12);
+            box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0);
+          }
+          50% {
+            border-color: rgba(var(--primary-rgb), 0.38);
+            box-shadow: 0 0 0 6px rgba(var(--primary-rgb), 0.16);
+          }
+          100% {
+            border-color: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0);
           }
         }
       }
@@ -674,6 +709,8 @@ export class InstanceDetailComponent {
   showTodoInspector = signal(false);
   showReviewInspector = signal(false);
   showChildrenInspector = signal(false);
+  showCrossModelReviewPanel = signal(false);
+  enteringInspectorToggle = signal<'todo' | 'review' | 'children' | null>(null);
 
   // Review panel state — driven by output events from InstanceReviewPanelComponent
   reviewHasContent = signal(false);
@@ -705,6 +742,25 @@ export class InstanceDetailComponent {
     }
   });
 
+  private inspectorBarWasVisible = false;
+
+  private inspectorToggleEntranceEffect = effect(() => {
+    const barVisible = this.anyInspectorVisible();
+    const nextEnteringToggle = this.getEnteringInspectorToggle();
+
+    if (!barVisible) {
+      this.inspectorBarWasVisible = false;
+      this.enteringInspectorToggle.set(null);
+      return;
+    }
+
+    if (!this.inspectorBarWasVisible) {
+      this.enteringInspectorToggle.set(nextEnteringToggle);
+    }
+
+    this.inspectorBarWasVisible = true;
+  });
+
   // Keep TodoStore session in sync and reset inspector state on instance change
   private instanceChangeSync = effect(() => {
     const inst = this.instance();
@@ -714,9 +770,12 @@ export class InstanceDetailComponent {
     this.showTodoInspector.set(false);
     this.showReviewInspector.set(false);
     this.showChildrenInspector.set(false);
+    this.showCrossModelReviewPanel.set(false);
     this.todoAutoExpandedForInstance.set(null);
     this.reviewHasContent.set(false);
     this.reviewBadgeInfo.set(null);
+    this.enteringInspectorToggle.set(null);
+    this.inspectorBarWasVisible = false;
 
     // Sync remote node selection from the draft so that sessions opened from a
     // remote project group pre-select the correct node.  Falls back to null
@@ -1057,6 +1116,7 @@ export class InstanceDetailComponent {
     }
 
     // Always dismiss the review panel after any action
+    this.showCrossModelReviewPanel.set(false);
     this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
   }
 
@@ -1571,9 +1631,34 @@ export class InstanceDetailComponent {
     this.reviewBadgeInfo.set(result);
   }
 
+  private getEnteringInspectorToggle(): 'todo' | 'review' | 'children' | null {
+    if (this.todoStore.hasTodos()) {
+      return 'todo';
+    }
+    if (this.reviewHasContent()) {
+      return 'review';
+    }
+    if (this.hasChildren()) {
+      return 'children';
+    }
+    return null;
+  }
+
   openReviewPanel(): void {
-    this.reviewHasContent.set(true);
     this.showReviewInspector.set(true);
+  }
+
+  onInspectorToggleAnimationEnd(toggle: 'todo' | 'review' | 'children'): void {
+    if (this.enteringInspectorToggle() === toggle) {
+      this.enteringInspectorToggle.set(null);
+    }
+  }
+
+  toggleCrossModelReviewPanel(): void {
+    if (!this.currentReview()) {
+      return;
+    }
+    this.showCrossModelReviewPanel.update(value => !value);
   }
 
   onCompactNow(): void {

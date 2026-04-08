@@ -4,6 +4,7 @@ const logger = getLogger('ReviewerPool');
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const REVIEWER_FAILURE_COOLDOWN_MS = 5 * 60_000;
 
 export interface ReviewerInfo {
   cliType: string;
@@ -12,6 +13,7 @@ export interface ReviewerInfo {
   consecutiveFailures: number;
   rateLimited: boolean;
   rateLimitResetAt: number;
+  unavailableUntil: number;
   totalReviewsCompleted: number;
 }
 
@@ -19,6 +21,7 @@ export class ReviewerPool {
   private reviewers = new Map<string, ReviewerInfo>();
 
   setAvailable(cliTypes: string[]): void {
+    const now = Date.now();
     const known = new Set(this.reviewers.keys());
     for (const cliType of cliTypes) {
       if (!known.has(cliType)) {
@@ -29,12 +32,15 @@ export class ReviewerPool {
           consecutiveFailures: 0,
           rateLimited: false,
           rateLimitResetAt: 0,
+          unavailableUntil: 0,
           totalReviewsCompleted: 0,
         });
       } else {
         const existing = this.reviewers.get(cliType)!;
-        if (!existing.available && existing.consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
+        if (!existing.available && now >= existing.unavailableUntil) {
           existing.available = true;
+          existing.consecutiveFailures = 0;
+          existing.unavailableUntil = 0;
         }
       }
     }
@@ -68,6 +74,7 @@ export class ReviewerPool {
     reviewer.consecutiveFailures = 0;
     reviewer.totalReviewsCompleted++;
     reviewer.available = true;
+    reviewer.unavailableUntil = 0;
   }
 
   recordFailure(cliType: string): void {
@@ -76,9 +83,11 @@ export class ReviewerPool {
     reviewer.consecutiveFailures++;
     if (reviewer.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       reviewer.available = false;
+      reviewer.unavailableUntil = Date.now() + REVIEWER_FAILURE_COOLDOWN_MS;
       logger.warn('Reviewer marked unavailable after consecutive failures', {
         cliType,
         failures: reviewer.consecutiveFailures,
+        unavailableUntil: reviewer.unavailableUntil,
       });
     }
   }
@@ -97,6 +106,17 @@ export class ReviewerPool {
       if (reviewer.rateLimited && now >= reviewer.rateLimitResetAt) {
         reviewer.rateLimited = false;
         logger.info('Reviewer rate limit cleared', { cliType: reviewer.cliType });
+      }
+    }
+  }
+
+  checkAvailabilityRecovery(): void {
+    const now = Date.now();
+    for (const reviewer of this.reviewers.values()) {
+      if (!reviewer.available && reviewer.unavailableUntil > 0 && now >= reviewer.unavailableUntil) {
+        reviewer.consecutiveFailures = 0;
+        reviewer.unavailableUntil = 0;
+        logger.info('Reviewer failure cooldown expired', { cliType: reviewer.cliType });
       }
     }
   }

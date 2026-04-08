@@ -16,7 +16,7 @@ const MIN_OUTPUT_LENGTH = 50;
 
 const CODE_FENCE_REGEX = /```[\w]*\n([\s\S]*?)```/g;
 const NUMBERED_STEP_REGEX = /^\s*\d+\.\s+/gm;
-const FILE_TOUCH_REGEX = /(?:create|modify|edit|write|update)\s+`?[\w/.\\-]+\.[a-z]+`?/gi;
+const FILE_TOUCH_REGEX = /(?:create|created|creates|creating|modify|modified|modifies|modifying|edit|edited|edits|editing|write|writes|writing|written|update|updated|updates|updating)\s+`?([\w/.\\-]+\.[a-z0-9]+)`?/gi;
 
 const COMPLEXITY_KEYWORDS = [
   'security', 'auth', 'authentication', 'authorization',
@@ -60,8 +60,14 @@ export class OutputClassifier {
     const steps = content.match(NUMBERED_STEP_REGEX);
     result.stepCount = steps?.length ?? 0;
 
-    const fileTouches = content.match(FILE_TOUCH_REGEX);
-    result.fileCount = fileTouches?.length ?? 0;
+    const touchedFiles = new Set<string>();
+    for (const match of content.matchAll(FILE_TOUCH_REGEX)) {
+      const filePath = match[1]?.trim().toLowerCase();
+      if (filePath) {
+        touchedFiles.add(filePath);
+      }
+    }
+    result.fileCount = touchedFiles.size;
 
     if (this.isArchitecture(lowerContent)) {
       result.type = 'architecture';
@@ -71,7 +77,7 @@ export class OutputClassifier {
     } else if (this.isPlan(lowerContent, result.stepCount)) {
       result.type = 'plan';
       result.shouldReview = true;
-    } else if (result.codeLineCount > 0) {
+    } else if (result.codeLineCount > 0 || result.fileCount > 0) {
       result.type = 'code';
       result.shouldReview = true;
     }

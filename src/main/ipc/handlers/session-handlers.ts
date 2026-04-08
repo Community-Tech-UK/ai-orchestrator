@@ -1111,14 +1111,23 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           const { selected: displayMessages, hidden: hiddenMessages, truncatedCount } =
             selectMessagesForRestore(data.messages, 100);
 
+          // Only route the fallback to the remote node if it's still connected.
+          // When the node is unavailable, fall back to a local session and resolve
+          // the working directory to something that exists on this machine (the
+          // remote workingDir is likely a path on the worker node's filesystem).
+          const fallbackNodeId = remoteNodeAvailable ? restoreNodeId : undefined;
+          const fallbackWorkingDir = (restoreNodeId && !remoteNodeAvailable)
+            ? (validated.workingDirectory || process.cwd())
+            : workingDir;
+
           const instance = await instanceManager.createInstance({
-            workingDirectory: workingDir,
+            workingDirectory: fallbackWorkingDir,
             displayName,
             historyThreadId,
             initialOutputBuffer: displayMessages,
             provider: restoreProvider,
             modelOverride: restoreModel,
-            forceNodeId: restoreNodeId,
+            forceNodeId: fallbackNodeId,
             // No resume, no sessionId — fresh session
           });
 

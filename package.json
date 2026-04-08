@@ -17,7 +17,7 @@
     "start": "npm run build:main && concurrently -k \"npm run watch:main\" \"npm run start:renderer -- --port 4567\" \"wait-on http://localhost:4567 && npm run electron:dev\"",
     "start:renderer": "ng serve",
     "dev": "npm run build:main && concurrently -k \"npm run watch:main\" \"npm run start:renderer -- --port 4567\" \"wait-on http://localhost:4567 && npm run electron:dev\"",
-    "build": "npm run build:renderer && npm run build:main",
+    "build": "npm run build:renderer && npm run build:main && npm run build:worker-agent",
     "build:renderer": "ng build --configuration production",
     "build:main": "tsc -p tsconfig.electron.json",
     "watch:main": "tsc -p tsconfig.electron.json --watch",

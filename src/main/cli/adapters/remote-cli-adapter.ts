@@ -114,6 +114,9 @@ export class RemoteCliAdapter extends EventEmitter {
         yoloMode: this.spawnOptions.yoloMode,
         allowedTools: this.spawnOptions.allowedTools,
         disallowedTools: this.spawnOptions.disallowedTools,
+        resume: this.spawnOptions.resume,
+        forkSession: this.spawnOptions.forkSession,
+        mcpConfig: this.spawnOptions.mcpConfig,
       },
     );
 

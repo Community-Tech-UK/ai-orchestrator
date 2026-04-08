@@ -13,7 +13,7 @@ import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (enabled()) {
+    @if (enabled() && hasVisibleState()) {
       <span
         class="review-indicator"
         [class.reviewing]="isPending()"
@@ -108,6 +108,7 @@ export class CrossModelReviewIndicatorComponent {
   });
 
   isPending = computed(() => this.reviewService.pendingInstances().has(this.instanceId()));
+  isSkipped = computed(() => this.reviewService.skippedInstances().has(this.instanceId()));
 
   isVerified = computed(() => {
     const r = this.review();
@@ -119,7 +120,9 @@ export class CrossModelReviewIndicatorComponent {
     return r != null && r.hasDisagreement;
   });
 
-  isSkipped = computed(() => !this.isPending() && !this.review());
+  hasVisibleState = computed(() =>
+    this.isPending() || this.isSkipped() || this.review() != null
+  );
 
   concernCount = computed(() => {
     const r = this.review();
@@ -129,6 +132,7 @@ export class CrossModelReviewIndicatorComponent {
 
   tooltip = computed(() => {
     if (this.isPending()) return 'Cross-model review in progress...';
+    if (this.isSkipped()) return 'Cross-model review skipped because no secondary reviewers were available';
     const r = this.review();
     if (!r) return 'No review available';
     if (r.hasDisagreement) return 'Secondary models flagged concerns \u2014 click to view';
