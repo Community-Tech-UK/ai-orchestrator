@@ -42,3 +42,4 @@ benchmarks/orchestrator-benchmark/dist/
 
 # Git worktrees
 .worktrees/
+.superpowers/
