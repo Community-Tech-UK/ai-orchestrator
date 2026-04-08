@@ -8,8 +8,8 @@
   },
   "scripts": {
     "ng": "ng",
-    "prestart": "node scripts/check-node.js",
-    "prebuild": "node scripts/check-node.js && npm run verify:ipc",
+    "prestart": "node scripts/check-node.js && npm run generate:ipc && npm run verify:ipc",
+    "prebuild": "node scripts/check-node.js && npm run generate:ipc && npm run verify:ipc",
     "pretest": "node scripts/check-node.js",
     "start": "npm run build:main && concurrently -k \"npm run watch:main\" \"npm run start:renderer -- --port 4567\" \"wait-on http://localhost:4567 && npm run electron:dev\"",
     "start:renderer": "ng serve",
