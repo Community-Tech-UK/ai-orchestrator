@@ -327,6 +327,19 @@ export function getProviderModelContextWindow(
     normalizedProvider === 'anthropic' ||
     normalizedProvider === 'anthropic-api';
 
+  // Codex / OpenAI providers — model-specific windows.
+  const isCodexProvider =
+    normalizedProvider === 'codex' ||
+    normalizedProvider === 'codex-cli' ||
+    normalizedProvider === 'openai';
+  if (isCodexProvider) {
+    if (normalizedModel.includes('gpt-4o-mini')) return 128000;
+    if (normalizedModel.includes('gpt-4o')) return 128000;
+    if (normalizedModel.includes('gpt-4-turbo')) return 128000;
+    // GPT-5 family and unspecified models default to 200k.
+    return 200000;
+  }
+
   if (!isClaudeProvider) {
     return 200000;
   }

@@ -9,6 +9,9 @@ import { getLogger } from '../logging/logger';
 import { CONTEXT_WINDOWS } from '../../shared/constants/limits';
 import { MODEL_PRICING, CLAUDE_MODELS, GOOGLE_MODELS, OPENAI_MODELS } from '../../shared/types/provider.types';
 
+// Re-export for consumers that need Codex context window from a single source.
+export { CONTEXT_WINDOWS };
+
 const logger = getLogger('ModelCapabilitiesRegistry');
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -93,6 +96,41 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsThinking: false,
     supportsBatching: false,
     pricing: pricingFor(GOOGLE_MODELS.GEMINI_25_PRO),
+  },
+  // Codex / OpenAI models
+  'codex:default': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+  },
+  'codex:gpt-5.4': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT54),
+  },
+  'codex:gpt-5.3-codex': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT53_CODEX),
+  },
+  'codex:gpt-4o': {
+    contextWindow: CONTEXT_WINDOWS.GPT4_O,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: true,
+    pricing: pricingFor(OPENAI_MODELS.GPT4O),
+  },
+  'codex:gpt-4o-mini': {
+    contextWindow: CONTEXT_WINDOWS.GPT4_O_MINI,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: true,
+    pricing: pricingFor(OPENAI_MODELS.GPT4O_MINI),
   },
 };
 

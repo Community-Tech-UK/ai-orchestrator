@@ -72,6 +72,26 @@ export class SettingsIpcService {
   }
 
   // ============================================
+  // Export / Import
+  // ============================================
+
+  /**
+   * Export all settings to a JSON file (shows native save dialog)
+   */
+  async exportSettings(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.exportSettings();
+  }
+
+  /**
+   * Import settings from a JSON file (shows native open dialog)
+   */
+  async importSettings(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.importSettings();
+  }
+
+  // ============================================
   // Configuration (Hierarchical)
   // ============================================
 

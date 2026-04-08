@@ -107,6 +107,11 @@ export class SettingsStore {
           this._settings.set((data as { settings: AppSettings }).settings);
         } else if (data && typeof data === 'object' && 'key' in data && 'value' in data) {
           const { key, value } = data as { key: string; value: unknown };
+          // Full import happened — reload all settings
+          if (key === '__imported__') {
+            void this.reload();
+            return;
+          }
           this._settings.update(current => ({
             ...current,
             [key]: value,
@@ -188,6 +193,20 @@ export class SettingsStore {
           ...current,
           [key]: DEFAULT_SETTINGS[key],
         }));
+      }
+    } catch (error) {
+      this._error.set((error as Error).message);
+    }
+  }
+
+  /**
+   * Reload all settings from the main process (e.g. after import)
+   */
+  async reload(): Promise<void> {
+    try {
+      const response = await this.settingsIpc.getSettings();
+      if (response.success && response.data) {
+        this._settings.set(response.data as AppSettings);
       }
     } catch (error) {
       this._error.set((error as Error).message);

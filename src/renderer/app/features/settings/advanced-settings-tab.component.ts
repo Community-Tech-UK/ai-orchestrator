@@ -4,6 +4,7 @@
 
 import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
+import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 
@@ -138,13 +139,48 @@ interface HookApprovalSummary {
       </div>
     </div>
 
+    <!-- Export / Import Settings -->
+    <div class="setting-row export-import-section">
+      <div class="setting-info">
+        <h3 class="setting-label">Export / Import Settings</h3>
+        <p class="setting-description">
+          Back up your settings, channel credentials, paired senders, and remote
+          node identities to a JSON file. Restore them after reinstalling.
+        </p>
+      </div>
+      <div class="setting-control button-group">
+        <button
+          class="btn-secondary"
+          (click)="doExport()"
+          [disabled]="exportImportWorking()"
+        >
+          Export
+        </button>
+        <button
+          class="btn-primary"
+          (click)="doImport()"
+          [disabled]="exportImportWorking()"
+        >
+          Import
+        </button>
+      </div>
+    </div>
+    @if (exportImportMessage()) {
+      <div
+        class="export-import-result"
+        [class.success]="exportImportSuccess()"
+        [class.error]="!exportImportSuccess()"
+      >
+        {{ exportImportMessage() }}
+      </div>
+    }
+
     <!-- Future Settings Note -->
     <div class="future-settings-note">
       <h4>Coming Soon</h4>
       <ul>
         <li>Session auto-save/restore</li>
         <li>Notification preferences</li>
-        <li>Export/import settings</li>
         <li>Per-project settings</li>
       </ul>
     </div>
@@ -395,6 +431,25 @@ interface HookApprovalSummary {
         color: var(--text-secondary);
       }
 
+      /* Export / Import result banner */
+      .export-import-result {
+        padding: var(--spacing-sm) var(--spacing-md);
+        border-radius: var(--radius-md);
+        font-size: 13px;
+      }
+
+      .export-import-result.success {
+        background: rgba(46, 204, 113, 0.1);
+        color: #2ecc71;
+        border: 1px solid rgba(46, 204, 113, 0.3);
+      }
+
+      .export-import-result.error {
+        background: rgba(255, 0, 0, 0.05);
+        color: var(--error-color);
+        border: 1px solid var(--error-color);
+      }
+
       /* Future Settings Note */
       .future-settings-note {
         margin-top: var(--spacing-lg);
@@ -425,10 +480,16 @@ interface HookApprovalSummary {
 })
 export class AdvancedSettingsTabComponent {
   store = inject(SettingsStore);
+  private settingsIpc = inject(SettingsIpcService);
 
   hookApprovals = signal<HookApprovalSummary[]>([]);
   hookApprovalsLoading = signal(false);
   hookApprovalsError = signal<string | null>(null);
+
+  // Export / Import state
+  exportImportWorking = signal(false);
+  exportImportMessage = signal<string | null>(null);
+  exportImportSuccess = signal(false);
 
   private initialized = false;
 
@@ -526,6 +587,73 @@ export class AdvancedSettingsTabComponent {
       }
     } catch (error) {
       console.error('Failed to open docs file:', error);
+    }
+  }
+
+  async doExport(): Promise<void> {
+    this.exportImportWorking.set(true);
+    this.exportImportMessage.set(null);
+    try {
+      const res = await this.settingsIpc.exportSettings();
+      if (res.success) {
+        const data = res.data as { cancelled?: boolean; filePath?: string };
+        if (data?.cancelled) {
+          // User cancelled the dialog — no message needed
+        } else {
+          this.exportImportSuccess.set(true);
+          this.exportImportMessage.set(`Settings exported to ${data?.filePath}`);
+        }
+      } else {
+        this.exportImportSuccess.set(false);
+        this.exportImportMessage.set(res.error?.message ?? 'Export failed');
+      }
+    } catch (err) {
+      this.exportImportSuccess.set(false);
+      this.exportImportMessage.set((err as Error).message);
+    } finally {
+      this.exportImportWorking.set(false);
+    }
+  }
+
+  async doImport(): Promise<void> {
+    this.exportImportWorking.set(true);
+    this.exportImportMessage.set(null);
+    try {
+      const res = await this.settingsIpc.importSettings();
+      if (res.success) {
+        const data = res.data as {
+          cancelled?: boolean;
+          settingsRestored?: boolean;
+          credentialsRestored?: number;
+          policiesRestored?: number;
+          remoteNodesRestored?: boolean;
+        };
+        if (data?.cancelled) {
+          // User cancelled the dialog — no message needed
+        } else {
+          this.exportImportSuccess.set(true);
+          const parts: string[] = [];
+          if (data?.settingsRestored) parts.push('app settings');
+          if (data?.credentialsRestored) parts.push(`${data.credentialsRestored} channel credential(s)`);
+          if (data?.policiesRestored) parts.push(`${data.policiesRestored} access policy/ies`);
+          if (data?.remoteNodesRestored) parts.push('remote node identities');
+          this.exportImportMessage.set(
+            parts.length > 0
+              ? `Imported: ${parts.join(', ')}. Restart the app to fully apply channel changes.`
+              : 'Import completed (no data found in file).'
+          );
+          // Reload settings in the store so UI reflects new values
+          void this.store.reload();
+        }
+      } else {
+        this.exportImportSuccess.set(false);
+        this.exportImportMessage.set(res.error?.message ?? 'Import failed');
+      }
+    } catch (err) {
+      this.exportImportSuccess.set(false);
+      this.exportImportMessage.set((err as Error).message);
+    } finally {
+      this.exportImportWorking.set(false);
     }
   }
 }

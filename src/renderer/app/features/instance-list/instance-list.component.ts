@@ -1594,7 +1594,7 @@ export class InstanceListComponent {
       const knownRecentDirectories = new Set(
         untracked(() => this.recentDirectories()).map((entry) => this.getProjectKey(entry.path))
       );
-      const missingDirectories: string[] = [];
+      const missingDirectories: { path: string; nodeId?: string }[] = [];
 
       previousRootIds = currentRootIds;
 
@@ -1603,14 +1603,23 @@ export class InstanceListComponent {
         const workingDirectory = instance.workingDirectory?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.getProjectKey(workingDirectory));
-          missingDirectories.push(workingDirectory);
+          const loc = instance.executionLocation;
+          missingDirectories.push({
+            path: workingDirectory,
+            ...(loc?.type === 'remote' ? { nodeId: loc.nodeId } : {}),
+          });
         }
       }
       for (const entry of historyEntries) {
         const workingDirectory = entry.workingDirectory?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.getProjectKey(workingDirectory));
-          missingDirectories.push(workingDirectory);
+          missingDirectories.push({
+            path: workingDirectory,
+            ...(entry.executionLocation?.type === 'remote'
+              ? { nodeId: entry.executionLocation.nodeId }
+              : {}),
+          });
         }
       }
       if (missingDirectories.length > 0) {
@@ -1864,6 +1873,33 @@ export class InstanceListComponent {
 
     if (fromIndex === toIndex) {
       return;
+    }
+
+    // Ensure all paths are registered in the recent-directories store before
+    // reordering. Remote paths may not have been synced yet if the user drags
+    // before the background sync effect runs.
+    const knownPaths = new Set(
+      this.recentDirectories().map((entry) => this.getProjectKey(entry.path))
+    );
+    const unregistered = pathGroups.filter(
+      ({ group }) => !knownPaths.has(group.key)
+    );
+    if (unregistered.length > 0) {
+      await Promise.all(
+        unregistered.map(({ group }) => {
+          const remoteItem = group.liveItems.find(
+            (item) => item.instance.executionLocation?.type === 'remote'
+          );
+          const remoteLoc = remoteItem?.instance.executionLocation;
+          const nodeId =
+            remoteLoc?.type === 'remote' ? remoteLoc.nodeId : undefined;
+          return this.recentDirectoriesService.addDirectory(
+            group.path!,
+            nodeId ? { nodeId } : undefined
+          );
+        })
+      );
+      await this.loadRecentDirectories();
     }
 
     const nextOrder = pathGroups.map(({ group }) => group.path!);
@@ -2627,10 +2663,15 @@ export class InstanceListComponent {
     this.recentDirectories.set(directories);
   }
 
-  private async syncRecentDirectories(workingDirectories: readonly string[]): Promise<void> {
+  private async syncRecentDirectories(
+    items: readonly { path: string; nodeId?: string }[]
+  ): Promise<void> {
     await Promise.all(
-      workingDirectories.map((workingDirectory) =>
-        this.recentDirectoriesService.addDirectory(workingDirectory)
+      items.map(({ path, nodeId }) =>
+        this.recentDirectoriesService.addDirectory(
+          path,
+          nodeId ? { nodeId } : undefined
+        )
       )
     );
     await this.loadRecentDirectories();

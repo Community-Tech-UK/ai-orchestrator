@@ -350,6 +350,22 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS workflow_executions;
     `,
   },
+
+  // Migration 010: Add channel access policies table for persistent pairing/allowlists
+  {
+    name: '010_channel_access_policies',
+    up: `
+      CREATE TABLE IF NOT EXISTS channel_access_policies (
+        platform TEXT PRIMARY KEY,
+        mode TEXT NOT NULL DEFAULT 'pairing',
+        allowed_senders_json TEXT NOT NULL DEFAULT '[]',
+        updated_at INTEGER NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS channel_access_policies;
+    `,
+  },
 ];
 
 /**

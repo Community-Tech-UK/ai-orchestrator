@@ -782,7 +782,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
         instance.contextUsage = usage;
-        instance.totalTokensUsed = usage.used;
+        // Prefer the lifetime spend counter; fall back to occupancy for
+        // adapters that don't emit cumulativeTokens (e.g. Claude).
+        instance.totalTokensUsed = usage.cumulativeTokens ?? usage.used;
         this.deps.queueUpdate(instanceId, instance.status, usage);
         if (!this.isStatelessExecAdapter(adapter)) {
           this.checkContextWarningThreshold(instanceId, instance, usage);

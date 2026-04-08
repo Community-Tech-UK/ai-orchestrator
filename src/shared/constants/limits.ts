@@ -98,12 +98,13 @@ export const CONTEXT_WINDOWS = {
   CLAUDE_OPUS_1M: 1000000,
   CLAUDE_SONNET_1M: 1000000,
 
-  // OpenAI models
+  // OpenAI / Codex models
   GPT4_O: 128000,
   GPT4_O_MINI: 128000,
   GPT4_TURBO: 128000,
   O1: 200000,
   O1_MINI: 128000,
+  CODEX_DEFAULT: 200000,
 
   // Google Gemini models
   GEMINI_FLASH: 1000000,

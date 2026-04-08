@@ -19,12 +19,17 @@ import {
 } from '../../../shared/validation/channel-schemas';
 import { ChannelPersistence } from '../../channels/channel-persistence';
 import { ChannelCredentialStore } from '../../channels/channel-credential-store';
+import { ChannelAccessPolicyStore } from '../../channels/channel-access-policy-store';
 import { getRLMDatabase } from '../../persistence/rlm-database';
 
 const logger = getLogger('ChannelHandlers');
 
 function getCredentialStore(): ChannelCredentialStore {
   return new ChannelCredentialStore(getRLMDatabase().getRawDb());
+}
+
+function getAccessPolicyStore(): ChannelAccessPolicyStore {
+  return new ChannelAccessPolicyStore(getRLMDatabase().getRawDb());
 }
 
 export function registerChannelHandlers(): void {
@@ -174,6 +179,12 @@ export function registerChannelHandlers(): void {
           };
         }
         const paired = await adapter.pairSender(validated.code);
+        // Persist the newly paired sender so it survives app restarts
+        try {
+          getAccessPolicyStore().addAllowedSender(validated.platform, paired.senderId);
+        } catch (err) {
+          logger.warn('Failed to persist paired sender', { platform: validated.platform, error: String(err) });
+        }
         return { success: true, data: paired };
       } catch (error) {
         return {
@@ -199,6 +210,12 @@ export function registerChannelHandlers(): void {
         }
         const currentPolicy = adapter.getAccessPolicy();
         adapter.setAccessPolicy({ ...currentPolicy, mode: validated.mode });
+        // Persist the updated policy so it survives app restarts
+        try {
+          getAccessPolicyStore().save(validated.platform, adapter.getAccessPolicy());
+        } catch (err) {
+          logger.warn('Failed to persist access policy', { platform: validated.platform, error: String(err) });
+        }
         return { success: true, data: adapter.getAccessPolicy() };
       } catch (error) {
         return {

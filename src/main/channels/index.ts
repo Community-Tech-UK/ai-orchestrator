@@ -4,5 +4,6 @@ export { BaseChannelAdapter } from './channel-adapter';
 export type { ChannelAdapterEvents } from './channel-adapter';
 export { ChannelPersistence } from './channel-persistence';
 export { ChannelCredentialStore } from './channel-credential-store';
+export { ChannelAccessPolicyStore } from './channel-access-policy-store';
 export { RateLimiter } from './rate-limiter';
 export { ChannelMessageRouter } from './channel-message-router';

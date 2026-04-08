@@ -331,7 +331,7 @@ Hey! I'm here. What do you want to tackle?`;
     });
 
     const outputEvents: { content: string; type: string }[] = [];
-    const contextEvents: { percentage: number; total: number; used: number }[] = [];
+    const contextEvents: { cumulativeTokens?: number; percentage: number; total: number; used: number }[] = [];
 
     adapter.on('output', (message) => {
       outputEvents.push({ content: message.content, type: message.type });
@@ -348,8 +348,12 @@ Hey! I'm here. What do you want to tackle?`;
     expect(outputEvents.some((event) => event.type === 'assistant' && event.content === 'done')).toBe(true);
 
     expect(contextEvents).toHaveLength(1);
+    // `used` should be the per-turn occupancy (80 + 20 = 100), NOT cumulative
     expect(contextEvents[0].used).toBe(100);
-    expect(contextEvents[0].total).toBe(400000);
+    // Context window from registry (codex:default → 200000)
+    expect(contextEvents[0].total).toBe(200000);
+    // Lifetime spend tracked separately
+    expect(contextEvents[0].cumulativeTokens).toBe(100);
   });
 
   // ─── New tests for app-server hardening (Phase 2/3) ────────────────
@@ -407,6 +411,34 @@ Hey! I'm here. What do you want to tackle?`;
       // No process running, so interrupt returns false
       const result = adapter.interrupt();
       expect(result).toBe(false);
+    });
+  });
+
+  describe('app-server init timeout', () => {
+    it('falls back to exec mode when app-server init times out', async () => {
+      const adapter = new CodexCliAdapter();
+
+      // Mock checkStatus to report app-server available
+      vi.spyOn(adapter as any, 'checkStatus').mockResolvedValue({
+        available: true,
+        metadata: { appServerAvailable: true },
+      });
+
+      // Mock initAppServerMode to hang forever (never resolve)
+      vi.spyOn(adapter as any, 'initAppServerMode').mockReturnValue(new Promise(() => {}));
+
+      // Mock prepareCleanCodexHome for exec fallback
+      vi.spyOn(adapter as any, 'prepareCleanCodexHome').mockReturnValue(undefined);
+
+      // Use fake timers to advance past the 30s timeout
+      vi.useFakeTimers();
+      const spawnPromise = adapter.spawn();
+      await vi.advanceTimersByTimeAsync(31_000);
+      const pid = await spawnPromise;
+      vi.useRealTimers();
+
+      expect(pid).toBeGreaterThan(0);
+      expect((adapter as any).useAppServer).toBe(false);
     });
   });
 

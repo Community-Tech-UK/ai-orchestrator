@@ -115,6 +115,8 @@ export const IPC_CHANNELS = {
   SETTINGS_RESET: 'settings:reset',
   SETTINGS_RESET_ONE: 'settings:reset-one',
   SETTINGS_CHANGED: 'settings:changed',
+  SETTINGS_EXPORT: 'settings:export',
+  SETTINGS_IMPORT: 'settings:import',
 
   // Memory management
   MEMORY_GET_STATS: 'memory:get-stats',

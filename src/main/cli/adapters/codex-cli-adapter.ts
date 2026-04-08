@@ -44,6 +44,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
+import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
 
 // App-server imports
 import {
@@ -150,6 +151,22 @@ const INFERRED_COMPLETION_MS = 250;
 /** Regex to detect verification commands for progress phase reporting. */
 const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
 
+/** Codex inline image inputs only support a subset of image mime types. */
+const CODEX_INLINE_IMAGE_MIME_TYPES = new Set([
+  'image/gif',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+]);
+
+function supportsCodexInlineImage(mimeType: string | undefined): boolean {
+  if (!mimeType) {
+    return false;
+  }
+
+  return CODEX_INLINE_IMAGE_MIME_TYPES.has(mimeType.trim().toLowerCase());
+}
+
 // ─── Reasoning Deduplication (ported from codex-plugin-cc) ─────────────────
 
 /** Normalize whitespace for dedup comparison. */
@@ -219,8 +236,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
   /** Temp directory used as CODEX_HOME to bypass user MCP servers (exec mode) */
   private codexHomeDir?: string;
   private isSpawned = false;
-  /** Running total of tokens used across all turns */
+  /** Running total of tokens spent across all turns (for cost/spend tracking). */
   private cumulativeTokensUsed = 0;
+  /** Per-turn token occupancy from the most recent API call (for context bar). */
+  private lastTurnTokens = 0;
 
   // ─── App-server mode state ────────────────────────────────────────
   /** Whether app-server mode is active (vs exec fallback). */
@@ -268,9 +287,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
       multiTurn: true,
       vision: true,
       codeExecution: true,
-      contextWindow: 400000,
+      contextWindow: this.resolveContextWindow(),
       outputFormats: ['text', 'json'],
     };
+  }
+
+  /**
+   * Resolves the context-window size from the model-capabilities registry,
+   * falling back to `CONTEXT_WINDOWS.CODEX_DEFAULT` when the model is unknown.
+   */
+  private resolveContextWindow(): number {
+    const model = this.cliConfig.model ?? 'default';
+    const caps = getModelCapabilitiesRegistry().getCapabilities('codex', model);
+    return caps.contextWindow;
   }
 
   /**
@@ -362,7 +391,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (appServerAvailable) {
       // App-server mode: persistent JSON-RPC connection
       try {
-        await this.initAppServerMode();
+        await Promise.race([
+          this.initAppServerMode(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Codex app-server initialization timed out after 30s')), 30_000)
+          ),
+        ]);
         this.useAppServer = true;
         logger.info('Codex adapter using app-server mode');
       } catch (err) {
@@ -611,18 +645,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
       });
     }
 
-    // Emit usage/context
+    // Emit usage/context — use per-turn occupancy, NOT cumulative spend.
+    // input_tokens reflects the full conversation history sent to the model
+    // for this turn, so it (+ output) is the true context-window occupancy.
     if (turnState.finalTurn?.usage) {
       const usage = turnState.finalTurn.usage;
       const inputTokens = usage.input_tokens || 0;
       const outputTokens = usage.output_tokens || 0;
-      this.cumulativeTokensUsed += inputTokens + outputTokens;
+      const turnTokens = inputTokens + outputTokens;
 
-      const contextWindow = this.getCapabilities().contextWindow;
+      this.cumulativeTokensUsed += turnTokens;
+      this.lastTurnTokens = turnTokens;
+
+      const contextWindow = this.resolveContextWindow();
       this.emit('context', {
-        used: this.cumulativeTokensUsed,
+        used: turnTokens,
         total: contextWindow,
-        percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
+        percentage: Math.min((turnTokens / contextWindow) * 100, 100),
+        cumulativeTokens: this.cumulativeTokensUsed,
       });
     }
 
@@ -1223,28 +1263,31 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (attachments.length === 0) return null;
 
     // App-server protocol only supports text input — warn about dropped images
-    const imageAttachments = attachments.filter((a) => a.type.startsWith('image/'));
-    if (imageAttachments.length > 0) {
-      const names = imageAttachments.map((a) => a.name).join(', ');
+    const inlineImageAttachments = attachments.filter(
+      (attachment) => attachment.type.startsWith('image/') && supportsCodexInlineImage(attachment.type)
+    );
+    if (inlineImageAttachments.length > 0) {
+      const names = inlineImageAttachments.map((attachment) => attachment.name).join(', ');
       logger.warn('Image attachments not supported in app-server mode, dropped', {
-        count: imageAttachments.length,
+        count: inlineImageAttachments.length,
         names,
       });
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
         type: 'system',
-        content: `⚠ ${imageAttachments.length} image attachment(s) dropped — Codex app-server mode does not support images (${names})`,
+        content: `⚠ ${inlineImageAttachments.length} image attachment(s) dropped — Codex app-server mode does not support images (${names})`,
       });
     }
 
     const workingDirectory = this.cliConfig.workingDir || process.cwd();
-    const fileAttachments = attachments.filter((a) => !a.type.startsWith('image/'));
+    const fileAttachments = attachments.filter(
+      (attachment) => !attachment.type.startsWith('image/') || !supportsCodexInlineImage(attachment.type)
+    );
     if (fileAttachments.length === 0) return null;
     const processed = await processAttachments(fileAttachments, this.sessionId || generateId(), workingDirectory);
-    const nonImageProcessed = processed.filter((p) => !p.isImage);
-    if (nonImageProcessed.length === 0) return null;
-    return buildMessageWithFiles('', nonImageProcessed);
+    if (processed.length === 0) return null;
+    return buildMessageWithFiles('', processed);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1321,15 +1364,21 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     if (response.usage) {
+      // Per-turn occupancy: input_tokens includes the full conversation
+      // history for this API call, so input + output = context occupancy.
       const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
         ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
         : (response.usage.totalTokens || 0);
+
       this.cumulativeTokensUsed += turnTokens;
-      const contextWindow = this.getCapabilities().contextWindow;
+      this.lastTurnTokens = turnTokens;
+
+      const contextWindow = this.resolveContextWindow();
       const contextUsage: ContextUsage = {
-        used: this.cumulativeTokensUsed,
+        used: turnTokens,
         total: contextWindow,
-        percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
+        percentage: Math.min((turnTokens / contextWindow) * 100, 100),
+        cumulativeTokens: this.cumulativeTokensUsed,
       };
       this.emit('context', contextUsage);
     }
@@ -1656,8 +1705,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     if (message.attachments && message.attachments.length > 0) {
       const processedAttachments = await this.prepareAttachments(message.attachments);
-      const imageAttachments = processedAttachments.filter((attachment) => attachment.isImage);
-      const fileAttachments = processedAttachments.filter((attachment) => !attachment.isImage);
+      const imageAttachments = processedAttachments.filter(
+        (attachment) => attachment.isImage && supportsCodexInlineImage(attachment.mimeType)
+      );
+      const fileAttachments = processedAttachments.filter(
+        (attachment) => !attachment.isImage || !supportsCodexInlineImage(attachment.mimeType)
+      );
 
       if (fileAttachments.length > 0) {
         content = buildMessageWithFiles(content, fileAttachments);

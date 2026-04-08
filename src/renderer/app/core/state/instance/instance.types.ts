@@ -26,10 +26,16 @@ export type InstanceStatus =
   | 'terminated';
 
 export interface ContextUsage {
+  /** Current context-window occupancy (tokens used in the latest API call). */
   used: number;
+  /** Total context-window capacity (tokens). */
   total: number;
+  /** Percentage of context window used (0–100). */
   percentage: number;
-  costEstimate?: number; // Estimated cost in dollars
+  /** Lifetime token spend across all turns in this session. */
+  cumulativeTokens?: number;
+  /** Estimated cost in dollars */
+  costEstimate?: number;
 }
 
 export interface OutputMessage {

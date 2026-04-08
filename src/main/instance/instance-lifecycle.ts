@@ -366,6 +366,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       },
       instance.isRenamed,
+      instance.provider,
     ).catch(() => { /* non-critical */ });
   }
 
@@ -953,8 +954,8 @@ export class InstanceLifecycleManager extends EventEmitter {
               this.emit('output', { instanceId: instance.id, message: initialUserMessage });
             }
             try {
-              await adapter.sendInput(initialUserMessage.content, config.attachments);
               this.triggerAutoTitle(instance, initialUserMessage.content);
+              await adapter.sendInput(initialUserMessage.content, config.attachments);
             } catch (error) {
               this.transitionState(instance, 'failed');
               const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1014,8 +1015,8 @@ export class InstanceLifecycleManager extends EventEmitter {
                 this.deps.addToOutputBuffer(instance, initialUserMessage);
                 this.emit('output', { instanceId: instance.id, message: initialUserMessage });
               }
-              await adapter.sendInput(initialUserMessage.content, config.attachments);
               this.triggerAutoTitle(instance, initialUserMessage.content);
+              await adapter.sendInput(initialUserMessage.content, config.attachments);
             }
           } catch (error) {
             this.transitionState(instance, 'failed');

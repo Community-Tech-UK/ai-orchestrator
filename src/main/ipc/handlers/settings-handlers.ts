@@ -24,6 +24,7 @@ import {
 } from '../../../shared/validation/ipc-schemas';
 import type { AppSettings, ProjectConfig } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
+import { exportSettings, importSettings } from '../../core/config/settings-export';
 import {
   resolveConfig,
   loadProjectConfig,
@@ -615,6 +616,61 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
             message: (error as Error).message,
             timestamp: Date.now()
           }
+        };
+      }
+    }
+  );
+
+  // ============================================
+  // Settings Export/Import
+  // ============================================
+
+  ipcMain.handle(
+    IPC_CHANNELS.SETTINGS_EXPORT,
+    async (): Promise<IpcResponse> => {
+      try {
+        const filePath = await exportSettings();
+        if (!filePath) {
+          return { success: true, data: { cancelled: true } };
+        }
+        return { success: true, data: { filePath } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SETTINGS_EXPORT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SETTINGS_IMPORT,
+    async (): Promise<IpcResponse> => {
+      try {
+        const result = await importSettings();
+        if (!result) {
+          return { success: true, data: { cancelled: true } };
+        }
+        // Notify renderer that settings changed so stores reload
+        deps.windowManager
+          .getMainWindow()
+          ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
+            key: '__imported__',
+            value: null,
+          });
+        return { success: true, data: result };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SETTINGS_IMPORT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
         };
       }
     }

@@ -144,6 +144,8 @@ vi.mock('../../logging/logger', () => ({
 const mockAdapterSpawn = vi.fn().mockResolvedValue(12345);
 const mockAdapterSendInput = vi.fn().mockResolvedValue(undefined);
 const mockAdapterTerminate = vi.fn().mockResolvedValue(undefined);
+const mockAutoTitleMaybeGenerate = vi.fn().mockResolvedValue(undefined);
+const mockAutoTitleClearInstance = vi.fn();
 
 // Build a per-test adapter factory so we can get fresh adapters
 function makeMockAdapter() {
@@ -166,6 +168,13 @@ vi.mock('../../cli/adapters/adapter-factory', () => ({
 
 vi.mock('../../cli/claude-cli-adapter', () => ({
   ClaudeCliAdapter: vi.fn().mockImplementation(() => makeMockAdapter()),
+}));
+
+vi.mock('../auto-title-service', () => ({
+  getAutoTitleService: vi.fn(() => ({
+    maybeGenerateTitle: mockAutoTitleMaybeGenerate,
+    clearInstance: mockAutoTitleClearInstance,
+  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -581,6 +590,8 @@ describe('InstanceManager', () => {
     mockAdapterSpawn.mockResolvedValue(12345);
     mockAdapterSendInput.mockResolvedValue(undefined);
     mockAdapterTerminate.mockResolvedValue(undefined);
+    mockAutoTitleMaybeGenerate.mockResolvedValue(undefined);
+    mockAutoTitleClearInstance.mockReset();
 
     mockResolveAgent.mockResolvedValue({
       id: 'build',
@@ -775,6 +786,30 @@ describe('InstanceManager', () => {
 
       expect(instance.currentModel).toBe('sonnet[1m]');
       expect(instance.contextUsage.total).toBe(1000000);
+    });
+
+    it('triggers auto-title for the initial prompt before Codex sendInput resolves', async () => {
+      mockAdapterSendInput.mockImplementation(() => new Promise<void>(() => {}));
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        provider: 'codex',
+        initialPrompt: 'Investigate the failed deployment and summarize the root cause.',
+      });
+
+      await vi.waitFor(() => {
+        expect(mockAutoTitleMaybeGenerate).toHaveBeenCalledWith(
+          instance.id,
+          'Investigate the failed deployment and summarize the root cause.',
+          expect.any(Function),
+          undefined,
+          'codex',
+        );
+      });
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        'Investigate the failed deployment and summarize the root cause.',
+        undefined,
+      );
     });
   });
 

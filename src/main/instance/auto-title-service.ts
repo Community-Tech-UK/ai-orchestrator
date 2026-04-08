@@ -9,7 +9,7 @@
 import { createCliAdapter, resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMessage } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
-import { CLAUDE_MODELS } from '../../shared/types/provider.types';
+import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('AutoTitle');
@@ -101,6 +101,7 @@ export class AutoTitleService {
     message: string,
     applyTitle: (instanceId: string, title: string) => void,
     isRenamed?: boolean,
+    requestedProvider?: Parameters<typeof resolveCliType>[0],
   ): Promise<void> {
     // Guard: already processed or in-flight
     if (this.processed.has(instanceId)) return;
@@ -127,11 +128,12 @@ export class AutoTitleService {
 
       const settings = getSettingsManager();
       const defaultCli = settings.getAll().defaultCli;
-      const cliType = await resolveCliType(undefined, defaultCli);
+      const cliType = await resolveCliType(requestedProvider, defaultCli);
+      const model = resolveModelForTier('fast', cliType);
 
       const adapter = createCliAdapter(cliType, {
         workingDirectory: process.cwd(),
-        model: CLAUDE_MODELS.FAST,
+        model,
         systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.',
         yoloMode: false,
         timeout: AI_TITLE_TIMEOUT,

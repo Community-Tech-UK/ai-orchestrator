@@ -45,7 +45,7 @@ import {
 import type { UserActionRequest } from './orchestration/orchestration-handler';
 import { getCrossModelReviewService } from './orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
-import { getChannelManager, ChannelMessageRouter, ChannelPersistence, ChannelCredentialStore } from './channels';
+import { getChannelManager, ChannelMessageRouter, ChannelPersistence, ChannelCredentialStore, ChannelAccessPolicyStore } from './channels';
 import { getRLMDatabase } from './persistence/rlm-database';
 // Orchestration singletons
 import { getConsensusManager } from './orchestration/consensus';
@@ -340,21 +340,44 @@ class AIOrchestratorApp {
           manager.registerAdapter(new DiscordAdapter());
           manager.registerAdapter(new WhatsAppAdapter());
 
-          // Auto-reconnect from saved credentials
+          // Auto-reconnect from saved credentials + restore access policies
           try {
-            const credStore = new ChannelCredentialStore(getRLMDatabase().getRawDb());
+            const db = getRLMDatabase().getRawDb();
+            const credStore = new ChannelCredentialStore(db);
+            const policyStore = new ChannelAccessPolicyStore(db);
             const saved = credStore.getAll();
             for (const cred of saved) {
-              const adapter = manager.getAdapter(cred.platform as 'discord' | 'whatsapp');
+              const platform = cred.platform as 'discord' | 'whatsapp';
+              const adapter = manager.getAdapter(platform);
               if (adapter) {
-                logger.info('Auto-reconnecting channel', { platform: cred.platform });
+                // Restore persisted access policy (paired senders, mode)
+                const savedPolicy = policyStore.get(platform);
+                const restoredSenders = savedPolicy
+                  ? JSON.parse(savedPolicy.allowed_senders_json) as string[]
+                  : [];
+                const restoredMode = savedPolicy?.mode ?? 'pairing';
+
+                logger.info('Auto-reconnecting channel', {
+                  platform,
+                  restoredSenders: restoredSenders.length,
+                  mode: restoredMode,
+                });
+
+                // Pre-apply the access policy before connecting so it's active
+                // even if connect() is slow
+                adapter.setAccessPolicy({
+                  ...adapter.getAccessPolicy(),
+                  mode: restoredMode as 'pairing' | 'allowlist' | 'disabled',
+                  allowedSenders: restoredSenders,
+                });
+
                 adapter.connect({
-                  platform: cred.platform as 'discord' | 'whatsapp',
+                  platform,
                   token: cred.token,
-                  allowedSenders: [],
+                  allowedSenders: restoredSenders,
                   allowedChats: [],
                 }).catch(err => {
-                  logger.warn('Auto-reconnect failed', { platform: cred.platform, error: String(err) });
+                  logger.warn('Auto-reconnect failed', { platform, error: String(err) });
                 });
               }
             }
