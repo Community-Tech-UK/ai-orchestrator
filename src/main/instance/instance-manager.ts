@@ -660,7 +660,7 @@ export class InstanceManager extends EventEmitter {
   // Public API - Communication
   // ============================================
 
-  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], options?: { isRetry?: boolean }): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -846,8 +846,11 @@ export class InstanceManager extends EventEmitter {
     // Add user message to output buffer BEFORE sending to CLI.
     // This ensures the user message appears before the AI response in the chat,
     // since sendInput may trigger streaming output that arrives during the await.
-    this.communication.addToOutputBuffer(instance, userMessage);
-    this.emit('instance:output', { instanceId, message: userMessage });
+    // Skip on retries to avoid duplicate user bubbles in the chat.
+    if (!options?.isRetry) {
+      this.communication.addToOutputBuffer(instance, userMessage);
+      this.emit('instance:output', { instanceId, message: userMessage });
+    }
 
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock);
   }

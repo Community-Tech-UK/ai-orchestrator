@@ -110,6 +110,7 @@ export interface InstanceStoreState {
 export interface QueuedMessage {
   message: string;
   files?: File[];
+  retryCount?: number;
 }
 
 // ============================================

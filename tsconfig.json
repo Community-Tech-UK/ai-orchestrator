@@ -7,6 +7,8 @@
     "src/**/*.test.ts",
     "src/**/*.bench.ts",
     "src/**/*.load.ts",
+    "packages/**/*.spec.ts",
+    "packages/**/*.test.ts",
     "src/main/channels/adapters/whatsapp-adapter.ts"
   ],
   "compilerOptions": {
@@ -27,7 +29,9 @@
     "module": "ES2022",
     "lib": ["ES2022", "dom"],
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@contracts/*": ["./packages/contracts/src/*"],
+      "@contracts": ["./packages/contracts/src/index"]
     }
   },
   "angularCompilerOptions": {

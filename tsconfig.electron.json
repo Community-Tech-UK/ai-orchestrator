@@ -4,7 +4,7 @@
     "module": "commonjs",
     "lib": ["ES2022"],
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -15,20 +15,25 @@
     "sourceMap": true,
     "moduleResolution": "node",
     "paths": {
-      "@shared/*": ["./src/shared/*"]
+      "@shared/*": ["./src/shared/*"],
+      "@contracts/*": ["./packages/contracts/src/*"],
+      "@contracts": ["./packages/contracts/src/index"]
     },
     "baseUrl": "."
   },
   "include": [
     "src/main/**/*",
     "src/preload/**/*",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "packages/contracts/src/**/*"
   ],
   "exclude": [
     "src/renderer/**/*",
     "node_modules",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
+    "packages/**/*.spec.ts",
+    "packages/**/*.test.ts",
     "src/main/channels/adapters/whatsapp-adapter.ts"
   ]
 }

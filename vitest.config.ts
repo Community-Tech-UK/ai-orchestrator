@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    include: ['src/**/*.spec.ts', 'src/**/*.test.ts'],
+    include: ['src/**/*.spec.ts', 'src/**/*.test.ts', 'packages/**/*.spec.ts', 'packages/**/*.test.ts'],
     exclude: ['src/**/*.bench.ts', 'src/**/*.load.ts', 'src/main/channels/__tests__/whatsapp-adapter.spec.ts'],
     setupFiles: ['src/test-setup.ts'],
     coverage: {
@@ -38,6 +38,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': resolve(__dirname, './src/shared'),
+      '@contracts': resolve(__dirname, './packages/contracts/src'),
     },
   },
 });

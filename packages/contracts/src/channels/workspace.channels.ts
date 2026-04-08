@@ -1,0 +1,128 @@
+/**
+ * IPC channels for workspace operations: VCS/Git, worktrees, parallel worktrees,
+ * TODO management, LSP, multi-edit, bash validation, MCP servers,
+ * codebase indexing, repo jobs, and task management.
+ */
+export const WORKSPACE_CHANNELS = {
+  // VCS operations (Git)
+  VCS_IS_REPO: 'vcs:is-repo',
+  VCS_GET_STATUS: 'vcs:get-status',
+  VCS_GET_BRANCHES: 'vcs:get-branches',
+  VCS_GET_COMMITS: 'vcs:get-commits',
+  VCS_GET_DIFF: 'vcs:get-diff',
+  VCS_GET_FILE_HISTORY: 'vcs:get-file-history',
+  VCS_GET_FILE_AT_COMMIT: 'vcs:get-file-at-commit',
+  VCS_GET_BLAME: 'vcs:get-blame',
+
+  // Git Worktree operations
+  WORKTREE_CREATE: 'worktree:create',
+  WORKTREE_LIST: 'worktree:list',
+  WORKTREE_DELETE: 'worktree:delete',
+  WORKTREE_GET_STATUS: 'worktree:get-status',
+  WORKTREE_COMPLETE: 'worktree:complete',
+  WORKTREE_PREVIEW_MERGE: 'worktree:preview-merge',
+  WORKTREE_MERGE: 'worktree:merge',
+  WORKTREE_CLEANUP: 'worktree:cleanup',
+  WORKTREE_ABANDON: 'worktree:abandon',
+  WORKTREE_GET_SESSION: 'worktree:get-session',
+  WORKTREE_LIST_SESSIONS: 'worktree:list-sessions',
+  WORKTREE_DETECT_CONFLICTS: 'worktree:detect-conflicts',
+  WORKTREE_SYNC: 'worktree:sync',
+  WORKTREE_SESSION_CREATED: 'worktree:session-created',
+  WORKTREE_SESSION_COMPLETED: 'worktree:session-completed',
+  WORKTREE_CONFLICT_DETECTED: 'worktree:conflict-detected',
+
+  // Parallel worktree operations
+  PARALLEL_WORKTREE_START: 'parallel-worktree:start',
+  PARALLEL_WORKTREE_GET_STATUS: 'parallel-worktree:get-status',
+  PARALLEL_WORKTREE_CANCEL: 'parallel-worktree:cancel',
+  PARALLEL_WORKTREE_GET_RESULTS: 'parallel-worktree:get-results',
+  PARALLEL_WORKTREE_LIST: 'parallel-worktree:list',
+  PARALLEL_WORKTREE_RESOLVE_CONFLICT: 'parallel-worktree:resolve-conflict',
+  PARALLEL_WORKTREE_MERGE: 'parallel-worktree:merge',
+
+  // TODO operations
+  TODO_GET_LIST: 'todo:get-list',
+  TODO_CREATE: 'todo:create',
+  TODO_UPDATE: 'todo:update',
+  TODO_DELETE: 'todo:delete',
+  TODO_WRITE_ALL: 'todo:write-all',
+  TODO_CLEAR: 'todo:clear',
+  TODO_GET_CURRENT: 'todo:get-current',
+  TODO_LIST_CHANGED: 'todo:list-changed',
+
+  // LSP operations
+  LSP_GET_AVAILABLE_SERVERS: 'lsp:get-available-servers',
+  LSP_GET_STATUS: 'lsp:get-status',
+  LSP_GO_TO_DEFINITION: 'lsp:go-to-definition',
+  LSP_FIND_REFERENCES: 'lsp:find-references',
+  LSP_HOVER: 'lsp:hover',
+  LSP_DOCUMENT_SYMBOLS: 'lsp:document-symbols',
+  LSP_WORKSPACE_SYMBOLS: 'lsp:workspace-symbols',
+  LSP_DIAGNOSTICS: 'lsp:diagnostics',
+  LSP_IS_AVAILABLE: 'lsp:is-available',
+  LSP_SHUTDOWN: 'lsp:shutdown',
+
+  // Multi-Edit operations
+  MULTIEDIT_PREVIEW: 'multiedit:preview',
+  MULTIEDIT_APPLY: 'multiedit:apply',
+
+  // Bash validation operations
+  BASH_VALIDATE: 'bash:validate',
+  BASH_GET_CONFIG: 'bash:get-config',
+  BASH_ADD_ALLOWED: 'bash:add-allowed',
+  BASH_ADD_BLOCKED: 'bash:add-blocked',
+
+  // MCP operations
+  MCP_GET_STATE: 'mcp:get-state',
+  MCP_GET_SERVERS: 'mcp:get-servers',
+  MCP_ADD_SERVER: 'mcp:add-server',
+  MCP_REMOVE_SERVER: 'mcp:remove-server',
+  MCP_CONNECT: 'mcp:connect',
+  MCP_DISCONNECT: 'mcp:disconnect',
+  MCP_RESTART: 'mcp:restart',
+  MCP_GET_TOOLS: 'mcp:get-tools',
+  MCP_GET_RESOURCES: 'mcp:get-resources',
+  MCP_GET_PROMPTS: 'mcp:get-prompts',
+  MCP_CALL_TOOL: 'mcp:call-tool',
+  MCP_READ_RESOURCE: 'mcp:read-resource',
+  MCP_GET_PROMPT: 'mcp:get-prompt',
+  MCP_GET_PRESETS: 'mcp:get-presets',
+  MCP_GET_BROWSER_AUTOMATION_HEALTH: 'mcp:get-browser-automation-health',
+  MCP_STATE_CHANGED: 'mcp:state-changed',
+  MCP_SERVER_STATUS_CHANGED: 'mcp:server-status-changed',
+
+  // Codebase Indexing operations
+  CODEBASE_INDEX_STORE: 'codebase:index:store',
+  CODEBASE_INDEX_FILE: 'codebase:index:file',
+  CODEBASE_INDEX_CANCEL: 'codebase:index:cancel',
+  CODEBASE_INDEX_STATUS: 'codebase:index:status',
+  CODEBASE_INDEX_STATS: 'codebase:index:stats',
+  CODEBASE_INDEX_PROGRESS: 'codebase:index:progress',
+  CODEBASE_SEARCH: 'codebase:search',
+  CODEBASE_SEARCH_SYMBOLS: 'codebase:search:symbols',
+  CODEBASE_WATCHER_START: 'codebase:watcher:start',
+  CODEBASE_WATCHER_STOP: 'codebase:watcher:stop',
+  CODEBASE_WATCHER_STATUS: 'codebase:watcher:status',
+  CODEBASE_WATCHER_CHANGES: 'codebase:watcher:changes',
+
+  // Background repo jobs
+  REPO_JOB_SUBMIT: 'repo-job:submit',
+  REPO_JOB_LIST: 'repo-job:list',
+  REPO_JOB_GET: 'repo-job:get',
+  REPO_JOB_CANCEL: 'repo-job:cancel',
+  REPO_JOB_RERUN: 'repo-job:rerun',
+  REPO_JOB_GET_STATS: 'repo-job:get-stats',
+
+  // Task management (subagent spawning)
+  TASK_GET_STATUS: 'task:get-status',
+  TASK_GET_HISTORY: 'task:get-history',
+  TASK_GET_BY_PARENT: 'task:get-by-parent',
+  TASK_GET_BY_CHILD: 'task:get-by-child',
+  TASK_CANCEL: 'task:cancel',
+  TASK_GET_QUEUE: 'task:get-queue',
+  TASK_GET_PREFLIGHT: 'task:get-preflight',
+  TASK_COMPLETE: 'task:complete',
+  TASK_PROGRESS: 'task:progress',
+  TASK_ERROR: 'task:error',
+} as const;

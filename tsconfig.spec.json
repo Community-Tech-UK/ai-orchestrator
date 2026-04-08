@@ -6,6 +6,9 @@
   "include": [
     "src/**/*.spec.ts",
     "src/**/*.test.ts",
-    "src/test-setup.ts"
+    "src/test-setup.ts",
+    "packages/**/*.spec.ts",
+    "packages/**/*.test.ts",
+    "packages/contracts/src/**/*"
   ]
 }

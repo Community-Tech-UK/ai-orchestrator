@@ -328,7 +328,8 @@ describe('instance-handlers', () => {
       expect(mockInstanceManager.sendInput).toHaveBeenCalledWith(
         'inst-7',
         'Hello from test',
-        undefined
+        undefined,
+        { isRetry: undefined }
       );
     });
 
@@ -346,7 +347,7 @@ describe('instance-handlers', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(mockInstanceManager.sendInput).toHaveBeenCalledWith('inst-7', '', attachments);
+      expect(mockInstanceManager.sendInput).toHaveBeenCalledWith('inst-7', '', attachments, { isRetry: undefined });
     });
 
     it('rejects missing instanceId in INSTANCE_SEND_INPUT', async () => {

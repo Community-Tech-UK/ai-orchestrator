@@ -106,7 +106,7 @@ describe('InstanceMessagingStore', () => {
 
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(stateService.getInstance('inst-1')?.status).toBe('respawning');
-    expect(store.getMessageQueue('inst-1')).toEqual([{ message: 'retry me', files: undefined }]);
+    expect(store.getMessageQueue('inst-1')).toEqual([{ message: 'retry me', files: undefined, retryCount: 1 }]);
 
     stateService.updateInstance('inst-1', { status: 'idle' });
     store.processMessageQueue('inst-1');

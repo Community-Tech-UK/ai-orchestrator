@@ -23,7 +23,7 @@ function extractChannels(filePath: string): Map<string, string> {
   const lines = content.split('\n');
   const channels = new Map<string, string>();
 
-  const channelPattern = /^\s+([A-Z_]+):\s*['"]([^'"]+)['"]/;
+  const channelPattern = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
   let inIpcChannels = false;
 
   for (const line of lines) {

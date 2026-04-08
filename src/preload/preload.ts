@@ -931,6 +931,7 @@ const electronAPI = {
     instanceId: string;
     message: string;
     attachments?: unknown[];
+    isRetry?: boolean;
   }): Promise<IpcResponse> => {
     return ipcRenderer.invoke(IPC_CHANNELS.INSTANCE_SEND_INPUT, payload);
   },

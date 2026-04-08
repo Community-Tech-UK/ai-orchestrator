@@ -24,7 +24,7 @@ function extractChannels(filePath) {
   const channels = [];
 
   // Match patterns like:   CHANNEL_NAME: 'channel:value',
-  const channelPattern = /^\s+([A-Z_]+):\s*['"]([^'"]+)['"]/;
+  const channelPattern = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
 
   let inIpcChannels = false;
 

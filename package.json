@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Desktop application for managing multiple AI CLI instances",
   "main": "dist/main/index.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20"
   },

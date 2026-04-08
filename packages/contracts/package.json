@@ -1,0 +1,11 @@
+{
+  "name": "@ai-orchestrator/contracts",
+  "version": "0.1.0",
+  "description": "IPC channel definitions, Zod schemas, and transport types for ai-orchestrator",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

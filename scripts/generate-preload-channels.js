@@ -123,7 +123,7 @@ function main() {
   const channelBodyLines = extractChannelBlock(SHARED_PATH);
 
   // Count channels for reporting
-  const channelPattern = /^\s+([A-Z_]+):\s*['"]([^'"]+)['"]/;
+  const channelPattern = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
   const channelCount = channelBodyLines.filter(l => channelPattern.test(l)).length;
   console.log(`📁 Extracted ${channelCount} channels from shared types`);
 

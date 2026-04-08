@@ -212,7 +212,8 @@ export function registerInstanceHandlers(deps: {
         await instanceManager.sendInput(
           validatedPayload.instanceId,
           validatedPayload.message,
-          validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined
+          validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
+          { isRetry: validatedPayload.isRetry }
         );
 
         return { success: true };

@@ -10,6 +10,9 @@ import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
 import type { InstanceStatus, OutputMessage } from './instance.types';
 
+/** Maximum number of transient-failure retries before dropping a queued message. */
+const MAX_QUEUE_RETRIES = 3;
+
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
   private stateService = inject(InstanceStateService);
@@ -159,7 +162,8 @@ export class InstanceMessagingStore {
   async sendInputImmediate(
     instanceId: string,
     message: string,
-    files?: File[]
+    files?: File[],
+    retryCount = 0
   ): Promise<void> {
     const previousStatus = this.stateService.getInstance(instanceId)?.status;
 
@@ -201,7 +205,7 @@ export class InstanceMessagingStore {
       status: 'busy' as InstanceStatus,
     });
 
-    const result = await this.ipc.sendInput(instanceId, message, attachments);
+    const result = await this.ipc.sendInput(instanceId, message, attachments, retryCount > 0);
     console.log('InstanceMessagingStore: sendInput result', result);
 
     // If send failed, decide whether to retry or drop
@@ -223,6 +227,27 @@ export class InstanceMessagingStore {
         return;
       }
 
+      const nextRetryCount = retryCount + 1;
+
+      // Enforce retry limit to prevent infinite re-queue loops
+      if (nextRetryCount > MAX_QUEUE_RETRIES) {
+        console.error('InstanceMessagingStore: Max retries exceeded, dropping message', {
+          instanceId,
+          retryCount: nextRetryCount,
+          errorMessage,
+        });
+        if (currentInstance && currentInstance.status === 'busy') {
+          this.stateService.updateInstance(instanceId, {
+            status: previousStatus ?? 'idle',
+          });
+        }
+        this.addErrorToOutput(
+          instanceId,
+          `Failed to send message after ${MAX_QUEUE_RETRIES} retries:\n${errorMessage}`
+        );
+        return;
+      }
+
       // Transient failure: revert optimistic status and re-queue for retry
       if (currentInstance && currentInstance.status === 'busy') {
         this.stateService.updateInstance(instanceId, {
@@ -233,11 +258,12 @@ export class InstanceMessagingStore {
       console.log('InstanceMessagingStore: Re-queuing failed message at front of queue', {
         instanceId,
         errorMessage,
+        retryCount: nextRetryCount,
       });
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
         const existingQueue = newMap.get(instanceId) || [];
-        newMap.set(instanceId, [{ message, files }, ...existingQueue]);
+        newMap.set(instanceId, [{ message, files, retryCount: nextRetryCount }, ...existingQueue]);
         return newMap;
       });
 
@@ -293,10 +319,12 @@ export class InstanceMessagingStore {
       console.log('InstanceMessagingStore: Processing queued message', {
         instanceId,
         queueRemaining: remainingQueue.length,
+        retryCount: nextMessage.retryCount ?? 0,
       });
       // Use setTimeout to avoid state update conflicts
+      const retryCount = nextMessage.retryCount ?? 0;
       setTimeout(() => {
-        this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files);
+        this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, retryCount);
       }, 100);
     }
   }
