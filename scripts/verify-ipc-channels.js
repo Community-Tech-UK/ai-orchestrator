@@ -2,8 +2,9 @@
 /**
  * IPC Channel Sync Verification Script
  *
- * Verifies that IPC channels defined in preload.ts are a subset of those
- * defined in shared/types/ipc.types.ts. Run during build to catch drift.
+ * Verifies BIDIRECTIONAL sync: preload.ts and ipc.types.ts must have
+ * identical IPC_CHANNELS. Since preload channels are now generated from
+ * shared types, any mismatch means `npm run generate:ipc` wasn't run.
  *
  * Usage:
  *   node scripts/verify-ipc-channels.js
@@ -103,7 +104,8 @@ function main() {
     }
   }
 
-  // Check 2: Warn about shared channels not in preload (informational)
+  // Check 2: All shared channels must exist in preload (bidirectional sync)
+  // Since channels are now generated, any mismatch means the generator wasn't run.
   const missingInPreload = [];
   for (const sharedChannel of sharedChannels) {
     if (!preloadByName.has(sharedChannel.name)) {
@@ -112,9 +114,11 @@ function main() {
   }
 
   if (missingInPreload.length > 0) {
-    warnings.push(
-      `ℹ️  ${missingInPreload.length} channels in ipc.types.ts are not exposed in preload.ts ` +
-      `(this may be intentional for main-process-only channels)`
+    errors.push(
+      `❌ ${missingInPreload.length} channel(s) in ipc.types.ts are missing from preload.ts.\n` +
+      `   Run \`npm run generate:ipc\` to regenerate.\n` +
+      `   Missing: ${missingInPreload.slice(0, 10).map(c => c.name).join(', ')}` +
+      (missingInPreload.length > 10 ? ` ... and ${missingInPreload.length - 10} more` : '')
     );
   }
 
@@ -148,13 +152,16 @@ function main() {
   }
 
   if (errors.length === 0) {
-    console.log('✅ IPC channels are synchronized!\n');
+    console.log('✅ IPC channels are synchronized (bidirectional)!\n');
 
     // Print summary
     console.log('Summary:');
-    console.log(`  - ${preloadChannels.length} channels exposed to renderer`);
-    console.log(`  - ${sharedChannels.length} channels defined in types`);
-    console.log(`  - ${missingInPreload.length} main-process-only channels`);
+    console.log(`  - ${sharedChannels.length} channels in shared types`);
+    console.log(`  - ${preloadChannels.length} channels in preload`);
+
+    if (preloadChannels.length !== sharedChannels.length) {
+      console.log(`  ⚠️  Count mismatch (${sharedChannels.length} vs ${preloadChannels.length}) — channel names match but counts differ`);
+    }
 
     process.exit(0);
   } else {
