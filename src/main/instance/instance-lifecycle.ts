@@ -54,6 +54,10 @@ import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getSessionMutex } from '../session/session-mutex';
+import { RecoveryRecipeEngine } from '../session/recovery-recipe-engine';
+import { createBuiltinRecipes } from '../session/builtin-recovery-recipes';
+import { getCheckpointManager } from '../session/checkpoint-manager';
+import type { DetectedFailure } from '../../shared/types/recovery.types';
 import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../session/replay-continuity';
 import { buildFallbackHistoryMessage } from '../session/fallback-history';
 import { WarmStartManager } from './warm-start-manager';
@@ -211,6 +215,20 @@ export class InstanceLifecycleManager extends EventEmitter {
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
+  private recoveryEngine: RecoveryRecipeEngine | null = null;
+
+  private getRecoveryEngine(): RecoveryRecipeEngine {
+    if (!this.recoveryEngine) {
+      this.recoveryEngine = new RecoveryRecipeEngine(
+        getCheckpointManager(),
+        getSessionContinuityManager(),
+      );
+      for (const recipe of createBuiltinRecipes()) {
+        this.recoveryEngine.registerRecipe(recipe);
+      }
+    }
+    return this.recoveryEngine;
+  }
 
   /** Returns MCP config paths to pass to spawned CLI instances. */
   private getMcpConfig(): string[] {
@@ -1121,6 +1139,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.deps.deleteDiffTracker?.(instanceId);
     this.deps.deleteStateMachine?.(instanceId);
     this.activityDetectors.delete(instanceId);
+    this.recoveryEngine?.clearHistory(instanceId);
 
     if (adapter) {
       try {
@@ -2638,6 +2657,49 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }).catch(err => {
         logger.warn('Activity detection failed', { instanceId, error: String(err) });
       });
+    }
+
+    // Detect failures from activity state and trigger recovery
+    const recoveryEngine = this.recoveryEngine;
+    if (recoveryEngine) {
+      for (const [instanceId, detector] of this.activityDetectors) {
+        detector.detect().then(result => {
+          const instance = this.deps.getInstance(instanceId);
+          if (!instance) return;
+
+          let failure: DetectedFailure | null = null;
+
+          if (result.state === 'blocked') {
+            failure = {
+              id: generateId(),
+              category: 'agent_stuck_blocked',
+              instanceId,
+              detectedAt: Date.now(),
+              context: {},
+              activityState: result.state,
+              severity: 'recoverable',
+            };
+          } else if (result.state === 'exited' && instance.status !== 'terminated') {
+            failure = {
+              id: generateId(),
+              category: 'process_exited_unexpected',
+              instanceId,
+              detectedAt: Date.now(),
+              context: {},
+              activityState: result.state,
+              severity: 'recoverable',
+            };
+          }
+
+          if (failure) {
+            recoveryEngine.handleFailure(failure).then(outcome => {
+              logger.info('Recovery outcome', { instanceId, category: failure!.category, outcome: outcome.status });
+            }).catch(err => {
+              logger.warn('Recovery failed', { instanceId, error: String(err) });
+            });
+          }
+        }).catch(() => { /* detection errors are non-fatal */ });
+      }
     }
 
     const settingsAll = this.settings.getAll();
