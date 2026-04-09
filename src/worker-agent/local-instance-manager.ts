@@ -3,6 +3,8 @@ import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
 import type { FileAttachment } from '../shared/types/instance.types';
 
+const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
+
 export interface SpawnParams {
   instanceId: string;
   cliType: CliType;
@@ -27,6 +29,7 @@ export interface ManagedInstance {
   workingDirectory: string;
   adapter: WorkerManagedAdapter;
   createdAt: number;
+  watchdogTimer: ReturnType<typeof setInterval> | null;
 }
 
 /**
@@ -54,6 +57,38 @@ export class LocalInstanceManager extends EventEmitter {
 
   getInstance(instanceId: string): ManagedInstance | undefined {
     return this.instances.get(instanceId);
+  }
+
+  private startWatchdog(instanceId: string): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return;
+    this.resetWatchdog(instanceId);
+  }
+
+  private resetWatchdog(instanceId: string): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return;
+
+    if (inst.watchdogTimer) {
+      clearInterval(inst.watchdogTimer);
+    }
+
+    inst.watchdogTimer = setInterval(() => {
+      if (this.instances.has(instanceId)) {
+        this.emit('instance:stateChange', instanceId, 'processing');
+      }
+    }, ACTIVITY_WATCHDOG_INTERVAL_MS);
+
+    if (inst.watchdogTimer.unref) {
+      inst.watchdogTimer.unref();
+    }
+  }
+
+  private clearWatchdog(instanceId: string): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst?.watchdogTimer) return;
+    clearInterval(inst.watchdogTimer);
+    inst.watchdogTimer = null;
   }
 
   async spawn(params: SpawnParams): Promise<void> {
@@ -88,14 +123,24 @@ export class LocalInstanceManager extends EventEmitter {
     });
 
     // Wire adapter events to emit them on this manager
-    adapter.on('output', (msg: unknown) => this.emit('instance:output', params.instanceId, msg));
+    adapter.on('output', (msg: unknown) => {
+      this.resetWatchdog(params.instanceId);
+      this.emit('instance:output', params.instanceId, msg);
+    });
     adapter.on('exit', (code: number | null, signal: string | null) => {
+      this.clearWatchdog(params.instanceId);
       this.instances.delete(params.instanceId);
       this.emit('instance:exit', params.instanceId, { code, signal });
     });
-    adapter.on('status', (state: unknown) => this.emit('instance:stateChange', params.instanceId, state));
+    adapter.on('status', (state: unknown) => {
+      this.resetWatchdog(params.instanceId);
+      this.emit('instance:stateChange', params.instanceId, state);
+    });
     adapter.on('input_required', (permission: unknown) => {
       this.emit('instance:permissionRequest', params.instanceId, permission);
+    });
+    adapter.on('stream:idle', () => {
+      this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
     });
 
     // Spawn the process
@@ -107,7 +152,10 @@ export class LocalInstanceManager extends EventEmitter {
       workingDirectory: params.workingDirectory,
       adapter,
       createdAt: Date.now(),
+      watchdogTimer: null,
     });
+
+    this.startWatchdog(params.instanceId);
   }
 
   async sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void> {
@@ -126,6 +174,7 @@ export class LocalInstanceManager extends EventEmitter {
   async terminate(instanceId: string): Promise<void> {
     const inst = this.instances.get(instanceId);
     if (!inst) return;
+    this.clearWatchdog(instanceId);
     await inst.adapter.terminate();
     this.instances.delete(instanceId);
   }
@@ -138,6 +187,9 @@ export class LocalInstanceManager extends EventEmitter {
 
   async terminateAll(): Promise<void> {
     const ids = [...this.instances.keys()];
+    for (const id of ids) {
+      this.clearWatchdog(id);
+    }
     await Promise.allSettled(ids.map((id) => this.terminate(id)));
   }
 }
