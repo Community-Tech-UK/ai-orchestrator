@@ -39,7 +39,6 @@ vi.mock('../rpc-schemas', () => ({
   RPC_PARAM_SCHEMAS: {
     'node.register': {},
     'node.heartbeat': {},
-    'instance.output': {},
     'instance.stateChange': {},
     'instance.permissionRequest': {},
   },
@@ -229,30 +228,100 @@ describe('RpcEventRouter', () => {
   });
 
   // -------------------------------------------------------------------------
-  // rpc:request instance.output — emits remote:instance-output on registry
+  // rpc:notification instance.output — emits remote:instance-output on registry
   // -------------------------------------------------------------------------
 
-  it('emits remote:instance-output on registry for instance.output request', () => {
+  it('emits remote:instance-output on registry for instance.output notification', () => {
     registry.registerNode(makeNode('node-5'));
     const outputHandler = vi.fn();
     registry.on('remote:instance-output', outputHandler);
 
-    const request = makeRpcRequest('instance.output', {
-      instanceId: 'inst-1',
-      message: 'hello output',
-    }, 3);
-
-    mockConnection.emit('rpc:request', 'node-5', request);
+    mockConnection.emit('rpc:notification', 'node-5', {
+      jsonrpc: '2.0',
+      method: 'instance.output',
+      params: {
+        instanceId: 'inst-1',
+        message: 'hello output',
+      },
+    });
 
     expect(outputHandler).toHaveBeenCalledWith({
       nodeId: 'node-5',
       instanceId: 'inst-1',
       message: 'hello output',
     });
-    expect(mockConnection.sendResponse).toHaveBeenCalledWith(
-      'node-5',
-      expect.objectContaining({ result: { ok: true } }),
-    );
+    // Notification — no response sent
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('ignores instance.output notification from unknown node', () => {
+    const outputHandler = vi.fn();
+    registry.on('remote:instance-output', outputHandler);
+
+    mockConnection.emit('rpc:notification', 'unknown-node', {
+      jsonrpc: '2.0',
+      method: 'instance.output',
+      params: {
+        instanceId: 'inst-1',
+        message: 'hello',
+      },
+    });
+
+    expect(outputHandler).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // rpc:notification instance.outputBatch — emits per-item remote:instance-output
+  // -------------------------------------------------------------------------
+
+  it('emits remote:instance-output for each item in instance.outputBatch notification', () => {
+    registry.registerNode(makeNode('node-5b'));
+    const outputHandler = vi.fn();
+    registry.on('remote:instance-output', outputHandler);
+
+    mockConnection.emit('rpc:notification', 'node-5b', {
+      jsonrpc: '2.0',
+      method: 'instance.outputBatch',
+      params: {
+        items: [
+          { instanceId: 'inst-1', message: 'msg1' },
+          { instanceId: 'inst-2', message: 'msg2' },
+          { instanceId: 'inst-1', message: 'msg3' },
+        ],
+      },
+    });
+
+    expect(outputHandler).toHaveBeenCalledTimes(3);
+    expect(outputHandler).toHaveBeenNthCalledWith(1, {
+      nodeId: 'node-5b',
+      instanceId: 'inst-1',
+      message: 'msg1',
+    });
+    expect(outputHandler).toHaveBeenNthCalledWith(2, {
+      nodeId: 'node-5b',
+      instanceId: 'inst-2',
+      message: 'msg2',
+    });
+    expect(outputHandler).toHaveBeenNthCalledWith(3, {
+      nodeId: 'node-5b',
+      instanceId: 'inst-1',
+      message: 'msg3',
+    });
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('ignores instance.outputBatch with missing items array', () => {
+    registry.registerNode(makeNode('node-5c'));
+    const outputHandler = vi.fn();
+    registry.on('remote:instance-output', outputHandler);
+
+    mockConnection.emit('rpc:notification', 'node-5c', {
+      jsonrpc: '2.0',
+      method: 'instance.outputBatch',
+      params: { broken: true },
+    });
+
+    expect(outputHandler).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -360,7 +429,11 @@ describe('RpcEventRouter', () => {
 
     const outputHandler = vi.fn();
     registry.on('remote:instance-output', outputHandler);
-    mockConnection.emit('rpc:request', 'node-9', makeRpcRequest('instance.output', { instanceId: 'x', message: 'y' }));
+    mockConnection.emit('rpc:notification', 'node-9', {
+      jsonrpc: '2.0',
+      method: 'instance.output',
+      params: { instanceId: 'x', message: 'y' },
+    });
     expect(outputHandler).not.toHaveBeenCalled();
 
     mockConnection.emit('rpc:notification', 'node-9', {
