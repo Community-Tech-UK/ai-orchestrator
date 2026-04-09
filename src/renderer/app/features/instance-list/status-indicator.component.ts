@@ -10,11 +10,14 @@ const STATUS_COLORS: Record<InstanceStatus, string> = {
   ready: '#10b981',        // Green - fully started
   idle: '#10b981',         // Green
   busy: '#3b82f6',         // Blue
+  processing: '#3b82f6',   // Blue - alive but no output yet (remote heartbeat)
+  thinking_deeply: '#8b5cf6', // Purple - extended thinking (90s+ no stdout)
   waiting_for_input: '#f59e0b', // Amber
   respawning: '#8b5cf6',   // Purple - recovering from interrupt
   hibernating: '#6b7280',  // Gray - transitioning
   hibernated: '#4b5563',   // Darker gray - resting
   waking: '#f59e0b',       // Amber - waking up
+  degraded: '#f97316',     // Orange - remote node disconnected
   error: '#ef4444',        // Red
   failed: '#ef4444',       // Red - unrecoverable failure
   terminated: '#6b7280',   // Gray
@@ -25,11 +28,14 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
   ready: 'Ready',
   idle: 'Idle',
   busy: 'Processing...',
+  processing: 'Processing...',
+  thinking_deeply: 'Thinking deeply...',
   waiting_for_input: 'Waiting for input',
   respawning: 'Resuming session...',
   hibernating: 'Hibernating...',
   hibernated: 'Hibernated',
   waking: 'Waking up...',
+  degraded: 'Degraded',
   error: 'Error',
   failed: 'Failed',
   terminated: 'Terminated',
@@ -126,13 +132,18 @@ export class StatusIndicatorComponent {
 
   isPulsing = computed(() =>
     this.status() === 'busy' ||
+    this.status() === 'processing' ||
+    this.status() === 'thinking_deeply' ||
     this.status() === 'initializing' ||
     this.status() === 'respawning' ||
     this.status() === 'hibernating' ||
-    this.status() === 'waking'
+    this.status() === 'waking' ||
+    this.status() === 'degraded'
   );
 
   showSpinnerIndicator = computed(() =>
-    this.status() === 'busy'
+    this.status() === 'busy' ||
+    this.status() === 'processing' ||
+    this.status() === 'thinking_deeply'
   );
 }

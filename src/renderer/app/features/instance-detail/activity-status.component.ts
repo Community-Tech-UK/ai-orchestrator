@@ -86,7 +86,7 @@ export class ActivityStatusComponent implements OnDestroy {
   /** Whether to show the activity status */
   isActive = computed(() => {
     const s = this.status();
-    return s === 'busy' || s === 'initializing';
+    return s === 'busy' || s === 'processing' || s === 'thinking_deeply' || s === 'initializing';
   });
 
   /** Text to display */

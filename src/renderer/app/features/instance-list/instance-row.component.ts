@@ -664,6 +664,8 @@ export class InstanceRowComponent {
   );
   readonly showActivitySpinner = computed(() =>
     this.instance().status === 'busy' ||
+    this.instance().status === 'processing' ||
+    this.instance().status === 'thinking_deeply' ||
     this.instance().status === 'initializing' ||
     this.instance().status === 'respawning' ||
     this.instance().status === 'waking' ||

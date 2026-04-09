@@ -148,7 +148,7 @@ interface WelcomeProjectContext {
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
               [isChild]="!!inst.parentId"
             />
-            @if (inst.status === 'busy' || inst.status === 'initializing') {
+            @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing') {
               <app-activity-status
                 [status]="inst.status"
                 [activity]="currentActivity()"

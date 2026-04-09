@@ -140,6 +140,7 @@ export class LocalInstanceManager extends EventEmitter {
       this.emit('instance:permissionRequest', params.instanceId, permission);
     });
     adapter.on('stream:idle', () => {
+      this.clearWatchdog(params.instanceId);
       this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
     });
 
