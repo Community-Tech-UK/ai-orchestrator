@@ -45,6 +45,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { getLogger } from '../../logging/logger';
 import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
+import { ActivityStateDetector } from '../../providers/activity-state-detector';
 
 // App-server imports
 import {
@@ -266,6 +267,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ─── Resume cursor state ──────────────────────────────────────────
   private sessionScanner = new CodexSessionScanner();
   private resumeCursor: ResumeCursor | null = null;
+  private activityDetector: ActivityStateDetector | null = null;
 
   constructor(config: CodexCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -280,6 +282,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
     this.cliConfig = config;
     this.sessionId = config.sessionId || `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.shouldResumeNextTurn = Boolean(this.supportsNativeResume() && config.resume && config.sessionId);
+  }
+
+  setActivityDetector(detector: ActivityStateDetector): void {
+    this.activityDetector = detector;
   }
 
   getName(): string {
@@ -906,6 +912,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     const { method, params } = notification;
+
+    // Record native activity from structured events
+    if (this.activityDetector) {
+      if (method === 'item/started' || method === 'item/completed' || method === 'turn/started') {
+        this.activityDetector.recordActivityEntry({
+          ts: Date.now(),
+          state: 'active',
+          source: 'native',
+          provider: 'openai',
+        }).catch(() => {});
+      }
+    }
 
     switch (method) {
       case 'thread/started': {
@@ -1729,6 +1747,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
       childProcess.stdout?.on('data', (data) => {
         const chunk = data.toString();
         state.rawStdout += chunk;
+        // Record activity from streaming output
+        if (this.activityDetector && chunk) {
+          this.activityDetector.recordTerminalActivity(chunk).catch(() => {});
+        }
         state.partialStdout = this.consumeLines(chunk, state.partialStdout, (line) => {
           this.processStdoutLine(line, state);
         });
