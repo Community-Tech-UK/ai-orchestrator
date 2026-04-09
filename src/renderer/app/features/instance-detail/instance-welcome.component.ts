@@ -4,6 +4,7 @@
 
 import {
   Component,
+  effect,
   input,
   output,
   signal,
@@ -349,8 +350,19 @@ export class InstanceWelcomeComponent {
   isProjectContextLoading = input(false);
   selectedCli = input<string>('auto');
 
-  // Node picker state
+  // Node picker state — synced from parent when the draft context changes,
+  // but also writable locally when the user picks a node manually.
+  initialNodeId = input<string | null>(null);
   selectedNodeId = signal<string | null>(null);
+
+  constructor() {
+    // Keep local node selection in sync with parent-provided initial value
+    // (e.g. when switching between instance tabs or restoring a draft that
+    // was previously used with a remote node).
+    effect(() => {
+      this.selectedNodeId.set(this.initialNodeId());
+    });
+  }
 
   // Actions
   selectFolder = output<string>();

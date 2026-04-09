@@ -8,24 +8,13 @@ import {
   OnInit,
   OnDestroy,
   ChangeDetectionStrategy,
+  inject,
   signal,
   computed,
 } from '@angular/core';
 import { CommonModule, DatePipe, DecimalPipe, PercentPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import type { ElectronAPI } from '../../../../preload/preload';
-
-// Extend the global Window type so we can use window.electronAPI with full typing
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI;
-  }
-}
-
-/** Convenience accessor for the typed Electron API */
-function getElectronApi(): ElectronAPI | undefined {
-  return typeof window !== 'undefined' ? window.electronAPI : undefined;
-}
+import { ElectronIpcService } from '../../core/services/ipc';
 
 // ============================================
 // Types
@@ -1109,6 +1098,8 @@ interface NewVariant {
   `],
 })
 export class ABTestingComponent implements OnInit, OnDestroy {
+  private ipc = inject(ElectronIpcService);
+
   // State
   experiments = signal<Experiment[]>([]);
   experimentResults = signal<Map<string, ExperimentResult[]>>(new Map());
@@ -1136,6 +1127,10 @@ export class ABTestingComponent implements OnInit, OnDestroy {
   // Lifecycle
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
+  private get api() {
+    return this.ipc.getApi();
+  }
+
   ngOnInit(): void {
     this.refreshData();
     // Auto-refresh every 30 seconds for running experiments
@@ -1155,7 +1150,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadExperiments(): Promise<void> {
     try {
-      const response = await getElectronApi()?.abListExperiments() as { success: boolean; data?: Experiment[] } | undefined;
+      const response = await this.api?.abListExperiments() as { success: boolean; data?: Experiment[] } | undefined;
       if (response?.success && response.data) {
         this.experiments.set(response.data);
 
@@ -1174,7 +1169,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadExperimentResults(experimentId: string): Promise<void> {
     try {
-      const response = await getElectronApi()?.abGetResults(experimentId) as { success: boolean; data?: ExperimentResult[] } | undefined;
+      const response = await this.api?.abGetResults(experimentId) as { success: boolean; data?: ExperimentResult[] } | undefined;
       if (response?.success && response.data) {
         const current = this.experimentResults();
         const newMap = new Map(current);
@@ -1188,7 +1183,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadExperimentWinner(experimentId: string): Promise<void> {
     try {
-      const response = await getElectronApi()?.abGetWinner(experimentId) as { success: boolean; data?: ExperimentWinner | null } | undefined;
+      const response = await this.api?.abGetWinner(experimentId) as { success: boolean; data?: ExperimentWinner | null } | undefined;
       if (response?.success && response.data) {
         const current = this.experimentWinners();
         const newMap = new Map(current);
@@ -1202,7 +1197,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async loadStats(): Promise<void> {
     try {
-      const response = await getElectronApi()?.abGetStats() as { success: boolean; data?: ExperimentStats } | undefined;
+      const response = await this.api?.abGetStats() as { success: boolean; data?: ExperimentStats } | undefined;
       if (response?.success && response.data) {
         this.stats.set(response.data);
       }
@@ -1214,7 +1209,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
   // Experiment Actions
   async startExperiment(experimentId: string): Promise<void> {
     try {
-      const response = await getElectronApi()?.abStartExperiment(experimentId) as { success: boolean } | undefined;
+      const response = await this.api?.abStartExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1225,7 +1220,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async pauseExperiment(experimentId: string): Promise<void> {
     try {
-      const response = await getElectronApi()?.abPauseExperiment(experimentId) as { success: boolean } | undefined;
+      const response = await this.api?.abPauseExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1236,7 +1231,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
   async completeExperiment(experimentId: string): Promise<void> {
     try {
-      const response = await getElectronApi()?.abCompleteExperiment(experimentId) as { success: boolean } | undefined;
+      const response = await this.api?.abCompleteExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1249,7 +1244,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
     if (!confirm('Are you sure you want to delete this experiment?')) return;
 
     try {
-      const response = await getElectronApi()?.abDeleteExperiment(experimentId) as { success: boolean } | undefined;
+      const response = await this.api?.abDeleteExperiment(experimentId) as { success: boolean } | undefined;
       if (response?.success) {
         await this.refreshData();
       }
@@ -1349,7 +1344,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
 
     try {
       if (this.editingExperiment) {
-        await getElectronApi()?.abUpdateExperiment({
+        await this.api?.abUpdateExperiment({
           experimentId: this.editingExperiment.id,
           updates: {
             name: this.newExperiment.name,
@@ -1359,7 +1354,7 @@ export class ABTestingComponent implements OnInit, OnDestroy {
           },
         });
       } else {
-        await getElectronApi()?.abCreateExperiment({
+        await this.api?.abCreateExperiment({
           name: this.newExperiment.name,
           description: this.newExperiment.description,
           taskType: this.newExperiment.taskType,

@@ -16,7 +16,7 @@ import {
   type Reflection,
   type ObservationStats,
   type ObservationConfig,
-} from '../../shared/types/observation.types';
+} from './observation.types';
 import type { ObservationRow, ReflectionRow } from '../persistence/rlm-database.types';
 
 export class ObservationStore extends EventEmitter {

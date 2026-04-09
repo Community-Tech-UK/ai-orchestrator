@@ -1,0 +1,26 @@
+{
+  "name": "@ai-orchestrator/sdk",
+  "version": "0.1.0",
+  "description": "SDK for building tools, plugins, and providers for AI Orchestrator",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "orchestrator",
+    "sdk",
+    "tools",
+    "plugins",
+    "providers"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@ai-orchestrator/contracts": "workspace:*"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  }
+}

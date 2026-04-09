@@ -2,44 +2,31 @@
  * Reaction Engine Types
  *
  * Defines the reaction system that monitors CI/PR state and routes
- * feedback to active agent instances. Inspired by Agent Orchestrator's
- * lifecycle manager pattern.
+ * feedback to active agent instances.
  */
 
-// ---------------------------------------------------------------------------
-// Event Types
-// ---------------------------------------------------------------------------
-
-/** All reaction-triggerable event types */
 export type ReactionEventType =
-  // CI events
   | 'ci.passing'
   | 'ci.failing'
   | 'ci.fix_sent'
-  // PR lifecycle
   | 'pr.created'
   | 'pr.updated'
   | 'pr.merged'
   | 'pr.closed'
-  // Reviews
   | 'review.pending'
   | 'review.approved'
   | 'review.changes_requested'
   | 'review.comments_sent'
-  // Merge
   | 'merge.ready'
   | 'merge.conflicts'
   | 'merge.completed'
-  // Session
   | 'session.stuck'
   | 'session.needs_input'
   | 'session.errored'
   | 'session.exited';
 
-/** Event priority for notification routing */
 export type ReactionEventPriority = 'urgent' | 'action' | 'warning' | 'info';
 
-/** A reaction event emitted when state changes */
 export interface ReactionEvent {
   id: string;
   type: ReactionEventType;
@@ -50,10 +37,6 @@ export interface ReactionEvent {
   data: Record<string, unknown>;
   message?: string;
 }
-
-// ---------------------------------------------------------------------------
-// PR / CI State
-// ---------------------------------------------------------------------------
 
 export type PRState = 'open' | 'closed' | 'merged' | 'draft';
 
@@ -70,7 +53,6 @@ export interface CICheck {
   completedAt?: number;
 }
 
-/** Enriched PR data fetched per poll cycle */
 export interface PREnrichmentData {
   owner: string;
   repo: string;
@@ -88,24 +70,14 @@ export interface PREnrichmentData {
   fetchedAt: number;
 }
 
-// ---------------------------------------------------------------------------
-// Reaction Configuration
-// ---------------------------------------------------------------------------
-
 export type ReactionAction = 'send-to-agent' | 'notify' | 'auto-merge' | 'ignore';
 
 export interface ReactionConfig {
-  /** Whether this reaction fires automatically */
   auto: boolean;
-  /** What to do when triggered */
   action: ReactionAction;
-  /** Custom message to send (for send-to-agent) */
   message?: string;
-  /** Notification priority override */
   priority?: ReactionEventPriority;
-  /** Retry count before escalating */
   retries?: number;
-  /** Escalate after N failures or a duration string like "10m" */
   escalateAfter?: number | string;
 }
 
@@ -117,31 +89,17 @@ export interface ReactionResult {
   escalated: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Reaction Tracking State (per instance)
-// ---------------------------------------------------------------------------
-
 export interface InstanceReactionState {
   instanceId: string;
-  /** PR URL being tracked, if any */
   prUrl?: string;
-  /** Last known PR enrichment data */
   prData?: PREnrichmentData;
-  /** Last known PR status for transition detection */
   lastPRStatus?: string;
-  /** Last CI status for transition detection */
   lastCIStatus?: CIStatus;
-  /** Last review decision for transition detection */
   lastReviewDecision?: ReviewDecision;
-  /** Fingerprint of last dispatched review comments */
   lastReviewFingerprint?: string;
-  /** Fingerprint of last dispatched CI failure details */
   lastCIFailureFingerprint?: string;
-  /** Reaction attempt trackers keyed by reaction type */
   reactionTrackers: Map<string, ReactionTracker>;
-  /** When tracking started */
   startedAt: number;
-  /** When last polled */
   lastPolledAt?: number;
 }
 
@@ -151,21 +109,12 @@ export interface ReactionTracker {
   lastTriggered: number;
 }
 
-// ---------------------------------------------------------------------------
-// Reaction Engine Configuration
-// ---------------------------------------------------------------------------
-
-/** Default reaction configs keyed by reaction key */
 export type ReactionConfigMap = Partial<Record<string, ReactionConfig>>;
 
 export interface ReactionEngineConfig {
-  /** Polling interval in ms (default: 30000) */
   pollIntervalMs: number;
-  /** Whether the engine is enabled */
   enabled: boolean;
-  /** Per-reaction-type configurations */
   reactions: ReactionConfigMap;
-  /** Notification routing: priority → channel names */
   notificationRouting: Partial<Record<ReactionEventPriority, string[]>>;
 }
 
@@ -190,15 +139,10 @@ export const DEFAULT_REACTION_ENGINE_CONFIG: ReactionEngineConfig = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Mapping helpers
-// ---------------------------------------------------------------------------
-
-/** Maps a ReactionEventType to its reaction config key */
 export function eventToReactionKey(eventType: ReactionEventType): string | null {
   switch (eventType) {
     case 'ci.failing': return 'ci-failed';
-    case 'ci.passing': return null; // No reaction needed
+    case 'ci.passing': return null;
     case 'ci.fix_sent': return null;
     case 'review.changes_requested': return 'changes-requested';
     case 'review.approved': return null;
@@ -214,7 +158,6 @@ export function eventToReactionKey(eventType: ReactionEventType): string | null 
   }
 }
 
-/** Infer priority from event type when not explicitly configured */
 export function inferReactionPriority(eventType: ReactionEventType): ReactionEventPriority {
   if (eventType.includes('stuck') || eventType.includes('needs_input') || eventType.includes('errored')) {
     return 'urgent';
@@ -228,7 +171,6 @@ export function inferReactionPriority(eventType: ReactionEventType): ReactionEve
   return 'info';
 }
 
-/** Parse a duration string like "10m", "30s", "1h" to milliseconds */
 export function parseDuration(str: string): number {
   const match = str.match(/^(\d+)(s|m|h)$/);
   if (!match) return 0;

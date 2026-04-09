@@ -30,7 +30,7 @@ vi.mock('../../../shared/utils/id-generator', () => ({
 
 import { ReactionEngine, _resetReactionEngineForTesting } from '../reaction-engine';
 import { fetchPREnrichmentBatch } from '../../vcs/remotes/github-pr-poller';
-import type { PREnrichmentData, ReactionEvent } from '../../../shared/types/reaction.types';
+import type { PREnrichmentData, ReactionEvent } from '../reaction.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 
 type EventHandler = (...args: unknown[]) => void;

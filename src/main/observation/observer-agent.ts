@@ -3,8 +3,8 @@ import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
 import { getObservationIngestor } from './observation-ingestor';
 import { getObservationStore } from './observation-store';
-import type { RawObservation, Observation, ObservationConfig } from '../../shared/types/observation.types';
-import { DEFAULT_OBSERVATION_CONFIG } from '../../shared/types/observation.types';
+import type { RawObservation, Observation, ObservationConfig } from './observation.types';
+import { DEFAULT_OBSERVATION_CONFIG } from './observation.types';
 
 const STOP_WORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',

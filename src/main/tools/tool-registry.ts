@@ -23,10 +23,13 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { app } from 'electron';
 import z from 'zod';
 import { fork } from 'child_process';
 import type { ToolSafetyMetadata } from '../../shared/types/tool.types';
+import { isToolDefinition } from './define-tool';
+import type { ToolDefinition } from './define-tool';
 
 export type { ToolSafetyMetadata } from '../../shared/types/tool.types';
 
@@ -42,7 +45,7 @@ export interface ToolModule {
   concurrencySafe?: boolean;
   /** Richer safety metadata — takes precedence over concurrencySafe when present */
   safety?: ToolSafetyMetadata;
-  execute: (args: any, ctx: ToolContext) => unknown | Promise<unknown>;
+  execute: (args: unknown, ctx: ToolContext) => unknown | Promise<unknown>;
 }
 
 /**
@@ -71,10 +74,56 @@ interface CacheEntry {
   toolsById: Map<string, LoadedTool>;
   candidatesById: Map<string, LoadedTool[]>;
   scanDirs: string[];
-  errors: Array<{ filePath: string; error: string }>;
+  errors: { filePath: string; error: string }[];
 }
 
 const CACHE_TTL_MS = 10_000;
+
+interface ToolRunnerProgressMessage {
+  type: 'progress';
+  message: string;
+  timestamp: number;
+}
+
+interface ToolRunnerSuccessMessage {
+  ok: true;
+  output: unknown;
+}
+
+interface ToolRunnerErrorMessage {
+  ok: false;
+  error: string;
+}
+
+function isToolRunnerProgressMessage(message: unknown): message is ToolRunnerProgressMessage {
+  if (typeof message !== 'object' || message === null) {
+    return false;
+  }
+
+  const record = message as Record<string, unknown>;
+  return (
+    record['type'] === 'progress' &&
+    typeof record['message'] === 'string' &&
+    typeof record['timestamp'] === 'number'
+  );
+}
+
+function isToolRunnerSuccessMessage(message: unknown): message is ToolRunnerSuccessMessage {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    (message as Record<string, unknown>)['ok'] === true
+  );
+}
+
+function isToolRunnerErrorMessage(message: unknown): message is ToolRunnerErrorMessage {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    (message as Record<string, unknown>)['ok'] === false &&
+    typeof (message as Record<string, unknown>)['error'] === 'string'
+  );
+}
 
 export class ToolRegistry extends EventEmitter {
   private static instance: ToolRegistry | null = null;
@@ -133,7 +182,7 @@ export class ToolRegistry extends EventEmitter {
 
     while (stack.length > 0) {
       const current = stack.pop()!;
-      let entries: Array<import('fs').Dirent>;
+      let entries: import('fs').Dirent[];
       try {
         entries = await fs.readdir(current, { withFileTypes: true });
       } catch {
@@ -161,22 +210,30 @@ export class ToolRegistry extends EventEmitter {
     return withoutExt.split(path.sep).filter(Boolean).join(':');
   }
 
-  private loadModule(filePath: string): ToolModule {
-    // Clear require cache so edits are picked up quickly.
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      delete require.cache[require.resolve(filePath)];
-    } catch {
-      /* intentionally ignored: require.resolve may fail for some module paths */
-    }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(filePath);
-    const def: ToolModule = (mod && (mod.default || mod)) as ToolModule;
+  private async loadModule(filePath: string): Promise<ToolModule | ToolDefinition> {
+    const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
+    const mod = await import(moduleUrl);
+    const def = (mod && (mod.default || mod)) as ToolModule | ToolDefinition;
     return def;
   }
 
-  private toLoadedTool(toolId: string, filePath: string, def: ToolModule): LoadedTool | null {
+  private toLoadedTool(
+    toolId: string,
+    filePath: string,
+    def: ToolModule | ToolDefinition,
+  ): LoadedTool | null {
     if (!def || typeof def !== 'object') return null;
+
+    if (isToolDefinition(def)) {
+      return {
+        id: def.id ?? toolId,
+        description: def.description,
+        filePath,
+        schema: def.schema,
+        concurrencySafe: def.safety.isConcurrencySafe,
+      };
+    }
+
     if (typeof def.description !== 'string') return null;
     if (typeof def.execute !== 'function') return null;
 
@@ -194,14 +251,14 @@ export class ToolRegistry extends EventEmitter {
       description: def.description,
       filePath,
       schema,
-      concurrencySafe: def.concurrencySafe !== false, // Default true
+      concurrencySafe: getToolSafety(def).isConcurrencySafe,
     };
   }
 
   private async loadToolsForWorkingDirectory(workingDirectory: string): Promise<Map<string, LoadedTool>> {
     const toolsById = new Map<string, LoadedTool>();
     const candidatesById = new Map<string, LoadedTool[]>();
-    const errors: Array<{ filePath: string; error: string }> = [];
+    const errors: { filePath: string; error: string }[] = [];
 
     // Low-to-high priority; later wins.
     const roots = this.getScanRoots(workingDirectory);
@@ -212,7 +269,7 @@ export class ToolRegistry extends EventEmitter {
         for (const filePath of files) {
           const id = this.deriveToolId(toolDir, filePath);
           try {
-            const def = this.loadModule(filePath);
+            const def = await this.loadModule(filePath);
             const loaded = this.toLoadedTool(id, filePath, def);
             if (loaded) {
               const existing = candidatesById.get(id) || [];
@@ -246,10 +303,10 @@ export class ToolRegistry extends EventEmitter {
   }
 
   async listTools(workingDirectory: string): Promise<{
-    tools: Array<{ id: string; description: string; filePath: string }>;
-    candidatesById: Record<string, Array<{ id: string; description: string; filePath: string }>>;
+    tools: { id: string; description: string; filePath: string }[];
+    candidatesById: Record<string, { id: string; description: string; filePath: string }[]>;
     scanDirs: string[];
-    errors: Array<{ filePath: string; error: string }>;
+    errors: { filePath: string; error: string }[];
   }> {
     const cached = this.cacheByWorkingDir.get(workingDirectory);
     const now = Date.now();
@@ -262,7 +319,7 @@ export class ToolRegistry extends EventEmitter {
       .map((t) => ({ id: t.id, description: t.description, filePath: t.filePath }))
       .sort((a, b) => a.id.localeCompare(b.id));
 
-    const candidatesById: Record<string, Array<{ id: string; description: string; filePath: string }>> = {};
+    const candidatesById: Record<string, { id: string; description: string; filePath: string }[]> = {};
     for (const [id, list] of entry.candidatesById.entries()) {
       candidatesById[id] = list.map((t) => ({ id: t.id, description: t.description, filePath: t.filePath }));
     }
@@ -334,13 +391,13 @@ export class ToolRegistry extends EventEmitter {
         resolve({ ok: false, error: 'Tool execution timed out' });
       }, params.timeoutMs);
 
-      const progressHandler = (msg: any) => {
-        if (msg && msg.type === 'progress') {
+      const progressHandler = (message: unknown) => {
+        if (isToolRunnerProgressMessage(message)) {
           // Forward to caller — stored for streaming executor
           this.emit('tool:progress', {
             toolFilePath: params.toolFilePath,
-            message: msg.message,
-            timestamp: msg.timestamp,
+            message: message.message,
+            timestamp: message.timestamp,
           });
           return;
         }
@@ -348,11 +405,15 @@ export class ToolRegistry extends EventEmitter {
         clearTimeout(timer);
         child.off('message', progressHandler);
         try { child.kill(); } catch { /* ignore */ }
-        if (msg && msg.ok === true) {
-          resolve({ ok: true, output: msg.output });
+        if (isToolRunnerSuccessMessage(message)) {
+          resolve({ ok: true, output: message.output });
           return;
         }
-        resolve({ ok: false, error: msg?.error ? String(msg.error) : 'Tool execution failed' });
+        if (isToolRunnerErrorMessage(message)) {
+          resolve({ ok: false, error: message.error });
+          return;
+        }
+        resolve({ ok: false, error: 'Tool execution failed' });
       };
 
       child.on('message', progressHandler);

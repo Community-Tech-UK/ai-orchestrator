@@ -9,7 +9,7 @@
  */
 
 import { Injectable, inject, OnDestroy, signal } from '@angular/core';
-import { ElectronIpcService } from '../../services/ipc';
+import { InstanceIpcService, IpcEventBusService } from '../../services/ipc';
 import { StatsIpcService } from '../../services/ipc/stats-ipc.service';
 import { UpdateBatcherService, StateUpdate } from '../../services/update-batcher.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
@@ -24,9 +24,8 @@ import { InstanceOutputStore } from './instance-output.store';
 import { InstanceMessagingStore } from './instance-messaging.store';
 
 // Types
-import type { InstanceStatus, OutputMessage, CreateInstanceConfig } from './instance.types';
+import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
-import type { OrchestrationActivityPayload } from '../../../../../shared/types/ipc.types';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -41,7 +40,8 @@ export class InstanceStore implements OnDestroy {
   private queries = inject(InstanceQueries);
 
   // Infrastructure
-  private ipc = inject(ElectronIpcService);
+  private instanceIpc = inject(InstanceIpcService);
+  private eventBus = inject(IpcEventBusService);
   private statsIpc = inject(StatsIpcService);
   private batcher = inject(UpdateBatcherService);
   private activityDebouncer = inject(ActivityDebouncerService);
@@ -93,9 +93,8 @@ export class InstanceStore implements OnDestroy {
   // ============================================
 
   private setupIpcListeners(): void {
-    // Listen for new instances
-    this.unsubscribes.push(
-      this.ipc.onInstanceCreated((data) => {
+    this.addSubscription(
+      this.eventBus.instanceCreated$.subscribe((data) => {
         this.listStore.addInstance(data);
         // Record session start for stats tracking
         const inst = data as { id?: string; sessionId?: string; agentId?: string; workingDirectory?: string };
@@ -106,20 +105,15 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
-
-    // Listen for removed instances
-    this.unsubscribes.push(
-      this.ipc.onInstanceRemoved((instanceId) => {
+    this.addSubscription(
+      this.eventBus.instanceRemoved$.subscribe((instanceId) => {
         this.activityDebouncer.clearActivity(instanceId);
         this.outputStore.cleanupInstance(instanceId);
         this.listStore.removeInstance(instanceId);
       })
     );
-
-    // Listen for state updates (critical ones bypass batching)
-    this.unsubscribes.push(
-      this.ipc.onInstanceStateUpdate((rawUpdate: unknown) => {
-        const update = rawUpdate as StateUpdate;
+    this.addSubscription(
+      this.eventBus.instanceStateUpdate$.subscribe((update) => {
         if (update.status === 'error' || update.status === 'terminated') {
           this.applyUpdate(update);
         } else {
@@ -127,12 +121,8 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
-
-    // Listen for output with activity tracking
-    this.unsubscribes.push(
-      this.ipc.onInstanceOutput((rawData: unknown) => {
-        const data = rawData as { instanceId: string; message: OutputMessage };
-        const { instanceId, message } = data;
+    this.addSubscription(
+      this.eventBus.instanceOutput$.subscribe(({ instanceId, message }) => {
 
         // Track tool usage for activity status
         if (message.type === 'tool_use' && message.metadata?.['name']) {
@@ -151,21 +141,15 @@ export class InstanceStore implements OnDestroy {
         this.outputStore.queueOutput(instanceId, message);
       })
     );
-
-    // Listen for batch updates
-    this.unsubscribes.push(
-      this.ipc.onBatchUpdate((rawData: unknown) => {
-        const data = rawData as { updates?: StateUpdate[] };
+    this.addSubscription(
+      this.eventBus.batchUpdate$.subscribe((data) => {
         if (data.updates) {
           this.batcher.queueUpdates(data.updates);
         }
       })
     );
-
-    // Listen for orchestration activity (child spawn, debate, verification progress)
-    this.unsubscribes.push(
-      this.ipc.onOrchestrationActivity((rawData: unknown) => {
-        const data = rawData as OrchestrationActivityPayload;
+    this.addSubscription(
+      this.eventBus.orchestrationActivity$.subscribe((data) => {
         if (data.instanceId && data.activity) {
           this.activityDebouncer.setActivity(
             data.instanceId,
@@ -175,11 +159,8 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
-
-    // Listen for compaction status updates (auto-compact and manual)
-    this.unsubscribes.push(
-      this.ipc.onCompactStatus((rawData: unknown) => {
-        const data = rawData as { instanceId: string; status: string };
+    this.addSubscription(
+      this.eventBus.compactStatus$.subscribe((data) => {
         if (data.status === 'started') {
           this._compactingInstances.update(set => {
             const next = new Set(set);
@@ -196,11 +177,8 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
-
-    // Listen for input-required events (permission/approval prompts) to track pending approvals
-    this.unsubscribes.push(
-      this.ipc.onInputRequired((rawPayload: unknown) => {
-        const payload = rawPayload as { instanceId: string; requestId: string };
+    this.addSubscription(
+      this.eventBus.inputRequired$.subscribe((payload) => {
         if (payload.instanceId) {
           // Check if YOLO mode is enabled — skip tracking if so
           const inst = this.stateService.getInstance(payload.instanceId);
@@ -212,6 +190,10 @@ export class InstanceStore implements OnDestroy {
         }
       })
     );
+  }
+
+  private addSubscription(subscription: { unsubscribe(): void }): void {
+    this.unsubscribes.push(() => subscription.unsubscribe());
   }
 
   private setupBatcher(): void {
@@ -549,7 +531,7 @@ export class InstanceStore implements OnDestroy {
 
   /** Compact context for an instance */
   async compactInstance(instanceId: string): Promise<void> {
-    const response = await this.ipc.compactInstance(instanceId);
+    const response = await this.instanceIpc.compactInstance(instanceId);
     if (!response.success) {
       console.error('Compaction failed:', response.error?.message);
     }

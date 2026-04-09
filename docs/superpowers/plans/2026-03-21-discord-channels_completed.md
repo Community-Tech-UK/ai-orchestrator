@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, discord.js ^14.x, Electron IPC, Angular 21 signals, better-sqlite3, Zod 4, Vitest
 
-**Spec:** `docs/superpowers/specs/2026-03-21-discord-whatsapp-channels-design.md`
+**Spec:** `docs/superpowers/specs/2026-03-21-discord-whatsapp-channels-design_completed.md`
 
 ---
 

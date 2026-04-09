@@ -16,7 +16,7 @@ import {
 import { ContextWarningComponent } from './context-warning.component';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { ElectronIpcService, RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
+import { ElectronIpcService, FileIpcService, RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { DraftService } from '../../core/services/draft.service';
 import { ProviderStateService } from '../../core/services/provider-state.service';
@@ -311,6 +311,7 @@ interface WelcomeProjectContext {
         [projectContext]="welcomeProjectContext()"
         [isProjectContextLoading]="isWelcomeProjectContextLoading()"
         [selectedCli]="welcomeSelectedCli()"
+        [initialNodeId]="welcomeSelectedNodeId()"
         (selectFolder)="onSelectWelcomeFolder($event)"
         (sendMessage)="onWelcomeSendMessage($event)"
         (nodeChange)="onWelcomeNodeChange($event)"
@@ -683,6 +684,7 @@ export class InstanceDetailComponent {
   private store = inject(InstanceStore);
   private settingsStore = inject(SettingsStore);
   private ipc = inject(ElectronIpcService);
+  private fileIpc = inject(FileIpcService);
   private recentDirsService = inject(RecentDirectoriesIpcService);
   private vcsIpc = inject(VcsIpcService);
   private draftService = inject(DraftService);
@@ -1191,58 +1193,17 @@ export class InstanceDetailComponent {
   async onFilePathDropped(filePath: string): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
-
-    if (!window.electronAPI) return;
-
-    try {
-      const stats = await window.electronAPI.getFileStats(filePath);
-      if (!stats.success || !stats.data) return;
-      const data = stats.data as { isDirectory?: boolean };
-
-      if (data.isDirectory) {
-        console.log('Directory dropped - not supported yet:', filePath);
-        return;
-      }
-
-      const response = await fetch(`file://${filePath}`);
-      const blob = await response.blob();
-
-      const fileName = filePath.split('/').pop() || 'file';
-      const file = new File([blob], fileName, {
-        type: blob.type || 'application/octet-stream'
-      });
-
-      this.draftService.addPendingFiles(inst.id, [file]);
-    } catch (error) {
-      console.error('Failed to load file from path:', error);
+    const files = await this.loadDroppedFilesFromPaths([filePath]);
+    if (files.length > 0) {
+      this.draftService.addPendingFiles(inst.id, files);
     }
   }
 
   async onFilePathsDropped(filePaths: string[]): Promise<void> {
     const inst = this.instance();
-    if (!inst || !window.electronAPI) return;
+    if (!inst) return;
 
-    const results = await Promise.allSettled(
-      filePaths.map(async (filePath) => {
-        const stats = await window.electronAPI!.getFileStats(filePath);
-        if (!stats.success || !stats.data) return null;
-        const data = stats.data as { isDirectory?: boolean };
-        if (data.isDirectory) return null;
-
-        const response = await fetch(`file://${filePath}`);
-        const blob = await response.blob();
-        const fileName = filePath.split('/').pop() || 'file';
-        return new File([blob], fileName, {
-          type: blob.type || 'application/octet-stream',
-        });
-      })
-    );
-
-    const files = results
-      .filter((r): r is PromiseFulfilledResult<File | null> => r.status === 'fulfilled')
-      .map(r => r.value)
-      .filter((f): f is File => f !== null);
-
+    const files = await this.loadDroppedFilesFromPaths(filePaths);
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);
     }
@@ -1486,10 +1447,13 @@ export class InstanceDetailComponent {
     this.newSessionDraft.setWorkingDirectory(path);
     this.remoteBrowseOpen.set(false);
 
-    // Track as recent directory with remote context
+    // Track as recent directory with remote context and pre-select the
+    // remote node so the node picker reflects where the folder lives.
     const nodeId = this.remoteBrowseNodeId();
     if (nodeId) {
       void this.recentDirsService.addDirectory(path, { nodeId });
+      this.welcomeSelectedNodeId.set(nodeId);
+      this.newSessionDraft.setNodeId(nodeId);
     }
   }
 
@@ -1538,6 +1502,25 @@ export class InstanceDetailComponent {
       }
     }
     return files;
+  }
+
+  private async loadDroppedFilesFromPaths(filePaths: string[]): Promise<File[]> {
+    const acceptedPaths: string[] = [];
+    for (const filePath of filePaths) {
+      const stats = await this.fileIpc.getFileStats(filePath);
+      if (!stats) {
+        continue;
+      }
+
+      if (stats.isDirectory) {
+        console.log('Directory dropped - not supported yet:', filePath);
+        continue;
+      }
+
+      acceptedPaths.push(filePath);
+    }
+
+    return this.loadFilesFromPaths(acceptedPaths);
   }
 
   private prependPendingFolders(message: string, pendingFolders: string[]): string {

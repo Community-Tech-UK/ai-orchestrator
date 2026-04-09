@@ -74,31 +74,28 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
 };
 
 /**
- * Provider factories for each type
- */
-const PROVIDER_FACTORIES: Partial<Record<ProviderType, ProviderFactory>> = {
-  'claude-cli': (config) => new ClaudeCliProvider(config),
-  'anthropic-api': (config) => new AnthropicApiProvider(config),
-  'openai': (config) => new CodexCliProvider(config),
-  'google': (config) => new GeminiCliProvider(config),
-  // Future providers will be added here:
-  // 'ollama': (config) => new OllamaProvider(config),
-};
-
-/**
  * Provider Registry - Singleton that manages provider configurations and creation
  */
 export class ProviderRegistry {
-  private configs: Map<ProviderType, ProviderConfig> = new Map();
-  private statusCache: Map<ProviderType, ProviderStatus> = new Map();
-  private statusCacheTime: Map<ProviderType, number> = new Map();
+  private configs = new Map<string, ProviderConfig>();
+  private factories = new Map<string, ProviderFactory>();
+  private statusCache = new Map<string, ProviderStatus>();
+  private statusCacheTime = new Map<string, number>();
   private readonly STATUS_CACHE_TTL = 60000; // 1 minute
 
   constructor() {
     // Initialize with default configs
     for (const [type, config] of Object.entries(DEFAULT_PROVIDER_CONFIGS)) {
-      this.configs.set(type as ProviderType, { ...config });
+      this.configs.set(type, { ...config });
     }
+    this.registerBuiltinProviders();
+  }
+
+  private registerBuiltinProviders(): void {
+    this.factories.set('claude-cli', (config) => new ClaudeCliProvider(config));
+    this.factories.set('anthropic-api', (config) => new AnthropicApiProvider(config));
+    this.factories.set('openai', (config) => new CodexCliProvider(config));
+    this.factories.set('google', (config) => new GeminiCliProvider(config));
   }
 
   /**
@@ -111,14 +108,14 @@ export class ProviderRegistry {
   /**
    * Get configuration for a specific provider
    */
-  getConfig(type: ProviderType): ProviderConfig | undefined {
+  getConfig(type: string): ProviderConfig | undefined {
     return this.configs.get(type);
   }
 
   /**
    * Update provider configuration
    */
-  updateConfig(type: ProviderType, updates: Partial<ProviderConfig>): void {
+  updateConfig(type: string, updates: Partial<ProviderConfig>): void {
     const existing = this.configs.get(type);
     if (existing) {
       this.configs.set(type, { ...existing, ...updates });
@@ -138,15 +135,49 @@ export class ProviderRegistry {
   /**
    * Check if a provider type is supported (has a factory)
    */
-  isSupported(type: ProviderType): boolean {
-    return type in PROVIDER_FACTORIES;
+  isSupported(type: string): boolean {
+    return this.factories.has(type);
+  }
+
+  /**
+   * Register a provider factory at runtime.
+   */
+  registerProvider(
+    type: string,
+    factory: ProviderFactory,
+    defaultConfig?: Partial<ProviderConfig>,
+  ): void {
+    this.factories.set(type, factory);
+    if (defaultConfig) {
+      const existing = this.configs.get(type);
+      const merged: ProviderConfig = {
+        type: (existing?.type ?? type) as ProviderType,
+        name: defaultConfig.name ?? existing?.name ?? type,
+        enabled: defaultConfig.enabled ?? existing?.enabled ?? false,
+        ...existing,
+        ...defaultConfig,
+      };
+      this.configs.set(type, merged);
+    }
+    this.statusCache.delete(type);
+    this.statusCacheTime.delete(type);
+  }
+
+  /**
+   * Unregister a provider factory.
+   * Primarily useful in tests and plugin teardown.
+   */
+  unregisterProvider(type: string): void {
+    this.factories.delete(type);
+    this.statusCache.delete(type);
+    this.statusCacheTime.delete(type);
   }
 
   /**
    * Create a provider instance
    */
-  createProvider(type: ProviderType, configOverrides?: Partial<ProviderConfig>): BaseProvider {
-    const factory = PROVIDER_FACTORIES[type];
+  createProvider(type: ProviderType | string, configOverrides?: Partial<ProviderConfig>): BaseProvider {
+    const factory = this.factories.get(type);
     if (!factory) {
       throw new Error(`Provider type '${type}' is not yet implemented`);
     }
@@ -212,8 +243,8 @@ export class ProviderRegistry {
     const results = new Map<ProviderType, ProviderStatus>();
 
     for (const type of this.configs.keys()) {
-      const status = await this.checkProviderStatus(type, forceRefresh);
-      results.set(type, status);
+      const status = await this.checkProviderStatus(type as ProviderType, forceRefresh);
+      results.set(type as ProviderType, status);
     }
 
     return results;

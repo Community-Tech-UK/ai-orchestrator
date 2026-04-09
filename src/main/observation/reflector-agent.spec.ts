@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { ReflectorAgent, getReflectorAgent } from './reflector-agent';
-import type { Observation } from '../../shared/types/observation.types';
+import type { Observation } from './observation.types';
 
 // Create mock EventEmitter for observer
 const mockObserver = new EventEmitter();

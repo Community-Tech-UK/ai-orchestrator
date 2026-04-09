@@ -39,6 +39,7 @@ export default defineConfig({
     alias: {
       '@shared': resolve(__dirname, './src/shared'),
       '@contracts': resolve(__dirname, './packages/contracts/src'),
+      '@sdk': resolve(__dirname, './packages/sdk/src'),
     },
   },
 });

@@ -2,9 +2,10 @@
 /**
  * IPC Channel Generator
  *
- * Reads IPC_CHANNELS from src/shared/types/ipc.types.ts (the single source
- * of truth) and writes them into src/preload/preload.ts between generation
- * markers. This eliminates manual duplication and channel drift.
+ * Reads the contract channel definitions from packages/contracts/src/channels/
+ * and writes them into src/preload/preload.ts between generation markers.
+ * This eliminates manual duplication and channel drift while the legacy
+ * src/shared/types/ipc.types.ts shim continues to exist for compatibility.
  *
  * Usage:
  *   node scripts/generate-preload-channels.js
@@ -13,56 +14,17 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  extractContractsChannelBodyLines,
+  extractContractsChannelEntries,
+} = require('./ipc-channel-utils');
 
 const ROOT = path.resolve(__dirname, '..');
-const SHARED_PATH = path.join(ROOT, 'src/shared/types/ipc.types.ts');
+const CONTRACTS_CHANNELS_INDEX_PATH = path.join(ROOT, 'packages/contracts/src/channels/index.ts');
 const PRELOAD_PATH = path.join(ROOT, 'src/preload/preload.ts');
 
 const START_MARKER = '// --- GENERATED: IPC_CHANNELS START (do not edit manually — run `npm run generate:ipc`) ---';
 const END_MARKER = '// --- GENERATED: IPC_CHANNELS END ---';
-
-/**
- * Extract the IPC_CHANNELS object body (everything between { and } as const;)
- * from the shared types file, preserving comments and formatting.
- */
-function extractChannelBlock(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-
-  let capturing = false;
-  let braceDepth = 0;
-  const bodyLines = [];
-
-  for (const line of lines) {
-    // Detect: export const IPC_CHANNELS = {
-    if (!capturing && line.includes('IPC_CHANNELS') && line.includes('{')) {
-      capturing = true;
-      braceDepth = 1;
-      continue;
-    }
-
-    if (capturing) {
-      // Count braces to handle nested objects (if any future use)
-      for (const ch of line) {
-        if (ch === '{') braceDepth++;
-        if (ch === '}') braceDepth--;
-      }
-
-      // If brace depth hit 0, this is the closing line (} as const;)
-      if (braceDepth <= 0) {
-        break;
-      }
-
-      bodyLines.push(line);
-    }
-  }
-
-  if (bodyLines.length === 0) {
-    throw new Error(`Failed to extract IPC_CHANNELS body from ${filePath}`);
-  }
-
-  return bodyLines;
-}
 
 /**
  * Replace the block between generation markers in preload.ts
@@ -106,11 +68,11 @@ function writeToPreload(channelBodyLines) {
 }
 
 function main() {
-  console.log('⚙️  Generating preload IPC channels from shared types...\n');
+  console.log('⚙️  Generating preload IPC channels from contracts package...\n');
 
   // Verify source file exists
-  if (!fs.existsSync(SHARED_PATH)) {
-    console.error(`❌ Shared types file not found: ${SHARED_PATH}`);
+  if (!fs.existsSync(CONTRACTS_CHANNELS_INDEX_PATH)) {
+    console.error(`❌ Contracts channels index not found: ${CONTRACTS_CHANNELS_INDEX_PATH}`);
     process.exit(1);
   }
 
@@ -119,13 +81,9 @@ function main() {
     process.exit(1);
   }
 
-  // Extract channels from shared types
-  const channelBodyLines = extractChannelBlock(SHARED_PATH);
-
-  // Count channels for reporting
-  const channelPattern = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
-  const channelCount = channelBodyLines.filter(l => channelPattern.test(l)).length;
-  console.log(`📁 Extracted ${channelCount} channels from shared types`);
+  const channelBodyLines = extractContractsChannelBodyLines(CONTRACTS_CHANNELS_INDEX_PATH);
+  const channelCount = extractContractsChannelEntries(CONTRACTS_CHANNELS_INDEX_PATH).length;
+  console.log(`📁 Extracted ${channelCount} channels from contracts package`);
 
   // Write to preload
   writeToPreload(channelBodyLines);

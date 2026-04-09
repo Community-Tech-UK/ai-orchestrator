@@ -12,7 +12,7 @@ import {
   validateIpcPayload
 } from '../../../shared/validation/ipc-schemas';
 import { getConsensusCoordinator } from '../../orchestration/consensus-coordinator';
-import type { ConsensusResult } from '../../../shared/types/consensus.types';
+import type { ConsensusResult } from '../../orchestration/consensus.types';
 
 const logger = getLogger('ConsensusHandlers');
 

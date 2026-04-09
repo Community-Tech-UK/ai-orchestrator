@@ -6,8 +6,8 @@ import type {
   ObservationLevel,
   ObservationSource,
   ObservationConfig,
-} from '../../shared/types/observation.types';
-import { DEFAULT_OBSERVATION_CONFIG } from '../../shared/types/observation.types';
+} from './observation.types';
+import { DEFAULT_OBSERVATION_CONFIG } from './observation.types';
 import type { InstanceManager } from '../instance/instance-manager';
 
 const MAX_CAPTURED_OBSERVATION_CHARS = 4_000;

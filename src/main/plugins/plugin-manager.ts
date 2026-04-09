@@ -23,10 +23,18 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { app } from 'electron';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
 import { getLogger } from '../logging/logger';
+import type { OutputMessage } from '../../shared/types/instance.types';
+import type {
+  PluginHookEvent,
+  PluginHookPayloads,
+  PluginRecord,
+  TypedOrchestratorHooks,
+} from '../../shared/types/plugin.types';
 
 const logger = getLogger('PluginManager');
 
@@ -39,26 +47,137 @@ function isPathSafe(filePath: string, baseDir: string): boolean {
   return resolved.startsWith(resolvedBase + path.sep) || resolved === resolvedBase;
 }
 
+function isRecord(value: unknown): value is PluginRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function isOutputMessage(value: unknown): value is OutputMessage {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const type = value['type'];
+  return (
+    typeof value['id'] === 'string' &&
+    typeof value['timestamp'] === 'number' &&
+    typeof value['content'] === 'string' &&
+    (type === 'assistant' ||
+      type === 'user' ||
+      type === 'system' ||
+      type === 'tool_use' ||
+      type === 'tool_result' ||
+      type === 'error')
+  );
+}
+
+function toInstanceCreatedPayload(payload: unknown): PluginHookPayloads['instance.created'] | null {
+  if (!isRecord(payload)) return null;
+  const rawId = payload['id'];
+  const rawWorkingDirectory = payload['workingDirectory'];
+  if (typeof rawId !== 'string' || typeof rawWorkingDirectory !== 'string') {
+    return null;
+  }
+
+  const provider = typeof payload['provider'] === 'string' ? payload['provider'] : undefined;
+  return {
+    ...payload,
+    id: rawId,
+    instanceId: rawId,
+    workingDirectory: rawWorkingDirectory,
+    ...(provider ? { provider } : {}),
+  };
+}
+
+function toInstanceOutputPayload(payload: unknown): PluginHookPayloads['instance.output'] | null {
+  if (!isRecord(payload)) return null;
+  if (typeof payload['instanceId'] !== 'string' || !isOutputMessage(payload['message'])) {
+    return null;
+  }
+
+  return {
+    instanceId: payload['instanceId'],
+    message: payload['message'],
+  };
+}
+
+function toVerificationStartedPayload(
+  payload: unknown,
+): PluginHookPayloads['verification.started'] | null {
+  if (!isRecord(payload)) return null;
+  if (typeof payload['id'] !== 'string' || typeof payload['instanceId'] !== 'string') {
+    return null;
+  }
+
+  return {
+    ...payload,
+    id: payload['id'],
+    verificationId: payload['id'],
+    instanceId: payload['instanceId'],
+  };
+}
+
+function toVerificationCompletedPayload(
+  payload: unknown,
+): PluginHookPayloads['verification.completed'] | null {
+  if (!isRecord(payload) || typeof payload['id'] !== 'string') {
+    return null;
+  }
+
+  const request = isRecord(payload['request']) ? payload['request'] : null;
+  const instanceId =
+    typeof payload['instanceId'] === 'string'
+      ? payload['instanceId']
+      : typeof request?.['instanceId'] === 'string'
+        ? request['instanceId']
+        : '';
+
+  return {
+    ...payload,
+    id: payload['id'],
+    verificationId: payload['id'],
+    instanceId,
+  };
+}
+
+function toVerificationErrorPayload(
+  payload: unknown,
+): PluginHookPayloads['verification.error'] | null {
+  if (!isRecord(payload) || !isRecord(payload['request'])) {
+    return null;
+  }
+
+  const request = payload['request'];
+  const verificationId = typeof request['id'] === 'string' ? request['id'] : '';
+  const instanceId = typeof request['instanceId'] === 'string' ? request['instanceId'] : '';
+
+  return {
+    request,
+    error: payload['error'],
+    verificationId,
+    instanceId,
+  };
+}
+
 export interface OrchestratorPluginContext {
   instanceManager: InstanceManager;
   appPath: string;
   homeDir: string | null;
 }
 
-export type OrchestratorHooks = Partial<Record<string, (payload: any) => void | Promise<void>>>;
+export type OrchestratorHooks = TypedOrchestratorHooks;
 export type OrchestratorPluginModule =
   | OrchestratorHooks
   | ((ctx: OrchestratorPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
 
 interface LoadedPlugin {
   filePath: string;
-  hooks: OrchestratorHooks;
+  hooks: TypedOrchestratorHooks;
 }
 
 interface CacheEntry {
   loadedAt: number;
   plugins: LoadedPlugin[];
-  errors: Array<{ filePath: string; error: string }>;
+  errors: { filePath: string; error: string }[];
 }
 
 const CACHE_TTL_MS = 10_000;
@@ -109,7 +228,7 @@ export class OrchestratorPluginManager {
     const stack: string[] = [dir];
     while (stack.length > 0) {
       const current = stack.pop()!;
-      let entries: Array<import('fs').Dirent>;
+      let entries: import('fs').Dirent[];
       try {
         entries = await fs.readdir(current, { withFileTypes: true });
       } catch (e) {
@@ -133,27 +252,24 @@ export class OrchestratorPluginManager {
     return out;
   }
 
-  private loadModule(filePath: string): OrchestratorPluginModule {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      delete require.cache[require.resolve(filePath)];
-    } catch (error) {
-      logger.warn('Failed to clear module cache for plugin file', { filePath, error: error instanceof Error ? error.message : String(error) });
-    }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(filePath);
+  private async loadModule(filePath: string): Promise<OrchestratorPluginModule> {
+    const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
+    const mod = await import(moduleUrl);
     return (mod && (mod.default || mod)) as OrchestratorPluginModule;
   }
 
-  private async loadPluginsForWorkingDirectory(workingDirectory: string, ctx: OrchestratorPluginContext): Promise<LoadedPlugin[]> {
+  private async loadPluginsForWorkingDirectory(
+    workingDirectory: string,
+    ctx: OrchestratorPluginContext,
+  ): Promise<{ plugins: LoadedPlugin[]; errors: { filePath: string; error: string }[] }> {
     const plugins: LoadedPlugin[] = [];
-    const errors: Array<{ filePath: string; error: string }> = [];
+    const errors: { filePath: string; error: string }[] = [];
     const dirs = this.getPluginDirs(workingDirectory);
     for (const dir of dirs) {
       const files = await this.walkJsFiles(dir);
       for (const filePath of files) {
         try {
-          const mod = this.loadModule(filePath);
+          const mod = await this.loadModule(filePath);
           const hooks: OrchestratorHooks =
             typeof mod === 'function' ? await mod(ctx) : (mod || {});
           plugins.push({ filePath, hooks });
@@ -162,9 +278,7 @@ export class OrchestratorPluginManager {
         }
       }
     }
-    // Store errors into cache entry via a side-channel; caller sets cache.
-    (plugins as any).__errors = errors;
-    return plugins;
+    return { plugins, errors };
   }
 
   private async getPlugins(workingDirectory: string, ctx: OrchestratorPluginContext): Promise<LoadedPlugin[]> {
@@ -172,16 +286,15 @@ export class OrchestratorPluginManager {
     const now = Date.now();
     if (cached && now - cached.loadedAt < CACHE_TTL_MS) return cached.plugins;
 
-    const plugins = await this.loadPluginsForWorkingDirectory(workingDirectory, ctx);
-    const errors = ((plugins as any).__errors as Array<{ filePath: string; error: string }>) || [];
+    const { plugins, errors } = await this.loadPluginsForWorkingDirectory(workingDirectory, ctx);
     this.cacheByWorkingDir.set(workingDirectory, { loadedAt: now, plugins, errors });
     return plugins;
   }
 
   async listPlugins(workingDirectory: string, instanceManager: InstanceManager): Promise<{
-    plugins: Array<{ filePath: string; hookKeys: string[] }>;
+    plugins: { filePath: string; hookKeys: string[] }[];
     scanDirs: string[];
-    errors: Array<{ filePath: string; error: string }>;
+    errors: { filePath: string; error: string }[];
   }> {
     const ctx = this.buildContext(instanceManager);
     const plugins = await this.getPlugins(workingDirectory, ctx);
@@ -200,7 +313,12 @@ export class OrchestratorPluginManager {
     this.cacheByWorkingDir.delete(workingDirectory);
   }
 
-  private async emitToPlugins(workingDirectory: string, ctx: OrchestratorPluginContext, event: string, payload: any): Promise<void> {
+  private async emitToPlugins<K extends PluginHookEvent>(
+    workingDirectory: string,
+    ctx: OrchestratorPluginContext,
+    event: K,
+    payload: PluginHookPayloads[K],
+  ): Promise<void> {
     const plugins = await this.getPlugins(workingDirectory, ctx);
     for (const plugin of plugins) {
       const hook = plugin.hooks[event];
@@ -219,36 +337,50 @@ export class OrchestratorPluginManager {
 
     const ctx = this.buildContext(instanceManager);
 
-    instanceManager.on('instance:created', (payload: any) => {
-      const wd = payload?.workingDirectory || process.cwd();
-      void this.emitToPlugins(wd, ctx, 'instance.created', payload);
+    instanceManager.on('instance:created', (payload: unknown) => {
+      const pluginPayload = toInstanceCreatedPayload(payload);
+      if (!pluginPayload) return;
+      const wd = pluginPayload.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'instance.created', pluginPayload);
     });
 
     instanceManager.on('instance:removed', (instanceId: string) => {
-      // We don't know WD reliably here; use process.cwd().
       void this.emitToPlugins(process.cwd(), ctx, 'instance.removed', { instanceId });
     });
 
-    instanceManager.on('instance:output', (payload: any) => {
-      const instance = instanceManager.getInstance(payload?.instanceId);
+    instanceManager.on('instance:output', (payload: unknown) => {
+      const pluginPayload = toInstanceOutputPayload(payload);
+      if (!pluginPayload) return;
+      const instance = instanceManager.getInstance(pluginPayload.instanceId);
       const wd = instance?.workingDirectory || process.cwd();
-      void this.emitToPlugins(wd, ctx, 'instance.output', payload);
+      void this.emitToPlugins(wd, ctx, 'instance.output', pluginPayload);
     });
 
     const verify = getMultiVerifyCoordinator();
-    verify.on('verification:started', (payload: any) => {
-      const instance = instanceManager.getInstance(payload?.instanceId);
+    verify.on('verification:started', (payload: unknown) => {
+      const pluginPayload = toVerificationStartedPayload(payload);
+      if (!pluginPayload) return;
+      const instance = instanceManager.getInstance(pluginPayload.instanceId);
       const wd = instance?.workingDirectory || process.cwd();
-      void this.emitToPlugins(wd, ctx, 'verification.started', payload);
+      void this.emitToPlugins(wd, ctx, 'verification.started', pluginPayload);
     });
-    verify.on('verification:completed', (payload: any) => {
-      // `payload` includes `id` but not always instanceId; best-effort lookup.
-      const wd = process.cwd();
-      void this.emitToPlugins(wd, ctx, 'verification.completed', payload);
+    verify.on('verification:completed', (payload: unknown) => {
+      const pluginPayload = toVerificationCompletedPayload(payload);
+      if (!pluginPayload) return;
+      const instance = pluginPayload.instanceId
+        ? instanceManager.getInstance(pluginPayload.instanceId)
+        : undefined;
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'verification.completed', pluginPayload);
     });
-    verify.on('verification:error', (payload: any) => {
-      const wd = process.cwd();
-      void this.emitToPlugins(wd, ctx, 'verification.error', payload);
+    verify.on('verification:error', (payload: unknown) => {
+      const pluginPayload = toVerificationErrorPayload(payload);
+      if (!pluginPayload) return;
+      const instance = pluginPayload.instanceId
+        ? instanceManager.getInstance(pluginPayload.instanceId)
+        : undefined;
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'verification.error', pluginPayload);
     });
   }
 }

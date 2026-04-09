@@ -1,7 +1,7 @@
 import { getLogger } from '../logging/logger';
 import { getObservationStore } from './observation-store';
-import type { Reflection, ObservationConfig } from '../../shared/types/observation.types';
-import { DEFAULT_OBSERVATION_CONFIG } from '../../shared/types/observation.types';
+import type { Reflection, ObservationConfig } from './observation.types';
+import { DEFAULT_OBSERVATION_CONFIG } from './observation.types';
 
 /**
  * PolicyAdapter - Queries the ObservationStore for relevant reflections and formats

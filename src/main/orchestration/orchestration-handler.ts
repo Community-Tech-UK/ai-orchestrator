@@ -25,7 +25,7 @@ import {
   type OrchestratorAction
 } from './orchestration-protocol';
 import { getConsensusCoordinator } from './consensus-coordinator';
-import type { ConsensusProviderSpec } from '../../shared/types/consensus.types';
+import type { ConsensusProviderSpec } from './consensus.types';
 import { getToolRegistry } from '../tools/tool-registry';
 import { getTaskManager } from './task-manager';
 import { getPermissionManager, type PermissionRequest } from '../security/permission-manager';

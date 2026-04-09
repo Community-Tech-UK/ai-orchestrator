@@ -28,13 +28,13 @@ import type {
   InstanceReactionState,
   ReactionTracker,
   PREnrichmentData,
-} from '../../shared/types/reaction.types';
+} from './reaction.types';
 import {
   DEFAULT_REACTION_ENGINE_CONFIG,
   eventToReactionKey,
   inferReactionPriority,
   parseDuration,
-} from '../../shared/types/reaction.types';
+} from './reaction.types';
 
 const logger = getLogger('ReactionEngine');
 

@@ -437,6 +437,63 @@ describe('ChannelMessageRouter', () => {
       // sendMessage was called for eyes/check reactions only (addReaction), not sendMessage
       expect(adapter.sendMessage).not.toHaveBeenCalled();
     });
+
+    it('continues streaming output after the first debounce flush', async () => {
+      vi.useFakeTimers();
+
+      await router.handleInboundMessage(makeMessage({ id: 'deb-4', chatId: 'c1', messageId: 'dm1' }));
+
+      instanceManager.emit('instance:output', {
+        instanceId: 'inst-1',
+        message: { type: 'text', content: 'First burst' },
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      instanceManager.emit('instance:output', {
+        instanceId: 'inst-1',
+        message: { type: 'text', content: 'Second burst' },
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        'c1',
+        'First burst',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+      expect(adapter.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        'c1',
+        'Second burst',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('stops streaming once the instance reaches a terminal state', async () => {
+      vi.useFakeTimers();
+
+      await router.handleInboundMessage(makeMessage({ id: 'deb-5', chatId: 'c1', messageId: 'dm1' }));
+
+      instanceManager.emit('instance:state-update', {
+        instanceId: 'inst-1',
+        status: 'idle',
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      adapter.sendMessage.mockClear();
+
+      instanceManager.emit('instance:output', {
+        instanceId: 'inst-1',
+        message: { type: 'text', content: 'Late output' },
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.sendMessage).not.toHaveBeenCalled();
+    });
   });
 
   // -------------------------------------------------------------------------

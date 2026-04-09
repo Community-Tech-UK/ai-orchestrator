@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, discord.js ^14.x, whatsapp-web.js ^1.x, puppeteer-core ^22.x, qrcode ^1.x, Zod 4, better-sqlite3, Angular 21 signals
 
-**Spec:** `docs/superpowers/specs/2026-03-21-discord-whatsapp-channels-design.md`
+**Spec:** `docs/superpowers/specs/2026-03-21-discord-whatsapp-channels-design_completed.md`
 
 ---
 

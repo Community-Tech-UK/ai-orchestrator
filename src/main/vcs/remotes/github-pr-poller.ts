@@ -12,7 +12,7 @@ import type {
   CIStatus,
   CICheck,
   ReviewDecision,
-} from '../../../shared/types/reaction.types';
+} from '../../reactions/reaction.types';
 
 const logger = getLogger('GitHubPRPoller');
 

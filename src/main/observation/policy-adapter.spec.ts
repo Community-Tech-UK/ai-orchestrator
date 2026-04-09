@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PolicyAdapter, getPolicyAdapter } from './policy-adapter';
-import type { Reflection } from '../../shared/types/observation.types';
+import type { Reflection } from './observation.types';
 
 const mockReflections: Reflection[] = [
   {

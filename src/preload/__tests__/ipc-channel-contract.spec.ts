@@ -1,9 +1,9 @@
 /**
  * IPC Channel Contract Test
  *
- * Ensures the preload IPC_CHANNELS block (generated from shared types)
- * stays in exact sync with the shared definition. This is a safety net
- * on top of the build-time verify script.
+ * Ensures the preload IPC_CHANNELS block (generated from the contracts package)
+ * stays in exact sync with the contract definitions. The legacy shim is covered
+ * separately by the contracts identity test.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
@@ -11,12 +11,67 @@ import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '../../..');
 
-const SHARED_PATH = path.join(ROOT, 'src/shared/types/ipc.types.ts');
+const CONTRACTS_INDEX_PATH = path.join(ROOT, 'packages/contracts/src/channels/index.ts');
 const PRELOAD_PATH = path.join(ROOT, 'src/preload/preload.ts');
+
+function getContractsChannelFiles(indexPath: string): string[] {
+  const content = fs.readFileSync(indexPath, 'utf-8');
+  const files: string[] = [];
+  const importPattern = /^import\s+\{\s*[A-Z0-9_]+\s*\}\s+from\s+['"](\.\/[^'"]+\.channels)['"];?$/;
+
+  for (const line of content.split('\n')) {
+    const match = line.match(importPattern);
+    if (match) {
+      files.push(path.resolve(path.dirname(indexPath), `${match[1]}.ts`));
+    }
+  }
+
+  return files;
+}
+
+function extractContractsChannels(indexPath: string): Map<string, string> {
+  const channels = new Map<string, string>();
+  const channelPattern = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
+
+  for (const filePath of getContractsChannelFiles(indexPath)) {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n');
+    let capturing = false;
+    let braceDepth = 0;
+
+    for (const line of lines) {
+      if (!capturing && line.includes('export const') && line.includes('= {')) {
+        capturing = true;
+        braceDepth = 1;
+        continue;
+      }
+
+      if (!capturing) {
+        continue;
+      }
+
+      for (const ch of line) {
+        if (ch === '{') braceDepth += 1;
+        if (ch === '}') braceDepth -= 1;
+      }
+
+      if (braceDepth <= 0) {
+        break;
+      }
+
+      const match = line.match(channelPattern);
+      if (match) {
+        channels.set(match[1], match[2]);
+      }
+    }
+  }
+
+  return channels;
+}
 
 /**
  * Extract channel name→value pairs from a TypeScript file containing IPC_CHANNELS.
- * Uses the same regex approach as the verify script for consistency.
+ * Uses the same IPC object parsing approach as the verify script.
  */
 function extractChannels(filePath: string): Map<string, string> {
   const content = fs.readFileSync(filePath, 'utf-8');
@@ -49,7 +104,7 @@ function extractChannels(filePath: string): Map<string, string> {
 }
 
 describe('IPC Channel Contract', () => {
-  const sharedChannels = extractChannels(SHARED_PATH);
+  const sharedChannels = extractContractsChannels(CONTRACTS_INDEX_PATH);
   const preloadChannels = extractChannels(PRELOAD_PATH);
 
   it('should have channels defined in both files', () => {

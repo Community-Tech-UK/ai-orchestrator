@@ -184,7 +184,7 @@ export function applyImport(data: SettingsExportData): ImportResult {
           allowedSenders: policy.allowedSenders ?? [],
           pendingPairings: [],
           maxPending: 3,
-          codeExpiryMs: 5 * 60 * 1000,
+          codeExpiryMs: 60 * 60 * 1000,
         });
         result.policiesRestored++;
       }

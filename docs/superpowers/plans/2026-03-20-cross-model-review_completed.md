@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Electron IPC, Angular 21 (zoneless/signals), Zod 4 validation, existing CLI adapters + CircuitBreaker
 
-**Spec:** `docs/superpowers/specs/2026-03-20-cross-model-review-design.md`
+**Spec:** `docs/superpowers/specs/2026-03-20-cross-model-review-design_completed.md`
 
 ---
 

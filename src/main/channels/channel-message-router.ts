@@ -79,6 +79,14 @@ type ResolvedNamedTarget =
   | { kind: 'instance'; instance: any }
   | { kind: 'project'; project: ProjectDescriptor };
 
+interface OutputStreamTracker {
+  content: string;
+  timer: ReturnType<typeof setTimeout> | null;
+  pendingFinalization: boolean;
+  outputHandler: (payload: { instanceId: string; message: { type: string; content: string } }) => void;
+  stateHandler: (payload: { instanceId: string; status?: string }) => void;
+}
+
 /** Directories that must never be sent out via channel file sharing */
 const FORBIDDEN_PATHS = ['.env', 'credentials', 'tokens', 'secrets', '.ssh', 'access.json'];
 const NO_PROJECT_KEY = '__no_project__';
@@ -87,7 +95,7 @@ const NO_PROJECT_LABEL = '(no project)';
 export class ChannelMessageRouter {
   private rateLimiter = new RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   private unsubscribe: (() => void) | null = null;
-  private outputBuffers = new Map<string, { content: string; timer: ReturnType<typeof setTimeout> }>();
+  private outputStreams = new Map<string, OutputStreamTracker>();
   /** Maps Discord channelId → pinned instance or project target */
   private channelPins = new Map<string, ChannelPin>();
   /** Maps DM senderId → instanceId (persistent per-user DM instance) */
@@ -122,11 +130,15 @@ export class ChannelMessageRouter {
       this.unsubscribe();
       this.unsubscribe = null;
     }
-    // Clear any pending debounce timers
-    for (const [, buf] of this.outputBuffers) {
-      clearTimeout(buf.timer);
+    const im = this.getInstanceManager();
+    for (const [bufferKey, tracker] of this.outputStreams) {
+      if (tracker.timer) {
+        clearTimeout(tracker.timer);
+      }
+      im.removeListener('instance:output', tracker.outputHandler);
+      im.removeListener('instance:state-update', tracker.stateHandler);
+      this.outputStreams.delete(bufferKey);
     }
-    this.outputBuffers.clear();
     this.rateLimiter.clear();
     logger.info('Channel message router stopped');
   }
@@ -1314,63 +1326,122 @@ export class ChannelMessageRouter {
   ): void {
     const im = this.getInstanceManager();
     const bufferKey = `${msg.id}:${instanceId}`;
+    if (this.outputStreams.has(bufferKey)) {
+      return;
+    }
 
-    const handler = (payload: { instanceId: string; message: { type: string; content: string } }) => {
+    const tracker: OutputStreamTracker = {
+      content: '',
+      timer: null,
+      pendingFinalization: false,
+      outputHandler: () => undefined,
+      stateHandler: () => undefined,
+    };
+
+    const cleanup = (): void => {
+      if (tracker.timer) {
+        clearTimeout(tracker.timer);
+        tracker.timer = null;
+      }
+      im.removeListener('instance:output', tracker.outputHandler);
+      im.removeListener('instance:state-update', tracker.stateHandler);
+      this.outputStreams.delete(bufferKey);
+    };
+
+    const flush = (): void => {
+      if (tracker.timer) {
+        clearTimeout(tracker.timer);
+        tracker.timer = null;
+      }
+
+      if (!tracker.content) {
+        if (tracker.pendingFinalization) {
+          cleanup();
+        }
+        return;
+      }
+
+      const bufferedContent = tracker.content;
+      tracker.content = '';
+      const shouldCleanupAfterSend = tracker.pendingFinalization;
+
+      void adapter.sendMessage(msg.chatId, bufferedContent, {
+        replyTo: msg.messageId,
+      }).then((sentMessage) => {
+        this.persistence.saveMessage({
+          id: `out-${msg.platform}-${sentMessage.messageId}`,
+          platform: msg.platform,
+          chat_id: msg.chatId,
+          message_id: sentMessage.messageId,
+          thread_id: msg.threadId ?? null,
+          sender_id: 'bot',
+          sender_name: 'Orchestrator',
+          content: bufferedContent,
+          direction: 'outbound',
+          instance_id: instanceId,
+          reply_to_message_id: msg.messageId,
+          timestamp: sentMessage.timestamp,
+        });
+
+        this.channelManager.emitResponseSent({
+          channelMessageId: msg.messageId,
+          platform: msg.platform,
+          chatId: msg.chatId,
+          messageId: sentMessage.messageId,
+          instanceId,
+          content: bufferedContent,
+          status: 'complete',
+          replyToMessageId: msg.messageId,
+          timestamp: sentMessage.timestamp,
+        });
+      }).catch((err: unknown) => {
+        logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
+      }).finally(() => {
+        if (shouldCleanupAfterSend) {
+          cleanup();
+        }
+      });
+    };
+
+    const scheduleFlush = (): void => {
+      if (tracker.timer) {
+        clearTimeout(tracker.timer);
+      }
+      tracker.timer = setTimeout(() => flush(), DEBOUNCE_MS);
+    };
+
+    tracker.outputHandler = (payload: { instanceId: string; message: { type: string; content: string } }) => {
       if (payload.instanceId !== instanceId) return;
 
       const content = payload.message?.content;
       if (!content) return;
 
-      // Debounce: accumulate output and send after DEBOUNCE_MS of silence
-      const existing = this.outputBuffers.get(bufferKey);
-      if (existing) {
-        clearTimeout(existing.timer);
-        existing.content += content;
-      } else {
-        this.outputBuffers.set(bufferKey, { content, timer: null as unknown as ReturnType<typeof setTimeout> });
-      }
-
-      const buffer = this.outputBuffers.get(bufferKey)!;
-      buffer.timer = setTimeout(() => {
-        this.outputBuffers.delete(bufferKey);
-        im.removeListener('instance:output', handler);
-
-        void adapter.sendMessage(msg.chatId, buffer.content, {
-          replyTo: msg.messageId,
-        }).then((sentMessage) => {
-          this.persistence.saveMessage({
-            id: `out-${msg.platform}-${sentMessage.messageId}`,
-            platform: msg.platform,
-            chat_id: msg.chatId,
-            message_id: sentMessage.messageId,
-            thread_id: msg.threadId ?? null,
-            sender_id: 'bot',
-            sender_name: 'Orchestrator',
-            content: buffer.content,
-            direction: 'outbound',
-            instance_id: instanceId,
-            reply_to_message_id: msg.messageId,
-            timestamp: sentMessage.timestamp,
-          });
-
-          this.channelManager.emitResponseSent({
-            channelMessageId: msg.messageId,
-            platform: msg.platform,
-            chatId: msg.chatId,
-            messageId: sentMessage.messageId,
-            instanceId,
-            content: buffer.content,
-            status: 'complete',
-            replyToMessageId: msg.messageId,
-            timestamp: sentMessage.timestamp,
-          });
-        }).catch((err: unknown) => {
-          logger.error('Failed to send output to channel', err instanceof Error ? err : new Error(String(err)));
-        });
-      }, DEBOUNCE_MS);
+      tracker.content += content;
+      scheduleFlush();
     };
 
-    im.on('instance:output', handler);
+    tracker.stateHandler = (payload: { instanceId: string; status?: string }) => {
+      if (payload.instanceId !== instanceId) return;
+
+      if (
+        payload.status !== 'idle' &&
+        payload.status !== 'waiting_for_input' &&
+        payload.status !== 'error' &&
+        payload.status !== 'failed' &&
+        payload.status !== 'terminated'
+      ) {
+        return;
+      }
+
+      tracker.pendingFinalization = true;
+      if (!tracker.timer) {
+        scheduleFlush();
+      }
+    };
+
+    this.outputStreams.set(bufferKey, tracker);
+    im.on('instance:output', tracker.outputHandler);
+    im.on('instance:state-update', tracker.stateHandler);
   }
 
   // ============ Utilities ============

@@ -5,14 +5,8 @@
  * decisions, tool choices, reasoning patterns, and inter-agent dynamics.
  */
 
-// ============================================
-// Observation Level & Source
-// ============================================
-
-/** Severity/importance level of a raw observation */
 export type ObservationLevel = 'trace' | 'event' | 'milestone' | 'critical';
 
-/** Source event that produced the observation */
 export type ObservationSource =
   | 'instance:output'
   | 'instance:state-update'
@@ -26,11 +20,6 @@ export type ObservationSource =
   | 'consensus:reached'
   | 'manual';
 
-// ============================================
-// Raw Observation (pre-compression)
-// ============================================
-
-/** Raw event captured from EventEmitter before compression */
 export interface RawObservation {
   id: string;
   source: ObservationSource;
@@ -43,11 +32,6 @@ export interface RawObservation {
   tokenEstimate: number;
 }
 
-// ============================================
-// Observation (compressed summary)
-// ============================================
-
-/** Compressed observation produced by ObserverAgent */
 export interface Observation {
   id: string;
   summary: string;
@@ -64,11 +48,6 @@ export interface Observation {
   tokenCount: number;
 }
 
-// ============================================
-// Reflection (consolidated pattern)
-// ============================================
-
-/** A pattern extracted from multiple observations */
 export interface ReflectedPattern {
   description: string;
   type: 'success_pattern' | 'failure_pattern' | 'workflow_optimization' | 'agent_behavior' | 'cross_instance';
@@ -76,7 +55,6 @@ export interface ReflectedPattern {
   strength: number;
 }
 
-/** Consolidated reflection produced by ReflectorAgent */
 export interface Reflection {
   id: string;
   title: string;
@@ -92,56 +70,23 @@ export interface Reflection {
   promotedToProcedural: boolean;
 }
 
-// ============================================
-// Configuration
-// ============================================
-
-/** Configuration for the observation pipeline */
 export interface ObservationConfig {
-  /** Whether observation is enabled */
   enabled: boolean;
-
-  /** Token threshold before flushing buffer to ObserverAgent */
   observeTokenThreshold: number;
-
-  /** Time threshold (ms) before flushing buffer */
   observeTimeThresholdMs: number;
-
-  /** Max raw observations in ring buffer */
   ringBufferSize: number;
-
-  /** Number of observations before triggering reflection */
   reflectObservationThreshold: number;
-
-  /** Default TTL for observations (ms) */
   observationTtlMs: number;
-
-  /** Default TTL for reflections (ms) */
   reflectionTtlMs: number;
-
-  /** Max token budget for policy injection */
   policyTokenBudget: number;
-
-  /** Max reflections to inject per prompt */
   maxReflectionsPerPrompt: number;
-
-  /** Minimum confidence for reflection promotion to procedural */
   promotionConfidenceThreshold: number;
-
-  /** Minimum usage count for reflection promotion */
   promotionUsageThreshold: number;
-
-  /** Minimum effectiveness for reflection promotion */
   promotionEffectivenessThreshold: number;
-
-  /** Strip PII / file paths from observations */
   enablePrivacyFiltering: boolean;
-
-  /** Minimum observation level to capture */
   minLevel: ObservationLevel;
 }
 
-/** Default observation configuration */
 export const DEFAULT_OBSERVATION_CONFIG: ObservationConfig = {
   enabled: true,
   observeTokenThreshold: 30_000,
@@ -159,11 +104,6 @@ export const DEFAULT_OBSERVATION_CONFIG: ObservationConfig = {
   minLevel: 'event',
 };
 
-// ============================================
-// Statistics
-// ============================================
-
-/** Aggregate statistics for the observation system */
 export interface ObservationStats {
   totalRawCaptured: number;
   totalObservations: number;

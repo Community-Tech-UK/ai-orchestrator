@@ -17,7 +17,9 @@
     "paths": {
       "@shared/*": ["./src/shared/*"],
       "@contracts/*": ["./packages/contracts/src/*"],
-      "@contracts": ["./packages/contracts/src/index"]
+      "@contracts": ["./packages/contracts/src/index"],
+      "@sdk/*": ["./packages/sdk/src/*"],
+      "@sdk": ["./packages/sdk/src/index"]
     },
     "baseUrl": "."
   },
@@ -25,7 +27,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "packages/contracts/src/**/*"
+    "packages/contracts/src/**/*",
+    "packages/sdk/src/**/*"
   ],
   "exclude": [
     "src/renderer/**/*",

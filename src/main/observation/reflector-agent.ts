@@ -8,8 +8,8 @@ import type {
   Reflection,
   ReflectedPattern,
   ObservationConfig
-} from '../../shared/types/observation.types';
-import { DEFAULT_OBSERVATION_CONFIG } from '../../shared/types/observation.types';
+} from './observation.types';
+import { DEFAULT_OBSERVATION_CONFIG } from './observation.types';
 
 /**
  * ReflectorAgent - Consolidates observations into reflection patterns

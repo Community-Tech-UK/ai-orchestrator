@@ -9,7 +9,7 @@ import type {
   GetChildArtifactsCommand,
   GetChildSectionCommand
 } from '../../shared/types/child-result.types';
-import type { ConsensusStrategy } from '../../shared/types/consensus.types';
+import type { ConsensusStrategy } from './consensus.types';
 
 const logger = getLogger('OrchestrationProtocol');
 

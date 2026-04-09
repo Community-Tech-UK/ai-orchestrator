@@ -210,7 +210,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
       if (pending) {
         try {
           await message.reply(
-            `👋 You're not yet paired with this bot. Your pairing code is: **${pending.code}**\nEnter this code in the Orchestrator UI to pair your account. Code expires in 5 minutes.`
+            `👋 You're not yet paired with this bot. Your pairing code is: **${pending.code}**\nEnter this code in the Orchestrator UI to pair your account. Code expires in 1 hour.`
           );
         } catch (err) {
           logger.warn('Failed to send pairing code', { senderId, error: String(err) });

@@ -121,6 +121,7 @@ describe('DiscordAdapter', () => {
     expect(policy.mode).toBe('pairing');
     expect(policy.maxPending).toBe(3);
     expect(policy.allowedSenders).toEqual([]);
+    expect(policy.codeExpiryMs).toBe(60 * 60 * 1000);
   });
 
   // ---- connect / disconnect ----

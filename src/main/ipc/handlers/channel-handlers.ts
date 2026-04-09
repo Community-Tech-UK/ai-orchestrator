@@ -45,7 +45,7 @@ export function registerChannelHandlers(): void {
         if (!adapter) {
           return {
             success: false,
-            error: { code: 'ADAPTER_NOT_FOUND', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+            error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
         await adapter.connect({
@@ -67,7 +67,7 @@ export function registerChannelHandlers(): void {
         logger.error('CHANNEL_CONNECT failed', error instanceof Error ? error : new Error(String(error)));
         return {
           success: false,
-          error: { code: 'CONNECT_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_CONNECT_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -83,7 +83,7 @@ export function registerChannelHandlers(): void {
         if (!adapter) {
           return {
             success: false,
-            error: { code: 'ADAPTER_NOT_FOUND', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+            error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
         await adapter.disconnect();
@@ -98,7 +98,7 @@ export function registerChannelHandlers(): void {
         logger.error('CHANNEL_DISCONNECT failed', error instanceof Error ? error : new Error(String(error)));
         return {
           success: false,
-          error: { code: 'DISCONNECT_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_DISCONNECT_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -114,7 +114,7 @@ export function registerChannelHandlers(): void {
       } catch (error) {
         return {
           success: false,
-          error: { code: 'STATUS_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_STATUS_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -133,7 +133,7 @@ export function registerChannelHandlers(): void {
       } catch (error) {
         return {
           success: false,
-          error: { code: 'GET_MESSAGES_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_GET_MESSAGES_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -149,7 +149,7 @@ export function registerChannelHandlers(): void {
         if (!adapter) {
           return {
             success: false,
-            error: { code: 'ADAPTER_NOT_FOUND', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+            error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
         const sent = await adapter.sendMessage(validated.chatId, validated.content, {
@@ -159,7 +159,7 @@ export function registerChannelHandlers(): void {
       } catch (error) {
         return {
           success: false,
-          error: { code: 'SEND_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_SEND_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -175,7 +175,7 @@ export function registerChannelHandlers(): void {
         if (!adapter) {
           return {
             success: false,
-            error: { code: 'ADAPTER_NOT_FOUND', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+            error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
         const paired = await adapter.pairSender(validated.code);
@@ -189,7 +189,7 @@ export function registerChannelHandlers(): void {
       } catch (error) {
         return {
           success: false,
-          error: { code: 'PAIR_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_PAIR_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -205,7 +205,7 @@ export function registerChannelHandlers(): void {
         if (!adapter) {
           return {
             success: false,
-            error: { code: 'ADAPTER_NOT_FOUND', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+            error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
         const currentPolicy = adapter.getAccessPolicy();
@@ -220,7 +220,7 @@ export function registerChannelHandlers(): void {
       } catch (error) {
         return {
           success: false,
-          error: { code: 'SET_POLICY_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_SET_ACCESS_POLICY_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }
@@ -236,14 +236,14 @@ export function registerChannelHandlers(): void {
         if (!adapter) {
           return {
             success: false,
-            error: { code: 'ADAPTER_NOT_FOUND', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+            error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
         return { success: true, data: adapter.getAccessPolicy() };
       } catch (error) {
         return {
           success: false,
-          error: { code: 'GET_POLICY_FAILED', message: (error as Error).message, timestamp: Date.now() },
+          error: { code: 'CHANNEL_GET_ACCESS_POLICY_FAILED', message: (error as Error).message, timestamp: Date.now() },
         };
       }
     }

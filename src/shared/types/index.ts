@@ -25,3 +25,4 @@ export * from './error-recovery.types';
 export * from './codebase.types';
 export * from './coordinator-progress.types';
 export * from './tool-permission.types';
+export * from './plugin.types';

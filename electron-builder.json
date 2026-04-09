@@ -11,6 +11,10 @@
     "dist/**/*",
     "!dist/out-tsc/**/*"
   ],
+  "asarUnpack": [
+    "node_modules/whatsapp-web.js/**/*",
+    "node_modules/puppeteer-core/**/*"
+  ],
   "extraResources": [
     {
       "from": "config",

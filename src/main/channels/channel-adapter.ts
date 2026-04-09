@@ -32,7 +32,7 @@ export abstract class BaseChannelAdapter extends EventEmitter {
     allowedSenders: [],
     pendingPairings: [],
     maxPending: 3,
-    codeExpiryMs: 5 * 60 * 1000, // 5 minutes
+    codeExpiryMs: 60 * 60 * 1000, // 1 hour
   };
 
   get status(): ChannelConnectionStatus {

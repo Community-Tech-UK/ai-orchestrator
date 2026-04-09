@@ -6,6 +6,7 @@
  */
 
 import { Injectable, signal, NgZone, inject } from '@angular/core';
+import { ElectronIpcService } from './electron-ipc.service';
 import type {
   AggregatedReview,
   CrossModelReviewStatus,
@@ -23,14 +24,10 @@ interface CrossModelReviewApi {
   crossModelReviewAction?: (payload: ReviewActionPayload) => Promise<unknown>;
 }
 
-function getCrossModelApi(): CrossModelReviewApi | null {
-  if (typeof window === 'undefined' || !window.electronAPI) return null;
-  return window.electronAPI as unknown as CrossModelReviewApi;
-}
-
 @Injectable({ providedIn: 'root' })
 export class CrossModelReviewIpcService {
   private zone = inject(NgZone);
+  private ipc = inject(ElectronIpcService);
 
   readonly latestReview = signal(new Map<string, AggregatedReview>());
   readonly status = signal<CrossModelReviewStatus | null>(null);
@@ -42,8 +39,12 @@ export class CrossModelReviewIpcService {
     void this.refreshStatus();
   }
 
+  private get api(): CrossModelReviewApi | null {
+    return this.ipc.getApi() as unknown as CrossModelReviewApi | null;
+  }
+
   private listenForResults(): void {
-    const api = getCrossModelApi();
+    const api = this.api;
     if (!api) return;
 
     api.crossModelReviewOnStarted?.((data) => {
@@ -88,14 +89,14 @@ export class CrossModelReviewIpcService {
   }
 
   async refreshStatus(): Promise<void> {
-    const api = getCrossModelApi();
+    const api = this.api;
     if (!api?.crossModelReviewStatus) return;
     const status = await api.crossModelReviewStatus();
     this.zone.run(() => this.status.set(status));
   }
 
   async dismiss(payload: ReviewDismissPayload): Promise<void> {
-    const api = getCrossModelApi();
+    const api = this.api;
     if (!api?.crossModelReviewDismiss) return;
     await api.crossModelReviewDismiss(payload);
     const map = new Map(this.latestReview());
@@ -108,7 +109,7 @@ export class CrossModelReviewIpcService {
   }
 
   async performAction(payload: ReviewActionPayload): Promise<unknown> {
-    const api = getCrossModelApi();
+    const api = this.api;
     if (!api?.crossModelReviewAction) return undefined;
     return api.crossModelReviewAction(payload);
   }

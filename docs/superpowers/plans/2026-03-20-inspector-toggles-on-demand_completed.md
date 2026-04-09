@@ -8,7 +8,7 @@
 
 **Tech Stack:** Angular 21 (zoneless, signals, `output()`), CSS animations, `prefers-reduced-motion`
 
-**Spec:** `docs/superpowers/specs/2026-03-20-inspector-toggles-appear-on-demand-design.md`
+**Spec:** `docs/superpowers/specs/2026-03-20-inspector-toggles-appear-on-demand-design_completed.md`
 
 **Note:** Line numbers are approximate — they will shift as earlier tasks insert code. Descriptions of code anchors (e.g., "after the `hasChildren` computed") are the authoritative reference.
 

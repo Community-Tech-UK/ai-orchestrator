@@ -22,7 +22,7 @@ import type {
   ConsensusProviderResponse,
   ConsensusResult,
   ConsensusProgressEvent,
-} from '../../shared/types/consensus.types';
+} from './consensus.types';
 import { getLogger } from '../logging/logger';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';

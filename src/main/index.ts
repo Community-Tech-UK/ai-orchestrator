@@ -233,13 +233,14 @@ class AIOrchestratorApp {
         { name: 'Workflow invokers', fn: () => registerDefaultWorkflowInvoker(this.instanceManager) },
         { name: 'Child auto-announce', fn: () => {
           const childAnnouncer = getChildAnnouncer();
-          childAnnouncer.on('child:announced', (announcement: ChildAnnouncement, message: string) => {
-            const parent = this.instanceManager.getInstance(announcement.parentId);
+          childAnnouncer.on('child:announced', (parentId: string, announcements: ChildAnnouncement[], message: string) => {
+            const parent = this.instanceManager.getInstance(parentId);
             if (parent && parent.status !== 'terminated') {
-              this.instanceManager.sendInput(announcement.parentId, message).catch((err) => {
+              this.instanceManager.sendInput(parentId, message).catch((err) => {
                 logger.warn('Failed to deliver child announcement to parent', {
-                  parentId: announcement.parentId,
-                  childId: announcement.childId,
+                  parentId,
+                  childIds: announcements.map(a => a.childId),
+                  batchSize: announcements.length,
                   error: err instanceof Error ? err.message : String(err),
                 });
               });
