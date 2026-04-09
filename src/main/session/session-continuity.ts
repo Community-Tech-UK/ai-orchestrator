@@ -95,6 +95,22 @@ export interface SessionSnapshot {
 }
 
 /**
+ * Persisted cursor for crash-resilient session resumption
+ */
+export interface ResumeCursor {
+  /** Provider type that owns this thread */
+  provider: string;
+  /** Provider-specific thread/session ID for resume */
+  threadId: string;
+  /** Workspace path for filesystem-based discovery fallback */
+  workspacePath: string;
+  /** Epoch ms when cursor was captured — used for staleness check */
+  capturedAt: number;
+  /** How this cursor was obtained */
+  scanSource: 'native' | 'jsonl-scan' | 'replay';
+}
+
+/**
  * Complete session state for restoration
  */
 export interface SessionState {
@@ -126,6 +142,8 @@ export interface SessionState {
   hooksActive: string[];
   lastWriteTimestamp?: number;
   lastWriteSource?: string;
+  /** Persisted resume cursor for crash-resilient session restore */
+  resumeCursor?: ResumeCursor | null;
 }
 
 /**
