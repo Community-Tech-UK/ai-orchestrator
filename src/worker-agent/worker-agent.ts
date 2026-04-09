@@ -42,6 +42,12 @@ export class WorkerAgent extends EventEmitter {
   private discoveryClient: DiscoveryClient | null = null;
   private fsHandler: NodeFilesystemHandler | null = null;
 
+  // Output batching
+  private outputBuffer: { instanceId: string; message: unknown }[] = [];
+  private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly OUTPUT_BATCH_INTERVAL_MS = 50;
+  private static readonly OUTPUT_BATCH_MAX_SIZE = 10;
+
   constructor(private readonly config: WorkerConfig) {
     super();
     this.instanceManager = new LocalInstanceManager(
@@ -115,6 +121,7 @@ export class WorkerAgent extends EventEmitter {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
+    this.flushOutputBuffer();
     await this.instanceManager.terminateAll();
     this.fsHandler?.cleanupAllWatchers();
     if (this.ws) {
@@ -342,12 +349,7 @@ export class WorkerAgent extends EventEmitter {
 
   private wireInstanceEvents(): void {
     this.instanceManager.on('instance:output', (instanceId: string, message: unknown) => {
-      this.send({
-        jsonrpc: '2.0',
-        id: `out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
-        params: { instanceId, message, token: this.config.nodeToken ?? this.config.authToken },
-      });
+      this.sendOutputNotification(instanceId, message);
     });
 
     this.instanceManager.on('instance:stateChange', (instanceId: string, state: unknown) => {
@@ -394,5 +396,54 @@ export class WorkerAgent extends EventEmitter {
 
   private sendError(id: string | number, code: number, message: string): void {
     this.send({ jsonrpc: '2.0', id, error: { code, message } } as RpcMessage);
+  }
+
+  private sendOutputNotification(instanceId: string, message: unknown): void {
+    this.outputBuffer.push({ instanceId, message });
+
+    // Flush immediately if buffer is full
+    if (this.outputBuffer.length >= WorkerAgent.OUTPUT_BATCH_MAX_SIZE) {
+      this.flushOutputBuffer();
+      return;
+    }
+
+    // Start flush timer if not already running
+    if (!this.outputFlushTimer) {
+      this.outputFlushTimer = setTimeout(() => {
+        this.flushOutputBuffer();
+      }, WorkerAgent.OUTPUT_BATCH_INTERVAL_MS);
+      if (this.outputFlushTimer.unref) {
+        this.outputFlushTimer.unref();
+      }
+    }
+  }
+
+  private flushOutputBuffer(): void {
+    if (this.outputFlushTimer) {
+      clearTimeout(this.outputFlushTimer);
+      this.outputFlushTimer = null;
+    }
+
+    if (this.outputBuffer.length === 0) return;
+
+    const items = this.outputBuffer;
+    this.outputBuffer = [];
+    const token = this.config.nodeToken ?? this.config.authToken;
+
+    if (items.length === 1) {
+      // Single message — send as regular notification (no batch overhead)
+      this.send({
+        jsonrpc: '2.0',
+        method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
+        params: { instanceId: items[0].instanceId, message: items[0].message, token },
+      } as RpcMessage);
+    } else {
+      // Multiple messages — send as batch notification
+      this.send({
+        jsonrpc: '2.0',
+        method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
+        params: { items, token },
+      } as RpcMessage);
+    }
   }
 }
