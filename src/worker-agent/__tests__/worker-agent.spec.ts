@@ -165,4 +165,61 @@ describe('WorkerAgent', () => {
       token: 'test-token',
     });
   });
+
+  it('sends instance.output as notification (no id field)', () => {
+    mockInstanceManager.emit('instance:output', 'inst-1', { type: 'assistant', content: 'hello' });
+
+    // Advance past the 50ms batch interval to trigger flush
+    vi.advanceTimersByTime(60);
+
+    expect(wsSend).toHaveBeenCalled();
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.output');
+    expect(payload.id).toBeUndefined(); // Notification — no id
+    expect(payload.params).toMatchObject({
+      instanceId: 'inst-1',
+      message: { type: 'assistant', content: 'hello' },
+      token: 'test-token',
+    });
+  });
+
+  it('batches multiple output messages into instance.outputBatch', () => {
+    mockInstanceManager.emit('instance:output', 'inst-1', { type: 'assistant', content: 'msg1' });
+    mockInstanceManager.emit('instance:output', 'inst-1', { type: 'tool_use', content: 'msg2' });
+    mockInstanceManager.emit('instance:output', 'inst-2', { type: 'assistant', content: 'msg3' });
+
+    // Advance past the 50ms batch interval
+    vi.advanceTimersByTime(60);
+
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.outputBatch');
+    expect(payload.id).toBeUndefined(); // Notification — no id
+    expect(payload.params.items).toHaveLength(3);
+    expect(payload.params.items[0]).toMatchObject({ instanceId: 'inst-1' });
+    expect(payload.params.items[2]).toMatchObject({ instanceId: 'inst-2' });
+  });
+
+  it('flushes output buffer immediately when batch max size is reached', () => {
+    // Send 10 messages (max batch size)
+    for (let i = 0; i < 10; i++) {
+      mockInstanceManager.emit('instance:output', 'inst-1', { type: 'assistant', content: `msg${i}` });
+    }
+
+    // Should flush immediately without waiting for timer
+    expect(wsSend).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.outputBatch');
+    expect(payload.params.items).toHaveLength(10);
+  });
+
+  it('sends instance.stateChange as RPC request (with id field)', () => {
+    mockInstanceManager.emit('instance:stateChange', 'inst-1', 'processing');
+
+    expect(wsSend).toHaveBeenCalled();
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.stateChange');
+    expect(payload.id).toBeDefined(); // RPC request — has id
+    expect(payload.params.state).toBe('processing');
+  });
 });
