@@ -1,4 +1,4 @@
-import { createReadStream, readdirSync, statSync, readFileSync } from 'fs';
+import { createReadStream, openSync, readSync, closeSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { createInterface } from 'readline';
 import { homedir } from 'os';
@@ -82,9 +82,12 @@ export class CodexSessionScanner {
   }
 
   private headerMatchesCwd(filePath: string, targetCwd: string): boolean {
+    let fd: number | null = null;
     try {
-      const fd = readFileSync(filePath, { encoding: 'utf8', flag: 'r' });
-      const header = fd.slice(0, HEADER_SCAN_BYTES);
+      fd = openSync(filePath, 'r');
+      const buffer = Buffer.alloc(HEADER_SCAN_BYTES);
+      const bytesRead = readSync(fd, buffer, 0, HEADER_SCAN_BYTES, 0);
+      const header = buffer.subarray(0, bytesRead).toString('utf8');
       const lines = header.split('\n');
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -100,6 +103,10 @@ export class CodexSessionScanner {
       return false;
     } catch {
       return false;
+    } finally {
+      if (fd !== null) {
+        try { closeSync(fd); } catch { /* best effort */ }
+      }
     }
   }
 
