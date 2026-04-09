@@ -3,6 +3,10 @@
  * Initializes the Electron application and all core services
  */
 
+// Must be first — registers @contracts/@sdk/@shared path aliases for Node.js runtime
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('./register-aliases');
+
 import { app, BrowserWindow, powerMonitor } from 'electron';
 import * as path from 'path';
 import { WindowManager } from './window-manager';

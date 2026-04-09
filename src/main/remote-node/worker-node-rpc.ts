@@ -12,6 +12,7 @@ export const NODE_TO_COORDINATOR = {
   INSTANCE_OUTPUT_BATCH: 'instance.outputBatch',
   INSTANCE_STATE_CHANGE: 'instance.stateChange',
   INSTANCE_PERMISSION_REQUEST: 'instance.permissionRequest',
+  INSTANCE_CONTEXT: 'instance.context',
   FS_EVENT: 'fs.event',
 } as const;
 

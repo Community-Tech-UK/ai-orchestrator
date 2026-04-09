@@ -79,6 +79,9 @@ export const InstanceSpawnParamsSchema = z.object({
   yoloMode: z.boolean().optional(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
+  resume: z.boolean().optional(),
+  forkSession: z.boolean().optional(),
+  mcpConfig: z.array(z.string()).optional(),
 });
 
 export const InstanceSendInputParamsSchema = z.object({

@@ -173,9 +173,9 @@ const MODEL_HINTS: Record<string, string> = {
   'gpt-5.2-codex': '',
   'gpt-5.1-codex': '',
   'o3': 'Take time to reason through complex problems step by step.',
-  // OpenAI models (GPT-4 family, legacy)
-  'gpt-4o': 'Format code blocks with language tags.',
-  'gpt-4o-mini': 'Be concise. Format code blocks with language tags.',
+  // OpenAI models (GPT-5 family, additional)
+  'gpt-5.4-mini': 'Be concise. Format code blocks with language tags.',
+  'gpt-5.2': '',
   'o1': 'Take time to reason through complex problems step by step.',
 
   // Gemini models

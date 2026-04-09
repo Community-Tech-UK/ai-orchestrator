@@ -24,6 +24,7 @@ export class RpcEventRouter {
   private readonly trustedNotificationMethods = new Set<string>([
     NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
     NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
+    NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
   ]);
 
   constructor(connection: WorkerNodeConnectionServer, registry: WorkerNodeRegistry) {
@@ -174,6 +175,10 @@ export class RpcEventRouter {
         this.handleInstanceOutputBatch(nodeId, notification);
         break;
       }
+      case NODE_TO_COORDINATOR.INSTANCE_CONTEXT: {
+        this.handleInstanceContext(nodeId, notification);
+        break;
+      }
       default:
         logger.warn('Unknown RPC notification method received', { nodeId, method: notification.method });
     }
@@ -261,6 +266,19 @@ export class RpcEventRouter {
         message: entry['message'],
       });
     }
+  }
+
+  private handleInstanceContext(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Context notification from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    this.registry.emit('remote:instance-context', {
+      nodeId,
+      instanceId: params?.['instanceId'],
+      usage: params?.['usage'],
+    });
   }
 
   private handleInstanceStateChange(nodeId: string, request: RpcRequest): void {

@@ -614,11 +614,11 @@ export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', supportsVision: true, contextWindow: 2000000, enabled: true },
   // High performance tier
   { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', supportsVision: true, contextWindow: 1000000, enabled: true },
-  { id: 'gpt-4o', name: 'GPT-4o', supportsVision: true, contextWindow: 128000, enabled: true },
+  { id: 'gpt-5.4', name: 'GPT-5.4', supportsVision: true, contextWindow: 200000, enabled: true },
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', supportsVision: true, contextWindow: 1000000, enabled: true },
   { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', supportsVision: true, contextWindow: 1000000, enabled: true },
   // Fast tier
   { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', supportsVision: true, contextWindow: 1000000, enabled: true },
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', supportsVision: true, contextWindow: 128000, enabled: true },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', supportsVision: true, contextWindow: 200000, enabled: true },
   { id: 'gemini-2.0-flash-lite', name: 'Gemini Flash Lite', supportsVision: true, contextWindow: 1000000, enabled: true },
 ];

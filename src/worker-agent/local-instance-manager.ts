@@ -14,6 +14,9 @@ export interface SpawnParams {
   yoloMode?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
+  resume?: boolean;
+  forkSession?: boolean;
+  mcpConfig?: string[];
 }
 
 type WorkerManagedAdapter = EventEmitter & {
@@ -120,6 +123,9 @@ export class LocalInstanceManager extends EventEmitter {
       yoloMode: params.yoloMode ?? true,
       allowedTools: params.allowedTools,
       disallowedTools: params.disallowedTools,
+      resume: params.resume,
+      forkSession: params.forkSession,
+      mcpConfig: params.mcpConfig,
     });
 
     // Wire adapter events to emit them on this manager
@@ -142,6 +148,9 @@ export class LocalInstanceManager extends EventEmitter {
     adapter.on('stream:idle', () => {
       this.clearWatchdog(params.instanceId);
       this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
+    });
+    adapter.on('context', (usage: unknown) => {
+      this.emit('instance:context', params.instanceId, usage);
     });
 
     // Spawn the process

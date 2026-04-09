@@ -510,9 +510,9 @@ export class TokenCounter {
     // Pricing per 1M tokens (approximate, may change)
     // Ordered by specificity (most specific first) for proper matching
     const pricingOrder = [
-      { key: 'gpt-4o-mini', pattern: 'gpt-4o-mini', input: 0.15, output: 0.6 },
-      { key: 'gpt-4-turbo', pattern: 'gpt-4-turbo', input: 10.0, output: 30.0 },
-      { key: 'gpt-4o', pattern: 'gpt-4o', input: 5.0, output: 15.0 },
+      { key: 'gpt-5.4-mini', pattern: 'gpt-5.4-mini', input: 1.5, output: 6.0 },
+      { key: 'gpt-5.4', pattern: 'gpt-5.4', input: 5.0, output: 20.0 },
+      { key: 'gpt-5.3-codex', pattern: 'gpt-5.3-codex', input: 2.5, output: 10.0 },
       { key: 'gpt-4', pattern: 'gpt-4', input: 30.0, output: 60.0 },
       { key: 'gpt-3.5-turbo', pattern: 'gpt-3.5', input: 0.5, output: 1.5 },
       { key: 'claude-3.5-sonnet', pattern: 'claude-3.5-sonnet', input: 3.0, output: 15.0 },

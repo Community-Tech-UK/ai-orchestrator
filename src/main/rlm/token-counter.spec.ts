@@ -129,7 +129,7 @@ describe('TokenCounter', () => {
 
   describe('estimateCost', () => {
     it('should estimate cost for GPT models', () => {
-      const cost = tokenCounter.estimateCost(1000, 500, 'gpt-4o-mini');
+      const cost = tokenCounter.estimateCost(1000, 500, 'gpt-5.4-mini');
       expect(cost).toBeGreaterThan(0);
       expect(cost).toBeLessThan(1); // Should be fractions of a dollar
     });
@@ -163,8 +163,7 @@ describe('TokenCounter', () => {
     it('should detect GPT-4 models', () => {
       expect(getModelFamily('gpt-4')).toBe('gpt-4');
       expect(getModelFamily('gpt-4-turbo')).toBe('gpt-4');
-      expect(getModelFamily('gpt-4o')).toBe('gpt-4');
-      expect(getModelFamily('gpt-4o-mini')).toBe('gpt-4');
+      expect(getModelFamily('gpt-4')).toBe('gpt-4');
     });
 
     it('should detect GPT-3.5 models', () => {

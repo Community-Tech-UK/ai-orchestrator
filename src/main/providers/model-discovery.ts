@@ -405,7 +405,7 @@ export class ModelDiscoveryService {
     };
 
     // Vision models (GPT-5 family, GPT-4o, GPT-4-turbo all support vision)
-    if (modelId.includes('gpt-5') || modelId.includes('gpt-4o') || modelId.includes('gpt-4-turbo') || modelId.includes('vision')) {
+    if (modelId.includes('gpt-5') || modelId.includes('vision')) {
       caps.vision = true;
     }
 
@@ -426,10 +426,9 @@ export class ModelDiscoveryService {
       'gpt-5.1': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
       'gpt-5-codex': { inputPer1kTokens: 0.002, outputPer1kTokens: 0.008, currency: 'USD' },
       'gpt-5': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
-      // GPT-4 family (legacy)
-      'gpt-4o': { inputPer1kTokens: 0.005, outputPer1kTokens: 0.015, currency: 'USD' },
-      'gpt-4o-mini': { inputPer1kTokens: 0.00015, outputPer1kTokens: 0.0006, currency: 'USD' },
-      'gpt-4-turbo': { inputPer1kTokens: 0.01, outputPer1kTokens: 0.03, currency: 'USD' },
+      // GPT-5 family (additional entries)
+      'gpt-5.4-mini': { inputPer1kTokens: 0.0015, outputPer1kTokens: 0.006, currency: 'USD' },
+      'gpt-5.3-codex-spark': { inputPer1kTokens: 0.0005, outputPer1kTokens: 0.002, currency: 'USD' },
       'gpt-4': { inputPer1kTokens: 0.03, outputPer1kTokens: 0.06, currency: 'USD' },
       'gpt-3.5-turbo': { inputPer1kTokens: 0.0005, outputPer1kTokens: 0.0015, currency: 'USD' },
       'o1-preview': { inputPer1kTokens: 0.015, outputPer1kTokens: 0.06, currency: 'USD' },

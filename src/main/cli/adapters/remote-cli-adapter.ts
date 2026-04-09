@@ -41,6 +41,12 @@ interface RemotePermissionRequestEvent {
   permission: unknown;
 }
 
+interface RemoteContextEvent {
+  nodeId: string;
+  instanceId: string;
+  usage: unknown;
+}
+
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
   private readonly registry = getWorkerNodeRegistry();
@@ -75,6 +81,12 @@ export class RemoteCliAdapter extends EventEmitter {
       return;
     }
     this.handleRemotePermissionRequest(event.permission);
+  };
+  private readonly onRemoteContextEvent = (event: RemoteContextEvent): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    this.handleRemoteContext(event.usage);
   };
 
   constructor(
@@ -244,6 +256,10 @@ export class RemoteCliAdapter extends EventEmitter {
     this.emit('input_required', payload);
   }
 
+  handleRemoteContext(usage: unknown): void {
+    this.emit('context', usage);
+  }
+
   private matchesRemoteInstance(nodeId: string, instanceId: string): boolean {
     return (
       nodeId === this.targetNodeId &&
@@ -260,6 +276,7 @@ export class RemoteCliAdapter extends EventEmitter {
     this.registry.on('remote:instance-output', this.onRemoteOutputEvent);
     this.registry.on('remote:instance-state-change', this.onRemoteStateChangeEvent);
     this.registry.on('remote:instance-permission-request', this.onRemotePermissionRequestEvent);
+    this.registry.on('remote:instance-context', this.onRemoteContextEvent);
     this.registryListenersAttached = true;
   }
 
@@ -271,6 +288,7 @@ export class RemoteCliAdapter extends EventEmitter {
     this.registry.off('remote:instance-output', this.onRemoteOutputEvent);
     this.registry.off('remote:instance-state-change', this.onRemoteStateChangeEvent);
     this.registry.off('remote:instance-permission-request', this.onRemotePermissionRequestEvent);
+    this.registry.off('remote:instance-context', this.onRemoteContextEvent);
     this.registryListenersAttached = false;
   }
 }

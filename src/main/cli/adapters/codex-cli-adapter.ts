@@ -46,6 +46,7 @@ import { join } from 'path';
 import { getLogger } from '../../logging/logger';
 import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
 import { ActivityStateDetector } from '../../providers/activity-state-detector';
+import { CODEX_TIMEOUTS } from '../../../shared/constants/limits';
 
 // App-server imports
 import {
@@ -808,7 +809,26 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Other notifications are checked against belongsToTurn() — foreign
     // notifications are forwarded to the previous handler.
     const previousHandler = client.notificationHandler;
+
+    // Notification idle watchdog — detects stalled turns where no notifications
+    // arrive for an extended period (process alive but unresponsive).
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetIdleWatchdog = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (!state.completed) {
+          state.rejectCompletion(
+            new Error(`Codex turn stalled: no notifications received for ${CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS}ms`)
+          );
+        }
+      }, CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS);
+      idleTimer.unref();
+    };
+
     client.setNotificationHandler((notification: AppServerNotification) => {
+      // Reset idle watchdog on every notification
+      resetIdleWatchdog();
+
       // Thread-level notifications always apply
       if (notification.method === 'thread/started' || notification.method === 'thread/name/updated') {
         this.handleTurnNotification(state, notification);
@@ -829,6 +849,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.handleTurnNotification(state, notification);
     });
 
+    let turnTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       // Start the turn
       this.turnInProgress = true;
@@ -870,6 +891,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
         this.completeTurn(state, turnResult.turn);
       }
 
+      // Start the idle watchdog now that the turn is in progress
+      resetIdleWatchdog();
+
       // Wait for completion with timeout protection.
       // If the codex process crashes or the socket drops, the exitPromise
       // will resolve and we reject to avoid hanging forever.
@@ -882,16 +906,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
           }
           return state;
         }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Codex app-server turn timed out after ${timeoutMs}ms`)), timeoutMs)
-        ),
+        new Promise<never>((_, reject) => {
+          turnTimeoutTimer = setTimeout(
+            () => reject(new Error(`Codex app-server turn timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          );
+          turnTimeoutTimer.unref();
+        }),
       ]);
 
       return await completionOrCrash;
     } finally {
       this.turnInProgress = false;
       this.currentTurnId = null;
-      // Clear any inferred-completion timer
+      // Clear all timers to prevent leaks
+      if (turnTimeoutTimer) clearTimeout(turnTimeoutTimer);
+      if (idleTimer) clearTimeout(idleTimer);
       if (state.completionTimer) {
         clearTimeout(state.completionTimer);
       }

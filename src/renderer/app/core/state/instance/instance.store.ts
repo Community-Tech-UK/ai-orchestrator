@@ -271,6 +271,11 @@ export class InstanceStore implements OnDestroy {
     if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'waiting_for_input') {
       this.messagingStore.processMessageQueue(update.instanceId);
     }
+
+    // Clear stuck queued messages when instance enters a terminal/fatal state
+    if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated') {
+      this.messagingStore.clearQueueWithNotification(update.instanceId);
+    }
   }
 
   private applyBatchUpdates(updates: StateUpdate[]): void {
@@ -335,6 +340,11 @@ export class InstanceStore implements OnDestroy {
       // Process queued messages
       if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'waiting_for_input') {
         this.messagingStore.processMessageQueue(update.instanceId);
+      }
+
+      // Clear stuck queued messages when instance enters a terminal/fatal state
+      if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated') {
+        this.messagingStore.clearQueueWithNotification(update.instanceId);
       }
     }
   }

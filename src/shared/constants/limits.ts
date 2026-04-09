@@ -76,6 +76,31 @@ export const TIMEOUTS = {
 } as const;
 
 /**
+ * Codex-specific timeout configuration.
+ * Tuned based on research from t3code (20s per-RPC), opencode (SSE chunk timeouts),
+ * and Codex CLI defaults (300s stream idle).
+ */
+export const CODEX_TIMEOUTS = {
+  /** Default per-RPC timeout for JSON-RPC requests. */
+  RPC_DEFAULT_MS: 30_000,
+
+  /** Per-RPC timeout for control methods (initialize, thread/start, thread/resume). */
+  RPC_CONTROL_MS: 60_000,
+
+  /** Notification idle watchdog during turn execution. */
+  NOTIFICATION_IDLE_MS: 90_000,
+
+  /** Graceful shutdown wait before force-kill. */
+  GRACEFUL_SHUTDOWN_MS: 3_000,
+
+  /** App-server initialization timeout. */
+  APP_SERVER_INIT_MS: 30_000,
+
+  /** Broker startup polling timeout. */
+  BROKER_STARTUP_MS: 10_000,
+} as const;
+
+/**
  * Model Context Windows
  * Maximum token counts for different AI models.
  *

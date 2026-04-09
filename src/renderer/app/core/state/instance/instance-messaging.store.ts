@@ -74,6 +74,22 @@ export class InstanceMessagingStore {
   }
 
   /**
+   * Clear the message queue and notify the user about dropped messages.
+   * Used when the instance enters a terminal state (failed/error/terminated).
+   */
+  clearQueueWithNotification(instanceId: string): void {
+    const queue = this.stateService.messageQueue().get(instanceId);
+    if (!queue || queue.length === 0) return;
+
+    const count = queue.length;
+    this.clearMessageQueue(instanceId);
+    this.addErrorToOutput(
+      instanceId,
+      `${count} queued message${count > 1 ? 's were' : ' was'} discarded because the instance failed to start.`
+    );
+  }
+
+  /**
    * Remove a specific message from the queue and return it
    */
   removeFromQueue(
@@ -355,8 +371,8 @@ export class InstanceMessagingStore {
     }
 
     // Permanent: instance is in a fatal state
-    if (status === 'error' || normalized.includes('error state') || normalized.includes('inconsistent state')) {
-      return { shouldRetry: false, nextStatus: 'error' };
+    if (status === 'error' || status === 'failed' || normalized.includes('error state') || normalized.includes('inconsistent state')) {
+      return { shouldRetry: false, nextStatus: status === 'failed' ? 'failed' : 'error' };
     }
 
     if (status === 'terminated' || normalized.includes('terminated')) {

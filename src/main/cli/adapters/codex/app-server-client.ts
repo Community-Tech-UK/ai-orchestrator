@@ -20,6 +20,7 @@ import net from 'net';
 import readline from 'readline';
 import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
+import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -63,6 +64,7 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   method: string;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 // ─── Default Constants ──────────────────────────────────────────────────────
@@ -78,7 +80,7 @@ const DEFAULT_CAPABILITIES: InitializeCapabilities = {
   optOutNotificationMethods: DEFAULT_OPT_OUT_NOTIFICATIONS,
 };
 
-const GRACEFUL_SHUTDOWN_MS = 50;
+const GRACEFUL_SHUTDOWN_MS = CODEX_TIMEOUTS.GRACEFUL_SHUTDOWN_MS;
 
 // ─── Abstract Base Client ───────────────────────────────────────────────────
 
@@ -120,25 +122,58 @@ abstract class AppServerClientBase {
 
   /**
    * Sends a typed JSON-RPC request and returns the result.
+   * Applies a per-RPC timeout based on method type (configurable via timeoutMs override).
+   * `turn/start` gets no per-RPC timeout since it's long-running by design.
    */
   request<M extends AppServerMethod>(
     method: M,
-    params: AppServerRequestParams<M>
+    params: AppServerRequestParams<M>,
+    timeoutMs?: number,
   ): Promise<AppServerResponseResult<M>> {
     if (this.closed) {
       throw new ProtocolError('codex app-server client is closed.');
     }
 
     const id = this.nextId++;
+    const effectiveTimeout = timeoutMs ?? this.resolveDefaultTimeout(method);
 
     return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      if (effectiveTimeout > 0) {
+        timer = setTimeout(() => {
+          this.pending.delete(id);
+          logger.warn('RPC timeout', { method, id, timeoutMs: effectiveTimeout });
+          reject(new ProtocolError(
+            `RPC timeout: ${method} did not respond within ${effectiveTimeout}ms`
+          ));
+        }, effectiveTimeout);
+        timer.unref();
+      }
+
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
         method,
+        timer,
       });
       this.sendMessage({ id, method, params: params as Record<string, unknown> });
     });
+  }
+
+  /**
+   * Returns the default per-RPC timeout for a given method.
+   * turn/start has no timeout (0) — it's governed by the turn-level timeout and idle watchdog.
+   */
+  private resolveDefaultTimeout(method: string): number {
+    const controlMethods = ['initialize', 'thread/start', 'thread/resume', 'thread/compact/start'];
+    if (controlMethods.includes(method)) {
+      return CODEX_TIMEOUTS.RPC_CONTROL_MS;
+    }
+    if (method === 'turn/start') {
+      return 0; // Long-running — turn-level timeout handles this
+    }
+    return CODEX_TIMEOUTS.RPC_DEFAULT_MS;
   }
 
   /**
@@ -188,6 +223,7 @@ abstract class AppServerClientBase {
     if ('id' in message && typeof message['id'] === 'number') {
       const pending = this.pending.get(message['id']);
       if (pending) {
+        if (pending.timer) clearTimeout(pending.timer);
         this.pending.delete(message['id']);
         const response = message as unknown as JsonRpcResponse;
         if (response.error) {
@@ -245,6 +281,7 @@ abstract class AppServerClientBase {
     this.exitError = error || null;
 
     for (const [id, pending] of this.pending) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error || new ProtocolError('Connection closed'));
       this.pending.delete(id);
     }
@@ -277,7 +314,14 @@ class SpawnedAppServerClient extends AppServerClientBase {
       env,
       // On Windows, codex is a cmd.exe wrapper — need shell: true
       shell: isWindows,
+      // Unix: isolate into its own process group for clean tree kills
+      detached: !isWindows,
     });
+
+    // Prevent detached child from keeping Electron alive
+    if (this.proc.pid && !isWindows) {
+      this.proc.unref();
+    }
 
     if (!this.proc.stdout || !this.proc.stdin) {
       throw new ProtocolError('Failed to open stdio pipes to codex app-server');
@@ -339,8 +383,10 @@ class SpawnedAppServerClient extends AppServerClientBase {
   }
 
   protected sendMessage(message: Record<string, unknown>): void {
-    if (this.proc?.stdin && !this.closed) {
+    if (this.proc?.stdin?.writable && !this.closed) {
       this.proc.stdin.write(JSON.stringify(message) + '\n');
+    } else if (!this.closed) {
+      logger.warn('Cannot write to codex app-server stdin: pipe not writable');
     }
   }
 

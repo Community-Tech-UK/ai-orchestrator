@@ -378,6 +378,14 @@ export class WorkerAgent extends EventEmitter {
         params: { instanceId, permission, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
+
+    this.instanceManager.on('instance:context', (instanceId: string, usage: unknown) => {
+      this.send({
+        jsonrpc: '2.0',
+        method: NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
+        params: { instanceId, usage, token: this.config.nodeToken ?? this.config.authToken },
+      } as RpcMessage);
+    });
   }
 
   // -- Transport helpers ------------------------------------------------------
@@ -386,6 +394,11 @@ export class WorkerAgent extends EventEmitter {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg), (err) => {
         if (err) console.error('Send error:', err.message);
+      });
+    } else {
+      console.warn('[WorkerAgent] Message dropped — WebSocket not open', {
+        method: msg.method,
+        readyState: this.ws?.readyState,
       });
     }
   }

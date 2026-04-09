@@ -10,7 +10,7 @@
 
 import { EventEmitter } from 'events';
 import { getTokenCounter, TokenCounter } from './token-counter';
-import { CLAUDE_MODELS } from '../../shared/types/provider.types';
+import { CLAUDE_MODELS, OPENAI_MODELS } from '../../shared/types/provider.types';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { getLogger } from '../logging/logger';
 
@@ -685,7 +685,7 @@ Answer:`;
       throw new Error('OpenAI API key not configured');
     }
 
-    const model = this.config.model || 'gpt-4o-mini';
+    const model = this.config.model || OPENAI_MODELS.GPT54_MINI;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -840,7 +840,7 @@ Answer:`;
       throw new Error('OpenAI API key not configured');
     }
 
-    const model = this.config.model || 'gpt-4o-mini'; // Use mini for speed
+    const model = this.config.model || OPENAI_MODELS.GPT54_MINI; // Use mini for speed
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

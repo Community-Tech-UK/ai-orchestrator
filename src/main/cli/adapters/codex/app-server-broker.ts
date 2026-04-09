@@ -27,6 +27,7 @@ import { app } from 'electron';
 import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { terminateProcessTree } from './app-server-client';
+import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 
 const logger = getLogger('CodexBrokerManager');
 
@@ -41,7 +42,7 @@ interface BrokerSession {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const BROKER_STARTUP_TIMEOUT_MS = 10_000;
+const BROKER_STARTUP_TIMEOUT_MS = CODEX_TIMEOUTS.BROKER_STARTUP_MS;
 const BROKER_POLL_INTERVAL_MS = 50;
 const BROKER_SESSION_FILENAME = 'broker.json';
 

@@ -24,7 +24,7 @@ const DEFAULT_CONFIG: Required<JudgeConfig> = {
   claudeApiKey: process.env['ANTHROPIC_API_KEY'] || '',
   codexApiKey: process.env['OPENAI_API_KEY'] || '',
   claudeModel: 'claude-sonnet-4-20250514',
-  codexModel: 'gpt-4o',
+  codexModel: 'gpt-5.4',
   maxRetries: 3,
   timeoutMs: 300000,
 };

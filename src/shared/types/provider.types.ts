@@ -153,10 +153,10 @@ export const CLAUDE_MODELS = {
  */
 export const OPENAI_MODELS = {
   GPT54: 'gpt-5.4',
+  GPT54_MINI: 'gpt-5.4-mini',
   GPT53_CODEX: 'gpt-5.3-codex',
-  GPT4O: 'gpt-4o',
-  GPT4O_MINI: 'gpt-4o-mini',
-  GPT4_TURBO: 'gpt-4-turbo',
+  GPT53_CODEX_SPARK: 'gpt-5.3-codex-spark',
+  GPT52: 'gpt-5.2',
 } as const;
 
 /**
@@ -184,12 +184,12 @@ export const COPILOT_MODELS = {
   GEMINI_25_PRO: 'gemini-2.5-pro',
   // High performance tier
   CLAUDE_SONNET_45: 'claude-sonnet-4-5',
-  GPT4O: 'gpt-4o',
+  GPT54: 'gpt-5.4',
   GEMINI_3_FLASH: 'gemini-3-flash-preview',
   GEMINI_20_FLASH: 'gemini-2.0-flash',
   // Fast tier
   CLAUDE_HAIKU_45: 'claude-haiku-4-5',
-  GPT4O_MINI: 'gpt-4o-mini',
+  GPT54_MINI: 'gpt-5.4-mini',
   GEMINI_20_FLASH_LITE: 'gemini-2.0-flash-lite',
 } as const;
 
@@ -227,13 +227,12 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   // Claude 3.5 models (legacy)
   'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
-  // OpenAI models (GPT-5 family)
+  // OpenAI / Codex models (GPT-5 family)
   [OPENAI_MODELS.GPT54]: { input: 5.0, output: 20.0 },
+  [OPENAI_MODELS.GPT54_MINI]: { input: 1.5, output: 6.0 },
   [OPENAI_MODELS.GPT53_CODEX]: { input: 2.5, output: 10.0 },
-  // OpenAI models (GPT-4 family, legacy)
-  [OPENAI_MODELS.GPT4O]: { input: 2.5, output: 10.0 },
-  [OPENAI_MODELS.GPT4O_MINI]: { input: 0.15, output: 0.6 },
-  [OPENAI_MODELS.GPT4_TURBO]: { input: 10.0, output: 30.0 },
+  [OPENAI_MODELS.GPT53_CODEX_SPARK]: { input: 0.5, output: 2.0 },
+  [OPENAI_MODELS.GPT52]: { input: 2.0, output: 8.0 },
   // Google models
   [GOOGLE_MODELS.GEMINI_3_1_PRO]: { input: 1.25, output: 10.0 },
   [GOOGLE_MODELS.GEMINI_3_PRO]: { input: 1.25, output: 10.0 },
@@ -267,10 +266,8 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   ],
   codex: [
     { id: OPENAI_MODELS.GPT54, name: 'GPT-5.4', tier: 'powerful' },
-    { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'powerful' },
-    { id: OPENAI_MODELS.GPT4O, name: 'GPT-4o', tier: 'balanced' },
-    { id: OPENAI_MODELS.GPT4O_MINI, name: 'GPT-4o Mini', tier: 'fast' },
-    { id: OPENAI_MODELS.GPT4_TURBO, name: 'GPT-4 Turbo', tier: 'balanced' },
+    { id: OPENAI_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced' },
+    { id: OPENAI_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast' },
   ],
   gemini: [
     { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
@@ -286,11 +283,11 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
     { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
-    { id: COPILOT_MODELS.GPT4O, name: 'GPT-4o', tier: 'balanced' },
+    { id: COPILOT_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced' },
     { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash', tier: 'fast' },
     { id: COPILOT_MODELS.GEMINI_20_FLASH, name: 'Gemini 2.0 Flash', tier: 'fast' },
     { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast' },
-    { id: COPILOT_MODELS.GPT4O_MINI, name: 'GPT-4o Mini', tier: 'fast' },
+    { id: COPILOT_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast' },
     { id: COPILOT_MODELS.GEMINI_20_FLASH_LITE, name: 'Gemini 2.0 Flash Lite', tier: 'fast' },
   ],
   ollama: [],
@@ -333,9 +330,6 @@ export function getProviderModelContextWindow(
     normalizedProvider === 'codex-cli' ||
     normalizedProvider === 'openai';
   if (isCodexProvider) {
-    if (normalizedModel.includes('gpt-4o-mini')) return 128000;
-    if (normalizedModel.includes('gpt-4o')) return 128000;
-    if (normalizedModel.includes('gpt-4-turbo')) return 128000;
     // GPT-5 family and unspecified models default to 200k.
     return 200000;
   }

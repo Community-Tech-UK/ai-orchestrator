@@ -63,19 +63,19 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsBatching: true,
     pricing: pricingFor(CLAUDE_MODELS.HAIKU),
   },
-  'openai:gpt-4o': {
-    contextWindow: CONTEXT_WINDOWS.GPT4_O,
+  'openai:gpt-5.4': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
     supportsBatching: true,
-    pricing: pricingFor(OPENAI_MODELS.GPT4O),
+    pricing: pricingFor(OPENAI_MODELS.GPT54),
   },
-  'openai:gpt-4o-mini': {
-    contextWindow: CONTEXT_WINDOWS.GPT4_O_MINI,
+  'openai:gpt-5.4-mini': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
     supportsBatching: true,
-    pricing: pricingFor(OPENAI_MODELS.GPT4O_MINI),
+    pricing: pricingFor(OPENAI_MODELS.GPT54_MINI),
   },
   'openai:o1': {
     contextWindow: CONTEXT_WINDOWS.O1,
@@ -118,19 +118,26 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsBatching: false,
     pricing: pricingFor(OPENAI_MODELS.GPT53_CODEX),
   },
-  'codex:gpt-4o': {
-    contextWindow: CONTEXT_WINDOWS.GPT4_O,
+  'codex:gpt-5.4-mini': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
-    supportsBatching: true,
-    pricing: pricingFor(OPENAI_MODELS.GPT4O),
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT54_MINI),
   },
-  'codex:gpt-4o-mini': {
-    contextWindow: CONTEXT_WINDOWS.GPT4_O_MINI,
+  'codex:gpt-5.3-codex-spark': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
-    supportsBatching: true,
-    pricing: pricingFor(OPENAI_MODELS.GPT4O_MINI),
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT53_CODEX_SPARK),
+  },
+  'codex:gpt-5.2': {
+    contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
+    maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
+    supportsThinking: false,
+    supportsBatching: false,
+    pricing: pricingFor(OPENAI_MODELS.GPT52),
   },
 };
 

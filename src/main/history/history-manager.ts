@@ -105,6 +105,30 @@ export class HistoryManager {
       const firstUserMessage = userMessages[0]?.content || '';
       const lastUserMessage = userMessages[userMessages.length - 1]?.content || firstUserMessage;
 
+      // When a restore-fallback instance runs locally because the remote node was
+      // unavailable, preserve the original remote entry's placement metadata so
+      // future restores still target the correct worker node and working directory.
+      const previousRemoteEntry = previousEntries.find(
+        (e) => e.executionLocation?.type === 'remote'
+      );
+      const isLocalFallbackOverRemote =
+        previousRemoteEntry && instance.executionLocation?.type !== 'remote';
+      const executionLocation = isLocalFallbackOverRemote
+        ? previousRemoteEntry.executionLocation
+        : instance.executionLocation;
+      const workingDirectory = isLocalFallbackOverRemote
+        ? previousRemoteEntry.workingDirectory
+        : instance.workingDirectory;
+
+      if (isLocalFallbackOverRemote) {
+        logger.info('Preserving remote placement metadata from previous entry', {
+          instanceId: instance.id,
+          preservedNodeId: previousRemoteEntry.executionLocation?.type === 'remote'
+            ? previousRemoteEntry.executionLocation.nodeId : undefined,
+          preservedWorkingDir: previousRemoteEntry.workingDirectory,
+        });
+      }
+
       // Create history entry
       const entry: ConversationHistoryEntry = {
         id: entryId,
@@ -113,7 +137,7 @@ export class HistoryManager {
         createdAt,
         endedAt: Date.now(),
         historyThreadId: instance.historyThreadId,
-        workingDirectory: instance.workingDirectory,
+        workingDirectory,
         messageCount: messages.length,
         firstUserMessage: this.truncatePreview(firstUserMessage),
         lastUserMessage: this.truncatePreview(lastUserMessage),
@@ -123,7 +147,7 @@ export class HistoryManager {
         sessionId: instance.sessionId,
         provider: instance.provider,
         currentModel: instance.currentModel,
-        executionLocation: instance.executionLocation,
+        executionLocation,
       };
 
       // Create conversation data
