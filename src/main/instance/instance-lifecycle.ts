@@ -62,6 +62,7 @@ import { InstanceStateMachine } from './instance-state-machine';
 import { getAutoTitleService } from './auto-title-service';
 import { ToolListFilter } from '../tools/tool-list-filter';
 import type { DenyRule } from '../tools/tool-list-filter';
+import { ActivityStateDetector } from '../providers/activity-state-detector';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -209,6 +210,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   private outputStorage = getOutputStorageManager();
   private idleCheckTimer: NodeJS.Timeout | null = null;
   private deps: LifecycleDependencies;
+  private activityDetectors = new Map<string, ActivityStateDetector>();
 
   /** Returns MCP config paths to pass to spawned CLI instances. */
   private getMcpConfig(): string[] {
@@ -968,6 +970,7 @@ export class InstanceLifecycleManager extends EventEmitter {
                 content: `Failed to initialize ${getCliDisplayName(resolvedCliType)}: ${errorMessage}`
               };
               this.deps.addToOutputBuffer(instance, errorOutput);
+              this.emit('output', { instanceId: instance.id, message: errorOutput });
               this.deps.queueUpdate(instance.id, 'failed', instance.contextUsage);
               throw error;
             }
@@ -1005,6 +1008,14 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
 
             instance.processId = pid;
+            // Create activity detector for this instance
+            const detector = new ActivityStateDetector(
+              instance.id,
+              instance.workingDirectory || process.cwd(),
+              instance.provider ?? 'claude-cli',
+            );
+            if (pid) detector.setPid(pid);
+            this.activityDetectors.set(instance.id, detector);
             this.transitionState(instance, 'idle');
             this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage, undefined, undefined, instance.executionLocation);
             this.deps.startStuckTracking?.(instance.id);
@@ -1031,6 +1042,7 @@ export class InstanceLifecycleManager extends EventEmitter {
               content: `Failed to initialize ${getCliDisplayName(resolvedCliType)}: ${errorMessage}`
             };
             this.deps.addToOutputBuffer(instance, errorOutput);
+            this.emit('output', { instanceId: instance.id, message: errorOutput });
             this.deps.queueUpdate(instance.id, 'failed', instance.contextUsage);
             throw error;
           }
@@ -1108,9 +1120,16 @@ export class InstanceLifecycleManager extends EventEmitter {
     // Always clean up diff tracker, even if adapter is null (e.g., spawn failed)
     this.deps.deleteDiffTracker?.(instanceId);
     this.deps.deleteStateMachine?.(instanceId);
+    this.activityDetectors.delete(instanceId);
 
     if (adapter) {
-      await adapter.terminate(graceful);
+      try {
+        await adapter.terminate(graceful);
+      } catch (error) {
+        // Remote adapters may fail to terminate when the node is disconnected.
+        // Don't let that prevent instance cleanup and removal.
+        logger.warn('Adapter terminate failed, proceeding with cleanup', { instanceId, error: error instanceof Error ? error.message : String(error) });
+      }
       this.deps.deleteAdapter(instanceId);
     }
 
@@ -1401,6 +1420,15 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         let pid = await adapter.spawn();
         instance.processId = pid;
+
+        // Create activity detector for woken instance
+        const wakeDetector = new ActivityStateDetector(
+          instanceId,
+          instance.workingDirectory || process.cwd(),
+          instance.provider ?? 'claude-cli',
+        );
+        if (pid) wakeDetector.setPid(pid);
+        this.activityDetectors.set(instanceId, wakeDetector);
 
         if (canAttemptNativeResume) {
           const resumeHealthy = await this.waitForResumeHealth(instanceId);
@@ -2600,6 +2628,18 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   }
 
   private checkIdleInstances(): void {
+    // Poll activity state for each tracked instance
+    for (const [instanceId, detector] of this.activityDetectors) {
+      detector.detect().then(result => {
+        const instance = this.deps.getInstance(instanceId);
+        if (instance) {
+          instance.activityState = result.state;
+        }
+      }).catch(err => {
+        logger.warn('Activity detection failed', { instanceId, error: String(err) });
+      });
+    }
+
     const settingsAll = this.settings.getAll();
     const idleMinutes = settingsAll.autoTerminateIdleMinutes;
 
