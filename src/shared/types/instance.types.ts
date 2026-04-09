@@ -3,6 +3,7 @@
  */
 
 import { getAgentById, getDefaultAgent, type AgentMode } from './agent.types';
+import type { ActivityState } from './activity.types';
 import type { CanonicalCliType } from './settings.types';
 import type {
   TerminationPolicy,
@@ -187,6 +188,8 @@ export interface Instance {
   status: InstanceStatus;
   contextUsage: ContextUsage;
   lastActivity: number;
+  /** Provider-level activity state (separate from InstanceStatus) */
+  activityState?: ActivityState;
   currentActivity?: string; // Human-readable activity description
   currentTool?: string; // Current tool being used
 
