@@ -9,6 +9,8 @@ export const STATUS_COLORS: Record<InstanceStatus, string> = {
   ready: '#10b981',        // Green - fully started, awaiting input
   idle: '#10b981',         // Green - ready
   busy: '#3b82f6',         // Blue - processing
+  processing: '#3b82f6',   // Blue - alive but no output yet (remote heartbeat)
+  thinking_deeply: '#8b5cf6', // Purple - extended thinking (90s+ no stdout)
   waiting_for_input: '#f59e0b', // Amber - needs attention
   respawning: '#8b5cf6',   // Purple - recovering from interrupt
   hibernating: '#6b7280',  // Gray - transitioning to hibernate
@@ -25,6 +27,8 @@ export const STATUS_LABELS: Record<InstanceStatus, string> = {
   ready: 'Ready',
   idle: 'Idle',
   busy: 'Processing...',
+  processing: 'Processing...',
+  thinking_deeply: 'Thinking deeply...',
   waiting_for_input: 'Waiting for input',
   respawning: 'Resuming session...',
   hibernating: 'Hibernating...',
@@ -41,6 +45,8 @@ export const STATUS_PULSING: Record<InstanceStatus, boolean> = {
   ready: false,
   idle: false,
   busy: true,
+  processing: true,
+  thinking_deeply: true,
   waiting_for_input: false,
   respawning: true,
   hibernating: true,

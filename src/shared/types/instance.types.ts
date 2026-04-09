@@ -72,6 +72,8 @@ export type InstanceStatus =
   | 'ready'           // Init complete, adapter spawned, waiting for first input
   | 'idle'
   | 'busy'
+  | 'processing'      // CLI process alive, no output for several seconds (remote heartbeat)
+  | 'thinking_deeply' // CLI process alive, no stdout for 90s+ (extended thinking)
   | 'waiting_for_input'
   | 'respawning'      // Instance is recovering from interrupt, cannot be interrupted again
   | 'hibernating'     // Saving state to disk before suspend
