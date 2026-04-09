@@ -942,6 +942,19 @@ export class SessionContinuityManager extends EventEmitter {
       resumedState.environmentVariables = {};
     }
 
+    // If persisted cursor exists and is fresh (< 7 days), use it for native resume
+    const CURSOR_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    if (state.resumeCursor
+        && state.resumeCursor.capturedAt > Date.now() - CURSOR_MAX_AGE_MS) {
+      // Pass cursor threadId as the sessionId for the adapter
+      resumedState.sessionId = state.resumeCursor.threadId;
+      logger.info('Using persisted resume cursor', {
+        threadId: state.resumeCursor.threadId,
+        scanSource: state.resumeCursor.scanSource,
+        age: Date.now() - state.resumeCursor.capturedAt,
+      });
+    }
+
     this.emit('session:resumed', { identifier, state: resumedState, options });
     return resumedState;
   }
@@ -1096,7 +1109,7 @@ export class SessionContinuityManager extends EventEmitter {
     const persistContent = this.config.persistSessionContent;
     const redactToolOutputs = this.config.redactToolOutputs;
 
-    return {
+    const state: SessionState = {
       instanceId: instance.id,
       sessionId: instance.sessionId,
       historyThreadId: instance.historyThreadId,
@@ -1142,6 +1155,14 @@ export class SessionContinuityManager extends EventEmitter {
       skillsLoaded: [],
       hooksActive: []
     };
+
+    // Capture resume cursor from adapter if available
+    const adapter = (instance as any).adapter;
+    if (adapter && typeof (adapter as any).getResumeCursor === 'function') {
+      state.resumeCursor = (adapter as any).getResumeCursor() ?? null;
+    }
+
+    return state;
   }
 
   /**
