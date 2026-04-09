@@ -19,13 +19,8 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  try {
-    await agent.connect();
-    console.log(`Connected! Listening for work.`);
-  } catch (err) {
-    console.error('Failed to connect:', err instanceof Error ? err.message : err);
-    process.exit(1);
-  }
+  await agent.connect();
+  console.log(`Worker agent started. Listening for work.`);
 }
 
 main().catch((err) => {

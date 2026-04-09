@@ -71,20 +71,26 @@ export class WorkerAgent extends EventEmitter {
       const discovery = new DiscoveryClient();
       const found = await discovery.discover(this.config.namespace, 10_000);
       if (!found) {
-        throw new Error(`mDNS discovery found no coordinator for namespace "${this.config.namespace}"`);
+        console.warn(`mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`);
+        this.startContinuousDiscovery();
+        this.scheduleReconnect();
+        return;
       }
       coordinatorUrl = `ws://${found.host}:${found.port}`;
     }
 
     const token = this.config.nodeToken ?? this.config.authToken;
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       const ws = new WebSocket(coordinatorUrl as string, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       ws.on('open', () => {
         this.ws = ws;
+        this.connectedAt = Date.now();
+        this.reconnectAttempt = 0;
+        console.log(`Connected to coordinator at ${coordinatorUrl}`);
         this.sendRegistration();
         this.startHeartbeat();
         this.startContinuousDiscovery();
@@ -105,7 +111,9 @@ export class WorkerAgent extends EventEmitter {
 
       ws.on('error', (err) => {
         if (!this.ws) {
-          reject(err);
+          // Initial connection failed — let the close handler trigger reconnect.
+          console.warn(`Connection failed: ${err instanceof Error ? err.message : err}`);
+          resolve();
         } else {
           this.emit('error', err);
         }

@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getWorkerNodeRegistry, getWorkerNodeConnectionServer } from '../../remote-node';
 import { getRemoteNodeConfig, updateRemoteNodeConfig } from '../../remote-node/remote-node-config';
+import { getDiscoveryService } from '../../remote-node/discovery-service';
 import { generateAuthToken } from '../../remote-node/auth-validator';
 import { getNodeIdentityStore } from '../../remote-node/node-identity-store';
 import {
@@ -66,6 +67,7 @@ export function registerRemoteNodeHandlers(): void {
         const port = payload?.port ?? config.serverPort;
         const host = payload?.host ?? config.serverHost;
         await getWorkerNodeConnectionServer().start(port, host);
+        getDiscoveryService().publish(port, config.namespace, config.namespace);
         return { success: true, data: { port, host } };
       } catch (error) {
         return {
@@ -84,6 +86,7 @@ export function registerRemoteNodeHandlers(): void {
     IPC_CHANNELS.REMOTE_NODE_STOP_SERVER,
     async (): Promise<IpcResponse> => {
       try {
+        getDiscoveryService().unpublish();
         getWorkerNodeConnectionServer().stop();
         return { success: true };
       } catch (error) {
