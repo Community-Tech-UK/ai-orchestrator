@@ -1034,6 +1034,13 @@ export class InstanceLifecycleManager extends EventEmitter {
             );
             if (pid) detector.setPid(pid);
             this.activityDetectors.set(instance.id, detector);
+            // Inject detector into adapter if it supports activity recording
+            const adapterForDetector = this.deps.getAdapter(instance.id);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- setActivityDetector is not in CliAdapter interface; runtime check guards the call
+            const adapterWithDetector = adapterForDetector as any;
+            if (adapterForDetector && typeof adapterWithDetector.setActivityDetector === 'function') {
+              adapterWithDetector.setActivityDetector(detector);
+            }
             this.transitionState(instance, 'idle');
             this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage, undefined, undefined, instance.executionLocation);
             this.deps.startStuckTracking?.(instance.id);
@@ -1448,6 +1455,13 @@ export class InstanceLifecycleManager extends EventEmitter {
         );
         if (pid) wakeDetector.setPid(pid);
         this.activityDetectors.set(instanceId, wakeDetector);
+        // Inject detector into adapter if it supports activity recording
+        const wakeAdapter = this.deps.getAdapter(instanceId);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- setActivityDetector is not in CliAdapter interface; runtime check guards the call
+        const wakeAdapterWithDetector = wakeAdapter as any;
+        if (wakeAdapter && typeof wakeAdapterWithDetector.setActivityDetector === 'function') {
+          wakeAdapterWithDetector.setActivityDetector(wakeDetector);
+        }
 
         if (canAttemptNativeResume) {
           const resumeHealthy = await this.waitForResumeHealth(instanceId);
@@ -2660,7 +2674,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     }
 
     // Detect failures from activity state and trigger recovery
-    const recoveryEngine = this.recoveryEngine;
+    const recoveryEngine = this.getRecoveryEngine();
     if (recoveryEngine) {
       for (const [instanceId, detector] of this.activityDetectors) {
         detector.detect().then(result => {
