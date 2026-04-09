@@ -6,7 +6,7 @@ import { execFile } from 'child_process';
 import * as fs from 'fs';
 import { app, BrowserWindow, screen, Menu, Notification, shell, clipboard, nativeImage } from 'electron';
 import * as path from 'path';
-import { IPC_CHANNELS } from '../shared/types/ipc.types';
+import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from './logging/logger';
 
 const logger = getLogger('WindowManager');

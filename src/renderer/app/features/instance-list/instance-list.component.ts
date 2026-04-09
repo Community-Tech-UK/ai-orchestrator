@@ -2613,13 +2613,16 @@ export class InstanceListComponent {
     instance: Instance,
     matchingHistoryEntry?: ConversationHistoryEntry
   ): string {
+    // User-set title always takes priority
+    if (instance.isRenamed) {
+      return instance.displayName;
+    }
+
+    // When we have a history entry for this thread, use the same title
+    // derivation as history items so the name stays stable across
+    // live → history transitions and isn't affected by async auto-titling.
     if (matchingHistoryEntry) {
-      // If the user has explicitly renamed the instance, prefer their name.
-      const historyTitle = getConversationHistoryTitle(matchingHistoryEntry);
-      if (instance.displayName !== historyTitle) {
-        return instance.displayName;
-      }
-      return historyTitle;
+      return getConversationHistoryTitle(matchingHistoryEntry);
     }
 
     return instance.displayName;

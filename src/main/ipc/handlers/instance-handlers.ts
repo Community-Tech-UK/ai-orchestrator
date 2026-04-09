@@ -5,7 +5,8 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../../logging/logger';
-import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { IPC_CHANNELS } from '@contracts/channels';
+import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import {

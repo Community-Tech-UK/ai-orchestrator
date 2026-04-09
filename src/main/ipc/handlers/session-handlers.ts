@@ -5,7 +5,8 @@
 
 import { ipcMain, IpcMainInvokeEvent, dialog, clipboard, shell } from 'electron';
 import { promises as fs } from 'fs';
-import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { IPC_CHANNELS } from '@contracts/channels';
+import type { IpcResponse } from '../../../shared/types/ipc.types';
 import {
   validateIpcPayload,
   SessionForkPayloadSchema,
@@ -938,6 +939,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
         // Phase 1: Try to resume the CLI session
         if (canAttemptNativeResume) {
+          let resumeInstanceId: string | undefined;
           try {
             const instance = await instanceManager.createInstance({
               workingDirectory: workingDir,
@@ -950,6 +952,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               modelOverride: restoreModel,
               forceNodeId: restoreNodeId,
             });
+            resumeInstanceId = instance.id;
 
             // Wait for Phase 2 (background init) to complete before checking resume.
             // Phase 2 spawns the CLI process — without this, the poll races against
@@ -973,6 +976,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             const POST_SPAWN_TIMEOUT_MS = 5000;
             const POLL_INTERVAL_MS = 200;
 
+            // Track whether resume was confirmed via context usage or merely assumed
+            // from a live process. Unconfirmed resumes need a replay continuity
+            // preamble because the provider may have silently started a fresh thread.
+            let resumeConfirmed = false;
+
             const resumeAlive = await new Promise<boolean>((resolve) => {
               const timeout = setTimeout(() => {
                 cleanup();
@@ -984,12 +992,15 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
                 if (alive) {
                   if (hasContext) {
+                    resumeConfirmed = true;
                     logger.info('History restore: resume confirmed via context usage', {
                       instanceId: instance.id,
                       contextUsed: inst?.contextUsage?.used,
                     });
                   } else {
-                    logger.info('History restore: resume assumed successful after grace period with live process', {
+                    // Process is alive but no context usage — resume is unconfirmed.
+                    // The provider may have silently fallen back to a fresh thread.
+                    logger.info('History restore: resume unconfirmed — process alive but no context usage', {
                       instanceId: instance.id,
                       status: inst?.status,
                       contextUsed: inst?.contextUsage?.used,
@@ -1027,6 +1038,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
                 // Definitive success: CLI reported token usage from the resumed session
                 if (inst.contextUsage && inst.contextUsage.used > 0) {
                   cleanup();
+                  resumeConfirmed = true;
                   logger.info('History restore: resume confirmed early via context usage', {
                     instanceId: instance.id,
                     contextUsed: inst.contextUsage.used,
@@ -1043,11 +1055,45 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             });
 
             if (resumeAlive) {
-              // Resume succeeded
-              logger.info('History restore: CLI session resumed successfully', {
+              if (resumeConfirmed) {
+                // Resume confirmed — context usage observed, session truly restored
+                logger.info('History restore: CLI session resumed successfully (confirmed)', {
+                  instanceId: instance.id,
+                  sessionId: data.entry.sessionId,
+                });
+                return {
+                  success: true,
+                  data: {
+                    instanceId: instance.id,
+                    restoredMessages: instance.outputBuffer,
+                    restoreMode: 'native-resume'
+                  }
+                };
+              }
+
+              // Resume unconfirmed — process is alive but provider may have
+              // silently started a fresh thread. Send a replay continuity
+              // preamble so the agent has conversation context either way.
+              logger.info('History restore: resume unconfirmed — injecting replay preamble as safety net', {
                 instanceId: instance.id,
-                sessionId: data.entry.sessionId
+                sessionId: data.entry.sessionId,
               });
+
+              try {
+                const adapter = instanceManager.getAdapter(instance.id);
+                if (adapter) {
+                  const preamble = buildReplayContinuityMessage(data.messages, { reason: 'resume-unconfirmed' });
+                  if (preamble) {
+                    await adapter.sendInput(preamble);
+                  }
+                }
+              } catch (preambleErr) {
+                logger.warn('History restore: failed to inject replay preamble', {
+                  instanceId: instance.id,
+                  error: preambleErr instanceof Error ? preambleErr.message : String(preambleErr),
+                });
+              }
+
               return {
                 success: true,
                 data: {
@@ -1078,11 +1124,27 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               // Ignore cleanup errors
             }
           } catch (err) {
-            // createInstance itself threw — fall through to fallback
+            // createInstance or readyPromise threw — fall through to fallback.
+            // If an instance was created before the error (e.g. readyPromise
+            // rejection when remote spawn fails), clean it up so we don't
+            // leave a ghost instance in the sidebar alongside the fallback.
             resumeFailed = true;
-            logger.warn('History restore: createInstance with resume threw', {
-              error: err instanceof Error ? err.message : String(err)
+            logger.warn('History restore: resume attempt threw', {
+              error: err instanceof Error ? err.message : String(err),
+              resumeInstanceId,
             });
+            if (resumeInstanceId) {
+              const staleInstance = instanceManager.getInstance(resumeInstanceId);
+              if (staleInstance) {
+                staleInstance.outputBuffer = [];
+              }
+              try {
+                await instanceManager.terminateInstance(resumeInstanceId, false);
+              } catch {
+                // Ignore cleanup errors — terminateInstance already handles
+                // adapter failures internally after the fix above.
+              }
+            }
           }
         } else {
           resumeFailed = true;

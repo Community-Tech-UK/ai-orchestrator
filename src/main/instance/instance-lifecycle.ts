@@ -2708,6 +2708,9 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           if (failure) {
             recoveryEngine.handleFailure(failure).then(outcome => {
               logger.info('Recovery outcome', { instanceId, category: failure!.category, outcome: outcome.status });
+              this.dispatchRecoveryActions(instanceId, failure!).catch(err => {
+                logger.warn('Recovery action dispatch failed', { instanceId, error: String(err) });
+              });
             }).catch(err => {
               logger.warn('Recovery failed', { instanceId, error: String(err) });
             });
@@ -2760,6 +2763,49 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         }
       }
     });
+  }
+
+  /**
+   * Read recovery context flags set by recipes and dispatch the corresponding
+   * side-effects (respawn, interrupt + prompt injection, etc.).
+   */
+  private async dispatchRecoveryActions(instanceId: string, failure: DetectedFailure): Promise<void> {
+    const ctx = failure.context;
+
+    // requestRespawn — restart the instance (optionally with resume cursor)
+    if (ctx['requestRespawn']) {
+      logger.info('Recovery action: respawning instance', { instanceId });
+      await this.restartInstance(instanceId);
+      return; // restart replaces the process — no further actions apply
+    }
+
+    // sendInterrupt + injectMessage — interrupt the stuck agent then inject a nudge
+    if (ctx['sendInterrupt']) {
+      const adapter = this.deps.getAdapter(instanceId);
+      if (adapter) {
+        adapter.interrupt();
+        const message = ctx['injectMessage'] as string | undefined;
+        if (message) {
+          // Small delay to let the CLI process the interrupt before we send input
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await adapter.sendInput(message);
+          logger.info('Recovery action: interrupted and injected message', { instanceId, message });
+        } else {
+          logger.info('Recovery action: interrupted instance', { instanceId });
+        }
+      } else {
+        logger.warn('Recovery action: cannot interrupt — no adapter', { instanceId });
+      }
+    }
+
+    // pauseAgent — set instance status so the UI can indicate paused state
+    if (ctx['pauseAgent']) {
+      const instance = this.deps.getInstance(instanceId);
+      if (instance) {
+        instance.activityState = 'blocked';
+        logger.info('Recovery action: paused agent (set blocked)', { instanceId });
+      }
+    }
   }
 
   private terminateIdleInstances(): void {

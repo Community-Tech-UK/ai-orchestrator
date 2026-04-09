@@ -247,12 +247,18 @@ export class InstanceStateManager extends EventEmitter {
   // ============================================
 
   /**
-   * Serialize instance for IPC (convert Maps to Objects)
+   * Serialize instance for IPC (convert Maps to Objects).
+   *
+   * Strips non-cloneable properties (Promises, AbortController) that would
+   * cause V8 structured-clone to throw a DataCloneError when sent via
+   * webContents.send() or ipcMain.handle().
    */
   serializeForIpc(instance: Instance): Record<string, unknown> {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { readyPromise, respawnPromise, abortController, communicationTokens, ...rest } = instance;
     return {
-      ...instance,
-      communicationTokens: Object.fromEntries(instance.communicationTokens)
+      ...rest,
+      communicationTokens: Object.fromEntries(communicationTokens)
     };
   }
 

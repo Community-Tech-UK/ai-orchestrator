@@ -13,7 +13,8 @@ import {
 } from '../../shared/validation/ipc-schemas';
 import { InstanceManager } from '../instance/instance-manager';
 import { WindowManager } from '../window-manager';
-import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
+import { IPC_CHANNELS } from '@contracts/channels';
+import type { IpcResponse } from '../../shared/types/ipc.types';
 import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
 import { registerVerificationHandlers } from './verification-ipc-handler';
 import { registerCliVerificationHandlers } from './cli-verification-ipc-handler';
