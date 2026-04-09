@@ -61,6 +61,8 @@ import type {
   TurnPhase,
 } from './codex/app-server-types';
 import { SERVICE_NAME } from './codex/app-server-types';
+import { CodexSessionScanner } from './codex/session-scanner';
+import type { ResumeCursor } from '../../session/session-continuity';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -260,6 +262,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ─── Exec mode state ──────────────────────────────────────────────
   private conversationHistory: CodexConversationEntry[] = [];
   private shouldResumeNextTurn: boolean;
+
+  // ─── Resume cursor state ──────────────────────────────────────────
+  private sessionScanner = new CodexSessionScanner();
+  private resumeCursor: ResumeCursor | null = null;
 
   constructor(config: CodexCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -538,23 +544,61 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const approvalPolicy = this.cliConfig.approvalMode === 'full-auto' ? 'never' : 'never';
       const sandbox = this.mapSandboxMode();
 
-      // Resume an existing thread if config says so, otherwise start a new one.
-      const shouldResume = this.shouldResumeNextTurn && this.sessionId;
-      let threadId: string | null;
+      // === 4-step resume fallback chain ===
+      let threadId: string | null = null;
+      let resumeSource: ResumeCursor['scanSource'] | null = null;
 
-      if (shouldResume) {
-        const resumeResult = await client.request('thread/resume', {
-          threadId: this.sessionId!,
-          cwd,
-          model: this.cliConfig.model || null,
-          approvalPolicy,
-          sandbox,
-        });
-        threadId = resumeResult.threadId || resumeResult.thread?.id || null;
-        // Resume consumed — subsequent turns are normal
-        this.shouldResumeNextTurn = false;
-        logger.info('App-server thread resumed', { threadId });
-      } else {
+      // Step 1: Resume from persisted cursor (if config.resume and cursor is fresh)
+      if (this.shouldResumeNextTurn && this.sessionId) {
+        try {
+          const resumeResult = await client.request('thread/resume', {
+            threadId: this.sessionId,
+            cwd,
+            model: this.cliConfig.model || null,
+            approvalPolicy,
+            sandbox,
+          });
+          threadId = resumeResult.threadId || resumeResult.thread?.id || null;
+          resumeSource = 'native';
+          logger.info('App-server thread resumed from persisted cursor', { threadId });
+        } catch (error) {
+          if (this.isRecoverableThreadResumeError(error)) {
+            logger.warn('Persisted cursor resume failed (recoverable), trying JSONL scan', { error: String(error) });
+          } else {
+            throw error; // Non-recoverable: auth, network, rate limit
+          }
+        }
+      }
+
+      // Step 2: Scan filesystem for threadId
+      if (!threadId && this.shouldResumeNextTurn) {
+        const scanResult = await this.sessionScanner.findSessionForWorkspace(cwd);
+        if (scanResult) {
+          try {
+            const resumeResult = await client.request('thread/resume', {
+              threadId: scanResult.threadId,
+              cwd,
+              model: this.cliConfig.model || null,
+              approvalPolicy,
+              sandbox,
+            });
+            threadId = resumeResult.threadId || resumeResult.thread?.id || null;
+            resumeSource = 'jsonl-scan';
+            logger.info('App-server thread resumed from JSONL scan', { threadId, scannedFile: scanResult.sessionFilePath });
+          } catch (error) {
+            if (this.isRecoverableThreadResumeError(error)) {
+              logger.warn('JSONL scan resume failed (recoverable), falling back to fresh start', { error: String(error) });
+            } else {
+              throw error;
+            }
+          }
+        } else {
+          logger.info('No matching Codex session found on filesystem for workspace', { cwd });
+        }
+      }
+
+      // Step 3 & 4: Fresh start (replay continuity preamble is handled at a higher level by SessionContinuityManager)
+      if (!threadId) {
         const startResult = await client.request('thread/start', {
           cwd,
           model: this.cliConfig.model || null,
@@ -565,7 +609,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
           reasoningEffort: this.cliConfig.reasoningEffort || null,
         });
         threadId = startResult.threadId || startResult.thread?.id || null;
-        logger.info('App-server thread started', { threadId });
+        resumeSource = null;
+        logger.info('App-server thread started fresh', { threadId });
+      }
+
+      // Consume resume flag
+      this.shouldResumeNextTurn = false;
+
+      // Update resume cursor for persistence by SessionContinuityManager
+      if (threadId) {
+        this.resumeCursor = {
+          provider: 'openai',
+          threadId,
+          workspacePath: cwd,
+          capturedAt: Date.now(),
+          scanSource: resumeSource ?? 'native',
+        };
       }
 
       // Only assign after successful thread creation/resume
@@ -2330,5 +2389,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
       this.codexHomeDir = undefined;
     }
+  }
+
+  private isRecoverableThreadResumeError(error: unknown): boolean {
+    const msg = String(error).toLowerCase();
+    return ['not found', 'missing thread', 'unknown thread', 'unknown session',
+            'expired', 'invalid thread'].some(pattern => msg.includes(pattern));
+  }
+
+  getResumeCursor(): ResumeCursor | null {
+    return this.resumeCursor;
   }
 }
