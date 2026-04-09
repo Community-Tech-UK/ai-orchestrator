@@ -1156,12 +1156,6 @@ export class SessionContinuityManager extends EventEmitter {
       hooksActive: []
     };
 
-    // Capture resume cursor from adapter if available
-    const adapter = (instance as any).adapter;
-    if (adapter && typeof (adapter as any).getResumeCursor === 'function') {
-      state.resumeCursor = (adapter as any).getResumeCursor() ?? null;
-    }
-
     return state;
   }
 
@@ -1175,6 +1169,8 @@ export class SessionContinuityManager extends EventEmitter {
     const mutex = getSessionMutex();
     const release = await mutex.acquire(instanceId, 'auto-save');
     try {
+      // Capture resume cursor from adapter if available
+      this.captureResumeCursor(instanceId, state);
       state.lastWriteTimestamp = Date.now();
       state.lastWriteSource = 'auto-save';
 
@@ -1648,6 +1644,23 @@ export class SessionContinuityManager extends EventEmitter {
 
     clearTimeout(timer);
     this.pendingAutoSaveTimers.delete(instanceId);
+  }
+
+  /**
+   * Capture resume cursor from the adapter (if it exposes one) into the session state.
+   * Called during auto-save so the cursor is persisted to disk without the Instance
+   * needing to expose its adapter property.
+   */
+  private captureResumeCursor(instanceId: string, state: SessionState): void {
+    try {
+      const { getInstanceManager } = require('../instance/instance-manager') as typeof import('../instance/instance-manager');
+      const adapter = getInstanceManager().getAdapter(instanceId);
+      if (adapter && typeof (adapter as any).getResumeCursor === 'function') {
+        state.resumeCursor = (adapter as any).getResumeCursor() ?? null;
+      }
+    } catch {
+      // Best effort — don't let cursor capture fail the save
+    }
   }
 }
 

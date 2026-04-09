@@ -987,6 +987,10 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.getMemoryStats();
   }
 
+  getAdapter(instanceId: string): CliAdapter | undefined {
+    return this.state.getAdapter(instanceId);
+  }
+
   getAdapterRuntimeCapabilities(instanceId: string): AdapterRuntimeCapabilities | null {
     const adapter = this.state.getAdapter(instanceId);
     if (!adapter || !(adapter instanceof BaseCliAdapter)) {
