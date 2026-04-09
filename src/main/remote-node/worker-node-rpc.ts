@@ -9,6 +9,7 @@ export const NODE_TO_COORDINATOR = {
   REGISTER: 'node.register',
   HEARTBEAT: 'node.heartbeat',
   INSTANCE_OUTPUT: 'instance.output',
+  INSTANCE_OUTPUT_BATCH: 'instance.outputBatch',
   INSTANCE_STATE_CHANGE: 'instance.stateChange',
   INSTANCE_PERMISSION_REQUEST: 'instance.permissionRequest',
   FS_EVENT: 'fs.event',

@@ -96,7 +96,6 @@ export const InstanceIdParamsSchema = z.object({
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'node.register': NodeRegisterParamsSchema,
   'node.heartbeat': NodeHeartbeatParamsSchema,
-  'instance.output': InstanceOutputParamsSchema,
   'instance.stateChange': InstanceStateChangeParamsSchema,
   'instance.permissionRequest': InstancePermissionRequestParamsSchema,
   'instance.spawn': InstanceSpawnParamsSchema,

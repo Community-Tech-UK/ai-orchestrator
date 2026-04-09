@@ -20,6 +20,12 @@ export class RpcEventRouter {
   private readonly onRpcRequest: (nodeId: string, request: RpcRequest) => void;
   private readonly onRpcNotification: (nodeId: string, notification: RpcNotification) => void;
 
+  /** Methods handled as trusted notifications — skip per-message auth validation. */
+  private readonly trustedNotificationMethods = new Set<string>([
+    NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
+    NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
+  ]);
+
   constructor(connection: WorkerNodeConnectionServer, registry: WorkerNodeRegistry) {
     this.connection = connection;
     this.registry = registry;
@@ -98,9 +104,6 @@ export class RpcEventRouter {
         case NODE_TO_COORDINATOR.HEARTBEAT:
           this.handleNodeHeartbeat(nodeId, request);
           break;
-        case NODE_TO_COORDINATOR.INSTANCE_OUTPUT:
-          this.handleInstanceOutput(nodeId, request);
-          break;
         case NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE:
           this.handleInstanceStateChange(nodeId, request);
           break;
@@ -136,12 +139,15 @@ export class RpcEventRouter {
   // ---------------------------------------------------------------------------
 
   private handleRpcNotification(nodeId: string, notification: RpcNotification): void {
-    // Auth: validate token on notifications too
-    const params = notification.params as Record<string, unknown> | undefined;
-    const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
-    if (!validateAuthToken(token)) {
-      logger.warn('Notification rejected: invalid auth token', { nodeId, method: notification.method });
-      return;
+    // Trusted notification methods skip per-message auth validation.
+    // The WebSocket was authenticated during node.register.
+    if (!this.trustedNotificationMethods.has(notification.method)) {
+      const params = notification.params as Record<string, unknown> | undefined;
+      const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
+      if (!validateAuthToken(token)) {
+        logger.warn('Notification rejected: invalid auth token', { nodeId, method: notification.method });
+        return;
+      }
     }
 
     switch (notification.method) {
@@ -158,6 +164,14 @@ export class RpcEventRouter {
             ? hbParams['activeInstances']
             : node.activeInstances,
         });
+        break;
+      }
+      case NODE_TO_COORDINATOR.INSTANCE_OUTPUT: {
+        this.handleInstanceOutputNotification(nodeId, notification);
+        break;
+      }
+      case NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH: {
+        this.handleInstanceOutputBatch(nodeId, notification);
         break;
       }
       default:
@@ -215,22 +229,38 @@ export class RpcEventRouter {
     this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
   }
 
-  private handleInstanceOutput(nodeId: string, request: RpcRequest): void {
+  private handleInstanceOutputNotification(nodeId: string, notification: RpcNotification): void {
     if (!this.registry.getNode(nodeId)) {
-      this.connection.sendResponse(
-        nodeId,
-        createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
-      );
+      logger.warn('Output notification from unknown node', { nodeId });
       return;
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const params = request.params as Record<string, any> | undefined;
+    const params = notification.params as Record<string, unknown> | undefined;
     this.registry.emit('remote:instance-output', {
       nodeId,
       instanceId: params?.['instanceId'],
       message: params?.['message'],
     });
-    this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
+  }
+
+  private handleInstanceOutputBatch(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Output batch notification from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    const items = params?.['items'];
+    if (!Array.isArray(items)) {
+      logger.warn('Output batch missing items array', { nodeId });
+      return;
+    }
+    for (const item of items) {
+      const entry = item as Record<string, unknown>;
+      this.registry.emit('remote:instance-output', {
+        nodeId,
+        instanceId: entry['instanceId'],
+        message: entry['message'],
+      });
+    }
   }
 
   private handleInstanceStateChange(nodeId: string, request: RpcRequest): void {
