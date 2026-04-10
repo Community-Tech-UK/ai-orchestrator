@@ -366,6 +366,127 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS channel_access_policies;
     `,
   },
+
+  // Migration 011: Knowledge graph — entities + triples with temporal validity
+  // Inspired by mempalace knowledge_graph.py
+  {
+    name: '011_knowledge_graph',
+    up: `
+      CREATE TABLE IF NOT EXISTS kg_entities (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'unknown',
+        properties_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kg_entities_type
+        ON kg_entities(type);
+      CREATE INDEX IF NOT EXISTS idx_kg_entities_name
+        ON kg_entities(name);
+
+      CREATE TABLE IF NOT EXISTS kg_triples (
+        id TEXT PRIMARY KEY,
+        subject TEXT NOT NULL,
+        predicate TEXT NOT NULL,
+        object TEXT NOT NULL,
+        valid_from TEXT,
+        valid_to TEXT,
+        confidence REAL NOT NULL DEFAULT 1.0,
+        source_closet TEXT,
+        source_file TEXT,
+        extracted_at INTEGER NOT NULL,
+        FOREIGN KEY (subject) REFERENCES kg_entities(id),
+        FOREIGN KEY (object) REFERENCES kg_entities(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kg_triples_subject
+        ON kg_triples(subject);
+      CREATE INDEX IF NOT EXISTS idx_kg_triples_object
+        ON kg_triples(object);
+      CREATE INDEX IF NOT EXISTS idx_kg_triples_predicate
+        ON kg_triples(predicate);
+      CREATE INDEX IF NOT EXISTS idx_kg_triples_valid
+        ON kg_triples(valid_from, valid_to);
+    `,
+    down: `
+      DROP TABLE IF EXISTS kg_triples;
+      DROP TABLE IF EXISTS kg_entities;
+    `,
+  },
+
+  // Migration 012: Verbatim segments — raw text storage for conversation mining
+  // Stores exact text for high-fidelity retrieval (96.6% R@5 on LongMemEval)
+  {
+    name: '012_verbatim_segments',
+    up: `
+      CREATE TABLE IF NOT EXISTS verbatim_segments (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        source_file TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        wing TEXT NOT NULL,
+        room TEXT NOT NULL,
+        importance REAL NOT NULL DEFAULT 3.0,
+        added_by TEXT NOT NULL DEFAULT 'system',
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_verbatim_wing
+        ON verbatim_segments(wing);
+      CREATE INDEX IF NOT EXISTS idx_verbatim_room
+        ON verbatim_segments(room);
+      CREATE INDEX IF NOT EXISTS idx_verbatim_source
+        ON verbatim_segments(source_file);
+      CREATE INDEX IF NOT EXISTS idx_verbatim_importance
+        ON verbatim_segments(importance DESC);
+
+      CREATE TABLE IF NOT EXISTS conversation_imports (
+        id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL UNIQUE,
+        format TEXT NOT NULL,
+        wing TEXT NOT NULL,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        segments_created INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error TEXT,
+        imported_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_convo_imports_status
+        ON conversation_imports(status);
+    `,
+    down: `
+      DROP TABLE IF EXISTS conversation_imports;
+      DROP TABLE IF EXISTS verbatim_segments;
+    `,
+  },
+
+  // Migration 013: Wake-up context — cold-start hints for agent initialization
+  {
+    name: '013_wake_context',
+    up: `
+      CREATE TABLE IF NOT EXISTS wake_hints (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        importance REAL NOT NULL DEFAULT 5.0,
+        room TEXT NOT NULL DEFAULT 'general',
+        source_reflection_id TEXT,
+        source_session_id TEXT,
+        created_at INTEGER NOT NULL,
+        last_used INTEGER NOT NULL,
+        usage_count INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wake_hints_importance
+        ON wake_hints(importance DESC);
+      CREATE INDEX IF NOT EXISTS idx_wake_hints_room
+        ON wake_hints(room);
+    `,
+    down: `
+      DROP TABLE IF EXISTS wake_hints;
+    `,
+  },
 ];
 
 /**

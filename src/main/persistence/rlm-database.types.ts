@@ -186,3 +186,63 @@ export interface Migration {
   up: string;
   down?: string;
 }
+
+// Knowledge Graph rows
+export interface KGEntityRow {
+  id: string;
+  name: string;
+  type: string;
+  properties_json: string;
+  created_at: number;
+}
+
+export interface KGTripleRow {
+  id: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  valid_from: string | null;
+  valid_to: string | null;
+  confidence: number;
+  source_closet: string | null;
+  source_file: string | null;
+  extracted_at: number;
+}
+
+// Verbatim segment rows
+export interface VerbatimSegmentRow {
+  id: string;
+  content: string;
+  source_file: string;
+  chunk_index: number;
+  wing: string;
+  room: string;
+  importance: number;
+  added_by: string;
+  created_at: number;
+}
+
+export interface ConversationImportRow {
+  id: string;
+  file_path: string;
+  format: string;
+  wing: string;
+  message_count: number;
+  segments_created: number;
+  status: string;
+  error: string | null;
+  imported_at: number;
+}
+
+// Wake context rows
+export interface WakeHintRow {
+  id: string;
+  content: string;
+  importance: number;
+  room: string;
+  source_reflection_id: string | null;
+  source_session_id: string | null;
+  created_at: number;
+  last_used: number;
+  usage_count: number;
+}
