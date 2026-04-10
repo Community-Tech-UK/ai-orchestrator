@@ -634,5 +634,47 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
       ipcRenderer.invoke(ch.CODEBASE_MINE_DIRECTORY, payload),
     codebaseGetStatus: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CODEBASE_GET_STATUS, payload),
+
+    // ============================================
+    // Knowledge Event Listeners (main → renderer)
+    // ============================================
+
+    onKgFactAdded: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.KG_EVENT_FACT_ADDED, handler);
+      return () => ipcRenderer.removeListener(ch.KG_EVENT_FACT_ADDED, handler);
+    },
+
+    onKgFactInvalidated: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.KG_EVENT_FACT_INVALIDATED, handler);
+      return () =>
+        ipcRenderer.removeListener(ch.KG_EVENT_FACT_INVALIDATED, handler);
+    },
+
+    onConvoImportComplete: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.CONVO_EVENT_IMPORT_COMPLETE, handler);
+      return () =>
+        ipcRenderer.removeListener(ch.CONVO_EVENT_IMPORT_COMPLETE, handler);
+    },
+
+    onWakeHintAdded: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.WAKE_EVENT_HINT_ADDED, handler);
+      return () => ipcRenderer.removeListener(ch.WAKE_EVENT_HINT_ADDED, handler);
+    },
+
+    onWakeContextGenerated: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.WAKE_EVENT_CONTEXT_GENERATED, handler);
+      return () =>
+        ipcRenderer.removeListener(ch.WAKE_EVENT_CONTEXT_GENERATED, handler);
+    },
   };
 }
