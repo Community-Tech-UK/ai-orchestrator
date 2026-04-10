@@ -38,8 +38,7 @@ export class WakeContextBuilder extends EventEmitter {
   private static instance: WakeContextBuilder | null = null;
   private config: WakeContextConfig;
   private identityText: string;
-  private cachedContext: WakeContext | null = null;
-  private cacheGeneratedAt = 0;
+  private contextCache = new Map<string, WakeContext>();
 
   static getInstance(): WakeContextBuilder {
     if (!this.instance) {
@@ -72,8 +71,7 @@ export class WakeContextBuilder extends EventEmitter {
   }
 
   private invalidateCache(): void {
-    this.cachedContext = null;
-    this.cacheGeneratedAt = 0;
+    this.contextCache.clear();
   }
 
   // ============ Identity (L0) ============
@@ -137,14 +135,21 @@ export class WakeContextBuilder extends EventEmitter {
 
   // ============ Essential Story (L1) ============
 
-  private generateL1(): ContextLayer {
-    // Fetch top hints by importance
+  private generateL1(wing?: string): ContextLayer {
+    // Fetch top hints by importance, optionally filtered by wing (room match or 'general')
     const limit = this.config.l1MaxHints;
-    const rows = this.db.prepare(`
-      SELECT * FROM wake_hints
-      ORDER BY importance DESC, created_at DESC
-      LIMIT ?
-    `).all(limit) as WakeHintRow[];
+    const rows = wing
+      ? this.db.prepare(`
+          SELECT * FROM wake_hints
+          WHERE room = ? OR room = 'general'
+          ORDER BY importance DESC, created_at DESC
+          LIMIT ?
+        `).all(wing, limit) as WakeHintRow[]
+      : this.db.prepare(`
+          SELECT * FROM wake_hints
+          ORDER BY importance DESC, created_at DESC
+          LIMIT ?
+        `).all(limit) as WakeHintRow[];
 
     if (rows.length === 0) {
       return {
@@ -216,14 +221,16 @@ export class WakeContextBuilder extends EventEmitter {
   // ============ Full Wake Context ============
 
   generateWakeContext(wing?: string): WakeContext {
-    // Check cache
+    // Check cache (keyed by wing to avoid cross-project contamination)
     const now = Date.now();
-    if (this.cachedContext && (now - this.cacheGeneratedAt) < this.config.regenerateIntervalMs) {
-      return this.cachedContext;
+    const cacheKey = wing ?? '__global__';
+    const cached = this.contextCache.get(cacheKey);
+    if (cached && (now - cached.generatedAt) < this.config.regenerateIntervalMs) {
+      return cached;
     }
 
     const identity = this.generateL0();
-    const essentialStory = this.generateL1();
+    const essentialStory = this.generateL1(wing);
 
     const ctx: WakeContext = {
       identity,
@@ -233,8 +240,7 @@ export class WakeContextBuilder extends EventEmitter {
       generatedAt: now,
     };
 
-    this.cachedContext = ctx;
-    this.cacheGeneratedAt = now;
+    this.contextCache.set(cacheKey, ctx);
 
     this.emit('wake:context-generated', { totalTokens: ctx.totalTokens, wing });
     logger.debug('Wake context generated', { totalTokens: ctx.totalTokens });

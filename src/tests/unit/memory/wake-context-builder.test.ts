@@ -157,4 +157,42 @@ describe('WakeContextBuilder', () => {
       expect(builder.getHint(hintId)).toBeUndefined();
     });
   });
+
+  describe('wing filtering', () => {
+    it('should filter hints by room when wing is provided', () => {
+      const builder = WakeContextBuilder.getInstance();
+      builder.addHint('React is great', { importance: 8, room: 'frontend-project' });
+      builder.addHint('Rust is fast', { importance: 8, room: 'backend-project' });
+      builder.addHint('General tip', { importance: 8, room: 'general' });
+
+      const ctx = builder.generateWakeContext('frontend-project');
+      expect(ctx.essentialStory.content).toContain('React is great');
+      expect(ctx.essentialStory.content).toContain('General tip');
+      expect(ctx.essentialStory.content).not.toContain('Rust is fast');
+    });
+
+    it('should return all hints when no wing is provided', () => {
+      const builder = WakeContextBuilder.getInstance();
+      builder.addHint('Hint A', { importance: 8, room: 'project-a' });
+      builder.addHint('Hint B', { importance: 8, room: 'project-b' });
+
+      const ctx = builder.generateWakeContext();
+      expect(ctx.essentialStory.content).toContain('Hint A');
+      expect(ctx.essentialStory.content).toContain('Hint B');
+    });
+
+    it('should cache separately for different wings', () => {
+      const builder = WakeContextBuilder.getInstance();
+      builder.addHint('Only in alpha', { importance: 9, room: 'alpha' });
+      builder.addHint('Only in beta', { importance: 9, room: 'beta' });
+
+      const ctxAlpha = builder.generateWakeContext('alpha');
+      const ctxBeta = builder.generateWakeContext('beta');
+
+      expect(ctxAlpha.essentialStory.content).toContain('Only in alpha');
+      expect(ctxAlpha.essentialStory.content).not.toContain('Only in beta');
+      expect(ctxBeta.essentialStory.content).toContain('Only in beta');
+      expect(ctxBeta.essentialStory.content).not.toContain('Only in alpha');
+    });
+  });
 });
