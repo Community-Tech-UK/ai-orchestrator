@@ -2227,4 +2227,14 @@ export const WakeSetIdentityPayloadSchema = z.object({
   text: z.string().min(1).max(500),
 });
 
+// ============ Codebase Mining Schemas ============
+
+export const CodebaseMineDirectoryPayloadSchema = z.object({
+  dirPath: z.string().min(1),
+});
+
+export const CodebaseGetStatusPayloadSchema = z.object({
+  dirPath: z.string().min(1),
+});
+
 // Remote Node Schemas and Validation Helpers are re-exported from '@contracts/schemas' above.

@@ -71,6 +71,7 @@ import { getKnowledgeGraphService } from './memory/knowledge-graph-service';
 import { getConversationMiner } from './memory/conversation-miner';
 import { getWakeContextBuilder } from './memory/wake-context-builder';
 import { getKnowledgeBridge } from './memory/knowledge-bridge';
+import { getCodebaseMiner } from './memory/codebase-miner';
 // RLM singletons
 import { getRLMContextManager } from './rlm/context-manager';
 import { getEpisodicRLMStore } from './rlm/episodic-rlm-store';
@@ -440,6 +441,7 @@ class AIOrchestratorApp {
           });
           logger.info('Knowledge bridge wired to reflector events');
         } },
+        { name: 'Codebase miner', fn: () => { getCodebaseMiner(); } },
 
         // --- RLM (Reinforcement Learning from Memory) ---
         { name: 'RLM context manager', fn: () => { getRLMContextManager(); } },

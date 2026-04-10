@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLogger } from '../../logging/logger';
 import { getKnowledgeGraphService } from '../../memory/knowledge-graph-service';
+import { getCodebaseMiner } from '../../memory/codebase-miner';
 import {
   KgAddFactPayloadSchema,
   KgInvalidateFactPayloadSchema,
@@ -10,6 +11,7 @@ import {
   KgQueryRelationshipPayloadSchema,
   KgTimelinePayloadSchema,
   KgAddEntityPayloadSchema,
+  CodebaseMineDirectoryPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 
 const logger = getLogger('KnowledgeGraphHandlers');
@@ -161,6 +163,27 @@ export function registerKnowledgeGraphHandlers(): void {
           success: false,
           error: {
             code: 'KG_ADD_ENTITY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_MINE_DIRECTORY,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = CodebaseMineDirectoryPayloadSchema.parse(payload);
+        const result = await getCodebaseMiner().mineDirectory(data.dirPath);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('CODEBASE_MINE_DIRECTORY failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_MINE_DIRECTORY_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

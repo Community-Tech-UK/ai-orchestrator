@@ -628,5 +628,11 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
 
     wakeSetIdentity: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.WAKE_SET_IDENTITY, payload),
+
+    // Codebase Mining
+    codebaseMineDirectory: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CODEBASE_MINE_DIRECTORY, payload),
+    codebaseGetStatus: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CODEBASE_GET_STATUS, payload),
   };
 }

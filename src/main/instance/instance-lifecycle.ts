@@ -29,6 +29,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { getCodebaseMiner } from '../memory/codebase-miner';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
 import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
@@ -912,6 +913,16 @@ export class InstanceLifecycleManager extends EventEmitter {
               error: err instanceof Error ? err.message : String(err),
             });
           }
+        }
+
+        // Trigger codebase mining for the working directory (async, fire-and-forget)
+        if (instance.depth === 0 && instance.workingDirectory) {
+          getCodebaseMiner().mineDirectory(instance.workingDirectory).catch((err) => {
+            logger.warn('Codebase mining failed', {
+              error: err instanceof Error ? err.message : String(err),
+              workingDirectory: instance.workingDirectory,
+            });
+          });
         }
 
         // Append tool permission clarification to prevent models from hallucinating
