@@ -394,6 +394,38 @@ export const IPC_CHANNELS = {
   TOKEN_STATS_GET_RECENT: 'token-stats:get-recent',
   TOKEN_STATS_CLEANUP: 'token-stats:cleanup',
 
+  // Knowledge Graph operations
+  KG_ADD_FACT: 'kg:add-fact',
+  KG_INVALIDATE_FACT: 'kg:invalidate-fact',
+  KG_QUERY_ENTITY: 'kg:query-entity',
+  KG_QUERY_RELATIONSHIP: 'kg:query-relationship',
+  KG_GET_TIMELINE: 'kg:get-timeline',
+  KG_GET_STATS: 'kg:get-stats',
+  KG_ADD_ENTITY: 'kg:add-entity',
+
+  // Conversation Mining operations
+  CONVO_IMPORT_FILE: 'convo:import-file',
+  CONVO_IMPORT_STRING: 'convo:import-string',
+  CONVO_DETECT_FORMAT: 'convo:detect-format',
+
+  // Wake Context operations
+  WAKE_GENERATE: 'wake:generate',
+  WAKE_GET_TEXT: 'wake:get-text',
+  WAKE_ADD_HINT: 'wake:add-hint',
+  WAKE_REMOVE_HINT: 'wake:remove-hint',
+  WAKE_SET_IDENTITY: 'wake:set-identity',
+
+  // Codebase Mining operations
+  CODEBASE_MINE_DIRECTORY: 'codebase:mine-directory',
+  CODEBASE_GET_STATUS: 'codebase:get-status',
+
+  // Knowledge event forwarding (main -> renderer)
+  KG_EVENT_FACT_ADDED: 'kg:event:fact-added',
+  KG_EVENT_FACT_INVALIDATED: 'kg:event:fact-invalidated',
+  CONVO_EVENT_IMPORT_COMPLETE: 'convo:event:import-complete',
+  WAKE_EVENT_HINT_ADDED: 'wake:event:hint-added',
+  WAKE_EVENT_CONTEXT_GENERATED: 'wake:event:context-generated',
+
   // Provider operations
   PROVIDER_LIST: 'provider:list',
   PROVIDER_STATUS: 'provider:status',
@@ -838,27 +870,6 @@ export const IPC_CHANNELS = {
   TASK_COMPLETE: 'task:complete',
   TASK_PROGRESS: 'task:progress',
   TASK_ERROR: 'task:error',
-
-  // Knowledge Graph
-  KG_ADD_FACT: 'kg:add-fact',
-  KG_INVALIDATE_FACT: 'kg:invalidate-fact',
-  KG_QUERY_ENTITY: 'kg:query-entity',
-  KG_QUERY_RELATIONSHIP: 'kg:query-relationship',
-  KG_GET_TIMELINE: 'kg:get-timeline',
-  KG_GET_STATS: 'kg:get-stats',
-  KG_ADD_ENTITY: 'kg:add-entity',
-
-  // Conversation Mining
-  CONVO_IMPORT_FILE: 'convo:import-file',
-  CONVO_IMPORT_STRING: 'convo:import-string',
-  CONVO_DETECT_FORMAT: 'convo:detect-format',
-
-  // Wake Context
-  WAKE_GENERATE: 'wake:generate',
-  WAKE_GET_TEXT: 'wake:get-text',
-  WAKE_ADD_HINT: 'wake:add-hint',
-  WAKE_REMOVE_HINT: 'wake:remove-hint',
-  WAKE_SET_IDENTITY: 'wake:set-identity',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

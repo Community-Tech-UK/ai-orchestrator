@@ -887,6 +887,17 @@ export const IPC_CHANNELS = {
   WAKE_ADD_HINT: 'wake:add-hint',
   WAKE_REMOVE_HINT: 'wake:remove-hint',
   WAKE_SET_IDENTITY: 'wake:set-identity',
+
+  // Codebase Mining
+  CODEBASE_MINE_DIRECTORY: 'codebase:mine-directory',
+  CODEBASE_GET_STATUS: 'codebase:get-status',
+
+  // Knowledge event forwarding (main -> renderer)
+  KG_EVENT_FACT_ADDED: 'kg:event:fact-added',
+  KG_EVENT_FACT_INVALIDATED: 'kg:event:fact-invalidated',
+  CONVO_EVENT_IMPORT_COMPLETE: 'convo:event:import-complete',
+  WAKE_EVENT_HINT_ADDED: 'wake:event:hint-added',
+  WAKE_EVENT_CONTEXT_GENERATED: 'wake:event:context-generated',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
