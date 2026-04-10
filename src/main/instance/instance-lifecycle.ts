@@ -72,6 +72,7 @@ import { ActivityStateDetector } from '../providers/activity-state-detector';
 import { getDeferPermissionHookPath } from '../cli/hooks/hook-path-resolver';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
+import { InstanceSpawner } from './lifecycle/instance-spawner';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -222,6 +223,13 @@ export class InstanceLifecycleManager extends EventEmitter {
   private activityDetectors = new Map<string, ActivityStateDetector>();
   private recoveryEngine: RecoveryRecipeEngine | null = null;
 
+  /**
+   * Focused spawner for isolated CLI process spawn operations (e.g. test harnesses,
+   * future simplified spawn flows). The existing createInstance() method handles
+   * the full production lifecycle and is not delegated here.
+   */
+  readonly spawner: InstanceSpawner;
+
   private getRecoveryEngine(): RecoveryRecipeEngine {
     if (!this.recoveryEngine) {
       this.recoveryEngine = new RecoveryRecipeEngine(
@@ -347,6 +355,17 @@ export class InstanceLifecycleManager extends EventEmitter {
   constructor(deps: LifecycleDependencies) {
     super();
     this.deps = deps;
+    this.spawner = new InstanceSpawner({
+      createAdapter: async (config) => {
+        const adapter = createCliAdapter(config.provider as never, {
+          sessionId: config.sessionId,
+          workingDirectory: config.workingDirectory,
+          model: config.model,
+          yoloMode: config.yoloMode,
+        });
+        return adapter as unknown as import('./lifecycle/instance-spawner').CliAdapter;
+      },
+    });
     this.startIdleCheckTimer();
     this.setupMemoryMonitoring();
   }
