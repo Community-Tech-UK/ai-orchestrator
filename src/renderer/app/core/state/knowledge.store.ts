@@ -4,7 +4,7 @@ import type {
   KGQueryResult,
   KGStats,
 } from '../../../../shared/types/knowledge-graph.types';
-import type { WakeContext } from '../../../../shared/types/wake-context.types';
+import type { WakeContext, WakeHint } from '../../../../shared/types/wake-context.types';
 
 interface MiningStatus {
   mined: boolean;
@@ -15,6 +15,14 @@ interface ImportEvent {
   sourceFile: string;
   segmentsCreated: number;
   format: string;
+}
+
+interface ConvoImportResult {
+  segmentsCreated: number;
+  filesProcessed: number;
+  formatDetected: string;
+  errors: string[];
+  duration: number;
 }
 
 interface RecentFactEvent {
@@ -38,6 +46,10 @@ export class KnowledgeStore implements OnDestroy {
   private _wakeContext = signal<WakeContext | null>(null);
   private _miningStatus = signal<MiningStatus | null>(null);
   private _importEvents = signal<ImportEvent[]>([]);
+  private _wakeHints = signal<WakeHint[]>([]);
+  private _wakeIdentity = signal('');
+  private _relationshipResults = signal<KGQueryResult[]>([]);
+  private _selectedPredicate = signal('');
   private _loading = signal(false);
   private _error = signal<string | null>(null);
 
@@ -49,6 +61,10 @@ export class KnowledgeStore implements OnDestroy {
   readonly wakeContext = this._wakeContext.asReadonly();
   readonly miningStatus = this._miningStatus.asReadonly();
   readonly importEvents = this._importEvents.asReadonly();
+  readonly wakeHints = this._wakeHints.asReadonly();
+  readonly wakeIdentity = this._wakeIdentity.asReadonly();
+  readonly relationshipResults = this._relationshipResults.asReadonly();
+  readonly selectedPredicate = this._selectedPredicate.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
 
@@ -59,6 +75,7 @@ export class KnowledgeStore implements OnDestroy {
 
   readonly factCount = computed(() => this._stats()?.triples ?? 0);
   readonly entityCount = computed(() => this._stats()?.entities ?? 0);
+  readonly hintCount = computed(() => this._wakeHints().length);
 
   constructor() {
     this.subscribeToEvents();
@@ -146,6 +163,158 @@ export class KnowledgeStore implements OnDestroy {
 
   clearError(): void {
     this._error.set(null);
+  }
+
+  // --- Write Actions ---
+
+  async addFact(payload: {
+    subject: string;
+    predicate: string;
+    object: string;
+    confidence?: number;
+    validFrom?: string;
+    sourceFile?: string;
+  }): Promise<boolean> {
+    const response = await this.memoryIpc.kgAddFact(payload);
+    if (response.success) {
+      await this.loadStats();
+      const entity = this._selectedEntity();
+      if (entity && (payload.subject === entity || payload.object === entity)) {
+        await this.queryEntity(entity);
+      }
+      return true;
+    }
+    this._error.set(response.error?.message ?? 'Failed to add fact');
+    return false;
+  }
+
+  async invalidateFact(payload: {
+    subject: string;
+    predicate: string;
+    object: string;
+  }): Promise<boolean> {
+    const response = await this.memoryIpc.kgInvalidateFact(payload);
+    if (response.success) {
+      await this.loadStats();
+      const entity = this._selectedEntity();
+      if (entity) {
+        await Promise.all([
+          this.queryEntity(entity),
+          this.loadTimeline(entity),
+        ]);
+      }
+      return true;
+    }
+    this._error.set(response.error?.message ?? 'Failed to invalidate fact');
+    return false;
+  }
+
+  async queryRelationship(predicate: string, asOf?: string): Promise<void> {
+    this._loading.set(true);
+    this._error.set(null);
+    this._selectedPredicate.set(predicate);
+    try {
+      const response = await this.memoryIpc.kgQueryRelationship({ predicate, asOf });
+      if (response.success) {
+        this._relationshipResults.set(response.data as KGQueryResult[]);
+      } else {
+        this._error.set(response.error?.message ?? 'Relationship query failed');
+      }
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  // --- Wake Write Actions ---
+
+  async listHints(room?: string): Promise<void> {
+    const response = await this.memoryIpc.wakeListHints({ room });
+    if (response.success) {
+      this._wakeHints.set(response.data as WakeHint[]);
+    } else {
+      this._error.set(response.error?.message ?? 'Failed to list hints');
+    }
+  }
+
+  async addHint(content: string, importance?: number, room?: string): Promise<boolean> {
+    const response = await this.memoryIpc.wakeAddHint({ content, importance, room });
+    if (response.success) {
+      await this.listHints();
+      return true;
+    }
+    this._error.set(response.error?.message ?? 'Failed to add hint');
+    return false;
+  }
+
+  async removeHint(id: string): Promise<boolean> {
+    const response = await this.memoryIpc.wakeRemoveHint({ id });
+    if (response.success) {
+      await this.listHints();
+      return true;
+    }
+    this._error.set(response.error?.message ?? 'Failed to remove hint');
+    return false;
+  }
+
+  async setIdentity(text: string): Promise<boolean> {
+    const response = await this.memoryIpc.wakeSetIdentity({ text });
+    if (response.success) {
+      this._wakeIdentity.set(text);
+      await this.loadWakeContext(this.wakeWing);
+      return true;
+    }
+    this._error.set(response.error?.message ?? 'Failed to set identity');
+    return false;
+  }
+
+  async loadIdentity(): Promise<void> {
+    const response = await this.memoryIpc.wakeGenerate({});
+    if (response.success) {
+      const data = response.data as WakeContext;
+      this._wakeIdentity.set(data.identity.content);
+    }
+  }
+
+  // --- Conversation Import Actions ---
+
+  async importConversationString(content: string, wing: string, sourceFile: string, format?: string): Promise<ConvoImportResult | null> {
+    this._loading.set(true);
+    this._error.set(null);
+    try {
+      const response = await this.memoryIpc.convoImportString({ content, wing, sourceFile, format });
+      if (response.success) {
+        await this.loadStats();
+        return response.data as ConvoImportResult;
+      }
+      this._error.set(response.error?.message ?? 'Import failed');
+      return null;
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  async importConversationFile(filePath: string, wing: string): Promise<ConvoImportResult | null> {
+    this._loading.set(true);
+    this._error.set(null);
+    try {
+      const response = await this.memoryIpc.convoImportFile({ filePath, wing });
+      if (response.success) {
+        await this.loadStats();
+        return response.data as ConvoImportResult;
+      }
+      this._error.set(response.error?.message ?? 'Import failed');
+      return null;
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  async detectFormat(content: string): Promise<string | null> {
+    const response = await this.memoryIpc.convoDetectFormat({ content });
+    if (response.success) {
+      return response.data as string;
+    }
+    return null;
   }
 
   private subscribeToEvents(): void {
