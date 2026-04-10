@@ -507,4 +507,172 @@ export class MemoryIpcService {
     if (!this.api) return noop;
     return this.api.onMemoryCritical(callback);
   }
+
+  // ============================================
+  // Knowledge Graph
+  // ============================================
+
+  async kgAddFact(payload: {
+    subject: string;
+    predicate: string;
+    object: string;
+    confidence?: number;
+    sourceFile?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgAddFact(payload);
+  }
+
+  async kgInvalidateFact(payload: {
+    subject: string;
+    predicate: string;
+    object?: string;
+    ended?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgInvalidateFact(payload);
+  }
+
+  async kgQueryEntity(payload: {
+    entityName: string;
+    direction?: string;
+    asOf?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgQueryEntity(payload);
+  }
+
+  async kgQueryRelationship(payload: {
+    predicate: string;
+    asOf?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgQueryRelationship(payload);
+  }
+
+  async kgGetTimeline(payload: {
+    entityName: string;
+    limit?: number;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgGetTimeline(payload);
+  }
+
+  async kgGetStats(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgGetStats();
+  }
+
+  async kgAddEntity(payload: {
+    name: string;
+    type: string;
+    properties?: Record<string, unknown>;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.kgAddEntity(payload);
+  }
+
+  // ============================================
+  // Wake Context
+  // ============================================
+
+  async wakeGenerate(payload: { wing?: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeGenerate(payload);
+  }
+
+  async wakeGetText(payload: { wing?: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeGetText(payload);
+  }
+
+  async wakeAddHint(payload: {
+    content: string;
+    importance?: number;
+    room?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeAddHint(payload);
+  }
+
+  async wakeRemoveHint(payload: { id: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeRemoveHint(payload);
+  }
+
+  async wakeSetIdentity(payload: { text: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeSetIdentity(payload);
+  }
+
+  // ============================================
+  // Codebase Mining
+  // ============================================
+
+  async codebaseMineDirectory(payload: { dirPath: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.codebaseMineDirectory(payload);
+  }
+
+  async codebaseGetStatus(payload: { dirPath: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.codebaseGetStatus(payload);
+  }
+
+  // ============================================
+  // Conversation Mining
+  // ============================================
+
+  async convoImportFile(payload: {
+    filePath: string;
+    wing: string;
+    format?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.convoImportFile(payload);
+  }
+
+  async convoImportString(payload: {
+    content: string;
+    wing: string;
+    sourceFile: string;
+    format?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.convoImportString(payload);
+  }
+
+  async convoDetectFormat(payload: { content: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.convoDetectFormat(payload);
+  }
+
+  // ============================================
+  // Knowledge Event Listeners
+  // ============================================
+
+  onKgFactAdded(callback: (data: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onKgFactAdded(callback);
+  }
+
+  onKgFactInvalidated(callback: (data: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onKgFactInvalidated(callback);
+  }
+
+  onConvoImportComplete(callback: (data: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onConvoImportComplete(callback);
+  }
+
+  onWakeHintAdded(callback: (data: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onWakeHintAdded(callback);
+  }
+
+  onWakeContextGenerated(callback: (data: unknown) => void): () => void {
+    if (!this.api) return noop;
+    return this.api.onWakeContextGenerated(callback);
+  }
 }
