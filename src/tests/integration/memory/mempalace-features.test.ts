@@ -35,12 +35,15 @@ vi.mock('../../../main/logging/logger', () => ({
 import { KnowledgeGraphService } from '../../../main/memory/knowledge-graph-service';
 import { ConversationMiner } from '../../../main/memory/conversation-miner';
 import { WakeContextBuilder } from '../../../main/memory/wake-context-builder';
+import { KnowledgeBridge } from '../../../main/memory/knowledge-bridge';
+import type { Reflection } from '../../../main/observation/observation.types';
 
 describe('mempalace-inspired features — integration', () => {
   beforeEach(() => {
     KnowledgeGraphService._resetForTesting();
     ConversationMiner._resetForTesting();
     WakeContextBuilder._resetForTesting();
+    KnowledgeBridge._resetForTesting();
     if (_testDb?.open) {
       _testDb.close();
     }
@@ -129,5 +132,97 @@ GitHub Actions with staging → production promotion. Blue-green deploys.`;
     expect(ConversationMiner.detectFormat('> Q1\nA1\n\n> Q2\nA2\n\n> Q3\nA3')).toBe('plain-text');
     expect(ConversationMiner.detectFormat('{"type":"human","message":{"content":"hi"}}\n{"type":"assistant","message":{"content":"hello"}}')).toBe('claude-code-jsonl');
     expect(ConversationMiner.detectFormat('{"type":"session_meta","payload":{}}\n{"type":"event_msg","payload":{"type":"user_message","message":"hi"}}')).toBe('codex-jsonl');
+  });
+
+  it('should bridge promoted reflections into wake hints', () => {
+    const bridge = KnowledgeBridge.getInstance();
+    const wake = WakeContextBuilder.getInstance();
+
+    const reflection: Reflection = {
+      id: 'ref_integration_1',
+      title: 'TDD is effective',
+      insight: 'Test-driven development catches bugs early and reduces rework',
+      observationIds: ['obs_i1', 'obs_i2'],
+      patterns: [{
+        type: 'success_pattern',
+        description: 'TDD reduced bug count by 50%',
+        evidence: ['3 sessions used TDD with fewer failures'],
+        strength: 0.85,
+      }],
+      confidence: 0.8,
+      applicability: ['testing', 'workflow'],
+      createdAt: Date.now(),
+      ttl: 3_600_000,
+      usageCount: 5,
+      effectivenessScore: 0.9,
+      promotedToProcedural: true,
+    };
+
+    // Simulate promotion
+    bridge.onPromotedToProcedural(reflection);
+
+    // Should appear in wake context
+    const ctx = wake.generateWakeContext();
+    expect(ctx.essentialStory.content).toContain('TDD is effective');
+  });
+
+  it('should extract KG facts from reflections with sufficient confidence', () => {
+    const bridge = KnowledgeBridge.getInstance();
+    const kg = KnowledgeGraphService.getInstance();
+
+    const reflection: Reflection = {
+      id: 'ref_integration_2',
+      title: 'async error handling',
+      insight: 'Always wrap async calls in try-catch',
+      observationIds: ['obs_i3'],
+      patterns: [{
+        type: 'success_pattern',
+        description: 'Proper error handling prevented crashes',
+        evidence: ['Handled 5 async errors gracefully'],
+        strength: 0.7,
+      }],
+      confidence: 0.65,
+      applicability: ['error_handling'],
+      createdAt: Date.now(),
+      ttl: 3_600_000,
+      usageCount: 0,
+      effectivenessScore: 0,
+      promotedToProcedural: false,
+    };
+
+    bridge.onReflectionCreated(reflection);
+
+    const stats = kg.getStats();
+    expect(stats.triples).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should NOT extract facts from low-confidence reflections', () => {
+    const bridge = KnowledgeBridge.getInstance();
+    const kg = KnowledgeGraphService.getInstance();
+
+    const reflection: Reflection = {
+      id: 'ref_integration_3',
+      title: 'weak observation',
+      insight: 'Maybe this is useful',
+      observationIds: ['obs_i4'],
+      patterns: [{
+        type: 'workflow_optimization',
+        description: 'Possible optimization',
+        evidence: ['Saw it once'],
+        strength: 0.3,
+      }],
+      confidence: 0.3,
+      applicability: ['misc'],
+      createdAt: Date.now(),
+      ttl: 3_600_000,
+      usageCount: 0,
+      effectivenessScore: 0,
+      promotedToProcedural: false,
+    };
+
+    bridge.onReflectionCreated(reflection);
+
+    const stats = kg.getStats();
+    expect(stats.triples).toBe(0);
   });
 });
