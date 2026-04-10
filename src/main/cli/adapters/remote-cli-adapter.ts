@@ -115,32 +115,45 @@ export class RemoteCliAdapter extends EventEmitter {
       throw new Error('RemoteCliAdapter requires spawnOptions.workingDirectory for remote execution');
     }
 
-    const response = await this.nodeConnection.sendRpc<SpawnResponse>(
-      this.targetNodeId,
-      'instance.spawn',
-      {
-        instanceId: this.spawnOptions.sessionId,
-        cliType: this.requestedCliType,
-        workingDirectory: this.spawnOptions.workingDirectory,
-        systemPrompt: this.spawnOptions.systemPrompt,
-        model: this.spawnOptions.model,
-        yoloMode: this.spawnOptions.yoloMode,
-        allowedTools: this.spawnOptions.allowedTools,
-        disallowedTools: this.spawnOptions.disallowedTools,
-        resume: this.spawnOptions.resume,
-        forkSession: this.spawnOptions.forkSession,
-        mcpConfig: this.spawnOptions.mcpConfig,
-      },
-    );
-
-    this.remoteInstanceId = response.instanceId;
+    // Set the expected remote instance ID and attach registry listeners BEFORE
+    // sending the spawn RPC. This eliminates the window where early output from
+    // the remote instance could be missed because listeners weren't registered yet.
+    this.remoteInstanceId = this.spawnOptions.sessionId;
     this.attachRegistryListeners();
-    logger.info('Remote instance spawned', {
-      nodeId: this.targetNodeId,
-      instanceId: this.remoteInstanceId,
-    });
-    this.emit('spawned', -1);
-    return -1; // No local PID for remote instances
+
+    try {
+      const response = await this.nodeConnection.sendRpc<SpawnResponse>(
+        this.targetNodeId,
+        'instance.spawn',
+        {
+          instanceId: this.spawnOptions.sessionId,
+          cliType: this.requestedCliType,
+          workingDirectory: this.spawnOptions.workingDirectory,
+          systemPrompt: this.spawnOptions.systemPrompt,
+          model: this.spawnOptions.model,
+          yoloMode: this.spawnOptions.yoloMode,
+          allowedTools: this.spawnOptions.allowedTools,
+          disallowedTools: this.spawnOptions.disallowedTools,
+          resume: this.spawnOptions.resume,
+          forkSession: this.spawnOptions.forkSession,
+          mcpConfig: this.spawnOptions.mcpConfig,
+        },
+      );
+
+      // Update with the actual remote instance ID (should match sessionId)
+      this.remoteInstanceId = response.instanceId;
+      logger.info('Remote instance spawned', {
+        nodeId: this.targetNodeId,
+        instanceId: this.remoteInstanceId,
+      });
+      this.emit('spawned', -1);
+      return -1; // No local PID for remote instances
+    } catch (err) {
+      // Spawn failed — clean up listeners to prevent memory leak
+      this.remoteInstanceId = null;
+      this.detachRegistryListeners();
+      throw err;
+    }
   }
 
   async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
@@ -160,19 +173,34 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   /**
-   * Interrupt the remote instance. Returns true if RPC was sent.
-   * Synchronous return for compatibility with BaseCliAdapter.interrupt().
+   * Interrupt the remote instance. Returns true if the RPC was initiated.
+   * Logs errors and emits an 'error' event on failure so callers are aware.
    */
   interrupt(): boolean {
     if (!this.remoteInstanceId) return false;
 
-    // Fire-and-forget: send interrupt RPC without awaiting
+    const instanceId = this.remoteInstanceId;
+
+    // Check node connectivity first for fast failure
+    if (!this.nodeConnection.isNodeConnected(this.targetNodeId)) {
+      logger.warn('Cannot interrupt remote instance — node disconnected', {
+        nodeId: this.targetNodeId,
+        instanceId,
+      });
+      return false;
+    }
+
     this.nodeConnection.sendRpc(
       this.targetNodeId,
       'instance.interrupt',
-      { instanceId: this.remoteInstanceId },
+      { instanceId },
     ).catch((err: Error) => {
-      logger.warn('Failed to interrupt remote instance', { error: err.message });
+      logger.warn('Failed to interrupt remote instance', {
+        nodeId: this.targetNodeId,
+        instanceId,
+        error: err.message,
+      });
+      this.emit('error', new Error(`Remote interrupt failed: ${err.message}`));
     });
 
     return true;
@@ -180,18 +208,38 @@ export class RemoteCliAdapter extends EventEmitter {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async terminate(graceful?: boolean): Promise<void> {
+    // Always detach listeners, even if remoteInstanceId is null (defensive cleanup)
+    this.detachRegistryListeners();
+
     if (!this.remoteInstanceId) return;
 
     const instanceId = this.remoteInstanceId;
-    await this.nodeConnection.sendRpc(
-      this.targetNodeId,
-      'instance.terminate',
-      { instanceId },
-    );
+    this.remoteInstanceId = null;
 
+    try {
+      await this.nodeConnection.sendRpc(
+        this.targetNodeId,
+        'instance.terminate',
+        { instanceId },
+      );
+      logger.info('Remote instance terminated', { nodeId: this.targetNodeId, instanceId });
+    } catch (err) {
+      // Log but don't throw — caller needs cleanup to proceed regardless
+      logger.warn('Remote terminate RPC failed', {
+        nodeId: this.targetNodeId,
+        instanceId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Force cleanup of registry listeners. Call this if the adapter may not
+   * be properly terminated (e.g., error recovery paths).
+   */
+  forceCleanup(): void {
     this.remoteInstanceId = null;
     this.detachRegistryListeners();
-    logger.info('Remote instance terminated', { nodeId: this.targetNodeId, instanceId });
   }
 
   // ---------------------------------------------------------------------------

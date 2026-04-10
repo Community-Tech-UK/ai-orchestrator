@@ -741,6 +741,16 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       const instance = this.deps.getInstance(instanceId);
       if (instance && instance.status !== status) {
+        // Guard: ignore stale watchdog/stream-idle events that arrive after
+        // the instance has transitioned to idle. The remote worker's watchdog
+        // and stream:idle handlers can emit 'processing' or 'thinking_deeply'
+        // after the definitive 'idle' event, causing the spinner to reappear.
+        const isIdleLike = instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input';
+        const isWatchdogStatus = status === 'processing' || status === 'thinking_deeply';
+        if (isIdleLike && isWatchdogStatus) {
+          return;
+        }
+
         const previousStatus = instance.status;
         instance.status = status;
         instance.lastActivity = Date.now();

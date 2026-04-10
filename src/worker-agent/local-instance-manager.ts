@@ -33,6 +33,8 @@ export interface ManagedInstance {
   adapter: WorkerManagedAdapter;
   createdAt: number;
   watchdogTimer: ReturnType<typeof setInterval> | null;
+  /** Last known adapter status — used to suppress stale watchdog/stream:idle events */
+  lastStatus: string;
 }
 
 /**
@@ -130,7 +132,13 @@ export class LocalInstanceManager extends EventEmitter {
 
     // Wire adapter events to emit them on this manager
     adapter.on('output', (msg: unknown) => {
-      this.resetWatchdog(params.instanceId);
+      const inst = this.instances.get(params.instanceId);
+      // Only reset watchdog if instance is busy — output can arrive after
+      // the idle event due to buffering, and resetting the watchdog would
+      // restart the 5s processing timer that overrides idle.
+      if (inst && inst.lastStatus !== 'idle' && inst.lastStatus !== 'ready' && inst.lastStatus !== 'waiting_for_input') {
+        this.resetWatchdog(params.instanceId);
+      }
       this.emit('instance:output', params.instanceId, msg);
     });
     adapter.on('exit', (code: number | null, signal: string | null) => {
@@ -139,15 +147,29 @@ export class LocalInstanceManager extends EventEmitter {
       this.emit('instance:exit', params.instanceId, { code, signal });
     });
     adapter.on('status', (state: unknown) => {
-      this.resetWatchdog(params.instanceId);
+      const inst = this.instances.get(params.instanceId);
+      if (inst) {
+        inst.lastStatus = typeof state === 'string' ? state : 'unknown';
+      }
+      if (state === 'idle' || state === 'ready' || state === 'waiting_for_input') {
+        this.clearWatchdog(params.instanceId);
+      } else {
+        this.resetWatchdog(params.instanceId);
+      }
       this.emit('instance:stateChange', params.instanceId, state);
     });
     adapter.on('input_required', (permission: unknown) => {
       this.emit('instance:permissionRequest', params.instanceId, permission);
     });
     adapter.on('stream:idle', () => {
-      this.clearWatchdog(params.instanceId);
-      this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
+      const inst = this.instances.get(params.instanceId);
+      // Only emit thinking_deeply if the instance is actually busy.
+      // After a response completes, the stream goes quiet but that's normal
+      // idle behavior, not deep thinking.
+      if (inst && inst.lastStatus !== 'idle' && inst.lastStatus !== 'ready' && inst.lastStatus !== 'waiting_for_input') {
+        this.clearWatchdog(params.instanceId);
+        this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
+      }
     });
     adapter.on('context', (usage: unknown) => {
       this.emit('instance:context', params.instanceId, usage);
@@ -163,6 +185,7 @@ export class LocalInstanceManager extends EventEmitter {
       adapter,
       createdAt: Date.now(),
       watchdogTimer: null,
+      lastStatus: 'busy',
     });
 
     this.startWatchdog(params.instanceId);

@@ -973,7 +973,9 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             // In --print --input-format stream-json mode, the CLI may not emit
             // any output until it receives user input. So "alive after grace period"
             // is treated as success — if the session ID was invalid, the CLI exits fast.
-            const POST_SPAWN_TIMEOUT_MS = 5000;
+            // Remote sessions need more time due to network latency and remote CLI
+            // startup. Scale the timeout based on whether this is a remote resume.
+            const POST_SPAWN_TIMEOUT_MS = restoreNodeId ? 15_000 : 5_000;
             const POLL_INTERVAL_MS = 200;
 
             // Track whether resume was confirmed via context usage or merely assumed
@@ -1080,15 +1082,12 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               });
 
               try {
-                const adapter = instanceManager.getAdapter(instance.id);
-                if (adapter) {
-                  const preamble = buildReplayContinuityMessage(data.messages, { reason: 'resume-unconfirmed' });
-                  if (preamble) {
-                    await adapter.sendInput(preamble);
-                  }
+                const preamble = buildReplayContinuityMessage(data.messages, { reason: 'resume-unconfirmed' });
+                if (preamble) {
+                  instanceManager.queueContinuityPreamble(instance.id, preamble);
                 }
               } catch (preambleErr) {
-                logger.warn('History restore: failed to inject replay preamble', {
+                logger.warn('History restore: failed to queue replay preamble', {
                   instanceId: instance.id,
                   error: preambleErr instanceof Error ? preambleErr.message : String(preambleErr),
                 });

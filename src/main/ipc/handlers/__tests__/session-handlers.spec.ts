@@ -388,7 +388,8 @@ describe('session-handlers', () => {
           entryId: 'entry-remote-1',
         });
 
-        await vi.advanceTimersByTimeAsync(5_000);
+        // Remote sessions use a 15s timeout (vs 5s for local)
+        await vi.advanceTimersByTimeAsync(15_000);
         const result = await resultPromise;
 
         expect(result.success).toBe(true);

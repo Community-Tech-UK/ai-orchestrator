@@ -49,6 +49,15 @@ export class WorkerAgent extends EventEmitter {
   private static readonly OUTPUT_BATCH_INTERVAL_MS = 50;
   private static readonly OUTPUT_BATCH_MAX_SIZE = 10;
 
+  // Critical message queue — buffers state changes, exits, and permission requests
+  // that must not be silently dropped when the WebSocket is temporarily unavailable.
+  private criticalMessageQueue: RpcMessage[] = [];
+  private static readonly CRITICAL_QUEUE_MAX_SIZE = 100;
+
+  // Monotonic sequence counter for critical messages. Allows the coordinator to
+  // detect and discard out-of-order state updates after reconnection.
+  private criticalSeq = 0;
+
   constructor(private readonly config: WorkerConfig) {
     super();
     this.instanceManager = new LocalInstanceManager(
@@ -97,6 +106,7 @@ export class WorkerAgent extends EventEmitter {
           this.reconnectAttempt = 0;
           console.log(`Connected to coordinator at ${coordinatorUrl}`);
           this.sendRegistration();
+          this.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
           this.startHeartbeat();
           this.startContinuousDiscovery();
           resolve();
@@ -376,29 +386,29 @@ export class WorkerAgent extends EventEmitter {
     });
 
     this.instanceManager.on('instance:stateChange', (instanceId: string, state: unknown) => {
-      this.send({
+      this.sendCritical({
         jsonrpc: '2.0',
-        id: `sc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: `sc-${++this.criticalSeq}`,
         method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-        params: { instanceId, state, token: this.config.nodeToken ?? this.config.authToken },
+        params: { instanceId, state, seq: this.criticalSeq, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
 
     this.instanceManager.on('instance:exit', (instanceId: string, info: unknown) => {
-      this.send({
+      this.sendCritical({
         jsonrpc: '2.0',
-        id: `exit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: `exit-${++this.criticalSeq}`,
         method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-        params: { instanceId, state: 'exited', info, token: this.config.nodeToken ?? this.config.authToken },
+        params: { instanceId, state: 'exited', info, seq: this.criticalSeq, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
 
     this.instanceManager.on('instance:permissionRequest', (instanceId: string, permission: unknown) => {
-      this.send({
+      this.sendCritical({
         jsonrpc: '2.0',
-        id: `perm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        id: `perm-${++this.criticalSeq}`,
         method: NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST,
-        params: { instanceId, permission, token: this.config.nodeToken ?? this.config.authToken },
+        params: { instanceId, permission, seq: this.criticalSeq, token: this.config.nodeToken ?? this.config.authToken },
       });
     });
 
@@ -415,6 +425,8 @@ export class WorkerAgent extends EventEmitter {
 
   private send(msg: RpcMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      // Flush any previously queued critical messages first (FIFO order)
+      this.flushCriticalQueue();
       this.ws.send(JSON.stringify(msg), (err) => {
         if (err) console.error('Send error:', err.message);
       });
@@ -422,6 +434,82 @@ export class WorkerAgent extends EventEmitter {
       console.warn('[WorkerAgent] Message dropped — WebSocket not open', {
         method: msg.method,
         readyState: this.ws?.readyState,
+      });
+    }
+  }
+
+  /**
+   * Send a critical RPC message (state changes, exits, permission requests).
+   * Unlike regular send(), these are queued when the WebSocket is unavailable
+   * and flushed in order when the connection is restored.
+   */
+  private sendCritical(msg: RpcMessage): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.flushCriticalQueue();
+      this.ws.send(JSON.stringify(msg), (err) => {
+        if (err) {
+          // Send failed mid-flight — queue it for retry
+          console.warn('[WorkerAgent] Critical send failed, queueing for retry', {
+            method: msg.method,
+            error: err.message,
+          });
+          this.enqueueCriticalMessage(msg);
+        }
+      });
+    } else {
+      this.enqueueCriticalMessage(msg);
+    }
+  }
+
+  private enqueueCriticalMessage(msg: RpcMessage): void {
+    // For state-change messages, supersede any older queued state change for the
+    // same instance. This prevents the queue from wasting slots on outdated states
+    // and ensures the most recent state is what gets delivered after reconnect.
+    const msgParams = msg.params as Record<string, unknown> | undefined;
+    const msgInstanceId = msgParams?.['instanceId'];
+    if (msg.method === NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE && msgInstanceId) {
+      const idx = this.criticalMessageQueue.findIndex((queued) => {
+        if (queued.method !== NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE) return false;
+        const qp = queued.params as Record<string, unknown> | undefined;
+        return qp?.['instanceId'] === msgInstanceId;
+      });
+      if (idx !== -1) {
+        const superseded = this.criticalMessageQueue[idx];
+        this.criticalMessageQueue.splice(idx, 1);
+        console.debug('[WorkerAgent] Superseded older state-change in queue', {
+          instanceId: msgInstanceId,
+          oldState: (superseded.params as Record<string, unknown>)?.['state'],
+          newState: msgParams['state'],
+        });
+      }
+    }
+
+    if (this.criticalMessageQueue.length >= WorkerAgent.CRITICAL_QUEUE_MAX_SIZE) {
+      // Drop oldest to prevent unbounded growth
+      const dropped = this.criticalMessageQueue.shift();
+      console.warn('[WorkerAgent] Critical queue full, dropped oldest message', {
+        method: dropped?.method,
+      });
+    }
+    this.criticalMessageQueue.push(msg);
+  }
+
+  private flushCriticalQueue(): void {
+    if (this.criticalMessageQueue.length === 0) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    const queued = this.criticalMessageQueue;
+    this.criticalMessageQueue = [];
+    for (const msg of queued) {
+      this.ws.send(JSON.stringify(msg), (err) => {
+        if (err) {
+          // Re-queue failed messages so they aren't silently lost
+          console.warn('[WorkerAgent] Failed to flush critical message, re-queuing', {
+            method: msg.method,
+            error: err.message,
+          });
+          this.enqueueCriticalMessage(msg);
+        }
       });
     }
   }

@@ -15,6 +15,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
   getDefaultModelForCli,
@@ -33,6 +34,7 @@ import { getAgentRegistry } from '../agents/agent-registry';
 import { getPermissionManager } from '../security/permission-manager';
 import { getDisallowedTools } from '../../shared/utils/permission-mapper';
 import { generateId, generateInstanceId, type InstanceProvider, INSTANCE_ID_PREFIXES } from '../../shared/utils/id-generator';
+import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { LIMITS } from '../../shared/constants/limits';
 import {
   createDefaultContextInheritance,
@@ -354,13 +356,17 @@ export class InstanceLifecycleManager extends EventEmitter {
   // ============================================
 
   /**
-   * Soft-validated state transition.
+   * Public wrapper for transitionState — used by InstanceManager.updateInstanceStatus().
    *
    * Attempts to transition the instance's state machine to `newState`.
    * If the transition is invalid, logs a warning but still sets the status
    * so that existing behaviour is preserved (observability-only, no breakage).
    * If no state machine exists for the instance, falls back to direct assignment.
    */
+  transitionStatePublic(instance: Instance, newState: InstanceStatus): void {
+    this.transitionState(instance, newState);
+  }
+
   private transitionState(instance: Instance, newState: InstanceStatus): void {
     const sm = this.deps.getStateMachine?.(instance.id);
     if (!sm) {
@@ -707,7 +713,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       : 'generic';
     const instance: Instance = {
       id: generateInstanceId(providerKey),
-      displayName: config.displayName || path.basename(resolvedWorkingDir) || `Instance ${Date.now()}`,
+      displayName: config.displayName || crossPlatformBasename(resolvedWorkingDir) || `Instance ${Date.now()}`,
       createdAt: Date.now(),
       historyThreadId,
 
@@ -1195,9 +1201,18 @@ export class InstanceLifecycleManager extends EventEmitter {
       try {
         await adapter.terminate(graceful);
       } catch (error) {
-        // Remote adapters may fail to terminate when the node is disconnected.
-        // Don't let that prevent instance cleanup and removal.
-        logger.warn('Adapter terminate failed, proceeding with cleanup', { instanceId, error: error instanceof Error ? error.message : String(error) });
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        // Remote adapters fail frequently when the node is disconnected — expected.
+        // Local failures are more concerning and should be logged as errors.
+        if (adapter instanceof RemoteCliAdapter) {
+          logger.warn('Remote adapter terminate failed, proceeding with cleanup', { instanceId, error: errorMsg });
+        } else {
+          logger.error('Local adapter terminate failed, proceeding with cleanup', error instanceof Error ? error : undefined, { instanceId });
+        }
+      }
+      // Force cleanup of remote adapter listeners to prevent memory leaks
+      if (adapter instanceof RemoteCliAdapter) {
+        adapter.forceCleanup();
       }
       this.deps.deleteAdapter(instanceId);
     }

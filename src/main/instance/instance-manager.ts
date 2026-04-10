@@ -24,6 +24,7 @@ import type { SpawnChildCommand } from '../orchestration/orchestration-protocol'
 import type {
   Instance,
   InstanceCreateConfig,
+  InstanceStatus,
   ExportedSession,
   FileAttachment,
   ForkConfig,
@@ -731,6 +732,26 @@ export class InstanceManager extends EventEmitter {
 
   async wakeInstance(instanceId: string): Promise<void> {
     return this.lifecycle.wakeInstance(instanceId);
+  }
+
+  /**
+   * Update an instance's status and broadcast the change.
+   * Used by node-failover to mark remote instances as degraded/failed.
+   */
+  updateInstanceStatus(instanceId: string, status: InstanceStatus, meta?: Record<string, unknown>): void {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) {
+      logger.warn('updateInstanceStatus: instance not found', { instanceId, status });
+      return;
+    }
+
+    // Use the lifecycle's transitionState (which validates the state machine)
+    this.lifecycle.transitionStatePublic(instance, status);
+    this.state.queueUpdate(instanceId, status, instance.contextUsage);
+
+    if (meta) {
+      logger.info('Instance status updated', { instanceId, status, ...meta });
+    }
   }
 
   // ============================================

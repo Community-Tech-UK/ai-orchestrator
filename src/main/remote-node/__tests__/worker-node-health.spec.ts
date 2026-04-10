@@ -111,32 +111,32 @@ describe('WorkerNodeHealth', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Degraded after 35s without heartbeat
+  // Degraded after 65s without heartbeat
   // -------------------------------------------------------------------------
 
-  it('marks node as degraded after 35s without a heartbeat', () => {
+  it('marks node as degraded after 65s without a heartbeat', () => {
     // Register node with a heartbeat set to now
     const node = makeNode('n3', { status: 'connected', lastHeartbeat: Date.now() });
     registry.registerNode(node);
     health.startMonitoring('n3');
 
-    // Advance 35 seconds — past DEGRADED_THRESHOLD_MS (30s) but below DISCONNECT_THRESHOLD_MS (50s)
-    vi.advanceTimersByTime(35_000);
+    // Advance 65 seconds — past DEGRADED_THRESHOLD_MS (60s) but below DISCONNECT_THRESHOLD_MS (90s)
+    vi.advanceTimersByTime(65_000);
 
     expect(registry.getNode('n3')?.status).toBe('degraded');
   });
 
   // -------------------------------------------------------------------------
-  // Deregistered after 55s without heartbeat
+  // Deregistered after 95s without heartbeat
   // -------------------------------------------------------------------------
 
-  it('deregisters node after 55s without a heartbeat', () => {
+  it('deregisters node after 95s without a heartbeat', () => {
     const node = makeNode('n4', { status: 'connected', lastHeartbeat: Date.now() });
     registry.registerNode(node);
     health.startMonitoring('n4');
 
-    // Advance 55 seconds — past DISCONNECT_THRESHOLD_MS (50s)
-    vi.advanceTimersByTime(55_000);
+    // Advance 95 seconds — past DISCONNECT_THRESHOLD_MS (90s)
+    vi.advanceTimersByTime(95_000);
 
     expect(registry.getNode('n4')).toBeUndefined();
   });
@@ -150,14 +150,14 @@ describe('WorkerNodeHealth', () => {
     registry.registerNode(node);
     health.startMonitoring('n5');
 
-    // Advance 20s, send heartbeat, advance another 20s — never exceeds DEGRADED_THRESHOLD_MS
-    vi.advanceTimersByTime(20_000);
+    // Advance 40s, send heartbeat, advance another 40s — never exceeds DEGRADED_THRESHOLD_MS (60s)
+    vi.advanceTimersByTime(40_000);
     registry.updateHeartbeat('n5', makeCapabilities());
 
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(40_000);
     registry.updateHeartbeat('n5', makeCapabilities());
 
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(40_000);
 
     expect(registry.getNode('n5')?.status).toBe('connected');
   });
@@ -172,8 +172,8 @@ describe('WorkerNodeHealth', () => {
     health.startMonitoring('n6');
     health.stopMonitoring('n6');
 
-    // Advance well past disconnect threshold — monitoring is stopped so node should persist
-    vi.advanceTimersByTime(60_000);
+    // Advance well past disconnect threshold (90s) — monitoring is stopped so node should persist
+    vi.advanceTimersByTime(100_000);
 
     // Node should still be in registry (monitoring was stopped before any check ran)
     expect(registry.getNode('n6')).toBeDefined();

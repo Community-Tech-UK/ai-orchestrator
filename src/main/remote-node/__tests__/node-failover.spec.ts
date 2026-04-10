@@ -26,6 +26,9 @@ const mockInstanceManager = {
   getInstancesByNode: vi.fn((nodeId: string) =>
     mockInstances.filter(i => i.nodeId === nodeId),
   ),
+  getInstance: vi.fn((id: string) =>
+    mockInstances.find(i => i.id === id),
+  ),
   updateInstanceStatus: vi.fn(),
   emit: vi.fn(),
 };
@@ -86,10 +89,14 @@ describe('handleNodeFailover', () => {
     // Reset all mock state
     mockInstances.length = 0;
     mockInstanceManager.getInstancesByNode.mockClear();
+    mockInstanceManager.getInstance.mockClear();
     mockInstanceManager.updateInstanceStatus.mockClear();
     mockInstanceManager.emit.mockClear();
     mockInstanceManager.getInstancesByNode.mockImplementation((nodeId: string) =>
       mockInstances.filter(i => i.nodeId === nodeId),
+    );
+    mockInstanceManager.getInstance.mockImplementation((id: string) =>
+      mockInstances.find(i => i.id === id),
     );
   });
 

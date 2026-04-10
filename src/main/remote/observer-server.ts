@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
 import { URL } from 'url';
@@ -357,7 +358,7 @@ function sanitizeWorkingDirectory(workingDirectory: string): string {
   if (!workingDirectory) {
     return '<workspace>';
   }
-  const basename = path.basename(workingDirectory);
+  const basename = crossPlatformBasename(workingDirectory);
   return basename ? path.posix.join('<workspace>', basename) : '<workspace>';
 }
 

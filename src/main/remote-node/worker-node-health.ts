@@ -6,8 +6,22 @@ import { COORDINATOR_TO_NODE } from './worker-node-rpc';
 const logger = getLogger('WorkerNodeHealth');
 
 const CHECK_INTERVAL_MS = 10_000;
-const DEGRADED_THRESHOLD_MS = 30_000;
-const DISCONNECT_THRESHOLD_MS = 50_000;
+// Degraded threshold must be significantly longer than the RPC timeout (30s)
+// to avoid false positives during legitimate slow operations. Nodes that
+// miss 6 consecutive health checks (60s) are marked degraded.
+const DEGRADED_THRESHOLD_MS = 60_000;
+// Disconnect threshold gives additional grace beyond degraded before
+// removing the node entirely.
+//
+// Timeline relationship with node-failover.ts:
+//   FAILOVER_GRACE_MS (30s)  — instances marked failed if node doesn't return
+//   DEGRADED_THRESHOLD (60s) — health monitor marks node degraded
+//   DISCONNECT_THRESHOLD (90s) — health monitor deregisters node
+//
+// Failover fires first (triggered by WS disconnect), so instances are already
+// handled before the health monitor removes the node entry. This ordering is
+// intentional — the health monitor acts as a backstop cleanup.
+const DISCONNECT_THRESHOLD_MS = 90_000;
 
 export class WorkerNodeHealth {
   private static instance: WorkerNodeHealth;

@@ -21,6 +21,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { getLogger } from '../logging/logger';
 import type { ChannelManager, ChannelEvent } from './channel-manager';
 import type { ChannelPersistence } from './channel-persistence';
@@ -815,7 +816,7 @@ export class ChannelMessageRouter {
     const lines = ['**Pick an instance** (reply with `/pick <number>`):'];
     for (let i = 0; i < combined.length; i++) {
       const inst = combined[i];
-      const dir = path.basename(inst.workingDirectory || '');
+      const dir = crossPlatformBasename(inst.workingDirectory || '');
       const name = inst.displayName || inst.id.slice(0, 8);
       const status = inst.status || 'unknown';
       const icon = status === 'idle' ? '🟢' : status === 'busy' ? '🟡' : status === 'hibernated' ? '💤' : '⚪';

@@ -42,6 +42,7 @@ import {
   getWorkerNodeConnectionServer,
   getWorkerNodeHealth,
   handleNodeFailover,
+  handleLateNodeReconnect,
   RpcEventRouter,
   getRemoteNodeConfig,
   hydrateRemoteNodeConfig,
@@ -314,6 +315,11 @@ class AIOrchestratorApp {
           // Wire node events → renderer
           registry.on('node:connected', (node) => {
             this.windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
+            // Check for instances left in 'failed' state from a prior disconnection.
+            // On late reconnection (after reboot), restore them to 'idle' so the user
+            // can resume working.
+            const nodeId = typeof node === 'string' ? node : node.id;
+            handleLateNodeReconnect(nodeId);
           });
           registry.on('node:disconnected', (node) => {
             this.windowManager.sendToRenderer('remote-node:event', {

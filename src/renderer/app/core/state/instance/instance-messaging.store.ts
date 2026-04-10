@@ -28,7 +28,8 @@ export class InstanceMessagingStore {
   }
 
   /**
-   * Process queued messages for all instances that are currently idle.
+   * Process queued messages for all instances that are currently idle,
+   * and clear queues for instances that are in terminal states.
    * Acts as a safety net for cases where the primary drain trigger misses.
    */
   private drainAllReadyQueues(): void {
@@ -37,9 +38,19 @@ export class InstanceMessagingStore {
 
     for (const [instanceId] of queueMap) {
       const instance = this.stateService.getInstance(instanceId);
-      if (instance && (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input')) {
+      if (!instance) {
+        // Instance no longer exists — clean up orphaned queue
+        this.clearMessageQueue(instanceId);
+        continue;
+      }
+
+      if (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input') {
         console.log('InstanceMessagingStore: Watchdog draining stuck queue', { instanceId, status: instance.status });
         this.processMessageQueue(instanceId);
+      } else if (instance.status === 'failed' || instance.status === 'error' || instance.status === 'terminated') {
+        // Terminal state: messages can never be delivered — clear with notification
+        console.log('InstanceMessagingStore: Watchdog clearing queue for terminal instance', { instanceId, status: instance.status });
+        this.clearQueueWithNotification(instanceId);
       }
     }
   }
@@ -146,13 +157,34 @@ export class InstanceMessagingStore {
       this.stateService.updateInstance(instanceId, { restoreMode: undefined });
     }
 
-    // If instance is busy, respawning, or in a transitional state, queue the message instead of sending immediately
+    // Reject immediately if instance is in a terminal state — sending will fail
+    // and the optimistic busy status would mask the real state from retry logic.
+    if (
+      instance.status === 'failed' ||
+      instance.status === 'error' ||
+      instance.status === 'terminated'
+    ) {
+      console.warn('InstanceMessagingStore: Cannot send to instance in terminal state', {
+        instanceId,
+        status: instance.status,
+      });
+      this.addErrorToOutput(
+        instanceId,
+        `Cannot send message — instance is ${instance.status}. Try restarting the instance.`
+      );
+      return;
+    }
+
+    // If instance is busy, respawning, degraded, or in a transitional state, queue the message instead of sending immediately.
+    // 'degraded' means the remote node is temporarily disconnected — queue so the
+    // message can be delivered if/when the node reconnects and the instance is restored.
     if (
       instance.status === 'busy' ||
       instance.status === 'respawning' ||
       instance.status === 'initializing' ||
       instance.status === 'waking' ||
-      instance.status === 'hibernating'
+      instance.status === 'hibernating' ||
+      instance.status === 'degraded'
     ) {
       console.log('InstanceMessagingStore: Instance not ready, queuing message', {
         instanceId,
@@ -216,10 +248,12 @@ export class InstanceMessagingStore {
       return;
     }
 
-    // Optimistically update status
-    this.stateService.updateInstance(instanceId, {
-      status: 'busy' as InstanceStatus,
-    });
+    // Optimistically update status (only if not already in a terminal state)
+    if (previousStatus !== 'failed' && previousStatus !== 'error' && previousStatus !== 'terminated') {
+      this.stateService.updateInstance(instanceId, {
+        status: 'busy' as InstanceStatus,
+      });
+    }
 
     const result = await this.ipc.sendInput(instanceId, message, attachments, retryCount > 0);
     console.log('InstanceMessagingStore: sendInput result', result);
@@ -230,7 +264,9 @@ export class InstanceMessagingStore {
 
       const errorMessage = result.error?.message || 'Failed to send message';
       const currentInstance = this.stateService.getInstance(instanceId);
-      const retryDisposition = this.getRetryDisposition(currentInstance?.status, errorMessage);
+      // Use previousStatus to avoid the optimistic 'busy' masking the real state
+      const effectiveStatus = previousStatus !== 'busy' ? previousStatus : currentInstance?.status;
+      const retryDisposition = this.getRetryDisposition(effectiveStatus, errorMessage);
 
       if (!retryDisposition.shouldRetry) {
         // Permanent failure: revert optimistic 'busy' to previous status and show error

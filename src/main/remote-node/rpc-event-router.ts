@@ -27,6 +27,14 @@ export class RpcEventRouter {
     NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
   ]);
 
+  /**
+   * Tracks the highest `seq` value received per node for critical messages
+   * (state changes, permission requests). Messages with a seq ≤ the last-seen
+   * value are stale (e.g. replayed from a reconnect queue after a fresher
+   * message was already delivered) and are discarded.
+   */
+  private readonly lastSeenSeq = new Map<string, number>();
+
   constructor(connection: WorkerNodeConnectionServer, registry: WorkerNodeRegistry) {
     this.connection = connection;
     this.registry = registry;
@@ -61,9 +69,29 @@ export class RpcEventRouter {
 
   private handleWsDisconnected(nodeId: string): void {
     getWorkerNodeHealth().stopMonitoring(nodeId);
+    this.lastSeenSeq.delete(nodeId);
     if (this.registry.getNode(nodeId)) {
       this.registry.deregisterNode(nodeId);
     }
+  }
+
+  /**
+   * Returns true if this message should be processed. Returns false (and logs)
+   * if the message is stale — i.e. a lower or equal seq than one already seen
+   * from this node. Messages without a seq field are always accepted (backwards
+   * compatibility with older worker agents).
+   */
+  private acceptSeq(nodeId: string, params: Record<string, unknown> | undefined): boolean {
+    const seq = typeof params?.['seq'] === 'number' ? params['seq'] : undefined;
+    if (seq === undefined) return true; // no seq — accept unconditionally
+
+    const last = this.lastSeenSeq.get(nodeId) ?? 0;
+    if (seq <= last) {
+      logger.debug('Discarding stale critical message', { nodeId, seq, lastSeen: last });
+      return false;
+    }
+    this.lastSeenSeq.set(nodeId, seq);
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -291,6 +319,13 @@ export class RpcEventRouter {
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = request.params as Record<string, any> | undefined;
+
+    // Discard stale state changes that arrive out-of-order after reconnection
+    if (!this.acceptSeq(nodeId, params)) {
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true, stale: true }));
+      return;
+    }
+
     this.registry.emit('remote:instance-state-change', {
       nodeId,
       instanceId: params?.['instanceId'],
@@ -310,6 +345,13 @@ export class RpcEventRouter {
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params = request.params as Record<string, any> | undefined;
+
+    // Discard stale permission requests that arrive out-of-order after reconnection
+    if (!this.acceptSeq(nodeId, params)) {
+      this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true, stale: true }));
+      return;
+    }
+
     this.registry.emit('remote:instance-permission-request', {
       nodeId,
       instanceId: params?.['instanceId'],

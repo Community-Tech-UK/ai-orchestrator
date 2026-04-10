@@ -3,7 +3,7 @@ export { generateAuthToken, validateAuthToken, ensureAuthToken } from './auth-va
 export { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 export { WorkerNodeConnectionServer, getWorkerNodeConnectionServer } from './worker-node-connection';
 export { WorkerNodeHealth, getWorkerNodeHealth } from './worker-node-health';
-export { handleNodeFailover } from './node-failover';
+export { handleNodeFailover, handleLateNodeReconnect } from './node-failover';
 export { RpcEventRouter } from './rpc-event-router';
 export { getRemoteNodeConfig, updateRemoteNodeConfig, resetRemoteNodeConfig } from './remote-node-config';
 export type { RemoteNodeConfig } from './remote-node-config';

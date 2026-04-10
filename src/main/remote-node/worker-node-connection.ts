@@ -171,15 +171,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   async sendRpc<T>(nodeId: string, method: string, params?: unknown): Promise<T> {
-    const ws = this.nodeToSocket.get(nodeId);
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      throw new Error(`Node not connected: ${nodeId}`);
-    }
-
     const id = `coord-${++this.requestCounter}`;
     const request = createRpcRequest(id, method, params);
 
     return new Promise<T>((resolve, reject) => {
+      // Register pending RPC and start timeout BEFORE checking socket state.
+      // This avoids a TOCTOU race where the socket closes between the check
+      // and the send() call — the timeout handles cleanup either way.
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`RPC timeout after ${RPC_TIMEOUT_MS}ms: ${method} (id=${id})`));
@@ -190,6 +188,14 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         reject,
         timer,
       });
+
+      const ws = this.nodeToSocket.get(nodeId);
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new Error(`Node not connected: ${nodeId}`));
+        return;
+      }
 
       ws.send(JSON.stringify(request), (err) => {
         if (err) {
