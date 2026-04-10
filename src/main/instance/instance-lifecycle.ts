@@ -29,6 +29,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
 import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
 import { getAgentRegistry } from '../agents/agent-registry';
@@ -1266,6 +1267,34 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       }
 
+      // Mine transcript into verbatim storage (async, non-blocking)
+      if (!instance.parentId && instance.outputBuffer.length >= 4) {
+        try {
+          const transcript = instance.outputBuffer
+            .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
+            .map((msg) => msg.type === 'user' ? `> ${msg.content}` : msg.content)
+            .join('\n\n');
+
+          if (transcript.length > 100) {
+            const wing = instance.workingDirectory || 'default';
+            const sourceFile = `session://${instance.id}`;
+            getConversationMiner().importFromString(transcript, {
+              wing,
+              sourceFile,
+            });
+            logger.info('Mined transcript into verbatim storage', {
+              instanceId,
+              messageCount: instance.outputBuffer.length,
+            });
+          }
+        } catch (error) {
+          logger.warn('Failed to mine transcript', {
+            instanceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       this.transitionState(instance, 'terminated');
       instance.processId = null;
 
@@ -1385,6 +1414,31 @@ export class InstanceLifecycleManager extends EventEmitter {
       const continuity = getSessionContinuityManager();
       await continuity.startTracking(instance);
       await continuity.stopTracking(instanceId, true);
+
+      // Mine transcript before hibernation (non-blocking)
+      if (instance.outputBuffer.length >= 4) {
+        try {
+          const transcript = instance.outputBuffer
+            .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
+            .map((msg) => msg.type === 'user' ? `> ${msg.content}` : msg.content)
+            .join('\n\n');
+
+          if (transcript.length > 100) {
+            const wing = instance.workingDirectory || 'default';
+            const sourceFile = `session://${instanceId}`;
+            getConversationMiner().importFromString(transcript, {
+              wing,
+              sourceFile,
+            });
+            logger.info('Mined transcript before hibernation', { instanceId });
+          }
+        } catch (error) {
+          logger.warn('Failed to mine transcript before hibernation', {
+            instanceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
 
       // Kill the adapter process without removing the instance from the store.
       const adapter = this.deps.getAdapter(instanceId);
