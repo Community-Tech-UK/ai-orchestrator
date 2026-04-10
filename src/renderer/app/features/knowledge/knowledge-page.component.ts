@@ -9,11 +9,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
+import { WakeManagementComponent } from './wake-management.component';
+import { ConversationImportComponent } from './conversation-import.component';
 
 @Component({
   selector: 'app-knowledge-page',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, WakeManagementComponent, ConversationImportComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -66,253 +68,252 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
         </div>
       </div>
 
+      <!-- Tab Bar -->
+      <div class="tab-bar">
+        <button class="tab" type="button"
+          [class.active]="activeTab() === 'graph'"
+          (click)="activeTab.set('graph')">
+          Knowledge Graph
+        </button>
+        <button class="tab" type="button"
+          [class.active]="activeTab() === 'wake'"
+          (click)="activeTab.set('wake')">
+          Wake Context
+        </button>
+        <button class="tab" type="button"
+          [class.active]="activeTab() === 'import'"
+          (click)="activeTab.set('import')">
+          Conversation Import
+        </button>
+      </div>
+
       <div class="content">
-        <div class="main-panel">
-          <div class="panel-card full-width">
-            <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
-              <span>
-                @if (store.selectedEntity(); as entity) {
-                  Facts for "{{ entity }}"
-                } @else {
-                  Entity Facts
-                }
-              </span>
-              <button class="btn btn-sm" type="button" (click)="showAddFact.set(!showAddFact())">
-                {{ showAddFact() ? 'Cancel' : '+ Add Fact' }}
-              </button>
-            </div>
-
-            @if (showAddFact()) {
-              <div class="inline-form">
-                <div class="form-row">
-                  <label class="field">
-                    <span class="label">Subject</span>
-                    <input class="input" type="text" [(ngModel)]="newSubject" placeholder="e.g. my_project" />
-                  </label>
-                  <label class="field">
-                    <span class="label">Predicate</span>
-                    <input class="input" type="text" [(ngModel)]="newPredicate" placeholder="e.g. uses_database" />
-                  </label>
-                  <label class="field">
-                    <span class="label">Object</span>
-                    <input class="input" type="text" [(ngModel)]="newObject" placeholder="e.g. PostgreSQL" />
-                  </label>
+        @switch (activeTab()) {
+          @case ('graph') {
+            <div class="main-panel">
+              <div class="panel-card full-width">
+                <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
+                  <span>
+                    @if (store.selectedEntity(); as entity) {
+                      Facts for "{{ entity }}"
+                    } @else {
+                      Entity Facts
+                    }
+                  </span>
+                  <button class="btn btn-sm" type="button" (click)="showAddFact.set(!showAddFact())">
+                    {{ showAddFact() ? 'Cancel' : '+ Add Fact' }}
+                  </button>
                 </div>
-                <div class="form-row">
-                  <label class="field">
-                    <span class="label">Confidence (0-1)</span>
-                    <input class="input" type="number" [(ngModel)]="newConfidence" min="0" max="1" step="0.1" placeholder="0.9" />
-                  </label>
-                  <label class="field">
-                    <span class="label">Valid From (ISO)</span>
-                    <input class="input" type="text" [(ngModel)]="newValidFrom" placeholder="2025-01-01" />
-                  </label>
-                  <div class="field" style="justify-content: flex-end;">
-                    <button class="btn primary" type="button"
-                      [disabled]="!newSubject() || !newPredicate() || !newObject() || store.loading()"
-                      (click)="addFact()">
-                      Add Fact
-                    </button>
+
+                @if (showAddFact()) {
+                  <div class="inline-form">
+                    <div class="form-row">
+                      <label class="field">
+                        <span class="label">Subject</span>
+                        <input class="input" type="text" [(ngModel)]="newSubject" placeholder="e.g. my_project" />
+                      </label>
+                      <label class="field">
+                        <span class="label">Predicate</span>
+                        <input class="input" type="text" [(ngModel)]="newPredicate" placeholder="e.g. uses_database" />
+                      </label>
+                      <label class="field">
+                        <span class="label">Object</span>
+                        <input class="input" type="text" [(ngModel)]="newObject" placeholder="e.g. PostgreSQL" />
+                      </label>
+                    </div>
+                    <div class="form-row">
+                      <label class="field">
+                        <span class="label">Confidence (0-1)</span>
+                        <input class="input" type="number" [(ngModel)]="newConfidence" min="0" max="1" step="0.1" placeholder="0.9" />
+                      </label>
+                      <label class="field">
+                        <span class="label">Valid From (ISO)</span>
+                        <input class="input" type="text" [(ngModel)]="newValidFrom" placeholder="2025-01-01" />
+                      </label>
+                      <div class="field" style="justify-content: flex-end;">
+                        <button class="btn primary" type="button"
+                          [disabled]="!newSubject() || !newPredicate() || !newObject() || store.loading()"
+                          (click)="addFact()">
+                          Add Fact
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                }
+
+                @if (store.loading()) {
+                  <div class="hint">Loading...</div>
+                } @else if (store.entityFacts().length > 0) {
+                  <table class="fact-table">
+                    <thead>
+                      <tr>
+                        <th>Subject</th>
+                        <th>Predicate</th>
+                        <th>Object</th>
+                        <th>Confidence</th>
+                        <th>Validity</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (fact of store.entityFacts(); track $index) {
+                        <tr>
+                          <td class="mono">{{ fact.subject }}</td>
+                          <td class="mono predicate">{{ fact.predicate }}</td>
+                          <td>{{ fact.object }}</td>
+                          <td class="num">
+                            {{ fact.confidence !== null && fact.confidence !== undefined ? (fact.confidence * 100).toFixed(0) + '%' : '-' }}
+                          </td>
+                          <td class="muted">
+                            @if (fact.validFrom) {
+                              {{ fact.validFrom }}
+                            } @else {
+                              now
+                            }
+                            @if (fact.validTo) {
+                              - {{ fact.validTo }}
+                            }
+                          </td>
+                          <td>
+                            @if (!fact.validTo) {
+                              <button class="btn btn-sm btn-danger" type="button"
+                                (click)="invalidateFact(fact)">
+                                Invalidate
+                              </button>
+                            }
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                } @else {
+                  <div class="hint">Search for an entity to inspect its facts and timeline.</div>
+                }
               </div>
-            }
 
-            @if (store.loading()) {
-              <div class="hint">Loading...</div>
-            } @else if (store.entityFacts().length > 0) {
-              <table class="fact-table">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th>Predicate</th>
-                    <th>Object</th>
-                    <th>Confidence</th>
-                    <th>Validity</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (fact of store.entityFacts(); track $index) {
-                    <tr>
-                      <td class="mono">{{ fact.subject }}</td>
-                      <td class="mono predicate">{{ fact.predicate }}</td>
-                      <td>{{ fact.object }}</td>
-                      <td class="num">
-                        {{ fact.confidence !== null && fact.confidence !== undefined ? (fact.confidence * 100).toFixed(0) + '%' : '-' }}
-                      </td>
-                      <td class="muted">
-                        @if (fact.validFrom) {
-                          {{ fact.validFrom }}
-                        } @else {
-                          now
+              @if (store.timeline().length > 0) {
+                <div class="panel-card full-width">
+                  <div class="panel-title">Timeline for "{{ store.selectedEntity() }}"</div>
+                  <div class="timeline">
+                    @for (entry of store.timeline(); track $index) {
+                      <div class="timeline-entry">
+                        <span class="timeline-dot"></span>
+                        <span class="mono">{{ entry.predicate }}</span>
+                        <span>-> {{ entry.object }}</span>
+                        @if (entry.validFrom) {
+                          <span class="muted">({{ entry.validFrom }})</span>
                         }
-                        @if (fact.validTo) {
-                          - {{ fact.validTo }}
-                        }
-                      </td>
-                      <td>
-                        @if (!fact.validTo) {
-                          <button class="btn btn-sm btn-danger" type="button"
-                            (click)="invalidateFact(fact)">
-                            Invalidate
-                          </button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            } @else {
-              <div class="hint">Search for an entity to inspect its facts and timeline.</div>
-            }
-          </div>
-
-          @if (store.timeline().length > 0) {
-            <div class="panel-card full-width">
-              <div class="panel-title">Timeline for "{{ store.selectedEntity() }}"</div>
-              <div class="timeline">
-                @for (entry of store.timeline(); track $index) {
-                  <div class="timeline-entry">
-                    <span class="timeline-dot"></span>
-                    <span class="mono">{{ entry.predicate }}</span>
-                    <span>-> {{ entry.object }}</span>
-                    @if (entry.validFrom) {
-                      <span class="muted">({{ entry.validFrom }})</span>
+                      </div>
                     }
                   </div>
-                }
-              </div>
-            </div>
-          }
-
-          @if (store.recentFacts().length > 0) {
-            <div class="panel-card full-width">
-              <div class="panel-title">Recent Facts (Live)</div>
-              <ul class="list">
-                @for (fact of store.recentFacts(); track fact.tripleId) {
-                  <li>
-                    <span class="mono">{{ fact.subject }}</span>
-                    <span class="predicate">{{ fact.predicate }}</span>
-                    <span>{{ fact.object }}</span>
-                  </li>
-                }
-              </ul>
-            </div>
-          }
-
-          @if (store.relationshipResults().length > 0) {
-            <div class="panel-card full-width">
-              <div class="panel-title">Relationship: "{{ store.selectedPredicate() }}"</div>
-              <table class="fact-table">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th>Object</th>
-                    <th>Confidence</th>
-                    <th>Current</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (result of store.relationshipResults(); track $index) {
-                    <tr>
-                      <td class="mono">{{ result.subject }}</td>
-                      <td>{{ result.object }}</td>
-                      <td class="num">{{ result.confidence !== null ? (result.confidence * 100).toFixed(0) + '%' : '-' }}</td>
-                      <td>
-                        <span [class]="result.current ? 'badge-success' : 'muted'">
-                          {{ result.current ? 'Yes' : 'No' }}
-                        </span>
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          }
-        </div>
-
-        <div class="side-panel">
-          <div class="panel-card">
-            <div class="panel-title">Graph Stats</div>
-            @if (store.stats(); as stats) {
-              <div class="stat-row"><span>Entities</span><span class="num">{{ stats.entities }}</span></div>
-              <div class="stat-row"><span>Facts</span><span class="num">{{ stats.triples }}</span></div>
-              <div class="stat-row"><span>Current facts</span><span class="num">{{ stats.currentFacts }}</span></div>
-              <div class="stat-row"><span>Expired facts</span><span class="num">{{ stats.expiredFacts }}</span></div>
-            } @else {
-              <div class="hint">Stats unavailable.</div>
-            }
-          </div>
-
-          <div class="panel-card">
-            <div class="panel-title">Wake Context</div>
-            @if (store.wakeContext(); as wakeContext) {
-              <div class="stat-row"><span>Tokens</span><span class="num">~{{ wakeContext.totalTokens }}</span></div>
-              @if (wakeContext.wing) {
-                <div class="stat-row"><span>Wing</span><span>{{ wakeContext.wing }}</span></div>
+                </div>
               }
-              <details class="wake-details">
-                <summary>L0 Identity</summary>
-                <pre class="wake-text">{{ wakeContext.identity.content }}</pre>
-              </details>
-              <details class="wake-details">
-                <summary>L1 Essential Story</summary>
-                <pre class="wake-text">{{ wakeContext.essentialStory.content }}</pre>
-              </details>
-            } @else {
-              <div class="hint">No wake context generated yet.</div>
-            }
-          </div>
 
-          <div class="panel-card">
-            <div class="panel-title">Codebase Mining</div>
-            @if (store.miningStatus(); as miningStatus) {
-              <div class="stat-row">
-                <span>Status</span>
-                <span [class]="miningStatus.mined ? 'badge-success' : 'badge-pending'">
-                  {{ miningStatus.mined ? 'Mined' : 'Pending' }}
-                </span>
-              </div>
-              <div class="stat-row">
-                <span>Path</span>
-                <span class="mono small">{{ miningStatus.normalizedPath }}</span>
-              </div>
-            } @else {
-              <div class="hint">No mining status available.</div>
-            }
+              @if (store.recentFacts().length > 0) {
+                <div class="panel-card full-width">
+                  <div class="panel-title">Recent Facts (Live)</div>
+                  <ul class="list">
+                    @for (fact of store.recentFacts(); track fact.tripleId) {
+                      <li>
+                        <span class="mono">{{ fact.subject }}</span>
+                        <span class="predicate">{{ fact.predicate }}</span>
+                        <span>{{ fact.object }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
 
-            <div class="mine-actions">
-              <label class="field">
-                <span class="label">Directory</span>
-                <input
-                  class="input"
-                  type="text"
-                  [value]="mineDir()"
-                  placeholder="/path/to/project"
-                  (input)="onMineDirInput($event)"
-                />
-              </label>
-              <button class="btn" type="button" [disabled]="store.loading() || !mineDir()" (click)="triggerMine()">
-                Mine
-              </button>
+              @if (store.relationshipResults().length > 0) {
+                <div class="panel-card full-width">
+                  <div class="panel-title">Relationship: "{{ store.selectedPredicate() }}"</div>
+                  <table class="fact-table">
+                    <thead>
+                      <tr>
+                        <th>Subject</th>
+                        <th>Object</th>
+                        <th>Confidence</th>
+                        <th>Current</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (result of store.relationshipResults(); track $index) {
+                        <tr>
+                          <td class="mono">{{ result.subject }}</td>
+                          <td>{{ result.object }}</td>
+                          <td class="num">{{ result.confidence !== null ? (result.confidence * 100).toFixed(0) + '%' : '-' }}</td>
+                          <td>
+                            <span [class]="result.current ? 'badge-success' : 'muted'">
+                              {{ result.current ? 'Yes' : 'No' }}
+                            </span>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
             </div>
-          </div>
 
-          @if (store.importEvents().length > 0) {
-            <div class="panel-card">
-              <div class="panel-title">Recent Imports</div>
-              <ul class="list compact">
-                @for (event of store.importEvents(); track $index) {
-                  <li>
-                    <span class="mono small">{{ event.sourceFile }}</span>
-                    <span class="muted">{{ event.segmentsCreated }} segments ({{ event.format }})</span>
-                  </li>
+            <div class="side-panel">
+              <div class="panel-card">
+                <div class="panel-title">Graph Stats</div>
+                @if (store.stats(); as stats) {
+                  <div class="stat-row"><span>Entities</span><span class="num">{{ stats.entities }}</span></div>
+                  <div class="stat-row"><span>Facts</span><span class="num">{{ stats.triples }}</span></div>
+                  <div class="stat-row"><span>Current facts</span><span class="num">{{ stats.currentFacts }}</span></div>
+                  <div class="stat-row"><span>Expired facts</span><span class="num">{{ stats.expiredFacts }}</span></div>
+                } @else {
+                  <div class="hint">Stats unavailable.</div>
                 }
-              </ul>
+              </div>
+
+              <div class="panel-card">
+                <div class="panel-title">Codebase Mining</div>
+                @if (store.miningStatus(); as miningStatus) {
+                  <div class="stat-row">
+                    <span>Status</span>
+                    <span [class]="miningStatus.mined ? 'badge-success' : 'badge-pending'">
+                      {{ miningStatus.mined ? 'Mined' : 'Pending' }}
+                    </span>
+                  </div>
+                  <div class="stat-row">
+                    <span>Path</span>
+                    <span class="mono small">{{ miningStatus.normalizedPath }}</span>
+                  </div>
+                } @else {
+                  <div class="hint">No mining status available.</div>
+                }
+
+                <div class="mine-actions">
+                  <label class="field">
+                    <span class="label">Directory</span>
+                    <input
+                      class="input"
+                      type="text"
+                      [value]="mineDir()"
+                      placeholder="/path/to/project"
+                      (input)="onMineDirInput($event)"
+                    />
+                  </label>
+                  <button class="btn" type="button" [disabled]="store.loading() || !mineDir()" (click)="triggerMine()">
+                    Mine
+                  </button>
+                </div>
+              </div>
             </div>
           }
-        </div>
+          @case ('wake') {
+            <div class="tab-content-full">
+              <app-wake-management />
+            </div>
+          }
+          @case ('import') {
+            <div class="tab-content-full">
+              <app-conversation-import />
+            </div>
+          }
+        }
       </div>
     </div>
   `,
@@ -659,6 +660,37 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
       flex: 1;
     }
 
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .tab {
+      padding: var(--spacing-sm) var(--spacing-md);
+      font-size: 13px;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--primary-color);
+    }
+
+    .tab:hover {
+      color: var(--text-primary);
+    }
+
+    .tab-content-full {
+      grid-column: 1 / -1;
+      max-width: 700px;
+    }
+
     @media (max-width: 1100px) {
       .content {
         grid-template-columns: 1fr;
@@ -693,6 +725,9 @@ export class KnowledgePageComponent implements OnInit {
 
   // Relationship query
   protected predicateQuery = signal('');
+
+  // Tab navigation
+  protected activeTab = signal<'graph' | 'wake' | 'import'>('graph');
 
   async ngOnInit(): Promise<void> {
     await Promise.all([
