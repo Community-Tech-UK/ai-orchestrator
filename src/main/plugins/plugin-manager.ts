@@ -35,6 +35,7 @@ import type {
   PluginRecord,
   TypedOrchestratorHooks,
 } from '../../shared/types/plugin.types';
+import type { PluginManifest } from '@sdk/plugins';
 
 const logger = getLogger('PluginManager');
 
@@ -158,6 +159,44 @@ function toVerificationErrorPayload(
   };
 }
 
+export function validateManifest(
+  manifest: unknown,
+): { valid: true; manifest: PluginManifest } | { valid: false; errors: string[] } {
+  if (typeof manifest !== 'object' || manifest === null) {
+    return { valid: false, errors: ['Manifest must be an object'] };
+  }
+
+  const errors: string[] = [];
+  const m = manifest as Record<string, unknown>;
+
+  if (typeof m['name'] !== 'string' || m['name'].length === 0) {
+    errors.push('Missing or empty "name" field');
+  }
+  if (typeof m['version'] !== 'string' || m['version'].length === 0) {
+    errors.push('Missing or empty "version" field');
+  }
+  if (m['hooks'] !== undefined && !Array.isArray(m['hooks'])) {
+    errors.push('"hooks" must be an array of strings');
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  return {
+    valid: true,
+    manifest: {
+      name: m['name'] as string,
+      version: m['version'] as string,
+      description: typeof m['description'] === 'string' ? m['description'] : undefined,
+      author: typeof m['author'] === 'string' ? m['author'] : undefined,
+      hooks: Array.isArray(m['hooks'])
+        ? m['hooks'].filter((h: unknown) => typeof h === 'string')
+        : undefined,
+    },
+  };
+}
+
 export interface OrchestratorPluginContext {
   instanceManager: InstanceManager;
   appPath: string;
@@ -172,6 +211,7 @@ export type OrchestratorPluginModule =
 interface LoadedPlugin {
   filePath: string;
   hooks: TypedOrchestratorHooks;
+  manifest?: PluginManifest;
 }
 
 interface CacheEntry {
@@ -197,6 +237,20 @@ export class OrchestratorPluginManager {
 
   static _resetForTesting(): void {
     OrchestratorPluginManager.instance = null;
+  }
+
+  static _injectPluginForTesting(
+    instance: OrchestratorPluginManager,
+    workingDirectory: string,
+    hooks: TypedOrchestratorHooks,
+  ): void {
+    const entry = instance.cacheByWorkingDir.get(workingDirectory) ?? {
+      loadedAt: Date.now(),
+      plugins: [],
+      errors: [],
+    };
+    entry.plugins.push({ filePath: 'test-plugin.js', hooks });
+    instance.cacheByWorkingDir.set(workingDirectory, entry);
   }
 
   private getHomeDir(): string | null {
@@ -272,7 +326,22 @@ export class OrchestratorPluginManager {
           const mod = await this.loadModule(filePath);
           const hooks: OrchestratorHooks =
             typeof mod === 'function' ? await mod(ctx) : (mod || {});
-          plugins.push({ filePath, hooks });
+          let manifest: PluginManifest | undefined;
+          const manifestPath = path.join(path.dirname(filePath), 'plugin.json');
+          try {
+            const manifestRaw = await fs.readFile(manifestPath, 'utf-8');
+            const parsed: unknown = JSON.parse(manifestRaw);
+            const result = validateManifest(parsed);
+            if (result.valid) {
+              manifest = result.manifest;
+            } else {
+              logger.warn(`Invalid plugin manifest at ${manifestPath}: ${result.errors.join(', ')}`);
+              errors.push({ filePath: manifestPath, error: `Invalid manifest: ${result.errors.join(', ')}` });
+            }
+          } catch {
+            // No manifest or unreadable — that's fine, it's optional
+          }
+          plugins.push({ filePath, hooks, manifest });
         } catch (e) {
           errors.push({ filePath, error: e instanceof Error ? e.message : String(e) });
         }
@@ -292,7 +361,7 @@ export class OrchestratorPluginManager {
   }
 
   async listPlugins(workingDirectory: string, instanceManager: InstanceManager): Promise<{
-    plugins: { filePath: string; hookKeys: string[] }[];
+    plugins: { filePath: string; hookKeys: string[]; manifest?: PluginManifest }[];
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   }> {
@@ -300,7 +369,7 @@ export class OrchestratorPluginManager {
     const plugins = await this.getPlugins(workingDirectory, ctx);
     const errors = this.cacheByWorkingDir.get(workingDirectory)?.errors || [];
     const list = plugins
-      .map((p) => ({ filePath: p.filePath, hookKeys: Object.keys(p.hooks || {}).sort() }))
+      .map((p) => ({ filePath: p.filePath, hookKeys: Object.keys(p.hooks || {}).sort(), manifest: p.manifest }))
       .sort((a, b) => a.filePath.localeCompare(b.filePath));
     return { plugins: list, scanDirs: this.getPluginDirs(workingDirectory), errors: errors.slice() };
   }
@@ -311,6 +380,48 @@ export class OrchestratorPluginManager {
       return;
     }
     this.cacheByWorkingDir.delete(workingDirectory);
+  }
+
+  private static readonly HOOK_TIMEOUT_MS = 5_000;
+
+  /**
+   * Public method for core subsystems to emit plugin hook events.
+   * Unlike the private `emitToPlugins`, this doesn't require a working directory
+   * or context — it broadcasts to ALL cached plugin instances.
+   *
+   * Each hook call is wrapped with try/catch and a timeout to prevent
+   * misbehaving plugins from crashing or blocking the host.
+   */
+  async emitHook<K extends PluginHookEvent>(
+    event: K,
+    payload: PluginHookPayloads[K],
+  ): Promise<void> {
+    // Broadcast to all cached working directories
+    for (const [, entry] of this.cacheByWorkingDir) {
+      for (const plugin of entry.plugins) {
+        const hook = plugin.hooks[event];
+        if (!hook) continue;
+        try {
+          const result = hook(payload);
+          if (result instanceof Promise) {
+            let timeoutId: ReturnType<typeof setTimeout>;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
+                OrchestratorPluginManager.HOOK_TIMEOUT_MS,
+              );
+            });
+            try {
+              await Promise.race([result, timeoutPromise]);
+            } finally {
+              clearTimeout(timeoutId!);
+            }
+          }
+        } catch (err) {
+          logger.warn(`Plugin hook error [${plugin.filePath}:${String(event)}]: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
   }
 
   private async emitToPlugins<K extends PluginHookEvent>(

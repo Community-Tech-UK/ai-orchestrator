@@ -51,6 +51,60 @@ export interface PluginHookPayloads {
     verificationId: string;
     instanceId: string;
   };
+  'instance.stateChanged': {
+    instanceId: string;
+    previousState: string;
+    newState: string;
+    timestamp: number;
+  };
+  'orchestration.debate.round': {
+    debateId: string;
+    round: number;
+    totalRounds: number;
+    participantId: string;
+    response: string;
+  };
+  'orchestration.consensus.vote': {
+    consensusId: string;
+    voterId: string;
+    vote: string;
+    confidence: number;
+  };
+  'tool.execute.before': {
+    instanceId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    skip?: boolean;
+  };
+  'tool.execute.after': {
+    instanceId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    result: unknown;
+    durationMs: number;
+  };
+  'session.created': {
+    instanceId: string;
+    sessionId: string;
+  };
+  'session.resumed': {
+    instanceId: string;
+    sessionId: string;
+  };
+  'session.compacting': {
+    instanceId: string;
+    messageCount: number;
+    tokenCount: number;
+  };
+  'permission.ask': {
+    instanceId: string;
+    toolName: string;
+    command?: string;
+    decision?: 'allow' | 'deny' | undefined;
+  };
+  'config.loaded': {
+    config: Record<string, unknown>;
+  };
 }
 
 export type PluginHookEvent = keyof PluginHookPayloads;
@@ -69,3 +123,15 @@ export interface SdkPluginContext {
 export type SdkPluginModule =
   | OrchestratorHooks
   | ((ctx: SdkPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
+
+/** Manifest schema for plugin.json — validated on load */
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  hooks?: string[];
+  config?: {
+    schema: Record<string, unknown>; // JSON Schema for plugin config
+  };
+}

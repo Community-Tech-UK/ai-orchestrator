@@ -22,6 +22,10 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
+import * as fsPromises from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
+
 import {
   _resetOrchestratorPluginManagerForTesting,
   OrchestratorPluginManager,
@@ -99,6 +103,52 @@ describe('OrchestratorPluginManager', () => {
         message: expect.objectContaining({ id: 'msg-1' }),
       }),
     );
+  });
+
+  it('reads plugin.json manifest during plugin scan', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'my-plugin');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    // Write the plugin JS file (content doesn't matter — loadModule is spied)
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'module.exports = {};');
+
+    // Write the manifest
+    const manifest = {
+      name: 'my-plugin',
+      version: '1.2.3',
+      description: 'A test plugin',
+      author: 'Tester',
+      hooks: ['instance.created'],
+    };
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify(manifest),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+
+    // Spy on loadModule so we don't actually import the temp JS file
+    vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    ).mockResolvedValue({});
+
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const pluginEntry = result.plugins.find((p) => p.filePath === pluginFile);
+    expect(pluginEntry).toBeDefined();
+    expect(pluginEntry?.manifest).toMatchObject({
+      name: 'my-plugin',
+      version: '1.2.3',
+      description: 'A test plugin',
+      author: 'Tester',
+      hooks: ['instance.created'],
+    });
+
+    // Cleanup
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
   });
 
   it('swallows plugin hook errors so one plugin cannot crash dispatch', async () => {

@@ -25,6 +25,9 @@ export const ORCHESTRATION_FEATURES = {
   TOKEN_BUDGET: true,
   FILE_WATCHER_CACHE: true,
   LIFECYCLE_HOOKS: true,
+
+  // Audit / observability
+  EVENT_SOURCING: false,
 } as const;
 
 export type FeatureFlag = keyof typeof ORCHESTRATION_FEATURES;
