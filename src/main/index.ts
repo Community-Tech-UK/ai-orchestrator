@@ -66,6 +66,10 @@ import { getStrategyLearner } from './learning/strategy-learner';
 // Memory agents
 import { getAnswerAgent } from './memory/answer-agent';
 import { getCritiqueAgent } from './memory/critique-agent';
+// Mempalace-inspired memory features
+import { getKnowledgeGraphService } from './memory/knowledge-graph-service';
+import { getConversationMiner } from './memory/conversation-miner';
+import { getWakeContextBuilder } from './memory/wake-context-builder';
 // RLM singletons
 import { getRLMContextManager } from './rlm/context-manager';
 import { getEpisodicRLMStore } from './rlm/episodic-rlm-store';
@@ -419,6 +423,11 @@ class AIOrchestratorApp {
         // --- Memory agents ---
         { name: 'Answer agent', fn: () => { getAnswerAgent(); } },
         { name: 'Critique agent', fn: () => { getCritiqueAgent(); } },
+
+        // --- Mempalace-inspired memory features ---
+        { name: 'Knowledge graph service', fn: () => { getKnowledgeGraphService(); } },
+        { name: 'Conversation miner', fn: () => { getConversationMiner(); } },
+        { name: 'Wake context builder', fn: () => { getWakeContextBuilder(); } },
 
         // --- RLM (Reinforcement Learning from Memory) ---
         { name: 'RLM context manager', fn: () => { getRLMContextManager(); } },

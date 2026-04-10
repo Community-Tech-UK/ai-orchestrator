@@ -571,5 +571,62 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
 
     observationCleanup: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.OBSERVATION_CLEANUP),
+
+    // ============================================
+    // Knowledge Graph
+    // ============================================
+
+    kgAddFact: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_ADD_FACT, payload),
+
+    kgInvalidateFact: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_INVALIDATE_FACT, payload),
+
+    kgQueryEntity: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_QUERY_ENTITY, payload),
+
+    kgQueryRelationship: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_QUERY_RELATIONSHIP, payload),
+
+    kgGetTimeline: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_GET_TIMELINE, payload),
+
+    kgGetStats: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_GET_STATS),
+
+    kgAddEntity: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.KG_ADD_ENTITY, payload),
+
+    // ============================================
+    // Conversation Mining
+    // ============================================
+
+    convoImportFile: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CONVO_IMPORT_FILE, payload),
+
+    convoImportString: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CONVO_IMPORT_STRING, payload),
+
+    convoDetectFormat: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CONVO_DETECT_FORMAT, payload),
+
+    // ============================================
+    // Wake Context
+    // ============================================
+
+    wakeGenerate: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WAKE_GENERATE, payload),
+
+    wakeGetText: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WAKE_GET_TEXT, payload),
+
+    wakeAddHint: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WAKE_ADD_HINT, payload),
+
+    wakeRemoveHint: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WAKE_REMOVE_HINT, payload),
+
+    wakeSetIdentity: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WAKE_SET_IDENTITY, payload),
   };
 }
