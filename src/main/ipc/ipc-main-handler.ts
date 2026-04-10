@@ -69,6 +69,9 @@ import {
   registerChannelHandlers,
   registerReactionHandlers,
   registerRemoteFsHandlers,
+  registerKnowledgeGraphHandlers,
+  registerConversationMiningHandlers,
+  registerWakeContextHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -300,6 +303,15 @@ export class IpcMainHandler {
 
     // Reaction engine handlers (CI/PR monitoring)
     registerReactionHandlers();
+
+    // Knowledge graph handlers (fact/entity CRUD and queries)
+    registerKnowledgeGraphHandlers();
+
+    // Conversation mining handlers (import and format detection)
+    registerConversationMiningHandlers();
+
+    // Wake context handlers (wake-up context generation and hints)
+    registerWakeContextHandlers();
 
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();

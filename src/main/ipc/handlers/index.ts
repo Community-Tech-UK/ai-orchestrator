@@ -37,3 +37,6 @@ export { registerImageHandlers } from './image-handlers';
 export { registerChannelHandlers } from './channel-handlers';
 export { registerReactionHandlers } from './reaction-handlers';
 export { registerRemoteFsHandlers } from './remote-fs-handlers';
+export { registerKnowledgeGraphHandlers } from './knowledge-graph-handlers';
+export { registerConversationMiningHandlers } from './conversation-mining-handlers';
+export { registerWakeContextHandlers } from './wake-context-handlers';
