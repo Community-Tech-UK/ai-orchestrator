@@ -32,6 +32,9 @@ import { getTrainingLoop } from '../memory/training-loop';
 import { getHotModelSwitcher } from '../routing/hot-model-switcher';
 import { getChannelManager } from '../channels';
 import { getReactionEngine } from '../reactions';
+import { getKnowledgeGraphService } from '../memory/knowledge-graph-service';
+import { getConversationMiner } from '../memory/conversation-miner';
+import { getWakeContextBuilder } from '../memory/wake-context-builder';
 
 // Import extracted handlers
 import {
@@ -322,6 +325,7 @@ export class IpcMainHandler {
     this.setupHotSwitchEventForwarding();
     this.setupChannelEventForwarding();
     this.setupReactionEventForwarding();
+    this.setupKnowledgeEventForwarding();
 
     logger.info('IPC handlers registered');
   }
@@ -684,6 +688,27 @@ export class IpcMainHandler {
       if (!mainWindow) return;
       mainWindow.webContents.send(IPC_CHANNELS.REACTION_ESCALATED, event);
     });
+  }
+
+  /**
+   * Forward knowledge graph, mining, and wake events to renderer
+   */
+  private setupKnowledgeEventForwarding(): void {
+    try {
+      const kg = getKnowledgeGraphService();
+      const miner = getConversationMiner();
+      const wake = getWakeContextBuilder();
+      const send = (channel: string, data: unknown) =>
+        this.windowManager.getMainWindow()?.webContents.send(channel, data);
+
+      kg.on('graph:fact-added', (data) => send(IPC_CHANNELS.KG_EVENT_FACT_ADDED, data));
+      kg.on('graph:fact-invalidated', (data) => send(IPC_CHANNELS.KG_EVENT_FACT_INVALIDATED, data));
+      miner.on('miner:import-complete', (data) => send(IPC_CHANNELS.CONVO_EVENT_IMPORT_COMPLETE, data));
+      wake.on('wake:hint-added', (data) => send(IPC_CHANNELS.WAKE_EVENT_HINT_ADDED, data));
+      wake.on('wake:context-generated', (data) => send(IPC_CHANNELS.WAKE_EVENT_CONTEXT_GENERATED, data));
+    } catch {
+      logger.warn('Knowledge services not available for event forwarding');
+    }
   }
 
   private serializeInstance(instance: unknown): Record<string, unknown> {
