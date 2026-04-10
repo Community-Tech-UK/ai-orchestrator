@@ -12,6 +12,7 @@ import {
   KgTimelinePayloadSchema,
   KgAddEntityPayloadSchema,
   CodebaseMineDirectoryPayloadSchema,
+  CodebaseGetStatusPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 
 const logger = getLogger('KnowledgeGraphHandlers');
@@ -184,6 +185,27 @@ export function registerKnowledgeGraphHandlers(): void {
           success: false,
           error: {
             code: 'CODEBASE_MINE_DIRECTORY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_GET_STATUS,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = CodebaseGetStatusPayloadSchema.parse(payload);
+        const result = getCodebaseMiner().getStatus(data.dirPath);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('CODEBASE_GET_STATUS failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_GET_STATUS_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

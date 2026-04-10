@@ -123,6 +123,25 @@ export class CodebaseMiner extends EventEmitter {
     return result;
   }
 
+  getMiningStatus(dirPath: string): { dirPath: string; mined: boolean } {
+    const normalizedDir = path.resolve(dirPath);
+    return {
+      dirPath: normalizedDir,
+      mined: this.minedDirectories.has(normalizedDir),
+    };
+  }
+
+  /**
+   * Check whether a directory has been mined in this session.
+   */
+  getStatus(dirPath: string): { mined: boolean; normalizedPath: string } {
+    const normalizedDir = path.resolve(dirPath);
+    return {
+      mined: this.minedDirectories.has(normalizedDir),
+      normalizedPath: normalizedDir,
+    };
+  }
+
   private extractPackageJsonFacts(content: string, dirPath: string, result: MineResult): void {
     try {
       const pkg = JSON.parse(content) as Record<string, unknown>;
