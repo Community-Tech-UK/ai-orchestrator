@@ -9,6 +9,7 @@ import {
   computed,
   input,
   output,
+  viewChild,
   ChangeDetectionStrategy,
   HostListener,
   effect
@@ -139,7 +140,7 @@ interface WelcomeProjectContext {
           }
 
           <!-- Output stream (primary content) -->
-          <div class="output-section" [class.empty-transcript]="inst.outputBuffer.length === 0">
+          <div class="output-section">
             <app-output-stream
               [messages]="inst.outputBuffer"
               [instanceId]="inst.id"
@@ -147,6 +148,7 @@ interface WelcomeProjectContext {
               [showThinking]="showThinking()"
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
               [isChild]="!!inst.parentId"
+              (editMessage)="onEditLastMessage()"
             />
             @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing') {
               <app-activity-status
@@ -293,6 +295,7 @@ interface WelcomeProjectContext {
             (addFiles)="onAddFiles()"
             (cancelQueuedMessage)="onCancelQueuedMessage($event)"
             (resendEdited)="onResendEdited($event)"
+            (requestInterrupt)="onInterrupt()"
           />
         </div>
       </app-drop-zone>
@@ -456,10 +459,6 @@ interface WelcomeProjectContext {
         border: 1px solid rgba(255, 255, 255, 0.04);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.015);
         overflow: hidden;
-      }
-
-      .output-section.empty-transcript {
-        flex: 0 0 240px;
       }
 
       .output-section app-output-stream {
@@ -697,6 +696,9 @@ export class InstanceDetailComponent {
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
   toggleFileExplorer = output<void>();
+
+  /** Reference to the input panel for triggering edit mode from the output stream. */
+  private inputPanel = viewChild(InputPanelComponent);
 
   instance = this.store.selectedInstance;
   currentActivity = this.store.selectedInstanceActivity;
@@ -1157,6 +1159,10 @@ export class InstanceDetailComponent {
     this.store.sendInput(data.id, event.text);
     this.store.setSelectedInstance(data.id);
     await this.store.terminateInstance(inst.id);
+  }
+
+  onEditLastMessage(): void {
+    this.inputPanel()?.enterEditMode();
   }
 
   onCancelQueuedMessage(index: number): void {

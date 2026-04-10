@@ -107,7 +107,10 @@ export class ActivityStateDetector {
   }
 
   private detectFromProcessCheck(): ActivityDetectionResult {
-    if (this.pid) {
+    // PID <= 0 means remote instance (RemoteCliAdapter returns -1) or unset.
+    // process.kill(-1, 0) is a dangerous POSIX call that checks ALL user
+    // processes — skip it entirely and report unknown/idle instead.
+    if (this.pid && this.pid > 0) {
       try {
         process.kill(this.pid, 0);
         return { state: 'idle', confidence: 'low', staleAfterMs: 0, source: 'process-check (alive)' };
@@ -117,6 +120,10 @@ export class ActivityStateDetector {
         }
         return { state: 'exited', confidence: 'low', staleAfterMs: 0, source: 'process-check (dead)' };
       }
+    }
+    if (this.pid !== null && this.pid <= 0) {
+      // Remote instance — process runs on worker node, not locally.
+      return { state: 'idle', confidence: 'low', staleAfterMs: 0, source: 'process-check (remote, skipped)' };
     }
     return { state: 'exited', confidence: 'low', staleAfterMs: 0, source: 'process-check (no PID)' };
   }

@@ -607,18 +607,18 @@ export interface CopilotModelInfo {
  */
 export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
   // Flagship tier - latest and best models
-  { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', supportsVision: true, contextWindow: 1000000, enabled: true },
+  { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', supportsVision: true, contextWindow: 1000000, enabled: true },
   { id: 'o3', name: 'OpenAI o3', supportsVision: true, contextWindow: 200000, enabled: true },
   { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Preview)', supportsVision: true, contextWindow: 2000000, enabled: true },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', supportsVision: true, contextWindow: 2000000, enabled: true },
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', supportsVision: true, contextWindow: 2000000, enabled: true },
   // High performance tier
-  { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', supportsVision: true, contextWindow: 1000000, enabled: true },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', supportsVision: true, contextWindow: 1000000, enabled: true },
   { id: 'gpt-5.4', name: 'GPT-5.4', supportsVision: true, contextWindow: 200000, enabled: true },
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', supportsVision: true, contextWindow: 1000000, enabled: true },
   { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', supportsVision: true, contextWindow: 1000000, enabled: true },
   // Fast tier
-  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', supportsVision: true, contextWindow: 1000000, enabled: true },
+  { id: 'claude-haiku-4-6', name: 'Claude Haiku 4.6', supportsVision: true, contextWindow: 1000000, enabled: true },
   { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', supportsVision: true, contextWindow: 200000, enabled: true },
   { id: 'gemini-2.0-flash-lite', name: 'Gemini Flash Lite', supportsVision: true, contextWindow: 1000000, enabled: true },
 ];

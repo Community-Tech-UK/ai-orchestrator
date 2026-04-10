@@ -63,7 +63,7 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'amazon-bedrock',
     name: 'Amazon Bedrock',
     enabled: false,
-    defaultModel: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+    defaultModel: 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   },
   'azure': {
     type: 'azure',

@@ -115,6 +115,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       supportsForkSession: false,
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
     };
   }
 

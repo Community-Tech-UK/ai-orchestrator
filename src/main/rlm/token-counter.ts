@@ -519,6 +519,7 @@ export class TokenCounter {
       { key: 'claude-3-opus', pattern: 'claude-3-opus', input: 15.0, output: 75.0 },
       { key: 'claude-3-sonnet', pattern: 'claude-3-sonnet', input: 3.0, output: 15.0 },
       { key: 'claude-3-haiku', pattern: 'claude-3-haiku', input: 0.25, output: 1.25 },
+      { key: 'claude-haiku-4-6', pattern: 'claude-haiku-4-6', input: 1.0, output: 5.0 },
       { key: 'claude-haiku-4-5', pattern: 'claude-haiku-4-5', input: 1.0, output: 5.0 },
     ];
 

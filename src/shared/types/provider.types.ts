@@ -177,18 +177,18 @@ export const GOOGLE_MODELS = {
  */
 export const COPILOT_MODELS = {
   // Flagship tier - latest and best
-  CLAUDE_OPUS_45: 'claude-opus-4-5',
+  CLAUDE_OPUS_46: 'claude-opus-4-6',
   O3: 'o3',
   GEMINI_3_1_PRO: 'gemini-3.1-pro-preview',
   GEMINI_3_PRO: 'gemini-3-pro-preview',
   GEMINI_25_PRO: 'gemini-2.5-pro',
   // High performance tier
-  CLAUDE_SONNET_45: 'claude-sonnet-4-5',
+  CLAUDE_SONNET_46: 'claude-sonnet-4-6',
   GPT54: 'gpt-5.4',
   GEMINI_3_FLASH: 'gemini-3-flash-preview',
   GEMINI_20_FLASH: 'gemini-2.0-flash',
   // Fast tier
-  CLAUDE_HAIKU_45: 'claude-haiku-4-5',
+  CLAUDE_HAIKU_46: 'claude-haiku-4-6',
   GPT54_MINI: 'gpt-5.4-mini',
   GEMINI_20_FLASH_LITE: 'gemini-2.0-flash-lite',
 } as const;
@@ -203,7 +203,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'openai-compatible': OPENAI_MODELS.GPT54,
   'ollama': 'llama3',
   'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
-  'amazon-bedrock': 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+  'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT54,
 };
 
@@ -218,10 +218,14 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [CLAUDE_MODELS.OPUS_1M]: { input: 5.0, output: 25.0 },
   [CLAUDE_MODELS.HAIKU]: { input: 1.0, output: 5.0 },
   // Claude models (full IDs for API-level pricing lookups)
+  'claude-sonnet-4-6-20260401': { input: 3.0, output: 15.0 },
+  'claude-opus-4-6-20260401': { input: 5.0, output: 25.0 },
+  'claude-haiku-4-6-20260401': { input: 1.0, output: 5.0 },
+  // Claude 4.5 models (previous generation)
   'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
   'claude-opus-4-5-20250918': { input: 5.0, output: 25.0 },
   'claude-haiku-4-5-20251001': { input: 1.0, output: 5.0 },
-  // Claude 4 models (legacy)
+  // Claude 4 models (legacy — removed from first-party API, auto-migrated to 4.6)
   'claude-sonnet-4-20250514': { input: 3.0, output: 15.0 },
   'claude-opus-4-20250514': { input: 15.0, output: 75.0 },
   // Claude 3.5 models (legacy)
@@ -277,16 +281,16 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },
   ],
   copilot: [
-    { id: COPILOT_MODELS.CLAUDE_OPUS_45, name: 'Claude Opus 4.5', tier: 'powerful' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful' },
     { id: COPILOT_MODELS.O3, name: 'OpenAI o3', tier: 'powerful' },
     { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
     { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
     { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
-    { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced' },
     { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash', tier: 'fast' },
     { id: COPILOT_MODELS.GEMINI_20_FLASH, name: 'Gemini 2.0 Flash', tier: 'fast' },
-    { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast' },
+    { id: COPILOT_MODELS.CLAUDE_HAIKU_46, name: 'Claude Haiku 4.6', tier: 'fast' },
     { id: COPILOT_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast' },
     { id: COPILOT_MODELS.GEMINI_20_FLASH_LITE, name: 'Gemini 2.0 Flash Lite', tier: 'fast' },
   ],

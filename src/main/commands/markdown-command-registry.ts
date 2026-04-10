@@ -243,7 +243,9 @@ export class MarkdownCommandRegistry {
           if (!content) continue;
 
           const derivedName = this.deriveNameFromPath(commandsDir, filePath);
-          const name = (parsed.data.name || derivedName).trim();
+          const explicitName =
+            typeof parsed.data.name === 'string' ? parsed.data.name.trim() : '';
+          const name = explicitName || derivedName;
           if (!name) continue;
 
           const title = this.extractHeadingTitle(content);

@@ -141,8 +141,8 @@ import type {
       <!-- Edit mode indicator -->
       @if (editMode()) {
         <div class="edit-mode-bar">
-          @if (isBusy()) {
-            <span>Instance is busy — wait for completion before resending · Esc to cancel</span>
+          @if (isBusy() || isRespawning()) {
+            <span>Interrupting… edit and press Enter to resend · Esc to cancel</span>
           } @else {
             <span>Editing last message · Enter to resend · Esc to cancel</span>
           }
@@ -940,6 +940,7 @@ export class InputPanelComponent implements OnDestroy {
   addFiles = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
   resendEdited = output<{ messageIndex: number; text: string }>();
+  requestInterrupt = output<void>(); // Emitted when edit mode is entered while busy
 
   editMode = signal(false);
   private stashedDraft = signal<string | null>(null);
@@ -1212,6 +1213,7 @@ export class InputPanelComponent implements OnDestroy {
     }
 
     // UP arrow at cursor position 0 to enter edit mode
+    // enterEditMode() auto-interrupts if the instance is busy
     if (event.key === 'ArrowUp' && !this.editMode()) {
       const textarea = event.target as HTMLTextAreaElement;
       if (textarea.selectionStart === 0 && textarea.selectionEnd === 0 && this.lastUserMessage()) {
@@ -1293,22 +1295,32 @@ export class InputPanelComponent implements OnDestroy {
   // Edit Mode Methods
   // ============================================
 
-  private enterEditMode(): void {
+  /**
+   * Enter edit mode, loading the last user message into the input.
+   * Public so instance-detail can trigger it from the output stream's edit button.
+   */
+  enterEditMode(): void {
     const last = this.lastUserMessage();
     if (!last || this.editMode()) return;
+
+    // Auto-interrupt if the instance is busy
+    if (this.isBusy()) {
+      this.requestInterrupt.emit();
+    }
 
     this.stashedDraft.set(this.message());
     this.message.set(last.text);
     this.editMessageIndex.set(last.bufferIndex);
     this.editMode.set(true);
 
-    // Place cursor at end of loaded text
+    // Place cursor at end of loaded text and focus
     requestAnimationFrame(() => {
       const textarea = this.textareaRef()?.nativeElement;
       if (textarea) {
         textarea.value = last.text;
         textarea.selectionStart = last.text.length;
         textarea.selectionEnd = last.text.length;
+        textarea.focus();
         this.scheduleTextareaResize(textarea);
       }
     });
@@ -1331,7 +1343,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   private sendEditedMessage(): void {
-    if (!this.canSend() || this.isBusy() || this.disabled()) return;
+    if (!this.canSend() || this.isBusy() || this.isRespawning() || this.disabled()) return;
 
     const idx = this.editMessageIndex();
     if (idx === null) return;

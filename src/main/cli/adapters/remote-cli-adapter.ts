@@ -14,6 +14,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
+import type { AdapterRuntimeCapabilities } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 
 const logger = getLogger('RemoteCliAdapter');
@@ -211,6 +212,40 @@ export class RemoteCliAdapter extends EventEmitter {
 
   getPid(): number | null {
     return null; // No local process for remote instances
+  }
+
+  /**
+   * Report runtime capabilities based on the underlying CLI type.
+   * Remote adapters proxy to a real CLI on the worker node — the capabilities
+   * are determined by the CLI provider, not by the transport layer.
+   */
+  getRuntimeCapabilities(): AdapterRuntimeCapabilities {
+    switch (this.requestedCliType) {
+      case 'claude':
+        return {
+          supportsResume: true,
+          supportsForkSession: true,
+          supportsNativeCompaction: true,
+          supportsPermissionPrompts: true,
+          supportsDeferPermission: false, // Remote doesn't run local hooks
+        };
+      case 'codex':
+        return {
+          supportsResume: true,
+          supportsForkSession: false,
+          supportsNativeCompaction: false,
+          supportsPermissionPrompts: false,
+          supportsDeferPermission: false,
+        };
+      default:
+        return {
+          supportsResume: false,
+          supportsForkSession: false,
+          supportsNativeCompaction: false,
+          supportsPermissionPrompts: false,
+          supportsDeferPermission: false,
+        };
+    }
   }
 
   // ---------------------------------------------------------------------------

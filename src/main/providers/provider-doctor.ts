@@ -6,11 +6,10 @@
  */
 
 import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
 import type { HealthStatus } from '../core/system/health-checker';
+import { checkClaudeCliAuthentication } from './claude-cli-auth';
 
-const execFileAsync = promisify(execFile);
 const logger = getLogger('ProviderDoctor');
 
 export type ProbeStatus = 'pass' | 'fail' | 'skip' | 'timeout';
@@ -61,6 +60,23 @@ export class ProviderDoctor {
     this.instance = null;
   }
 
+  private async execFileAsync(
+    file: string,
+    args: string[],
+    timeout = 5000
+  ): Promise<{ stdout: string; stderr: string }> {
+    return new Promise((resolve, reject) => {
+      execFile(file, args, { timeout }, (error, stdout, stderr) => {
+        if (error) {
+          reject(Object.assign(error, { stdout, stderr }));
+          return;
+        }
+
+        resolve({ stdout, stderr });
+      });
+    });
+  }
+
   private registerDefaultProbes(): void {
     this.probes = [
       {
@@ -87,7 +103,7 @@ export class ProviderDoctor {
 
           const start = Date.now();
           try {
-            await execFileAsync('which', [cmd], { timeout: 5000 });
+            await this.execFileAsync('which', [cmd]);
             return {
               name: 'cli_installed',
               status: 'pass' as const,
@@ -110,8 +126,19 @@ export class ProviderDoctor {
         critical: false,
         appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'anthropic-api'],
         run: async (provider) => {
+          if (provider === 'claude-cli') {
+            const start = Date.now();
+            const authStatus = await checkClaudeCliAuthentication();
+            return {
+              name: 'authenticated',
+              status: authStatus.authenticated ? 'pass' as const : 'fail' as const,
+              message: authStatus.message,
+              latencyMs: Date.now() - start,
+              metadata: authStatus.metadata,
+            };
+          }
+
           const envMap: Record<string, string> = {
-            'claude-cli': 'ANTHROPIC_API_KEY',
             'anthropic-api': 'ANTHROPIC_API_KEY',
             'codex-cli': 'OPENAI_API_KEY',
             'gemini-cli': 'GOOGLE_API_KEY',
@@ -240,9 +267,15 @@ export class ProviderDoctor {
           break;
         }
         case 'authenticated':
-          recs.push(
-            'Authentication missing. Set the required environment variable or run the CLI login command.'
-          );
+          if (provider === 'claude-cli') {
+            recs.push(
+              'Authentication missing. Run `claude auth login` to sign in, then retry diagnostics. If the CLI still looks unhealthy, run `claude doctor` in a trusted terminal.'
+            );
+          } else {
+            recs.push(
+              'Authentication missing. Set the required environment variable or run the CLI login command.'
+            );
+          }
           break;
         case 'reachable':
           recs.push('API endpoint unreachable. Check network connectivity and proxy settings.');

@@ -527,6 +527,75 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
+    // Deferred permission requests (defer-based flow): check PermissionManager rules
+    // and auto-resume if a rule matches, otherwise forward to renderer.
+    if (metaType === 'deferred_permission') {
+      const toolName = meta['tool_name'] as string | undefined;
+      const toolInput = meta['tool_input'] as Record<string, unknown> | undefined;
+
+      // Build a permission request for the PermissionManager
+      const scope: PermissionScope = toolName === 'Bash' ? 'bash_execute' : 'tool_use';
+      const resource = toolName === 'Bash' && toolInput?.['command']
+        ? `bash:${String(toolInput['command']).substring(0, 200)}`
+        : `tool:${toolName || 'unknown'}`;
+
+      const request: PermissionRequest = {
+        id: `perm-defer-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        instanceId: payload.instanceId,
+        scope,
+        resource,
+        context: {
+          toolName: toolName || 'unknown',
+          workingDirectory,
+          isChildInstance: Boolean(instance?.parentId),
+          depth: instance?.depth ?? 0,
+          yoloMode: Boolean(instance?.yoloMode),
+        },
+        timestamp: Date.now(),
+      };
+
+      this.pendingPermissionRequestsByInputId.set(`${payload.instanceId}:${payload.requestId}`, request);
+
+      const decision = getPermissionManager().checkPermission(request);
+      if (decision.action === 'allow' || decision.action === 'deny') {
+        logger.info('[APPROVAL_TRACE] manager_auto_decision_deferred', {
+          approvalTraceId,
+          instanceId: payload.instanceId,
+          requestId: payload.requestId,
+          decision: decision.action,
+          reason: decision.reason,
+          toolName,
+        });
+
+        // Auto-resume with the decision
+        try {
+          await this.resumeAfterDeferredPermission(
+            payload.instanceId,
+            decision.action === 'allow',
+          );
+        } catch (err) {
+          logger.error('Auto-resume after deferred permission failed',
+            err instanceof Error ? err : undefined,
+            { instanceId: payload.instanceId });
+        }
+
+        // Add system note
+        if (instance) {
+          const msg = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system' as const,
+            content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} for ${toolName}: ${decision.reason}`,
+            metadata: { permissionDecision: true, action: decision.action, reason: decision.reason }
+          };
+          this.communication.addToOutputBuffer(instance, msg);
+          this.emit('instance:output', { instanceId: payload.instanceId, message: msg });
+        }
+
+        return;
+      }
+    }
+
     // Default behavior: forward to renderer and let the user decide.
     const forwardedPayload = {
       ...payload,
@@ -638,6 +707,14 @@ export class InstanceManager extends EventEmitter {
 
   async toggleYoloMode(instanceId: string): Promise<Instance> {
     return this.lifecycle.toggleYoloMode(instanceId);
+  }
+
+  /**
+   * Resume a Claude CLI session after the user approves or denies a deferred tool use.
+   * Writes the decision to a file, then resumes the CLI with --resume.
+   */
+  async resumeAfterDeferredPermission(instanceId: string, approved: boolean): Promise<void> {
+    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved);
   }
 
   async changeModel(instanceId: string, newModel: string): Promise<Instance> {

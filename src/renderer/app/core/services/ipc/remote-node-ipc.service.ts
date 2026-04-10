@@ -19,6 +19,7 @@ export interface RemoteNodeServerStatus {
   port?: number;
   host?: string;
   connectedCount?: number;
+  localIps?: string[];
 }
 
 interface IpcResult {
@@ -50,12 +51,13 @@ export class RemoteNodeIpcService {
     if (!this.api) return { running: false };
     const result = await this.api.remoteNodeGetServerStatus() as IpcResult | null;
     if (!result?.success) return { running: false };
-    const data = result.data as { connectedCount?: number; runningConfig?: { port?: number; host?: string } } | undefined;
+    const data = result.data as { connectedCount?: number; runningConfig?: { port?: number; host?: string }; localIps?: string[] } | undefined;
     return {
       running: true,
       port: data?.runningConfig?.port,
       host: data?.runningConfig?.host,
       connectedCount: data?.connectedCount ?? 0,
+      localIps: data?.localIps ?? [],
     };
   }
 

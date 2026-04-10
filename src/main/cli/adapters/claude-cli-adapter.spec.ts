@@ -11,6 +11,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { ClaudeCliAdapter } from './claude-cli-adapter';
+import { createClaudeAdapter } from './adapter-factory';
 
 describe('ClaudeCliAdapter AskUserQuestion handling', () => {
   it('emits input_required when AskUserQuestion appears in assistant content tool_use blocks', () => {
@@ -104,5 +105,33 @@ describe('ClaudeCliAdapter context window seeding', () => {
         total: 1000000,
       })
     );
+  });
+});
+
+describe('ClaudeCliAdapter reasoning effort', () => {
+  function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
+    return (
+      adapter as unknown as {
+        buildArgs: (message: { role: 'user'; content: string }) => string[];
+      }
+    ).buildArgs({ role: 'user', content: 'test' });
+  }
+
+  it('passes mapped reasoning effort from the adapter factory to Claude CLI', () => {
+    const adapter = createClaudeAdapter({ reasoningEffort: 'xhigh' });
+    const args = getBuildArgs(adapter);
+    const effortIndex = args.indexOf('--effort');
+
+    expect(effortIndex).toBeGreaterThan(-1);
+    expect(args[effortIndex + 1]).toBe('max');
+  });
+
+  it('clamps unsupported lower effort levels to Claude low', () => {
+    const adapter = new ClaudeCliAdapter({ reasoningEffort: 'none' });
+    const args = getBuildArgs(adapter);
+    const effortIndex = args.indexOf('--effort');
+
+    expect(effortIndex).toBeGreaterThan(-1);
+    expect(args[effortIndex + 1]).toBe('low');
   });
 });

@@ -36,6 +36,7 @@ export class WorkerAgent extends EventEmitter {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private capabilities: WorkerNodeCapabilities | null = null;
   private isShuttingDown = false;
+  private connecting = false;
   private reconnectAttempt = 0;
   private connectedAt = 0;
   private pendingRegistrationId: string | number | null = null;
@@ -58,67 +59,74 @@ export class WorkerAgent extends EventEmitter {
   }
 
   async connect(): Promise<void> {
+    if (this.connecting) return; // Prevent concurrent connect() calls
+    this.connecting = true;
     this.isShuttingDown = false;
-    this.capabilities = await reportCapabilities(
-      this.config.workingDirectories,
-      this.config.maxConcurrentInstances,
-    );
-    this.fsHandler = new NodeFilesystemHandler(this.config.workingDirectories);
 
-    // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
-    let coordinatorUrl = this.config.coordinatorUrl;
-    if (!coordinatorUrl) {
-      const discovery = new DiscoveryClient();
-      const found = await discovery.discover(this.config.namespace, 10_000);
-      if (!found) {
-        console.warn(`mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`);
-        this.startContinuousDiscovery();
-        this.scheduleReconnect();
-        return;
-      }
-      coordinatorUrl = `ws://${found.host}:${found.port}`;
-    }
+    try {
+      this.capabilities = await reportCapabilities(
+        this.config.workingDirectories,
+        this.config.maxConcurrentInstances,
+      );
+      this.fsHandler = new NodeFilesystemHandler(this.config.workingDirectories);
 
-    const token = this.config.nodeToken ?? this.config.authToken;
-
-    return new Promise<void>((resolve) => {
-      const ws = new WebSocket(coordinatorUrl as string, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      ws.on('open', () => {
-        this.ws = ws;
-        this.connectedAt = Date.now();
-        this.reconnectAttempt = 0;
-        console.log(`Connected to coordinator at ${coordinatorUrl}`);
-        this.sendRegistration();
-        this.startHeartbeat();
-        this.startContinuousDiscovery();
-        resolve();
-      });
-
-      ws.on('message', (data: Buffer | string) => {
-        this.handleMessage(data.toString());
-      });
-
-      ws.on('close', () => {
-        this.stopHeartbeat();
-        this.ws = null;
-        if (!this.isShuttingDown) {
+      // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
+      let coordinatorUrl = this.config.coordinatorUrl;
+      if (!coordinatorUrl) {
+        const discovery = new DiscoveryClient();
+        const found = await discovery.discover(this.config.namespace, 10_000);
+        if (!found) {
+          console.warn(`mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`);
+          this.startContinuousDiscovery();
           this.scheduleReconnect();
+          return;
         }
-      });
+        coordinatorUrl = `ws://${found.host}:${found.port}`;
+      }
 
-      ws.on('error', (err) => {
-        if (!this.ws) {
-          // Initial connection failed — let the close handler trigger reconnect.
-          console.warn(`Connection failed: ${err instanceof Error ? err.message : err}`);
+      const token = this.config.nodeToken ?? this.config.authToken;
+
+      await new Promise<void>((resolve) => {
+        const ws = new WebSocket(coordinatorUrl as string, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        ws.on('open', () => {
+          this.ws = ws;
+          this.connectedAt = Date.now();
+          this.reconnectAttempt = 0;
+          console.log(`Connected to coordinator at ${coordinatorUrl}`);
+          this.sendRegistration();
+          this.startHeartbeat();
+          this.startContinuousDiscovery();
           resolve();
-        } else {
-          this.emit('error', err);
-        }
+        });
+
+        ws.on('message', (data: Buffer | string) => {
+          this.handleMessage(data.toString());
+        });
+
+        ws.on('close', () => {
+          this.stopHeartbeat();
+          this.ws = null;
+          if (!this.isShuttingDown) {
+            this.scheduleReconnect();
+          }
+        });
+
+        ws.on('error', (err) => {
+          if (!this.ws) {
+            // Initial connection failed — let the close handler trigger reconnect.
+            console.warn(`Connection failed: ${err instanceof Error ? err.message : err}`);
+            resolve();
+          } else {
+            this.emit('error', err);
+          }
+        });
       });
-    });
+    } finally {
+      this.connecting = false;
+    }
   }
 
   async disconnect(): Promise<void> {
@@ -189,6 +197,11 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private scheduleReconnect(): void {
+    if (this.isShuttingDown) return;
+
+    // Don't stack multiple reconnect timers
+    if (this.reconnectTimer) return;
+
     if (this.connectedAt > 0 && Date.now() - this.connectedAt > RECONNECT_CONFIG.stableConnectionResetMs) {
       this.reconnectAttempt = 0;
     }
@@ -198,10 +211,9 @@ export class WorkerAgent extends EventEmitter {
     console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})...`);
 
     this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = undefined;
       try {
         await this.connect();
-        this.connectedAt = Date.now();
-        this.reconnectAttempt = 0;
       } catch {
         // connect() failed — close handler schedules next retry
       }
@@ -213,10 +225,11 @@ export class WorkerAgent extends EventEmitter {
   /**
    * Keep mDNS browser running so the worker detects coordinator restarts
    * or IP changes. Only used when coordinatorUrl is not explicitly set.
+   * Reuses the existing DiscoveryClient if already running.
    */
   private startContinuousDiscovery(): void {
     if (this.config.coordinatorUrl) return; // explicit URL — skip mDNS
-    this.stopContinuousDiscovery();
+    if (this.discoveryClient) return; // already running
 
     this.discoveryClient = new DiscoveryClient();
     this.discoveryClient.startContinuous(
@@ -252,7 +265,9 @@ export class WorkerAgent extends EventEmitter {
 
     // Response to one of our requests
     if (msg.result !== undefined || msg.error !== undefined) {
-      // Check if this is the enrollment response to our registration
+      // Enrollment token is only issued on first registration. Subsequent
+      // reconnects reuse the persisted nodeToken, and the coordinator
+      // responds with { ok: true } — no new token is issued.
       if (
         msg.id !== undefined &&
         msg.id === this.pendingRegistrationId &&

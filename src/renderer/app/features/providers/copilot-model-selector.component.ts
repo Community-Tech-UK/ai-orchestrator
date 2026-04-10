@@ -30,18 +30,18 @@ export interface CopilotModel {
 // These are the latest and best models available through GitHub Copilot
 export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
   // Flagship tier - latest and best
-  { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
+  { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: 'o3', name: 'OpenAI o3', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
   { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 2000000 },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 2000000 },
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', tier: 'flagship', supportsVision: true, contextWindow: 2000000 },
   // High performance tier
-  { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', tier: 'high', supportsVision: true, contextWindow: 1000000 },
+  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', tier: 'high', supportsVision: true, contextWindow: 1000000 },
   { id: 'gpt-5.4', name: 'GPT-5.4', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', tier: 'high', supportsVision: true, contextWindow: 1000000 },
   { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', tier: 'high', supportsVision: true, contextWindow: 1000000 },
   // Fast/efficient tier
-  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', tier: 'fast', supportsVision: true, contextWindow: 1000000 },
+  { id: 'claude-haiku-4-6', name: 'Claude Haiku 4.6', tier: 'fast', supportsVision: true, contextWindow: 1000000 },
   { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'gemini-2.0-flash-lite', name: 'Gemini Flash Lite', tier: 'fast', supportsVision: true, contextWindow: 1000000 },
 ];
@@ -356,7 +356,7 @@ export class CopilotModelSelectorComponent implements OnInit {
   protected isOpen = signal(false);
   protected isLoading = signal(false);
   protected models = signal<CopilotModel[]>(DEFAULT_COPILOT_MODELS);
-  protected selectedModelId = signal<string>('claude-sonnet-4-5');
+  protected selectedModelId = signal<string>('claude-sonnet-4-6');
 
   // Computed - selected model
   protected selectedModel = computed(() =>

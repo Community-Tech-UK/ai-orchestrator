@@ -54,6 +54,14 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
             <span class="status-badge disconnected">Server stopped</span>
           }
         </p>
+        @if (serverStatus().running && serverStatus().localIps?.length) {
+          <p class="field-hint" style="margin: 0;">
+            Workers should connect to
+            @for (ip of serverStatus().localIps!; track ip; let last = $last) {
+              <span class="machine-ip">{{ ip }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>@if (!last) {<span> or </span>}
+            }
+          </p>
+        }
       </div>
 
       @if (store.remoteNodesEnabled()) {
@@ -562,6 +570,12 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       color: var(--text-primary, #e5e5e5);
       word-break: break-all;
     }
+
+    .machine-ip {
+      font-family: var(--font-family-mono, monospace);
+      font-weight: 600;
+      color: var(--text-primary, #e5e5e5);
+    }
   `]
 })
 export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
@@ -719,10 +733,17 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     const namespace = this.store.remoteNodesNamespace();
     if (!token) return;
 
+    const configuredHost = this.store.remoteNodesServerHost();
+    const localIps = this.serverStatus().localIps ?? [];
+    // Use the first real IP instead of 0.0.0.0 so workers can actually connect
+    const host = (configuredHost === '0.0.0.0' && localIps.length > 0)
+      ? localIps[0]
+      : configuredHost;
+
     const config = {
       token,
       namespace,
-      host: this.store.remoteNodesServerHost(),
+      host,
       port: this.store.remoteNodesServerPort(),
     };
 

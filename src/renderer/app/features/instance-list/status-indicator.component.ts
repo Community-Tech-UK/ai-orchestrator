@@ -13,6 +13,7 @@ const STATUS_COLORS: Record<InstanceStatus, string> = {
   processing: '#3b82f6',   // Blue - alive but no output yet (remote heartbeat)
   thinking_deeply: '#8b5cf6', // Purple - extended thinking (90s+ no stdout)
   waiting_for_input: '#f59e0b', // Amber
+  waiting_for_permission: '#f59e0b', // Amber - needs approval
   respawning: '#8b5cf6',   // Purple - recovering from interrupt
   hibernating: '#6b7280',  // Gray - transitioning
   hibernated: '#4b5563',   // Darker gray - resting
@@ -31,6 +32,7 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
   processing: 'Processing...',
   thinking_deeply: 'Thinking deeply...',
   waiting_for_input: 'Waiting for input',
+  waiting_for_permission: 'Needs approval',
   respawning: 'Resuming session...',
   hibernating: 'Hibernating...',
   hibernated: 'Hibernated',

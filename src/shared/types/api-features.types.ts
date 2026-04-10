@@ -198,6 +198,9 @@ export const PROMPT_CACHING_MODELS = [
   'claude-sonnet-4-5-20250929',
   'claude-sonnet-4-20250514',
   'claude-haiku-4-5-20251001',
+  'claude-opus-4-6-20260401',
+  'claude-sonnet-4-6-20260401',
+  'claude-haiku-4-6-20260401',
 ] as const;
 
 /**
@@ -215,6 +218,9 @@ export const MIN_CACHEABLE_TOKENS: Record<string, number> = {
   'claude-sonnet-4-5-20250929': 1024,
   'claude-sonnet-4-20250514': 1024,
   'claude-haiku-4-5-20251001': 4096,
+  'claude-opus-4-6-20260401': 4096,
+  'claude-sonnet-4-6-20260401': 1024,
+  'claude-haiku-4-6-20260401': 4096,
 };
 
 // ============================================

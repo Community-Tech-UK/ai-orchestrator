@@ -159,3 +159,27 @@ describe('mtime skip — per-directory optimisation', () => {
     expect(statCalls.length).toBeGreaterThan(1);
   });
 });
+
+describe('frontmatter parsing', () => {
+  it('falls back to the derived command name when frontmatter name is not a string', async () => {
+    readdirResults.set(PROJECT_COMMANDS, [makeDirent('typed-name.md')]);
+    fileContents.set(
+      `${PROJECT_COMMANDS}/typed-name.md`,
+      [
+        '---',
+        'name: 123',
+        'description: Numeric frontmatter name should not crash loading',
+        '---',
+        '# Typed Name',
+        'Body',
+      ].join('\n')
+    );
+
+    const reg = MarkdownCommandRegistry.getInstance();
+    const result = await reg.listCommands('/tmp/test-project');
+    const command = result.commands.find((item) => item.name === 'typed-name');
+
+    expect(command).toBeDefined();
+    expect(command?.description).toBe('Numeric frontmatter name should not crash loading');
+  });
+});

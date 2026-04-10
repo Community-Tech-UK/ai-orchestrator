@@ -12,6 +12,7 @@ import {
 } from '../../../shared/validation/ipc-schemas';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
+import { getLocalIpv4Addresses } from '../../util/network-addresses';
 
 const logger = getLogger('RemoteNodeHandlers');
 
@@ -185,6 +186,7 @@ export function registerRemoteNodeHandlers(): void {
               host: config.serverHost,
               namespace: config.namespace,
             },
+            localIps: getLocalIpv4Addresses(),
           },
         };
       } catch (error) {

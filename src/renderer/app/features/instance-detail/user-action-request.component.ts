@@ -39,6 +39,12 @@ export interface UserActionRequest {
     path?: string;
     originalContent?: string;
     approvalTraceId?: string;
+    /** Tool name for deferred permission requests (e.g., 'Bash') */
+    tool_name?: string;
+    /** Tool input for deferred permission requests (e.g., { command: '...' }) */
+    tool_input?: Record<string, unknown>;
+    /** Session ID for deferred permission resume */
+    session_id?: string;
   };
 }
 
@@ -541,7 +547,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
       // Only show for this instance
       if (!currentInstanceId || payload.instanceId === currentInstanceId) {
-        const isPermissionPrompt = metadata?.type === 'permission_denial';
+        const isPermissionPrompt = metadata?.type === 'permission_denial' || metadata?.type === 'deferred_permission';
         const req: UserActionRequest = {
           id: payload.requestId,
           instanceId: payload.instanceId,
@@ -665,7 +671,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   isPermissionRequest(request: UserActionRequest): boolean {
-    return request.requestType === 'input_required' && request.permissionMetadata?.type === 'permission_denial';
+    return request.requestType === 'input_required' &&
+      (request.permissionMetadata?.type === 'permission_denial' ||
+       request.permissionMetadata?.type === 'deferred_permission');
+  }
+
+  /** Returns true if this is a deferred permission request (defer-based flow). */
+  isDeferredPermission(request: UserActionRequest): boolean {
+    return request.permissionMetadata?.type === 'deferred_permission';
   }
 
   onInputRequiredTextChange(requestId: string, event: Event): void {
@@ -834,13 +847,19 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           });
         }
 
+        // Pass metadata for deferred permissions so the IPC handler routes to resume flow
+        const ipcMetadata = this.isDeferredPermission(request)
+          ? { type: 'deferred_permission', tool_use_id: meta?.tool_use_id }
+          : undefined;
+
         const result = await this.ipc.respondToInputRequired(
           request.instanceId,
           request.id,
           response,
           permissionKey,
           decisionAction,
-          decisionScope
+          decisionScope,
+          ipcMetadata
         );
 
         if (result.success) {
@@ -849,7 +868,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             requestId: request.id,
             instanceId: request.instanceId,
             decisionAction,
-            decisionScope
+            decisionScope,
+            isDeferred: this.isDeferredPermission(request),
           });
           this.inputRequiredScopes.delete(request.id);
           this.pendingRequests.update((requests) =>

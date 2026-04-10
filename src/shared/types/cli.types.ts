@@ -92,6 +92,23 @@ export interface CliInputRequiredMessage extends CliStreamMessageBase {
 }
 
 /**
+ * MCP elicitation message - an MCP server is requesting structured input
+ * via an interactive dialog (e.g. OAuth consent, config form).
+ * Claude Code emits these when an MCP server uses the elicitation protocol.
+ */
+export interface CliElicitationMessage extends CliStreamMessageBase {
+  type: 'elicitation';
+  /** The MCP server requesting input */
+  server_name?: string;
+  /** Human-readable message explaining what input is needed */
+  message?: string;
+  /** JSON Schema describing the expected input structure */
+  schema?: Record<string, unknown>;
+  /** Unique ID for this elicitation request (for responding) */
+  request_id?: string;
+}
+
+/**
  * Context usage information
  */
 export interface CliContextUsage {
@@ -115,7 +132,8 @@ export type CliStreamMessage =
   | CliToolResultMessage
   | CliResultMessage
   | CliErrorMessage
-  | CliInputRequiredMessage;
+  | CliInputRequiredMessage
+  | CliElicitationMessage;
 
 /**
  * Type guard functions
@@ -146,6 +164,10 @@ export function isErrorMessage(msg: CliStreamMessage): msg is CliErrorMessage {
 
 export function isInputRequiredMessage(msg: CliStreamMessage): msg is CliInputRequiredMessage {
   return msg.type === 'input_required';
+}
+
+export function isElicitationMessage(msg: CliStreamMessage): msg is CliElicitationMessage {
+  return msg.type === 'elicitation';
 }
 
 /**

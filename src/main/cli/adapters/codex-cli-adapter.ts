@@ -330,6 +330,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // This is dynamic — only true after spawn() detects app-server support.
       supportsNativeCompaction: this.useAppServer,
       supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
     };
   }
 

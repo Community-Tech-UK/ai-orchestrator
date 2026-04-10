@@ -1,4 +1,3 @@
-import * as os from 'os';
 import * as path from 'path';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
@@ -8,6 +7,7 @@ import { getLogger } from '../logging/logger';
 import { getRepoJobService } from '../repo-jobs';
 import { getSessionShareService } from '../session/session-share-service';
 import { getRemoteObserverAuth } from './observer-auth';
+import { getLocalIpv4Addresses } from '../util/network-addresses';
 import { getWorkerNodeRegistry } from '../remote-node';
 import type {
   RemoteObserverEventEnvelope,
@@ -351,21 +351,6 @@ export class RemoteObserverServer {
     });
     res.end(html);
   }
-}
-
-function getLocalIpv4Addresses(): string[] {
-  const interfaces = os.networkInterfaces();
-  const ips: string[] = [];
-
-  for (const values of Object.values(interfaces)) {
-    for (const iface of values || []) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        ips.push(iface.address);
-      }
-    }
-  }
-
-  return ips;
 }
 
 function sanitizeWorkingDirectory(workingDirectory: string): string {

@@ -67,6 +67,9 @@ import { getAutoTitleService } from './auto-title-service';
 import { ToolListFilter } from '../tools/tool-list-filter';
 import type { DenyRule } from '../tools/tool-list-filter';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
+import { getDeferPermissionHookPath } from '../cli/hooks/hook-path-resolver';
+import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
+import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -230,8 +233,15 @@ export class InstanceLifecycleManager extends EventEmitter {
     return this.recoveryEngine;
   }
 
-  /** Returns MCP config paths to pass to spawned CLI instances. */
-  private getMcpConfig(): string[] {
+  /** Returns MCP config paths to pass to spawned CLI instances.
+   *  Returns empty for remote instances — local filesystem paths don't exist on the worker. */
+  private getMcpConfig(executionLocation?: ExecutionLocation): string[] {
+    // MCP config paths are local filesystem paths. Remote workers have their
+    // own MCP config on their filesystem; passing ours would cause invalid
+    // --mcp-config arguments that may crash the CLI on the worker.
+    if (executionLocation?.type === 'remote') {
+      return [];
+    }
     try {
       if (existsSync(MCP_CONFIG_PATH)) {
         logger.info('MCP config found', { path: MCP_CONFIG_PATH });
@@ -249,6 +259,21 @@ export class InstanceLifecycleManager extends EventEmitter {
     return [];
   }
 
+  /** Returns the defer permission hook path for non-YOLO instances, undefined for YOLO.
+   *  The hook intercepts dangerous tools (Bash, etc.) and returns `defer` so the
+   *  orchestrator can surface approval UI instead of silently denying. */
+  private getPermissionHookPath(yoloMode: boolean): string | undefined {
+    if (yoloMode) return undefined;
+    try {
+      return getDeferPermissionHookPath();
+    } catch (err) {
+      logger.warn('Failed to resolve defer permission hook path, skipping', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
   /**
    * Determine where an instance should execute based on its creation config.
    * Returns { type: 'local' } by default. Only returns remote if:
@@ -263,16 +288,28 @@ export class InstanceLifecycleManager extends EventEmitter {
         const { getWorkerNodeRegistry } = require('../remote-node');
         const registry = getWorkerNodeRegistry();
         const node = registry.getNode(config.forceNodeId);
-        if (node?.status === 'connected') {
+        // Accept both 'connected' and 'degraded' — the UI allows selecting
+        // degraded nodes. Silently falling through to local when the user
+        // explicitly chose a remote node causes confusing spawn failures
+        // (e.g., local Claude CLI tries to use a remote CWD).
+        if (node?.status === 'connected' || node?.status === 'degraded') {
           logger.info('Resolved execution location', {
             type: 'remote',
             reason: 'forceNodeId',
             nodeId: config.forceNodeId,
+            nodeStatus: node.status,
           });
           return { type: 'remote', nodeId: config.forceNodeId };
         }
-      } catch {
+        if (config.forceNodeId) {
+          logger.warn('Forced nodeId not reachable — falling through to local', {
+            nodeId: config.forceNodeId,
+            nodeStatus: node?.status ?? 'not-found',
+          });
+        }
+      } catch (err) {
         // Remote node module not available — fall through to local
+        logger.warn('Remote node module unavailable', { error: err instanceof Error ? err.message : String(err) });
       }
     }
 
@@ -353,6 +390,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       supportsForkSession: false,
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
     };
   }
 
@@ -931,7 +969,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           allowedTools: defaultAllowedTools,
           disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
           resume: config.resume,
-          mcpConfig: this.getMcpConfig(),
+          mcpConfig: this.getMcpConfig(instance.executionLocation),
+          permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
         };
 
         // Check for a pre-warmed adapter before spawning fresh.
@@ -996,6 +1035,10 @@ export class InstanceLifecycleManager extends EventEmitter {
         } else {
           const executionLocation = this.resolveExecutionLocation(config);
           instance.executionLocation = executionLocation;
+          // Clear local MCP config for remote instances — paths don't exist on workers
+          if (executionLocation.type === 'remote') {
+            spawnOptions.mcpConfig = [];
+          }
           adapter = createCliAdapter(resolvedCliType, spawnOptions, executionLocation);
 
           // Set up adapter events
@@ -1427,7 +1470,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           yoloMode: instance.yoloMode,
           model: instance.currentModel,
           resume: canAttemptNativeResume,
-          mcpConfig: this.getMcpConfig(),
+          mcpConfig: this.getMcpConfig(instance.executionLocation),
+          permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
         };
 
         let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -1562,10 +1606,17 @@ export class InstanceLifecycleManager extends EventEmitter {
     // Stop stuck tracking before terminating existing adapter
     this.deps.stopStuckTracking?.(instanceId);
 
-    // Terminate existing adapter
+    // Terminate existing adapter (may fail for remote adapters when node is disconnected)
     const oldAdapter = this.deps.getAdapter(instanceId);
     if (oldAdapter) {
-      await oldAdapter.terminate(true);
+      try {
+        await oldAdapter.terminate(true);
+      } catch (error) {
+        logger.warn('Adapter terminate failed during restart, proceeding', {
+          instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     // Generate new session ID
@@ -1588,7 +1639,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       workingDirectory: instance.workingDirectory,
       yoloMode: instance.yoloMode,
       model: instance.currentModel,
-      mcpConfig: this.getMcpConfig(),
+      mcpConfig: this.getMcpConfig(instance.executionLocation),
+      permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
     };
 
     const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -1716,7 +1768,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(),
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
 
       let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -1895,7 +1948,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(),
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(newYoloMode),
       };
       logger.debug('Spawn options configured', {
         instanceId,
@@ -1978,6 +2032,134 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         adapterExists: !!this.deps.getAdapter(instanceId)
       });
       return instance;
+    } finally {
+      release();
+    }
+  }
+
+  // ============================================
+  // Deferred Permission Resume
+  // ============================================
+
+  /**
+   * Resume a Claude CLI session after the user approves or denies a deferred tool use.
+   * Follows the same mutex + terminate + respawn pattern as toggleYoloMode.
+   *
+   * Flow:
+   * 1. Write the user's decision to a file keyed by tool_use_id
+   * 2. Terminate the old (exited) adapter
+   * 3. Spawn a new adapter with --resume pointing to the same session
+   * 4. The hook is re-invoked, reads the decision file, returns allow/deny
+   * 5. Claude CLI continues or receives a denial tool_result
+   */
+  async resumeAfterDeferredPermission(
+    instanceId: string,
+    approved: boolean
+  ): Promise<void> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    const release = await getSessionMutex().acquire(instanceId, 'resume-deferred-permission');
+    try {
+      const oldAdapter = this.deps.getAdapter(instanceId);
+      if (!oldAdapter) {
+        throw new Error(`No adapter for instance ${instanceId}`);
+      }
+
+      // Get deferred tool use from the Claude adapter
+      const claudeAdapter = oldAdapter as ClaudeCliAdapter;
+      const deferred = typeof claudeAdapter.getDeferredToolUse === 'function'
+        ? claudeAdapter.getDeferredToolUse()
+        : null;
+
+      if (!deferred) {
+        throw new Error(`No deferred tool use pending for instance ${instanceId}`);
+      }
+
+      logger.info('Resuming after deferred permission', {
+        instanceId,
+        approved,
+        toolName: deferred.toolName,
+        toolUseId: deferred.toolUseId,
+        sessionId: deferred.sessionId,
+      });
+
+      // 1. Write decision file for the hook to read on resume
+      const decisionStore = getDeferDecisionStore();
+      decisionStore.writeDecision(
+        deferred.toolUseId,
+        approved ? 'allow' : 'deny',
+        approved ? 'User approved via orchestrator UI' : 'User denied via orchestrator UI',
+      );
+
+      // 2. Terminate old adapter (process already exited, but clean up state)
+      this.transitionState(instance, 'respawning');
+      await oldAdapter.terminate(true).catch(() => { /* already exited */ });
+      this.deps.deleteAdapter(instanceId);
+      this.deps.deleteDiffTracker?.(instanceId);
+
+      // 3. Build spawn options with resume
+      const cliType = await this.resolveCliTypeForInstance(instance);
+      const spawnOptions: UnifiedSpawnOptions = {
+        sessionId: deferred.sessionId,
+        workingDirectory: instance.workingDirectory,
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel,
+        resume: true,
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+      };
+
+      // 4. Create and spawn new adapter
+      const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+
+      // Inject the decision directory into the adapter's environment so the hook
+      // can find the decision file. The BaseCliAdapter.spawnProcess() uses
+      // this.config.env to extend the process environment.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (adapter as any).config.env = {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...((adapter as any).config.env || {}),
+        ORCHESTRATOR_DECISION_DIR: decisionStore.getDecisionDir(),
+      };
+
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
+      if (this.deps.setDiffTracker) {
+        this.deps.setDiffTracker(instanceId, new SessionDiffTracker(instance.workingDirectory));
+      }
+
+      try {
+        const pid = await adapter.spawn();
+        instance.processId = pid;
+        instance.sessionId = deferred.sessionId;
+
+        const resumeHealthy = await this.waitForResumeHealth(instanceId);
+        if (!resumeHealthy) {
+          logger.warn('Resume health check failed after deferred permission', { instanceId });
+          // Still transition to idle — the CLI may recover on its own
+        }
+
+        this.transitionState(instance, 'idle');
+        logger.info('Resumed after deferred permission successfully', {
+          instanceId,
+          pid,
+          approved,
+          toolName: deferred.toolName,
+        });
+      } catch (error) {
+        this.transitionState(instance, 'error');
+        logger.error(
+          'Failed to resume after deferred permission',
+          error instanceof Error ? error : undefined,
+          { instanceId, approved },
+        );
+        throw error;
+      }
+
+      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
     } finally {
       release();
     }
@@ -2105,7 +2287,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(),
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
 
       let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -2264,7 +2447,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         model: instance.currentModel,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(),
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
       const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
@@ -2386,8 +2570,15 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
     const release = await getSessionMutex().acquire(instanceId, 'respawn-unexpected');
     try {
+      // Read capabilities from the previous adapter BEFORE deleting it.
+      // The exit handler in instance-communication.ts no longer calls deleteAdapter
+      // so the adapter is still available here.
       const previousAdapter = this.deps.getAdapter(instanceId);
       const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
+
+      // Now clean up the previous adapter
+      this.deps.deleteAdapter(instanceId);
+
       const sessionId = instance.sessionId;
       const hasConversation = instance.outputBuffer.some(
         (msg) => msg.type === 'user' || msg.type === 'assistant'
@@ -2411,7 +2602,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         model: instance.currentModel,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(),
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
       let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
@@ -2661,62 +2853,71 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   }
 
   private checkIdleInstances(): void {
-    // Poll activity state for each tracked instance
+    // Poll activity state for each tracked instance and detect failures.
+    // Single detect() call per instance to avoid redundant file I/O.
+    const recoveryEngine = this.getRecoveryEngine();
+
     for (const [instanceId, detector] of this.activityDetectors) {
       detector.detect().then(result => {
         const instance = this.deps.getInstance(instanceId);
-        if (instance) {
-          instance.activityState = result.state;
+        if (!instance) return;
+
+        instance.activityState = result.state;
+
+        // Skip recovery detection for instances already being handled:
+        // - 'respawning': auto-respawn from instance-communication.ts is in progress
+        // - 'error': already failed, don't try to recover again
+        // - 'initializing': still starting up
+        // - 'terminated': intentionally stopped
+        // Also skip remote instances for 'exited' detection — the local process
+        // check cannot accurately determine if a remote process is alive.
+        if (!recoveryEngine) return;
+
+        const skipRecovery = instance.status === 'respawning'
+          || instance.status === 'error'
+          || instance.status === 'initializing'
+          || instance.status === 'terminated';
+        if (skipRecovery) return;
+
+        const isRemote = instance.executionLocation?.type === 'remote';
+
+        let failure: DetectedFailure | null = null;
+
+        if (result.state === 'blocked' && !isRemote) {
+          failure = {
+            id: generateId(),
+            category: 'agent_stuck_blocked',
+            instanceId,
+            detectedAt: Date.now(),
+            context: {},
+            activityState: result.state,
+            severity: 'recoverable',
+          };
+        } else if (result.state === 'exited' && !isRemote && instance.status !== 'terminated') {
+          failure = {
+            id: generateId(),
+            category: 'process_exited_unexpected',
+            instanceId,
+            detectedAt: Date.now(),
+            context: {},
+            activityState: result.state,
+            severity: 'recoverable',
+          };
+        }
+
+        if (failure) {
+          recoveryEngine.handleFailure(failure).then(outcome => {
+            logger.info('Recovery outcome', { instanceId, category: failure!.category, outcome: outcome.status });
+            this.dispatchRecoveryActions(instanceId, failure!).catch(err => {
+              logger.warn('Recovery action dispatch failed', { instanceId, error: String(err) });
+            });
+          }).catch(err => {
+            logger.warn('Recovery failed', { instanceId, error: String(err) });
+          });
         }
       }).catch(err => {
         logger.warn('Activity detection failed', { instanceId, error: String(err) });
       });
-    }
-
-    // Detect failures from activity state and trigger recovery
-    const recoveryEngine = this.getRecoveryEngine();
-    if (recoveryEngine) {
-      for (const [instanceId, detector] of this.activityDetectors) {
-        detector.detect().then(result => {
-          const instance = this.deps.getInstance(instanceId);
-          if (!instance) return;
-
-          let failure: DetectedFailure | null = null;
-
-          if (result.state === 'blocked') {
-            failure = {
-              id: generateId(),
-              category: 'agent_stuck_blocked',
-              instanceId,
-              detectedAt: Date.now(),
-              context: {},
-              activityState: result.state,
-              severity: 'recoverable',
-            };
-          } else if (result.state === 'exited' && instance.status !== 'terminated') {
-            failure = {
-              id: generateId(),
-              category: 'process_exited_unexpected',
-              instanceId,
-              detectedAt: Date.now(),
-              context: {},
-              activityState: result.state,
-              severity: 'recoverable',
-            };
-          }
-
-          if (failure) {
-            recoveryEngine.handleFailure(failure).then(outcome => {
-              logger.info('Recovery outcome', { instanceId, category: failure!.category, outcome: outcome.status });
-              this.dispatchRecoveryActions(instanceId, failure!).catch(err => {
-                logger.warn('Recovery action dispatch failed', { instanceId, error: String(err) });
-              });
-            }).catch(err => {
-              logger.warn('Recovery failed', { instanceId, error: String(err) });
-            });
-          }
-        }).catch(() => { /* detection errors are non-fatal */ });
-      }
     }
 
     const settingsAll = this.settings.getAll();

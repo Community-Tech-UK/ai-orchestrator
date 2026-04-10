@@ -81,6 +81,12 @@ export class SettingsManager extends EventEmitter {
       'claude-sonnet-4-5-20250929': 'sonnet',
       'claude-haiku-4-5': 'haiku',
       'claude-haiku-4-5-20251001': 'haiku',
+      'claude-opus-4-6': 'opus',
+      'claude-opus-4-6-20260401': 'opus',
+      'claude-sonnet-4-6': 'sonnet',
+      'claude-sonnet-4-6-20260401': 'sonnet',
+      'claude-haiku-4-6': 'haiku',
+      'claude-haiku-4-6-20260401': 'haiku',
       // Older generation
       'claude-sonnet-4-20250514': 'sonnet',
       'claude-opus-4-20250514': 'opus',

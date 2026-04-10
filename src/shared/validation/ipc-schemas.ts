@@ -133,6 +133,8 @@ export const InputRequiredResponsePayloadSchema = z.object({
   permissionKey: z.string().max(200).optional(),
   decisionAction: z.enum(['allow', 'deny']).optional(),
   decisionScope: z.enum(['once', 'session', 'always']).optional(),
+  /** Optional metadata for routing — e.g. type: 'deferred_permission' for defer flow. */
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponsePayloadSchema>;

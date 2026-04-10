@@ -139,6 +139,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       supportsForkSession: false,
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
     };
   }
 
@@ -862,6 +863,16 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       if (!instance) return;
 
+      // Guard: EPIPE errors are expected when a CLI process dies while we have
+      // buffered writes. Swallow them — the exit handler will take care of
+      // respawning. Emitting EPIPE as an instance error would race with the
+      // exit handler and could mark the instance as 'error' before auto-respawn
+      // gets a chance to run, which kills the session.
+      if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+        logger.debug('Ignoring EPIPE error from adapter — exit handler will manage recovery', { instanceId });
+        return;
+      }
+
       // Guard: ignore errors from a replaced adapter (e.g., late pipe errors from a
       // killed process after respawnAfterInterrupt already installed a new adapter).
       // Without this, the old adapter's error handler would force-cleanup the NEW adapter.
@@ -1045,6 +1056,22 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
 
+      // Check if this exit is from a deferred tool use (defer-pause).
+      // The CLI exits with code 0 after a hook returns `defer`. Don't trigger
+      // respawn — the resume flow handles this when the user approves/denies.
+      if (adapter.getName() === 'claude-cli') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const claudeAdapter = adapter as any;
+        if (typeof claudeAdapter.getDeferredToolUse === 'function' && claudeAdapter.getDeferredToolUse()) {
+          logger.info('Adapter exit with deferred tool use pending — skipping respawn', {
+            instanceId,
+            code,
+            toolName: claudeAdapter.getDeferredToolUse().toolName,
+          });
+          return;
+        }
+      }
+
       // Check if this was an interrupted instance that needs respawning
       if (this.interruptedInstances.has(instanceId)) {
         logger.info('Instance was interrupted, will respawn with --resume', { instanceId });
@@ -1081,7 +1108,10 @@ export class InstanceCommunicationManager extends EventEmitter {
           instance.processId = null;
           instance.restartCount++;
           this.deps.queueUpdate(instanceId, 'respawning');
-          this.deps.deleteAdapter(instanceId);
+          // NOTE: deleteAdapter is called INSIDE respawnAfterUnexpectedExit
+          // AFTER capabilities are read. Previously it was called here, which
+          // meant the respawn method couldn't read adapter capabilities and
+          // resume was never attempted.
 
           this.deps.onUnexpectedExit!(instanceId).catch((err) => {
             logger.error('Auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });

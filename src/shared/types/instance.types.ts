@@ -76,6 +76,7 @@ export type InstanceStatus =
   | 'processing'      // CLI process alive, no output for several seconds (remote heartbeat)
   | 'thinking_deeply' // CLI process alive, no stdout for 90s+ (extended thinking)
   | 'waiting_for_input'
+  | 'waiting_for_permission' // CLI paused on deferred tool use, awaiting user approval
   | 'respawning'      // Instance is recovering from interrupt, cannot be interrupted again
   | 'hibernating'     // Saving state to disk before suspend
   | 'hibernated'      // State saved, process killed, can wake

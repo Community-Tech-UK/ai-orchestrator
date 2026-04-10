@@ -388,7 +388,8 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       response: string,
       permissionKey?: string,
       decisionAction?: 'allow' | 'deny',
-      decisionScope?: 'once' | 'session' | 'always'
+      decisionScope?: 'once' | 'session' | 'always',
+      metadata?: Record<string, unknown>
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INPUT_REQUIRED_RESPOND, {
         instanceId,
@@ -396,7 +397,8 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
         response,
         permissionKey,
         decisionAction,
-        decisionScope
+        decisionScope,
+        metadata
       });
     },
   };

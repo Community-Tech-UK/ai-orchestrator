@@ -39,6 +39,10 @@ import { classifyError } from '../cli-error-handler';
 
 const logger = getLogger('ClaudeCliAdapter');
 
+/** Minimum Claude CLI version that supports the `defer` permission decision.
+ *  VALIDATED: defer works in CLI 2.1.98. Conservative estimate for first release. */
+export const DEFER_MIN_VERSION = '2.1.90';
+
 /**
  * Shape of a content block inside raw CLI NDJSON assistant/user messages.
  * The typed CliStreamMessage union is minimal — the actual CLI emits richer payloads.
@@ -96,7 +100,31 @@ interface RawCliPayload {
   error?: { code: string; message: string };
   prompt?: string;
   metadata?: Record<string, unknown>;
+  /** Present on result messages — indicates why the turn ended. */
+  stop_reason?: string;
+  /** Present when stop_reason is 'tool_deferred' — the deferred tool details. */
+  deferred_tool_use?: {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  };
 }
+
+/**
+ * Represents a tool use that was deferred by a PreToolUse hook.
+ * The CLI paused execution and exited; the orchestrator must surface
+ * an approval dialog and resume the session with the user's decision.
+ */
+export interface DeferredToolUse {
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  toolUseId: string;
+  sessionId: string;
+  deferredAt: number;
+}
+
+type ClaudeCliReasoningEffort = 'low' | 'medium' | 'high' | 'max';
+type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 /**
  * Claude CLI specific spawn options
@@ -120,6 +148,25 @@ export interface ClaudeCliSpawnOptions {
   /** Beta headers for API requests (API key users only).
    *  e.g. ['context-1m-2025-08-07'] to enable 1M context on eligible models. */
   betas?: string[];
+  /** Cross-provider reasoning effort. Claude CLI supports low, medium, high, and max. */
+  reasoningEffort?: UnifiedReasoningEffort;
+  /** Minimal mode (--bare): skips hooks, LSP, plugins, auto-memory, CLAUDE.md
+   *  auto-discovery, and keychain reads for faster startup (~14% faster).
+   *  Requires explicit ANTHROPIC_API_KEY or apiKeyHelper — OAuth/keychain auth
+   *  is skipped. Defaults to false to preserve existing auth flows. */
+  bare?: boolean;
+  /** Display name for this session (--name / -n). Shown in /resume and terminal
+   *  title. If unset the CLI auto-generates a name from the first message. */
+  name?: string;
+  /** Move per-machine dynamic sections out of the system prompt into the first
+   *  user message to improve cross-user prompt-cache hit rates.
+   *  Only effective with the default system prompt (ignored with --system-prompt). */
+  excludeDynamicSystemPromptSections?: boolean;
+  /** Path to a PreToolUse hook script for defer-based permission approval.
+   *  When set, the adapter generates a settings overlay and passes it via --settings.
+   *  The hook intercepts dangerous tools (Bash, etc.) and returns `defer` to pause
+   *  execution, allowing the orchestrator to surface approval UI. */
+  permissionHookPath?: string;
 }
 
 /**
@@ -167,6 +214,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /** Whether we received per-call usage this turn (assistant/system messages). When true,
    *  the result handler should NOT overwrite context usage with cumulative modelUsage totals. */
   private hasPerCallUsageThisTurn = false;
+  /** Tracks a deferred tool use when CLI pauses via PreToolUse hook `defer` decision.
+   *  Non-null means the CLI process has exited and is waiting to be resumed. */
+  private deferredToolUse: DeferredToolUse | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     const config: CliAdapterConfig = {
@@ -184,6 +234,16 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.lastKnownContextWindow = knownWindow;
     this.contextWindowFloor = knownWindow;
     this.parser = new NdjsonParser();
+  }
+
+  /** Returns the currently deferred tool use, or null if not paused. */
+  getDeferredToolUse(): DeferredToolUse | null {
+    return this.deferredToolUse;
+  }
+
+  /** Clears deferred tool use state (e.g., after successful resume). */
+  clearDeferredToolUse(): void {
+    this.deferredToolUse = null;
   }
 
   // ============ BaseCliAdapter Abstract Implementations ============
@@ -212,6 +272,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       supportsForkSession: true,
       supportsNativeCompaction: true,
       supportsPermissionPrompts: true,
+      supportsDeferPermission: Boolean(this.spawnOptions.permissionHookPath),
     };
   }
 
@@ -222,6 +283,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   setResume(resume: boolean): void {
     this.spawnOptions.resume = resume;
     logger.debug('Resume mode set', { resume, sessionId: this.sessionId });
+  }
+
+  private mapReasoningEffort(
+    reasoningEffort: UnifiedReasoningEffort | undefined
+  ): ClaudeCliReasoningEffort | undefined {
+    switch (reasoningEffort) {
+      case 'none':
+      case 'minimal':
+      case 'low':
+        return 'low';
+      case 'medium':
+        return 'medium';
+      case 'high':
+        return 'high';
+      case 'xhigh':
+        return 'max';
+      default:
+        return undefined;
+    }
   }
 
   async checkStatus(): Promise<CliStatus> {
@@ -289,9 +369,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             logger.warn('stdin EPIPE - CLI process closed before write completed', {
               pid: this.process?.pid,
             });
-          } else {
-            logger.error('stdin stream error', error);
+            return; // Swallow EPIPE — expected when process closes pipe during interrupt/exit
           }
+          logger.error('stdin stream error', error);
           this.emit('error', error, classifyError(error));
         });
       }
@@ -504,6 +584,23 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       '--verbose'
     ];
 
+    // Bare mode — skip hooks, LSP, plugins, auto-memory for faster startup (~14%).
+    // Requires explicit ANTHROPIC_API_KEY; OAuth/keychain auth is skipped.
+    if (this.spawnOptions.bare) {
+      args.push('--bare');
+    }
+
+    // Session display name — makes /resume and debugging easier
+    if (this.spawnOptions.name) {
+      args.push('--name', this.spawnOptions.name);
+    }
+
+    // Move per-machine dynamic sections from system prompt to first user message
+    // for better cross-instance prompt cache hit rates
+    if (this.spawnOptions.excludeDynamicSystemPromptSections) {
+      args.push('--exclude-dynamic-system-prompt-sections');
+    }
+
     // YOLO mode - auto-approve all permissions
     if (this.spawnOptions.yoloMode) {
       logger.warn('YOLO mode enabled for Claude CLI instance', {
@@ -516,6 +613,25 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       // while still requiring approval for potentially dangerous operations like Bash
       logger.debug('NON-YOLO mode: using --permission-mode acceptEdits');
       args.push('--permission-mode', 'acceptEdits');
+
+      // Layer defer hook on top for tools that acceptEdits doesn't auto-approve.
+      // The hook intercepts matched tools (Bash, etc.) and returns `defer` to pause
+      // execution, allowing the orchestrator to surface approval UI.
+      // VALIDATED: --permission-mode and PreToolUse hooks work simultaneously.
+      if (this.spawnOptions.permissionHookPath) {
+        const hookSettings = JSON.stringify({
+          hooks: {
+            PreToolUse: [{
+              matcher: 'Bash',
+              hooks: [{
+                type: 'command',
+                command: this.spawnOptions.permissionHookPath
+              }]
+            }]
+          }
+        });
+        args.push('--settings', hookSettings);
+      }
 
       // Only pass --allowedTools if explicitly configured (e.g., by agent profiles).
       // By default, allow all tools — restrictions are handled via --disallowedTools.
@@ -536,6 +652,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     if (this.spawnOptions.model) {
       args.push('--model', this.spawnOptions.model);
+    }
+
+    const mappedReasoningEffort = this.mapReasoningEffort(this.spawnOptions.reasoningEffort);
+    if (mappedReasoningEffort) {
+      args.push('--effort', mappedReasoningEffort);
     }
 
     if (this.spawnOptions.maxTokens) {
@@ -587,12 +708,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       resume: this.spawnOptions.resume ?? false,
       forkSession: this.spawnOptions.forkSession ?? false,
       model: this.spawnOptions.model,
+      reasoningEffort: this.spawnOptions.reasoningEffort ?? null,
+      mappedReasoningEffort: mappedReasoningEffort ?? null,
       hasSystemPrompt: Boolean(this.spawnOptions.systemPrompt && !this.spawnOptions.resume),
       allowedToolsCount: this.spawnOptions.allowedTools?.length ?? 0,
       disallowedToolsCount: this.spawnOptions.disallowedTools?.length ?? 0,
       mcpConfigCount: this.spawnOptions.mcpConfig?.length ?? 0,
       betasCount: this.spawnOptions.betas?.length ?? 0,
       chrome: this.spawnOptions.chrome ?? 'unset',
+      bare: this.spawnOptions.bare ?? false,
+      name: this.spawnOptions.name ?? null,
+      excludeDynamicSystemPromptSections: this.spawnOptions.excludeDynamicSystemPromptSections ?? false,
+      hasPermissionHook: Boolean(this.spawnOptions.permissionHookPath),
     });
 
     return args;
@@ -626,9 +753,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           logger.warn('stdin EPIPE - CLI process closed before write completed', {
             pid: this.process?.pid,
           });
-        } else {
-          logger.error('stdin stream error', error);
+          return; // Swallow EPIPE — expected when process closes pipe during interrupt/exit
         }
+        logger.error('stdin stream error', error);
         this.emit('error', error, classifyError(error));
       });
     }
@@ -776,8 +903,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       logger.debug('Message types in chunk', { typeMatch });
     }
 
-    // Log raw output for debugging permission issues
-    if (raw.includes('input_required') || raw.includes('permission') || raw.includes('approve') ||
+    // Log raw output for debugging permission and elicitation issues
+    if (raw.includes('input_required') || raw.includes('elicitation') || raw.includes('permission') || raw.includes('approve') ||
         raw.includes('denied') || raw.includes('not allowed') || raw.includes('is_error')) {
       logger.debug('RAW STDOUT (permission-related)', {
         rawLength: raw.length,
@@ -833,6 +960,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.process = null;
     this.formatter = null;
     this.parser.reset();
+
+    // If we have a deferred tool use, this is an expected exit (code 0) after
+    // the hook returned `defer`. Don't trigger respawn — the resume flow handles it.
+    if (this.deferredToolUse) {
+      logger.info('Process exited with deferred tool use pending', {
+        toolName: this.deferredToolUse.toolName,
+        toolUseId: this.deferredToolUse.toolUseId,
+        sessionId: this.deferredToolUse.sessionId,
+        exitCode: code,
+      });
+    }
 
     this.emit('exit', code, signal);
   }
@@ -1169,6 +1307,48 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       case 'result': {
         const resultMsg = raw;
 
+        // VALIDATED: Check for tool_deferred stop reason (Claude CLI 2.1.98+).
+        // When a PreToolUse hook returns `defer`, the CLI emits a result with
+        // stop_reason: "tool_deferred" and a deferred_tool_use object, then exits.
+        if (resultMsg.stop_reason === 'tool_deferred' && resultMsg.deferred_tool_use) {
+          const deferred = resultMsg.deferred_tool_use;
+          this.deferredToolUse = {
+            toolName: deferred.name,
+            toolInput: deferred.input || {},
+            toolUseId: deferred.id,
+            sessionId: resultMsg.session_id || this.sessionId || '',
+            deferredAt: Date.now(),
+          };
+
+          logger.info('Tool use deferred by hook', {
+            toolName: deferred.name,
+            toolUseId: deferred.id,
+            sessionId: this.deferredToolUse.sessionId,
+          });
+
+          // Build a human-readable prompt with the actual command
+          const toolSummary = deferred.name === 'Bash' && deferred.input?.['command']
+            ? `Bash: \`${String(deferred.input['command'])}\``
+            : deferred.name;
+
+          this.emit('status', 'waiting_for_permission' as InstanceStatus);
+          this.emit('input_required', {
+            id: generateId(),
+            prompt: `Permission required: Claude wants to run ${toolSummary}`,
+            timestamp: Date.now(),
+            metadata: {
+              type: 'deferred_permission',
+              tool_name: deferred.name,
+              tool_input: deferred.input,
+              tool_use_id: deferred.id,
+              session_id: resultMsg.session_id,
+            },
+          });
+
+          // Don't process further — the instance is paused, awaiting user decision
+          break;
+        }
+
         // Update context window size from modelUsage (the contextWindow field
         // is per-model, not cumulative — safe to use).
         // IMPORTANT: modelUsage.inputTokens / .outputTokens are SESSION-LEVEL
@@ -1297,6 +1477,57 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           }
         });
         logger.debug('Input_required handling complete');
+        break;
+      }
+
+      case 'elicitation': {
+        // MCP elicitation — an MCP server is requesting structured input
+        // (e.g. OAuth consent, configuration form, credential entry).
+        // Surface this as an input_required event so the UI can present a form.
+        const elicitationRaw = raw as {
+          server_name?: string;
+          message?: string;
+          schema?: Record<string, unknown>;
+          request_id?: string;
+        };
+        const serverName = elicitationRaw.server_name || 'MCP server';
+        const elicitationMsg = elicitationRaw.message || 'An MCP server requires input';
+        const elicitationTimestamp = message.timestamp || Date.now();
+        const elicitationId = generateId();
+
+        logger.info('MCP elicitation received', {
+          serverName,
+          messagePreview: this.summarizeLogText(elicitationMsg),
+          hasSchema: Boolean(elicitationRaw.schema),
+          requestId: elicitationRaw.request_id
+        });
+
+        this.emit('status', 'waiting_for_input' as InstanceStatus);
+
+        this.emit('input_required', {
+          id: elicitationId,
+          prompt: `[${serverName}] ${elicitationMsg}`,
+          timestamp: elicitationTimestamp,
+          metadata: {
+            type: 'mcp_elicitation',
+            serverName,
+            schema: elicitationRaw.schema,
+            requestId: elicitationRaw.request_id
+          }
+        });
+
+        this.emit('output', {
+          id: elicitationId,
+          timestamp: elicitationTimestamp,
+          type: 'system',
+          content: `MCP server "${serverName}" requests input: ${elicitationMsg}`,
+          metadata: {
+            requiresInput: true,
+            mcpElicitation: true,
+            serverName,
+            schema: elicitationRaw.schema
+          }
+        });
         break;
       }
 

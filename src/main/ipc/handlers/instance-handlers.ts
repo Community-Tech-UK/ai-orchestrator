@@ -784,7 +784,37 @@ export function registerInstanceHandlers(deps: {
           'INPUT_REQUIRED_RESPOND'
         );
 
-        // Send the response to the CLI via stdin
+        // Route deferred permission responses to the resume flow instead of stdin
+        if (validatedPayload.metadata?.['type'] === 'deferred_permission') {
+          const approved = validatedPayload.decisionAction === 'allow';
+          await instanceManager.resumeAfterDeferredPermission(
+            validatedPayload.instanceId,
+            approved
+          );
+
+          instanceManager.clearPendingInputRequiredPermission(
+            validatedPayload.instanceId,
+            validatedPayload.requestId
+          );
+          getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
+
+          // Record permission decision if scope was provided
+          if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
+            instanceManager.recordInputRequiredPermissionDecision({
+              instanceId: validatedPayload.instanceId,
+              requestId: validatedPayload.requestId,
+              action: validatedPayload.decisionAction,
+              scope: validatedPayload.decisionScope,
+            });
+          }
+
+          return {
+            success: true,
+            data: { requestId: validatedPayload.requestId, responded: true, resumed: true }
+          };
+        }
+
+        // Standard input_required flow — send the response to the CLI via stdin
         await instanceManager.sendInputResponse(
           validatedPayload.instanceId,
           validatedPayload.response,

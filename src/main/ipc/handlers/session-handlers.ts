@@ -1178,8 +1178,13 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           // the working directory to something that exists on this machine (the
           // remote workingDir is likely a path on the worker node's filesystem).
           const fallbackNodeId = remoteNodeAvailable ? restoreNodeId : undefined;
+          // When falling back to local, ALWAYS use process.cwd() — the stored
+          // working directory is a path on the remote node's filesystem (e.g.,
+          // C:\Users\shutu\Documents\Work) which doesn't exist locally.
+          // validated.workingDirectory is the entry's saved path and is equally
+          // invalid on the local machine.
           const fallbackWorkingDir = (restoreNodeId && !remoteNodeAvailable)
-            ? (validated.workingDirectory || process.cwd())
+            ? process.cwd()
             : workingDir;
 
           const instance = await instanceManager.createInstance({

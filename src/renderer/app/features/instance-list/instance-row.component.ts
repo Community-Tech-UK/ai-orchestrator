@@ -660,7 +660,8 @@ export class InstanceRowComponent {
     }
   });
   readonly needsAttention = computed(() =>
-    this.instance().status === 'waiting_for_input'
+    this.instance().status === 'waiting_for_input' ||
+    this.instance().status === 'waiting_for_permission'
   );
   readonly showActivitySpinner = computed(() =>
     this.instance().status === 'busy' ||
@@ -711,6 +712,8 @@ export class InstanceRowComponent {
         return 'Initializing';
       case 'waiting_for_input':
         return 'Waiting for input';
+      case 'waiting_for_permission':
+        return 'Needs approval';
       case 'respawning':
         return 'Resuming session';
       case 'waking':

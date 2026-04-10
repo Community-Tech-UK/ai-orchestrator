@@ -1,9 +1,19 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const { checkClaudeCliAuthentication } = vi.hoisted(() => ({
+  checkClaudeCliAuthentication: vi.fn(),
+}));
+
+vi.mock('../claude-cli-auth', () => ({
+  checkClaudeCliAuthentication,
+}));
+
 import { ProviderDoctor } from '../provider-doctor';
 
 describe('ProviderDoctor', () => {
   beforeEach(() => {
     ProviderDoctor._resetForTesting();
+    checkClaudeCliAuthentication.mockReset();
   });
 
   it('should be a singleton', () => {
@@ -53,5 +63,38 @@ describe('ProviderDoctor', () => {
     ]);
     expect(recs.length).toBeGreaterThan(0);
     expect(recs[0].toLowerCase()).toContain('install');
+  });
+
+  it('uses Claude CLI auth status instead of environment variables', async () => {
+    checkClaudeCliAuthentication.mockResolvedValue({
+      authenticated: true,
+      message: 'Claude CLI authenticated via claude.ai (max)',
+      metadata: { authMethod: 'claude.ai', subscriptionType: 'max' },
+    });
+
+    const doctor = ProviderDoctor.getInstance();
+    const authProbe = doctor.getProbesForProvider('claude-cli').find((probe) => probe.name === 'authenticated');
+
+    expect(authProbe).toBeDefined();
+
+    const result = await authProbe!.run('claude-cli');
+    expect(checkClaudeCliAuthentication).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      name: 'authenticated',
+      status: 'pass',
+      message: 'Claude CLI authenticated via claude.ai (max)',
+      metadata: { authMethod: 'claude.ai', subscriptionType: 'max' },
+    });
+  });
+
+  it('recommends Claude auth login and doctor when Claude CLI auth is missing', () => {
+    const doctor = ProviderDoctor.getInstance();
+    const recs = doctor.generateRecommendations('claude-cli', [
+      { name: 'authenticated', status: 'fail', message: 'Claude CLI is not logged in', latencyMs: 0 },
+    ]);
+
+    expect(recs).toHaveLength(1);
+    expect(recs[0]).toContain('claude auth login');
+    expect(recs[0]).toContain('claude doctor');
   });
 });

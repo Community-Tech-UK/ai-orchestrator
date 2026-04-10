@@ -41,8 +41,20 @@ export interface UnifiedSpawnOptions {
   chrome?: boolean;
   /** JSON Schema object for structured output (Codex app-server mode). */
   outputSchema?: Record<string, unknown>;
-  /** Reasoning effort level for the model (Codex: none → xhigh). */
+  /** Reasoning effort level for the model (Codex: none → xhigh, Claude: low → high). */
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /** Minimal mode (Claude CLI only): skip hooks, LSP, plugins for faster startup.
+   *  Requires explicit API key — OAuth/keychain auth is skipped. Defaults to false. */
+  bare?: boolean;
+  /** Display name for this session (Claude CLI only). Shown in /resume picker. */
+  name?: string;
+  /** Improve prompt-cache hit rates by moving per-machine system prompt sections
+   *  into the first user message (Claude CLI only). Defaults to true for orchestrated spawns. */
+  excludeDynamicSystemPromptSections?: boolean;
+  /** Path to a PreToolUse hook script for defer-based permission approval (Claude CLI only).
+   *  When set, the adapter injects hook configuration via --settings to intercept dangerous
+   *  tools and return `defer`, pausing execution for user approval. */
+  permissionHookPath?: string;
 }
 
 /**
@@ -144,10 +156,17 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     resume: options.resume,
     forkSession: options.forkSession,
     mcpConfig: options.mcpConfig,
+    reasoningEffort: options.reasoningEffort,
+    bare: options.bare,
+    name: options.name,
+    // Default prompt-section exclusion to true for orchestrated instances —
+    // they share similar prompts and benefit from cross-instance cache hits.
+    excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
     // Default Chrome integration to true — matches standalone Claude CLI behavior.
     // The Chrome extension connects via native messaging, so spawned instances
     // can use browser tools if the extension is installed and connected.
     chrome: options.chrome ?? true,
+    permissionHookPath: options.permissionHookPath,
   };
   return new ClaudeCliAdapter(claudeOptions);
 }

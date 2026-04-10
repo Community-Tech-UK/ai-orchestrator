@@ -85,6 +85,8 @@ export interface AdapterRuntimeCapabilities {
   supportsNativeCompaction: boolean;
   /** Supports interactive permission/input-required prompts */
   supportsPermissionPrompts: boolean;
+  /** Supports defer-based permission flow via PreToolUse hooks (Claude CLI 2.1.90+) */
+  supportsDeferPermission: boolean;
 }
 
 /**
@@ -410,6 +412,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       supportsForkSession: false,
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
     };
   }
 

@@ -20,6 +20,7 @@ import type {
 import { MODEL_PRICING, CLAUDE_MODELS } from '../../shared/types/provider.types';
 import type { ContextUsage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
+import { checkClaudeCliAuthentication } from './claude-cli-auth';
 
 export class ClaudeCliProvider extends BaseProvider {
   private adapter: ClaudeCliAdapter | null = null;
@@ -49,11 +50,21 @@ export class ClaudeCliProvider extends BaseProvider {
   async checkStatus(): Promise<ProviderStatus> {
     try {
       const cliInfo = await isCliAvailable('claude');
+      if (!cliInfo.installed) {
+        return {
+          type: 'claude-cli',
+          available: false,
+          authenticated: false,
+          error: 'Claude CLI not found',
+        };
+      }
+
+      const authStatus = await checkClaudeCliAuthentication();
       return {
         type: 'claude-cli',
-        available: cliInfo.installed,
-        authenticated: cliInfo.installed, // CLI handles auth internally
-        error: cliInfo.installed ? undefined : 'Claude CLI not found',
+        available: true,
+        authenticated: authStatus.authenticated,
+        error: authStatus.authenticated ? undefined : authStatus.message,
       };
     } catch (error) {
       return {
