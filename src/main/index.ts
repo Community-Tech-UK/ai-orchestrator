@@ -70,6 +70,7 @@ import { getCritiqueAgent } from './memory/critique-agent';
 import { getKnowledgeGraphService } from './memory/knowledge-graph-service';
 import { getConversationMiner } from './memory/conversation-miner';
 import { getWakeContextBuilder } from './memory/wake-context-builder';
+import { getKnowledgeBridge } from './memory/knowledge-bridge';
 // RLM singletons
 import { getRLMContextManager } from './rlm/context-manager';
 import { getEpisodicRLMStore } from './rlm/episodic-rlm-store';
@@ -428,6 +429,17 @@ class AIOrchestratorApp {
         { name: 'Knowledge graph service', fn: () => { getKnowledgeGraphService(); } },
         { name: 'Conversation miner', fn: () => { getConversationMiner(); } },
         { name: 'Wake context builder', fn: () => { getWakeContextBuilder(); } },
+        { name: 'Knowledge bridge', fn: () => {
+          const bridge = getKnowledgeBridge();
+          const reflector = getReflectorAgent();
+          reflector.on('reflector:reflection-created', (reflection) => {
+            bridge.onReflectionCreated(reflection);
+          });
+          reflector.on('reflector:promoted-to-procedural', (reflection) => {
+            bridge.onPromotedToProcedural(reflection);
+          });
+          logger.info('Knowledge bridge wired to reflector events');
+        } },
 
         // --- RLM (Reinforcement Learning from Memory) ---
         { name: 'RLM context manager', fn: () => { getRLMContextManager(); } },
