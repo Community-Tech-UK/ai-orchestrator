@@ -866,6 +866,27 @@ export const IPC_CHANNELS = {
   REMOTE_FS_SEARCH: 'remote-fs:search',
   REMOTE_FS_WATCH: 'remote-fs:watch',
   REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
+
+  // Knowledge Graph
+  KG_ADD_FACT: 'kg:add-fact',
+  KG_INVALIDATE_FACT: 'kg:invalidate-fact',
+  KG_QUERY_ENTITY: 'kg:query-entity',
+  KG_QUERY_RELATIONSHIP: 'kg:query-relationship',
+  KG_GET_TIMELINE: 'kg:get-timeline',
+  KG_GET_STATS: 'kg:get-stats',
+  KG_ADD_ENTITY: 'kg:add-entity',
+
+  // Conversation Mining
+  CONVO_IMPORT_FILE: 'convo:import-file',
+  CONVO_IMPORT_STRING: 'convo:import-string',
+  CONVO_DETECT_FORMAT: 'convo:detect-format',
+
+  // Wake Context
+  WAKE_GENERATE: 'wake:generate',
+  WAKE_GET_TEXT: 'wake:get-text',
+  WAKE_ADD_HINT: 'wake:add-hint',
+  WAKE_REMOVE_HINT: 'wake:remove-hint',
+  WAKE_SET_IDENTITY: 'wake:set-identity',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
