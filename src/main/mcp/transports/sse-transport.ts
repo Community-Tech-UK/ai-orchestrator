@@ -62,6 +62,8 @@ export class SseTransport extends EventEmitter {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let eventType = 'message';
+    let data = '';
 
     try {
       while (true) {
@@ -71,9 +73,6 @@ export class SseTransport extends EventEmitter {
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
-
-        let eventType = 'message';
-        let data = '';
 
         for (const line of lines) {
           if (line.startsWith('event:')) {
