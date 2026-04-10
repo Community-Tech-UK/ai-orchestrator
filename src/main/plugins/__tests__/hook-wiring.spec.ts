@@ -57,13 +57,8 @@ describe('emitHook', () => {
     const manager = OrchestratorPluginManager.getInstance();
     // Manually inject a cached plugin with a throwing hook
     const throwingHook = vi.fn(() => { throw new Error('Plugin crash!'); });
-    (manager as any).cacheByWorkingDir.set('/tmp/test', {
-      loadedAt: Date.now(),
-      plugins: [{
-        filePath: '/tmp/test/bad-plugin.js',
-        hooks: { 'instance.stateChanged': throwingHook },
-      }],
-      errors: [],
+    OrchestratorPluginManager._injectPluginForTesting(manager, '/tmp/test', {
+      'instance.stateChanged': throwingHook,
     });
 
     // Should not throw
@@ -83,14 +78,9 @@ describe('emitHook', () => {
   it('times out slow plugin hooks after 5 seconds', async () => {
     const manager = OrchestratorPluginManager.getInstance();
     // Inject a plugin with a hook that never resolves
-    const neverResolve = vi.fn(() => new Promise(() => {})); // hangs forever
-    (manager as any).cacheByWorkingDir.set('/tmp/test', {
-      loadedAt: Date.now(),
-      plugins: [{
-        filePath: '/tmp/test/slow-plugin.js',
-        hooks: { 'instance.stateChanged': neverResolve },
-      }],
-      errors: [],
+    const neverResolve = vi.fn(() => new Promise<void>(() => { void 0; /* hangs forever */ }));
+    OrchestratorPluginManager._injectPluginForTesting(manager, '/tmp/test', {
+      'instance.stateChanged': neverResolve,
     });
 
     // Use fake timers to avoid waiting 5 real seconds
@@ -114,15 +104,11 @@ describe('emitHook', () => {
     const hook1 = vi.fn();
     const hook2 = vi.fn();
 
-    (manager as any).cacheByWorkingDir.set('/project-a', {
-      loadedAt: Date.now(),
-      plugins: [{ filePath: '/project-a/plugin.js', hooks: { 'session.created': hook1 } }],
-      errors: [],
+    OrchestratorPluginManager._injectPluginForTesting(manager, '/project-a', {
+      'session.created': hook1,
     });
-    (manager as any).cacheByWorkingDir.set('/project-b', {
-      loadedAt: Date.now(),
-      plugins: [{ filePath: '/project-b/plugin.js', hooks: { 'session.created': hook2 } }],
-      errors: [],
+    OrchestratorPluginManager._injectPluginForTesting(manager, '/project-b', {
+      'session.created': hook2,
     });
 
     await manager.emitHook('session.created', { instanceId: 'i-1', sessionId: 's-1' });

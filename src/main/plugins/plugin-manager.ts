@@ -208,6 +208,20 @@ export class OrchestratorPluginManager {
     OrchestratorPluginManager.instance = null;
   }
 
+  static _injectPluginForTesting(
+    instance: OrchestratorPluginManager,
+    workingDirectory: string,
+    hooks: TypedOrchestratorHooks,
+  ): void {
+    const entry = instance.cacheByWorkingDir.get(workingDirectory) ?? {
+      loadedAt: Date.now(),
+      plugins: [],
+      errors: [],
+    };
+    entry.plugins.push({ filePath: 'test-plugin.js', hooks });
+    instance.cacheByWorkingDir.set(workingDirectory, entry);
+  }
+
   private getHomeDir(): string | null {
     try {
       return app.getPath('home');
@@ -361,15 +375,18 @@ export class OrchestratorPluginManager {
         try {
           const result = hook(payload);
           if (result instanceof Promise) {
-            await Promise.race([
-              result,
-              new Promise<never>((_, reject) =>
-                setTimeout(
-                  () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
-                  OrchestratorPluginManager.HOOK_TIMEOUT_MS,
-                ),
-              ),
-            ]);
+            let timeoutId: ReturnType<typeof setTimeout>;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
+                OrchestratorPluginManager.HOOK_TIMEOUT_MS,
+              );
+            });
+            try {
+              await Promise.race([result, timeoutPromise]);
+            } finally {
+              clearTimeout(timeoutId!);
+            }
           }
         } catch (err) {
           logger.warn(`Plugin hook error [${plugin.filePath}:${String(event)}]: ${err instanceof Error ? err.message : String(err)}`);
