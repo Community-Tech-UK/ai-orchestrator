@@ -339,6 +339,45 @@ export class OrchestratorPluginManager {
     this.cacheByWorkingDir.delete(workingDirectory);
   }
 
+  private static readonly HOOK_TIMEOUT_MS = 5_000;
+
+  /**
+   * Public method for core subsystems to emit plugin hook events.
+   * Unlike the private `emitToPlugins`, this doesn't require a working directory
+   * or context — it broadcasts to ALL cached plugin instances.
+   *
+   * Each hook call is wrapped with try/catch and a timeout to prevent
+   * misbehaving plugins from crashing or blocking the host.
+   */
+  async emitHook<K extends PluginHookEvent>(
+    event: K,
+    payload: PluginHookPayloads[K],
+  ): Promise<void> {
+    // Broadcast to all cached working directories
+    for (const [, entry] of this.cacheByWorkingDir) {
+      for (const plugin of entry.plugins) {
+        const hook = plugin.hooks[event];
+        if (!hook) continue;
+        try {
+          const result = hook(payload);
+          if (result instanceof Promise) {
+            await Promise.race([
+              result,
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
+                  OrchestratorPluginManager.HOOK_TIMEOUT_MS,
+                ),
+              ),
+            ]);
+          }
+        } catch (err) {
+          logger.warn(`Plugin hook error [${plugin.filePath}:${String(event)}]: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+  }
+
   private async emitToPlugins<K extends PluginHookEvent>(
     workingDirectory: string,
     ctx: OrchestratorPluginContext,
