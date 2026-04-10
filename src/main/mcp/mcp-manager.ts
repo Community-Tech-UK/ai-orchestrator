@@ -13,6 +13,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { getLogger } from '../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../security/env-filter';
 import { registerCleanup } from '../util/cleanup-registry';
+import { SseTransport } from './transports/sse-transport';
 
 const logger = getLogger('McpManager');
 import {
@@ -71,6 +72,7 @@ export interface McpManagerEvents {
 interface ServerConnection {
   config: McpServerConfig;
   process?: ChildProcess;
+  sseTransport?: SseTransport;
   requestId: number;
   pendingRequests: Map<number, {
     resolve: (value: unknown) => void;
@@ -172,6 +174,8 @@ export class McpManager extends EventEmitter {
     try {
       if (connection.config.transport === 'stdio') {
         await this.connectStdio(connection);
+      } else if (connection.config.transport === 'sse') {
+        await this.connectSse(connection);
       } else {
         throw new Error(`Transport ${connection.config.transport} not yet implemented`);
       }
@@ -201,10 +205,16 @@ export class McpManager extends EventEmitter {
       return;
     }
 
-    // Kill the process
+    // Kill the process (stdio transport)
     if (connection.process) {
       connection.process.kill();
       connection.process = undefined;
+    }
+
+    // Disconnect SSE transport
+    if (connection.sseTransport) {
+      connection.sseTransport.disconnect();
+      connection.sseTransport = undefined;
     }
 
     // Reject pending requests
@@ -445,6 +455,48 @@ export class McpManager extends EventEmitter {
   }
 
   /**
+   * Connect via SSE transport
+   */
+  private async connectSse(connection: ServerConnection): Promise<void> {
+    if (!connection.config.url) {
+      throw new Error('SSE transport requires a url in the config');
+    }
+
+    const transport = new SseTransport({
+      url: connection.config.url,
+      headers: connection.config.headers,
+    });
+
+    transport.on('message', (msg: unknown) => {
+      this.handleSseMessage(connection, msg);
+    });
+
+    transport.on('disconnected', () => {
+      if (connection.config.status === 'connected') {
+        connection.config.status = 'disconnected';
+        this.emit('server:disconnected', connection.config.id);
+      }
+    });
+
+    transport.on('error', (err: Error) => {
+      connection.config.status = 'error';
+      connection.config.error = err.message;
+      this.emit('server:error', connection.config.id, err.message);
+    });
+
+    await transport.connect();
+    connection.sseTransport = transport;
+  }
+
+  /**
+   * Handle a JSON-RPC message received via SSE transport
+   */
+  private handleSseMessage(connection: ServerConnection, msg: unknown): void {
+    const message = msg as JsonRpcResponse | JsonRpcNotification;
+    this.handleMessage(connection, message);
+  }
+
+  /**
    * Handle stdout data from stdio transport
    */
   private handleStdoutData(connection: ServerConnection, data: Buffer): void {
@@ -543,8 +595,13 @@ export class McpManager extends EventEmitter {
 
       connection.pendingRequests.set(id, { resolve, reject });
 
-      // Send to process stdin
-      if (connection.process?.stdin) {
+      // Send via the appropriate transport
+      if (connection.sseTransport) {
+        connection.sseTransport.send(request).catch(err => {
+          connection.pendingRequests.delete(id);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
+      } else if (connection.process?.stdin) {
         connection.process.stdin.write(JSON.stringify(request) + '\n');
       } else {
         reject(new Error('Process not connected'));
@@ -586,11 +643,13 @@ export class McpManager extends EventEmitter {
     connection.config.capabilities = initResult.capabilities;
 
     // Send initialized notification
-    if (connection.process?.stdin) {
-      const notification: JsonRpcNotification = {
-        jsonrpc: '2.0',
-        method: 'notifications/initialized',
-      };
+    const notification: JsonRpcNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    };
+    if (connection.sseTransport) {
+      await connection.sseTransport.send(notification);
+    } else if (connection.process?.stdin) {
       connection.process.stdin.write(JSON.stringify(notification) + '\n');
     }
   }

@@ -20,6 +20,7 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   // For http/sse transport
   url?: string;
+  headers?: Record<string, string>;
   // Authentication
   auth?: McpAuthConfig;
   // Auto-connect on startup
