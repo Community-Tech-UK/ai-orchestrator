@@ -169,9 +169,18 @@ export type OrchestratorPluginModule =
   | OrchestratorHooks
   | ((ctx: OrchestratorPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
 
+interface PluginManifest {
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  hooks?: string[];
+}
+
 interface LoadedPlugin {
   filePath: string;
   hooks: TypedOrchestratorHooks;
+  manifest?: PluginManifest;
 }
 
 interface CacheEntry {
@@ -272,7 +281,24 @@ export class OrchestratorPluginManager {
           const mod = await this.loadModule(filePath);
           const hooks: OrchestratorHooks =
             typeof mod === 'function' ? await mod(ctx) : (mod || {});
-          plugins.push({ filePath, hooks });
+          let manifest: PluginManifest | undefined;
+          const manifestPath = path.join(path.dirname(filePath), 'plugin.json');
+          try {
+            const manifestRaw = await fs.readFile(manifestPath, 'utf-8');
+            const parsed = JSON.parse(manifestRaw);
+            if (typeof parsed.name === 'string' && typeof parsed.version === 'string') {
+              manifest = {
+                name: parsed.name,
+                version: parsed.version,
+                description: typeof parsed.description === 'string' ? parsed.description : undefined,
+                author: typeof parsed.author === 'string' ? parsed.author : undefined,
+                hooks: Array.isArray(parsed.hooks) ? parsed.hooks.filter((h: unknown) => typeof h === 'string') : undefined,
+              };
+            }
+          } catch {
+            // No manifest or invalid — that's fine, it's optional
+          }
+          plugins.push({ filePath, hooks, manifest });
         } catch (e) {
           errors.push({ filePath, error: e instanceof Error ? e.message : String(e) });
         }
@@ -292,7 +318,7 @@ export class OrchestratorPluginManager {
   }
 
   async listPlugins(workingDirectory: string, instanceManager: InstanceManager): Promise<{
-    plugins: { filePath: string; hookKeys: string[] }[];
+    plugins: { filePath: string; hookKeys: string[]; manifest?: PluginManifest }[];
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   }> {
@@ -300,7 +326,7 @@ export class OrchestratorPluginManager {
     const plugins = await this.getPlugins(workingDirectory, ctx);
     const errors = this.cacheByWorkingDir.get(workingDirectory)?.errors || [];
     const list = plugins
-      .map((p) => ({ filePath: p.filePath, hookKeys: Object.keys(p.hooks || {}).sort() }))
+      .map((p) => ({ filePath: p.filePath, hookKeys: Object.keys(p.hooks || {}).sort(), manifest: p.manifest }))
       .sort((a, b) => a.filePath.localeCompare(b.filePath));
     return { plugins: list, scanDirs: this.getPluginDirs(workingDirectory), errors: errors.slice() };
   }
