@@ -101,6 +101,7 @@ export const MEMORY_CHANNELS = {
   WAKE_ADD_HINT: 'wake:add-hint',
   WAKE_REMOVE_HINT: 'wake:remove-hint',
   WAKE_SET_IDENTITY: 'wake:set-identity',
+  WAKE_LIST_HINTS: 'wake:list-hints',
 
   // Codebase Mining operations
   CODEBASE_MINE_DIRECTORY: 'codebase:mine-directory',

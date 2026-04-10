@@ -605,6 +605,11 @@ export class MemoryIpcService {
     return this.api.wakeSetIdentity(payload);
   }
 
+  async wakeListHints(payload: { room?: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.wakeListHints(payload);
+  }
+
   // ============================================
   // Codebase Mining
   // ============================================

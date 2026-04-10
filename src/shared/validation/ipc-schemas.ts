@@ -377,6 +377,19 @@ const MemoryManagerDecisionSchema = z.object({
   reasoning: z.string().min(1).max(10_000),
 });
 
+const KGTripleSchema = z.object({
+  id: z.string().min(1).max(200),
+  subject: z.string().min(1).max(500),
+  predicate: z.string().min(1).max(200),
+  object: z.string().min(1).max(1000),
+  validFrom: z.string().min(1).max(100).nullable(),
+  validTo: z.string().min(1).max(100).nullable(),
+  confidence: z.number().min(0).max(1),
+  sourceCloset: z.string().min(1).max(200).nullable(),
+  sourceFile: z.string().min(1).max(4000).nullable(),
+  extractedAt: z.number().int().nonnegative(),
+});
+
 const MemoryEntrySchema = z.object({
   id: z.string().min(1).max(200),
   content: z.string().min(1).max(1_000_000),
@@ -392,6 +405,7 @@ const MemoryEntrySchema = z.object({
   confidenceScore: z.number().min(0).max(1),
   linkedEntries: z.array(z.string().min(1).max(200)).max(200),
   tags: z.array(z.string().max(200)).max(200),
+  entityTriples: z.array(KGTripleSchema).max(1000).optional(),
   expiresAt: z.number().int().nonnegative().optional(),
   isArchived: z.boolean(),
 });
@@ -2225,6 +2239,10 @@ export const WakeRemoveHintPayloadSchema = z.object({
 
 export const WakeSetIdentityPayloadSchema = z.object({
   text: z.string().min(1).max(500),
+});
+
+export const WakeListHintsPayloadSchema = z.object({
+  room: z.string().optional(),
 });
 
 // ============ Codebase Mining Schemas ============

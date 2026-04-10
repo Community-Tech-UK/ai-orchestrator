@@ -133,6 +133,20 @@ export class WakeContextBuilder extends EventEmitter {
     this.invalidateCache();
   }
 
+  listHints(room?: string): WakeHint[] {
+    const rows = room
+      ? this.db.prepare(`
+          SELECT * FROM wake_hints
+          WHERE room = ? OR room = 'general'
+          ORDER BY importance DESC, created_at DESC
+        `).all(room) as WakeHintRow[]
+      : this.db.prepare(`
+          SELECT * FROM wake_hints
+          ORDER BY importance DESC, created_at DESC
+        `).all() as WakeHintRow[];
+    return rows.map(rowToHint);
+  }
+
   // ============ Essential Story (L1) ============
 
   private generateL1(wing?: string): ContextLayer {

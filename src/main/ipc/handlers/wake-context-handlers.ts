@@ -8,6 +8,7 @@ import {
   WakeAddHintPayloadSchema,
   WakeRemoveHintPayloadSchema,
   WakeSetIdentityPayloadSchema,
+  WakeListHintsPayloadSchema,
 } from '../../../shared/validation/ipc-schemas';
 
 const logger = getLogger('WakeContextHandlers');
@@ -117,6 +118,27 @@ export function registerWakeContextHandlers(): void {
           success: false,
           error: {
             code: 'WAKE_SET_IDENTITY_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WAKE_LIST_HINTS,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = WakeListHintsPayloadSchema.parse(payload);
+        const hints = builder.listHints(data.room);
+        return { success: true, data: hints };
+      } catch (error) {
+        logger.error('WAKE_LIST_HINTS failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'WAKE_LIST_HINTS_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

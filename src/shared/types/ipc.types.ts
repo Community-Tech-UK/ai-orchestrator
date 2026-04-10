@@ -867,6 +867,18 @@ export const IPC_CHANNELS = {
   REMOTE_FS_WATCH: 'remote-fs:watch',
   REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
 
+  // File transfer (coordinator <-> remote node)
+  REMOTE_FS_COPY_TO_REMOTE: 'remote-fs:copy-to-remote',
+  REMOTE_FS_COPY_FROM_REMOTE: 'remote-fs:copy-from-remote',
+  REMOTE_FS_READ_FILE: 'remote-fs:read-file',
+  REMOTE_FS_WRITE_FILE: 'remote-fs:write-file',
+
+  // Directory sync (rsync-style)
+  REMOTE_FS_SYNC_START: 'remote-fs:sync-start',
+  REMOTE_FS_SYNC_PROGRESS: 'remote-fs:sync-progress',
+  REMOTE_FS_SYNC_CANCEL: 'remote-fs:sync-cancel',
+  REMOTE_FS_SYNC_DIFF: 'remote-fs:sync-diff',
+
   // Knowledge Graph
   KG_ADD_FACT: 'kg:add-fact',
   KG_INVALIDATE_FACT: 'kg:invalidate-fact',
@@ -887,6 +899,7 @@ export const IPC_CHANNELS = {
   WAKE_ADD_HINT: 'wake:add-hint',
   WAKE_REMOVE_HINT: 'wake:remove-hint',
   WAKE_SET_IDENTITY: 'wake:set-identity',
+  WAKE_LIST_HINTS: 'wake:list-hints',
 
   // Codebase Mining
   CODEBASE_MINE_DIRECTORY: 'codebase:mine-directory',
@@ -897,7 +910,7 @@ export const IPC_CHANNELS = {
   KG_EVENT_FACT_INVALIDATED: 'kg:event:fact-invalidated',
   CONVO_EVENT_IMPORT_COMPLETE: 'convo:event:import-complete',
   WAKE_EVENT_HINT_ADDED: 'wake:event:hint-added',
-  WAKE_EVENT_CONTEXT_GENERATED: 'wake:event:context-generated',
+  WAKE_EVENT_CONTEXT_GENERATED: 'wake:event:context-generated'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -1171,5 +1184,5 @@ export type {
   ChannelSendMessagePayload,
   ChannelPairSenderPayload,
   ChannelSetAccessPolicyPayload,
-  ChannelGetAccessPolicyPayload,
+  ChannelGetAccessPolicyPayload
 } from '@contracts/types';

@@ -629,6 +629,9 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
     wakeSetIdentity: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.WAKE_SET_IDENTITY, payload),
 
+    wakeListHints: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.WAKE_LIST_HINTS, payload),
+
     // Codebase Mining
     codebaseMineDirectory: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CODEBASE_MINE_DIRECTORY, payload),
@@ -636,7 +639,7 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
       ipcRenderer.invoke(ch.CODEBASE_GET_STATUS, payload),
 
     // ============================================
-    // Knowledge Event Listeners (main → renderer)
+    // Knowledge Event Listeners (main -> renderer)
     // ============================================
 
     onKgFactAdded: (callback: (data: unknown) => void): (() => void) => {
