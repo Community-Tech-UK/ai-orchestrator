@@ -35,6 +35,7 @@ import type {
   PluginRecord,
   TypedOrchestratorHooks,
 } from '../../shared/types/plugin.types';
+import type { PluginManifest } from '@sdk/plugins';
 
 const logger = getLogger('PluginManager');
 
@@ -158,6 +159,44 @@ function toVerificationErrorPayload(
   };
 }
 
+export function validateManifest(
+  manifest: unknown,
+): { valid: true; manifest: PluginManifest } | { valid: false; errors: string[] } {
+  if (typeof manifest !== 'object' || manifest === null) {
+    return { valid: false, errors: ['Manifest must be an object'] };
+  }
+
+  const errors: string[] = [];
+  const m = manifest as Record<string, unknown>;
+
+  if (typeof m['name'] !== 'string' || m['name'].length === 0) {
+    errors.push('Missing or empty "name" field');
+  }
+  if (typeof m['version'] !== 'string' || m['version'].length === 0) {
+    errors.push('Missing or empty "version" field');
+  }
+  if (m['hooks'] !== undefined && !Array.isArray(m['hooks'])) {
+    errors.push('"hooks" must be an array of strings');
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  return {
+    valid: true,
+    manifest: {
+      name: m['name'] as string,
+      version: m['version'] as string,
+      description: typeof m['description'] === 'string' ? m['description'] : undefined,
+      author: typeof m['author'] === 'string' ? m['author'] : undefined,
+      hooks: Array.isArray(m['hooks'])
+        ? m['hooks'].filter((h: unknown) => typeof h === 'string')
+        : undefined,
+    },
+  };
+}
+
 export interface OrchestratorPluginContext {
   instanceManager: InstanceManager;
   appPath: string;
@@ -168,14 +207,6 @@ export type OrchestratorHooks = TypedOrchestratorHooks;
 export type OrchestratorPluginModule =
   | OrchestratorHooks
   | ((ctx: OrchestratorPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
-
-interface PluginManifest {
-  name: string;
-  version: string;
-  description?: string;
-  author?: string;
-  hooks?: string[];
-}
 
 interface LoadedPlugin {
   filePath: string;
@@ -299,18 +330,16 @@ export class OrchestratorPluginManager {
           const manifestPath = path.join(path.dirname(filePath), 'plugin.json');
           try {
             const manifestRaw = await fs.readFile(manifestPath, 'utf-8');
-            const parsed = JSON.parse(manifestRaw);
-            if (typeof parsed.name === 'string' && typeof parsed.version === 'string') {
-              manifest = {
-                name: parsed.name,
-                version: parsed.version,
-                description: typeof parsed.description === 'string' ? parsed.description : undefined,
-                author: typeof parsed.author === 'string' ? parsed.author : undefined,
-                hooks: Array.isArray(parsed.hooks) ? parsed.hooks.filter((h: unknown) => typeof h === 'string') : undefined,
-              };
+            const parsed: unknown = JSON.parse(manifestRaw);
+            const result = validateManifest(parsed);
+            if (result.valid) {
+              manifest = result.manifest;
+            } else {
+              logger.warn(`Invalid plugin manifest at ${manifestPath}: ${result.errors.join(', ')}`);
+              errors.push({ filePath: manifestPath, error: `Invalid manifest: ${result.errors.join(', ')}` });
             }
           } catch {
-            // No manifest or invalid — that's fine, it's optional
+            // No manifest or unreadable — that's fine, it's optional
           }
           plugins.push({ filePath, hooks, manifest });
         } catch (e) {

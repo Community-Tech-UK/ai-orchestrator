@@ -123,3 +123,15 @@ export interface SdkPluginContext {
 export type SdkPluginModule =
   | OrchestratorHooks
   | ((ctx: SdkPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
+
+/** Manifest schema for plugin.json — validated on load */
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  hooks?: string[];
+  config?: {
+    schema: Record<string, unknown>; // JSON Schema for plugin config
+  };
+}
