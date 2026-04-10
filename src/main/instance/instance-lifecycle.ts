@@ -28,6 +28,7 @@ import {
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
+import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { getSupervisorTree } from '../process';
 import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
 import { getAgentRegistry } from '../agents/agent-registry';
@@ -893,6 +894,23 @@ export class InstanceLifecycleManager extends EventEmitter {
           }
         } catch (err) {
           logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
+        }
+
+        // Inject wake-up context (mempalace L0 identity + L1 essential story)
+        if (instance.depth === 0) {
+          try {
+            const wakeText = getWakeContextBuilder().getWakeUpText(instance.workingDirectory);
+            if (wakeText && wakeText.trim().length > 30) {
+              systemPrompt = `${wakeText}\n\n---\n\n${systemPrompt}`;
+              logger.info('Injected wake-up context into system prompt', {
+                tokenEstimate: Math.ceil(wakeText.length / 4),
+              });
+            }
+          } catch (err) {
+            logger.warn('Failed to inject wake context', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
 
         // Append tool permission clarification to prevent models from hallucinating
