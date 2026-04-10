@@ -72,7 +72,7 @@ import { getAutoTitleService } from './auto-title-service';
 import { ToolListFilter } from '../tools/tool-list-filter';
 import type { DenyRule } from '../tools/tool-list-filter';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
-import { getDeferPermissionHookPath } from '../cli/hooks/hook-path-resolver';
+import { ensureHookScript } from '../cli/hooks/hook-path-resolver';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
@@ -278,7 +278,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   private getPermissionHookPath(yoloMode: boolean): string | undefined {
     if (yoloMode) return undefined;
     try {
-      return getDeferPermissionHookPath();
+      return ensureHookScript();
     } catch (err) {
       logger.warn('Failed to resolve defer permission hook path, skipping', {
         error: err instanceof Error ? err.message : String(err),
@@ -390,10 +390,17 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private transitionState(instance: Instance, newState: InstanceStatus): void {
+    const previousStatus = instance.status;
     const sm = this.deps.getStateMachine?.(instance.id);
     if (!sm) {
       // Legacy/unknown instance — fall back to direct assignment.
       instance.status = newState;
+      this.emit('state-update', {
+        instanceId: instance.id,
+        status: instance.status,
+        previousStatus,
+        timestamp: Date.now(),
+      });
       return;
     }
 
@@ -407,6 +414,12 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
     }
     instance.status = newState;
+    this.emit('state-update', {
+      instanceId: instance.id,
+      status: instance.status,
+      previousStatus,
+      timestamp: Date.now(),
+    });
   }
 
   private getAdapterRuntimeCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {
@@ -1288,7 +1301,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
           if (transcript.length > 100) {
             const wing = instance.workingDirectory || 'default';
-            const sourceFile = `session://${instance.id}`;
+            const sourceFile = `session://${instance.id}/terminate`;
             getConversationMiner().importFromString(transcript, {
               wing,
               sourceFile,
@@ -1436,7 +1449,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
           if (transcript.length > 100) {
             const wing = instance.workingDirectory || 'default';
-            const sourceFile = `session://${instanceId}`;
+            const sourceFile = `session://${instanceId}/hibernate`;
             getConversationMiner().importFromString(transcript, {
               wing,
               sourceFile,
