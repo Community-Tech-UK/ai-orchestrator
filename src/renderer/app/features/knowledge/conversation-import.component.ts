@@ -1,12 +1,21 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
+
+interface ImportResult {
+  segmentsCreated: number;
+  filesProcessed: number;
+  formatDetected: string;
+  errors: string[];
+  duration: number;
+}
 
 @Component({
   selector: 'app-conversation-import',
@@ -18,38 +27,30 @@ import { KnowledgeStore } from '../../core/state/knowledge.store';
       <div class="panel-card">
         <div class="panel-title">Import Conversation</div>
 
-        <!-- Mode Toggle -->
         <div class="mode-toggle">
-          <button class="toggle-btn" type="button"
-            [class.active]="mode() === 'text'"
-            (click)="mode.set('text')">
+          <button class="toggle-btn" type="button" [class.active]="mode() === 'text'" (click)="mode.set('text')">
             Paste Text
           </button>
-          <button class="toggle-btn" type="button"
-            [class.active]="mode() === 'file'"
-            (click)="mode.set('file')">
+          <button class="toggle-btn" type="button" [class.active]="mode() === 'file'" (click)="mode.set('file')">
             File Path
           </button>
         </div>
 
-        <!-- Common: Wing -->
         <label class="field">
           <span class="label">Wing (project namespace)</span>
-          <input class="input" type="text" [(ngModel)]="wing"
-            placeholder="e.g. my_project" />
+          <input class="input" type="text" [(ngModel)]="wing" placeholder="e.g. my_project" />
         </label>
 
         @if (mode() === 'text') {
-          <!-- Text Mode -->
           <label class="field">
             <span class="label">Source Name</span>
-            <input class="input" type="text" [(ngModel)]="sourceName"
-              placeholder="e.g. planning-session.txt" />
+            <input class="input" type="text" [(ngModel)]="sourceName" placeholder="e.g. planning-session.txt" />
           </label>
 
           <label class="field">
             <span class="label">Conversation Content</span>
-            <textarea class="input textarea"
+            <textarea
+              class="input textarea"
               [(ngModel)]="textContent"
               rows="8"
               placeholder="Paste conversation here...
@@ -72,7 +73,7 @@ Answer 2"
             <span class="label">Format (optional override)</span>
             <select class="input" [(ngModel)]="formatOverride">
               <option value="">Auto-detect</option>
-              <option value="plain-text">Plain Text (Q&amp;A)</option>
+              <option value="plain-text">Plain Text (Q&A)</option>
               <option value="claude-code-jsonl">Claude Code JSONL</option>
               <option value="codex-jsonl">Codex JSONL</option>
               <option value="claude-ai-json">Claude.ai JSON</option>
@@ -81,22 +82,26 @@ Answer 2"
             </select>
           </label>
 
-          <button class="btn primary" type="button"
+          <button
+            class="btn primary"
+            type="button"
             [disabled]="!textContent().trim() || !wing().trim() || !sourceName().trim() || store.loading()"
-            (click)="importText()">
+            (click)="importText()"
+          >
             Import Text
           </button>
         } @else {
-          <!-- File Mode -->
           <label class="field">
             <span class="label">File Path (absolute)</span>
-            <input class="input" type="text" [(ngModel)]="filePath"
-              placeholder="/path/to/conversation.jsonl" />
+            <input class="input" type="text" [(ngModel)]="filePath" placeholder="/path/to/conversation.jsonl" />
           </label>
 
-          <button class="btn primary" type="button"
+          <button
+            class="btn primary"
+            type="button"
             [disabled]="!filePath().trim() || !wing().trim() || store.loading()"
-            (click)="importFile()">
+            (click)="importFile()"
+          >
             Import File
           </button>
         }
@@ -105,15 +110,16 @@ Answer 2"
           <div class="hint">Importing...</div>
         }
 
-        @if (lastResult()) {
+        @if (lastResult(); as result) {
           <div class="result-card">
             <div class="panel-title">Import Result</div>
-            <div class="stat-row"><span>Segments</span><span class="num">{{ lastResult()!.segmentsCreated }}</span></div>
-            <div class="stat-row"><span>Format</span><span>{{ lastResult()!.formatDetected }}</span></div>
-            <div class="stat-row"><span>Duration</span><span>{{ lastResult()!.duration }}ms</span></div>
-            @if (lastResult()!.errors.length > 0) {
+            <div class="stat-row"><span>Segments</span><span class="num">{{ result.segmentsCreated }}</span></div>
+            <div class="stat-row"><span>Files</span><span class="num">{{ result.filesProcessed }}</span></div>
+            <div class="stat-row"><span>Format</span><span>{{ result.formatDetected }}</span></div>
+            <div class="stat-row"><span>Duration</span><span>{{ result.duration }}ms</span></div>
+            @if (result.errors.length > 0) {
               <div class="error-list">
-                @for (err of lastResult()!.errors; track $index) {
+                @for (err of result.errors; track $index) {
                   <div class="error-line">{{ err }}</div>
                 }
               </div>
@@ -122,15 +128,14 @@ Answer 2"
         }
       </div>
 
-      <!-- Recent Imports Feed -->
       @if (store.importEvents().length > 0) {
         <div class="panel-card">
           <div class="panel-title">Recent Imports</div>
           <ul class="list compact">
-            @for (evt of store.importEvents(); track $index) {
+            @for (event of store.importEvents(); track $index) {
               <li>
-                <span class="mono small">{{ evt.sourceFile }}</span>
-                <span class="muted">{{ evt.segmentsCreated }} segments ({{ evt.format }})</span>
+                <span class="mono small">{{ event.sourceFile }}</span>
+                <span class="muted">{{ event.segmentsCreated }} segments ({{ event.format }})</span>
               </li>
             }
           </ul>
@@ -323,7 +328,7 @@ Answer 2"
     }
   `],
 })
-export class ConversationImportComponent {
+export class ConversationImportComponent implements OnDestroy {
   protected store = inject(KnowledgeStore);
 
   protected mode = signal<'text' | 'file'>('text');
@@ -333,24 +338,27 @@ export class ConversationImportComponent {
   protected formatOverride = signal('');
   protected filePath = signal('');
   protected detectedFormat = signal('');
-  protected lastResult = signal<{
-    segmentsCreated: number;
-    filesProcessed: number;
-    formatDetected: string;
-    errors: string[];
-    duration: number;
-  } | null>(null);
+  protected lastResult = signal<ImportResult | null>(null);
 
   private detectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  ngOnDestroy(): void {
+    if (this.detectTimeout) {
+      clearTimeout(this.detectTimeout);
+    }
+  }
 
   onTextChange(): void {
     const content = this.textContent().trim();
     if (content.length < 20) {
       this.detectedFormat.set('');
+      if (this.detectTimeout) {
+        clearTimeout(this.detectTimeout);
+        this.detectTimeout = null;
+      }
       return;
     }
 
-    // Debounce format detection
     if (this.detectTimeout) {
       clearTimeout(this.detectTimeout);
     }
@@ -362,12 +370,18 @@ export class ConversationImportComponent {
 
   async importText(): Promise<void> {
     const content = this.textContent().trim();
-    const wingVal = this.wing().trim();
+    const wingValue = this.wing().trim();
     const sourceFile = this.sourceName().trim();
-    if (!content || !wingVal || !sourceFile) return;
+    if (!content || !wingValue || !sourceFile) {
+      return;
+    }
 
-    const format = this.formatOverride() || undefined;
-    const result = await this.store.importConversationString(content, wingVal, sourceFile, format);
+    const result = await this.store.importConversationString(
+      content,
+      wingValue,
+      sourceFile,
+      this.formatOverride() || undefined,
+    );
     if (result) {
       this.lastResult.set(result);
       this.textContent.set('');
@@ -377,10 +391,12 @@ export class ConversationImportComponent {
 
   async importFile(): Promise<void> {
     const path = this.filePath().trim();
-    const wingVal = this.wing().trim();
-    if (!path || !wingVal) return;
+    const wingValue = this.wing().trim();
+    if (!path || !wingValue) {
+      return;
+    }
 
-    const result = await this.store.importConversationFile(path, wingVal);
+    const result = await this.store.importConversationFile(path, wingValue);
     if (result) {
       this.lastResult.set(result);
       this.filePath.set('');

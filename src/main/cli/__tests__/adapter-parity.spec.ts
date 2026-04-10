@@ -42,6 +42,13 @@ const AVAILABLE_GEMINI_STATUS: CliStatus = {
   version: '1.0.0',
 };
 
+const AVAILABLE_CLAUDE_STATUS: CliStatus = {
+  available: true,
+  authenticated: true,
+  path: 'claude',
+  version: '1.0.0',
+};
+
 const FIXTURES: AdapterFixture[] = [
   {
     name: 'ClaudeCliAdapter',
@@ -130,7 +137,11 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
   });
 
   it('rejects cleanly when the child exits non-zero during sendMessage()', async () => {
-    vi.spyOn(
+    if (adapter instanceof ClaudeCliAdapter) {
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue(AVAILABLE_CLAUDE_STATUS);
+    }
+
+    const spawnProcessSpy = vi.spyOn(
       adapter as unknown as { spawnProcess: (args: string[]) => ChildProcess },
       'spawnProcess',
     ).mockImplementation(() => harness.createProcess() as unknown as ChildProcess);
@@ -140,6 +151,8 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
       content: 'hello',
     });
 
+    await Promise.resolve();
+    expect(spawnProcessSpy).toHaveBeenCalled();
     harness.crash(137);
     await expect(sendPromise).rejects.toThrow(/137/);
   });

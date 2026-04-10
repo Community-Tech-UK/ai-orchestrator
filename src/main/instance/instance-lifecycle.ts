@@ -840,6 +840,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     logger.debug('Emitting instance:created event (initializing)', { instanceId: instance.id });
     this.emit('created', this.deps.serializeForIpc(instance));
 
+    // Initial prompts never flow through InstanceManager.sendInput(), so kick
+    // off title generation here before the background spawn/send pipeline.
+    if (typeof config.initialPrompt === 'string' && config.initialPrompt.trim().length > 0) {
+      this.triggerAutoTitle(instance, config.initialPrompt);
+    }
+
     // =========================================================================
     // Phase 2: heavy async init runs in the background.
     // All callers that need the instance to be fully ready must await
@@ -1082,7 +1088,6 @@ export class InstanceLifecycleManager extends EventEmitter {
               this.emit('output', { instanceId: instance.id, message: initialUserMessage });
             }
             try {
-              this.triggerAutoTitle(instance, initialUserMessage.content);
               await adapter.sendInput(initialUserMessage.content, config.attachments);
             } catch (error) {
               this.transitionState(instance, 'failed');
@@ -1163,7 +1168,6 @@ export class InstanceLifecycleManager extends EventEmitter {
                 this.deps.addToOutputBuffer(instance, initialUserMessage);
                 this.emit('output', { instanceId: instance.id, message: initialUserMessage });
               }
-              this.triggerAutoTitle(instance, initialUserMessage.content);
               await adapter.sendInput(initialUserMessage.content, config.attachments);
             }
           } catch (error) {

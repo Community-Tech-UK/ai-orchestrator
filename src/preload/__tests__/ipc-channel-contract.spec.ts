@@ -12,7 +12,10 @@ import * as path from 'path';
 const ROOT = path.resolve(__dirname, '../../..');
 
 const CONTRACTS_INDEX_PATH = path.join(ROOT, 'packages/contracts/src/channels/index.ts');
-const PRELOAD_PATH = path.join(ROOT, 'src/preload/preload.ts');
+const GENERATED_PRELOAD_CHANNELS_PATH = path.join(
+  ROOT,
+  'src/preload/generated/channels.ts',
+);
 
 function getContractsChannelFiles(indexPath: string): string[] {
   const content = fs.readFileSync(indexPath, 'utf-8');
@@ -70,8 +73,9 @@ function extractContractsChannels(indexPath: string): Map<string, string> {
 }
 
 /**
- * Extract channel name→value pairs from a TypeScript file containing IPC_CHANNELS.
- * Uses the same IPC object parsing approach as the verify script.
+ * Extract channel name→value pairs from a generated TypeScript file containing
+ * the preload IPC_CHANNELS object. Uses the same IPC object parsing approach as
+ * the verify script.
  */
 function extractChannels(filePath: string): Map<string, string> {
   const content = fs.readFileSync(filePath, 'utf-8');
@@ -105,7 +109,7 @@ function extractChannels(filePath: string): Map<string, string> {
 
 describe('IPC Channel Contract', () => {
   const sharedChannels = extractContractsChannels(CONTRACTS_INDEX_PATH);
-  const preloadChannels = extractChannels(PRELOAD_PATH);
+  const preloadChannels = extractChannels(GENERATED_PRELOAD_CHANNELS_PATH);
 
   it('should have channels defined in both files', () => {
     expect(sharedChannels.size).toBeGreaterThan(0);

@@ -16,7 +16,7 @@ export interface CliStreamMessageBase {
 export interface CliAssistantMessage extends CliStreamMessageBase {
   type: 'assistant';
   content: string;
-  stop_reason?: 'end_turn' | 'tool_use' | 'max_tokens';
+  stop_reason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'tool_deferred';
 }
 
 /**
@@ -70,6 +70,12 @@ export interface CliResultMessage extends CliStreamMessageBase {
   cost_usd?: number;
   duration_ms?: number;
   num_turns?: number;
+  stop_reason?: 'end_turn' | 'tool_use' | 'max_tokens' | 'tool_deferred';
+  deferred_tool_use?: {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+  };
 }
 
 /**

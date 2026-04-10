@@ -590,6 +590,10 @@ export class RLMDatabase extends EventEmitter {
   getRawDb(): Database.Database {
     return this.db;
   }
+
+  getDb(): Database.Database {
+    return this.db;
+  }
 }
 
 // Export singleton getter

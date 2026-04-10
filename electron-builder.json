@@ -20,6 +20,11 @@
       "from": "config",
       "to": "config",
       "filter": ["**/*"]
+    },
+    {
+      "from": "src/main/cli/hooks",
+      "to": "hooks",
+      "filter": ["*.mjs"]
     }
   ],
   "mac": {

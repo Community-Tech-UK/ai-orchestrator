@@ -6,6 +6,8 @@
  * when to remember, update, or forget through trial and error.
  */
 
+import type { KGTriple } from './knowledge-graph.types';
+
 // ============ Core Operations ============
 
 export type MemoryOperation = 'ADD' | 'UPDATE' | 'DELETE' | 'NOOP';
@@ -37,6 +39,7 @@ export interface MemoryEntry {
   // Linking (A-Mem pattern from arXiv:2502.12110)
   linkedEntries: string[]; // IDs of related entries
   tags: string[];
+  entityTriples?: KGTriple[];
 
   // Lifecycle
   expiresAt?: number; // Optional TTL

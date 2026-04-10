@@ -170,6 +170,10 @@ vi.mock('../../cli/claude-cli-adapter', () => ({
   ClaudeCliAdapter: vi.fn().mockImplementation(() => makeMockAdapter()),
 }));
 
+vi.mock('../../cli/hooks/hook-path-resolver', () => ({
+  ensureHookScript: vi.fn(() => '/tmp/test-hooks/defer-permission-hook.mjs'),
+}));
+
 vi.mock('../auto-title-service', () => ({
   getAutoTitleService: vi.fn(() => ({
     maybeGenerateTitle: mockAutoTitleMaybeGenerate,
@@ -327,7 +331,9 @@ vi.mock('../../rlm/context-manager', () => {
     deleteStore: vi.fn().mockResolvedValue(undefined),
   };
   const RLMContextManagerMock = vi.fn().mockImplementation(() => rlmInstance);
-  (RLMContextManagerMock as any).getInstance = vi.fn().mockReturnValue(rlmInstance);
+  Object.assign(RLMContextManagerMock, {
+    getInstance: vi.fn().mockReturnValue(rlmInstance),
+  });
   return { RLMContextManager: RLMContextManagerMock };
 });
 
@@ -337,6 +343,7 @@ vi.mock('../../rlm/context-manager', () => {
 vi.mock('../../memory', () => ({
   getUnifiedMemory: vi.fn(() => ({
     retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    processInput: vi.fn().mockResolvedValue(undefined),
     ingest: vi.fn(),
   })),
   getMemoryMonitor: vi.fn(() => ({
@@ -370,6 +377,18 @@ vi.mock('../../history', () => ({
 vi.mock('../../observation/policy-adapter', () => ({
   getPolicyAdapter: vi.fn(() => ({
     buildObservationContext: vi.fn().mockResolvedValue(null),
+  })),
+}));
+
+vi.mock('../../memory/wake-context-builder', () => ({
+  getWakeContextBuilder: vi.fn(() => ({
+    getWakeUpText: vi.fn(() => ''),
+  })),
+}));
+
+vi.mock('../../memory/codebase-miner', () => ({
+  getCodebaseMiner: vi.fn(() => ({
+    mineDirectory: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 
@@ -607,7 +626,7 @@ describe('InstanceManager', () => {
       workerNodeId: 'worker-node-1',
     });
 
-    mockTaskManager.startTimeoutChecker.mockImplementation(() => {});
+    mockTaskManager.startTimeoutChecker.mockImplementation(() => undefined);
     mockSettingsGetAll.mockReturnValue({ ...mockSettingsData });
 
     manager = createManager();
@@ -789,7 +808,7 @@ describe('InstanceManager', () => {
     });
 
     it('triggers auto-title for the initial prompt before Codex sendInput resolves', async () => {
-      mockAdapterSendInput.mockImplementation(() => new Promise<void>(() => {}));
+      mockAdapterSendInput.mockImplementation(() => new Promise<void>((resolve) => { void resolve; }));
 
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
@@ -805,10 +824,12 @@ describe('InstanceManager', () => {
           undefined,
         );
       });
-      expect(mockAdapterSendInput).toHaveBeenCalledWith(
-        'Investigate the failed deployment and summarize the root cause.',
-        undefined,
-      );
+      await vi.waitFor(() => {
+        expect(mockAdapterSendInput).toHaveBeenCalledWith(
+          'Investigate the failed deployment and summarize the root cause.',
+          undefined,
+        );
+      });
     });
   });
 
@@ -910,7 +931,7 @@ describe('InstanceManager', () => {
 
       await manager.sendInput(instance.id, 'user message text');
 
-      const userOutputs = (outputEvents as Array<{ instanceId: string; message: { type: string } }>)
+      const userOutputs = (outputEvents as { instanceId: string; message: { type: string } }[])
         .filter((e) => e.message?.type === 'user');
       expect(userOutputs.length).toBeGreaterThanOrEqual(1);
     });

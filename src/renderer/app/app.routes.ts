@@ -279,6 +279,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Sprint 3: Knowledge Graph
+  {
+    path: 'knowledge',
+    loadComponent: () =>
+      import('./features/knowledge/knowledge-page.component').then(
+        (m) => m.KnowledgePageComponent
+      ),
+  },
+
   // Sprint 3: Plugins
   {
     path: 'plugins',

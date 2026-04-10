@@ -296,7 +296,12 @@ export class DebateCoordinator extends EventEmitter {
     debate.rounds.push(round);
     debate.currentRound = 1;
 
-    this.emit('debate:round-complete', { debateId: debate.id, round });
+    this.emit('debate:round-complete', {
+      debateId: debate.id,
+      instanceId: debate.instanceId,
+      totalRounds: debate.config.maxRounds,
+      round,
+    });
   }
 
   private async runCritiqueRound(debate: ActiveDebate, debateAbort: AbortController): Promise<void> {
@@ -342,7 +347,12 @@ export class DebateCoordinator extends EventEmitter {
     debate.rounds.push(round);
     debate.currentRound++;
 
-    this.emit('debate:round-complete', { debateId: debate.id, round });
+    this.emit('debate:round-complete', {
+      debateId: debate.id,
+      instanceId: debate.instanceId,
+      totalRounds: debate.config.maxRounds,
+      round,
+    });
   }
 
   private async runDefenseRound(debate: ActiveDebate, debateAbort: AbortController): Promise<void> {
@@ -383,7 +393,12 @@ export class DebateCoordinator extends EventEmitter {
     debate.rounds.push(round);
     debate.currentRound++;
 
-    this.emit('debate:round-complete', { debateId: debate.id, round });
+    this.emit('debate:round-complete', {
+      debateId: debate.id,
+      instanceId: debate.instanceId,
+      totalRounds: debate.config.maxRounds,
+      round,
+    });
   }
 
   private async runSynthesisRound(debate: ActiveDebate): Promise<void> {
@@ -414,7 +429,12 @@ export class DebateCoordinator extends EventEmitter {
     debate.rounds.push(round);
     debate.currentRound++;
 
-    this.emit('debate:round-complete', { debateId: debate.id, round });
+    this.emit('debate:round-complete', {
+      debateId: debate.id,
+      instanceId: debate.instanceId,
+      totalRounds: debate.config.maxRounds,
+      round,
+    });
   }
 
   // ============ Response Generation (Real LLM Integration) ============

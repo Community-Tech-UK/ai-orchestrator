@@ -146,6 +146,30 @@ describe('CodebaseMiner', () => {
       expect(result1.factsExtracted).toBeGreaterThan(0);
       expect(result2.skipped).toBe(true);
     });
+
+    it('should report mining status for a directory', async () => {
+      const miner = CodebaseMiner.getInstance();
+
+      mockedFs.readFile.mockImplementation(async (filePath: fs.FileHandle | string) => {
+        const path = String(filePath);
+        if (path.endsWith('README.md')) {
+          return '# Test Project\n\nMining status smoke test.';
+        }
+        throw new Error('ENOENT');
+      });
+
+      expect(miner.getStatus('/fake/project')).toEqual({
+        normalizedPath: '/fake/project',
+        mined: false,
+      });
+
+      await miner.mineDirectory('/fake/project');
+
+      expect(miner.getStatus('/fake/project')).toEqual({
+        normalizedPath: '/fake/project',
+        mined: true,
+      });
+    });
   });
 
   describe('extractPackageJsonFacts', () => {

@@ -97,6 +97,11 @@ const NAV_GROUPS: NavGroup[] = [
         icon: '<path d="M12 3l9 4.5v9L12 21 3 16.5v-9L12 3z"/><path d="M12 12l9-4.5"/><path d="M12 12L3 7.5"/><path d="M12 12v9"/>'
       },
       {
+        label: 'Knowledge Graph',
+        route: '/knowledge',
+        icon: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><line x1="8.5" y1="7.5" x2="15.5" y2="7.5"/><line x1="7" y1="8.5" x2="10.5" y2="16"/><line x1="17" y1="8.5" x2="13.5" y2="16"/>'
+      },
+      {
         label: 'Training Data',
         route: '/training',
         icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'

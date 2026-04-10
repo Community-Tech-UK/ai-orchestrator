@@ -13,6 +13,7 @@
 import { EventEmitter } from 'events';
 import { getLLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
+import { getWakeContextBuilder } from './wake-context-builder';
 
 const unifiedLogger = getLogger('UnifiedMemoryController');
 const MAX_EPISODIC_SESSIONS = 5000;
@@ -325,6 +326,7 @@ export class UnifiedMemoryController extends EventEmitter {
       longTerm: [],
       procedural: [],
       skills: [],
+      wakeContext: undefined,
       totalTokens: 0
     };
 
@@ -398,6 +400,19 @@ export class UnifiedMemoryController extends EventEmitter {
       results.skills = await this.fetchSkills(query);
     }
 
+    if (options?.sessionId || options?.instanceId) {
+      try {
+        results.wakeContext = getWakeContextBuilder().getWakeUpText();
+      } catch (error) {
+        this.emit('retrieve:sourceError', {
+          source: 'wake_context',
+          query,
+          taskId,
+          error
+        });
+      }
+    }
+
     // RLM integration (tiered by section type/depth)
     try {
       const rlmResults = this.fetchRlmContext(query, budgets, options);
@@ -441,7 +456,8 @@ export class UnifiedMemoryController extends EventEmitter {
       this.estimateTokens(results.shortTerm.join(' ')) +
       this.estimateTokens(results.longTerm.join(' ')) +
       this.estimateTokens(results.procedural.join(' ')) +
-      this.estimateTokens(results.skills.join(' '));
+      this.estimateTokens(results.skills.join(' ')) +
+      this.estimateTokens(results.wakeContext || '');
 
     this.emit('fetch:completed', { query, taskId, results });
     this.setCachedResult(cacheKey, results);
@@ -889,6 +905,7 @@ export class UnifiedMemoryController extends EventEmitter {
       longTerm: [...result.longTerm],
       procedural: [...result.procedural],
       skills: [...result.skills],
+      wakeContext: result.wakeContext,
       totalTokens: result.totalTokens
     };
   }

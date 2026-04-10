@@ -757,6 +757,8 @@ export class SessionContinuityManager extends EventEmitter {
 
     // Trim if exceeding max entries
     if (state.conversationHistory.length > this.config.maxConversationEntries) {
+      const messageCountBeforeCompaction = state.conversationHistory.length;
+
       // Compact older entries
       const toCompact = state.conversationHistory.splice(
         0,
@@ -772,6 +774,12 @@ export class SessionContinuityManager extends EventEmitter {
         isCompacted: true
       };
       state.conversationHistory.unshift(summaryEntry);
+
+      this.emit('session:compacting', {
+        instanceId,
+        messageCount: messageCountBeforeCompaction,
+        tokenCount: state.contextUsage.used,
+      });
     }
 
     this.dirty.add(instanceId);

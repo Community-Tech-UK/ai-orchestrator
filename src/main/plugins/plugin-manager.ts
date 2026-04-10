@@ -27,7 +27,11 @@ import { pathToFileURL } from 'url';
 import { app } from 'electron';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
+import { getConsensusCoordinator } from '../orchestration/consensus-coordinator';
+import { getDebateCoordinator } from '../orchestration/debate-coordinator';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { getSessionContinuityManager } from '../session/session-continuity';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   PluginHookEvent,
@@ -71,6 +75,10 @@ function isOutputMessage(value: unknown): value is OutputMessage {
   );
 }
 
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function toInstanceCreatedPayload(payload: unknown): PluginHookPayloads['instance.created'] | null {
   if (!isRecord(payload)) return null;
   const rawId = payload['id'];
@@ -98,6 +106,97 @@ function toInstanceOutputPayload(payload: unknown): PluginHookPayloads['instance
   return {
     instanceId: payload['instanceId'],
     message: payload['message'],
+  };
+}
+
+function toInstanceStateChangedPayload(
+  payload: unknown,
+): PluginHookPayloads['instance.stateChanged'] | null {
+  if (!isRecord(payload)) return null;
+  if (
+    typeof payload['instanceId'] !== 'string'
+    || typeof payload['status'] !== 'string'
+    || typeof payload['previousStatus'] !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    instanceId: payload['instanceId'],
+    previousState: payload['previousStatus'],
+    newState: payload['status'],
+    timestamp: typeof payload['timestamp'] === 'number' ? payload['timestamp'] : Date.now(),
+  };
+}
+
+function toPermissionAskPayload(
+  payload: unknown,
+): PluginHookPayloads['permission.ask'] | null {
+  if (!isRecord(payload) || typeof payload['instanceId'] !== 'string') {
+    return null;
+  }
+
+  const metadata = isRecord(payload['metadata']) ? payload['metadata'] : {};
+  const type = typeof metadata['type'] === 'string' ? metadata['type'] : '';
+  if (type !== 'deferred_permission' && type !== 'permission_denial') {
+    return null;
+  }
+
+  const toolName =
+    typeof metadata['tool_name'] === 'string'
+      ? metadata['tool_name']
+      : typeof metadata['action'] === 'string'
+        ? metadata['action']
+        : 'unknown';
+  const toolInput = isRecord(metadata['tool_input']) ? metadata['tool_input'] : {};
+  const command =
+    typeof toolInput['command'] === 'string'
+      ? toolInput['command']
+      : typeof metadata['path'] === 'string'
+        ? metadata['path']
+        : undefined;
+
+  return {
+    instanceId: payload['instanceId'],
+    toolName,
+    ...(command ? { command } : {}),
+  };
+}
+
+function toSessionResumedPayload(payload: unknown): PluginHookPayloads['session.resumed'] | null {
+  if (!isRecord(payload) || !isRecord(payload['state'])) {
+    return null;
+  }
+
+  const state = payload['state'];
+  if (typeof state['instanceId'] !== 'string' || typeof state['sessionId'] !== 'string') {
+    return null;
+  }
+
+  return {
+    instanceId: state['instanceId'],
+    sessionId: state['sessionId'],
+  };
+}
+
+function toSessionCompactingPayload(
+  payload: unknown,
+): PluginHookPayloads['session.compacting'] | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+  if (
+    typeof payload['instanceId'] !== 'string'
+    || typeof payload['messageCount'] !== 'number'
+    || typeof payload['tokenCount'] !== 'number'
+  ) {
+    return null;
+  }
+
+  return {
+    instanceId: payload['instanceId'],
+    messageCount: payload['messageCount'],
+    tokenCount: payload['tokenCount'],
   };
 }
 
@@ -226,6 +325,12 @@ export class OrchestratorPluginManager {
   private static instance: OrchestratorPluginManager | null = null;
 
   private cacheByWorkingDir = new Map<string, CacheEntry>();
+  private configLoadedByWorkingDir = new Set<string>();
+  private activeToolExecutions = new Map<string, {
+    toolName: string;
+    args: Record<string, unknown>;
+    startedAt: number;
+  }>();
   private initialized = false;
 
   static getInstance(): OrchestratorPluginManager {
@@ -377,12 +482,58 @@ export class OrchestratorPluginManager {
   clearCache(workingDirectory?: string): void {
     if (!workingDirectory) {
       this.cacheByWorkingDir.clear();
+      this.configLoadedByWorkingDir.clear();
       return;
     }
     this.cacheByWorkingDir.delete(workingDirectory);
+    this.configLoadedByWorkingDir.delete(workingDirectory);
   }
 
   private static readonly HOOK_TIMEOUT_MS = 5_000;
+
+  private async invokeHook<K extends PluginHookEvent>(
+    plugin: LoadedPlugin,
+    event: K,
+    payload: PluginHookPayloads[K],
+  ): Promise<void> {
+    const hook = plugin.hooks[event];
+    if (!hook) return;
+
+    try {
+      const result = hook(payload);
+      if (result instanceof Promise) {
+        let timeoutId: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
+            OrchestratorPluginManager.HOOK_TIMEOUT_MS,
+          );
+        });
+        try {
+          await Promise.race([result, timeoutPromise]);
+        } finally {
+          clearTimeout(timeoutId!);
+        }
+      }
+    } catch (err) {
+      logger.warn(`Plugin hook error [${plugin.filePath}:${String(event)}]: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async emitConfigLoadedIfNeeded(
+    workingDirectory: string,
+    plugins: LoadedPlugin[],
+  ): Promise<void> {
+    if (this.configLoadedByWorkingDir.has(workingDirectory)) {
+      return;
+    }
+
+    this.configLoadedByWorkingDir.add(workingDirectory);
+    const config = getSettingsManager().getAll() as unknown as Record<string, unknown>;
+    for (const plugin of plugins) {
+      await this.invokeHook(plugin, 'config.loaded', { config });
+    }
+  }
 
   /**
    * Public method for core subsystems to emit plugin hook events.
@@ -399,27 +550,7 @@ export class OrchestratorPluginManager {
     // Broadcast to all cached working directories
     for (const [, entry] of this.cacheByWorkingDir) {
       for (const plugin of entry.plugins) {
-        const hook = plugin.hooks[event];
-        if (!hook) continue;
-        try {
-          const result = hook(payload);
-          if (result instanceof Promise) {
-            let timeoutId: ReturnType<typeof setTimeout>;
-            const timeoutPromise = new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(
-                () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
-                OrchestratorPluginManager.HOOK_TIMEOUT_MS,
-              );
-            });
-            try {
-              await Promise.race([result, timeoutPromise]);
-            } finally {
-              clearTimeout(timeoutId!);
-            }
-          }
-        } catch (err) {
-          logger.warn(`Plugin hook error [${plugin.filePath}:${String(event)}]: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        await this.invokeHook(plugin, event, payload);
       }
     }
   }
@@ -431,15 +562,61 @@ export class OrchestratorPluginManager {
     payload: PluginHookPayloads[K],
   ): Promise<void> {
     const plugins = await this.getPlugins(workingDirectory, ctx);
+    await this.emitConfigLoadedIfNeeded(workingDirectory, plugins);
     for (const plugin of plugins) {
-      const hook = plugin.hooks[event];
-      if (!hook) continue;
-      try {
-        await hook(payload);
-      } catch {
-        // Never let plugins crash the host.
-      }
+      await this.invokeHook(plugin, event, payload);
     }
+  }
+
+  private getToolExecutionKey(instanceId: string, toolUseId: string): string {
+    return `${instanceId}:${toolUseId}`;
+  }
+
+  private rememberToolExecution(instanceId: string, message: OutputMessage): void {
+    if (message.type !== 'tool_use' || !isStringRecord(message.metadata)) {
+      return;
+    }
+
+    const toolUseId = typeof message.metadata['id'] === 'string' ? message.metadata['id'] : null;
+    const toolName = typeof message.metadata['name'] === 'string' ? message.metadata['name'] : null;
+    const input = isStringRecord(message.metadata['input']) ? message.metadata['input'] : {};
+    if (!toolUseId || !toolName) {
+      return;
+    }
+
+    this.activeToolExecutions.set(this.getToolExecutionKey(instanceId, toolUseId), {
+      toolName,
+      args: input,
+      startedAt: message.timestamp,
+    });
+  }
+
+  private consumeToolExecution(
+    instanceId: string,
+    message: OutputMessage,
+  ): { toolName: string; args: Record<string, unknown>; durationMs: number } | null {
+    if (message.type !== 'tool_result' || !isStringRecord(message.metadata)) {
+      return null;
+    }
+
+    const toolUseId =
+      typeof message.metadata['tool_use_id'] === 'string' ? message.metadata['tool_use_id'] : null;
+    if (!toolUseId) {
+      return null;
+    }
+
+    const key = this.getToolExecutionKey(instanceId, toolUseId);
+    const execution = this.activeToolExecutions.get(key);
+    if (!execution) {
+      return null;
+    }
+
+    this.activeToolExecutions.delete(key);
+    return {
+      toolName: execution.toolName,
+      args: execution.args,
+      durationMs: Math.max(0, message.timestamp - execution.startedAt),
+    };
   }
 
   initialize(instanceManager: InstanceManager): void {
@@ -453,6 +630,18 @@ export class OrchestratorPluginManager {
       if (!pluginPayload) return;
       const wd = pluginPayload.workingDirectory || process.cwd();
       void this.emitToPlugins(wd, ctx, 'instance.created', pluginPayload);
+
+      const sessionId = typeof pluginPayload['sessionId'] === 'string'
+        ? pluginPayload['sessionId']
+        : typeof pluginPayload['historyThreadId'] === 'string'
+          ? pluginPayload['historyThreadId']
+          : undefined;
+      if (sessionId) {
+        void this.emitToPlugins(wd, ctx, 'session.created', {
+          instanceId: pluginPayload.instanceId,
+          sessionId,
+        });
+      }
     });
 
     instanceManager.on('instance:removed', (instanceId: string) => {
@@ -465,6 +654,55 @@ export class OrchestratorPluginManager {
       const instance = instanceManager.getInstance(pluginPayload.instanceId);
       const wd = instance?.workingDirectory || process.cwd();
       void this.emitToPlugins(wd, ctx, 'instance.output', pluginPayload);
+
+      if (pluginPayload.message.type === 'tool_use') {
+        this.rememberToolExecution(pluginPayload.instanceId, pluginPayload.message);
+        if (isStringRecord(pluginPayload.message.metadata)) {
+          const toolName = typeof pluginPayload.message.metadata['name'] === 'string'
+            ? pluginPayload.message.metadata['name']
+            : null;
+          const args = isStringRecord(pluginPayload.message.metadata['input'])
+            ? pluginPayload.message.metadata['input']
+            : {};
+          if (toolName) {
+            void this.emitToPlugins(wd, ctx, 'tool.execute.before', {
+              instanceId: pluginPayload.instanceId,
+              toolName,
+              args,
+            });
+          }
+        }
+        return;
+      }
+
+      if (pluginPayload.message.type === 'tool_result') {
+        const execution = this.consumeToolExecution(pluginPayload.instanceId, pluginPayload.message);
+        if (execution) {
+          void this.emitToPlugins(wd, ctx, 'tool.execute.after', {
+            instanceId: pluginPayload.instanceId,
+            toolName: execution.toolName,
+            args: execution.args,
+            result: pluginPayload.message.content,
+            durationMs: execution.durationMs,
+          });
+        }
+      }
+    });
+
+    instanceManager.on('instance:state-update', (payload: unknown) => {
+      const pluginPayload = toInstanceStateChangedPayload(payload);
+      if (!pluginPayload) return;
+      const instance = instanceManager.getInstance(pluginPayload.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'instance.stateChanged', pluginPayload);
+    });
+
+    instanceManager.on('instance:input-required', (payload: unknown) => {
+      const pluginPayload = toPermissionAskPayload(payload);
+      if (!pluginPayload) return;
+      const instance = instanceManager.getInstance(pluginPayload.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'permission.ask', pluginPayload);
     });
 
     const verify = getMultiVerifyCoordinator();
@@ -492,6 +730,84 @@ export class OrchestratorPluginManager {
         : undefined;
       const wd = instance?.workingDirectory || process.cwd();
       void this.emitToPlugins(wd, ctx, 'verification.error', pluginPayload);
+    });
+
+    const sessionContinuity = getSessionContinuityManager();
+    sessionContinuity.on('session:resumed', (payload: unknown) => {
+      const pluginPayload = toSessionResumedPayload(payload);
+      if (!pluginPayload) return;
+      const instance = instanceManager.getInstance(pluginPayload.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'session.resumed', pluginPayload);
+    });
+    sessionContinuity.on('session:compacting', (payload: unknown) => {
+      const pluginPayload = toSessionCompactingPayload(payload);
+      if (!pluginPayload) return;
+      const instance = instanceManager.getInstance(pluginPayload.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.emitToPlugins(wd, ctx, 'session.compacting', pluginPayload);
+    });
+
+    const debate = getDebateCoordinator();
+    debate.on('debate:round-complete', (payload: unknown) => {
+      if (!isRecord(payload) || !isRecord(payload['round'])) {
+        return;
+      }
+
+      const round = payload['round'];
+      const instanceId = typeof payload['instanceId'] === 'string' ? payload['instanceId'] : undefined;
+      const wd = instanceId
+        ? instanceManager.getInstance(instanceId)?.workingDirectory || process.cwd()
+        : process.cwd();
+      const debateId = typeof payload['debateId'] === 'string' ? payload['debateId'] : null;
+      const totalRounds = typeof payload['totalRounds'] === 'number' ? payload['totalRounds'] : 0;
+      const roundNumber = typeof round['roundNumber'] === 'number' ? round['roundNumber'] : 0;
+      const contributions = Array.isArray(round['contributions']) ? round['contributions'] : [];
+      if (!debateId) {
+        return;
+      }
+
+      for (const contribution of contributions) {
+        if (!isRecord(contribution)) {
+          continue;
+        }
+        const participantId = typeof contribution['agentId'] === 'string'
+          ? contribution['agentId']
+          : 'unknown';
+        const response = typeof contribution['content'] === 'string'
+          ? contribution['content']
+          : '';
+        void this.emitToPlugins(wd, ctx, 'orchestration.debate.round', {
+          debateId,
+          round: roundNumber,
+          totalRounds,
+          participantId,
+          response,
+        });
+      }
+    });
+
+    const consensus = getConsensusCoordinator();
+    consensus.on('consensus:vote', (payload: unknown) => {
+      if (!isRecord(payload)) {
+        return;
+      }
+      if (
+        typeof payload['queryId'] !== 'string'
+        || typeof payload['workingDirectory'] !== 'string'
+        || typeof payload['provider'] !== 'string'
+        || typeof payload['content'] !== 'string'
+        || typeof payload['confidence'] !== 'number'
+      ) {
+        return;
+      }
+
+      void this.emitToPlugins(payload['workingDirectory'], ctx, 'orchestration.consensus.vote', {
+        consensusId: payload['queryId'],
+        voterId: payload['provider'],
+        vote: payload['content'],
+        confidence: payload['confidence'],
+      });
     });
   }
 }

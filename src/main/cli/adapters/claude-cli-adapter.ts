@@ -43,6 +43,29 @@ const logger = getLogger('ClaudeCliAdapter');
  *  VALIDATED: defer works in CLI 2.1.98. Conservative estimate for first release. */
 export const DEFER_MIN_VERSION = '2.1.90';
 
+function isVersionAtLeast(version: string | undefined, minimumVersion: string): boolean {
+  if (!version || version === 'unknown') {
+    return false;
+  }
+
+  const currentParts = version.split('.').map((part) => Number.parseInt(part, 10));
+  const minimumParts = minimumVersion.split('.').map((part) => Number.parseInt(part, 10));
+  const maxLength = Math.max(currentParts.length, minimumParts.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const currentPart = Number.isFinite(currentParts[index]) ? currentParts[index] : 0;
+    const minimumPart = Number.isFinite(minimumParts[index]) ? minimumParts[index] : 0;
+    if (currentPart > minimumPart) {
+      return true;
+    }
+    if (currentPart < minimumPart) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Shape of a content block inside raw CLI NDJSON assistant/user messages.
  * The typed CliStreamMessage union is minimal — the actual CLI emits richer payloads.
@@ -217,6 +240,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /** Tracks a deferred tool use when CLI pauses via PreToolUse hook `defer` decision.
    *  Non-null means the CLI process has exited and is waiting to be resumed. */
   private deferredToolUse: DeferredToolUse | null = null;
+  /** Cached CLI status so defer-hook feature gating only probes the CLI once per adapter. */
+  private cachedCliStatus: CliStatus | null = null;
+  private cliStatusPromise: Promise<CliStatus> | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     const config: CliAdapterConfig = {
@@ -272,7 +298,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       supportsForkSession: true,
       supportsNativeCompaction: true,
       supportsPermissionPrompts: true,
-      supportsDeferPermission: Boolean(this.spawnOptions.permissionHookPath),
+      supportsDeferPermission: this.shouldUsePermissionHook(),
     };
   }
 
@@ -305,9 +331,42 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    return new Promise((resolve) => {
+    if (this.cachedCliStatus) {
+      return this.cachedCliStatus;
+    }
+    if (this.cliStatusPromise) {
+      return this.cliStatusPromise;
+    }
+
+    this.cliStatusPromise = new Promise((resolve) => {
       const proc = this.spawnProcess(['--version']);
       let output = '';
+      let settled = false;
+      const timeoutHandle = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        proc.kill();
+        const status: CliStatus = {
+          available: false,
+          error: 'Timeout checking Claude CLI'
+        };
+        this.cachedCliStatus = status;
+        this.cliStatusPromise = null;
+        resolve(status);
+      }, 5000);
+
+      const finish = (status: CliStatus): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutHandle);
+        this.cachedCliStatus = status;
+        this.cliStatusPromise = null;
+        resolve(status);
+      };
 
       proc.stdout?.on('data', (data) => {
         output += data.toString();
@@ -317,43 +376,38 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       });
 
       proc.on('close', (code) => {
+        const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
         if (code === 0 || output.includes('claude')) {
-          const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
-          resolve({
+          finish({
             available: true,
             version: versionMatch?.[1] || 'unknown',
             path: 'claude',
             authenticated: true // Claude CLI handles auth internally
           });
         } else {
-          resolve({
+          finish({
             available: false,
+            version: versionMatch?.[1] || 'unknown',
             error: `Claude CLI not found or not configured: ${output}`
           });
         }
       });
 
       proc.on('error', (err) => {
-        resolve({
+        finish({
           available: false,
           error: `Failed to spawn claude: ${err.message}`
         });
       });
-
-      // Timeout
-      setTimeout(() => {
-        proc.kill();
-        resolve({
-          available: false,
-          error: 'Timeout checking Claude CLI'
-        });
-      }, 5000);
     });
+
+    return this.cliStatusPromise;
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
     const startTime = Date.now();
     this.outputBuffer = '';
+    await this.primeCliVersion();
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
@@ -478,6 +532,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
+    await this.primeCliVersion();
     const args = this.buildArgs(message);
     this.process = this.spawnProcess(args);
 
@@ -609,6 +664,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       });
       args.push('--dangerously-skip-permissions');
     } else {
+      const permissionHookEnabled = this.shouldUsePermissionHook();
+
       // Use acceptEdits mode to auto-approve file operations (Read, Write, Edit, etc.)
       // while still requiring approval for potentially dangerous operations like Bash
       logger.debug('NON-YOLO mode: using --permission-mode acceptEdits');
@@ -618,7 +675,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       // The hook intercepts matched tools (Bash, etc.) and returns `defer` to pause
       // execution, allowing the orchestrator to surface approval UI.
       // VALIDATED: --permission-mode and PreToolUse hooks work simultaneously.
-      if (this.spawnOptions.permissionHookPath) {
+      if (permissionHookEnabled && this.spawnOptions.permissionHookPath) {
         const hookSettings = JSON.stringify({
           hooks: {
             PreToolUse: [{
@@ -631,6 +688,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           }
         });
         args.push('--settings', hookSettings);
+      } else if (this.spawnOptions.permissionHookPath && this.cachedCliStatus?.version) {
+        logger.info('Skipping defer permission hook for unsupported Claude CLI version', {
+          version: this.cachedCliStatus.version,
+          minimumVersion: DEFER_MIN_VERSION,
+          sessionId: this.sessionId,
+        });
       }
 
       // Only pass --allowedTools if explicitly configured (e.g., by agent profiles).
@@ -719,7 +782,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       bare: this.spawnOptions.bare ?? false,
       name: this.spawnOptions.name ?? null,
       excludeDynamicSystemPromptSections: this.spawnOptions.excludeDynamicSystemPromptSections ?? false,
-      hasPermissionHook: Boolean(this.spawnOptions.permissionHookPath),
+      hasPermissionHook: this.shouldUsePermissionHook(),
+      hookPathConfigured: Boolean(this.spawnOptions.permissionHookPath),
+      cliVersion: this.cachedCliStatus?.version ?? null,
     });
 
     return args;
@@ -735,6 +800,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       throw new Error('Process already spawned');
     }
 
+    await this.primeCliVersion();
     const args = this.buildArgs({ role: 'user', content: '' });
 
     this.process = this.spawnProcess(args);
@@ -1679,6 +1745,27 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       return;
     }
     this.toolUseContexts.delete(toolUseId);
+  }
+
+  private async primeCliVersion(): Promise<void> {
+    if (this.spawnOptions.yoloMode || !this.spawnOptions.permissionHookPath) {
+      return;
+    }
+
+    const status = await this.checkStatus();
+    if (!status.available) {
+      logger.warn('Unable to verify Claude CLI version before enabling defer permissions', {
+        error: status.error,
+        sessionId: this.sessionId,
+      });
+    }
+  }
+
+  private shouldUsePermissionHook(): boolean {
+    if (this.spawnOptions.yoloMode || !this.spawnOptions.permissionHookPath) {
+      return false;
+    }
+    return isVersionAtLeast(this.cachedCliStatus?.version, DEFER_MIN_VERSION);
   }
 
   /**

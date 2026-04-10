@@ -236,6 +236,7 @@ export interface UnifiedRetrievalResult {
   longTerm: string[];
   procedural: string[];
   skills: string[];
+  wakeContext?: string;
   totalTokens: number;
 }
 

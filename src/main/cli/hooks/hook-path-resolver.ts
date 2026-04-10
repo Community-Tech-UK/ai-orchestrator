@@ -13,6 +13,19 @@ const logger = getLogger('HookPathResolver');
 
 const HOOK_FILENAME = 'defer-permission-hook.mjs';
 
+function getProjectRoot(): string {
+  try {
+    const appPath = app?.getAppPath?.();
+    if (typeof appPath === 'string' && appPath.length > 0) {
+      return appPath;
+    }
+  } catch {
+    // Fall back to cwd when Electron app metadata is not ready.
+  }
+
+  return process.cwd();
+}
+
 /**
  * Resolves the path to the defer permission hook script.
  *
@@ -21,12 +34,13 @@ const HOOK_FILENAME = 'defer-permission-hook.mjs';
  */
 export function getDeferPermissionHookPath(): string {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'hooks', HOOK_FILENAME);
+    const resourcesPath =
+      typeof process.resourcesPath === 'string' && process.resourcesPath.length > 0
+        ? process.resourcesPath
+        : path.join(getProjectRoot(), 'resources');
+    return path.join(resourcesPath, 'hooks', HOOK_FILENAME);
   }
-  // In dev mode: __dirname is dist/main/cli/hooks (compiled output)
-  // The .mjs file is in src/main/cli/hooks/ which is 4 levels up from dist/main/cli/hooks
-  // But we can also resolve from project root
-  return path.resolve(__dirname, '../../../src/main/cli/hooks', HOOK_FILENAME);
+  return path.join(getProjectRoot(), 'src', 'main', 'cli', 'hooks', HOOK_FILENAME);
 }
 
 /**

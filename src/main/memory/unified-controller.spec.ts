@@ -20,6 +20,10 @@ const skillsLoaderMock = {
   loadSkillsWithBudget: vi.fn(),
 };
 
+const wakeContextBuilderMock = {
+  getWakeUpText: vi.fn(),
+};
+
 vi.mock('./r1-memory-manager', () => ({
   getMemoryManager: () => memoryManagerMock,
   MemoryManagerAgent: class {},
@@ -34,6 +38,10 @@ vi.mock('../rlm/context-manager', () => ({
 vi.mock('./skills-loader', () => ({
   getSkillsLoader: () => skillsLoaderMock,
   SkillsLoader: class {},
+}));
+
+vi.mock('./wake-context-builder', () => ({
+  getWakeContextBuilder: () => wakeContextBuilderMock,
 }));
 
 import {
@@ -66,6 +74,9 @@ describe('UnifiedMemoryController hardening', () => {
 
     skillsLoaderMock.detectRelevantSkills.mockResolvedValue([]);
     skillsLoaderMock.loadSkillsWithBudget.mockResolvedValue({ content: [] });
+    wakeContextBuilderMock.getWakeUpText.mockReturnValue(
+      'Identity: Orchestrator\n\nEssential Story: Maintain project continuity.'
+    );
   });
 
   afterEach(() => {
@@ -115,5 +126,24 @@ describe('UnifiedMemoryController hardening', () => {
     expect(sourceErrorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'long_term' })
     );
+  });
+
+  it('includes wake context in retrieval results when session context is provided', async () => {
+    const memory = getUnifiedMemory();
+
+    const result = await memory.retrieve('project continuity', 'task-5', {
+      sessionId: 'session-ctx',
+      instanceId: 'instance-ctx',
+    });
+
+    expect(result.wakeContext).toContain('Identity: Orchestrator');
+    expect(result.totalTokens).toBeGreaterThan(0);
+
+    const cached = await memory.retrieve('project continuity', 'task-5', {
+      sessionId: 'session-ctx',
+      instanceId: 'instance-ctx',
+    });
+
+    expect(cached.wakeContext).toBe(result.wakeContext);
   });
 });

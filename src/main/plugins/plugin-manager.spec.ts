@@ -22,6 +22,15 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({
+    getAll: () => ({
+      agents: {},
+      appearance: {},
+    }),
+  }),
+}));
+
 import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';

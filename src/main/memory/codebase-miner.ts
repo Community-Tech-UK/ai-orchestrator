@@ -123,14 +123,6 @@ export class CodebaseMiner extends EventEmitter {
     return result;
   }
 
-  getMiningStatus(dirPath: string): { dirPath: string; mined: boolean } {
-    const normalizedDir = path.resolve(dirPath);
-    return {
-      dirPath: normalizedDir,
-      mined: this.minedDirectories.has(normalizedDir),
-    };
-  }
-
   /**
    * Check whether a directory has been mined in this session.
    */

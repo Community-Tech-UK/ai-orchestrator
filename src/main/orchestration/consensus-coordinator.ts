@@ -140,6 +140,7 @@ export class ConsensusCoordinator extends EventEmitter {
       const responsePromises = providers.map(spec => {
         const childAbort = createChildAbortController(queryAbort);
         return this.queryProvider(
+          queryId,
           spec,
           question,
           context,
@@ -203,6 +204,7 @@ export class ConsensusCoordinator extends EventEmitter {
    * Creates an ephemeral adapter instance, sends the question, waits for response.
    */
   private async queryProvider(
+    queryId: string,
     spec: ConsensusProviderSpec,
     question: string,
     context: string | undefined,
@@ -238,14 +240,24 @@ export class ConsensusCoordinator extends EventEmitter {
       const response = await this.collectResponse(adapter, prompt, timeoutMs, isAborted);
 
       const durationMs = Date.now() - providerStart;
-
-      return {
+      const consensusResponse: ConsensusProviderResponse = {
         provider: spec.provider,
         model: spec.model,
         content: response,
         success: true,
         durationMs,
       };
+
+      this.emit('consensus:vote', {
+        queryId,
+        workingDirectory,
+        provider: spec.provider,
+        content: response,
+        confidence: this.estimateVoteConfidence(response, true),
+        success: true,
+      });
+
+      return consensusResponse;
     } catch (error) {
       const durationMs = Date.now() - providerStart;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -260,7 +272,7 @@ export class ConsensusCoordinator extends EventEmitter {
         classified.category === ErrorCategory.TRANSIENT ||
         classified.category === ErrorCategory.RATE_LIMITED;
 
-      return {
+      const response: ConsensusProviderResponse = {
         provider: spec.provider,
         model: spec.model,
         content: '',
@@ -270,6 +282,17 @@ export class ConsensusCoordinator extends EventEmitter {
           : errorMessage,
         durationMs,
       };
+
+      this.emit('consensus:vote', {
+        queryId,
+        workingDirectory,
+        provider: spec.provider,
+        content: response.error || errorMessage,
+        confidence: 0,
+        success: false,
+      });
+
+      return response;
     } finally {
       // Always terminate the ephemeral adapter
       if (adapter) {
@@ -744,6 +767,24 @@ export class ConsensusCoordinator extends EventEmitter {
       pendingProviders,
     };
     this.emit('consensus:progress', event);
+  }
+
+  private estimateVoteConfidence(content: string, success: boolean): number {
+    if (!success) {
+      return 0;
+    }
+
+    const match = content.match(/confidence\s*[:=-]?\s*(\d{1,3})(?:\s*%|\s*\/\s*100)?/i);
+    if (!match?.[1]) {
+      return 0.5;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(parsed)) {
+      return 0.5;
+    }
+
+    return Math.max(0, Math.min(1, parsed / 100));
   }
 
   /**

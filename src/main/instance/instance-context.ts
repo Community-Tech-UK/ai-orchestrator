@@ -933,6 +933,11 @@ export class InstanceContextManager {
   ): string | null {
     const sections: string[] = [];
 
+    if (result.wakeContext?.trim()) {
+      sections.push('Wake Context:');
+      sections.push(result.wakeContext.trim());
+    }
+
     if (result.procedural.length > 0) {
       sections.push('Procedural Memory:');
       sections.push(...result.procedural.map((item) => `- ${item}`));
