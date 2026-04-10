@@ -15,9 +15,14 @@ const {
   ACTIVITY_LOG_MAX_ROTATED,
 } = ACTIVITY_CONSTANTS;
 
+interface NativeStatusAdapter {
+  getSessionStatus?: (instanceId: string) => Promise<string | null>;
+}
+
 export class ActivityStateDetector {
   private lastRecordedEntry: ActivityEntry | null = null;
   private pid: number | null = null;
+  private adapter: NativeStatusAdapter | null = null;
 
   constructor(
     private instanceId: string,
@@ -29,10 +34,18 @@ export class ActivityStateDetector {
     this.pid = pid;
   }
 
+  setAdapter(adapter: NativeStatusAdapter): void {
+    this.adapter = adapter;
+  }
+
   async detect(): Promise<ActivityDetectionResult> {
     // Level 2: Activity JSONL Log
     const jsonlResult = this.detectFromActivityLog();
     if (jsonlResult) return jsonlResult;
+
+    // Level 2.5: Native CLI Signal
+    const nativeResult = await this.detectFromNativeSignal();
+    if (nativeResult) return nativeResult;
 
     // Level 3: Age-Based Decay
     const decayResult = this.detectFromAgeDecay();
@@ -126,6 +139,38 @@ export class ActivityStateDetector {
       return { state: 'idle', confidence: 'low', staleAfterMs: 0, source: 'process-check (remote, skipped)' };
     }
     return { state: 'exited', confidence: 'low', staleAfterMs: 0, source: 'process-check (no PID)' };
+  }
+
+  private async detectFromNativeSignal(): Promise<ActivityDetectionResult | null> {
+    try {
+      if (!this.adapter?.getSessionStatus) return null;
+      const status = await this.adapter.getSessionStatus(this.instanceId);
+      if (!status) return null;
+      return {
+        state: this.mapNativeStatus(status),
+        confidence: 'high',
+        staleAfterMs: 0,
+        source: 'native-cli',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private mapNativeStatus(status: string): ActivityState {
+    switch (status) {
+      case 'running':
+      case 'streaming':
+        return 'active';
+      case 'waiting':
+      case 'idle':
+        return 'ready';
+      case 'blocked':
+      case 'permission':
+        return 'waiting_input';
+      default:
+        return 'ready';
+    }
   }
 
   private classifyTerminalOutput(output: string): ActivityState {
