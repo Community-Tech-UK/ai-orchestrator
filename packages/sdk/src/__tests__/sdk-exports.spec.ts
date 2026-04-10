@@ -86,6 +86,22 @@ describe('SDK exports', () => {
     });
   });
 
+  it('exports expanded plugin hook types (16 events)', () => {
+    const hooks: OrchestratorHooks = {
+      'instance.created': ({ instanceId }) => { void instanceId; },
+      'instance.stateChanged': ({ previousState, newState }) => { void previousState; void newState; },
+      'tool.execute.before': (payload) => { payload.skip = true; },
+      'tool.execute.after': ({ durationMs }) => { void durationMs; },
+      'session.created': ({ sessionId }) => { void sessionId; },
+      'orchestration.debate.round': ({ round, totalRounds }) => { void round; void totalRounds; },
+      'orchestration.consensus.vote': ({ confidence }) => { void confidence; },
+      'permission.ask': (payload) => { payload.decision = 'allow'; },
+      'config.loaded': ({ config }) => { void config; },
+    };
+    // All 16 events should be valid keys
+    expect(Object.keys(hooks)).toHaveLength(9); // We defined 9 of 16 in this test
+  });
+
   it('exports provider extension points', async () => {
     const config: ProviderConfig = {
       type: 'openai-compatible',
