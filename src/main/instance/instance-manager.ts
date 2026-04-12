@@ -164,6 +164,20 @@ export class InstanceManager extends EventEmitter {
       compactContext: async (id) => {
         const instance = this.state.getInstance(id);
         if (instance) {
+          // Try native adapter compaction first (e.g., Codex thread/compact/start).
+          // This actually reduces the provider's context window usage.
+          const adapter = this.state.getAdapter(id);
+          if (adapter && 'compactContext' in adapter && typeof (adapter as { compactContext: () => Promise<boolean> }).compactContext === 'function') {
+            try {
+              const nativeResult = await (adapter as { compactContext: () => Promise<boolean> }).compactContext();
+              logger.info('Native adapter compaction attempted', { instanceId: id, success: nativeResult });
+            } catch (err) {
+              logger.warn('Native adapter compaction failed, continuing with local compaction', {
+                instanceId: id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
           await this.context.compactContext(id, instance);
         }
       },

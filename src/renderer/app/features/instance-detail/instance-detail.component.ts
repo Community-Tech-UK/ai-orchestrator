@@ -115,6 +115,7 @@ interface WelcomeProjectContext {
               [level]="contextWarningLevel()!"
               [isCompacting]="isCompacting()"
               [dismissed]="contextWarningDismissed()"
+              [isEstimated]="inst.contextUsage.isEstimated === true"
               (compactNow)="onCompactNow()"
               (dismiss)="onDismissContextWarning()"
             />

@@ -170,9 +170,10 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   // Outbound — coordinator to node
   // ---------------------------------------------------------------------------
 
-  async sendRpc<T>(nodeId: string, method: string, params?: unknown): Promise<T> {
+  async sendRpc<T>(nodeId: string, method: string, params?: unknown, timeoutMs?: number): Promise<T> {
     const id = `coord-${++this.requestCounter}`;
     const request = createRpcRequest(id, method, params);
+    const timeout = timeoutMs ?? RPC_TIMEOUT_MS;
 
     return new Promise<T>((resolve, reject) => {
       // Register pending RPC and start timeout BEFORE checking socket state.
@@ -180,8 +181,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       // and the send() call — the timeout handles cleanup either way.
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`RPC timeout after ${RPC_TIMEOUT_MS}ms: ${method} (id=${id})`));
-      }, RPC_TIMEOUT_MS);
+        reject(new Error(`RPC timeout after ${timeout}ms: ${method} (id=${id})`));
+      }, timeout);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,

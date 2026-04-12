@@ -42,8 +42,6 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       <span class="leading-indicator" [title]="needsAttention() ? activityLabel() : showActivitySpinner() ? activityLabel() : isHibernated() ? 'Hibernated — click to wake' : providerVisual().label">
         @if (needsAttention()) {
           <span class="attention-dot" [title]="activityLabel()"></span>
-        } @else if (showActivitySpinner()) {
-          <span class="activity-spinner"></span>
         } @else if (isHibernated()) {
           <span class="hibernated-indicator" title="Hibernated — click to wake">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -51,7 +49,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
             </svg>
           </span>
         } @else {
-          <span class="provider-badge" [style.color]="providerVisual().color">
+          <span class="provider-badge" [class.provider-busy]="showActivitySpinner()" [style.color]="providerVisual().color" [style.--provider-color]="providerVisual().color">
             @switch (providerVisual().icon) {
               @case ('anthropic') {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -256,14 +254,9 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       flex-shrink: 0;
     }
 
-    .activity-spinner {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      border: 1.5px solid rgba(255, 255, 255, 0.12);
-      border-top-color: rgba(230, 236, 229, 0.72);
-      border-right-color: rgba(230, 236, 229, 0.72);
-      animation: spin 0.7s linear infinite;
+    .provider-badge.provider-busy {
+      animation: provider-pulse 1.8s ease-in-out infinite;
+      filter: drop-shadow(0 0 3px var(--provider-color, currentColor));
     }
 
     .attention-dot {
@@ -573,12 +566,16 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       border-color: rgba(234, 179, 8, 0.3) !important;
     }
 
-    @keyframes spin {
-      from {
-        transform: rotate(0deg);
+    @keyframes provider-pulse {
+      0%, 100% {
+        opacity: 1;
+        filter: drop-shadow(0 0 2px var(--provider-color, currentColor));
+        transform: scale(1);
       }
-      to {
-        transform: rotate(360deg);
+      50% {
+        opacity: 0.55;
+        filter: drop-shadow(0 0 6px var(--provider-color, currentColor));
+        transform: scale(0.88);
       }
     }
   `],

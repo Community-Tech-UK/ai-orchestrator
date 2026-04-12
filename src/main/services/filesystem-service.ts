@@ -8,7 +8,8 @@ import type {
   FsStatResult,
   FsSearchResult,
   FsWatchResult,
-  FsEntry,
+  FsReadFileResult,
+  FsEntry
 } from '../../shared/types/remote-fs.types';
 
 const logger = getLogger('FilesystemService');
@@ -54,7 +55,7 @@ export class FilesystemService {
   async readDirectory(
     nodeId: string,
     dirPath: string,
-    options?: Omit<FsReadDirectoryParams, 'path'>,
+    options?: Omit<FsReadDirectoryParams, 'path'>
   ): Promise<FsReadDirectoryResult> {
     const depth = options?.depth ?? 1;
     const includeHidden = options?.includeHidden ?? false;
@@ -72,12 +73,18 @@ export class FilesystemService {
       result = await this.localReadDirectory({ path: dirPath, ...options });
     } else {
       const { getWorkerNodeConnectionServer } = await import('../remote-node');
-      const params: FsReadDirectoryParams = { path: dirPath, depth, includeHidden, ...options };
-      result = await getWorkerNodeConnectionServer().sendRpc<FsReadDirectoryResult>(
-        nodeId,
-        'fs.readDirectory',
-        params,
-      );
+      const params: FsReadDirectoryParams = {
+        path: dirPath,
+        depth,
+        includeHidden,
+        ...options
+      };
+      result =
+        await getWorkerNodeConnectionServer().sendRpc<FsReadDirectoryResult>(
+          nodeId,
+          'fs.readDirectory',
+          params
+        );
     }
 
     this.setCache(cacheKey, result);
@@ -90,15 +97,19 @@ export class FilesystemService {
     }
 
     const { getWorkerNodeConnectionServer } = await import('../remote-node');
-    return getWorkerNodeConnectionServer().sendRpc<FsStatResult>(nodeId, 'fs.stat', {
-      path: targetPath,
-    });
+    return getWorkerNodeConnectionServer().sendRpc<FsStatResult>(
+      nodeId,
+      'fs.stat',
+      {
+        path: targetPath
+      }
+    );
   }
 
   async search(
     nodeId: string,
     query: string,
-    maxResults?: number,
+    maxResults?: number
   ): Promise<FsSearchResult> {
     if (nodeId === 'local') {
       // Local search uses native dialog; return empty results here
@@ -106,16 +117,20 @@ export class FilesystemService {
     }
 
     const { getWorkerNodeConnectionServer } = await import('../remote-node');
-    return getWorkerNodeConnectionServer().sendRpc<FsSearchResult>(nodeId, 'fs.search', {
-      query,
-      maxResults,
-    });
+    return getWorkerNodeConnectionServer().sendRpc<FsSearchResult>(
+      nodeId,
+      'fs.search',
+      {
+        query,
+        maxResults
+      }
+    );
   }
 
   async watch(
     nodeId: string,
     watchPath: string,
-    recursive?: boolean,
+    recursive?: boolean
   ): Promise<FsWatchResult> {
     if (nodeId === 'local') {
       // Local watching is handled by file-explorer; return a noop watchId
@@ -123,10 +138,14 @@ export class FilesystemService {
     }
 
     const { getWorkerNodeConnectionServer } = await import('../remote-node');
-    return getWorkerNodeConnectionServer().sendRpc<FsWatchResult>(nodeId, 'fs.watch', {
-      path: watchPath,
-      recursive,
-    });
+    return getWorkerNodeConnectionServer().sendRpc<FsWatchResult>(
+      nodeId,
+      'fs.watch',
+      {
+        path: watchPath,
+        recursive
+      }
+    );
   }
 
   async unwatch(nodeId: string, watchId: string): Promise<void> {
@@ -136,7 +155,32 @@ export class FilesystemService {
     }
 
     const { getWorkerNodeConnectionServer } = await import('../remote-node');
-    await getWorkerNodeConnectionServer().sendRpc<void>(nodeId, 'fs.unwatch', { watchId });
+    await getWorkerNodeConnectionServer().sendRpc<void>(nodeId, 'fs.unwatch', {
+      watchId
+    });
+  }
+
+  async readFile(nodeId: string, filePath: string): Promise<FsReadFileResult> {
+    const { getWorkerNodeConnectionServer } = await import('../remote-node');
+    return getWorkerNodeConnectionServer().sendRpc<FsReadFileResult>(
+      nodeId,
+      'fs.readFile',
+      { path: filePath }
+    );
+  }
+
+  async writeFile(
+    nodeId: string,
+    filePath: string,
+    data: string,
+    mkdirp?: boolean
+  ): Promise<{ ok: true; size: number }> {
+    const { getWorkerNodeConnectionServer } = await import('../remote-node');
+    return getWorkerNodeConnectionServer().sendRpc<{ ok: true; size: number }>(
+      nodeId,
+      'fs.writeFile',
+      { path: filePath, data, mkdirp }
+    );
   }
 
   invalidateCache(nodeId: string, dirPath?: string): void {
@@ -176,16 +220,26 @@ export class FilesystemService {
   // Private — local implementations
   // ---------------------------------------------------------------------------
 
-  private async localReadDirectory(params: FsReadDirectoryParams): Promise<FsReadDirectoryResult> {
+  private async localReadDirectory(
+    params: FsReadDirectoryParams
+  ): Promise<FsReadDirectoryResult> {
     const { depth = 1, includeHidden = false, limit = 500, cursor } = params;
-    const allEntries = await this.readDirRecursive(params.path, depth, includeHidden);
+    const allEntries = await this.readDirRecursive(
+      params.path,
+      depth,
+      includeHidden
+    );
 
     const startIndex = cursor ? parseInt(cursor, 10) : 0;
     const page = allEntries.slice(startIndex, startIndex + limit);
     const truncated = startIndex + limit < allEntries.length;
     const nextCursor = truncated ? String(startIndex + limit) : undefined;
 
-    logger.info('localReadDirectory', { path: params.path, count: page.length, truncated });
+    logger.info('localReadDirectory', {
+      path: params.path,
+      count: page.length,
+      truncated
+    });
 
     return { entries: page, cursor: nextCursor, truncated };
   }
@@ -199,7 +253,7 @@ export class FilesystemService {
         size: statResult.size,
         modifiedAt: statResult.mtimeMs,
         platform: process.platform as 'darwin' | 'win32' | 'linux',
-        withinBrowsableRoot: true,
+        withinBrowsableRoot: true
       };
     } catch {
       return {
@@ -208,7 +262,7 @@ export class FilesystemService {
         size: 0,
         modifiedAt: 0,
         platform: process.platform as 'darwin' | 'win32' | 'linux',
-        withinBrowsableRoot: false,
+        withinBrowsableRoot: false
       };
     }
   }
@@ -216,7 +270,7 @@ export class FilesystemService {
   private async readDirRecursive(
     dirPath: string,
     depth: number,
-    includeHidden: boolean,
+    includeHidden: boolean
   ): Promise<FsEntry[]> {
     let dirents: import('node:fs').Dirent[];
     try {
@@ -228,7 +282,7 @@ export class FilesystemService {
 
     const visible = includeHidden
       ? dirents
-      : dirents.filter(d => !d.name.startsWith('.'));
+      : dirents.filter((d) => !d.name.startsWith('.'));
 
     const entries: FsEntry[] = [];
 
@@ -236,7 +290,8 @@ export class FilesystemService {
       const fullPath = path.join(dirPath, dirent.name);
       const isDirectory = dirent.isDirectory();
       const isSymlink = dirent.isSymbolicLink();
-      const ignored = isDirectory && SecurityFilter.shouldSkipDirectory(dirent.name);
+      const ignored =
+        isDirectory && SecurityFilter.shouldSkipDirectory(dirent.name);
       const restricted = SecurityFilter.isRestricted(dirent.name);
 
       let size = 0;
@@ -249,7 +304,9 @@ export class FilesystemService {
         // Stat failure is non-fatal — leave defaults
       }
 
-      const extension = isDirectory ? undefined : path.extname(dirent.name) || undefined;
+      const extension = isDirectory
+        ? undefined
+        : path.extname(dirent.name) || undefined;
 
       const entry: FsEntry = {
         name: dirent.name,
@@ -260,11 +317,15 @@ export class FilesystemService {
         modifiedAt,
         extension,
         ignored,
-        restricted,
+        restricted
       };
 
       if (isDirectory && !ignored && depth > 1) {
-        entry.children = await this.readDirRecursive(fullPath, depth - 1, includeHidden);
+        entry.children = await this.readDirRecursive(
+          fullPath,
+          depth - 1,
+          includeHidden
+        );
       }
 
       entries.push(entry);

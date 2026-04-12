@@ -104,6 +104,11 @@ abstract class AppServerClientBase {
   readonly exitPromise: Promise<void>;
   protected resolveExit!: () => void;
 
+  /** Returns the error that caused the connection to close, if any. */
+  getExitError(): Error | null {
+    return this.exitError;
+  }
+
   constructor(cwd: string, transport: 'direct' | 'broker') {
     this.cwd = cwd;
     this.transport = transport;

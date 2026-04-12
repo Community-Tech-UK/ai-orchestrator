@@ -4,17 +4,43 @@ import * as os from 'os';
 import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
-import { LocalInstanceManager, type SpawnParams } from './local-instance-manager';
+import {
+  LocalInstanceManager,
+  type SpawnParams
+} from './local-instance-manager';
 import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
 import type { WorkerConfig } from './worker-config';
 import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
 import type { FileAttachment } from '../shared/types/instance.types';
-import { COORDINATOR_TO_NODE, NODE_TO_COORDINATOR, RPC_ERROR_CODES } from '../main/remote-node/worker-node-rpc';
+import type {
+  FsReadFileParams,
+  FsWriteFileParams
+} from '../shared/types/remote-fs.types';
+import {
+  COORDINATOR_TO_NODE,
+  NODE_TO_COORDINATOR,
+  RPC_ERROR_CODES
+} from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
-import { NodeFilesystemHandler, FsRpcError } from '../main/remote-node/node-filesystem-handler';
+import {
+  NodeFilesystemHandler,
+  FsRpcError
+} from '../main/remote-node/node-filesystem-handler';
+import { SyncHandler } from './sync-handler';
+import type {
+  SyncScanParams,
+  SyncBlockSigParams,
+  SyncComputeDeltaParams,
+  SyncApplyDeltaParams,
+  SyncDeleteFileParams
+} from '../shared/types/sync.types';
 
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
+const DEFAULT_CONFIG_PATH = path.join(
+  os.homedir(),
+  '.orchestrator',
+  'worker-node.json'
+);
 
 interface RpcMessage {
   jsonrpc: '2.0';
@@ -42,6 +68,7 @@ export class WorkerAgent extends EventEmitter {
   private pendingRegistrationId: string | number | null = null;
   private discoveryClient: DiscoveryClient | null = null;
   private fsHandler: NodeFilesystemHandler | null = null;
+  private syncHandler: SyncHandler | null = null;
 
   // Output batching
   private outputBuffer: { instanceId: string; message: unknown }[] = [];
@@ -62,7 +89,7 @@ export class WorkerAgent extends EventEmitter {
     super();
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
-      config.maxConcurrentInstances,
+      config.maxConcurrentInstances
     );
     this.wireInstanceEvents();
   }
@@ -75,9 +102,11 @@ export class WorkerAgent extends EventEmitter {
     try {
       this.capabilities = await reportCapabilities(
         this.config.workingDirectories,
-        this.config.maxConcurrentInstances,
+        this.config.maxConcurrentInstances
       );
-      this.fsHandler = new NodeFilesystemHandler(this.config.workingDirectories);
+      this.fsHandler = new NodeFilesystemHandler(
+        this.config.workingDirectories
+      );
 
       // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
       let coordinatorUrl = this.config.coordinatorUrl;
@@ -85,7 +114,9 @@ export class WorkerAgent extends EventEmitter {
         const discovery = new DiscoveryClient();
         const found = await discovery.discover(this.config.namespace, 10_000);
         if (!found) {
-          console.warn(`mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`);
+          console.warn(
+            `mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`
+          );
           this.startContinuousDiscovery();
           this.scheduleReconnect();
           return;
@@ -97,7 +128,7 @@ export class WorkerAgent extends EventEmitter {
 
       await new Promise<void>((resolve) => {
         const ws = new WebSocket(coordinatorUrl as string, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${token}` }
         });
 
         ws.on('open', () => {
@@ -127,7 +158,9 @@ export class WorkerAgent extends EventEmitter {
         ws.on('error', (err) => {
           if (!this.ws) {
             // Initial connection failed — let the close handler trigger reconnect.
-            console.warn(`Connection failed: ${err instanceof Error ? err.message : err}`);
+            console.warn(
+              `Connection failed: ${err instanceof Error ? err.message : err}`
+            );
             resolve();
           } else {
             this.emit('error', err);
@@ -170,8 +203,8 @@ export class WorkerAgent extends EventEmitter {
         nodeId: this.config.nodeId,
         name: this.config.name,
         capabilities: this.capabilities,
-        token: this.config.nodeToken ?? this.config.authToken,
-      },
+        token: this.config.nodeToken ?? this.config.authToken
+      }
     };
   }
 
@@ -184,7 +217,7 @@ export class WorkerAgent extends EventEmitter {
       // Refresh capabilities (memory changes over time)
       this.capabilities = await reportCapabilities(
         this.config.workingDirectories,
-        this.config.maxConcurrentInstances,
+        this.config.maxConcurrentInstances
       );
       this.send({
         jsonrpc: '2.0',
@@ -193,8 +226,8 @@ export class WorkerAgent extends EventEmitter {
           nodeId: this.config.nodeId,
           capabilities: this.capabilities,
           activeInstances: this.instanceManager.getInstanceCount(),
-          token: this.config.nodeToken ?? this.config.authToken,
-        },
+          token: this.config.nodeToken ?? this.config.authToken
+        }
       });
     }, this.config.heartbeatIntervalMs);
   }
@@ -212,13 +245,18 @@ export class WorkerAgent extends EventEmitter {
     // Don't stack multiple reconnect timers
     if (this.reconnectTimer) return;
 
-    if (this.connectedAt > 0 && Date.now() - this.connectedAt > RECONNECT_CONFIG.stableConnectionResetMs) {
+    if (
+      this.connectedAt > 0 &&
+      Date.now() - this.connectedAt > RECONNECT_CONFIG.stableConnectionResetMs
+    ) {
       this.reconnectAttempt = 0;
     }
 
     const delay = nextReconnectDelayMs(this.reconnectAttempt);
     this.reconnectAttempt++;
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})...`);
+    console.log(
+      `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})...`
+    );
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = undefined;
@@ -247,13 +285,15 @@ export class WorkerAgent extends EventEmitter {
       (coordinator) => {
         // Coordinator re-appeared or changed IP — reconnect if we're disconnected
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-          console.log(`Coordinator re-discovered at ${coordinator.host}:${coordinator.port}, reconnecting...`);
+          console.log(
+            `Coordinator re-discovered at ${coordinator.host}:${coordinator.port}, reconnecting...`
+          );
           this.scheduleReconnect();
         }
       },
       (name) => {
         console.warn(`Coordinator ${name} disappeared from mDNS`);
-      },
+      }
     );
   }
 
@@ -311,17 +351,19 @@ export class WorkerAgent extends EventEmitter {
           result = { instanceId: params['instanceId'] };
           break;
         case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT: {
-          const attachments = params['attachments'] as FileAttachment[] | undefined;
+          const attachments = params['attachments'] as
+            | FileAttachment[]
+            | undefined;
           console.log('[WorkerAgent] INSTANCE_SEND_INPUT received', {
             instanceId: params['instanceId'],
             messageLength: (params['message'] as string)?.length,
             attachmentsCount: attachments?.length ?? 0,
-            attachmentNames: attachments?.map(a => a.name),
+            attachmentNames: attachments?.map((a) => a.name)
           });
           await this.instanceManager.sendInput(
             params['instanceId'] as string,
             params['message'] as string,
-            attachments,
+            attachments
           );
           result = { ok: true };
           break;
@@ -353,8 +395,47 @@ export class WorkerAgent extends EventEmitter {
           await this.fsHandler!.unwatch(params as any);
           result = { ok: true };
           break;
+        case COORDINATOR_TO_NODE.FS_READ_FILE:
+          result = await this.fsHandler!.readFile(
+            params as unknown as FsReadFileParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.FS_WRITE_FILE:
+          result = await this.fsHandler!.writeFile(
+            params as unknown as FsWriteFileParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.SYNC_SCAN_DIRECTORY:
+          result = await this.getSyncHandler().scanDirectory(
+            params as unknown as SyncScanParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.SYNC_GET_BLOCK_SIGNATURES:
+          result = await this.getSyncHandler().getBlockSignatures(
+            params as unknown as SyncBlockSigParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.SYNC_COMPUTE_DELTA:
+          result = await this.getSyncHandler().computeDelta(
+            params as unknown as SyncComputeDeltaParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.SYNC_APPLY_DELTA:
+          result = await this.getSyncHandler().applyDelta(
+            params as unknown as SyncApplyDeltaParams
+          );
+          break;
+        case COORDINATOR_TO_NODE.SYNC_DELETE_FILE:
+          result = await this.getSyncHandler().deleteFile(
+            params as unknown as SyncDeleteFileParams
+          );
+          break;
         default:
-          this.sendError(msg.id!, RPC_ERROR_CODES.METHOD_NOT_FOUND, `Unknown method: ${msg.method}`);
+          this.sendError(
+            msg.id!,
+            RPC_ERROR_CODES.METHOD_NOT_FOUND,
+            `Unknown method: ${msg.method}`
+          );
           return;
       }
       this.sendResult(msg.id!, result);
@@ -362,6 +443,13 @@ export class WorkerAgent extends EventEmitter {
       const message = err instanceof Error ? err.message : String(err);
       this.sendError(msg.id!, this.getRpcErrorCode(msg.method, err), message);
     }
+  }
+
+  private getSyncHandler(): SyncHandler {
+    if (!this.syncHandler) {
+      this.syncHandler = new SyncHandler(this.config.workingDirectories ?? []);
+    }
+    return this.syncHandler;
   }
 
   private getRpcErrorCode(method: string | undefined, err: unknown): number {
@@ -381,44 +469,79 @@ export class WorkerAgent extends EventEmitter {
   // -- Instance event forwarding ----------------------------------------------
 
   private wireInstanceEvents(): void {
-    this.instanceManager.on('instance:output', (instanceId: string, message: unknown) => {
-      this.sendOutputNotification(instanceId, message);
-    });
+    this.instanceManager.on(
+      'instance:output',
+      (instanceId: string, message: unknown) => {
+        this.sendOutputNotification(instanceId, message);
+      }
+    );
 
-    this.instanceManager.on('instance:stateChange', (instanceId: string, state: unknown) => {
-      this.sendCritical({
-        jsonrpc: '2.0',
-        id: `sc-${++this.criticalSeq}`,
-        method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-        params: { instanceId, state, seq: this.criticalSeq, token: this.config.nodeToken ?? this.config.authToken },
-      });
-    });
+    this.instanceManager.on(
+      'instance:stateChange',
+      (instanceId: string, state: unknown) => {
+        this.sendCritical({
+          jsonrpc: '2.0',
+          id: `sc-${++this.criticalSeq}`,
+          method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
+          params: {
+            instanceId,
+            state,
+            seq: this.criticalSeq,
+            token: this.config.nodeToken ?? this.config.authToken
+          }
+        });
+      }
+    );
 
-    this.instanceManager.on('instance:exit', (instanceId: string, info: unknown) => {
-      this.sendCritical({
-        jsonrpc: '2.0',
-        id: `exit-${++this.criticalSeq}`,
-        method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-        params: { instanceId, state: 'exited', info, seq: this.criticalSeq, token: this.config.nodeToken ?? this.config.authToken },
-      });
-    });
+    this.instanceManager.on(
+      'instance:exit',
+      (instanceId: string, info: unknown) => {
+        this.sendCritical({
+          jsonrpc: '2.0',
+          id: `exit-${++this.criticalSeq}`,
+          method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
+          params: {
+            instanceId,
+            state: 'exited',
+            info,
+            seq: this.criticalSeq,
+            token: this.config.nodeToken ?? this.config.authToken
+          }
+        });
+      }
+    );
 
-    this.instanceManager.on('instance:permissionRequest', (instanceId: string, permission: unknown) => {
-      this.sendCritical({
-        jsonrpc: '2.0',
-        id: `perm-${++this.criticalSeq}`,
-        method: NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST,
-        params: { instanceId, permission, seq: this.criticalSeq, token: this.config.nodeToken ?? this.config.authToken },
-      });
-    });
+    this.instanceManager.on(
+      'instance:permissionRequest',
+      (instanceId: string, permission: unknown) => {
+        this.sendCritical({
+          jsonrpc: '2.0',
+          id: `perm-${++this.criticalSeq}`,
+          method: NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST,
+          params: {
+            instanceId,
+            permission,
+            seq: this.criticalSeq,
+            token: this.config.nodeToken ?? this.config.authToken
+          }
+        });
+      }
+    );
 
-    this.instanceManager.on('instance:context', (instanceId: string, usage: unknown) => {
-      this.send({
-        jsonrpc: '2.0',
-        method: NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
-        params: { instanceId, usage, token: this.config.nodeToken ?? this.config.authToken },
-      } as RpcMessage);
-    });
+    this.instanceManager.on(
+      'instance:context',
+      (instanceId: string, usage: unknown) => {
+        this.send({
+          jsonrpc: '2.0',
+          method: NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
+          params: {
+            instanceId,
+            usage,
+            token: this.config.nodeToken ?? this.config.authToken
+          }
+        } as RpcMessage);
+      }
+    );
   }
 
   // -- Transport helpers ------------------------------------------------------
@@ -433,7 +556,7 @@ export class WorkerAgent extends EventEmitter {
     } else {
       console.warn('[WorkerAgent] Message dropped — WebSocket not open', {
         method: msg.method,
-        readyState: this.ws?.readyState,
+        readyState: this.ws?.readyState
       });
     }
   }
@@ -449,10 +572,13 @@ export class WorkerAgent extends EventEmitter {
       this.ws.send(JSON.stringify(msg), (err) => {
         if (err) {
           // Send failed mid-flight — queue it for retry
-          console.warn('[WorkerAgent] Critical send failed, queueing for retry', {
-            method: msg.method,
-            error: err.message,
-          });
+          console.warn(
+            '[WorkerAgent] Critical send failed, queueing for retry',
+            {
+              method: msg.method,
+              error: err.message
+            }
+          );
           this.enqueueCriticalMessage(msg);
         }
       });
@@ -467,9 +593,13 @@ export class WorkerAgent extends EventEmitter {
     // and ensures the most recent state is what gets delivered after reconnect.
     const msgParams = msg.params as Record<string, unknown> | undefined;
     const msgInstanceId = msgParams?.['instanceId'];
-    if (msg.method === NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE && msgInstanceId) {
+    if (
+      msg.method === NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE &&
+      msgInstanceId
+    ) {
       const idx = this.criticalMessageQueue.findIndex((queued) => {
-        if (queued.method !== NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE) return false;
+        if (queued.method !== NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE)
+          return false;
         const qp = queued.params as Record<string, unknown> | undefined;
         return qp?.['instanceId'] === msgInstanceId;
       });
@@ -479,17 +609,22 @@ export class WorkerAgent extends EventEmitter {
         console.debug('[WorkerAgent] Superseded older state-change in queue', {
           instanceId: msgInstanceId,
           oldState: (superseded.params as Record<string, unknown>)?.['state'],
-          newState: msgParams['state'],
+          newState: msgParams['state']
         });
       }
     }
 
-    if (this.criticalMessageQueue.length >= WorkerAgent.CRITICAL_QUEUE_MAX_SIZE) {
+    if (
+      this.criticalMessageQueue.length >= WorkerAgent.CRITICAL_QUEUE_MAX_SIZE
+    ) {
       // Drop oldest to prevent unbounded growth
       const dropped = this.criticalMessageQueue.shift();
-      console.warn('[WorkerAgent] Critical queue full, dropped oldest message', {
-        method: dropped?.method,
-      });
+      console.warn(
+        '[WorkerAgent] Critical queue full, dropped oldest message',
+        {
+          method: dropped?.method
+        }
+      );
     }
     this.criticalMessageQueue.push(msg);
   }
@@ -504,10 +639,13 @@ export class WorkerAgent extends EventEmitter {
       this.ws.send(JSON.stringify(msg), (err) => {
         if (err) {
           // Re-queue failed messages so they aren't silently lost
-          console.warn('[WorkerAgent] Failed to flush critical message, re-queuing', {
-            method: msg.method,
-            error: err.message,
-          });
+          console.warn(
+            '[WorkerAgent] Failed to flush critical message, re-queuing',
+            {
+              method: msg.method,
+              error: err.message
+            }
+          );
           this.enqueueCriticalMessage(msg);
         }
       });
@@ -559,14 +697,18 @@ export class WorkerAgent extends EventEmitter {
       this.send({
         jsonrpc: '2.0',
         method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
-        params: { instanceId: items[0].instanceId, message: items[0].message, token },
+        params: {
+          instanceId: items[0].instanceId,
+          message: items[0].message,
+          token
+        }
       } as RpcMessage);
     } else {
       // Multiple messages — send as batch notification
       this.send({
         jsonrpc: '2.0',
         method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
-        params: { items, token },
+        params: { items, token }
       } as RpcMessage);
     }
   }

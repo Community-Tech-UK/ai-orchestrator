@@ -245,6 +245,7 @@ export type AppServerNotificationMethod =
   | 'thread/started'
   | 'thread/name/updated'
   | 'thread/tokenUsage/updated'
+  | 'thread/compacted'
   | 'turn/started'
   | 'turn/completed'
   | 'item/started'

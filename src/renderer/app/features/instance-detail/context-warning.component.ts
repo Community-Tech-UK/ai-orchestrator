@@ -144,6 +144,8 @@ export class ContextWarningComponent {
   level = input.required<'warning' | 'critical' | 'emergency'>();
   isCompacting = input<boolean>(false);
   dismissed = input<boolean>(false);
+  /** When true, the percentage is an estimate, not actual context occupancy. */
+  isEstimated = input<boolean>(false);
 
   compactNow = output<void>();
   dismiss = output<void>();
@@ -165,13 +167,14 @@ export class ContextWarningComponent {
 
   message = computed(() => {
     const pct = Math.round(this.percentage());
+    const estimatedNote = this.isEstimated() ? ' (estimated)' : '';
     switch (this.level()) {
       case 'emergency':
-        return `Context at ${pct}% \u2014 compaction required`;
+        return `Context at ~${pct}%${estimatedNote} \u2014 compaction required`;
       case 'critical':
-        return `Context at ${pct}% \u2014 compacting...`;
+        return `Context at ~${pct}%${estimatedNote} \u2014 compacting...`;
       default:
-        return `Context at ${pct}% \u2014 auto-compact at 80%`;
+        return `Context at ~${pct}%${estimatedNote} \u2014 auto-compact at 80%`;
     }
   });
 

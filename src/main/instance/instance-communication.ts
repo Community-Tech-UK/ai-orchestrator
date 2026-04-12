@@ -144,10 +144,18 @@ export class InstanceCommunicationManager extends EventEmitter {
   }
 
   /**
-   * Codex/Gemini adapters run in exec-per-message mode (stateless sessions).
-   * Context threshold warnings are not meaningful for these providers.
+   * Returns true for adapters that run in exec-per-message mode (stateless sessions)
+   * where context threshold warnings and exit handling are not meaningful.
+   *
+   * Codex in app-server mode is stateful — context accumulates across turns
+   * and requires proactive warnings and proper exit handling.
    */
   private isStatelessExecAdapter(adapter: CliAdapter): boolean {
+    // Adapters with native compaction support are stateful (e.g., Codex app-server mode).
+    // They accumulate context across turns and need warnings + exit handling.
+    if (adapter instanceof BaseCliAdapter && adapter.getRuntimeCapabilities().supportsNativeCompaction) {
+      return false;
+    }
     const adapterName = adapter.getName().toLowerCase();
     return adapterName.includes('codex') || adapterName.includes('gemini');
   }
@@ -444,8 +452,105 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     logger.info('Sending message to adapter');
-    await adapter.sendInput(finalMessage, attachments);
-    logger.info('Message sent to adapter');
+    try {
+      await adapter.sendInput(finalMessage, attachments);
+      logger.info('Message sent to adapter');
+    } catch (sendError) {
+      // Check if this is a context overflow error thrown from sendInput.
+      // The adapter's on('error') handler won't fire for thrown errors,
+      // so we must handle context overflow recovery inline.
+      const errorMsg = sendError instanceof Error ? sendError.message : String(sendError);
+      const isOverflow = isContextOverflowError(errorMsg);
+
+      // Also treat process crashes as context overflow when context is near/at 100%.
+      // Codex app-server may crash without returning a graceful overflow error.
+      const contextPct = instance.contextUsage?.percentage ?? 0;
+      const isCrashAtFullContext = !isOverflow
+        && contextPct >= 95
+        && (errorMsg.includes('exited unexpectedly') || errorMsg.includes('exited with code') || errorMsg.includes('turn stalled'));
+
+      if ((isOverflow || isCrashAtFullContext) && this.deps.compactContext) {
+        const tokenInfo = extractOverflowTokenCount(errorMsg);
+        logger.info('Context overflow detected in sendInput path, attempting compaction', {
+          instanceId,
+          observedTokens: tokenInfo.observed,
+          maximumTokens: tokenInfo.maximum,
+        });
+
+        const compactingMsg: OutputMessage = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system',
+          content: 'Context is too long. Compacting conversation history...',
+          metadata: { contextOverflow: true },
+        };
+        this.addToOutputBuffer(instance, compactingMsg);
+        this.emit('output', { instanceId, message: compactingMsg });
+
+        try {
+          await this.deps.compactContext(instanceId);
+          logger.info('Context compaction completed (sendInput path)', { instanceId });
+          this.contextWarningIssued.delete(instanceId);
+
+          if (this.contextOverflowRetried.has(instanceId)) {
+            logger.warn('Already retried after overflow in sendInput path, going idle', { instanceId });
+            const idleMsg: OutputMessage = {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'system',
+              content: 'Context compacted. Please delegate large file reads to child instances and try again.',
+              metadata: { contextCompacted: true },
+            };
+            this.addToOutputBuffer(instance, idleMsg);
+            this.emit('output', { instanceId, message: idleMsg });
+            instance.status = 'idle';
+            this.deps.queueUpdate(instanceId, 'idle');
+            return;
+          }
+
+          // Retry with delegation guidance
+          this.contextOverflowRetried.add(instanceId);
+          const delegationGuidance = [
+            '[SYSTEM: Context Overflow Recovery]',
+            'Your context overflowed and has been compacted. To prevent this from happening again:',
+            '1. Do NOT read large files directly — spawn child instances for file reading.',
+            '2. Use get_child_summary instead of get_child_output for results.',
+            '3. Summarize rather than copying full file contents.',
+            'Your previous message is being retried. Follow the guidance above.',
+            '[END SYSTEM]',
+          ].join('\n');
+
+          const retryMessage = contextBlock
+            ? `${contextBlock}\n\n${delegationGuidance}\n\n${message}`
+            : `${delegationGuidance}\n\n${message}`;
+
+          const retryNote: OutputMessage = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content: 'Context compacted and message retried with delegation guidance.',
+            metadata: { contextCompacted: true, retrying: true },
+          };
+          this.addToOutputBuffer(instance, retryNote);
+          this.emit('output', { instanceId, message: retryNote });
+
+          instance.status = 'busy';
+          this.deps.queueUpdate(instanceId, 'busy');
+
+          adapter.sendInput(retryMessage, attachments).catch(retryErr => {
+            logger.error('Retry after compaction failed (sendInput path)', retryErr instanceof Error ? retryErr : undefined, { instanceId });
+            instance.status = 'idle';
+            this.deps.queueUpdate(instanceId, 'idle');
+          });
+          return;
+        } catch (compactErr) {
+          logger.error('Context compaction failed (sendInput path)', compactErr instanceof Error ? compactErr : undefined, { instanceId });
+          // Fall through to rethrow original error
+        }
+      }
+
+      throw sendError;
+    }
   }
 
   /**

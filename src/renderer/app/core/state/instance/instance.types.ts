@@ -40,6 +40,12 @@ export interface ContextUsage {
   cumulativeTokens?: number;
   /** Estimated cost in dollars */
   costEstimate?: number;
+  /**
+   * When true, `used` is an estimate derived from aggregate turn tokens
+   * (sum of all sub-calls), NOT actual context-window occupancy.
+   * The UI should display this differently to avoid misleading the user.
+   */
+  isEstimated?: boolean;
 }
 
 export interface OutputMessage {

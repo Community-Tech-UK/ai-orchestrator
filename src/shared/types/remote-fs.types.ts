@@ -39,6 +39,23 @@ export interface FsUnwatchParams {
   watchId: string;
 }
 
+export interface FsReadFileParams {
+  path: string;
+}
+
+export interface FsReadFileResult {
+  data: string; // base64-encoded file content
+  size: number;
+  mimeType: string;
+}
+
+export interface FsWriteFileParams {
+  path: string;
+  data: string; // base64-encoded file content
+  /** Create intermediate directories if they don't exist (default: true) */
+  mkdirp?: boolean;
+}
+
 export interface FsReadDirectoryResult {
   entries: FsEntry[];
   cursor?: string;
@@ -80,7 +97,12 @@ export interface FsChangeEvent {
   isDirectory: boolean;
 }
 
-export type FsErrorCode = 'ENOENT' | 'EACCES' | 'EOUTOFSCOPE' | 'ETIMEOUT' | 'ENOTDIR';
+export type FsErrorCode =
+  | 'ENOENT'
+  | 'EACCES'
+  | 'EOUTOFSCOPE'
+  | 'ETIMEOUT'
+  | 'ENOTDIR';
 
 export interface FsErrorData {
   fsCode: FsErrorCode;

@@ -1,11 +1,25 @@
-export { WorkerNodeRegistry, getWorkerNodeRegistry } from './worker-node-registry';
-export { generateAuthToken, validateAuthToken, ensureAuthToken } from './auth-validator';
+export {
+  WorkerNodeRegistry,
+  getWorkerNodeRegistry
+} from './worker-node-registry';
+export {
+  generateAuthToken,
+  validateAuthToken,
+  ensureAuthToken
+} from './auth-validator';
 export { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
-export { WorkerNodeConnectionServer, getWorkerNodeConnectionServer } from './worker-node-connection';
+export {
+  WorkerNodeConnectionServer,
+  getWorkerNodeConnectionServer
+} from './worker-node-connection';
 export { WorkerNodeHealth, getWorkerNodeHealth } from './worker-node-health';
 export { handleNodeFailover, handleLateNodeReconnect } from './node-failover';
 export { RpcEventRouter } from './rpc-event-router';
-export { getRemoteNodeConfig, updateRemoteNodeConfig, resetRemoteNodeConfig } from './remote-node-config';
+export {
+  getRemoteNodeConfig,
+  updateRemoteNodeConfig,
+  resetRemoteNodeConfig
+} from './remote-node-config';
 export type { RemoteNodeConfig } from './remote-node-config';
 export {
   NODE_TO_COORDINATOR,
@@ -17,18 +31,35 @@ export {
   createRpcNotification,
   isRpcRequest,
   isRpcResponse,
-  isRpcNotification,
+  isRpcNotification
 } from './worker-node-rpc';
 export type {
   RpcRequest,
   RpcResponse,
   RpcNotification,
-  RpcError,
+  RpcError
 } from './worker-node-rpc';
 export { ServerLifecycle, type ServerState } from './server-lifecycle';
 export { IpRateLimiter, type RateLimitConfig } from './ip-rate-limiter';
 export { DiscoveryService, getDiscoveryService } from './discovery-service';
 export { NodeIdentityStore, getNodeIdentityStore } from './node-identity-store';
 export { hydrateRemoteNodeConfig } from './remote-node-config';
-export { validateTokenTwoTier, ensureEnrollmentToken, type AuthResult } from './auth-validator';
+export {
+  validateTokenTwoTier,
+  ensureEnrollmentToken,
+  type AuthResult
+} from './auth-validator';
 export type { EnrollmentResult } from './worker-node-rpc';
+export {
+  FileTransferService,
+  getFileTransferService
+} from './file-transfer-service';
+export type {
+  CopyToRemoteParams,
+  CopyFromRemoteParams,
+  FileTransferResult
+} from './file-transfer-service';
+export {
+  DirectorySyncService,
+  getDirectorySyncService
+} from './directory-sync-service';

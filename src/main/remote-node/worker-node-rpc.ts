@@ -13,7 +13,7 @@ export const NODE_TO_COORDINATOR = {
   INSTANCE_STATE_CHANGE: 'instance.stateChange',
   INSTANCE_PERMISSION_REQUEST: 'instance.permissionRequest',
   INSTANCE_CONTEXT: 'instance.context',
-  FS_EVENT: 'fs.event',
+  FS_EVENT: 'fs.event'
 } as const;
 
 /** Methods sent FROM coordinator TO worker node */
@@ -30,6 +30,13 @@ export const COORDINATOR_TO_NODE = {
   FS_SEARCH: 'fs.search',
   FS_WATCH: 'fs.watch',
   FS_UNWATCH: 'fs.unwatch',
+  FS_READ_FILE: 'fs.readFile',
+  FS_WRITE_FILE: 'fs.writeFile',
+  SYNC_SCAN_DIRECTORY: 'sync.scanDirectory',
+  SYNC_GET_BLOCK_SIGNATURES: 'sync.getBlockSignatures',
+  SYNC_COMPUTE_DELTA: 'sync.computeDelta',
+  SYNC_APPLY_DELTA: 'sync.applyDelta',
+  SYNC_DELETE_FILE: 'sync.deleteFile'
 } as const;
 
 // -- JSON-RPC 2.0 Message Types --
@@ -80,7 +87,7 @@ export const RPC_ERROR_CODES = {
   NODE_NOT_FOUND: -32001,
   INSTANCE_NOT_FOUND: -32002,
   SPAWN_FAILED: -32003,
-  FILESYSTEM_ERROR: -32004,
+  FILESYSTEM_ERROR: -32004
 } as const;
 
 // -- Helpers --
@@ -89,14 +96,14 @@ export function createRpcRequest(
   id: string | number,
   method: string,
   params?: unknown,
-  token?: string,
+  token?: string
 ): RpcRequest {
   return { jsonrpc: '2.0', id, method, params, token };
 }
 
 export function createRpcResponse(
   id: string | number,
-  result: unknown,
+  result: unknown
 ): RpcResponse {
   return { jsonrpc: '2.0', id, result };
 }
@@ -105,7 +112,7 @@ export function createRpcError(
   id: string | number,
   code: number,
   message: string,
-  data?: unknown,
+  data?: unknown
 ): RpcResponse {
   return { jsonrpc: '2.0', id, error: { code, message, data } };
 }
@@ -113,7 +120,7 @@ export function createRpcError(
 export function createRpcNotification(
   method: string,
   params?: unknown,
-  token?: string,
+  token?: string
 ): RpcNotification {
   return { jsonrpc: '2.0', method, params, token };
 }

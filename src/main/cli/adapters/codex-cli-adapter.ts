@@ -246,6 +246,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private lastTurnTokens = 0;
   /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
   private hasTokenUsageNotification = false;
+  /**
+   * Context window size reported by Codex via `thread/tokenUsage/updated`.
+   * Authoritative when available — takes precedence over the static registry.
+   */
+  private codexReportedContextWindow = 0;
 
   // ─── App-server mode state ────────────────────────────────────────
   /** Whether app-server mode is active (vs exec fallback). */
@@ -308,10 +313,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Resolves the context-window size from the model-capabilities registry,
-   * falling back to `CONTEXT_WINDOWS.CODEX_DEFAULT` when the model is unknown.
+   * Resolves the context-window size. Prefers the value reported by Codex via
+   * `thread/tokenUsage/updated` (authoritative), then falls back to the
+   * model-capabilities registry, and finally to `CONTEXT_WINDOWS.CODEX_DEFAULT`.
    */
   private resolveContextWindow(): number {
+    if (this.codexReportedContextWindow > 0) {
+      return this.codexReportedContextWindow;
+    }
     const model = this.cliConfig.model ?? 'default';
     const caps = getModelCapabilitiesRegistry().getCapabilities('codex', model);
     return caps.contextWindow;
@@ -641,6 +650,21 @@ export class CodexCliAdapter extends BaseCliAdapter {
       if (threadId) {
         this.sessionId = threadId;
       }
+
+      // Forward app-server process exit to adapter 'exit' event so the
+      // instance lifecycle can detect crashes and auto-respawn. Without this,
+      // an app-server crash outside of a turn is silently swallowed.
+      client.exitPromise.then(() => {
+        if (!this.isSpawned) return; // Already terminated gracefully
+        const exitError = client.getExitError();
+        const code = exitError ? 1 : 0;
+        logger.warn('App-server process exited, forwarding to adapter exit event', {
+          threadId: this.appServerThreadId,
+          hasError: !!exitError,
+          error: exitError?.message,
+        });
+        this.emit('exit', code, null);
+      });
     } catch (err) {
       // Thread creation/resume failed — close the client to prevent orphaning
       try {
@@ -693,6 +717,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Start the turn and capture notifications
     const turnState = await this.captureTurn(content);
 
+    // Check for failed turns (e.g., context overflow, API errors).
+    // Codex reports these as turn/completed with status: "failed".
+    const turnStatus = turnState.finalTurn?.status;
+    if (turnStatus === 'failed' || turnState.error) {
+      const errorMsg = turnState.error instanceof Error
+        ? turnState.error.message
+        : (typeof turnState.error === 'string' ? turnState.error : 'Codex turn failed');
+      throw new Error(errorMsg);
+    }
+
     // Emit the final response
     const responseContent = turnState.lastAgentMessage || '';
     const toolCalls = this.buildToolCallsFromTurnState(turnState);
@@ -730,19 +764,36 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const turnTokens = inputTokens + outputTokens;
 
       if (!this.hasTokenUsageNotification) {
-        // No accurate notification received — fall back to turn-level usage.
-        // Clamp to context window since aggregate tokens can wildly exceed it.
+        // No accurate notification received — aggregate turn tokens are NOT
+        // context-window occupancy (they sum across all internal sub-calls).
+        // Use the last known good occupancy if we have one; otherwise emit
+        // the aggregate as an estimate so the UI can display it differently.
         const contextWindow = this.resolveContextWindow();
-        const clampedUsed = Math.min(turnTokens, contextWindow);
         this.cumulativeTokensUsed += turnTokens;
-        this.lastTurnTokens = clampedUsed;
 
-        this.emit('context', {
-          used: clampedUsed,
-          total: contextWindow,
-          percentage: Math.min((clampedUsed / contextWindow) * 100, 100),
-          cumulativeTokens: this.cumulativeTokensUsed,
-        });
+        if (this.lastTurnTokens > 0) {
+          // Re-emit the last known good occupancy (from a previous
+          // thread/tokenUsage/updated notification) with updated spend.
+          this.emit('context', {
+            used: this.lastTurnTokens,
+            total: contextWindow,
+            percentage: Math.min((this.lastTurnTokens / contextWindow) * 100, 100),
+            cumulativeTokens: this.cumulativeTokensUsed,
+          });
+        } else {
+          // No prior occupancy data — emit the aggregate as an estimate.
+          // Mark isEstimated so the UI doesn't present this as real occupancy.
+          const clampedUsed = Math.min(turnTokens, contextWindow);
+          this.lastTurnTokens = clampedUsed;
+
+          this.emit('context', {
+            used: clampedUsed,
+            total: contextWindow,
+            percentage: Math.min((clampedUsed / contextWindow) * 100, 100),
+            cumulativeTokens: this.cumulativeTokensUsed,
+            isEstimated: true,
+          });
+        }
       } else {
         // Accurate notification was already emitted — just update cumulative
         // spend for cost tracking if the notification didn't cover it.
@@ -1268,11 +1319,21 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const cumulativeTotal = Number(total?.['totalTokens'] ?? total?.['total_tokens'] ?? 0) || 0;
 
         // Use model_context_window from Codex when available (authoritative source)
+        // Persist Codex-reported context window for future resolveContextWindow() calls
         const codexContextWindow = Number(tokenUsage['modelContextWindow'] ?? tokenUsage['model_context_window'] ?? 0) || 0;
+        if (codexContextWindow > 0) {
+          this.codexReportedContextWindow = codexContextWindow;
+        }
         const contextWindow = codexContextWindow > 0 ? codexContextWindow : this.resolveContextWindow();
 
-        const used = lastTotal > 0 ? lastTotal : cumulativeTotal;
-        this.lastTurnTokens = used;
+        // Prefer last.totalTokens (actual context-window occupancy for the most
+        // recent API call). Do NOT fall back to cumulativeTotal — that's lifetime
+        // spend, not occupancy, and would always inflate the context bar.
+        const hasAccurateOccupancy = lastTotal > 0;
+        const used = hasAccurateOccupancy ? lastTotal : this.lastTurnTokens;
+        if (hasAccurateOccupancy) {
+          this.lastTurnTokens = lastTotal;
+        }
         if (cumulativeTotal > 0) {
           this.cumulativeTokensUsed = cumulativeTotal;
         }
@@ -1283,14 +1344,36 @@ export class CodexCliAdapter extends BaseCliAdapter {
           total: contextWindow,
           percentage: Math.min((used / contextWindow) * 100, 100),
           cumulativeTokens: this.cumulativeTokensUsed,
+          // If we don't have per-call occupancy AND no prior occupancy, flag it
+          ...(!hasAccurateOccupancy && used === 0 ? { isEstimated: true } : {}),
         });
         break;
       }
 
       case 'error': {
         const errorMessage = params['message'] as string || 'Unknown error from codex app-server';
-        state.error = new Error(errorMessage);
-        logger.warn('Error notification from app-server', { error: errorMessage });
+        const codexErrorInfo = params['codex_error_info'] as string | undefined;
+        // Include codex_error_info in the error message so upstream overflow detection
+        // can match it (e.g., "ContextWindowExceeded" matches /context.?window.?exceeded/i).
+        const fullMessage = codexErrorInfo
+          ? `${errorMessage} [codex_error_info: ${codexErrorInfo}]`
+          : errorMessage;
+        state.error = new Error(fullMessage);
+        logger.warn('Error notification from app-server', { error: errorMessage, codexErrorInfo });
+        break;
+      }
+
+      case 'thread/compacted': {
+        // Codex auto-compacted the thread. Emit a system message and refresh context usage.
+        logger.info('Thread compacted by Codex app-server', { threadId: state.threadId });
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system',
+          content: 'Codex automatically compacted the conversation to free context space.',
+          metadata: { threadCompacted: true },
+        });
+        // Context usage will be updated by the next thread/tokenUsage/updated notification.
         break;
       }
 

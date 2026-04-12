@@ -23,16 +23,19 @@ import { ContextUsage } from '../../core/state/instance.store';
 
       @if (showDetails()) {
         <div class="bar-details">
+          @if (isEstimated()) {
+            <span class="estimated-badge" title="Estimated from aggregate token spend — actual context occupancy may be lower">~</span>
+          }
           <span class="used">{{ usage().used | number:'1.0-0' }}</span>
           <span class="separator">/</span>
           <span class="total">{{ usage().total | number:'1.0-0' }}</span>
-          <span class="percentage">({{ percentage() | number:'1.0-0' }}%)</span>
+          <span class="percentage">({{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%)</span>
           @if (showCost() && costEstimate()) {
             <span class="cost">≈{{ costEstimate() | number:'1.2-2' }} USD</span>
           }
         </div>
       } @else {
-        <span class="compact-label">{{ percentage() | number:'1.0-0' }}%</span>
+        <span class="compact-label">{{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%</span>
       }
     </div>
   `,
@@ -116,6 +119,13 @@ import { ContextUsage } from '../../core/state/instance.store';
       font-weight: 500;
     }
 
+    .estimated-badge {
+      color: var(--warning-color);
+      font-weight: 600;
+      margin-right: 1px;
+      cursor: help;
+    }
+
     .compact-label {
       font-size: 10px;
       color: var(--text-muted);
@@ -151,6 +161,8 @@ export class ContextBarComponent {
     const raw = usage.total > 0 ? (usage.used / usage.total) * 100 : 0;
     return Math.min(raw, 100);
   });
+
+  isEstimated = computed(() => this.usage().isEstimated === true);
 
   costEstimate = computed(() => {
     const cost = this.usage().costEstimate;

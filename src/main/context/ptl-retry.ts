@@ -61,6 +61,7 @@ const PTL_ERROR_PATTERNS = [
   /input.*too long/i,
   /exceeds the model's maximum/i,
   /max_tokens.*exceeded/i,
+  /ran out of room in.*context window/i,    // Codex CLI error message
 ] as const;
 
 /**

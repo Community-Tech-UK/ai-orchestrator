@@ -63,4 +63,16 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_FS_SEARCH: 'remote-fs:search',
   REMOTE_FS_WATCH: 'remote-fs:watch',
   REMOTE_FS_UNWATCH: 'remote-fs:unwatch',
+
+  // File transfer (coordinator <-> remote node)
+  REMOTE_FS_COPY_TO_REMOTE: 'remote-fs:copy-to-remote',
+  REMOTE_FS_COPY_FROM_REMOTE: 'remote-fs:copy-from-remote',
+  REMOTE_FS_READ_FILE: 'remote-fs:read-file',
+  REMOTE_FS_WRITE_FILE: 'remote-fs:write-file',
+
+  // Directory sync (rsync-style)
+  REMOTE_FS_SYNC_START: 'remote-fs:sync-start',
+  REMOTE_FS_SYNC_PROGRESS: 'remote-fs:sync-progress',
+  REMOTE_FS_SYNC_CANCEL: 'remote-fs:sync-cancel',
+  REMOTE_FS_SYNC_DIFF: 'remote-fs:sync-diff'
 } as const;

@@ -14,8 +14,11 @@ import type {
   FsWatchParams,
   FsWatchResult,
   FsUnwatchParams,
+  FsReadFileParams,
+  FsReadFileResult,
+  FsWriteFileParams,
   FsEntry,
-  FsErrorCode,
+  FsErrorCode
 } from '../../shared/types/remote-fs.types';
 import type { NodePlatform } from '../../shared/types/worker-node.types';
 
@@ -23,6 +26,39 @@ const logger = getLogger('NodeFilesystemHandler');
 
 const DEFAULT_LIMIT = 500;
 const DEFAULT_DEPTH = 1;
+const MAX_READ_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+/** Simple extension → MIME type mapping for common file types */
+const MIME_TYPES: Record<string, string> = {
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.js': 'text/javascript',
+  '.ts': 'text/typescript',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.xml': 'application/xml',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.csv': 'text/csv',
+  '.sh': 'text/x-shellscript',
+  '.py': 'text/x-python',
+  '.rs': 'text/x-rust',
+  '.go': 'text/x-go',
+  '.java': 'text/x-java',
+  '.c': 'text/x-c',
+  '.cpp': 'text/x-c++',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
+  '.zip': 'application/zip',
+  '.tar': 'application/x-tar',
+  '.gz': 'application/gzip'
+};
 
 // ---------------------------------------------------------------------------
 // Custom RPC error
@@ -94,7 +130,11 @@ export class NodeFilesystemHandler {
     try {
       resolved = await fs.realpath(targetPath);
     } catch {
-      throw new FsRpcError('ENOENT', targetPath, `ENOENT: no such file or directory, realpath '${targetPath}'`);
+      throw new FsRpcError(
+        'ENOENT',
+        targetPath,
+        `ENOENT: no such file or directory, realpath '${targetPath}'`
+      );
     }
 
     if (!SecurityFilter.isWithinRoot(resolved, this.roots)) {
@@ -114,12 +154,22 @@ export class NodeFilesystemHandler {
   // readDirectory
   // -------------------------------------------------------------------------
 
-  async readDirectory(params: FsReadDirectoryParams): Promise<FsReadDirectoryResult> {
-    const { depth = DEFAULT_DEPTH, includeHidden = false, limit = DEFAULT_LIMIT } = params;
+  async readDirectory(
+    params: FsReadDirectoryParams
+  ): Promise<FsReadDirectoryResult> {
+    const {
+      depth = DEFAULT_DEPTH,
+      includeHidden = false,
+      limit = DEFAULT_LIMIT
+    } = params;
 
     const resolvedPath = await this.validatePath(params.path);
 
-    const allEntries = await this.readDirRecursive(resolvedPath, depth, includeHidden);
+    const allEntries = await this.readDirRecursive(
+      resolvedPath,
+      depth,
+      includeHidden
+    );
 
     // Pagination via cursor (cursor is a numeric string offset)
     const startIndex = params.cursor ? parseInt(params.cursor, 10) : 0;
@@ -127,7 +177,11 @@ export class NodeFilesystemHandler {
     const truncated = startIndex + limit < allEntries.length;
     const nextCursor = truncated ? String(startIndex + limit) : undefined;
 
-    logger.info('readDirectory', { path: resolvedPath, count: page.length, truncated });
+    logger.info('readDirectory', {
+      path: resolvedPath,
+      count: page.length,
+      truncated
+    });
 
     return { entries: page, cursor: nextCursor, truncated };
   }
@@ -147,11 +201,14 @@ export class NodeFilesystemHandler {
         size: 0,
         modifiedAt: 0,
         platform: this.platform,
-        withinBrowsableRoot: false,
+        withinBrowsableRoot: false
       };
     }
 
-    const withinBrowsableRoot = SecurityFilter.isWithinRoot(resolved, this.roots);
+    const withinBrowsableRoot = SecurityFilter.isWithinRoot(
+      resolved,
+      this.roots
+    );
 
     let statResult: import('node:fs').Stats;
     try {
@@ -163,7 +220,7 @@ export class NodeFilesystemHandler {
         size: 0,
         modifiedAt: 0,
         platform: this.platform,
-        withinBrowsableRoot,
+        withinBrowsableRoot
       };
     }
 
@@ -173,7 +230,7 @@ export class NodeFilesystemHandler {
       size: statResult.size,
       modifiedAt: statResult.mtimeMs,
       platform: this.platform,
-      withinBrowsableRoot,
+      withinBrowsableRoot
     };
   }
 
@@ -188,14 +245,16 @@ export class NodeFilesystemHandler {
     const projects = this.discovery.getCachedProjects();
     const results = projects
       .filter(
-        p => p.name.toLowerCase().includes(lower) || p.path.toLowerCase().includes(lower)
+        (p) =>
+          p.name.toLowerCase().includes(lower) ||
+          p.path.toLowerCase().includes(lower)
       )
       .slice(0, maxResults)
-      .map(p => ({
+      .map((p) => ({
         path: p.path,
         name: p.name,
         markers: p.markers,
-        root: this.roots.find(r => p.path.startsWith(r)) ?? '',
+        root: this.roots.find((r) => p.path.startsWith(r)) ?? ''
       }));
 
     return { results };
@@ -220,7 +279,7 @@ export class NodeFilesystemHandler {
       try {
         const watcher = fs.watch(resolvedPath, {
           recursive: params.recursive ?? false,
-          signal: abort.signal,
+          signal: abort.signal
         });
         // Consume events (callers poll via events or RPC — this keeps the watcher alive)
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -258,6 +317,102 @@ export class NodeFilesystemHandler {
   }
 
   // -------------------------------------------------------------------------
+  // readFile
+  // -------------------------------------------------------------------------
+
+  async readFile(params: FsReadFileParams): Promise<FsReadFileResult> {
+    const resolvedPath = await this.validatePath(params.path);
+
+    const stat = await fs.stat(resolvedPath);
+    if (stat.isDirectory()) {
+      throw new FsRpcError(
+        'ENOTDIR',
+        resolvedPath,
+        `ENOTDIR: '${resolvedPath}' is a directory, not a file`
+      );
+    }
+    if (stat.size > MAX_READ_FILE_SIZE) {
+      throw new FsRpcError(
+        'EACCES',
+        resolvedPath,
+        `File too large: ${stat.size} bytes exceeds ${MAX_READ_FILE_SIZE} byte limit`,
+        false,
+        'Use streaming transfer for files larger than 50 MB.'
+      );
+    }
+    if (SecurityFilter.isRestricted(path.basename(resolvedPath))) {
+      throw new FsRpcError(
+        'EACCES',
+        resolvedPath,
+        `EACCES: '${path.basename(resolvedPath)}' is a restricted file`,
+        false,
+        'Restricted files (credentials, keys, secrets) cannot be read remotely.'
+      );
+    }
+
+    const buffer = await fs.readFile(resolvedPath);
+    const ext = path.extname(resolvedPath).toLowerCase();
+    const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
+
+    logger.info('readFile', {
+      path: resolvedPath,
+      size: buffer.length,
+      mimeType
+    });
+
+    return {
+      data: buffer.toString('base64'),
+      size: buffer.length,
+      mimeType
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // writeFile
+  // -------------------------------------------------------------------------
+
+  async writeFile(
+    params: FsWriteFileParams
+  ): Promise<{ ok: true; size: number }> {
+    const targetPath = path.resolve(params.path);
+
+    // Validate target is within allowed roots (use resolve instead of realpath
+    // since the file may not exist yet)
+    if (!SecurityFilter.isWithinRoot(targetPath, this.roots)) {
+      throw new FsRpcError(
+        'EOUTOFSCOPE',
+        targetPath,
+        `EOUTOFSCOPE: path '${targetPath}' is outside browsable roots`,
+        false,
+        'Only paths within the configured working directories are writable.'
+      );
+    }
+
+    if (SecurityFilter.isRestricted(path.basename(targetPath))) {
+      throw new FsRpcError(
+        'EACCES',
+        targetPath,
+        `EACCES: cannot write to restricted filename '${path.basename(targetPath)}'`,
+        false,
+        'Restricted files (credentials, keys, secrets) cannot be written remotely.'
+      );
+    }
+
+    const buffer = Buffer.from(params.data, 'base64');
+
+    // Create parent directories if needed
+    if (params.mkdirp !== false) {
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    }
+
+    await fs.writeFile(targetPath, buffer);
+
+    logger.info('writeFile', { path: targetPath, size: buffer.length });
+
+    return { ok: true, size: buffer.length };
+  }
+
+  // -------------------------------------------------------------------------
   // Private helpers
   // -------------------------------------------------------------------------
 
@@ -277,7 +432,7 @@ export class NodeFilesystemHandler {
     // Filter hidden entries unless explicitly included
     const visible = includeHidden
       ? dirents
-      : dirents.filter(d => !d.name.startsWith('.'));
+      : dirents.filter((d) => !d.name.startsWith('.'));
 
     const entries: FsEntry[] = [];
 
@@ -285,7 +440,8 @@ export class NodeFilesystemHandler {
       const fullPath = path.join(dirPath, dirent.name);
       const isDirectory = dirent.isDirectory();
       const isSymlink = dirent.isSymbolicLink();
-      const ignored = isDirectory && SecurityFilter.shouldSkipDirectory(dirent.name);
+      const ignored =
+        isDirectory && SecurityFilter.shouldSkipDirectory(dirent.name);
       const restricted = SecurityFilter.isRestricted(dirent.name);
 
       let size = 0;
@@ -311,12 +467,16 @@ export class NodeFilesystemHandler {
         modifiedAt,
         extension,
         ignored,
-        restricted,
+        restricted
       };
 
       // Recurse into non-ignored directories when depth allows
       if (isDirectory && !ignored && depth > 1) {
-        entry.children = await this.readDirRecursive(fullPath, depth - 1, includeHidden);
+        entry.children = await this.readDirRecursive(
+          fullPath,
+          depth - 1,
+          includeHidden
+        );
       }
 
       entries.push(entry);

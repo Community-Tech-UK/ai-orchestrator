@@ -12,7 +12,7 @@ function extractChannelsFromLines(lines) {
       channels.push({
         name: match[1],
         value: match[2],
-        line: index + 1,
+        line: index + 1
       });
     }
   }
@@ -65,7 +65,8 @@ function getContractsChannelFiles(indexPath) {
   const content = fs.readFileSync(indexPath, 'utf-8');
   const lines = content.split('\n');
   const files = [];
-  const importPattern = /^import\s+\{\s*[A-Z0-9_]+\s*\}\s+from\s+['"](\.\/[^'"]+\.channels)['"];?$/;
+  const importPattern =
+    /^import\s+\{\s*[A-Z0-9_]+\s*\}\s+from\s+['"](\.\/[^'"]+\.channels)['"];?$/;
 
   for (const line of lines) {
     const match = line.match(importPattern);
@@ -77,7 +78,9 @@ function getContractsChannelFiles(indexPath) {
   }
 
   if (files.length === 0) {
-    throw new Error(`Failed to discover channel definition files from ${indexPath}`);
+    throw new Error(
+      `Failed to discover channel definition files from ${indexPath}`
+    );
   }
 
   return files;
@@ -125,7 +128,21 @@ function extractContractsChannelBodyLines(indexPath) {
   const combined = [];
 
   files.forEach((filePath, index) => {
-    combined.push(...extractContractsChannelBody(filePath));
+    const body = extractContractsChannelBody(filePath);
+
+    // Ensure the last key-value line ends with a comma so concatenated
+    // blocks form a valid object literal (each file's last entry won't
+    // have a trailing comma in its own source).
+    for (let i = body.length - 1; i >= 0; i--) {
+      if (CHANNEL_ENTRY_PATTERN.test(body[i])) {
+        if (!body[i].trimEnd().endsWith(',')) {
+          body[i] = body[i].replace(/(['"])\s*$/, '$1,');
+        }
+        break;
+      }
+    }
+
+    combined.push(...body);
     if (index < files.length - 1) {
       combined.push('');
     }
@@ -141,5 +158,5 @@ function extractContractsChannelEntries(indexPath) {
 module.exports = {
   extractContractsChannelBodyLines,
   extractContractsChannelEntries,
-  extractIpcObjectChannels,
+  extractIpcObjectChannels
 };
