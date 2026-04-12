@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.ai.orchestrator",
   "productName": "AI Orchestrator",
-  "npmRebuild": false,
+  "npmRebuild": true,
   "directories": {
     "output": "release",
     "buildResources": "build"
