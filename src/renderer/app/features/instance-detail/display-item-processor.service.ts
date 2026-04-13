@@ -11,7 +11,7 @@ import type { ThinkingContent } from '../../../../shared/types/instance.types';
 
 export interface DisplayItem {
   id: string;
-  type: 'message' | 'tool-group' | 'thought-group';
+  type: 'message' | 'tool-group' | 'thought-group' | 'system-event-group';
   message?: OutputMessage;
   renderedMessage?: unknown;  // SafeHtml at runtime, set by consuming component
   toolMessages?: OutputMessage[];
@@ -23,6 +23,15 @@ export interface DisplayItem {
   repeatCount?: number;
   showHeader?: boolean;
   bufferIndex?: number;
+  // ── system-event-group fields ──
+  /** Non-empty orchestration messages that make up this group, in chronological order. */
+  systemEvents?: OutputMessage[];
+  /** The shared `metadata.action` value, e.g. `'get_children'`. */
+  groupAction?: string;
+  /** Friendly label resolved from `groupAction`, e.g. `'Active children polled'`. */
+  groupLabel?: string;
+  /** Single-line preview derived from the latest event's content, truncated for the header. */
+  groupPreview?: string;
 }
 
 const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // 2 minutes
