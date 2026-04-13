@@ -12,6 +12,21 @@ function makeMsg(overrides: Partial<OutputMessage> = {}): OutputMessage {
   };
 }
 
+function makeOrchMsg(
+  action: string,
+  content: string,
+  overrides: Partial<OutputMessage> = {},
+): OutputMessage {
+  return {
+    id: `orch-${Math.random().toString(36).slice(2)}`,
+    type: 'system',
+    content,
+    timestamp: Date.now(),
+    metadata: { source: 'orchestration', action, status: 'SUCCESS', rawData: {} },
+    ...overrides,
+  };
+}
+
 describe('DisplayItemProcessor', () => {
   let processor: DisplayItemProcessor;
 
@@ -59,6 +74,24 @@ describe('DisplayItemProcessor', () => {
     const items = processor.process(msgs);
     expect(items.length).toBe(3);
     expect(items[0].repeatCount).toBeUndefined();
+  });
+
+  it('should group two consecutive orchestration messages with the same action', () => {
+    const msgs = [
+      makeOrchMsg('get_children', '**Active children:**\n- foo idle', {
+        id: 'g1', timestamp: 1_000,
+      }),
+      makeOrchMsg('get_children', '**Active children:**\n- foo busy', {
+        id: 'g2', timestamp: 2_000,
+      }),
+    ];
+    const items = processor.process(msgs);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('system-event-group');
+    expect(items[0].systemEvents?.length).toBe(2);
+    expect(items[0].groupAction).toBe('get_children');
+    expect(items[0].groupLabel).toBe('Active children polled');
+    expect(items[0].groupPreview).toContain('foo busy');  // latest content
   });
 
   it('should create thought-group for messages with thinking', () => {

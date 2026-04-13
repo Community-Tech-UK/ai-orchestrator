@@ -296,8 +296,85 @@ export class DisplayItemProcessor {
         continue;
       }
 
+      // Orchestration system-event grouping — collapse runs of repetitive
+      // orchestration messages with the same `metadata.action` into an
+      // accordion display item. See SYSTEM_GROUP_* constants for thresholds.
+      if (
+        item.type === 'message' &&
+        item.message?.type === 'system' &&
+        this.isGroupableOrchestration(item.message)
+      ) {
+        const action = (item.message.metadata as { action: string }).action;
+        const candidate = this.items[this.items.length - 1];
+
+        if (
+          candidate?.type === 'system-event-group' &&
+          candidate.groupAction === action &&
+          this.withinSystemGroupGap(candidate, item.message)
+        ) {
+          this.appendToSystemGroup(candidate, item.message);
+          continue;
+        }
+
+        if (
+          candidate?.type === 'message' &&
+          candidate.message?.type === 'system' &&
+          this.isGroupableOrchestration(candidate.message) &&
+          (candidate.message.metadata as { action: string }).action === action &&
+          item.message.timestamp - candidate.message.timestamp <= SYSTEM_GROUP_TIME_GAP_MS
+        ) {
+          this.promoteToSystemGroup(this.items.length - 1, candidate.message, item.message);
+          continue;
+        }
+      }
+
       this.items.push(item);
     }
+  }
+
+  private isGroupableOrchestration(msg: OutputMessage): boolean {
+    const meta = msg.metadata as { source?: unknown; action?: unknown } | undefined;
+    if (!meta || meta.source !== 'orchestration') return false;
+    const action = meta.action;
+    if (typeof action !== 'string' || !action) return false;
+    return !ALWAYS_VISIBLE_SYSTEM_ACTIONS.has(action);
+  }
+
+  private withinSystemGroupGap(group: DisplayItem, next: OutputMessage): boolean {
+    const events = group.systemEvents;
+    if (!events || events.length === 0) return true;
+    const last = events[events.length - 1];
+    return next.timestamp - last.timestamp <= SYSTEM_GROUP_TIME_GAP_MS;
+  }
+
+  private appendToSystemGroup(group: DisplayItem, msg: OutputMessage): void {
+    if (!group.systemEvents) group.systemEvents = [];
+    group.systemEvents.push(msg);
+    group.groupPreview = buildSystemGroupPreview(msg.content);
+    group.timestamp = msg.timestamp;
+    // bufferIndex tracking for groups is approximate — the latest member's
+    // index isn't strictly needed; this keeps the field defined for any
+    // downstream consumer that reads it.
+    group.bufferIndex = (group.bufferIndex ?? 0) + 1;
+  }
+
+  private promoteToSystemGroup(
+    indexToReplace: number,
+    first: OutputMessage,
+    second: OutputMessage,
+  ): void {
+    const action = (first.metadata as { action: string }).action;
+    const group: DisplayItem = {
+      id: `sysgrp-${first.id}`,
+      type: 'system-event-group',
+      systemEvents: [first, second],
+      groupAction: action,
+      groupLabel: resolveSystemActionLabel(action),
+      groupPreview: buildSystemGroupPreview(second.content),
+      timestamp: second.timestamp,
+      bufferIndex: this.items[indexToReplace].bufferIndex,
+    };
+    this.items[indexToReplace] = group;
   }
 
   private computeHeaders(): void {
