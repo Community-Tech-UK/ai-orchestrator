@@ -7,11 +7,15 @@ import { InstanceStateService } from './instance-state.service';
 describe('InstanceListStore', () => {
   let store: InstanceListStore;
   let stateService: InstanceStateService;
-  let ipc: { restartInstance: ReturnType<typeof vi.fn> };
+  let ipc: {
+    restartInstance: ReturnType<typeof vi.fn>;
+    restartFreshInstance: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     ipc = {
       restartInstance: vi.fn().mockResolvedValue({ success: true }),
+      restartFreshInstance: vi.fn().mockResolvedValue({ success: true }),
     };
 
     TestBed.configureTestingModule({
@@ -75,7 +79,7 @@ describe('InstanceListStore', () => {
     expect(instance.provider).toBe('gemini');
   });
 
-  it('clears diff stats and unread completion state on restart', async () => {
+  it('preserves transcript and diff stats on resume restart', async () => {
     const instance = store.deserializeInstance({
       id: 'instance-3',
       displayName: 'Restart me',
@@ -124,10 +128,48 @@ describe('InstanceListStore', () => {
 
     expect(ipc.restartInstance).toHaveBeenCalledWith(instance.id);
     expect(stateService.getInstance(instance.id)).toMatchObject({
-      status: 'idle',
-      outputBuffer: [],
-      diffStats: undefined,
-      hasUnreadCompletion: false,
+      status: 'busy',
+      outputBuffer: instance.outputBuffer,
+      diffStats: instance.diffStats,
+      hasUnreadCompletion: true,
     });
+  });
+
+  it('delegates fresh restart without mutating renderer state optimistically', async () => {
+    const instance = store.deserializeInstance({
+      id: 'instance-4',
+      displayName: 'Fresh restart me',
+      createdAt: 1,
+      historyThreadId: 'thread-4',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      contextUsage: {
+        used: 0,
+        total: 200000,
+        percentage: 0,
+      },
+      lastActivity: 2,
+      sessionId: 'session-4',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [
+        {
+          id: 'msg-1',
+          timestamp: 3,
+          type: 'assistant',
+          content: 'keep visible until backend archives it',
+        },
+      ],
+    });
+
+    stateService.addInstance(instance);
+
+    await store.restartFreshInstance(instance.id);
+
+    expect(ipc.restartFreshInstance).toHaveBeenCalledWith(instance.id);
+    expect(stateService.getInstance(instance.id)?.outputBuffer).toEqual(
+      instance.outputBuffer
+    );
   });
 });

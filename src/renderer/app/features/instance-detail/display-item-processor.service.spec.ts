@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DisplayItemProcessor } from './display-item-processor.service';
+import {
+  buildSystemGroupPreview,
+  DisplayItemProcessor,
+  resolveSystemActionLabel,
+} from './display-item-processor.service';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 
 function makeMsg(overrides: Partial<OutputMessage> = {}): OutputMessage {
@@ -8,6 +12,21 @@ function makeMsg(overrides: Partial<OutputMessage> = {}): OutputMessage {
     type: 'assistant',
     content: 'Hello',
     timestamp: Date.now(),
+    ...overrides,
+  };
+}
+
+function makeOrchMsg(
+  action: string,
+  content: string,
+  overrides: Partial<OutputMessage> = {},
+): OutputMessage {
+  return {
+    id: `orch-${Math.random().toString(36).slice(2)}`,
+    type: 'system',
+    content,
+    timestamp: Date.now(),
+    metadata: { source: 'orchestration', action, status: 'SUCCESS', rawData: {} },
     ...overrides,
   };
 }
@@ -168,6 +187,190 @@ describe('DisplayItemProcessor', () => {
     expect(messageItems[0].bufferIndex).toBe(0);
   });
 
+  describe('system-event grouping', () => {
+    it('groups consecutive orchestration messages with the same action', () => {
+      const msgs = [
+        makeOrchMsg('get_children', '**Active children:**\n- foo idle', {
+          id: 'g1',
+          timestamp: 1_000,
+        }),
+        makeOrchMsg('get_children', '**Active children:**\n- foo busy', {
+          id: 'g2',
+          timestamp: 2_000,
+        }),
+      ];
+
+      const items = processor.process(msgs);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].groupAction).toBe('get_children');
+      expect(items[0].groupLabel).toBe('Active children polled');
+      expect(items[0].systemEvents?.map(message => message.id)).toEqual(['g1', 'g2']);
+      expect(items[0].groupPreview).toContain('foo busy');
+    });
+
+    it('extends an existing system-event-group across process() calls', () => {
+      const m1 = makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 });
+      const m2 = makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 });
+      processor.process([m1, m2]);
+
+      const m3 = makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: 3_000 });
+      const items = processor.process([m1, m2, m3]);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].systemEvents?.map(message => message.id)).toEqual(['g1', 'g2', 'g3']);
+      expect(items[0].groupPreview).toContain('c');
+    });
+
+    it('does not group across an always-visible action', () => {
+      const msgs = [
+        makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+        makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+        makeOrchMsg('task_complete', 'done', { id: 'tc1', timestamp: 3_000 }),
+        makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: 4_000 }),
+        makeOrchMsg('get_children', 'd', { id: 'g4', timestamp: 5_000 }),
+      ];
+
+      const items = processor.process(msgs);
+
+      expect(items).toHaveLength(3);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[1].type).toBe('message');
+      expect(items[1].message?.id).toBe('tc1');
+      expect(items[2].type).toBe('system-event-group');
+      expect(items[2].systemEvents?.map(message => message.id)).toEqual(['g3', 'g4']);
+    });
+
+    it('leaves a single orchestration message ungrouped', () => {
+      const items = processor.process([
+        makeOrchMsg('get_children', 'lone poll', { id: 'g1', timestamp: 1_000 }),
+      ]);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].type).toBe('message');
+      expect(items[0].message?.id).toBe('g1');
+    });
+
+    it('keeps different orchestration actions in separate groups', () => {
+      const msgs = [
+        makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+        makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+        makeOrchMsg('get_child_output', 'x', { id: 'o1', timestamp: 3_000 }),
+        makeOrchMsg('get_child_output', 'y', { id: 'o2', timestamp: 4_000 }),
+      ];
+
+      const items = processor.process(msgs);
+
+      expect(items).toHaveLength(2);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].groupAction).toBe('get_children');
+      expect(items[1].type).toBe('system-event-group');
+      expect(items[1].groupAction).toBe('get_child_output');
+    });
+
+    it('starts a new group after the time-gap ceiling', () => {
+      const start = 1_000_000;
+      const sixMinutes = 6 * 60 * 1000;
+      const msgs = [
+        makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: start }),
+        makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: start + 1_000 }),
+        makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: start + sixMinutes }),
+        makeOrchMsg('get_children', 'd', { id: 'g4', timestamp: start + sixMinutes + 1_000 }),
+      ];
+
+      const items = processor.process(msgs);
+
+      expect(items).toHaveLength(2);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].systemEvents?.map(message => message.id)).toEqual(['g1', 'g2']);
+      expect(items[1].type).toBe('system-event-group');
+      expect(items[1].systemEvents?.map(message => message.id)).toEqual(['g3', 'g4']);
+    });
+
+    it('absorbs empty assistant turns between grouped orchestration messages', () => {
+      const msgs = [
+        makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+        makeMsg({ type: 'assistant', content: '   ', id: 'a1', timestamp: 1_500 }),
+        makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+        makeMsg({ type: 'assistant', content: '\n\n', id: 'a2', timestamp: 2_500 }),
+        makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: 3_000 }),
+      ];
+
+      const items = processor.process(msgs);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].systemEvents?.map(message => message.id)).toEqual(['g1', 'g2', 'g3']);
+    });
+
+    it('does not absorb non-empty assistant turns between orchestration messages', () => {
+      const msgs = [
+        makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+        makeMsg({ type: 'assistant', content: 'real reply', id: 'a1', timestamp: 1_500 }),
+        makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+      ];
+
+      const items = processor.process(msgs);
+
+      expect(items).toHaveLength(3);
+      expect(items.every(item => item.type === 'message')).toBe(true);
+    });
+  });
+
+  describe('work-cycle wrapping', () => {
+    it('wraps a sealed run of thinking + tools + errors into a work-cycle', () => {
+      const base = Date.now();
+      const msgs: OutputMessage[] = [
+        { id: 'u1', type: 'user', content: 'go', timestamp: base },
+        { id: 't1', type: 'assistant', content: '', timestamp: base + 100,
+          thinking: [{ id: 'th1', content: 'thinking a', format: 'structured' }] },
+        { id: 'tu1', type: 'tool_use', content: 'bash', timestamp: base + 200 },
+        { id: 'tr1', type: 'tool_result', content: 'ok', timestamp: base + 300 },
+        { id: 't2', type: 'assistant', content: '', timestamp: base + 400,
+          thinking: [{ id: 'th2', content: 'thinking b', format: 'structured' }] },
+        { id: 'err1', type: 'error', content: 'oops', timestamp: base + 500 },
+        { id: 'a1', type: 'assistant', content: 'final reply', timestamp: base + 600 },
+      ];
+      const items = processor.process(msgs);
+      // [user, work-cycle(thought+tool-group+thought+error), assistant]
+      expect(items.length).toBe(3);
+      expect(items[0].type).toBe('message');
+      expect(items[1].type).toBe('work-cycle');
+      expect(items[1].children?.length).toBe(4);
+      expect(items[2].type).toBe('message');
+    });
+
+    it('leaves a trailing unsealed run flat so streaming stays visible', () => {
+      const base = Date.now();
+      const msgs: OutputMessage[] = [
+        { id: 'u1', type: 'user', content: 'go', timestamp: base },
+        { id: 't1', type: 'assistant', content: '', timestamp: base + 100,
+          thinking: [{ id: 'th1', content: 'thinking', format: 'structured' }] },
+        { id: 'tu1', type: 'tool_use', content: 'bash', timestamp: base + 200 },
+        { id: 'tr1', type: 'tool_result', content: 'ok', timestamp: base + 300 },
+      ];
+      const items = processor.process(msgs);
+      // user, thought-group, tool-group — trailing run stays flat (no assistant yet)
+      expect(items.length).toBe(3);
+      expect(items.find(i => i.type === 'work-cycle')).toBeUndefined();
+    });
+
+    it('does not wrap a single thought-group (run of 1)', () => {
+      const base = Date.now();
+      const msgs: OutputMessage[] = [
+        { id: 'u1', type: 'user', content: 'go', timestamp: base },
+        { id: 't1', type: 'assistant', content: '', timestamp: base + 100,
+          thinking: [{ id: 'th1', content: 'thinking', format: 'structured' }] },
+        { id: 'a1', type: 'assistant', content: 'reply', timestamp: base + 200 },
+      ];
+      const items = processor.process(msgs);
+      expect(items.length).toBe(3);
+      expect(items[1].type).toBe('thought-group');
+    });
+  });
+
   it('should offset bufferIndex by the hidden-history count', () => {
     const messages: OutputMessage[] = [
       { id: '1', timestamp: 1000, type: 'user', content: 'hello' },
@@ -178,5 +381,41 @@ describe('DisplayItemProcessor', () => {
 
     expect(messageItems[0].bufferIndex).toBe(250);
     expect(messageItems[1].bufferIndex).toBe(251);
+  });
+});
+
+describe('resolveSystemActionLabel', () => {
+  it('returns mapped labels for known actions', () => {
+    expect(resolveSystemActionLabel('get_children')).toBe('Active children polled');
+    expect(resolveSystemActionLabel('task_progress')).toBe('Task progress');
+  });
+
+  it('humanizes unknown snake_case actions', () => {
+    expect(resolveSystemActionLabel('some_new_action')).toBe('Some new action');
+  });
+
+  it('falls back to a placeholder for empty input', () => {
+    expect(resolveSystemActionLabel('')).toBe('System event');
+  });
+});
+
+describe('buildSystemGroupPreview', () => {
+  it('strips markdown emphasis and collapses whitespace', () => {
+    expect(buildSystemGroupPreview('**Active children:**\n- foo idle\n- bar busy'))
+      .toBe('Active children: foo idle bar busy');
+  });
+
+  it('drops fenced code blocks', () => {
+    expect(buildSystemGroupPreview('Output:\n```\nbig blob\n```\nend')).toBe('Output: end');
+  });
+
+  it('truncates long previews', () => {
+    const preview = buildSystemGroupPreview('word '.repeat(60).trim());
+    expect(preview.length).toBeLessThanOrEqual(120);
+    expect(preview.endsWith('...')).toBe(true);
+  });
+
+  it('returns an empty string for empty content', () => {
+    expect(buildSystemGroupPreview('')).toBe('');
   });
 });

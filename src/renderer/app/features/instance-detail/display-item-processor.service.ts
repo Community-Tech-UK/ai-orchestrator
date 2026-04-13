@@ -11,7 +11,7 @@ import type { ThinkingContent } from '../../../../shared/types/instance.types';
 
 export interface DisplayItem {
   id: string;
-  type: 'message' | 'tool-group' | 'thought-group';
+  type: 'message' | 'tool-group' | 'thought-group' | 'work-cycle' | 'system-event-group';
   message?: OutputMessage;
   renderedMessage?: unknown;  // SafeHtml at runtime, set by consuming component
   toolMessages?: OutputMessage[];
@@ -23,9 +23,66 @@ export interface DisplayItem {
   repeatCount?: number;
   showHeader?: boolean;
   bufferIndex?: number;
+  /** When type === 'work-cycle', the wrapped child items (thoughts/tools/errors). */
+  children?: DisplayItem[];
+  /** Non-empty orchestration system messages that make up this group. */
+  systemEvents?: OutputMessage[];
+  /** Shared orchestration action for a grouped run, e.g. 'get_children'. */
+  groupAction?: string;
+  /** Friendly label shown in the collapsed header. */
+  groupLabel?: string;
+  /** Single-line preview derived from the latest grouped event. */
+  groupPreview?: string;
 }
 
 const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // 2 minutes
+const SYSTEM_GROUP_TIME_GAP_MS = 5 * 60 * 1000; // 5 minutes
+const SYSTEM_GROUP_PREVIEW_MAX_LEN = 120;
+const ALWAYS_VISIBLE_SYSTEM_ACTIONS: ReadonlySet<string> = new Set([
+  'task_complete',
+  'task_error',
+  'child_completed',
+  'all_children_completed',
+  'request_user_action',
+  'user_action_response',
+  'unknown',
+]);
+const SYSTEM_ACTION_LABELS: Readonly<Record<string, string>> = {
+  get_children: 'Active children polled',
+  get_child_output: 'Child output fetched',
+  get_child_summary: 'Child summary fetched',
+  get_child_artifacts: 'Child artifacts fetched',
+  get_child_section: 'Child section fetched',
+  task_progress: 'Task progress',
+  call_tool: 'Tool calls',
+  message_child: 'Messages to children',
+  spawn_child: 'Child spawned',
+  terminate_child: 'Children terminated',
+};
+
+export function resolveSystemActionLabel(action: string): string {
+  const knownLabel = SYSTEM_ACTION_LABELS[action];
+  if (knownLabel) return knownLabel;
+
+  const humanized = action.replace(/_/g, ' ').trim();
+  if (!humanized) return 'System event';
+  return humanized.charAt(0).toUpperCase() + humanized.slice(1);
+}
+
+export function buildSystemGroupPreview(content: string): string {
+  if (!content) return '';
+
+  const cleaned = content
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
+    .replace(/^\s*[-*#>]+\s*/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleaned.length <= SYSTEM_GROUP_PREVIEW_MAX_LEN) return cleaned;
+  return `${cleaned.slice(0, SYSTEM_GROUP_PREVIEW_MAX_LEN - 3).trimEnd()}...`;
+}
 
 export class DisplayItemProcessor {
   private lastProcessedCount = 0;
@@ -71,7 +128,13 @@ export class DisplayItemProcessor {
 
     this.computeHeaders();
 
-    return this._newItemCount > 0 ? [...this.items] : this.items;
+    return this.wrapForDisplay();
+  }
+
+  /** Flat internal item list. Consumers use this for incremental markdown rendering
+   *  since wrapped work-cycles share the same child object references. */
+  get flatItems(): readonly DisplayItem[] {
+    return this.items;
   }
 
   reset(): void {
@@ -79,6 +142,11 @@ export class DisplayItemProcessor {
     this.lastProcessedCount = 0;
     this.lastHistoryOffset = 0;
     this.seenStreamingIds.clear();
+    // Reset newItemCount too: if reset is followed by an early-return
+    // (messages.length === lastProcessedCount === 0), process() skips the
+    // recompute path and consumers would otherwise see a stale count from
+    // the previous instance, yielding a negative startIdx.
+    this._newItemCount = 0;
   }
 
   get newItemCount(): number {
@@ -203,6 +271,38 @@ export class DisplayItemProcessor {
         continue;
       }
 
+      if (
+        item.type === 'message' &&
+        item.message?.type === 'system' &&
+        this.isGroupableOrchestration(item.message)
+      ) {
+        const action = this.getOrchestrationAction(item.message)!;
+        const candidateIdx = this.findLastNonEmptyItemIndex();
+        const candidate = candidateIdx >= 0 ? this.items[candidateIdx] : undefined;
+
+        if (
+          candidate?.type === 'system-event-group' &&
+          candidate.groupAction === action &&
+          this.withinSystemGroupGap(candidate, item.message)
+        ) {
+          this.dropTrailingEmptyMessages(candidateIdx);
+          this.appendToSystemGroup(candidate, item.message, item.bufferIndex);
+          continue;
+        }
+
+        if (
+          candidate?.type === 'message' &&
+          candidate.message?.type === 'system' &&
+          this.isGroupableOrchestration(candidate.message) &&
+          this.getOrchestrationAction(candidate.message) === action &&
+          item.message.timestamp - candidate.message.timestamp <= SYSTEM_GROUP_TIME_GAP_MS
+        ) {
+          this.dropTrailingEmptyMessages(candidateIdx);
+          this.promoteToSystemGroup(candidateIdx, candidate.message, item.message, item.bufferIndex);
+          continue;
+        }
+      }
+
       this.items.push(item);
     }
   }
@@ -233,6 +333,7 @@ export class DisplayItemProcessor {
     if (item.type === 'message' && item.message) return item.message.type;
     if (item.type === 'thought-group') return 'assistant';
     if (item.type === 'tool-group') return 'tool';
+    if (item.type === 'system-event-group') return 'system';
     return null;
   }
 
@@ -242,5 +343,141 @@ export class DisplayItemProcessor {
     if (item.response) return item.response.timestamp;
     if (item.type === 'tool-group' && item.toolMessages?.[0]) return item.toolMessages[0].timestamp;
     return null;
+  }
+
+  /** True if an item represents background "work" (thinking, tool calls, errors)
+   *  rather than a conversational turn. Runs of these items are what we wrap
+   *  into a single collapsible work-cycle card. */
+  private isWorkItem(item: DisplayItem): boolean {
+    if (item.type === 'thought-group' || item.type === 'tool-group') return true;
+    if (item.type === 'message' && item.message) {
+      const t = item.message.type;
+      if (t === 'error' || t === 'tool_use' || t === 'tool_result') return true;
+    }
+    return false;
+  }
+
+  private getOrchestrationAction(message: OutputMessage): string | null {
+    const action = message.metadata?.['action'];
+    return typeof action === 'string' && action.length > 0 ? action : null;
+  }
+
+  private isGroupableOrchestration(message: OutputMessage): boolean {
+    if ((message.metadata?.['source'] as string | undefined) !== 'orchestration') {
+      return false;
+    }
+    if (!message.content.trim()) {
+      return false;
+    }
+
+    const action = this.getOrchestrationAction(message);
+    if (!action) {
+      return false;
+    }
+
+    return !ALWAYS_VISIBLE_SYSTEM_ACTIONS.has(action);
+  }
+
+  private withinSystemGroupGap(group: DisplayItem, nextMessage: OutputMessage): boolean {
+    const lastEvent = group.systemEvents?.[group.systemEvents.length - 1];
+    if (!lastEvent) {
+      return true;
+    }
+
+    return nextMessage.timestamp - lastEvent.timestamp <= SYSTEM_GROUP_TIME_GAP_MS;
+  }
+
+  private appendToSystemGroup(group: DisplayItem, message: OutputMessage, bufferIndex?: number): void {
+    group.systemEvents = [...(group.systemEvents ?? []), message];
+    group.groupPreview = buildSystemGroupPreview(message.content);
+    group.timestamp = message.timestamp;
+    group.bufferIndex = bufferIndex ?? group.bufferIndex;
+  }
+
+  private promoteToSystemGroup(
+    indexToReplace: number,
+    firstMessage: OutputMessage,
+    secondMessage: OutputMessage,
+    bufferIndex?: number,
+  ): void {
+    const action = this.getOrchestrationAction(firstMessage) ?? 'unknown';
+
+    this.items[indexToReplace] = {
+      id: `sysgrp-${firstMessage.id}`,
+      type: 'system-event-group',
+      systemEvents: [firstMessage, secondMessage],
+      groupAction: action,
+      groupLabel: resolveSystemActionLabel(action),
+      groupPreview: buildSystemGroupPreview(secondMessage.content),
+      timestamp: secondMessage.timestamp,
+      bufferIndex,
+    };
+  }
+
+  private findLastNonEmptyItemIndex(): number {
+    for (let index = this.items.length - 1; index >= 0; index--) {
+      const item = this.items[index];
+      if (item.type !== 'message') {
+        return index;
+      }
+
+      if ((item.message?.content ?? '').trim().length > 0) {
+        return index;
+      }
+    }
+
+    return -1;
+  }
+
+  private dropTrailingEmptyMessages(downToIndex: number): void {
+    while (this.items.length - 1 > downToIndex) {
+      const tail = this.items[this.items.length - 1];
+      if (tail.type !== 'message') {
+        break;
+      }
+
+      if ((tail.message?.content ?? '').trim().length > 0) {
+        break;
+      }
+
+      this.items.pop();
+    }
+  }
+
+  /** Wrap consecutive runs of work-items into a single work-cycle item.
+   *  Runs of length 1 are left as-is. The trailing run is not wrapped while
+   *  it may still be growing (no conversational item follows), so the user
+   *  can watch live progress during a streaming turn. */
+  private wrapForDisplay(): DisplayItem[] {
+    const src = this.items;
+    const out: DisplayItem[] = [];
+    let i = 0;
+    while (i < src.length) {
+      if (!this.isWorkItem(src[i])) {
+        out.push(src[i]);
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j < src.length && this.isWorkItem(src[j])) j++;
+      const runLength = j - i;
+      const runExtendsToEnd = j === src.length;
+      // Only wrap a run of length >= 2 that's followed by a conversational item.
+      // An unterminated trailing run stays flat so live streaming stays visible.
+      if (runLength >= 2 && !runExtendsToEnd) {
+        const children = src.slice(i, j);
+        const firstTs = this.getItemTimestamp(children[0]) ?? 0;
+        out.push({
+          id: `cycle-${children[0].id}`,
+          type: 'work-cycle',
+          children,
+          timestamp: firstTs,
+        });
+      } else {
+        for (let k = i; k < j; k++) out.push(src[k]);
+      }
+      i = j;
+    }
+    return out;
   }
 }

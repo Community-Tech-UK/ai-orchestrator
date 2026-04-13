@@ -76,6 +76,10 @@ import { ensureHookScript } from '../cli/hooks/hook-path-resolver';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
+import { SessionRecoveryHandler, type RecoveryResult } from './lifecycle/session-recovery';
+import { getCompactionCoordinator } from '../context/compaction-coordinator';
+import { getCodemem } from '../codemem';
+import { buildCodememMcpConfig } from '../codemem/mcp-config';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -177,7 +181,22 @@ export interface LifecycleDependencies {
   deleteAdapter: (id: string) => boolean;
   getInstanceCount: () => number;
   forEachInstance: (callback: (instance: Instance, id: string) => void) => void;
-  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats, displayName?: string, executionLocation?: ExecutionLocation) => void;
+  queueUpdate: (
+    instanceId: string,
+    status: InstanceStatus,
+    contextUsage?: ContextUsage,
+    diffStats?: SessionDiffStats | null,
+    displayName?: string,
+    error?: import('../../shared/types/ipc.types').ErrorInfo,
+    executionLocation?: ExecutionLocation,
+    sessionState?: {
+      providerSessionId?: string;
+      restartEpoch?: number;
+      recoveryMethod?: Instance['recoveryMethod'];
+      archivedUpToMessageId?: string;
+      historyThreadId?: string;
+    }
+  ) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;
   initializeRlm: (instance: Instance) => Promise<void>;
@@ -190,6 +209,7 @@ export interface LifecycleDependencies {
   addToOutputBuffer: (instance: Instance, message: OutputMessage) => void;
   clearFirstMessageTracking: (instanceId: string) => void;
   markFirstMessageReceived: (instanceId: string) => void;
+  clearPendingState?: (instanceId: string) => void;
   /** Optional warm-start manager for pre-spawned adapter reuse. */
   warmStartManager?: WarmStartManager;
   /** Optional: store a SessionDiffTracker for the given instance. */
@@ -255,21 +275,45 @@ export class InstanceLifecycleManager extends EventEmitter {
     if (executionLocation?.type === 'remote') {
       return [];
     }
+    const configs: string[] = [];
     try {
       if (existsSync(MCP_CONFIG_PATH)) {
         logger.info('MCP config found', { path: MCP_CONFIG_PATH });
-        return [MCP_CONFIG_PATH];
+        configs.push(MCP_CONFIG_PATH);
       }
-      logger.warn('MCP config not found — spawned instances will not have custom MCP servers', {
-        expectedPath: MCP_CONFIG_PATH,
-        isPackaged: app.isPackaged,
-      });
     } catch (err) {
       logger.error('Failed to check MCP config', err instanceof Error ? err : new Error(String(err)), {
         path: MCP_CONFIG_PATH,
       });
     }
-    return [];
+
+    if (this.settings.getAll().codememEnabled) {
+      const codememConfig = buildCodememMcpConfig({
+        currentDir: __dirname,
+        dbPath: path.join(app.getPath('userData'), 'codemem.sqlite'),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+      });
+
+      if (codememConfig) {
+        configs.push(codememConfig);
+      } else {
+        logger.warn('Codemem MCP bridge entrypoint not found — child sessions will not expose mcp__codemem__* tools', {
+          currentDir: __dirname,
+          isPackaged: app.isPackaged,
+        });
+      }
+    }
+
+    if (configs.length === 0) {
+      logger.warn('No MCP configs resolved — spawned instances will not have custom MCP servers', {
+        expectedPath: MCP_CONFIG_PATH,
+        isPackaged: app.isPackaged,
+      });
+    }
+
+    return configs;
   }
 
   /** Returns the defer permission hook path for non-YOLO instances, undefined for YOLO.
@@ -284,6 +328,27 @@ export class InstanceLifecycleManager extends EventEmitter {
         error: err instanceof Error ? err.message : String(err),
       });
       return undefined;
+    }
+  }
+
+  private async warmCodememWorkspace(workspacePath: string): Promise<void> {
+    const codemem = getCodemem();
+    if (!codemem.isEnabled()) {
+      return;
+    }
+
+    try {
+      const result = await codemem.warmWorkspace(workspacePath);
+      logger.info('Codemem workspace warm-up completed', {
+        workspacePath,
+        ready: result.ready,
+        representativeFile: result.filePath,
+      });
+    } catch (error) {
+      logger.warn('Codemem workspace warm-up failed; continuing without blocking spawn', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -440,8 +505,34 @@ export class InstanceLifecycleManager extends EventEmitter {
     return resolveCliType(instance.provider, settingsAll.defaultCli);
   }
 
+  private isSessionBoundaryMessage(message: OutputMessage): boolean {
+    return (
+      message.type === 'system'
+      && typeof message.metadata?.['kind'] === 'string'
+      && message.metadata['kind'] === 'session-boundary'
+    );
+  }
+
+  private getActiveMessages(input: Pick<Instance, 'outputBuffer' | 'archivedUpToMessageId'>): OutputMessage[] {
+    const boundaryId = input.archivedUpToMessageId;
+    const boundaryIndex = boundaryId
+      ? input.outputBuffer.findIndex((message) => message.id === boundaryId)
+      : -1;
+    const candidateMessages = boundaryIndex >= 0
+      ? input.outputBuffer.slice(boundaryIndex + 1)
+      : input.outputBuffer;
+
+    return candidateMessages.filter((message) => !this.isSessionBoundaryMessage(message));
+  }
+
+  private hasActiveConversation(instance: Pick<Instance, 'outputBuffer' | 'archivedUpToMessageId'>): boolean {
+    return this.getActiveMessages(instance).some(
+      (message) => message.type === 'user' || message.type === 'assistant'
+    );
+  }
+
   private buildReplayContinuityMessage(instance: Instance, reason: string): string {
-    return buildSharedReplayContinuityMessage(instance.outputBuffer, { reason })
+    return buildSharedReplayContinuityMessage(this.getActiveMessages(instance), { reason })
       || [
         '[SYSTEM CONTINUITY NOTICE]',
         `Native resume is unavailable for this provider. Continuity mode is replay-based (${reason}).`,
@@ -487,11 +578,15 @@ export class InstanceLifecycleManager extends EventEmitter {
       seenIds.add(m.id);
       deduped.push(m);
     }
+    const activeMessages = this.getActiveMessages({
+      outputBuffer: deduped,
+      archivedUpToMessageId: instance.archivedUpToMessageId,
+    });
 
     // Get context window for budget calculation
     const contextWindow = getProviderModelContextWindow(instance.provider, instance.currentModel);
 
-    const fallback = buildFallbackHistoryMessage(deduped, reason, contextWindow);
+    const fallback = buildFallbackHistoryMessage(activeMessages, reason, contextWindow);
     if (fallback) return fallback;
 
     // Final fallback: use old summary-based method
@@ -541,47 +636,75 @@ export class InstanceLifecycleManager extends EventEmitter {
     };
   }
 
+  /**
+   * Wait until the just-spawned CLI actually proves it accepted --resume,
+   * not merely that its PID is alive.
+   *
+   * Positive signal: the first stream-json message from the CLI (its `init`
+   * system message carrying session_id). If anything flows out, the session
+   * was loaded successfully.
+   *
+   * Negative signal: stderr surfacing a session-not-found error (Claude CLI
+   * prints "No conversation found with session ID: …" and exits when
+   * --resume targets a missing/unflushed session file).
+   *
+   * Timeout → FAIL. The previous implementation returned true on timeout
+   * whenever the process happened to still be alive, which let a silently-
+   * broken CLI pass the check and triggered a cascade of failed respawns.
+   * Callers already handle `false` by falling back to a fresh session.
+   */
   private async waitForResumeHealth(
     instanceId: string,
     timeoutMs = 5000,
     pollIntervalMs = 200
   ): Promise<boolean> {
-    const isHealthy = (): boolean => {
-      const instance = this.deps.getInstance(instanceId);
-      const adapter = this.deps.getAdapter(instanceId);
-      if (!instance || !adapter) {
-        return false;
-      }
+    const instance = this.deps.getInstance(instanceId);
+    const adapter = this.deps.getAdapter(instanceId);
+    if (!instance || !adapter) return false;
 
+    const liveness = (): boolean => {
+      const inst = this.deps.getInstance(instanceId);
+      const ad = this.deps.getAdapter(instanceId);
+      if (!inst || !ad || ad !== adapter) return false;
       return (
-        instance.processId !== null
-        && instance.status !== 'error'
-        && instance.status !== 'failed'
-        && instance.status !== 'terminated'
+        inst.processId !== null &&
+        inst.status !== 'error' &&
+        inst.status !== 'failed' &&
+        inst.status !== 'terminated'
       );
     };
 
-    if (!isHealthy()) {
-      return false;
-    }
+    if (!liveness()) return false;
 
     return new Promise<boolean>((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve(isHealthy());
-      }, timeoutMs);
+      let settled = false;
+      const finish = (value: boolean): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearInterval(poll);
+        adapter.off('output', onOutput);
+        adapter.off('error', onError);
+        resolve(value);
+      };
+
+      const onOutput = (): void => finish(true);
+
+      const onError = (err: unknown): void => {
+        const text = err instanceof Error ? err.message : String(err ?? '');
+        if (/no conversation found/i.test(text) || /session.*not.*found/i.test(text)) {
+          finish(false);
+        }
+      };
 
       const poll = setInterval(() => {
-        if (!isHealthy()) {
-          cleanup();
-          resolve(false);
-        }
+        if (!liveness()) finish(false);
       }, pollIntervalMs);
 
-      const cleanup = (): void => {
-        clearTimeout(timeout);
-        clearInterval(poll);
-      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+
+      adapter.on('output', onOutput);
+      adapter.on('error', onError);
     });
   }
 
@@ -779,7 +902,9 @@ export class InstanceLifecycleManager extends EventEmitter {
       lastActivity: Date.now(),
 
       processId: null,
+      providerSessionId: sessionId,
       sessionId,
+      restartEpoch: 0,
       workingDirectory: resolvedWorkingDir,
       yoloMode: resolvedYoloMode,
       provider: config.provider || 'auto',
@@ -1111,6 +1236,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           // Clear local MCP config for remote instances — paths don't exist on workers
           if (executionLocation.type === 'remote') {
             spawnOptions.mcpConfig = [];
+          } else {
+            await this.warmCodememWorkspace(instance.workingDirectory);
           }
           adapter = createCliAdapter(resolvedCliType, spawnOptions, executionLocation);
 
@@ -1158,7 +1285,7 @@ export class InstanceLifecycleManager extends EventEmitter {
               adapterWithDetector.setActivityDetector(detector);
             }
             this.transitionState(instance, 'idle');
-            this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage, undefined, undefined, instance.executionLocation);
+            this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage, undefined, undefined, undefined, instance.executionLocation);
             this.deps.startStuckTracking?.(instance.id);
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
@@ -1722,6 +1849,183 @@ export class InstanceLifecycleManager extends EventEmitter {
     await wakePromise;
   }
 
+  private createSessionBoundaryMessage(): OutputMessage {
+    return {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: '— Previous session archived —',
+      metadata: {
+        kind: 'session-boundary',
+        archived: true,
+      },
+    };
+  }
+
+  private resetBackendSessionState(
+    instance: Instance,
+    cliType: CliType,
+    options?: { resetTotalTokensUsed?: boolean; resetFirstMessageTracking?: boolean }
+  ): void {
+    instance.contextUsage = {
+      used: 0,
+      total: getProviderModelContextWindow(cliType, instance.currentModel),
+      percentage: 0,
+    };
+    instance.diffStats = undefined;
+    if (options?.resetTotalTokensUsed) {
+      instance.totalTokensUsed = 0;
+    }
+
+    if (options?.resetFirstMessageTracking) {
+      this.deps.clearFirstMessageTracking(instance.id);
+    }
+    getCompactionCoordinator().resetBudgetTracker(instance.id);
+    this.deps.deleteDiffTracker?.(instance.id);
+    if (this.deps.setDiffTracker) {
+      this.deps.setDiffTracker(instance.id, new SessionDiffTracker(instance.workingDirectory));
+    }
+  }
+
+  private async archiveRestartSnapshot(instance: Instance, messages: OutputMessage[]): Promise<void> {
+    if (instance.parentId || messages.length === 0) {
+      return;
+    }
+
+    const archivedInstance: Instance = {
+      ...instance,
+      id: `${instance.id}-restart-archive-${Date.now()}`,
+      outputBuffer: [...messages],
+      childrenIds: [...instance.childrenIds],
+      subscribedTo: [...instance.subscribedTo],
+      communicationTokens: new Map(instance.communicationTokens),
+      archivedUpToMessageId: undefined,
+    };
+
+    await getHistoryManager().archiveInstance(archivedInstance, 'completed');
+  }
+
+  private async nativeResumeAfterRestart(
+    instanceId: string,
+    providerSessionId: string
+  ): Promise<RecoveryResult> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      return { success: false, error: `Instance ${instanceId} not found` };
+    }
+
+    const previousAdapter = this.deps.getAdapter(instanceId);
+    const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
+    if (!capabilities.supportsResume || !providerSessionId || instance.sessionResumeBlacklisted) {
+      return { success: false, error: 'Native resume unavailable for this session' };
+    }
+
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    const adapter = createCliAdapter(
+      cliType,
+      {
+        sessionId: providerSessionId,
+        workingDirectory: instance.workingDirectory,
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel,
+        resume: true,
+        forkSession: false,
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+      },
+      instance.executionLocation
+    );
+
+    this.deps.setupAdapterEvents(instanceId, adapter);
+    this.deps.setAdapter(instanceId, adapter);
+
+    try {
+      const pid = await adapter.spawn();
+      instance.processId = pid;
+      if (!(await this.waitForResumeHealth(instanceId, 15_000))) {
+        throw new Error('Native resume did not stabilize');
+      }
+      await this.waitForAdapterWritable(instanceId, 3_000);
+      instance.providerSessionId = providerSessionId;
+      instance.sessionId = providerSessionId;
+      instance.sessionResumeBlacklisted = false;
+      instance.recoveryMethod = 'native';
+      return { success: true, method: 'native-resume' };
+    } catch (error) {
+      instance.processId = null;
+      if (this.deps.getAdapter(instanceId) === adapter) {
+        this.deps.deleteAdapter(instanceId);
+      }
+      await adapter.terminate(true).catch(() => { /* ignore cleanup failure */ });
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async replayFallbackAfterRestart(
+    instanceId: string,
+    _providerSessionId: string
+  ): Promise<RecoveryResult> {
+    void _providerSessionId;
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      return { success: false, error: `Instance ${instanceId} not found` };
+    }
+
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    const hasConversation = this.hasActiveConversation(instance);
+    const fallbackHistory = hasConversation
+      ? await this.buildFallbackHistory(instance, 'resume-failed-fallback')
+      : undefined;
+    const newProviderSessionId = generateId();
+
+    this.resetBackendSessionState(instance, cliType);
+    instance.providerSessionId = newProviderSessionId;
+    instance.sessionId = newProviderSessionId;
+    instance.sessionResumeBlacklisted = false;
+
+    const adapter = createCliAdapter(
+      cliType,
+      {
+        sessionId: newProviderSessionId,
+        workingDirectory: instance.workingDirectory,
+        yoloMode: instance.yoloMode,
+        model: instance.currentModel,
+        resume: false,
+        forkSession: false,
+        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+      },
+      instance.executionLocation
+    );
+
+    this.deps.setupAdapterEvents(instanceId, adapter);
+    this.deps.setAdapter(instanceId, adapter);
+
+    try {
+      const pid = await adapter.spawn();
+      instance.processId = pid;
+      await this.waitForAdapterWritable(instanceId, 3_000);
+      if (fallbackHistory) {
+        await adapter.sendInput(fallbackHistory);
+      }
+      instance.recoveryMethod = 'replay';
+      return { success: true, method: 'replay-fallback' };
+    } catch (error) {
+      instance.processId = null;
+      if (this.deps.getAdapter(instanceId) === adapter) {
+        this.deps.deleteAdapter(instanceId);
+      }
+      await adapter.terminate(true).catch(() => { /* ignore cleanup failure */ });
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   // ============================================
   // Instance Restart
   // ============================================
@@ -1730,77 +2034,239 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Restart an instance
    */
   async restartInstance(instanceId: string): Promise<void> {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
+    const release = await getSessionMutex().acquire(instanceId, 'restart');
+    try {
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) {
+        throw new Error(`Instance ${instanceId} not found`);
+      }
 
-    const cliType = await this.resolveCliTypeForInstance(instance);
+      logger.info('[RESTART] begin', {
+        instanceId,
+        preUsed: instance.contextUsage?.used,
+        preTotal: instance.contextUsage?.total,
+        prePercentage: instance.contextUsage?.percentage,
+        providerSessionId: instance.providerSessionId,
+        restartCount: instance.restartCount,
+        historyThreadId: instance.historyThreadId,
+      });
 
-    // Stop stuck tracking before terminating existing adapter
-    this.deps.stopStuckTracking?.(instanceId);
+      instance.restartEpoch += 1;
+      instance.recoveryMethod = undefined;
+      instance.processId = null;
+      this.deps.clearPendingState?.(instanceId);
+      this.deps.stopStuckTracking?.(instanceId);
 
-    // Terminate existing adapter (may fail for remote adapters when node is disconnected)
-    const oldAdapter = this.deps.getAdapter(instanceId);
-    if (oldAdapter) {
-      try {
-        await oldAdapter.terminate(true);
-      } catch (error) {
-        logger.warn('Adapter terminate failed during restart, proceeding', {
+      const oldAdapter = this.deps.getAdapter(instanceId);
+      if (oldAdapter) {
+        try {
+          await oldAdapter.terminate(true);
+        } catch (error) {
+          logger.warn('Adapter terminate failed during restart, proceeding', {
+            instanceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      instance.restartCount += 1;
+      this.transitionState(instance, 'initializing');
+      this.deps.queueUpdate(
+        instanceId,
+        'initializing',
+        instance.contextUsage,
+        instance.diffStats,
+        undefined,
+        undefined,
+        undefined,
+        {
+          providerSessionId: instance.providerSessionId,
+          restartEpoch: instance.restartEpoch,
+          archivedUpToMessageId: instance.archivedUpToMessageId,
+          historyThreadId: instance.historyThreadId,
+        }
+      );
+
+      const recovery = new SessionRecoveryHandler({
+        nativeResume: (id, sessionId) => this.nativeResumeAfterRestart(id, sessionId),
+        replayFallback: (id, sessionId) => this.replayFallbackAfterRestart(id, sessionId),
+      });
+      const providerSessionId = instance.providerSessionId || instance.sessionId;
+      const result = await recovery.recover(instanceId, providerSessionId);
+
+      if (!result.success) {
+        instance.recoveryMethod = 'failed';
+        this.transitionState(instance, 'error');
+        logger.warn('Restart (resume context) failed; leaving instance in error state', {
           instanceId,
-          error: error instanceof Error ? error.message : String(error),
+          providerSessionId,
+          error: result.error,
+        });
+        this.deps.queueUpdate(
+          instanceId,
+          'error',
+          instance.contextUsage,
+          instance.diffStats,
+          undefined,
+          undefined,
+          undefined,
+          {
+            providerSessionId: instance.providerSessionId,
+            restartEpoch: instance.restartEpoch,
+            recoveryMethod: instance.recoveryMethod,
+            archivedUpToMessageId: instance.archivedUpToMessageId,
+            historyThreadId: instance.historyThreadId,
+          }
+        );
+        return;
+      }
+
+      if (instance.status === 'initializing') {
+        this.transitionState(
+          instance,
+          result.method === 'replay-fallback' ? 'busy' : 'idle'
+        );
+      }
+      this.deps.startStuckTracking?.(instanceId);
+      this.deps.queueUpdate(
+        instanceId,
+        instance.status,
+        instance.contextUsage,
+        result.method === 'replay-fallback' ? null : instance.diffStats,
+        undefined,
+        undefined,
+        undefined,
+        {
+          providerSessionId: instance.providerSessionId,
+          restartEpoch: instance.restartEpoch,
+          recoveryMethod: instance.recoveryMethod,
+          archivedUpToMessageId: instance.archivedUpToMessageId,
+          historyThreadId: instance.historyThreadId,
+        }
+      );
+    } finally {
+      release();
+    }
+  }
+
+  async restartFreshInstance(instanceId: string): Promise<void> {
+    const release = await getSessionMutex().acquire(instanceId, 'restart-fresh');
+    try {
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) {
+        throw new Error(`Instance ${instanceId} not found`);
+      }
+
+      const cliType = await this.resolveCliTypeForInstance(instance);
+      const previousMessages = [...instance.outputBuffer];
+      const lastPreFreshMessageId = previousMessages.at(-1)?.id;
+
+      instance.restartEpoch += 1;
+      instance.recoveryMethod = undefined;
+      instance.processId = null;
+      this.deps.clearPendingState?.(instanceId);
+      this.deps.stopStuckTracking?.(instanceId);
+
+      const oldAdapter = this.deps.getAdapter(instanceId);
+      if (oldAdapter) {
+        try {
+          await oldAdapter.terminate(true);
+        } catch (error) {
+          logger.warn('Adapter terminate failed during fresh restart, proceeding', {
+            instanceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      await this.archiveRestartSnapshot(instance, previousMessages);
+
+      if (lastPreFreshMessageId) {
+        instance.archivedUpToMessageId = lastPreFreshMessageId;
+        this.deps.addToOutputBuffer(instance, this.createSessionBoundaryMessage());
+      } else {
+        instance.archivedUpToMessageId = undefined;
+      }
+
+      instance.historyThreadId = generateId();
+      const newProviderSessionId = generateId();
+      instance.providerSessionId = newProviderSessionId;
+      instance.sessionId = newProviderSessionId;
+      instance.sessionResumeBlacklisted = false;
+      this.resetBackendSessionState(instance, cliType, {
+        resetTotalTokensUsed: true,
+        resetFirstMessageTracking: true,
+      });
+
+      const adapter = createCliAdapter(
+        cliType,
+        {
+          sessionId: newProviderSessionId,
+          workingDirectory: instance.workingDirectory,
+          yoloMode: instance.yoloMode,
+          model: instance.currentModel,
+          resume: false,
+          forkSession: false,
+          mcpConfig: this.getMcpConfig(instance.executionLocation),
+          permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+        },
+        instance.executionLocation
+      );
+
+      this.deps.setupAdapterEvents(instanceId, adapter);
+      this.deps.setAdapter(instanceId, adapter);
+
+      instance.restartCount += 1;
+      this.transitionState(instance, 'initializing');
+      this.deps.queueUpdate(
+        instanceId,
+        'initializing',
+        instance.contextUsage,
+        null,
+        undefined,
+        undefined,
+        undefined,
+        {
+          providerSessionId: instance.providerSessionId,
+          restartEpoch: instance.restartEpoch,
+          archivedUpToMessageId: instance.archivedUpToMessageId,
+          historyThreadId: instance.historyThreadId,
+        }
+      );
+
+      try {
+        const pid = await adapter.spawn();
+        instance.processId = pid;
+        instance.recoveryMethod = 'fresh';
+        this.transitionState(instance, 'idle');
+        this.deps.startStuckTracking?.(instanceId);
+      } catch (error) {
+        instance.recoveryMethod = 'failed';
+        this.transitionState(instance, 'error');
+        logger.error('Failed to restart CLI with fresh context', error instanceof Error ? error : undefined, {
+          instanceId,
         });
       }
+
+      this.deps.queueUpdate(
+        instanceId,
+        instance.status,
+        instance.contextUsage,
+        null,
+        undefined,
+        undefined,
+        undefined,
+        {
+          providerSessionId: instance.providerSessionId,
+          restartEpoch: instance.restartEpoch,
+          recoveryMethod: instance.recoveryMethod,
+          archivedUpToMessageId: instance.archivedUpToMessageId,
+          historyThreadId: instance.historyThreadId,
+        }
+      );
+    } finally {
+      release();
     }
-
-    // Generate new session ID
-    const newSessionId = generateId();
-    instance.sessionId = newSessionId;
-    instance.outputBuffer = [];
-    instance.contextUsage = {
-      used: 0,
-      total: getProviderModelContextWindow(cliType, instance.currentModel),
-      percentage: 0
-    };
-    instance.diffStats = undefined;
-    instance.totalTokensUsed = 0;
-
-    // Reset first message tracking
-    this.deps.clearFirstMessageTracking(instanceId);
-
-    const spawnOptions: UnifiedSpawnOptions = {
-      sessionId: newSessionId,
-      workingDirectory: instance.workingDirectory,
-      yoloMode: instance.yoloMode,
-      model: instance.currentModel,
-      mcpConfig: this.getMcpConfig(instance.executionLocation),
-      permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-    };
-
-    const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
-
-    this.deps.setupAdapterEvents(instanceId, adapter);
-    this.deps.setAdapter(instanceId, adapter);
-    this.deps.deleteDiffTracker?.(instanceId);
-    if (this.deps.setDiffTracker) {
-      this.deps.setDiffTracker(instanceId, new SessionDiffTracker(instance.workingDirectory));
-    }
-
-    // Spawn new process
-    this.transitionState(instance, 'initializing');
-    instance.restartCount++;
-
-    try {
-      const pid = await adapter.spawn();
-      instance.processId = pid;
-      this.transitionState(instance, 'idle');
-      this.deps.startStuckTracking?.(instanceId);
-    } catch (error) {
-      this.transitionState(instance, 'error');
-      logger.error('Failed to restart CLI', error instanceof Error ? error : undefined, { instanceId });
-    }
-
-    this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
   }
 
   // ============================================
@@ -2562,7 +3028,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       const hasConversation = instance.outputBuffer.some(
         (msg) => msg.type === 'user' || msg.type === 'assistant'
       );
-      const shouldResume = capabilities.supportsResume && Boolean(sessionId);
+      // Skip --resume entirely if we previously observed that this session id
+      // is unknown to the CLI. Falls through to the fresh-session + replay path.
+      const resumeBlacklisted = instance.sessionResumeBlacklisted === true;
+      if (resumeBlacklisted) {
+        logger.info('Skipping --resume for blacklisted session id', { instanceId, sessionId });
+      }
+      const shouldResume =
+        capabilities.supportsResume && Boolean(sessionId) && !resumeBlacklisted;
       const shouldForkSession = shouldResume && capabilities.supportsForkSession;
 
       const newSessionId = shouldResume && shouldForkSession
@@ -2611,6 +3084,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             const fallbackSessionId = generateId();
             instance.sessionId = fallbackSessionId;
+            // Fresh session — unblock future resume attempts against the new id.
+            instance.sessionResumeBlacklisted = false;
             const fallbackOptions: UnifiedSpawnOptions = {
               ...spawnOptions,
               resume: false,
@@ -2632,6 +3107,10 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           } else {
             throw spawnError;
           }
+        }
+        if (actuallyResumed) {
+          // Clear any stale blacklist — resume just succeeded against this id.
+          instance.sessionResumeBlacklisted = false;
         }
         logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
 
@@ -2666,6 +3145,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         this.deps.addToOutputBuffer(instance, message);
         this.emit('output', { instanceId, message });
 
+        instance.lastRespawnAt = Date.now();
         this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
         logger.info('Respawn after interrupt complete', { instanceId });
       } catch (error) {
@@ -2717,7 +3197,17 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       const hasConversation = instance.outputBuffer.some(
         (msg) => msg.type === 'user' || msg.type === 'assistant'
       );
-      const shouldResume = capabilities.supportsResume && Boolean(sessionId);
+      // Skip --resume if the current id was poisoned (e.g. "No conversation
+      // found" observed from a previous CLI process).
+      const resumeBlacklisted = instance.sessionResumeBlacklisted === true;
+      if (resumeBlacklisted) {
+        logger.info('Skipping --resume for blacklisted session id in auto-respawn', {
+          instanceId,
+          sessionId,
+        });
+      }
+      const shouldResume =
+        capabilities.supportsResume && Boolean(sessionId) && !resumeBlacklisted;
       const shouldForkSession = shouldResume && capabilities.supportsForkSession;
 
       const newSessionId = shouldResume && shouldForkSession
@@ -2762,6 +3252,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             const fallbackSessionId = generateId();
             instance.sessionId = fallbackSessionId;
+            // Fresh session — unblock future resume attempts against the new id.
+            instance.sessionResumeBlacklisted = false;
             const fallbackOptions: UnifiedSpawnOptions = {
               ...spawnOptions,
               resume: false,
@@ -2781,6 +3273,10 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           } else {
             throw spawnError;
           }
+        }
+        if (actuallyResumed) {
+          // Clear any stale blacklist — resume just succeeded against this id.
+          instance.sessionResumeBlacklisted = false;
         }
         logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
 
@@ -2806,6 +3302,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         this.deps.addToOutputBuffer(instance, message);
         this.emit('output', { instanceId, message });
 
+        instance.lastRespawnAt = Date.now();
         this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
       } catch (error) {
         logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });

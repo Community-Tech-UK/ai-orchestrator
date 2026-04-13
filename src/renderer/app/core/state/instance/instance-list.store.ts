@@ -16,6 +16,10 @@ import type {
 } from './instance.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 
+function supportsResumeRestart(provider: Instance['provider']): boolean {
+  return provider === 'claude' || provider === 'codex';
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
@@ -201,16 +205,19 @@ export class InstanceListStore {
    * Restart an instance
    */
   async restartInstance(instanceId: string): Promise<void> {
-    const result = await this.ipc.restartInstance(instanceId);
-    if (result.success) {
-      // Clear the output buffer and reset status
-      this.stateService.updateInstance(instanceId, {
-        outputBuffer: [],
-        diffStats: undefined,
-        hasUnreadCompletion: false,
-        status: 'idle' as InstanceStatus,
-      });
+    const instance = this.stateService.getInstance(instanceId);
+    if (instance && !supportsResumeRestart(instance.provider)) {
+      await this.ipc.restartFreshInstance(instanceId);
+      return;
     }
+    await this.ipc.restartInstance(instanceId);
+  }
+
+  /**
+   * Restart an instance with fresh context
+   */
+  async restartFreshInstance(instanceId: string): Promise<void> {
+    await this.ipc.restartFreshInstance(instanceId);
   }
 
   /**
@@ -397,7 +404,21 @@ export class InstanceListStore {
           : undefined,
       currentTool:
         typeof d['currentTool'] === 'string' ? d['currentTool'] : undefined,
+      providerSessionId:
+        typeof d['providerSessionId'] === 'string'
+          ? d['providerSessionId']
+          : (d['sessionId'] as string),
       sessionId: d['sessionId'] as string,
+      restartEpoch:
+        typeof d['restartEpoch'] === 'number' ? d['restartEpoch'] : 0,
+      recoveryMethod:
+        typeof d['recoveryMethod'] === 'string'
+          ? (d['recoveryMethod'] as Instance['recoveryMethod'])
+          : undefined,
+      archivedUpToMessageId:
+        typeof d['archivedUpToMessageId'] === 'string'
+          ? d['archivedUpToMessageId']
+          : undefined,
       workingDirectory: d['workingDirectory'] as string,
       yoloMode: (d['yoloMode'] as boolean) ?? false,
       currentModel,

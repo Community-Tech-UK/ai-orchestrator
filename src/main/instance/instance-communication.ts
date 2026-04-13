@@ -36,7 +36,22 @@ export interface CommunicationDependencies {
   getAdapter: (id: string) => CliAdapter | undefined;
   setAdapter: (id: string, adapter: CliAdapter) => void;
   deleteAdapter: (id: string) => boolean;
-  queueUpdate: (instanceId: string, status: InstanceStatus, contextUsage?: ContextUsage, diffStats?: SessionDiffStats, error?: ErrorInfo) => void;
+  queueUpdate: (
+    instanceId: string,
+    status: InstanceStatus,
+    contextUsage?: ContextUsage,
+    diffStats?: SessionDiffStats | null,
+    displayName?: string,
+    error?: ErrorInfo,
+    executionLocation?: import('../../shared/types/worker-node.types').ExecutionLocation,
+    sessionState?: {
+      providerSessionId?: string;
+      restartEpoch?: number;
+      recoveryMethod?: Instance['recoveryMethod'];
+      archivedUpToMessageId?: string;
+      historyThreadId?: string;
+    }
+  ) => void;
   getDiffTracker?: (id: string) => SessionDiffTracker | undefined;
   processOrchestrationOutput: (instanceId: string, content: string) => void;
   onInterruptedExit: (instanceId: string) => Promise<void>;
@@ -279,15 +294,22 @@ export class InstanceCommunicationManager extends EventEmitter {
   // ============================================
 
   /**
-   * Send input to an instance
+   * Send input to an instance.
+   *
+   * `options.autoContinuation`: when true, the token-budget gate hard-blocks
+   * at >=90% context (intended for future agentic auto-continuation loops).
+   * When false/undefined (user-typed input), the gate becomes a non-blocking
+   * warning: the user sees a system message advising a new conversation, but
+   * the message is still delivered to the CLI.
    */
   async sendInput(
     instanceId: string,
     message: string,
     attachments?: FileAttachment[],
-    contextBlock?: string | null
+    contextBlock?: string | null,
+    options?: { autoContinuation?: boolean }
   ): Promise<void> {
-    logger.info('sendInput called', { instanceId });
+    logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
     const adapter = this.deps.getAdapter(instanceId);
 
@@ -389,31 +411,44 @@ export class InstanceCommunicationManager extends EventEmitter {
     // Reset autonomous tool counter on user input
     this.autonomousToolCounts.set(instanceId, 0);
 
-    // Budget enforcement: check before API call
+    // Budget gate: silent. Never throws a message at the user; the CLI
+    // handles its own context and the CompactionCoordinator auto-compacts
+    // at 80/95% thresholds. For auto-continuation loops we still hard-block
+    // (agentic runaway protection), but silently — no user-visible message.
+    const isAutoContinuation = options?.autoContinuation === true;
     const budgetTracker = this.deps.getBudgetTracker?.(instanceId);
     if (budgetTracker) {
       const contextUsage = this.deps.getContextUsage?.(instanceId);
       const turnTokens = contextUsage?.used ?? 0;
-      const budgetCheck = budgetTracker.checkBudget({ turnTokens });
+      const contextTotal = contextUsage?.total;
+      const budgetCheck = budgetTracker.checkBudget({
+        turnTokens,
+        totalBudget: contextTotal && contextTotal > 0 ? contextTotal : undefined,
+      });
 
-      if (budgetCheck.action === BudgetAction.STOP) {
-        logger.warn('Token budget exceeded, halting before API call', {
+      if (budgetCheck.action === BudgetAction.STOP && isAutoContinuation) {
+        logger.warn('[BUDGET_GATE] hard-block (auto-continuation)', {
           instanceId,
           reason: budgetCheck.reason,
           turnTokens,
+          contextTotal,
+          fillPercentage: budgetCheck.fillPercentage,
         });
+        // Clear the renderer's optimistic 'busy' so the UI does not hang.
+        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+        return;
+      }
 
-        // Push a system message so user sees why execution stopped
-        const budgetNotification: OutputMessage = {
-          id: generateId(),
-          type: 'system',
-          content: `Token budget limit reached: ${budgetCheck.reason}. ${budgetCheck.nudgeMessage ?? 'Consider starting a new conversation.'}`,
-          timestamp: Date.now(),
-        };
-        instance.outputBuffer.push(budgetNotification);
-        this.emit('output', { instanceId, message: budgetNotification });
-
-        return; // Do NOT call adapter.sendInput
+      if (budgetCheck.action === BudgetAction.STOP) {
+        logger.info('[BUDGET_GATE] high context on user input — letting CLI handle', {
+          instanceId,
+          turnTokens,
+          contextTotal,
+          fillPercentage: budgetCheck.fillPercentage,
+        });
+        // Background compaction is already coordinated by
+        // CompactionCoordinator.onContextUpdate at 80/95% thresholds.
+        // No message to the user; no early return.
       }
     }
 
@@ -455,6 +490,14 @@ export class InstanceCommunicationManager extends EventEmitter {
     try {
       await adapter.sendInput(finalMessage, attachments);
       logger.info('Message sent to adapter');
+      // Arm the stuck-process watchdog. Some adapters emit their first
+      // tool-state-change only once output starts streaming; if the CLI
+      // hangs before that, the detector would otherwise stay 'idle' and
+      // never time out. Explicitly transitioning to 'generating' starts
+      // the 2m soft / 4m hard clock immediately. Real adapter events
+      // still override this (recordOutput resets the clock; tool_executing
+      // extends timeouts for long tool runs).
+      this.deps.onToolStateChange?.(instanceId, 'generating');
     } catch (sendError) {
       // Check if this is a context overflow error thrown from sendInput.
       // The adapter's on('error') handler won't fire for thrown errors,
@@ -610,11 +653,30 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (oldAdapter && oldAdapter !== adapter) {
       oldAdapter.removeAllListeners();
     }
-
-    adapter.on('output', async (message: OutputMessage) => {
-      // Guard: ignore output events from a replaced adapter
+    const epochAtSubscribe = this.deps.getInstance(instanceId)?.restartEpoch ?? 0;
+    const isStaleAdapterEvent = (eventName: string): boolean => {
       const currentAdapter = this.deps.getAdapter(instanceId);
       if (currentAdapter !== adapter) {
+        return true;
+      }
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) {
+        return true;
+      }
+      if (instance.restartEpoch !== epochAtSubscribe) {
+        logger.debug('Dropping stale adapter event from prior restart epoch', {
+          instanceId,
+          eventName,
+          eventEpoch: epochAtSubscribe,
+          currentEpoch: instance.restartEpoch,
+        });
+        return true;
+      }
+      return false;
+    };
+
+    adapter.on('output', async (message: OutputMessage) => {
+      if (isStaleAdapterEvent('output')) {
         return;
       }
 
@@ -632,8 +694,25 @@ export class InstanceCommunicationManager extends EventEmitter {
         // The adapter receives the real CLI session ID via system messages (session_id field),
         // which may differ from the orchestrator-generated UUID after forks/interrupts.
         const cliSessionId = adapter.getSessionId();
-        if (cliSessionId && cliSessionId !== instance.sessionId) {
+        if (cliSessionId && cliSessionId !== instance.providerSessionId) {
+          instance.providerSessionId = cliSessionId;
           instance.sessionId = cliSessionId;
+          this.deps.queueUpdate(
+            instanceId,
+            instance.status,
+            instance.contextUsage,
+            instance.diffStats,
+            undefined,
+            undefined,
+            undefined,
+            {
+              providerSessionId: instance.providerSessionId,
+              restartEpoch: instance.restartEpoch,
+              recoveryMethod: instance.recoveryMethod,
+              archivedUpToMessageId: instance.archivedUpToMessageId,
+              historyThreadId: instance.historyThreadId,
+            }
+          );
         }
 
         // Reset circuit breaker counter on tool activity — tool-use sequences
@@ -837,10 +916,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('status', (status: InstanceStatus) => {
-      // Guard: ignore status events from a replaced adapter (e.g., dying
-      // process after interrupt while a new adapter is already set up)
-      const currentAdapter = this.deps.getAdapter(instanceId);
-      if (currentAdapter !== adapter) {
+      if (isStaleAdapterEvent('status')) {
         return;
       }
 
@@ -889,14 +965,25 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('context', (usage: ContextUsage) => {
-      // Guard: ignore context events from a replaced adapter
-      const currentAdapter = this.deps.getAdapter(instanceId);
-      if (currentAdapter !== adapter) {
+      if (isStaleAdapterEvent('context')) {
+        logger.info('[CONTEXT_EVENT] dropped from replaced adapter', {
+          instanceId,
+          incomingUsed: usage.used,
+          incomingTotal: usage.total,
+        });
         return;
       }
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
+        const previous = instance.contextUsage;
+        logger.info('[CONTEXT_EVENT] applying', {
+          instanceId,
+          previousUsed: previous?.used,
+          previousTotal: previous?.total,
+          incomingUsed: usage.used,
+          incomingTotal: usage.total,
+        });
         instance.contextUsage = usage;
         // Prefer the lifetime spend counter; fall back to occupancy for
         // adapters that don't emit cumulativeTokens (e.g. Claude).
@@ -909,6 +996,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('cost', (cost: { costEstimate: number }) => {
+      if (isStaleAdapterEvent('cost')) {
+        return;
+      }
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
         instance.contextUsage = { ...instance.contextUsage, costEstimate: cost.costEstimate };
@@ -917,6 +1007,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {
+      if (isStaleAdapterEvent('input_required')) {
+        return;
+      }
       const payloadMetadata = payload.metadata || {};
       const approvalTraceId = typeof payloadMetadata['approvalTraceId'] === 'string'
         ? String(payloadMetadata['approvalTraceId'])
@@ -973,6 +1066,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('error', async (error: Error) => {
+      if (isStaleAdapterEvent('error')) {
+        return;
+      }
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
@@ -988,13 +1084,16 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
 
-      // Guard: ignore errors from a replaced adapter (e.g., late pipe errors from a
-      // killed process after respawnAfterInterrupt already installed a new adapter).
-      // Without this, the old adapter's error handler would force-cleanup the NEW adapter.
-      const currentAdapter = this.deps.getAdapter(instanceId);
-      if (currentAdapter !== adapter) {
-        logger.info('Adapter error event but adapter has been replaced - ignoring', { instanceId });
-        return;
+      // Poison the session id on the telltale Claude CLI resume failure so
+      // the next respawn (including auto-respawn from this adapter's exit)
+      // cannot loop on it.
+      const errText = error instanceof Error ? error.message : String(error ?? '');
+      if (/no conversation found/i.test(errText) || /session.*not.*found/i.test(errText)) {
+        instance.sessionResumeBlacklisted = true;
+        logger.warn('Session id blacklisted due to resume failure', {
+          instanceId,
+          sessionId: instance.sessionId,
+        });
       }
 
       // Check if this is a context overflow error
@@ -1135,6 +1234,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {
+      if (isStaleAdapterEvent('exit')) {
+        return;
+      }
       logger.info('Adapter exit event', { instanceId, code, signal });
 
       const instance = this.deps.getInstance(instanceId);
@@ -1148,16 +1250,6 @@ export class InstanceCommunicationManager extends EventEmitter {
         message: reason,
         timestamp: Date.now(),
       });
-
-      // Check if this adapter is still the current adapter for this instance
-      // If not, a new adapter has been set (e.g., during YOLO toggle) and we should
-      // not delete it or modify instance state
-      const currentAdapter = this.deps.getAdapter(instanceId);
-      logger.info('Adapter exit check', { instanceId, currentAdapterExists: !!currentAdapter, adapterExists: !!adapter, isSameAdapter: currentAdapter === adapter });
-      if (currentAdapter !== adapter) {
-        logger.info('Adapter exit event but adapter has been replaced - ignoring', { instanceId });
-        return;
-      }
 
       if (this.isStatelessExecAdapter(adapter)) {
         logger.info('Ignoring per-turn process exit for stateless exec adapter', {
@@ -1195,7 +1287,14 @@ export class InstanceCommunicationManager extends EventEmitter {
           logger.error('Failed to respawn instance after interrupt', err instanceof Error ? err : undefined, { instanceId });
           instance.status = 'error';
           instance.processId = null;
-          this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError(`Failed to respawn after interrupt: ${err instanceof Error ? err.message : String(err)}`));
+          this.deps.queueUpdate(
+            instanceId,
+            'error',
+            undefined,
+            undefined,
+            undefined,
+            buildCrashError(`Failed to respawn after interrupt: ${err instanceof Error ? err.message : String(err)}`)
+          );
         });
         return;
       }
@@ -1204,12 +1303,31 @@ export class InstanceCommunicationManager extends EventEmitter {
         // Auto-respawn root instances that exit unexpectedly while idle/ready.
         // This handles CLI processes dying from sleep/wake, pipe errors, or
         // idle timeouts — keeping sessions alive like standalone CLI tools do.
+        //
+        // Suppress within a short window after a user-triggered respawn
+        // (interrupt or prior auto-respawn). Otherwise a CLI that dies
+        // seconds after its replacement came up stacks "Session reconnected
+        // automatically" on top of "Interrupted — waiting for input" and can
+        // loop on a bad session id.
+        const RECENT_RESPAWN_SUPPRESS_MS = 5_000;
+        const lastRespawn = instance.lastRespawnAt ?? 0;
+        const withinRecentRespawnWindow =
+          lastRespawn > 0 && Date.now() - lastRespawn < RECENT_RESPAWN_SUPPRESS_MS;
+
         const canAutoRespawn =
           this.deps.onUnexpectedExit &&
           !instance.parentId &&                        // Only root instances
           instance.restartCount < 5 &&                 // Don't loop forever
+          !withinRecentRespawnWindow &&                // Don't pile on a fresh respawn
           (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'busy') &&
           instance.outputBuffer.some(m => m.type === 'user'); // Has conversation worth preserving
+
+        if (withinRecentRespawnWindow) {
+          logger.info('Suppressing auto-respawn: another respawn completed very recently', {
+            instanceId,
+            msSinceLastRespawn: Date.now() - lastRespawn,
+          });
+        }
 
         if (canAutoRespawn) {
           logger.info('Auto-respawning instance after unexpected exit', {
@@ -1232,7 +1350,14 @@ export class InstanceCommunicationManager extends EventEmitter {
             logger.error('Auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });
             instance.status = 'error';
             instance.processId = null;
-            this.deps.queueUpdate(instanceId, 'error', undefined, undefined, buildCrashError(`Auto-respawn failed: ${err instanceof Error ? err.message : String(err)}`));
+            this.deps.queueUpdate(
+              instanceId,
+              'error',
+              undefined,
+              undefined,
+              undefined,
+              buildCrashError(`Auto-respawn failed: ${err instanceof Error ? err.message : String(err)}`)
+            );
           });
           return;
         }
@@ -1244,6 +1369,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.deps.queueUpdate(
           instanceId,
           instance.status,
+          undefined,
           undefined,
           undefined,
           newStatus === 'error' ? buildCrashError(`Process exited unexpectedly with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`) : undefined

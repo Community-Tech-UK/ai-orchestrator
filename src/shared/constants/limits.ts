@@ -87,8 +87,21 @@ export const CODEX_TIMEOUTS = {
   /** Per-RPC timeout for control methods (initialize, thread/start, thread/resume). */
   RPC_CONTROL_MS: 60_000,
 
-  /** Notification idle watchdog during turn execution. */
+  /**
+   * Notification idle watchdog — used when no item is in progress
+   * (startup phase and between items). Short because Codex should
+   * announce the next item quickly once the previous one finishes.
+   */
   NOTIFICATION_IDLE_MS: 90_000,
+
+  /**
+   * Notification idle watchdog — used when an item is in progress
+   * (reasoning block, shell command, mcp tool call, etc.).
+   * Codex's JSON-RPC transport emits no sub-item progress, so long
+   * silent stretches within a single item are normal. Matches Codex
+   * CLI's own 300s stream-idle default.
+   */
+  NOTIFICATION_IDLE_ACTIVE_MS: 300_000,
 
   /** Graceful shutdown wait before force-kill. */
   GRACEFUL_SHUTDOWN_MS: 3_000,

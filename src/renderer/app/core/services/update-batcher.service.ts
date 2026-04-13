@@ -17,9 +17,14 @@ export interface StateUpdate {
     totalAdded: number;
     totalDeleted: number;
     files: Record<string, { path: string; status: 'added' | 'modified' | 'deleted'; added: number; deleted: number }>;
-  };
+  } | null;
   displayName?: string;
   executionLocation?: ExecutionLocation;
+  providerSessionId?: string;
+  restartEpoch?: number;
+  recoveryMethod?: 'native' | 'replay' | 'fresh' | 'failed';
+  archivedUpToMessageId?: string;
+  historyThreadId?: string;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;
@@ -44,12 +49,18 @@ export class UpdateBatcherService {
     this.queue.set(update.instanceId, {
       ...existing,
       ...update,
-      // Preserve diffStats if the new update doesn't carry them
-      diffStats: update.diffStats ?? existing?.diffStats,
+      // Preserve diffStats only when the new update doesn't carry them at all.
+      diffStats: update.diffStats !== undefined ? update.diffStats : existing?.diffStats,
       // Preserve displayName if the new update doesn't carry it
       displayName: update.displayName ?? existing?.displayName,
       // Preserve executionLocation if the new update doesn't carry it
       executionLocation: update.executionLocation ?? existing?.executionLocation,
+      providerSessionId: update.providerSessionId ?? existing?.providerSessionId,
+      restartEpoch: update.restartEpoch ?? existing?.restartEpoch,
+      recoveryMethod: update.recoveryMethod ?? existing?.recoveryMethod,
+      archivedUpToMessageId:
+        update.archivedUpToMessageId ?? existing?.archivedUpToMessageId,
+      historyThreadId: update.historyThreadId ?? existing?.historyThreadId,
     });
   }
 

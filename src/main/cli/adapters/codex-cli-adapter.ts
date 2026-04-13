@@ -765,9 +765,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       if (!this.hasTokenUsageNotification) {
         // No accurate notification received — aggregate turn tokens are NOT
-        // context-window occupancy (they sum across all internal sub-calls).
-        // Use the last known good occupancy if we have one; otherwise emit
-        // the aggregate as an estimate so the UI can display it differently.
+        // context-window occupancy (they sum across all internal sub-calls
+        // and routinely exceed the context window after a single complex
+        // turn). Use the last known good occupancy if we have one; otherwise
+        // emit 0 with isEstimated:true rather than clamping the aggregate to
+        // 100% of the context window (which would falsely show a full bar).
         const contextWindow = this.resolveContextWindow();
         this.cumulativeTokensUsed += turnTokens;
 
@@ -777,19 +779,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
           this.emit('context', {
             used: this.lastTurnTokens,
             total: contextWindow,
-            percentage: Math.min((this.lastTurnTokens / contextWindow) * 100, 100),
+            percentage: contextWindow > 0 ? Math.min((this.lastTurnTokens / contextWindow) * 100, 100) : 0,
             cumulativeTokens: this.cumulativeTokensUsed,
           });
         } else {
-          // No prior occupancy data — emit the aggregate as an estimate.
-          // Mark isEstimated so the UI doesn't present this as real occupancy.
-          const clampedUsed = Math.min(turnTokens, contextWindow);
-          this.lastTurnTokens = clampedUsed;
-
+          // No prior occupancy data — we genuinely don't know occupancy.
+          // Emit 0 with isEstimated:true and surface lifetime spend via
+          // cumulativeTokens. Do NOT cache this in lastTurnTokens, so the
+          // next real notification can populate it cleanly.
           this.emit('context', {
-            used: clampedUsed,
+            used: 0,
             total: contextWindow,
-            percentage: Math.min((clampedUsed / contextWindow) * 100, 100),
+            percentage: 0,
             cumulativeTokens: this.cumulativeTokensUsed,
             isEstimated: true,
           });
@@ -864,22 +865,39 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     // Notification idle watchdog — detects stalled turns where no notifications
     // arrive for an extended period (process alive but unresponsive).
+    //
+    // Codex's app-server JSON-RPC emits notifications at item boundaries only
+    // (item/started, item/completed) — there are no sub-item deltas. A single
+    // item (long reasoning block, long-running shell command, mcp call) can
+    // legitimately take minutes with zero notifications in between. We use a
+    // generous timeout while items are in flight and tighten it once the turn
+    // is idle between items, so genuine hangs still surface quickly.
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    const resetIdleWatchdog = () => {
+    let activeItems = 0;
+    const armIdleWatchdog = () => {
       if (idleTimer) clearTimeout(idleTimer);
+      const timeoutMs = activeItems > 0
+        ? CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS
+        : CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS;
       idleTimer = setTimeout(() => {
         if (!state.completed) {
           state.rejectCompletion(
-            new Error(`Codex turn stalled: no notifications received for ${CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS}ms`)
+            new Error(`Codex turn stalled: no notifications received for ${timeoutMs}ms`)
           );
         }
-      }, CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS);
+      }, timeoutMs);
       idleTimer.unref();
     };
 
     client.setNotificationHandler((notification: AppServerNotification) => {
-      // Reset idle watchdog on every notification
-      resetIdleWatchdog();
+      // Track item lifecycle so the watchdog uses the right timeout.
+      // Update the counter BEFORE arming so we pick the correct window.
+      if (notification.method === 'item/started') {
+        activeItems += 1;
+      } else if (notification.method === 'item/completed') {
+        activeItems = Math.max(0, activeItems - 1);
+      }
+      armIdleWatchdog();
 
       // Thread-level notifications always apply
       if (notification.method === 'thread/started' || notification.method === 'thread/name/updated') {
@@ -943,8 +961,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
         this.completeTurn(state, turnResult.turn);
       }
 
-      // Start the idle watchdog now that the turn is in progress
-      resetIdleWatchdog();
+      // Start the idle watchdog now that the turn is in progress.
+      // Uses the short timeout because no item has started yet.
+      armIdleWatchdog();
 
       // Wait for completion with timeout protection.
       // If the codex process crashes or the socket drops, the exitPromise
@@ -1609,23 +1628,26 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     if (response.usage) {
-      // Exec-mode fallback: token usage from CLI JSON output is aggregate
-      // across all internal agentic sub-calls, not context window occupancy.
-      // Clamp to context window to avoid displaying impossible numbers.
+      // Exec-mode: codex exec reports usage that sums input_tokens across every
+      // internal agentic sub-call, so it grows quadratically with tool use and
+      // routinely exceeds the context window after a single turn. We have no
+      // per-call breakdown here, so flag the value as estimated and reuse the
+      // last known good occupancy (from a previous tokenUsage notification, if
+      // any) instead of clamping the aggregate to 100% of the context window.
       const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
         ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
         : (response.usage.totalTokens || 0);
 
       this.cumulativeTokensUsed += turnTokens;
       const contextWindow = this.resolveContextWindow();
-      const clampedUsed = Math.min(turnTokens, contextWindow);
-      this.lastTurnTokens = clampedUsed;
 
+      const used = this.lastTurnTokens > 0 ? this.lastTurnTokens : 0;
       const contextUsage: ContextUsage = {
-        used: clampedUsed,
+        used,
         total: contextWindow,
-        percentage: Math.min((clampedUsed / contextWindow) * 100, 100),
+        percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
         cumulativeTokens: this.cumulativeTokensUsed,
+        isEstimated: true,
       };
       this.emit('context', contextUsage);
     }

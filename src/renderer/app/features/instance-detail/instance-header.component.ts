@@ -117,14 +117,49 @@ interface EditorMenuItem {
               ></button>
             }
           </div>
-          <button
-            class="btn-action"
-            title="Restart instance"
-            (click)="restart.emit()"
-            [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
-          >
-            ↻ Restart
-          </button>
+          <div class="restart-menu-shell">
+            <button
+              class="btn-action btn-restart-primary"
+              [title]="restartPrimaryTooltip()"
+              (click)="onRestartPrimary($event)"
+              [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+            >
+              {{ supportsResume() ? '↻ Restart' : '↻ Restart (fresh only)' }}
+            </button>
+            @if (supportsResume()) {
+              <button
+                type="button"
+                class="btn-action btn-restart-caret"
+                title="More restart options"
+                [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+                (click)="onToggleRestartMenu($event)"
+              >
+                ▾
+              </button>
+            }
+            @if (showRestartMenu()) {
+              <div class="restart-menu">
+                <button
+                  class="restart-menu-item"
+                  (click)="restart.emit(); showRestartMenu.set(false)"
+                >
+                  Restart (resume context)
+                </button>
+                <button
+                  class="restart-menu-item"
+                  (click)="restartFresh.emit(); showRestartMenu.set(false)"
+                >
+                  Restart (fresh context)
+                </button>
+              </div>
+              <button
+                type="button"
+                class="restart-menu-backdrop"
+                aria-label="Close restart menu"
+                (click)="showRestartMenu.set(false)"
+              ></button>
+            }
+          </div>
           <button
             class="btn-action btn-danger"
             title="Terminate instance"
@@ -650,6 +685,60 @@ interface EditorMenuItem {
         position: relative;
       }
 
+      .restart-menu-shell {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .btn-restart-caret {
+        min-width: 14px;
+      }
+
+      .restart-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        min-width: 220px;
+        padding: 6px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(11, 16, 15, 0.96);
+        box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(18px);
+        z-index: 1000;
+      }
+
+      .restart-menu-item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        padding: 9px 11px;
+        border: none;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--text-primary);
+        font-family: var(--font-display);
+        font-size: 12px;
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        transition: background var(--transition-fast), color var(--transition-fast);
+      }
+
+      .restart-menu-item:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .restart-menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 999;
+        background: transparent;
+        border: none;
+      }
+
       .btn-open {
         display: inline-flex;
         align-items: center;
@@ -826,9 +915,13 @@ export class InstanceHeaderComponent implements OnInit {
   activeSkillCount = computed(() => this.skillStore.activeSkillCount());
   enabledHookCount = computed(() => this.hookStore.enabledHookCount());
   showOpenMenu = signal(false);
+  showRestartMenu = signal(false);
   editorTargets = signal<EditorMenuItem[]>([]);
   isLoadingEditors = signal(false);
   private hasLoadedEditorTargets = false;
+  readonly supportsResume = computed(() =>
+    this.instance().provider === 'claude' || this.instance().provider === 'codex'
+  );
 
   // Tooltips for badges
   activeSkillsTooltip = computed(() => {
@@ -925,6 +1018,7 @@ export class InstanceHeaderComponent implements OnInit {
   selectFolder = output<string>();
   interrupt = output<void>();
   restart = output<void>();
+  restartFresh = output<void>();
   terminate = output<void>();
   createChild = output<void>();
   toggleModelDropdown = output<void>();
@@ -981,6 +1075,10 @@ export class InstanceHeaderComponent implements OnInit {
   preferredEditorLabel = computed(() => {
     return this.editorTargets()[0]?.label || 'Editor';
   });
+
+  restartPrimaryTooltip = computed(() => this.supportsResume()
+    ? 'Restart and resume conversation'
+    : "This provider doesn't support session resume — restart starts a fresh session.");
 
   systemFolderLabel = computed(() => {
     switch (this.electronIpc.platform) {
@@ -1061,6 +1159,21 @@ export class InstanceHeaderComponent implements OnInit {
   onToggleOpenMenu(event: Event): void {
     event.stopPropagation();
     this.showOpenMenu.update((current) => !current);
+  }
+
+  onToggleRestartMenu(event: Event): void {
+    event.stopPropagation();
+    this.showRestartMenu.update((current) => !current);
+  }
+
+  onRestartPrimary(event: Event): void {
+    event.stopPropagation();
+    this.showRestartMenu.set(false);
+    if (this.supportsResume()) {
+      this.restart.emit();
+      return;
+    }
+    this.restartFresh.emit();
   }
 
   async openInPreferredEditor(): Promise<void> {

@@ -50,6 +50,9 @@ export interface AppSettings {
   // Advanced
   customModelOverride: string; // empty = use default
   parserBufferMaxKB: number; // max size for NDJSON parser buffer
+  codememEnabled: boolean;
+  codememIndexingEnabled: boolean;
+  codememLspWorkerEnabled: boolean;
 
   // Cross-Model Review
   crossModelReviewEnabled: boolean;
@@ -112,6 +115,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Advanced
   customModelOverride: '',
   parserBufferMaxKB: 1024, // 1MB max parser buffer
+  codememEnabled: true,
+  codememIndexingEnabled: true,
+  codememLspWorkerEnabled: true,
 
   // Cross-Model Review
   crossModelReviewEnabled: true,
@@ -391,6 +397,27 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
     min: 256,
     max: 10240
+  },
+  {
+    key: 'codememEnabled',
+    label: 'Enable Codemem',
+    description: 'Enable the codemem index and agent-facing code memory features',
+    type: 'boolean',
+    category: 'advanced'
+  },
+  {
+    key: 'codememIndexingEnabled',
+    label: 'Enable Codemem Indexing',
+    description: 'Maintain the persistent workspace symbol and merkle index',
+    type: 'boolean',
+    category: 'advanced'
+  },
+  {
+    key: 'codememLspWorkerEnabled',
+    label: 'Enable Codemem LSP Worker',
+    description: 'Start the background LSP worker used by codemem deep queries',
+    type: 'boolean',
+    category: 'advanced'
   },
 
   // Cross-Model Review

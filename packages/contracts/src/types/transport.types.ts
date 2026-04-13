@@ -4,7 +4,15 @@
  */
 
 import type { IpcChannel } from '../channels/index';
-import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, InstanceProvider, SessionDiffStats } from '@shared/types/instance.types';
+import type {
+  ContextUsage,
+  FileAttachment,
+  InstanceRecoveryMethod,
+  InstanceStatus,
+  OutputMessage,
+  InstanceProvider,
+  SessionDiffStats,
+} from '@shared/types/instance.types';
 import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
 import type { ChannelPlatform } from '@shared/types/channels';
@@ -57,9 +65,14 @@ export interface InstanceStateUpdatePayload {
   status: InstanceStatus;
   contextUsage?: ContextUsage;
   error?: ErrorInfo;
-  diffStats?: SessionDiffStats;
+  diffStats?: SessionDiffStats | null;
   displayName?: string;
   executionLocation?: ExecutionLocation;
+  providerSessionId?: string;
+  restartEpoch?: number;
+  recoveryMethod?: InstanceRecoveryMethod;
+  archivedUpToMessageId?: string;
+  historyThreadId?: string;
 }
 
 export interface InstanceOutputPayload {
@@ -88,6 +101,10 @@ export interface InstanceInterruptPayload {
 }
 
 export interface InstanceRestartPayload {
+  instanceId: string;
+}
+
+export interface InstanceRestartFreshPayload {
   instanceId: string;
 }
 

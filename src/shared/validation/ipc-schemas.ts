@@ -2077,6 +2077,10 @@ export const InstanceRestartPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
 });
 
+export const InstanceRestartFreshPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
 // ============ Settings Additional Payloads ============
 // SettingsSetPayload (SettingsUpdatePayloadSchema already exists with key/value)
 

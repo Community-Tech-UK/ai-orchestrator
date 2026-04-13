@@ -93,6 +93,14 @@ export class InstanceIpcService {
   }
 
   /**
+   * Restart an instance with fresh context
+   */
+  async restartFreshInstance(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.restartFreshInstance({ instanceId });
+  }
+
+  /**
    * Rename an instance
    */
   async renameInstance(instanceId: string, displayName: string): Promise<IpcResponse> {

@@ -50,6 +50,12 @@ interface WelcomeProjectContext {
   hasDraft: boolean;
 }
 
+interface RestartToast {
+  id: string;
+  type: 'info' | 'error';
+  message: string;
+}
+
 @Component({
   selector: 'app-instance-detail',
   standalone: true,
@@ -99,6 +105,7 @@ interface WelcomeProjectContext {
             (selectFolder)="onSelectFolder($event)"
             (interrupt)="onInterrupt()"
             (restart)="onRestart()"
+            (restartFresh)="onRestartFresh()"
             (terminate)="onTerminate()"
             (createChild)="onCreateChild()"
             (toggleModelDropdown)="toggleModelDropdown()"
@@ -121,6 +128,25 @@ interface WelcomeProjectContext {
             />
           }
 
+          @if (inst.status === 'error' && inst.recoveryMethod === 'failed') {
+            <div class="recovery-banner recovery-banner-error">
+              <svg class="recovery-banner-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div class="recovery-banner-body">
+                <span class="recovery-banner-title">Couldn't resume this session</span>
+                <span class="recovery-banner-desc">Your transcript is preserved. Start a fresh session to continue.</span>
+              </div>
+              <div class="recovery-banner-actions">
+                <button class="recovery-action recovery-action-primary" (click)="onRestartFresh()">
+                  Restart (fresh context)
+                </button>
+              </div>
+            </div>
+          }
+
           <!-- Recovery banner for replay-fallback restores -->
           @if (isReplayFallback() && !recoveryDismissed()) {
             <div class="recovery-banner">
@@ -137,6 +163,16 @@ interface WelcomeProjectContext {
                 <button class="recovery-action recovery-action-primary" (click)="onRecoverySummarize()">Summarize & Continue</button>
                 <button class="recovery-action" (click)="onRecoveryDismiss()">Dismiss</button>
               </div>
+            </div>
+          }
+
+          @if (restartToasts().length > 0) {
+            <div class="restart-toast-stack">
+              @for (toast of restartToasts(); track toast.id) {
+                <div class="restart-toast" [class.restart-toast-error]="toast.type === 'error'">
+                  {{ toast.message }}
+                </div>
+              }
             </div>
           }
 
@@ -384,6 +420,27 @@ interface WelcomeProjectContext {
         color: rgba(245, 158, 11, 0.85);
       }
 
+      .recovery-banner-error {
+        background: rgba(var(--error-rgb), 0.08);
+        border-color: rgba(var(--error-rgb), 0.18);
+        color: rgba(255, 125, 114, 0.92);
+      }
+
+      .recovery-banner-error .recovery-action {
+        border-color: rgba(var(--error-rgb), 0.24);
+        color: rgba(255, 125, 114, 0.92);
+      }
+
+      .recovery-banner-error .recovery-action:hover {
+        background: rgba(var(--error-rgb), 0.12);
+        border-color: rgba(var(--error-rgb), 0.32);
+      }
+
+      .recovery-banner-error .recovery-action-primary {
+        background: rgba(var(--error-rgb), 0.14);
+        border-color: rgba(var(--error-rgb), 0.28);
+      }
+
       .recovery-banner-icon {
         flex-shrink: 0;
         margin-top: 2px;
@@ -444,6 +501,32 @@ interface WelcomeProjectContext {
           background: rgba(245, 158, 11, 0.2);
           border-color: rgba(245, 158, 11, 0.4);
         }
+      }
+
+      .restart-toast-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+        flex-shrink: 0;
+      }
+
+      .restart-toast {
+        max-width: min(100%, 420px);
+        padding: 8px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(74, 222, 128, 0.18);
+        background: rgba(74, 222, 128, 0.08);
+        color: #bbf7d0;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .restart-toast-error {
+        border-color: rgba(var(--error-rgb), 0.18);
+        background: rgba(var(--error-rgb), 0.08);
+        color: #fecaca;
       }
 
       .output-section {
@@ -847,12 +930,15 @@ export class InstanceDetailComponent {
   private manualCompacting = signal(false);
   contextWarningDismissed = signal(false);
   recoveryDismissed = signal(false);
+  restartToasts = signal<RestartToast[]>([]);
   private lastDismissedPercentage = 0;
+  private lastRecoveryBannerKey: string | null = null;
+  private lastRestartToastKey: string | null = null;
 
   // Replay-fallback detection: instance was restored but CLI context is lost
   isReplayFallback = computed(() => {
     const inst = this.instance();
-    return inst?.restoreMode === 'replay-fallback';
+    return inst?.restoreMode === 'replay-fallback' || inst?.recoveryMethod === 'replay';
   });
 
   // Merge manual-trigger state with store-tracked auto-compact state
@@ -929,7 +1015,7 @@ export class InstanceDetailComponent {
     const providerName = this.getProviderDisplayName(inst.provider);
 
     // Recovery-aware placeholder for replay-fallback restores
-    if (inst.restoreMode === 'replay-fallback') {
+    if (inst.restoreMode === 'replay-fallback' || inst.recoveryMethod === 'replay') {
       return `Summarize what you were working on for ${providerName}...`;
     }
 
@@ -958,6 +1044,48 @@ export class InstanceDetailComponent {
       const inst = this.instance();
       if (inst) {
         this.isCreatingInstance.set(false);
+      }
+    });
+
+    effect(() => {
+      const inst = this.instance();
+      const recoveryKey = inst
+        ? `${inst.id}:${inst.restartEpoch}:${inst.restoreMode ?? 'none'}:${inst.recoveryMethod ?? 'none'}`
+        : null;
+      if (recoveryKey === this.lastRecoveryBannerKey) {
+        return;
+      }
+      this.lastRecoveryBannerKey = recoveryKey;
+      this.recoveryDismissed.set(false);
+    });
+
+    effect(() => {
+      const inst = this.instance();
+      if (!inst || !inst.recoveryMethod || inst.restartEpoch <= 0) {
+        return;
+      }
+      if (inst.status === 'initializing' || inst.status === 'respawning') {
+        return;
+      }
+
+      const toastKey = `${inst.id}:${inst.restartEpoch}:${inst.recoveryMethod}:${inst.status}`;
+      if (toastKey === this.lastRestartToastKey) {
+        return;
+      }
+
+      const message = {
+        native: 'Resumed via native session.',
+        replay: 'Resumed by replaying the transcript.',
+        fresh: 'Started a fresh session. Previous conversation is archived.',
+        failed: "Couldn't resume the session. Start a fresh session to continue.",
+      }[inst.recoveryMethod];
+
+      if (message) {
+        this.showRestartToast(
+          message,
+          inst.recoveryMethod === 'failed' ? 'error' : 'info'
+        );
+        this.lastRestartToastKey = toastKey;
       }
     });
 
@@ -1157,6 +1285,12 @@ export class InstanceDetailComponent {
     const data = result.data as { id?: string };
     if (!data.id) return;
 
+    // Pre-populate renderer state from the IPC response so sendInput doesn't race
+    // with the async 'instance:created' event. Without this, getInstance() can
+    // return undefined (silent drop) or a stale record depending on event arrival
+    // order.
+    this.store.addInstanceFromData(result.data);
+
     this.store.sendInput(data.id, event.text);
     this.store.setSelectedInstance(data.id);
     await this.store.terminateInstance(inst.id);
@@ -1235,6 +1369,13 @@ export class InstanceDetailComponent {
     }
   }
 
+  onRestartFresh(): void {
+    const inst = this.instance();
+    if (inst) {
+      this.store.restartFreshInstance(inst.id);
+    }
+  }
+
   onSelectFolder(path: string): void {
     const inst = this.instance();
     if (inst && path) {
@@ -1284,6 +1425,19 @@ export class InstanceDetailComponent {
     } finally {
       this.isTogglingYolo.set(false);
     }
+  }
+
+  private showRestartToast(message: string, type: RestartToast['type']): void {
+    const toast: RestartToast = {
+      id: `restart-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      type,
+      message,
+    };
+
+    this.restartToasts.update((current) => [...current, toast]);
+    window.setTimeout(() => {
+      this.restartToasts.update((current) => current.filter((item) => item.id !== toast.id));
+    }, 4000);
   }
 
   async onCycleAgentMode(): Promise<void> {

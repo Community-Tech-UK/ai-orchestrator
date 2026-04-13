@@ -144,6 +144,7 @@ export class IpcFacadeService {
   terminateInstance = this.instance.terminateInstance.bind(this.instance);
   interruptInstance = this.instance.interruptInstance.bind(this.instance);
   restartInstance = this.instance.restartInstance.bind(this.instance);
+  restartFreshInstance = this.instance.restartFreshInstance.bind(this.instance);
   renameInstance = this.instance.renameInstance.bind(this.instance);
   changeAgentMode = this.instance.changeAgentMode.bind(this.instance);
   toggleYoloMode = this.instance.toggleYoloMode.bind(this.instance);

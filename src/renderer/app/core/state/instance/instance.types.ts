@@ -4,7 +4,11 @@
 
 import type { AgentMode } from '../../../../../shared/types/agent.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
-import type { FileAttachment, ThinkingContent } from '../../../../../shared/types/instance.types';
+import type {
+  FileAttachment,
+  InstanceRecoveryMethod,
+  ThinkingContent,
+} from '../../../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
 
 // ============================================
@@ -81,7 +85,11 @@ export interface Instance {
   lastActivity: number;
   currentActivity?: string; // Human-readable activity description
   currentTool?: string; // Current tool being used
+  providerSessionId: string;
   sessionId: string;
+  restartEpoch: number;
+  recoveryMethod?: InstanceRecoveryMethod;
+  archivedUpToMessageId?: string;
   workingDirectory: string;
   yoloMode: boolean;
   currentModel?: string; // Current model being used

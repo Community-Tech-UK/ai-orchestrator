@@ -154,7 +154,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       <div class="instance-actions">
         <button
           class="action-btn restart"
-          title="Restart instance"
+          [title]="supportsResume() ? 'Restart and resume conversation' : 'Restart with fresh context'"
           (click)="onRestart($event)"
           [disabled]="instance().status === 'initializing'"
         >
@@ -255,8 +255,19 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
     }
 
     .provider-badge.provider-busy {
-      animation: provider-pulse 1.8s ease-in-out infinite;
-      filter: drop-shadow(0 0 3px var(--provider-color, currentColor));
+      position: relative;
+    }
+
+    .provider-badge.provider-busy::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: var(--provider-color, currentColor);
+      border-right-color: var(--provider-color, currentColor);
+      animation: provider-spin 0.8s linear infinite;
+      opacity: 0.85;
     }
 
     .attention-dot {
@@ -566,16 +577,9 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       border-color: rgba(234, 179, 8, 0.3) !important;
     }
 
-    @keyframes provider-pulse {
-      0%, 100% {
-        opacity: 1;
-        filter: drop-shadow(0 0 2px var(--provider-color, currentColor));
-        transform: scale(1);
-      }
-      50% {
-        opacity: 0.55;
-        filter: drop-shadow(0 0 6px var(--provider-color, currentColor));
-        transform: scale(0.88);
+    @keyframes provider-spin {
+      to {
+        transform: rotate(360deg);
       }
     }
   `],
@@ -670,6 +674,9 @@ export class InstanceRowComponent {
     this.instance().status === 'hibernating'
   );
   readonly isHibernated = computed(() => this.instance().status === 'hibernated');
+  readonly supportsResume = computed(() =>
+    this.instance().provider === 'claude' || this.instance().provider === 'codex'
+  );
 
   readonly isRemote = computed(() =>
     this.instance().executionLocation?.type === 'remote',

@@ -60,6 +60,27 @@ export interface HoverInfo {
   range?: Range;
 }
 
+export interface CallHierarchyItem {
+  name: string;
+  kind: SymbolKind;
+  uri: string;
+  range: Range;
+  selectionRange: Range;
+  containerName?: string;
+  detail?: string;
+  data?: unknown;
+}
+
+export interface CallHierarchyIncomingCall {
+  from: CallHierarchyItem;
+  fromRanges: Range[];
+}
+
+export interface CallHierarchyOutgoingCall {
+  to: CallHierarchyItem;
+  fromRanges: Range[];
+}
+
 export interface Diagnostic {
   range: Range;
   severity: DiagnosticSeverity;
@@ -455,8 +476,10 @@ export class LspManager extends EventEmitter {
           completion: { dynamicRegistration: false, completionItem: { snippetSupport: false } },
           hover: { dynamicRegistration: false, contentFormat: ['plaintext', 'markdown'] },
           definition: { dynamicRegistration: false },
+          implementation: { dynamicRegistration: false },
           references: { dynamicRegistration: false },
           documentSymbol: { dynamicRegistration: false, hierarchicalDocumentSymbolSupport: true },
+          callHierarchy: { dynamicRegistration: false },
           publishDiagnostics: { relatedInformation: true },
         },
         workspace: {
@@ -558,6 +581,34 @@ export class LspManager extends EventEmitter {
   }
 
   /**
+   * Find implementations for an interface or abstract symbol
+   */
+  async findImplementations(filePath: string, line: number, character: number): Promise<Location[] | null> {
+    const client = await this.getClientForFile(filePath);
+    if (!client) return null;
+
+    await this.openFile(client, filePath);
+
+    try {
+      const result = await this.sendRequest<any>(client, 'textDocument/implementation', {
+        textDocument: { uri: `file://${path.resolve(filePath)}` },
+        position: { line, character },
+      });
+
+      if (!result) return [];
+
+      const locations = Array.isArray(result) ? result : [result];
+      return locations.map((loc: any) => ({
+        uri: loc.uri || loc.targetUri,
+        range: loc.range || loc.targetRange,
+      }));
+    } catch (error) {
+      logger.error('Implementation request failed', error instanceof Error ? error : undefined);
+      return null;
+    }
+  }
+
+  /**
    * Get hover information
    */
   async hover(filePath: string, line: number, character: number): Promise<HoverInfo | null> {
@@ -644,6 +695,88 @@ export class LspManager extends EventEmitter {
       selectionRange: s.selectionRange,
       children: s.children?.map((c: any) => this.mapDocumentSymbol(c)),
     };
+  }
+
+  private mapCallHierarchyItem(item: any): CallHierarchyItem {
+    return {
+      name: item.name,
+      kind: SYMBOL_KIND_MAP[item.kind] || 'variable',
+      uri: item.uri,
+      range: item.range,
+      selectionRange: item.selectionRange,
+      containerName: item.containerName,
+      detail: item.detail,
+      data: item.data,
+    };
+  }
+
+  private async prepareCallHierarchyItem(
+    client: LspClient,
+    filePath: string,
+    line: number,
+    character: number,
+  ): Promise<any | null> {
+    await this.openFile(client, filePath);
+
+    try {
+      const items = await this.sendRequest<any[]>(client, 'textDocument/prepareCallHierarchy', {
+        textDocument: { uri: `file://${path.resolve(filePath)}` },
+        position: { line, character },
+      });
+
+      return items?.[0] ?? null;
+    } catch (error) {
+      logger.error('Prepare call hierarchy request failed', error instanceof Error ? error : undefined);
+      return null;
+    }
+  }
+
+  async getIncomingCalls(filePath: string, line: number, character: number): Promise<CallHierarchyIncomingCall[] | null> {
+    const client = await this.getClientForFile(filePath);
+    if (!client) return null;
+
+    const item = await this.prepareCallHierarchyItem(client, filePath, line, character);
+    if (!item) {
+      return [];
+    }
+
+    try {
+      const result = await this.sendRequest<any[]>(client, 'callHierarchy/incomingCalls', {
+        item,
+      });
+
+      return (result || []).map((call) => ({
+        from: this.mapCallHierarchyItem(call.from),
+        fromRanges: call.fromRanges || [],
+      }));
+    } catch (error) {
+      logger.error('Incoming calls request failed', error instanceof Error ? error : undefined);
+      return null;
+    }
+  }
+
+  async getOutgoingCalls(filePath: string, line: number, character: number): Promise<CallHierarchyOutgoingCall[] | null> {
+    const client = await this.getClientForFile(filePath);
+    if (!client) return null;
+
+    const item = await this.prepareCallHierarchyItem(client, filePath, line, character);
+    if (!item) {
+      return [];
+    }
+
+    try {
+      const result = await this.sendRequest<any[]>(client, 'callHierarchy/outgoingCalls', {
+        item,
+      });
+
+      return (result || []).map((call) => ({
+        to: this.mapCallHierarchyItem(call.to),
+        fromRanges: call.fromRanges || [],
+      }));
+    } catch (error) {
+      logger.error('Outgoing calls request failed', error instanceof Error ? error : undefined);
+      return null;
+    }
   }
 
   /**

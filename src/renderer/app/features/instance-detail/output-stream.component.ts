@@ -20,16 +20,18 @@ import {
   ElementRef,
   untracked
 } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
+import { SystemEventGroupComponent } from '../../shared/components/system-event-group/system-event-group.component';
 import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
 import { ToolGroupComponent } from '../../shared/components/tool-group/tool-group.component';
 import { DisplayItemProcessor, DisplayItem } from './display-item-processor.service';
+import { ExpansionStateService } from './expansion-state.service';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 
@@ -44,7 +46,15 @@ interface RenderedDisplayItem extends DisplayItem {
 @Component({
   selector: 'app-output-stream',
   standalone: true,
-  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent, ToolGroupComponent, ContextMenuComponent],
+  imports: [
+    DatePipe,
+    NgTemplateOutlet,
+    MessageAttachmentsComponent,
+    SystemEventGroupComponent,
+    ThoughtProcessComponent,
+    ToolGroupComponent,
+    ContextMenuComponent,
+  ],
   template: `
     @if (displayItems().length === 0) {
       <div class="empty-stream">
@@ -70,6 +80,13 @@ interface RenderedDisplayItem extends DisplayItem {
         }
         @for (item of visibleItems(); track item.id; let i = $index) {
           <div class="transcript-item" [attr.data-item-index]="i" (contextmenu)="onContextMenu($event, item)">
+            <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: item }" />
+          </div>
+        }
+      </div>
+    }
+
+    <ng-template #itemBody let-item>
           @if (item.type === 'thought-group') {
             @if (hasThoughtGroupContent(item)) {
               <div class="thought-group">
@@ -115,6 +132,32 @@ interface RenderedDisplayItem extends DisplayItem {
             }
           } @else if (item.type === 'tool-group' && item.toolMessages) {
             <app-tool-group [toolMessages]="item.toolMessages" [instanceId]="instanceId()" [itemId]="item.id" />
+          } @else if (item.type === 'system-event-group') {
+            <app-system-event-group
+              [events]="item.systemEvents!"
+              [label]="item.groupLabel!"
+              [preview]="item.groupPreview!"
+              [instanceId]="instanceId()"
+              [itemId]="item.id" />
+          } @else if (item.type === 'work-cycle' && item.children) {
+            <div class="work-cycle" [class.expanded]="isCycleExpanded(item.id)">
+              <button class="work-cycle-header" (click)="toggleCycle(item.id)">
+                <span class="cycle-toggle-icon">{{ isCycleExpanded(item.id) ? '▾' : '▸' }}</span>
+                <span class="cycle-summary">{{ summarizeCycle(item) }}</span>
+                @if (formatCycleDuration(item); as dur) {
+                  <span class="cycle-duration">{{ dur }}</span>
+                }
+              </button>
+              @if (isCycleExpanded(item.id)) {
+                <div class="work-cycle-content">
+                  @for (child of item.children; track child.id) {
+                    <div class="transcript-item" (contextmenu)="onContextMenu($event, child)">
+                      <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: child }" />
+                    </div>
+                  }
+                </div>
+              }
+            </div>
           } @else if (item.message) {
             @if (isCompactionBoundary(item.message)) {
               <div class="compaction-boundary">
@@ -198,10 +241,7 @@ interface RenderedDisplayItem extends DisplayItem {
               }
             }
           }
-          </div>
-        }
-      </div>
-    }
+    </ng-template>
 
     <!-- Scroll to top button -->
     @if (showScrollToTop()) {
@@ -729,6 +769,69 @@ interface RenderedDisplayItem extends DisplayItem {
           opacity: 0.6;
         }
       }
+
+      /* Work-cycle: collapsible wrapper around a run of thinking/tool/error items */
+      .work-cycle {
+        width: 100%;
+        margin: 4px 0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.015);
+        overflow: hidden;
+      }
+
+      .work-cycle-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-family: var(--font-mono);
+        text-align: left;
+        cursor: pointer;
+        transition: background var(--transition-fast), color var(--transition-fast);
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.03);
+          color: var(--text-secondary);
+        }
+
+        .cycle-toggle-icon {
+          font-size: 10px;
+          opacity: 0.7;
+          width: 10px;
+          flex-shrink: 0;
+        }
+
+        .cycle-summary {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .cycle-duration {
+          flex-shrink: 0;
+          opacity: 0.5;
+          font-size: 11px;
+        }
+      }
+
+      .work-cycle.expanded .work-cycle-header {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .work-cycle-content {
+        padding: 6px 10px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
     `
   ],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -789,6 +892,7 @@ export class OutputStreamComponent {
   private instanceStore = inject(InstanceStore);
   private perf = inject(PerfInstrumentationService);
   private destroyRef = inject(DestroyRef);
+  private expansionState = inject(ExpansionStateService);
   private displayItemProcessor = new DisplayItemProcessor();
 
   /**
@@ -804,12 +908,17 @@ export class OutputStreamComponent {
 
     const items = this.displayItemProcessor.process(messages, instanceId, historyOffset);
 
-    // Incremental markdown rendering: only render new items
+    // Incremental markdown rendering: only render new items.
+    // Iterate the processor's flat list (not the returned wrapped view) because
+    // work-cycle containers don't own markdown directly — their children do,
+    // and work-cycles share child object references with the flat list.
+    // Clamp startIdx to 0 defensively against stale counters after a reset.
     const newCount = this.displayItemProcessor.newItemCount;
     if (newCount > 0) {
-      const startIdx = items.length - newCount;
-      for (let i = startIdx; i < items.length; i++) {
-        this.renderItemMarkdown(items[i]);
+      const flat = this.displayItemProcessor.flatItems;
+      const startIdx = Math.max(0, flat.length - newCount);
+      for (let i = startIdx; i < flat.length; i++) {
+        this.renderItemMarkdown(flat[i]);
       }
     }
 
@@ -827,17 +936,38 @@ export class OutputStreamComponent {
     return !this.isChild();
   });
 
-  /** Display items filtered by tool call visibility */
+  /** Display items filtered by tool call visibility. When tool calls are hidden
+   *  we also strip them from work-cycle children so collapsed cycles don't
+   *  silently contain invisible entries. */
   protected visibleItems = computed<RenderedDisplayItem[]>(() => {
     const items = this.displayItems();
     if (this.effectiveShowToolCalls()) return items;
-    return items.filter(item => item.type !== 'tool-group');
+    const result: RenderedDisplayItem[] = [];
+    for (const item of items) {
+      if (item.type === 'tool-group') continue;
+      if (item.type === 'work-cycle' && item.children) {
+        const filtered = item.children.filter(c => c.type !== 'tool-group');
+        if (filtered.length === 0) continue;
+        result.push({ ...item, children: filtered });
+      } else {
+        result.push(item);
+      }
+    }
+    return result;
   });
 
-  /** Count of hidden tool-group items (for the toggle bar) */
+  /** Count of hidden tool-group items (for the toggle bar), including those
+   *  nested inside work-cycles. */
   protected hiddenToolGroupCount = computed(() => {
     if (this.effectiveShowToolCalls()) return 0;
-    return this.displayItems().filter(item => item.type === 'tool-group').length;
+    let count = 0;
+    for (const item of this.displayItems()) {
+      if (item.type === 'tool-group') count++;
+      else if (item.type === 'work-cycle' && item.children) {
+        for (const child of item.children) if (child.type === 'tool-group') count++;
+      }
+    }
+    return count;
   });
 
   constructor() {
@@ -1157,6 +1287,69 @@ export class OutputStreamComponent {
 
   isMessageCopied(messageId: string): boolean {
     return this.copiedMessageId() === messageId;
+  }
+
+  isCycleExpanded(itemId: string): boolean {
+    return this.expansionState.isExpanded(this.instanceId(), itemId);
+  }
+
+  toggleCycle(itemId: string): void {
+    this.expansionState.toggleExpanded(this.instanceId(), itemId);
+  }
+
+  /** Summary shown on a collapsed work-cycle header, e.g.
+   *  "7 thoughts · 4 Bash · 1 error" — counts grouped by sub-type. */
+  summarizeCycle(item: DisplayItem): string {
+    const children = item.children;
+    if (!children || children.length === 0) return '';
+    let thoughtCount = 0;
+    let errorCount = 0;
+    const toolCounts = new Map<string, number>();
+    for (const child of children) {
+      if (child.type === 'thought-group') {
+        thoughtCount++;
+      } else if (child.type === 'tool-group' && child.toolMessages) {
+        for (const m of child.toolMessages) {
+          if (m.type === 'tool_use') {
+            const name = this.getToolName(m);
+            toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
+          }
+        }
+      } else if (child.type === 'message' && child.message) {
+        if (child.message.type === 'error') errorCount++;
+        else if (child.message.type === 'tool_use') {
+          const name = this.getToolName(child.message);
+          toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
+        }
+      }
+    }
+    const parts: string[] = [];
+    if (thoughtCount > 0) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? '' : 's'}`);
+    for (const [name, count] of toolCounts) parts.push(`${count} ${name}`);
+    if (errorCount > 0) parts.push(`${errorCount} error${errorCount === 1 ? '' : 's'}`);
+    return parts.length > 0 ? parts.join(' · ') : `${children.length} steps`;
+  }
+
+  /** "23s" / "2m 15s" elapsed across the cycle's children; empty if unknown. */
+  formatCycleDuration(item: DisplayItem): string {
+    const children = item.children;
+    if (!children || children.length < 2) return '';
+    const firstTs = this.getCycleChildTimestamp(children[0]);
+    const lastTs = this.getCycleChildTimestamp(children[children.length - 1]);
+    if (firstTs === null || lastTs === null || lastTs <= firstTs) return '';
+    const seconds = Math.round((lastTs - firstTs) / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const rem = seconds % 60;
+    return rem > 0 ? `${minutes}m ${rem}s` : `${minutes}m`;
+  }
+
+  private getCycleChildTimestamp(child: DisplayItem): number | null {
+    if (child.timestamp) return child.timestamp;
+    if (child.message) return child.message.timestamp;
+    if (child.response) return child.response.timestamp;
+    if (child.toolMessages?.[0]) return child.toolMessages[0].timestamp;
+    return null;
   }
 
   formatType(type: string): string {

@@ -5,7 +5,7 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import { getLspManager } from '../../workspace/lsp-manager';
+import { getCodemem } from '../../codemem';
 import {
   validateIpcPayload,
   LspPositionPayloadSchema,
@@ -15,14 +15,14 @@ import {
 } from '../../../shared/validation/ipc-schemas';
 
 export function registerLspHandlers(): void {
-  const lsp = getLspManager();
+  const lsp = getCodemem().gateway;
 
   // Get available LSP servers
   ipcMain.handle(
     IPC_CHANNELS.LSP_GET_AVAILABLE_SERVERS,
     async (): Promise<IpcResponse> => {
       try {
-        const servers = lsp.getAvailableServers();
+        const servers = await lsp.getAvailableServers();
         return {
           success: true,
           data: servers
@@ -45,7 +45,7 @@ export function registerLspHandlers(): void {
     IPC_CHANNELS.LSP_GET_STATUS,
     async (): Promise<IpcResponse> => {
       try {
-        const status = lsp.getStatus();
+        const status = await lsp.getStatus();
         return {
           success: true,
           data: status
@@ -193,7 +193,7 @@ export function registerLspHandlers(): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(LspWorkspaceSymbolPayloadSchema, payload, 'LSP_WORKSPACE_SYMBOLS');
-        const symbols = await lsp.workspaceSymbol(
+        const symbols = await lsp.workspaceSymbols(
           validated.query,
           validated.rootPath ?? ''
         );
@@ -250,10 +250,10 @@ export function registerLspHandlers(): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(LspFilePayloadSchema, payload, 'LSP_IS_AVAILABLE');
-        const available = lsp.isAvailableForFile(validated.filePath);
+        const result = await lsp.isAvailableForFile(validated.filePath) as { available?: boolean } | null;
         return {
           success: true,
-          data: { available }
+          data: { available: result?.available ?? false }
         };
       } catch (error) {
         return {
@@ -273,7 +273,7 @@ export function registerLspHandlers(): void {
     IPC_CHANNELS.LSP_SHUTDOWN,
     async (): Promise<IpcResponse> => {
       try {
-        await lsp.shutdown();
+        await lsp.stop();
         return { success: true };
       } catch (error) {
         return {

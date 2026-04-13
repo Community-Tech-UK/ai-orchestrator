@@ -199,20 +199,33 @@ export class InstanceStateManager extends EventEmitter {
     instanceId: string,
     status: InstanceStatus,
     contextUsage?: ContextUsage,
-    diffStats?: SessionDiffStats,
+    diffStats?: SessionDiffStats | null,
     displayName?: string,
     error?: ErrorInfo,
-    executionLocation?: ExecutionLocation
+    executionLocation?: ExecutionLocation,
+    sessionState?: {
+      providerSessionId?: string;
+      restartEpoch?: number;
+      recoveryMethod?: Instance['recoveryMethod'];
+      archivedUpToMessageId?: string;
+      historyThreadId?: string;
+    }
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
       instanceId,
       status,
       contextUsage: contextUsage ?? existing?.contextUsage,
-      diffStats: diffStats ?? existing?.diffStats,
+      diffStats: diffStats !== undefined ? diffStats : existing?.diffStats,
       displayName: displayName ?? existing?.displayName,
       error: error ?? existing?.error,
       executionLocation: executionLocation ?? existing?.executionLocation,
+      providerSessionId: sessionState?.providerSessionId ?? existing?.providerSessionId,
+      restartEpoch: sessionState?.restartEpoch ?? existing?.restartEpoch,
+      recoveryMethod: sessionState?.recoveryMethod ?? existing?.recoveryMethod,
+      archivedUpToMessageId:
+        sessionState?.archivedUpToMessageId ?? existing?.archivedUpToMessageId,
+      historyThreadId: sessionState?.historyThreadId ?? existing?.historyThreadId,
     });
   }
 

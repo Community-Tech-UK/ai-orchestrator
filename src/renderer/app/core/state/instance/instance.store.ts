@@ -249,7 +249,14 @@ export class InstanceStore implements OnDestroy {
           status: newStatus || inst.status,
           contextUsage: update.contextUsage || inst.contextUsage,
           lastActivity: Date.now(),
-          diffStats: update.diffStats ?? inst.diffStats,
+          diffStats:
+            update.diffStats !== undefined ? update.diffStats ?? undefined : inst.diffStats,
+          providerSessionId: update.providerSessionId ?? inst.providerSessionId,
+          restartEpoch: update.restartEpoch ?? inst.restartEpoch,
+          recoveryMethod: update.recoveryMethod ?? inst.recoveryMethod,
+          archivedUpToMessageId:
+            update.archivedUpToMessageId ?? inst.archivedUpToMessageId,
+          historyThreadId: update.historyThreadId ?? inst.historyThreadId,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -312,7 +319,14 @@ export class InstanceStore implements OnDestroy {
             status: (update.status as InstanceStatus) || instance.status,
             contextUsage: update.contextUsage || instance.contextUsage,
             lastActivity: Date.now(),
-            diffStats: update.diffStats ?? instance.diffStats,
+            diffStats:
+              update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
+            providerSessionId: update.providerSessionId ?? instance.providerSessionId,
+            restartEpoch: update.restartEpoch ?? instance.restartEpoch,
+            recoveryMethod: update.recoveryMethod ?? instance.recoveryMethod,
+            archivedUpToMessageId:
+              update.archivedUpToMessageId ?? instance.archivedUpToMessageId,
+            historyThreadId: update.historyThreadId ?? instance.historyThreadId,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });
@@ -429,6 +443,17 @@ export class InstanceStore implements OnDestroy {
     return this.listStore.createChildInstance(parentId);
   }
 
+  /**
+   * Synchronously add an instance to renderer state from an IPC response payload.
+   * Use when an IPC handler (e.g., forkSession) returns a new instance and callers
+   * need it present in state before the async 'instance:created' event arrives.
+   * Idempotent — the 'instance:created' listener will safely overwrite with the
+   * same data when it eventually fires.
+   */
+  addInstanceFromData(data: unknown): void {
+    this.listStore.addInstance(data);
+  }
+
   /** Send input to an instance (queues if busy) */
   async sendInput(instanceId: string, message: string, files?: File[]): Promise<void> {
     return this.messagingStore.sendInput(instanceId, message, files);
@@ -447,6 +472,11 @@ export class InstanceStore implements OnDestroy {
   /** Restart an instance */
   async restartInstance(instanceId: string): Promise<void> {
     return this.listStore.restartInstance(instanceId);
+  }
+
+  /** Restart an instance with fresh context */
+  async restartFreshInstance(instanceId: string): Promise<void> {
+    return this.listStore.restartFreshInstance(instanceId);
   }
 
   /** Rename an instance */

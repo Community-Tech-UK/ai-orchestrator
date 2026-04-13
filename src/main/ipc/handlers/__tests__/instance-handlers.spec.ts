@@ -109,6 +109,7 @@ function makeMockInstanceManager(): InstanceManager {
     sendInput: vi.fn(),
     interruptInstance: vi.fn(),
     restartInstance: vi.fn(),
+    restartFreshInstance: vi.fn(),
     renameInstance: vi.fn(),
     changeAgentMode: vi.fn(),
     toggleYoloMode: vi.fn(),
@@ -462,6 +463,29 @@ describe('instance-handlers', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('RESTART_FAILED');
       expect(result.error?.message).toBe('Cannot restart');
+    });
+  });
+
+  describe('INSTANCE_RESTART_FRESH', () => {
+    it('restarts instance with fresh context on valid payload', async () => {
+      vi.mocked(mockInstanceManager.restartFreshInstance).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_RESTART_FRESH, { instanceId: 'inst-34' });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.restartFreshInstance).toHaveBeenCalledWith('inst-34');
+    });
+
+    it('returns structured error when fresh restart fails', async () => {
+      vi.mocked(mockInstanceManager.restartFreshInstance).mockRejectedValue(
+        new Error('Cannot restart fresh')
+      );
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_RESTART_FRESH, { instanceId: 'inst-34' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('RESTART_FRESH_FAILED');
+      expect(result.error?.message).toBe('Cannot restart fresh');
     });
   });
 

@@ -9,6 +9,7 @@ export const IPC_CHANNELS = {
   INSTANCE_TERMINATE: 'instance:terminate',
   INSTANCE_TERMINATE_ALL: 'instance:terminate-all',
   INSTANCE_RESTART: 'instance:restart',
+  INSTANCE_RESTART_FRESH: 'instance:restart-fresh',
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_CHANGE_AGENT_MODE: 'instance:change-agent-mode',
   INSTANCE_TOGGLE_YOLO_MODE: 'instance:toggle-yolo-mode',

@@ -83,6 +83,13 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
+     * Restart an instance with a fresh provider session and archived transcript.
+     */
+    restartFreshInstance: (payload: { instanceId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_RESTART_FRESH, payload);
+    },
+
+    /**
      * Compact context for an instance (manual trigger)
      */
     loadOlderMessages: (payload: { instanceId: string; beforeChunk?: number; limit?: number }): Promise<IpcResponse> => {

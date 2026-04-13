@@ -17,6 +17,7 @@ import {
   InstanceRenamePayloadSchema,
   InstanceInterruptPayloadSchema,
   InstanceRestartPayloadSchema,
+  InstanceRestartFreshPayloadSchema,
   InstanceChangeAgentPayloadSchema,
   InstanceChangeModelPayloadSchema,
   InputRequiredResponsePayloadSchema,
@@ -310,6 +311,35 @@ export function registerInstanceHandlers(deps: {
           success: false,
           error: {
             code: 'RESTART_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Restart instance with fresh context
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_RESTART_FRESH,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          InstanceRestartFreshPayloadSchema,
+          payload,
+          'INSTANCE_RESTART_FRESH'
+        );
+        await instanceManager.restartFreshInstance(validated.instanceId);
+
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'RESTART_FRESH_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

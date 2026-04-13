@@ -348,12 +348,16 @@ Hey! I'm here. What do you want to tackle?`;
     expect(outputEvents.some((event) => event.type === 'assistant' && event.content === 'done')).toBe(true);
 
     expect(contextEvents).toHaveLength(1);
-    // `used` should be the per-turn occupancy (80 + 20 = 100), NOT cumulative
-    expect(contextEvents[0].used).toBe(100);
-    // Context window from registry (codex:default → 200000)
+    // Exec-mode usage from `codex exec` is aggregate across all internal
+    // sub-calls — it is NOT real context-window occupancy and must not be
+    // shown as such. Without a prior tokenUsage notification we have no
+    // accurate occupancy, so `used` stays at 0 and the event is flagged as
+    // estimated. Lifetime spend is still tracked via cumulativeTokens.
+    expect(contextEvents[0].used).toBe(0);
     expect(contextEvents[0].total).toBe(200000);
-    // Lifetime spend tracked separately
+    expect(contextEvents[0].percentage).toBe(0);
     expect(contextEvents[0].cumulativeTokens).toBe(100);
+    expect((contextEvents[0] as { isEstimated?: boolean }).isEstimated).toBe(true);
   });
 
   // ─── New tests for app-server hardening (Phase 2/3) ────────────────

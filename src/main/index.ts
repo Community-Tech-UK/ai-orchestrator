@@ -108,6 +108,7 @@ import { getWorkflowManager } from './workflows/workflow-manager';
 import { getPermissionManager } from './security/permission-manager';
 import { PermissionDecisionStore } from './security/permission-decision-store';
 import { WorkflowPersistence } from './workflows/workflow-persistence';
+import { initializeCodemem } from './codemem';
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -468,6 +469,7 @@ class AIOrchestratorApp {
 
         // --- CLI Detection ---
         { name: 'CLI detection', fn: () => { getCliDetectionService(); } },
+        { name: 'Codemem', fn: () => initializeCodemem() },
 
         // === Cross-project pattern adoptions ===
         { name: 'Cross-project patterns', fn: () => {

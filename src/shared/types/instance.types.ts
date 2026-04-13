@@ -164,6 +164,8 @@ export interface CommunicationToken {
   createdBy: string;
 }
 
+export type InstanceRecoveryMethod = 'native' | 'replay' | 'fresh' | 'failed';
+
 export interface Instance {
   // Identity
   id: string;
@@ -202,7 +204,38 @@ export interface Instance {
 
   // CLI process
   processId: number | null;
+  /**
+   * Backend session handle for the active provider conversation.
+   * Preserved on native resume, replaced on replay fallback or fresh restart.
+   */
+  providerSessionId: string;
+  /** Deprecated alias retained during the provider/history identity split. */
   sessionId: string;
+  /** Monotonic restart counter used to reject stale adapter events. */
+  restartEpoch: number;
+  /** How the active session was recovered after the last restart attempt. */
+  recoveryMethod?: InstanceRecoveryMethod;
+  /**
+   * MVP transcript boundary marker for fresh restarts.
+   * Prompt construction should ignore messages at or before this id.
+   */
+  archivedUpToMessageId?: string;
+  /**
+   * Set to true when we've observed that `--resume sessionId` cannot succeed
+   * (e.g. Claude CLI emitted "No conversation found with session ID …").
+   * The next respawn forces a fresh session + replay instead of retrying
+   * the known-bad id, breaking the "No conversation found" → auto-respawn
+   * → "No conversation found" loop.
+   */
+  sessionResumeBlacklisted?: boolean;
+  /**
+   * Timestamp of the last completed respawn (interrupt or unexpected-exit).
+   * Used to suppress the auto-respawn path when a user-triggered respawn
+   * has just finished, so a CLI that dies seconds later doesn't immediately
+   * trigger another "Session reconnected automatically" cycle on top of
+   * "Interrupted — waiting for input".
+   */
+  lastRespawnAt?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
   provider: InstanceProvider; // Which CLI provider is being used
@@ -338,7 +371,9 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     lastActivity: now,
 
     processId: null,
+    providerSessionId: sessionId,
     sessionId,
+    restartEpoch: 0,
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
     provider, // Default to auto (resolved by instance manager)

@@ -115,6 +115,10 @@ export const InstanceRestartPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
 });
 
+export const InstanceRestartFreshPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
 // ============ Context Compaction ============
 
 export const InstanceCompactPayloadSchema = z.object({
