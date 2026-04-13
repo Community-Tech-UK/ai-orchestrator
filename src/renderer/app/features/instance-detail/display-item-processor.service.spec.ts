@@ -152,6 +152,25 @@ describe('DisplayItemProcessor', () => {
     expect(items[1].groupAction).toBe('get_child_output');
   });
 
+  it('should start a new system-event-group after the time-gap ceiling', () => {
+    const start = 1_000_000;
+    const sixMinutes = 6 * 60 * 1000;
+    const msgs = [
+      makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: start }),
+      makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: start + 1_000 }),
+      makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: start + sixMinutes }),
+      makeOrchMsg('get_children', 'd', { id: 'g4', timestamp: start + sixMinutes + 1_000 }),
+    ];
+    const items = processor.process(msgs);
+
+    // First two form a group, then 6-min gap → new group of two.
+    expect(items.length).toBe(2);
+    expect(items[0].type).toBe('system-event-group');
+    expect(items[0].systemEvents?.length).toBe(2);
+    expect(items[1].type).toBe('system-event-group');
+    expect(items[1].systemEvents?.length).toBe(2);
+  });
+
   it('should create thought-group for messages with thinking', () => {
     const msg = makeMsg({
       type: 'assistant',
