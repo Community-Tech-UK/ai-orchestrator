@@ -29,6 +29,7 @@ import { PerfInstrumentationService } from '../../core/services/perf-instrumenta
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
 import { ThoughtProcessComponent } from '../../shared/components/thought-process/thought-process.component';
 import { ToolGroupComponent } from '../../shared/components/tool-group/tool-group.component';
+import { SystemEventGroupComponent } from '../../shared/components/system-event-group/system-event-group.component';
 import { DisplayItemProcessor, DisplayItem } from './display-item-processor.service';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { InstanceStore } from '../../core/state/instance/instance.store';
@@ -44,7 +45,7 @@ interface RenderedDisplayItem extends DisplayItem {
 @Component({
   selector: 'app-output-stream',
   standalone: true,
-  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent, ToolGroupComponent, ContextMenuComponent],
+  imports: [DatePipe, MessageAttachmentsComponent, ThoughtProcessComponent, ToolGroupComponent, SystemEventGroupComponent, ContextMenuComponent],
   template: `
     @if (displayItems().length === 0) {
       <div class="empty-stream">
@@ -115,6 +116,13 @@ interface RenderedDisplayItem extends DisplayItem {
             }
           } @else if (item.type === 'tool-group' && item.toolMessages) {
             <app-tool-group [toolMessages]="item.toolMessages" [instanceId]="instanceId()" [itemId]="item.id" />
+          } @else if (item.type === 'system-event-group') {
+            <app-system-event-group
+              [events]="item.systemEvents!"
+              [label]="item.groupLabel!"
+              [preview]="item.groupPreview!"
+              [instanceId]="instanceId()"
+              [itemId]="item.id" />
           } @else if (item.message) {
             @if (isCompactionBoundary(item.message)) {
               <div class="compaction-boundary">
