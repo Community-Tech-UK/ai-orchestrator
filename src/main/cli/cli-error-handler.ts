@@ -1,8 +1,27 @@
 /**
- * CLI Error Handler - Error handling and retry logic for CLI operations
+ * CLI Error Handler — CLI-specific fallback strategy layer.
+ *
+ * Error pattern classification has been consolidated into
+ * `src/main/core/error-recovery.ts` (`ErrorRecoveryManager`). This module now
+ * delegates `classifyError` and `withRetry` to that single source of truth.
+ *
+ * Kept here:
+ *  - `CliError` enum + per-error fallback config (`DEFAULT_ERROR_HANDLERS`)
+ *  - `CliErrorManager` (skip / retry / substitute / fail / compact strategy
+ *    layer used by adapters during turn execution)
+ *
+ * @deprecated Prefer `ErrorRecoveryManager` (`getErrorRecoveryManager()`) for
+ * new code. This module remains for backward compatibility with adapters that
+ * still tag emitted errors with the legacy `CliError` enum.
  */
 
 import { EventEmitter } from 'events';
+import {
+  getErrorRecoveryManager,
+  retryWithBackoff,
+  type WithRetryOptions,
+} from '../core/error-recovery';
+import { ErrorCategory } from '../../shared/types/error-recovery.types';
 
 /**
  * CLI error types
@@ -127,52 +146,69 @@ export const DEFAULT_ERROR_HANDLERS: Record<CliError, CliErrorHandler> = {
 };
 
 /**
- * Classify an error into a CliError type
+ * Map an `ErrorCategory` from the unified `ErrorRecoveryManager` to the legacy
+ * `CliError` enum used by adapters that still emit pre-consolidation tags.
+ */
+function categoryToCliError(category: ErrorCategory, message: string): CliError {
+  const lower = message.toLowerCase();
+  switch (category) {
+    case ErrorCategory.RATE_LIMITED:
+      return CliError.RATE_LIMIT;
+    case ErrorCategory.NETWORK:
+      return CliError.NETWORK_ERROR;
+    case ErrorCategory.AUTH:
+      return CliError.NOT_AUTHENTICATED;
+    case ErrorCategory.RESOURCE:
+      // Resource covers context overflow + memory; only context maps to a
+      // legacy CliError tag — memory exhaustion has no CLI-level analogue.
+      if (
+        lower.includes('context') ||
+        lower.includes('token') ||
+        lower.includes('too long') ||
+        lower.includes('prompt is too long')
+      ) {
+        return CliError.CONTEXT_OVERFLOW;
+      }
+      return CliError.UNKNOWN;
+    case ErrorCategory.PERMANENT:
+      if (lower.includes('not found') || lower.includes('not installed') || lower.includes('enoent')) {
+        return CliError.NOT_INSTALLED;
+      }
+      if (lower.includes('permission') || lower.includes('denied') || lower.includes('eacces') || lower.includes('eperm')) {
+        return CliError.PERMISSION_DENIED;
+      }
+      if (lower.includes('parse') || lower.includes('json')) {
+        return CliError.PARSE_ERROR;
+      }
+      if (lower.includes('invalid') || lower.includes('bad request')) {
+        return CliError.INVALID_INPUT;
+      }
+      return CliError.UNKNOWN;
+    case ErrorCategory.TRANSIENT:
+      if (lower.includes('timeout') || lower.includes('timed out')) {
+        return CliError.TIMEOUT;
+      }
+      if (lower.includes('crash') || lower.includes('exited') || lower.includes('killed') || lower.includes('sigkill') || lower.includes('sigterm')) {
+        return CliError.PROCESS_CRASH;
+      }
+      return CliError.UNKNOWN;
+    case ErrorCategory.UNKNOWN:
+    default:
+      return CliError.UNKNOWN;
+  }
+}
+
+/**
+ * Classify an error into a CliError type.
+ *
+ * Delegates pattern matching to `ErrorRecoveryManager` (the single source of
+ * truth) and maps the resulting category back to the legacy `CliError` enum
+ * for adapters that still emit it.
  */
 export function classifyError(error: Error | string): CliError {
-  const message = typeof error === 'string' ? error : error.message;
-  const lowerMessage = message.toLowerCase();
-
-  if (lowerMessage.includes('not found') || lowerMessage.includes('not installed')) {
-    return CliError.NOT_INSTALLED;
-  }
-  if (lowerMessage.includes('authentication') || lowerMessage.includes('unauthorized')) {
-    return CliError.NOT_AUTHENTICATED;
-  }
-  if (lowerMessage.includes('timeout') || lowerMessage.includes('timed out')) {
-    return CliError.TIMEOUT;
-  }
-  if (lowerMessage.includes('crash') || lowerMessage.includes('exited') || lowerMessage.includes('killed')) {
-    return CliError.PROCESS_CRASH;
-  }
-  if (lowerMessage.includes('parse') || lowerMessage.includes('json')) {
-    return CliError.PARSE_ERROR;
-  }
-  if (lowerMessage.includes('permission') || lowerMessage.includes('denied')) {
-    return CliError.PERMISSION_DENIED;
-  }
-  if (lowerMessage.includes('network') || lowerMessage.includes('connection')) {
-    return CliError.NETWORK_ERROR;
-  }
-  if (lowerMessage.includes('rate') || lowerMessage.includes('limit') || lowerMessage.includes('429')) {
-    return CliError.RATE_LIMIT;
-  }
-  if (lowerMessage.includes('invalid') || lowerMessage.includes('bad request')) {
-    return CliError.INVALID_INPUT;
-  }
-  if (
-    lowerMessage.includes('too long') ||
-    lowerMessage.includes('context length') ||
-    lowerMessage.includes('token limit') ||
-    lowerMessage.includes('context_length_exceeded') ||
-    lowerMessage.includes('max_tokens_exceeded') ||
-    lowerMessage.includes('maximum context') ||
-    lowerMessage.includes('prompt is too long')
-  ) {
-    return CliError.CONTEXT_OVERFLOW;
-  }
-
-  return CliError.UNKNOWN;
+  const errObj = typeof error === 'string' ? new Error(error) : error;
+  const classified = getErrorRecoveryManager().classifyError(errObj, 'cli-adapter');
+  return categoryToCliError(classified.category, classified.technicalDetails ?? errObj.message);
 }
 
 /**
@@ -216,35 +252,31 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Retry a function with exponential backoff
+ * Retry a function with exponential backoff.
+ *
+ * Delegates to `retryWithBackoff` in `ErrorRecoveryManager` so retry logic
+ * lives in one place. The legacy `RetryOptions` shape is preserved for
+ * callers that still reference it.
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options: Partial<RetryOptions> = {}
 ): Promise<T> {
-  const opts = { ...DEFAULT_RETRY_OPTIONS, ...options };
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error as Error;
-
-      // Check if we should retry
-      if (opts.retryCondition && !opts.retryCondition(lastError)) {
-        throw lastError;
-      }
-
-      // Don't retry on the last attempt
-      if (attempt < opts.maxRetries) {
-        const delay = calculateBackoffDelay(attempt, opts);
-        await sleep(delay);
-      }
-    }
-  }
-
-  throw lastError || new Error('Max retries exceeded');
+  const merged = { ...DEFAULT_RETRY_OPTIONS, ...options };
+  const recoveryOpts: WithRetryOptions = {
+    maxRetries: merged.maxRetries,
+    initialDelayMs: merged.initialDelay,
+    maxDelayMs: merged.maxDelay,
+    backoffMultiplier: merged.backoffFactor,
+    source: 'cli-error-handler',
+    // The legacy retryCondition runs against a raw Error; the unified helper
+    // passes a ClassifiedError. Adapt when a custom condition is supplied.
+    ...(merged.retryCondition && {
+      retryCondition: (classified) =>
+        merged.retryCondition!(classified.original),
+    }),
+  };
+  return retryWithBackoff(fn, recoveryOpts);
 }
 
 /**

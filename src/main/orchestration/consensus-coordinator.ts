@@ -228,6 +228,8 @@ export class ConsensusCoordinator extends EventEmitter {
         workingDirectory,
         systemPrompt: 'You are answering a consensus query. Respond directly and concisely. Do not use orchestrator commands.',
         model: spec.model,
+        // Codex desktop surfaces persisted threads; consensus fan-out should stay hidden.
+        ephemeral: cliType === 'codex',
         yoloMode: true, // No permission prompts for read-only consensus queries
       };
 

@@ -154,7 +154,9 @@ export class InstanceManager extends EventEmitter {
       getAdapter: (id) => this.state.getAdapter(id),
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
       deleteAdapter: (id) => this.state.deleteAdapter(id),
-      queueUpdate: (id, status, ctx, diffStats, error) => this.state.queueUpdate(id, status, ctx, diffStats, undefined, error),
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState) => (
+        this.state.queueUpdate(id, status, ctx, diffStats, displayName, error, executionLocation, sessionState)
+      ),
       getDiffTracker: (id) => this.state.getDiffTracker(id),
       processOrchestrationOutput: (id, content) => this.orchestrationMgr.processOrchestrationOutput(id, content),
       onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),
@@ -228,7 +230,9 @@ export class InstanceManager extends EventEmitter {
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       forEachInstance: (cb) => this.state.forEachInstance(cb),
-      queueUpdate: (id, status, ctx, diffStats, displayName, executionLocation) => this.state.queueUpdate(id, status, ctx, diffStats, displayName, undefined, executionLocation),
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState) => (
+        this.state.queueUpdate(id, status, ctx, diffStats, displayName, error, executionLocation, sessionState)
+      ),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),
       setupAdapterEvents: (id, adapter) => this.communication.setupAdapterEvents(id, adapter),
       initializeRlm: (inst) => this.context.initializeRlm(inst),
@@ -241,6 +245,7 @@ export class InstanceManager extends EventEmitter {
       addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
       clearFirstMessageTracking: (id) => this.hasReceivedFirstMessage.delete(id),
       markFirstMessageReceived: (id) => this.hasReceivedFirstMessage.add(id),
+      clearPendingState: (id) => this.clearPendingInteractiveState(id),
       warmStartManager: this.warmStart,
       startStuckTracking: (id) => this.stuckDetector.startTracking(id),
       stopStuckTracking: (id) => this.stuckDetector.stopTracking(id),
@@ -649,6 +654,15 @@ export class InstanceManager extends EventEmitter {
     this.pendingPermissionRequestsByInputId.delete(`${instanceId}:${requestId}`);
   }
 
+  private clearPendingInteractiveState(instanceId: string): void {
+    const keyPrefix = `${instanceId}:`;
+    for (const key of this.pendingPermissionRequestsByInputId.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        this.pendingPermissionRequestsByInputId.delete(key);
+      }
+    }
+  }
+
   // ============================================
   // Public API - Instance Access
   // ============================================
@@ -702,6 +716,10 @@ export class InstanceManager extends EventEmitter {
 
   async restartInstance(instanceId: string): Promise<void> {
     return this.lifecycle.restartInstance(instanceId);
+  }
+
+  async restartFreshInstance(instanceId: string): Promise<void> {
+    return this.lifecycle.restartFreshInstance(instanceId);
   }
 
   async terminateAll(): Promise<void> {
@@ -772,7 +790,12 @@ export class InstanceManager extends EventEmitter {
   // Public API - Communication
   // ============================================
 
-  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], options?: { isRetry?: boolean }): Promise<void> {
+  async sendInput(
+    instanceId: string,
+    message: string,
+    attachments?: FileAttachment[],
+    options?: { isRetry?: boolean; autoContinuation?: boolean },
+  ): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -964,7 +987,9 @@ export class InstanceManager extends EventEmitter {
       this.emit('instance:output', { instanceId, message: userMessage });
     }
 
-    await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock);
+    await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
+      autoContinuation: options?.autoContinuation === true,
+    });
   }
 
   private async spawnCommandSubtask(
@@ -1008,6 +1033,15 @@ export class InstanceManager extends EventEmitter {
       parent.provider ||
       'auto';
 
+    // Tag seeded messages so handleChildExit can distinguish them from the
+    // child's own output when auto-capturing a result. Without this tag, the
+    // child's "last assistant" message could be one of the parent's messages
+    // we copied in for context — producing an echo-back result.
+    const seededOutputBuffer = parent.outputBuffer.slice(-50).map((msg) => ({
+      ...msg,
+      metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
+    }));
+
     await this.createInstance({
       workingDirectory: parent.workingDirectory,
       displayName: spawnCommand.name || `Child of ${parent.displayName}`,
@@ -1017,7 +1051,7 @@ export class InstanceManager extends EventEmitter {
       agentId: childAgentId,
       modelOverride: routingDecision.model,
       provider: resolvedProvider,
-      initialOutputBuffer: parent.outputBuffer.slice(-50),
+      initialOutputBuffer: seededOutputBuffer,
     });
   }
 
@@ -1159,13 +1193,18 @@ export class InstanceManager extends EventEmitter {
       'auto';
 
     // Pass relevant parent output to child for RLM indexing (limited for short-lived children)
-    // Strip orchestration markers to prevent children from seeing parent commands
+    // Strip orchestration markers to prevent children from seeing parent commands.
+    // Tag seeded messages so handleChildExit can distinguish them from the child's
+    // own output when auto-capturing a result (otherwise a child that produces no
+    // output would have its "last assistant" message resolve to one of the parent's
+    // messages we copied in — producing an echo-back result).
     const initialOutputForChild = parent.outputBuffer
       .slice(-20)
       .filter((msg) => msg.type === 'assistant' || msg.type === 'user' || msg.type === 'tool_result')
       .map((msg) => ({
         ...msg,
-        content: stripOrchestrationMarkers(msg.content)
+        content: stripOrchestrationMarkers(msg.content),
+        metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
       }))
       .filter((msg) => msg.content.length > 0);
 
@@ -1217,16 +1256,21 @@ export class InstanceManager extends EventEmitter {
     const taskManager = getTaskManager();
     const storage = getChildResultStorage();
 
-    // 1. Auto-capture result from output buffer if child didn't report one itself
-    if (!storage.hasResult(childId) && child.outputBuffer.length > 0) {
+    // 1. Auto-capture result from output buffer if child didn't report one itself.
+    // ALWAYS persist a summary (even if buffer is empty) so synthesis never sees
+    // "No summary available" for a child that simply produced no output.
+    // Filter out messages tagged seededFromParent — those are parent messages we
+    // copied in for context, not the child's own output. Without this filter,
+    // a child that produced no output would echo back one of the parent's messages.
+    if (!storage.hasResult(childId)) {
       const task = taskManager.getTaskByChildId(childId);
       const lastAssistant = [...child.outputBuffer]
         .reverse()
-        .find(m => m.type === 'assistant');
+        .find((m) => m.type === 'assistant' && !m.metadata?.['seededFromParent']);
       const summary = lastAssistant
         ? lastAssistant.content.substring(0, 500)
-        : 'Child exited without reporting a result.';
-      const success = exitCode === 0;
+        : 'Child exited without producing any output.';
+      const success = exitCode === 0 && lastAssistant !== undefined;
 
       try {
         await storage.storeFromOutputBuffer(
@@ -1364,17 +1408,14 @@ export class InstanceManager extends EventEmitter {
   }
 }
 
-// Singleton accessor — lazily created on first call.
-// The main process wires up the actual instance via setInstanceManager().
-let _instanceManagerSingleton: InstanceManager | undefined;
-
-export function setInstanceManager(im: InstanceManager): void {
-  _instanceManagerSingleton = im;
-}
-
-export function getInstanceManager(): InstanceManager {
-  if (!_instanceManagerSingleton) {
-    _instanceManagerSingleton = new InstanceManager();
-  }
-  return _instanceManagerSingleton;
-}
+// InstanceManager is owned by the main process entry point (src/main/index.ts)
+// and passed to downstream modules via dependency injection:
+//   - SessionContinuityManager.setInstanceManager()
+//   - CrossModelReviewService.setInstanceManager()
+//   - ChannelMessageRouter.setInstanceManager()
+//   - ResourceGovernor.start({ getInstanceManager })
+//   - handleNodeFailover(nodeId, instanceManager)
+//   - handleLateNodeReconnect(nodeId, instanceManager)
+// There is intentionally no module-level accessor — a global singleton
+// accessor was a footgun that could construct a second InstanceManager if
+// startup ordering drifted.

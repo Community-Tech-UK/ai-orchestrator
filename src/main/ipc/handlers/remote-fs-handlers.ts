@@ -1,4 +1,5 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getFilesystemService } from '../../services/filesystem-service';
@@ -14,6 +15,57 @@ import {
 } from '../../../shared/validation/remote-fs-schemas';
 
 const logger = getLogger('RemoteFsHandlers');
+
+const NodeIdSchema = z.string().min(1).max(200);
+const RemotePathSchema = z.string().min(1).max(4096);
+const JobIdSchema = z.string().min(1).max(200);
+
+const RemoteFsCopyToRemotePayloadSchema = z.object({
+  nodeId: NodeIdSchema,
+  localPath: RemotePathSchema,
+  remotePath: RemotePathSchema,
+});
+
+const RemoteFsCopyFromRemotePayloadSchema = z.object({
+  nodeId: NodeIdSchema,
+  remotePath: RemotePathSchema,
+  localPath: RemotePathSchema,
+});
+
+const RemoteFsReadFilePayloadSchema = z.object({
+  nodeId: NodeIdSchema,
+  path: RemotePathSchema,
+});
+
+const RemoteFsWriteFilePayloadSchema = z.object({
+  nodeId: NodeIdSchema,
+  path: RemotePathSchema,
+  data: z.string().max(50_000_000),
+  mkdirp: z.boolean().optional(),
+});
+
+const RemoteFsSyncStartPayloadSchema = z.object({
+  sourceNodeId: NodeIdSchema,
+  sourcePath: RemotePathSchema,
+  targetNodeId: NodeIdSchema,
+  targetPath: RemotePathSchema,
+  deleteExtraneous: z.boolean().optional(),
+  exclude: z.array(z.string().max(1024)).max(1000).optional(),
+  dryRun: z.boolean().optional(),
+  blockSize: z.number().int().min(1).max(64 * 1024 * 1024).optional(),
+});
+
+const RemoteFsSyncJobPayloadSchema = z.object({
+  jobId: JobIdSchema,
+});
+
+const RemoteFsSyncDiffPayloadSchema = z.object({
+  sourceNodeId: NodeIdSchema,
+  sourcePath: RemotePathSchema,
+  targetNodeId: NodeIdSchema,
+  targetPath: RemotePathSchema,
+  exclude: z.array(z.string().max(1024)).max(1000).optional(),
+});
 
 export function registerRemoteFsHandlers(): void {
   ipcMain.handle(
@@ -165,16 +217,10 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_COPY_TO_REMOTE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { nodeId: string; localPath: string; remotePath: string }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const result = await getFileTransferService().copyToRemote({
-          nodeId: payload.nodeId,
-          localPath: payload.localPath,
-          remotePath: payload.remotePath
-        });
+        const validated = RemoteFsCopyToRemotePayloadSchema.parse(payload);
+        const result = await getFileTransferService().copyToRemote(validated);
         return { success: true, data: result };
       } catch (error) {
         logger.error('REMOTE_FS_COPY_TO_REMOTE failed', error as Error);
@@ -192,16 +238,10 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_COPY_FROM_REMOTE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { nodeId: string; remotePath: string; localPath: string }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const result = await getFileTransferService().copyFromRemote({
-          nodeId: payload.nodeId,
-          remotePath: payload.remotePath,
-          localPath: payload.localPath
-        });
+        const validated = RemoteFsCopyFromRemotePayloadSchema.parse(payload);
+        const result = await getFileTransferService().copyFromRemote(validated);
         return { success: true, data: result };
       } catch (error) {
         logger.error('REMOTE_FS_COPY_FROM_REMOTE failed', error as Error);
@@ -219,14 +259,12 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_READ_FILE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { nodeId: string; path: string }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
+        const validated = RemoteFsReadFilePayloadSchema.parse(payload);
         const result = await getFilesystemService().readFile(
-          payload.nodeId,
-          payload.path
+          validated.nodeId,
+          validated.path
         );
         return { success: true, data: result };
       } catch (error) {
@@ -245,17 +283,14 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_WRITE_FILE,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { nodeId: string; path: string; data: string; mkdirp?: boolean }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const { nodeId, ...params } = payload;
+        const validated = RemoteFsWriteFilePayloadSchema.parse(payload);
         const result = await getFilesystemService().writeFile(
-          nodeId,
-          params.path,
-          params.data,
-          params.mkdirp
+          validated.nodeId,
+          validated.path,
+          validated.data,
+          validated.mkdirp
         );
         return { success: true, data: result };
       } catch (error) {
@@ -276,21 +311,10 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_SYNC_START,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: {
-        sourceNodeId: string;
-        sourcePath: string;
-        targetNodeId: string;
-        targetPath: string;
-        deleteExtraneous?: boolean;
-        exclude?: string[];
-        dryRun?: boolean;
-        blockSize?: number;
-      }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const jobId = await getDirectorySyncService().startSync(payload);
+        const validated = RemoteFsSyncStartPayloadSchema.parse(payload);
+        const jobId = await getDirectorySyncService().startSync(validated);
         return { success: true, data: { jobId } };
       } catch (error) {
         logger.error('REMOTE_FS_SYNC_START failed', error as Error);
@@ -308,18 +332,16 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_SYNC_PROGRESS,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { jobId: string }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const progress = getDirectorySyncService().getProgress(payload.jobId);
+        const validated = RemoteFsSyncJobPayloadSchema.parse(payload);
+        const progress = getDirectorySyncService().getProgress(validated.jobId);
         if (!progress) {
           return {
             success: false,
             error: {
               code: 'SYNC_JOB_NOT_FOUND',
-              message: `No sync job found: ${payload.jobId}`,
+              message: `No sync job found: ${validated.jobId}`,
               timestamp: Date.now()
             }
           };
@@ -341,12 +363,10 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_SYNC_CANCEL,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: { jobId: string }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const cancelled = getDirectorySyncService().cancelSync(payload.jobId);
+        const validated = RemoteFsSyncJobPayloadSchema.parse(payload);
+        const cancelled = getDirectorySyncService().cancelSync(validated.jobId);
         return { success: true, data: { cancelled } };
       } catch (error) {
         logger.error('REMOTE_FS_SYNC_CANCEL failed', error as Error);
@@ -364,18 +384,10 @@ export function registerRemoteFsHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_FS_SYNC_DIFF,
-    async (
-      _event: IpcMainInvokeEvent,
-      payload: {
-        sourceNodeId: string;
-        sourcePath: string;
-        targetNodeId: string;
-        targetPath: string;
-        exclude?: string[];
-      }
-    ): Promise<IpcResponse> => {
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
-        const diff = await getDirectorySyncService().diffOnly(payload);
+        const validated = RemoteFsSyncDiffPayloadSchema.parse(payload);
+        const diff = await getDirectorySyncService().diffOnly(validated);
         return { success: true, data: diff };
       } catch (error) {
         logger.error('REMOTE_FS_SYNC_DIFF failed', error as Error);

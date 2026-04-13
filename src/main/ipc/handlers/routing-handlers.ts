@@ -4,12 +4,25 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getModelRouter } from '../../routing/model-router';
 import { getHotModelSwitcher } from '../../routing/hot-model-switcher';
 
 const logger = getLogger('RoutingHandlers');
+
+// Routing config and hot-switcher config are open-ended; validate the payload
+// is a plain object and let the underlying service handle field-level checks.
+const ConfigUpdatePayloadSchema = z.record(z.string(), z.unknown());
+
+const RoutingPreviewPayloadSchema = z.object({
+  task: z.string().min(1).max(50_000),
+});
+
+const RoutingGetTierPayloadSchema = z.object({
+  modelId: z.string().min(1).max(200),
+});
 
 export function registerRoutingHandlers(): void {
 
@@ -49,8 +62,10 @@ export function registerRoutingHandlers(): void {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const config = payload as Parameters<ReturnType<typeof getModelRouter>['updateConfig']>[0];
-        getModelRouter().updateConfig(config);
+        const config = ConfigUpdatePayloadSchema.parse(payload);
+        getModelRouter().updateConfig(
+          config as Parameters<ReturnType<typeof getModelRouter>['updateConfig']>[0]
+        );
         return {
           success: true,
           data: getModelRouter().getConfig()
@@ -77,19 +92,7 @@ export function registerRoutingHandlers(): void {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const { task } = payload as { task: string };
-
-        if (!task || typeof task !== 'string') {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'payload.task must be a non-empty string',
-              timestamp: Date.now()
-            }
-          };
-        }
-
+        const { task } = RoutingPreviewPayloadSchema.parse(payload);
         const router = getModelRouter();
         const decision = router.route(task);
         const explanation = router.getRoutingExplanation(task, decision);
@@ -120,19 +123,7 @@ export function registerRoutingHandlers(): void {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const { modelId } = payload as { modelId: string };
-
-        if (!modelId || typeof modelId !== 'string') {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'payload.modelId must be a non-empty string',
-              timestamp: Date.now()
-            }
-          };
-        }
-
+        const { modelId } = RoutingGetTierPayloadSchema.parse(payload);
         const tier = getModelRouter().getModelTier(modelId);
         return {
           success: true,
@@ -188,8 +179,10 @@ export function registerRoutingHandlers(): void {
       payload: unknown
     ): Promise<IpcResponse> => {
       try {
-        const config = payload as Parameters<ReturnType<typeof getHotModelSwitcher>['configure']>[0];
-        getHotModelSwitcher().configure(config);
+        const config = ConfigUpdatePayloadSchema.parse(payload);
+        getHotModelSwitcher().configure(
+          config as Parameters<ReturnType<typeof getHotModelSwitcher>['configure']>[0]
+        );
         return {
           success: true,
           data: getHotModelSwitcher().getConfig()

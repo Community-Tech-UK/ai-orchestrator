@@ -235,13 +235,35 @@ export class CompactionCoordinator extends EventEmitter {
     return this.executeCompaction(instanceId, true);
   }
 
-  getBudgetTracker(instanceId: string, totalBudget = 200000): TokenBudgetTracker {
+  /**
+   * Get (or lazily create) the per-instance budget tracker.
+   *
+   * The static `totalBudget` set at construction is only a fallback — callers
+   * should pass the instance's live `contextUsage.total` into `checkBudget()`
+   * so the gate aligns with what the CLI actually reports (200k / 1M / 2M).
+   * The 1M fallback avoids premature "budget full" false positives on
+   * Claude Opus/Sonnet 4.6 (native 1M) before the first context event lands.
+   */
+  getBudgetTracker(instanceId: string, totalBudget = 1_000_000): TokenBudgetTracker {
     let tracker = this.budgetTrackers.get(instanceId);
     if (!tracker) {
       tracker = new TokenBudgetTracker({ totalBudget });
       this.budgetTrackers.set(instanceId, tracker);
     }
     return tracker;
+  }
+
+  /**
+   * Reset just the budget tracker for an instance (clears continuationCount
+   * and deltas) without tearing down compaction/warning/epoch state. Used on
+   * user-initiated restart so stale continuation history doesn't keep the
+   * diminishing-returns branch tripping after a fresh start.
+   */
+  resetBudgetTracker(instanceId: string): void {
+    const tracker = this.budgetTrackers.get(instanceId);
+    if (tracker) {
+      tracker.reset();
+    }
   }
 
   getEpochTracker(instanceId: string): CompactionEpochTracker {

@@ -26,7 +26,7 @@ const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degr
  * non-terminal source state at runtime.
  */
 const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>> = {
-  initializing:       ['ready', 'error'],
+  initializing:       ['ready', 'idle', 'error'],
   ready:              ['busy', 'idle', 'hibernating'],
   idle:               ['ready', 'hibernating', 'waiting_for_input'],
   busy:               ['idle', 'ready', 'waiting_for_input', 'waiting_for_permission', 'error', 'processing', 'thinking_deeply'],

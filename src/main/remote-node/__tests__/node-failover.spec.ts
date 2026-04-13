@@ -111,7 +111,7 @@ describe('handleNodeFailover', () => {
   it('does nothing when the node has no instances', () => {
     registry.registerNode(makeNode('node-1'));
 
-    handleNodeFailover('node-1');
+    handleNodeFailover('node-1', mockInstanceManager as never);
 
     expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalled();
     expect(mockInstanceManager.emit).not.toHaveBeenCalled();
@@ -128,7 +128,7 @@ describe('handleNodeFailover', () => {
       { id: 'inst-b', status: 'busy', nodeId: 'node-2' },
     );
 
-    handleNodeFailover('node-2');
+    handleNodeFailover('node-2', mockInstanceManager as never);
 
     expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledTimes(2);
     expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
@@ -155,7 +155,7 @@ describe('handleNodeFailover', () => {
       { id: 'inst-d', status: 'busy', nodeId: 'node-3' },
     );
 
-    handleNodeFailover('node-3');
+    handleNodeFailover('node-3', mockInstanceManager as never);
 
     // Clear the degraded calls so we can check failed calls separately
     mockInstanceManager.updateInstanceStatus.mockClear();
@@ -199,7 +199,7 @@ describe('handleNodeFailover', () => {
       { id: 'inst-f', status: 'busy', nodeId: 'node-4' },
     );
 
-    handleNodeFailover('node-4');
+    handleNodeFailover('node-4', mockInstanceManager as never);
 
     // Clear immediate degraded calls
     mockInstanceManager.updateInstanceStatus.mockClear();

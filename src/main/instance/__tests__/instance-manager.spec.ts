@@ -263,6 +263,9 @@ vi.mock('../../../shared/utils/permission-mapper', () => ({
 vi.mock('../../orchestration/orchestration-protocol', () => ({
   generateChildPrompt: vi.fn().mockReturnValue('child prompt'),
   generateOrchestrationPrompt: vi.fn().mockReturnValue('[ORCHESTRATION SYSTEM PROMPT]'),
+  formatCommandResponse: vi.fn((action: string, success: boolean, data: unknown) =>
+    `[Orchestrator Response]\nAction: ${action}\nStatus: ${success ? 'SUCCESS' : 'FAILED'}\n${JSON.stringify(data)}\n[/Orchestrator Response]`
+  ),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1056,6 +1059,159 @@ describe('InstanceManager', () => {
 
       expect(updated.currentModel).toBe('sonnet[1m]');
       expect(updated.contextUsage.total).toBe(1000000);
+    });
+  });
+
+  // =========================================================================
+  // handleChildExit auto-capture (Bug fix: echo-back from seeded parent context)
+  // =========================================================================
+
+  describe('handleChildExit auto-capture', () => {
+    /**
+     * Regression test for the "echo-back" bug:
+     *
+     * When a child instance is spawned, its outputBuffer is pre-seeded with a
+     * slice of the parent's recent messages so the child has context. If the
+     * child terminates without producing any output, the auto-capture logic in
+     * handleChildExit would previously pick up the LAST assistant message from
+     * the buffer — which would be one of the PARENT's messages we copied in —
+     * and store it as the child's "result". That manifested in the UI as the
+     * child appearing to succeed while echoing back the parent's prior text.
+     *
+     * Fix: seeded messages are tagged `metadata.seededFromParent = true`, and
+     * the auto-capture code skips them when finding the child's last assistant
+     * message.
+     */
+    it('skips seeded parent messages and stores a "no output" summary instead of echoing them back', async () => {
+      const parent = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Parent (echo-back regression)',
+      });
+
+      const child = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Child (echo-back regression)',
+        parentId: parent.id,
+      });
+
+      // Replace child's outputBuffer with seeded parent messages ONLY — i.e.
+      // the child never produced any of its own output before exiting.
+      const seededParentText = 'PARENT_PRIOR_TEXT_THAT_MUST_NOT_ECHO_BACK';
+      child.outputBuffer.length = 0;
+      child.outputBuffer.push({
+        id: 'seeded-1',
+        timestamp: Date.now() - 1000,
+        type: 'assistant',
+        content: seededParentText,
+        metadata: { seededFromParent: true },
+      });
+
+      mockChildResultStorage.hasResult.mockReturnValueOnce(false);
+      mockChildResultStorage.storeFromOutputBuffer.mockClear();
+
+      // Invoke the private handler directly. Cast to access private method.
+      await (manager as unknown as {
+        handleChildExit: (id: string, c: typeof child, code: number | null) => Promise<void>;
+      }).handleChildExit(child.id, child, 0);
+
+      expect(mockChildResultStorage.storeFromOutputBuffer).toHaveBeenCalledTimes(1);
+
+      const callArgs = mockChildResultStorage.storeFromOutputBuffer.mock.calls[0];
+      // storeFromOutputBuffer signature:
+      //   (childId, parentId, taskDescription, summary, success, outputBuffer, createdAt)
+      const [storedChildId, storedParentId, , storedSummary, storedSuccess] = callArgs;
+
+      expect(storedChildId).toBe(child.id);
+      expect(storedParentId).toBe(parent.id);
+
+      // The summary MUST NOT be the seeded parent text (no echo-back).
+      expect(storedSummary).not.toContain(seededParentText);
+
+      // The summary should describe that the child produced no output.
+      expect(storedSummary).toBe('Child exited without producing any output.');
+
+      // success must be false because the child produced no output of its own,
+      // even though exitCode === 0 (terminate(graceful) emits exit 0).
+      expect(storedSuccess).toBe(false);
+    });
+
+    it('captures the child\'s own last assistant message when one exists', async () => {
+      const parent = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Parent (real result)',
+      });
+
+      const child = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Child (real result)',
+        parentId: parent.id,
+      });
+
+      const childOwnResult = 'CHILD_ACTUAL_REPORTED_RESULT';
+      child.outputBuffer.length = 0;
+      child.outputBuffer.push(
+        {
+          id: 'seeded-1',
+          timestamp: Date.now() - 2000,
+          type: 'assistant',
+          content: 'PARENT_PRIOR_TEXT_FROM_SEED',
+          metadata: { seededFromParent: true },
+        },
+        {
+          id: 'child-own-1',
+          timestamp: Date.now(),
+          type: 'assistant',
+          content: childOwnResult,
+        },
+      );
+
+      mockChildResultStorage.hasResult.mockReturnValueOnce(false);
+      mockChildResultStorage.storeFromOutputBuffer.mockClear();
+
+      await (manager as unknown as {
+        handleChildExit: (id: string, c: typeof child, code: number | null) => Promise<void>;
+      }).handleChildExit(child.id, child, 0);
+
+      expect(mockChildResultStorage.storeFromOutputBuffer).toHaveBeenCalledTimes(1);
+
+      const callArgs = mockChildResultStorage.storeFromOutputBuffer.mock.calls[0];
+      const [, , , storedSummary, storedSuccess] = callArgs;
+
+      expect(storedSummary).toBe(childOwnResult);
+      expect(storedSuccess).toBe(true);
+    });
+
+    it('still persists a summary when the child exits with an empty buffer (no "No summary available" later)', async () => {
+      const parent = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Parent (empty buffer)',
+      });
+
+      const child = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Child (empty buffer)',
+        parentId: parent.id,
+      });
+
+      // Force the child's buffer to be empty (simulates the case where remote
+      // node failed to propagate any output messages to the orchestrator).
+      child.outputBuffer.length = 0;
+
+      mockChildResultStorage.hasResult.mockReturnValueOnce(false);
+      mockChildResultStorage.storeFromOutputBuffer.mockClear();
+
+      await (manager as unknown as {
+        handleChildExit: (id: string, c: typeof child, code: number | null) => Promise<void>;
+      }).handleChildExit(child.id, child, 0);
+
+      // Previously gated by `child.outputBuffer.length > 0` — now always called.
+      expect(mockChildResultStorage.storeFromOutputBuffer).toHaveBeenCalledTimes(1);
+
+      const callArgs = mockChildResultStorage.storeFromOutputBuffer.mock.calls[0];
+      const [, , , storedSummary, storedSuccess] = callArgs;
+
+      expect(storedSummary).toBe('Child exited without producing any output.');
+      expect(storedSuccess).toBe(false);
     });
   });
 });

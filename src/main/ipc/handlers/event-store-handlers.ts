@@ -6,9 +6,14 @@
  */
 
 import { ipcMain } from 'electron';
+import { z } from 'zod';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('EventStoreHandlers');
+
+const AggregateIdSchema = z.string().min(1).max(200);
+const EventTypeSchema = z.string().min(1).max(200);
+const LimitSchema = z.number().int().min(1).max(10_000).optional();
 
 export interface EventStoreHandlerDeps {
   getByAggregateId: (aggregateId: string) => unknown[];
@@ -17,16 +22,20 @@ export interface EventStoreHandlerDeps {
 }
 
 export function registerEventStoreHandlers(deps: EventStoreHandlerDeps): void {
-  ipcMain.handle('events:by-aggregate', (_event, aggregateId: string) => {
-    return deps.getByAggregateId(aggregateId);
+  ipcMain.handle('events:by-aggregate', (_event, aggregateId: unknown) => {
+    const id = AggregateIdSchema.parse(aggregateId);
+    return deps.getByAggregateId(id);
   });
 
-  ipcMain.handle('events:by-type', (_event, type: string, limit?: number) => {
-    return deps.getByType(type, limit);
+  ipcMain.handle('events:by-type', (_event, type: unknown, limit?: unknown) => {
+    const validatedType = EventTypeSchema.parse(type);
+    const validatedLimit = LimitSchema.parse(limit);
+    return deps.getByType(validatedType, validatedLimit);
   });
 
-  ipcMain.handle('events:recent', (_event, limit?: number) => {
-    return deps.getRecentEvents(limit);
+  ipcMain.handle('events:recent', (_event, limit?: unknown) => {
+    const validatedLimit = LimitSchema.parse(limit);
+    return deps.getRecentEvents(validatedLimit);
   });
 
   logger.info('Event store IPC handlers registered');

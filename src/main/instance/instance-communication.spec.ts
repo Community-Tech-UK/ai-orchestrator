@@ -33,6 +33,7 @@ vi.mock('../core/error-recovery', () => ({
 }));
 
 import { InstanceCommunicationManager } from './instance-communication';
+import { TokenBudgetTracker } from '../context/token-budget-tracker';
 
 class FakeAdapter extends EventEmitter {
   sendInput = vi.fn().mockResolvedValue(undefined);
@@ -455,5 +456,83 @@ describe('conversation-aware rewind points', () => {
 
     // No soft checkpoint should have been created
     expect(snapshotSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('budget gate', () => {
+  let instance: Instance;
+  let adapters: Map<string, CliAdapter>;
+  let queueUpdate: ReturnType<typeof vi.fn>;
+  let comm: InstanceCommunicationManager;
+  let adapter: FakeAdapter;
+
+  function build(overrides: { used: number; total: number }): void {
+    instance = createInstance();
+    instance.contextUsage = { used: overrides.used, total: overrides.total, percentage: 0 };
+    adapters = new Map();
+    queueUpdate = vi.fn();
+    adapter = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+
+    // Real TokenBudgetTracker with matching default budget
+    const tracker = new TokenBudgetTracker({ totalBudget: overrides.total });
+
+    comm = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => { adapters.set(id, a); },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      getBudgetTracker: () => tracker,
+      getContextUsage: () => instance.contextUsage,
+    });
+  }
+
+  it('silently sends user-typed input when context is 90%+ full (no visible message)', async () => {
+    build({ used: 180_000, total: 200_000 });
+
+    await comm.sendInput(instance.id, 'user says this after getting stuck');
+
+    // No user-visible budget-gate system message
+    const budgetMessages = instance.outputBuffer.filter(
+      m => m.type === 'system' && /budget|90%|Sending anyway|budget limit/i.test(m.content)
+    );
+    expect(budgetMessages.length).toBe(0);
+
+    // Adapter was still called (message delivered)
+    expect(adapter.sendInput).toHaveBeenCalledTimes(1);
+  });
+
+  it('hard-blocks auto-continuations silently when context is 90%+ full', async () => {
+    build({ used: 180_000, total: 200_000 });
+
+    await comm.sendInput(instance.id, '[auto] continue', undefined, undefined, { autoContinuation: true });
+
+    // No user-visible budget-gate system message — hard-block is silent now
+    const budgetMessages = instance.outputBuffer.filter(
+      m => m.type === 'system' && /budget limit reached/i.test(m.content)
+    );
+    expect(budgetMessages.length).toBe(0);
+
+    // Adapter was NOT called
+    expect(adapter.sendInput).not.toHaveBeenCalled();
+
+    // UI was unstuck via queueUpdate('idle', ...)
+    const idleCall = queueUpdate.mock.calls.find(call => call[1] === 'idle');
+    expect(idleCall).toBeDefined();
+  });
+
+  it('passes through normally when context is well under 90%', async () => {
+    build({ used: 50_000, total: 200_000 });
+
+    await comm.sendInput(instance.id, 'hello');
+
+    const systemMessages = instance.outputBuffer.filter(m => m.type === 'system');
+    expect(systemMessages).toHaveLength(0);
+    expect(adapter.sendInput).toHaveBeenCalledTimes(1);
   });
 });

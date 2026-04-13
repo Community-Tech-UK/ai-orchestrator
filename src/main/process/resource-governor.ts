@@ -50,7 +50,7 @@ interface MemoryMonitorLike {
 interface InstanceManagerLike {
   on(event: string, listener: (...args: unknown[]) => void): void;
   getInstanceCount(): number;
-  getIdleInstances(thresholdMs: number): Array<{ id: string; lastActivity: number }>;
+  getIdleInstances(thresholdMs: number): { id: string; lastActivity: number }[];
   terminateInstance(id: string, graceful?: boolean): Promise<void>;
 }
 
@@ -67,9 +67,14 @@ export interface GovernorDependencies {
 const defaultDeps: GovernorDependencies = {
   getMemoryMonitor,
   getInstanceManager: () => {
-    // Lazy import to avoid circular deps at module load time
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('../instance/instance-manager').getInstanceManager();
+    // Production path always overrides this via start({ getInstanceManager })
+    // (see src/main/index.ts). Throwing here ensures any new caller that
+    // forgets to inject InstanceManager fails loudly instead of silently
+    // touching a global singleton.
+    throw new Error(
+      'ResourceGovernor.start() requires { getInstanceManager } to be injected. ' +
+      'See src/main/index.ts for the canonical wiring.'
+    );
   },
   getLogger,
 };

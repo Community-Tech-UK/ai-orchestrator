@@ -257,10 +257,10 @@ export class ErrorRecoveryManager extends EventEmitter {
   private static instance: ErrorRecoveryManager | null = null;
 
   private config: ErrorRecoveryConfig;
-  private consecutiveFailures: number = 0;
-  private lastFailureTime: number = 0;
-  private activePlans: Map<string, RecoveryPlan> = new Map();
-  private checkpoints: Map<string, SessionCheckpoint[]> = new Map();
+  private consecutiveFailures = 0;
+  private lastFailureTime = 0;
+  private activePlans = new Map<string, RecoveryPlan>();
+  private checkpoints = new Map<string, SessionCheckpoint[]>();
   private errorHistory: ClassifiedError[] = [];
   private readonly maxErrorHistory = 100;
 
@@ -794,5 +794,7 @@ export async function retryWithBackoff<T>(
 
   throw lastError ?? new Error('Max retries exceeded');
 }
+
+export const withRetry = retryWithBackoff;
 
 export default ErrorRecoveryManager;

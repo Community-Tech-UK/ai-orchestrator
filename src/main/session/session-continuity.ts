@@ -263,6 +263,12 @@ const DEFAULT_CONFIG: ContinuityConfig = {
 /**
  * Session Continuity Manager
  */
+// Minimal slice of InstanceManager that captureResumeCursor needs. Avoids a
+// hard import of InstanceManager (circular at module-load time).
+interface InstanceManagerForContinuity {
+  getAdapter(instanceId: string): unknown;
+}
+
 export class SessionContinuityManager extends EventEmitter {
   private continuityDir: string;
   private stateDir: string;
@@ -277,6 +283,7 @@ export class SessionContinuityManager extends EventEmitter {
   private autoSaveDeferredUntil = 0;
   private snapshotIndex: SnapshotIndex;
   private terminationGates: SessionTerminationGate[] = [];
+  private instanceManager: InstanceManagerForContinuity | null = null;
 
   constructor(config: Partial<ContinuityConfig> = {}) {
     super();
@@ -1655,16 +1662,24 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
+   * Inject the InstanceManager. Called from main process startup so that
+   * captureResumeCursor() can reach the adapter without a global lookup.
+   */
+  setInstanceManager(im: InstanceManagerForContinuity): void {
+    this.instanceManager = im;
+  }
+
+  /**
    * Capture resume cursor from the adapter (if it exposes one) into the session state.
    * Called during auto-save so the cursor is persisted to disk without the Instance
    * needing to expose its adapter property.
    */
   private captureResumeCursor(instanceId: string, state: SessionState): void {
+    if (!this.instanceManager) return; // Not wired yet — best effort only
     try {
-      const { getInstanceManager } = require('../instance/instance-manager') as typeof import('../instance/instance-manager');
-      const adapter = getInstanceManager().getAdapter(instanceId);
-      if (adapter && typeof (adapter as any).getResumeCursor === 'function') {
-        state.resumeCursor = (adapter as any).getResumeCursor() ?? null;
+      const adapter = this.instanceManager.getAdapter(instanceId);
+      if (adapter && typeof (adapter as { getResumeCursor?: () => unknown }).getResumeCursor === 'function') {
+        state.resumeCursor = ((adapter as { getResumeCursor: () => unknown }).getResumeCursor() ?? null) as SessionState['resumeCursor'];
       }
     } catch {
       // Best effort — don't let cursor capture fail the save

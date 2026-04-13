@@ -677,17 +677,24 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Accumulate token usage across turns for meaningful progress tracking.
+      // Per-turn occupancy: Gemini's CLI reports input_tokens for this turn,
+      // which already includes the full conversation history sent to the model.
+      // Use that as `used` (NOT the cumulative lifetime spend) so the bar
+      // reflects current context-window occupancy and doesn't grow unboundedly.
       if (response.usage) {
-        const turnTokens = response.usage.inputTokens !== undefined || response.usage.outputTokens !== undefined
-          ? (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0)
+        const inputTokens = response.usage.inputTokens || 0;
+        const outputTokens = response.usage.outputTokens || 0;
+        const turnTokens = inputTokens || outputTokens
+          ? inputTokens + outputTokens
           : (response.usage.totalTokens || 0);
         this.cumulativeTokensUsed += turnTokens;
         const contextWindow = this.getCapabilities().contextWindow;
+        const used = Math.min(turnTokens, contextWindow);
         const contextUsage: ContextUsage = {
-          used: this.cumulativeTokensUsed,
+          used,
           total: contextWindow,
-          percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100),
+          percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
+          cumulativeTokens: this.cumulativeTokensUsed,
         };
         this.emit('context', contextUsage);
       }

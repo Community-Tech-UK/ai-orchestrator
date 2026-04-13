@@ -5,11 +5,55 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getCrossInstanceComm } from '../../communication/cross-instance-comm';
 
 const logger = getLogger('CommunicationHandlers');
+
+const InstanceIdSchema = z.string().min(1).max(200);
+const BridgeIdSchema = z.string().min(1).max(200);
+
+const CommCreateBridgePayloadSchema = z.object({
+  name: z.string().min(1).max(500),
+  sourceInstanceId: InstanceIdSchema,
+  targetInstanceId: InstanceIdSchema,
+});
+
+const CommDeleteBridgePayloadSchema = z.object({
+  bridgeId: BridgeIdSchema,
+});
+
+const CommSendMessagePayloadSchema = z.object({
+  bridgeId: BridgeIdSchema,
+  fromInstanceId: InstanceIdSchema,
+  content: z.string().max(500_000),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const CommGetMessagesPayloadSchema = z.object({
+  bridgeId: BridgeIdSchema,
+  limit: z.number().int().min(1).max(10_000).optional(),
+});
+
+const CommSubscribePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  bridgeId: BridgeIdSchema,
+});
+
+function validationError(err: unknown): IpcResponse {
+  return {
+    success: false,
+    error: {
+      code: 'VALIDATION_ERROR',
+      message: err instanceof z.ZodError
+        ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+        : (err as Error).message,
+      timestamp: Date.now(),
+    },
+  };
+}
 
 export function registerCommunicationHandlers(): void {
   const comm = getCrossInstanceComm();
@@ -22,32 +66,21 @@ export function registerCommunicationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.COMM_CREATE_BRIDGE,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      let validated;
       try {
-        const { name, sourceInstanceId, targetInstanceId } = payload as {
-          name: string;
-          sourceInstanceId: string;
-          targetInstanceId: string;
-        };
+        validated = CommCreateBridgePayloadSchema.parse(payload);
+      } catch (err) {
+        return validationError(err);
+      }
 
-        if (!name || !sourceInstanceId || !targetInstanceId) {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'name, sourceInstanceId, and targetInstanceId are required',
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        const bridge = comm.createBridge(name, sourceInstanceId, targetInstanceId);
-
+      try {
+        const bridge = comm.createBridge(
+          validated.name,
+          validated.sourceInstanceId,
+          validated.targetInstanceId,
+        );
         logger.info('COMM_CREATE_BRIDGE handled', { bridgeId: bridge.id });
-
-        return {
-          success: true,
-          data: bridge,
-        };
+        return { success: true, data: bridge };
       } catch (error) {
         return {
           success: false,
@@ -65,26 +98,16 @@ export function registerCommunicationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.COMM_DELETE_BRIDGE,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      let validated;
       try {
-        const { bridgeId } = payload as { bridgeId: string };
+        validated = CommDeleteBridgePayloadSchema.parse(payload);
+      } catch (err) {
+        return validationError(err);
+      }
 
-        if (!bridgeId) {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'bridgeId is required',
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        const deleted = comm.deleteBridge(bridgeId);
-
-        return {
-          success: true,
-          data: deleted,
-        };
+      try {
+        const deleted = comm.deleteBridge(validated.bridgeId);
+        return { success: true, data: deleted };
       } catch (error) {
         return {
           success: false,
@@ -130,31 +153,21 @@ export function registerCommunicationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.COMM_SEND_MESSAGE,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      let validated;
       try {
-        const { bridgeId, fromInstanceId, content, metadata } = payload as {
-          bridgeId: string;
-          fromInstanceId: string;
-          content: string;
-          metadata?: Record<string, unknown>;
-        };
+        validated = CommSendMessagePayloadSchema.parse(payload);
+      } catch (err) {
+        return validationError(err);
+      }
 
-        if (!bridgeId || !fromInstanceId || content === undefined) {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'bridgeId, fromInstanceId, and content are required',
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        const message = comm.sendMessage(bridgeId, fromInstanceId, content, metadata);
-
-        return {
-          success: true,
-          data: message,
-        };
+      try {
+        const message = comm.sendMessage(
+          validated.bridgeId,
+          validated.fromInstanceId,
+          validated.content,
+          validated.metadata,
+        );
+        return { success: true, data: message };
       } catch (error) {
         return {
           success: false,
@@ -172,29 +185,16 @@ export function registerCommunicationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.COMM_GET_MESSAGES,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      let validated;
       try {
-        const { bridgeId, limit } = payload as {
-          bridgeId: string;
-          limit?: number;
-        };
+        validated = CommGetMessagesPayloadSchema.parse(payload);
+      } catch (err) {
+        return validationError(err);
+      }
 
-        if (!bridgeId) {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'bridgeId is required',
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        const messages = comm.getMessages(bridgeId, limit);
-
-        return {
-          success: true,
-          data: messages,
-        };
+      try {
+        const messages = comm.getMessages(validated.bridgeId, validated.limit);
+        return { success: true, data: messages };
       } catch (error) {
         return {
           success: false,
@@ -216,29 +216,16 @@ export function registerCommunicationHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.COMM_SUBSCRIBE,
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      let validated;
       try {
-        const { instanceId, bridgeId } = payload as {
-          instanceId: string;
-          bridgeId: string;
-        };
+        validated = CommSubscribePayloadSchema.parse(payload);
+      } catch (err) {
+        return validationError(err);
+      }
 
-        if (!instanceId || !bridgeId) {
-          return {
-            success: false,
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'instanceId and bridgeId are required',
-              timestamp: Date.now(),
-            },
-          };
-        }
-
-        const subscribed = comm.subscribe(instanceId, bridgeId);
-
-        return {
-          success: true,
-          data: subscribed,
-        };
+      try {
+        const subscribed = comm.subscribe(validated.instanceId, validated.bridgeId);
+        return { success: true, data: subscribed };
       } catch (error) {
         return {
           success: false,

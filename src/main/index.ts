@@ -11,7 +11,7 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import * as path from 'path';
 import { WindowManager } from './window-manager';
 import { IpcMainHandler } from './ipc/ipc-main-handler';
-import { InstanceManager, setInstanceManager } from './instance/instance-manager';
+import { InstanceManager } from './instance/instance-manager';
 import { getSettingsManager } from './core/config/settings-manager';
 import { getHookManager } from './hooks/hook-manager';
 import { registerDefaultMultiVerifyInvoker, registerDefaultReviewInvoker, registerDefaultDebateInvoker, registerDefaultWorkflowInvoker } from './orchestration/default-invokers';
@@ -216,7 +216,6 @@ class AIOrchestratorApp {
   constructor() {
     this.windowManager = new WindowManager();
     this.instanceManager = new InstanceManager();
-    setInstanceManager(this.instanceManager);
     this.ipcHandler = new IpcMainHandler(
       this.instanceManager,
       this.windowManager
@@ -315,7 +314,7 @@ class AIOrchestratorApp {
           // Wire node disconnect → failover
           registry.on('node:disconnected', (node) => {
             const nodeId = typeof node === 'string' ? node : node.id;
-            handleNodeFailover(nodeId);
+            handleNodeFailover(nodeId, this.instanceManager);
             this.syncRemoteNodeMetricsToLoadBalancer(nodeId);
           });
 
@@ -326,7 +325,7 @@ class AIOrchestratorApp {
             // On late reconnection (after reboot), restore them to 'idle' so the user
             // can resume working.
             const nodeId = typeof node === 'string' ? node : node.id;
-            handleLateNodeReconnect(nodeId);
+            handleLateNodeReconnect(nodeId, this.instanceManager);
           });
           registry.on('node:disconnected', (node) => {
             this.windowManager.sendToRenderer('remote-node:event', {
@@ -348,8 +347,12 @@ class AIOrchestratorApp {
         } },
         { name: 'Cross-model review', fn: async () => {
           const crossModelReview = getCrossModelReviewService();
+          crossModelReview.setInstanceManager(this.instanceManager);
           await crossModelReview.initialize();
           registerCrossModelReviewIpcHandlers();
+        } },
+        { name: 'Session continuity wiring', fn: () => {
+          getSessionContinuityManager().setInstanceManager(this.instanceManager);
         } },
         { name: 'Channel manager', fn: async () => {
           const { DiscordAdapter } = await import('./channels/adapters/discord-adapter');
@@ -407,6 +410,7 @@ class AIOrchestratorApp {
           const db = getRLMDatabase().getRawDb();
           const persistence = new ChannelPersistence(db);
           const router = new ChannelMessageRouter(getChannelManager(), persistence);
+          router.setInstanceManager(this.instanceManager);
           router.start();
         } },
 

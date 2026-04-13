@@ -405,16 +405,21 @@ export class CopilotSdkAdapter extends EventEmitter {
           break;
 
         case 'assistant.usage':
-          // Update context usage using current-turn occupancy, not cumulative lifetime usage.
-          // Summing turn usage can falsely hit compaction thresholds.
+          // Per-turn occupancy: Copilot's SDK reports input_tokens for this
+          // call, which already includes the full conversation history sent to
+          // the model. Use that as `used` (NOT cumulative lifetime spend) so
+          // the bar reflects current context-window occupancy and doesn't
+          // falsely cross compaction thresholds after a few turns.
           if (event.data.inputTokens || event.data.outputTokens) {
             const turnTokens = (event.data.inputTokens || 0) + (event.data.outputTokens || 0);
             this.cumulativeTokensUsed += turnTokens;
             const contextWindow = this.getCapabilities().contextWindow;
+            const used = Math.min(turnTokens, contextWindow);
             const contextUsage: ContextUsage = {
-              used: this.cumulativeTokensUsed,
+              used,
               total: contextWindow,
-              percentage: Math.min((this.cumulativeTokensUsed / contextWindow) * 100, 100)
+              percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
+              cumulativeTokens: this.cumulativeTokensUsed,
             };
             this.emit('context', contextUsage);
           }

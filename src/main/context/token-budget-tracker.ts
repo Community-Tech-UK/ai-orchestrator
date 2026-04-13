@@ -41,8 +41,13 @@ export class TokenBudgetTracker {
     this.deltas.push(deltaTokens);
   }
 
-  checkBudget(params: { turnTokens: number }): BudgetCheckResult {
-    const fillPercentage = Math.round((params.turnTokens / this.config.totalBudget) * 100);
+  checkBudget(params: { turnTokens: number; totalBudget?: number }): BudgetCheckResult {
+    // Allow per-call override so the gate can align with the instance's real
+    // context-window size (what the UI shows) rather than the static default.
+    const effectiveBudget = params.totalBudget && params.totalBudget > 0
+      ? params.totalBudget
+      : this.config.totalBudget;
+    const fillPercentage = Math.round((params.turnTokens / effectiveBudget) * 100);
 
     if (this.continuationCount >= DIMINISHING_CHECK_THRESHOLD) {
       const lastDelta = this.deltas[this.deltas.length - 1] ?? 0;
@@ -56,13 +61,13 @@ export class TokenBudgetTracker {
       }
     }
 
-    if (params.turnTokens >= this.config.totalBudget * STOP_RATIO) {
+    if (params.turnTokens >= effectiveBudget * STOP_RATIO) {
       return { action: BudgetAction.STOP, reason: `budget ${fillPercentage}% full`, fillPercentage };
     }
 
     return {
       action: BudgetAction.CONTINUE,
-      nudgeMessage: `Stopped at ${fillPercentage}% of token target (${params.turnTokens} / ${this.config.totalBudget}). Keep working — do not summarize.`,
+      nudgeMessage: `Stopped at ${fillPercentage}% of token target (${params.turnTokens} / ${effectiveBudget}). Keep working — do not summarize.`,
       fillPercentage,
     };
   }

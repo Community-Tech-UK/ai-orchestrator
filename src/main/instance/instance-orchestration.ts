@@ -1140,10 +1140,14 @@ export class InstanceOrchestrationManager {
           return `**No active children**`;
         }
       case 'get_child_output':
+        if (status !== 'SUCCESS') {
+          const errChildId = data.childId ? ` \`${data.childId}\`` : '';
+          return `**Failed to get child output**${errChildId}: ${data.error || 'Unknown error'}`;
+        }
         if (data.output && data.output.length > 0) {
           return `**Output from child \`${data.childId}\`:**\n\n\`\`\`\n${data.output.join('\n')}\n\`\`\``;
         } else {
-          return `**No output from child** \`${data.childId}\``;
+          return `**No output from child** \`${data.childId ?? '(unknown)'}\``;
         }
       case 'call_tool':
         if (status === 'SUCCESS') {

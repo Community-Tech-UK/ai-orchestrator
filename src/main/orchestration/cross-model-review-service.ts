@@ -4,7 +4,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
-import { getInstanceManager } from '../instance/instance-manager';
+import type { InstanceManager } from '../instance/instance-manager';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
 import { CliDetectionService } from '../cli/cli-detection';
@@ -54,6 +54,7 @@ export class CrossModelReviewService extends EventEmitter {
   private rateLimitTimer: ReturnType<typeof setInterval> | null = null;
   private availabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
+  private instanceManager: InstanceManager | null = null;
 
   static getInstance(): CrossModelReviewService {
     if (!this.instance) {
@@ -72,6 +73,15 @@ export class CrossModelReviewService extends EventEmitter {
   private constructor() {
     super();
     registerCleanup(() => this.shutdown());
+  }
+
+  /**
+   * Inject the InstanceManager. Main process startup calls this after
+   * InstanceManager is constructed so this service can look up instances
+   * without a global singleton accessor.
+   */
+  setInstanceManager(im: InstanceManager): void {
+    this.instanceManager = im;
   }
 
   async initialize(): Promise<void> {
@@ -134,7 +144,7 @@ export class CrossModelReviewService extends EventEmitter {
     const classification = this.classifier.classify(aggregatedContent);
     if (!classification.shouldReview) return;
 
-    const instance = getInstanceManager().getInstance(instanceId);
+    const instance = this.instanceManager?.getInstance(instanceId);
     const firstUserPrompt = instance?.outputBuffer
       .find(message => message.type === 'user' && message.content.trim().length > 0)
       ?.content.trim();

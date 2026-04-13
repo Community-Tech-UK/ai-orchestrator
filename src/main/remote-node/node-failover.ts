@@ -7,7 +7,7 @@
 
 import { getLogger } from '../logging/logger';
 import { getWorkerNodeRegistry } from './worker-node-registry';
-import { getInstanceManager } from '../instance/instance-manager';
+import type { InstanceManager } from '../instance/instance-manager';
 import type { InstanceStatus } from '../../shared/types/instance.types';
 
 const logger = getLogger('NodeFailover');
@@ -27,9 +27,8 @@ export const FAILOVER_GRACE_MS = 30_000;
  * If the node reconnects during the grace period, the timer is cancelled and
  * original instance statuses are restored.
  */
-export function handleNodeFailover(nodeId: string): void {
+export function handleNodeFailover(nodeId: string, instanceManager: InstanceManager): void {
   const registry = getWorkerNodeRegistry();
-  const instanceManager = getInstanceManager();
 
   const affected: { id: string; originalStatus: string }[] = instanceManager
     .getInstancesByNode(nodeId)
@@ -142,8 +141,7 @@ export function handleNodeFailover(nodeId: string): void {
  *
  * Call this from the global `node:connected` listener in index.ts.
  */
-export function handleLateNodeReconnect(nodeId: string): void {
-  const instanceManager = getInstanceManager();
+export function handleLateNodeReconnect(nodeId: string, instanceManager: InstanceManager): void {
 
   const failedOnNode = instanceManager
     .getInstancesByNode(nodeId)

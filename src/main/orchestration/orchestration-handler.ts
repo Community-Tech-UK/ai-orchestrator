@@ -547,9 +547,11 @@ export class OrchestrationHandler extends EventEmitter {
     const ctx = this.contexts.get(parentId);
     if (!ctx) return;
 
-    // Verify the child belongs to this parent
+    // Verify the child belongs to this parent. Include childId in the error
+    // payload so the renderer can display "for child <id>" instead of "undefined".
     if (!ctx.childrenIds.includes(command.childId)) {
       this.injectResponse(parentId, 'get_child_output', false, {
+        childId: command.childId,
         error: `Child ${command.childId} not found or not owned by you`
       });
       return;

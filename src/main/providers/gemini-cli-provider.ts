@@ -73,7 +73,10 @@ export class GeminiCliProvider extends BaseProvider {
     // This avoids model access issues (e.g., gemini-1.5-pro may not be available)
     const geminiConfig: GeminiCliConfig = {
       model: options.model || this.config.defaultModel, // undefined is OK - Gemini will use its default
-      yolo: options.yoloMode,
+      // Default yolo on: non-interactive one-shot invocation without --yolo causes
+      // Gemini to remove tools requiring approval (run_shell_command, write_file, etc.)
+      // from its registry. The orchestrator is the approval layer.
+      yolo: options.yoloMode ?? true,
       sandbox: false,
       workingDir: options.workingDirectory,
       timeout: 300000,

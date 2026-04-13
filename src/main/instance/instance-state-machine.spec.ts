@@ -57,6 +57,14 @@ describe('InstanceStateMachine – valid transitions', () => {
     expect(sm.current).toBe('error');
   });
 
+  it('initializing → idle', () => {
+    // Some CLI adapters emit their first idle event before any explicit
+    // 'ready' transition — treat that as a valid startup path.
+    const sm = new InstanceStateMachine('initializing');
+    sm.transition('idle');
+    expect(sm.current).toBe('idle');
+  });
+
   it('ready → busy → idle', () => {
     const sm = new InstanceStateMachine('ready');
     sm.transition('busy');
@@ -201,11 +209,6 @@ describe('InstanceStateMachine – invalid transitions', () => {
   it('initializing → busy is not allowed', () => {
     const sm = new InstanceStateMachine('initializing');
     expect(() => sm.transition('busy')).toThrow(InvalidTransitionError);
-  });
-
-  it('initializing → idle is not allowed', () => {
-    const sm = new InstanceStateMachine('initializing');
-    expect(() => sm.transition('idle')).toThrow(InvalidTransitionError);
   });
 
   it('ready → error is not allowed', () => {

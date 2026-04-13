@@ -25,6 +25,8 @@ const logger = getLogger('AdapterFactory');
  * Unified spawn options that work across all adapters
  */
 export interface UnifiedSpawnOptions {
+  /** Run without persisting provider session/thread state (provider-specific). */
+  ephemeral?: boolean;
   sessionId?: string;
   workingDirectory?: string;
   systemPrompt?: string;
@@ -176,6 +178,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
  */
 export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapter {
   const codexConfig: CodexCliConfig = {
+    ephemeral: options.ephemeral,
     sessionId: options.sessionId,
     resume: options.resume,
     workingDir: options.workingDirectory,
@@ -197,7 +200,10 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
   const geminiConfig: GeminiCliConfig = {
     workingDir: options.workingDirectory,
     model: options.model,
-    yoloMode: options.yoloMode,
+    // Default yolo on: Gemini runs one-shot non-interactively here, so without
+    // --yolo it strips tools needing approval (run_shell_command, write_file, etc.)
+    // from the registry. The orchestrator is the approval layer for child instances.
+    yoloMode: options.yoloMode ?? true,
     timeout: options.timeout,
   };
   return new GeminiCliAdapter(geminiConfig);

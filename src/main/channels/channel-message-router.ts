@@ -145,19 +145,27 @@ export class ChannelMessageRouter {
   }
 
   /**
-   * Lazy-load InstanceManager to avoid circular deps at import time.
+   * Return the injected InstanceManager, or throw if setInstanceManager()
+   * hasn't been called yet. Main process startup wires this up.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private getInstanceManager(): any {
-    if (this._instanceManagerOverride) {
-      return this._instanceManagerOverride;
+    if (!this._instanceManagerOverride) {
+      throw new Error(
+        'ChannelMessageRouter: setInstanceManager() must be called before use. ' +
+        'See src/main/index.ts for the canonical wiring.'
+      );
     }
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getInstanceManager } = require('../instance/instance-manager');
-    return getInstanceManager();
+    return this._instanceManagerOverride;
   }
 
-  /** Inject instance manager for testing */
+  /** Inject the InstanceManager. Called from main process startup (and tests). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setInstanceManager(im: any): void {
+    this._instanceManagerOverride = im;
+  }
+
+  /** @deprecated Use setInstanceManager. Kept for backward compatibility with existing specs. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _setInstanceManagerForTesting(im: any): void {
     this._instanceManagerOverride = im;

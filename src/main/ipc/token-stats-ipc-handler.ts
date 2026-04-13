@@ -6,12 +6,37 @@
  */
 
 import { ipcMain } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getTokenStatsService } from '../memory/token-stats';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('TokenStatsIpc');
+
+const TokenStatsSummaryPayloadSchema = z
+  .object({
+    instanceId: z.string().min(1).max(200).optional(),
+    since: z.number().int().min(0).optional(),
+    until: z.number().int().min(0).optional(),
+  })
+  .partial()
+  .optional();
+
+const TokenStatsRecentPayloadSchema = z
+  .object({
+    instanceId: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(10_000).optional(),
+  })
+  .partial()
+  .optional();
+
+const TokenStatsCleanupPayloadSchema = z
+  .object({
+    olderThanMs: z.number().int().min(0).optional(),
+  })
+  .partial()
+  .optional();
 
 /**
  * Register all token stats IPC handlers.
@@ -34,11 +59,11 @@ export function registerTokenStatsHandlers(): void {
     IPC_CHANNELS.TOKEN_STATS_GET_SUMMARY,
     (_event, payload: unknown) => {
       try {
-        const opts = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
+        const opts = TokenStatsSummaryPayloadSchema.parse(payload) ?? {};
         return service.getSummary({
-          instanceId: typeof opts['instanceId'] === 'string' ? opts['instanceId'] : undefined,
-          since: typeof opts['since'] === 'number' ? opts['since'] : undefined,
-          until: typeof opts['until'] === 'number' ? opts['until'] : undefined,
+          instanceId: opts.instanceId,
+          since: opts.since,
+          until: opts.until,
         });
       } catch (err) {
         logger.warn('TOKEN_STATS_GET_SUMMARY failed', { error: String(err) });
@@ -52,10 +77,10 @@ export function registerTokenStatsHandlers(): void {
     IPC_CHANNELS.TOKEN_STATS_GET_RECENT,
     (_event, payload: unknown) => {
       try {
-        const opts = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
+        const opts = TokenStatsRecentPayloadSchema.parse(payload) ?? {};
         return service.getRecent({
-          instanceId: typeof opts['instanceId'] === 'string' ? opts['instanceId'] : undefined,
-          limit: typeof opts['limit'] === 'number' ? opts['limit'] : undefined,
+          instanceId: opts.instanceId,
+          limit: opts.limit,
         });
       } catch (err) {
         logger.warn('TOKEN_STATS_GET_RECENT failed', { error: String(err) });
@@ -69,10 +94,8 @@ export function registerTokenStatsHandlers(): void {
     IPC_CHANNELS.TOKEN_STATS_CLEANUP,
     (_event, payload: unknown) => {
       try {
-        const opts = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
-        const olderThanMs = typeof opts['olderThanMs'] === 'number'
-          ? opts['olderThanMs']
-          : 7 * 24 * 60 * 60 * 1000; // default: 7 days
+        const opts = TokenStatsCleanupPayloadSchema.parse(payload) ?? {};
+        const olderThanMs = opts.olderThanMs ?? 7 * 24 * 60 * 60 * 1000;
         return { deleted: service.cleanup(olderThanMs) };
       } catch (err) {
         logger.warn('TOKEN_STATS_CLEANUP failed', { error: String(err) });
