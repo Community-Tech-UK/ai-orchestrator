@@ -90,7 +90,7 @@ export function resolveSystemActionLabel(action: string): string {
   const known = SYSTEM_ACTION_LABELS[action];
   if (known) return known;
   // Humanise: replace underscores with spaces, capitalise the first letter only.
-  const spaced = action.replace(/_/g, ' ').trim();
+  const spaced = action.replace(/_/g, ' ').replace(/ +/g, ' ').trim();
   if (!spaced) return 'System event';
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
@@ -106,8 +106,11 @@ export function buildSystemGroupPreview(content: string): string {
     .replace(/```[\s\S]*?```/g, ' ')
     // Strip inline code backticks but keep contents.
     .replace(/`([^`]*)`/g, '$1')
-    // Strip bold/italic markers.
-    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
+    // Strip *bold* / **bold** / ***bold*** (asterisk emphasis is unambiguous).
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    // Strip _italic_ etc. only when not flanked by word chars (avoids eating
+    // underscores inside snake_case identifiers like `task_complete`).
+    .replace(/(?<!\w)_{1,3}([^_]+)_{1,3}(?!\w)/g, '$1')
     // Strip leading list/heading markers on each line.
     .replace(/^\s*[-*#>]+\s*/gm, '')
     // Collapse all whitespace (including newlines) to single spaces.
