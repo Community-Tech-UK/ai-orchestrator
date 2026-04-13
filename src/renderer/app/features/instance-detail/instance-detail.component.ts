@@ -184,6 +184,7 @@ interface RestartToast {
               [provider]="inst.provider"
               [showThinking]="showThinking()"
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
+              [showToolMessages]="showToolMessages()"
               [isChild]="!!inst.parentId"
               (editMessage)="onEditLastMessage()"
             />
@@ -886,9 +887,10 @@ export class InstanceDetailComponent {
     return inst ? inst.childrenIds.length > 0 : false;
   });
 
-  // Settings for thinking display
+  // Settings for display
   showThinking = this.settingsStore.showThinking;
   thinkingDefaultExpanded = this.settingsStore.thinkingDefaultExpanded;
+  showToolMessages = this.settingsStore.showToolMessages;
   welcomePendingFiles = this.newSessionDraft.pendingFiles;
   welcomePendingFolders = this.newSessionDraft.pendingFolders;
   welcomeWorkingDirectory = this.newSessionDraft.workingDirectory;

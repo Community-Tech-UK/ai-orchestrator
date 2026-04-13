@@ -734,21 +734,38 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (responseContent || toolCalls.length > 0) {
       const extracted = extractThinkingContent(responseContent);
 
-      const thinkingContent: ThinkingContent[] | undefined = extracted.thinking.length > 0
-        ? extracted.thinking.map((block) => ({
-            id: block.id,
-            content: block.content,
-            format: block.format,
-            timestamp: block.timestamp || Date.now(),
-          }))
-        : undefined;
+      // Merge thinking from two sources:
+      // 1. Structured reasoning items (captured via item/completed type:reasoning)
+      // 2. Heuristic extraction from agent message text
+      const allThinking: ThinkingContent[] = [];
+
+      // Structured reasoning items take priority — they're the model's actual
+      // chain-of-thought, already deduplicated in state.reasoningSummary.
+      if (turnState.reasoningSummary.length > 0) {
+        allThinking.push({
+          id: generateId(),
+          content: turnState.reasoningSummary.join('\n\n'),
+          format: 'structured',
+          timestamp: Date.now(),
+        });
+      }
+
+      // Also include any thinking extracted from the agent message text itself
+      for (const block of extracted.thinking) {
+        allThinking.push({
+          id: block.id,
+          content: block.content,
+          format: block.format,
+          timestamp: block.timestamp || Date.now(),
+        });
+      }
 
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
         type: 'assistant',
         content: extracted.response,
-        thinking: thinkingContent,
+        thinking: allThinking.length > 0 ? allThinking : undefined,
       });
     }
 
@@ -2118,6 +2135,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   } {
     const lines = rawStdout.split('\n').map((line) => line.trim()).filter(Boolean);
     const contentParts: string[] = [];
+    const reasoningParts: string[] = [];
     const toolCalls: CliToolCall[] = [];
     let usage: CliUsage | undefined;
     let threadId: string | undefined;
@@ -2181,6 +2199,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
             continue;
           }
 
+          // Reasoning items are the model's chain-of-thought — capture
+          // separately so they don't leak into the visible response content.
+          if (itemType === 'reasoning') {
+            const sections = extractReasoningSections(item['summary'] ?? item['summaryText'] ?? item['text'] ?? item['content']);
+            reasoningParts.push(...sections);
+            continue;
+          }
+
+          // Skip other non-content item types that shouldn't appear in the
+          // response (file changes, tool calls, web searches, etc.).
+          if (itemType === 'file_change' || itemType === 'fileChange'
+            || itemType === 'mcpToolCall' || itemType === 'dynamicToolCall'
+            || itemType === 'webSearch' || itemType === 'exitedReviewMode'
+            || itemType === 'collaboration') {
+            continue;
+          }
+
+          // Only fall through for genuinely unrecognized content-bearing items
           const fallbackText = this.extractTextFromItem(item);
           if (fallbackText) {
             contentParts.push(fallbackText);
@@ -2223,6 +2259,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     const extracted = extractThinkingContent(content);
 
+    // Merge thinking from structured reasoning items + heuristic extraction
+    const allThinking: ThinkingBlock[] = [];
+
+    // Structured reasoning items (from item.completed type:reasoning events)
+    const dedupedReasoning = mergeReasoningSections([], reasoningParts);
+    if (dedupedReasoning.length > 0) {
+      allThinking.push({
+        id: generateId(),
+        content: dedupedReasoning.join('\n\n'),
+        format: 'structured',
+      });
+    }
+
+    // Heuristic-extracted thinking from agent message text
+    allThinking.push(...extracted.thinking);
+
     return {
       hasMeaningfulOutput: extracted.response.trim().length > 0 || toolCalls.length > 0,
       response: {
@@ -2236,7 +2288,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           threadId,
         },
         raw: rawStdout,
-        thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
+        thinking: allThinking.length > 0 ? allThinking : undefined,
       },
       threadId,
     };

@@ -842,6 +842,7 @@ export class OutputStreamComponent {
   provider = input<string>('claude');
   showThinking = input<boolean>(true);
   thinkingDefaultExpanded = input<boolean>(false);
+  showToolMessages = input<boolean>(true);
   isChild = input<boolean>(false);
 
   /** Emitted when the user clicks the edit button on the last user message. */
@@ -929,10 +930,15 @@ export class OutputStreamComponent {
     return items as RenderedDisplayItem[];
   });
 
-  /** Whether tool calls are effectively shown (explicit toggle, or default based on isChild) */
+  /** Whether tool calls are effectively shown.
+   *  Priority: local toggle > global setting > default (hide for children). */
   protected effectiveShowToolCalls = computed(() => {
+    // Local per-instance toggle takes highest priority
     const explicit = this.showToolCalls();
     if (explicit !== null) return explicit;
+    // Global setting from display preferences
+    if (!this.showToolMessages()) return false;
+    // Default: show for parents, hide for children
     return !this.isChild();
   });
 
