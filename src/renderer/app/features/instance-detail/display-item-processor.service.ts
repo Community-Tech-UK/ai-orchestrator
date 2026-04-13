@@ -36,6 +36,87 @@ export interface DisplayItem {
 
 const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // 2 minutes
 
+/**
+ * Maximum wall-clock gap allowed between consecutive members of a
+ * system-event-group. A new accordion is started after this much idle.
+ */
+const SYSTEM_GROUP_TIME_GAP_MS = 5 * 60 * 1000;
+
+/**
+ * Orchestration `metadata.action` values that must always render as their own
+ * standalone system bubble — never absorbed into a system-event-group.
+ *
+ * These are state-changing events the user needs to see immediately; bucketing
+ * them under an accordion would hide important signal.
+ */
+const ALWAYS_VISIBLE_SYSTEM_ACTIONS: ReadonlySet<string> = new Set([
+  'task_complete',
+  'task_error',
+  'child_completed',
+  'all_children_completed',
+  'request_user_action',
+  'user_action_response',
+  'unknown',
+]);
+
+/**
+ * Friendly labels for grouped orchestration actions. Anything not listed falls
+ * back to humanising the action name (snake_case → Sentence case).
+ */
+const SYSTEM_ACTION_LABELS: Readonly<Record<string, string>> = {
+  get_children: 'Active children polled',
+  get_child_output: 'Child output fetched',
+  get_child_summary: 'Child summary fetched',
+  get_child_artifacts: 'Child artifacts fetched',
+  get_child_section: 'Child section fetched',
+  task_progress: 'Task progress',
+  call_tool: 'Tool calls',
+  message_child: 'Messages to children',
+  spawn_child: 'Child spawned',
+  terminate_child: 'Children terminated',
+};
+
+/**
+ * Maximum length of the single-line preview rendered in the collapsed header.
+ * Longer previews are truncated with an ellipsis.
+ */
+const SYSTEM_GROUP_PREVIEW_MAX_LEN = 120;
+
+/**
+ * Resolve the friendly label for an orchestration action. Falls back to a
+ * humanised version of the snake_case action name.
+ */
+export function resolveSystemActionLabel(action: string): string {
+  const known = SYSTEM_ACTION_LABELS[action];
+  if (known) return known;
+  // Humanise: replace underscores with spaces, capitalise the first letter only.
+  const spaced = action.replace(/_/g, ' ').trim();
+  if (!spaced) return 'System event';
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
+ * Reduce a markdown message to a single line suitable for an accordion header:
+ * strip common markdown emphasis markers, collapse whitespace, truncate.
+ */
+export function buildSystemGroupPreview(content: string): string {
+  if (!content) return '';
+  const stripped = content
+    // Drop fenced code blocks entirely.
+    .replace(/```[\s\S]*?```/g, ' ')
+    // Strip inline code backticks but keep contents.
+    .replace(/`([^`]*)`/g, '$1')
+    // Strip bold/italic markers.
+    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
+    // Strip leading list/heading markers on each line.
+    .replace(/^\s*[-*#>]+\s*/gm, '')
+    // Collapse all whitespace (including newlines) to single spaces.
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (stripped.length <= SYSTEM_GROUP_PREVIEW_MAX_LEN) return stripped;
+  return stripped.slice(0, SYSTEM_GROUP_PREVIEW_MAX_LEN - 1).trimEnd() + '…';
+}
+
 export class DisplayItemProcessor {
   private lastProcessedCount = 0;
   private items: DisplayItem[] = [];
