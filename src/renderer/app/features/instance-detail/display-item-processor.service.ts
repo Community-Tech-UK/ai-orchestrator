@@ -298,20 +298,23 @@ export class DisplayItemProcessor {
 
       // Orchestration system-event grouping — collapse runs of repetitive
       // orchestration messages with the same `metadata.action` into an
-      // accordion display item. See SYSTEM_GROUP_* constants for thresholds.
+      // accordion display item. Empty assistant turns between members are
+      // absorbed (removed) so they don't break the run.
       if (
         item.type === 'message' &&
         item.message?.type === 'system' &&
         this.isGroupableOrchestration(item.message)
       ) {
         const action = (item.message.metadata as { action: string }).action;
-        const candidate = this.items[this.items.length - 1];
+        const candidateIdx = this.findLastNonEmptyItemIndex();
+        const candidate = candidateIdx >= 0 ? this.items[candidateIdx] : undefined;
 
         if (
           candidate?.type === 'system-event-group' &&
           candidate.groupAction === action &&
           this.withinSystemGroupGap(candidate, item.message)
         ) {
+          this.dropTrailingEmptyMessages(candidateIdx);
           this.appendToSystemGroup(candidate, item.message);
           continue;
         }
@@ -323,7 +326,8 @@ export class DisplayItemProcessor {
           (candidate.message.metadata as { action: string }).action === action &&
           item.message.timestamp - candidate.message.timestamp <= SYSTEM_GROUP_TIME_GAP_MS
         ) {
-          this.promoteToSystemGroup(this.items.length - 1, candidate.message, item.message);
+          this.dropTrailingEmptyMessages(candidateIdx);
+          this.promoteToSystemGroup(candidateIdx, candidate.message, item.message);
           continue;
         }
       }
@@ -375,6 +379,41 @@ export class DisplayItemProcessor {
       bufferIndex: this.items[indexToReplace].bufferIndex,
     };
     this.items[indexToReplace] = group;
+  }
+
+  /**
+   * Walk `this.items` backwards, returning the index of the last item that
+   * either isn't a `'message'` display item or whose message has non-empty
+   * trimmed content. Returns -1 if no such item exists.
+   *
+   * Used by the system-event grouping pass to look past empty assistant turns
+   * (which are noise emitted between orchestration polls) when deciding
+   * whether the new message extends an existing run.
+   */
+  private findLastNonEmptyItemIndex(): number {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type !== 'message') return i;
+      const content = it.message?.content ?? '';
+      if (content.trim().length > 0) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Remove any trailing empty `'message'` display items (assistant turns whose
+   * content trims to nothing). Called when an orchestration message is about
+   * to extend a group — those empties belong in the group, not floating
+   * outside it.
+   */
+  private dropTrailingEmptyMessages(downToIndex: number): void {
+    while (this.items.length - 1 > downToIndex) {
+      const tail = this.items[this.items.length - 1];
+      if (tail.type !== 'message') break;
+      const content = tail.message?.content ?? '';
+      if (content.trim().length > 0) break;
+      this.items.pop();
+    }
   }
 
   private computeHeaders(): void {

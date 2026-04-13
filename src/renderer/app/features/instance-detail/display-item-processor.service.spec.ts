@@ -171,6 +171,37 @@ describe('DisplayItemProcessor', () => {
     expect(items[1].systemEvents?.length).toBe(2);
   });
 
+  it('should absorb empty assistant turns between grouped orchestration messages', () => {
+    const msgs = [
+      makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+      makeMsg({ type: 'assistant', content: '   ', id: 'a1', timestamp: 1_500 }),
+      makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+      makeMsg({ type: 'assistant', content: '\n\n', id: 'a2', timestamp: 2_500 }),
+      makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: 3_000 }),
+    ];
+    const items = processor.process(msgs);
+
+    // Expect ONE group containing g1, g2, g3. The empty assistant items are gone.
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('system-event-group');
+    expect(items[0].systemEvents?.length).toBe(3);
+    expect(items[0].systemEvents?.map(m => m.id)).toEqual(['g1', 'g2', 'g3']);
+    expect(items[0].groupPreview).toContain('c');
+  });
+
+  it('should NOT absorb non-empty assistant turns between orchestration messages', () => {
+    const msgs = [
+      makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+      makeMsg({ type: 'assistant', content: 'real reply', id: 'a1', timestamp: 1_500 }),
+      makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+    ];
+    const items = processor.process(msgs);
+
+    // Expect three items: message g1, message a1, message g2. No grouping.
+    expect(items.length).toBe(3);
+    expect(items.every(i => i.type === 'message')).toBe(true);
+  });
+
   it('should create thought-group for messages with thinking', () => {
     const msg = makeMsg({
       type: 'assistant',
