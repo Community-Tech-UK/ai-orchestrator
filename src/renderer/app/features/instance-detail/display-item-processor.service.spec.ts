@@ -136,6 +136,22 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].message?.id).toBe('g1');
   });
 
+  it('should not merge orchestration messages with different actions', () => {
+    const msgs = [
+      makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+      makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+      makeOrchMsg('get_child_output', 'x', { id: 'o1', timestamp: 3_000 }),
+      makeOrchMsg('get_child_output', 'y', { id: 'o2', timestamp: 4_000 }),
+    ];
+    const items = processor.process(msgs);
+
+    expect(items.length).toBe(2);
+    expect(items[0].type).toBe('system-event-group');
+    expect(items[0].groupAction).toBe('get_children');
+    expect(items[1].type).toBe('system-event-group');
+    expect(items[1].groupAction).toBe('get_child_output');
+  });
+
   it('should create thought-group for messages with thinking', () => {
     const msg = makeMsg({
       type: 'assistant',
