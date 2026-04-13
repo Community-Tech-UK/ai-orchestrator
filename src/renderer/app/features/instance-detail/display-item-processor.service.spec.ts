@@ -106,6 +106,26 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].groupPreview).toContain('a done');
   });
 
+  it('should not group across an always-visible action like task_complete', () => {
+    const msgs = [
+      makeOrchMsg('get_children', 'a', { id: 'g1', timestamp: 1_000 }),
+      makeOrchMsg('get_children', 'b', { id: 'g2', timestamp: 2_000 }),
+      makeOrchMsg('task_complete', 'done', { id: 'tc1', timestamp: 3_000 }),
+      makeOrchMsg('get_children', 'c', { id: 'g3', timestamp: 4_000 }),
+      makeOrchMsg('get_children', 'd', { id: 'g4', timestamp: 5_000 }),
+    ];
+    const items = processor.process(msgs);
+
+    // Expect: [group(g1,g2), message(tc1), group(g3,g4)]
+    expect(items.length).toBe(3);
+    expect(items[0].type).toBe('system-event-group');
+    expect(items[0].systemEvents?.length).toBe(2);
+    expect(items[1].type).toBe('message');
+    expect(items[1].message?.id).toBe('tc1');
+    expect(items[2].type).toBe('system-event-group');
+    expect(items[2].systemEvents?.length).toBe(2);
+  });
+
   it('should create thought-group for messages with thinking', () => {
     const msg = makeMsg({
       type: 'assistant',
