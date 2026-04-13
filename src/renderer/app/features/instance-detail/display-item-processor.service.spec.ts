@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DisplayItemProcessor } from './display-item-processor.service';
+import {
+  DisplayItemProcessor,
+  resolveSystemActionLabel,
+  buildSystemGroupPreview,
+} from './display-item-processor.service';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 
 function makeMsg(overrides: Partial<OutputMessage> = {}): OutputMessage {
@@ -319,5 +323,43 @@ describe('DisplayItemProcessor', () => {
 
     expect(messageItems[0].bufferIndex).toBe(250);
     expect(messageItems[1].bufferIndex).toBe(251);
+  });
+});
+
+describe('resolveSystemActionLabel', () => {
+  it('returns the mapped label for known actions', () => {
+    expect(resolveSystemActionLabel('get_children')).toBe('Active children polled');
+    expect(resolveSystemActionLabel('task_progress')).toBe('Task progress');
+  });
+
+  it('humanises unknown snake_case actions', () => {
+    expect(resolveSystemActionLabel('some_new_action')).toBe('Some new action');
+  });
+
+  it('falls back to a placeholder for empty input', () => {
+    expect(resolveSystemActionLabel('')).toBe('System event');
+  });
+});
+
+describe('buildSystemGroupPreview', () => {
+  it('strips markdown emphasis and collapses whitespace', () => {
+    const out = buildSystemGroupPreview('**Active children:**\n- foo idle\n- bar busy');
+    expect(out).toBe('Active children: foo idle bar busy');
+  });
+
+  it('drops fenced code blocks', () => {
+    const out = buildSystemGroupPreview('Output:\n```\nbig blob\n```\nend');
+    expect(out).toBe('Output: end');
+  });
+
+  it('truncates with an ellipsis when too long', () => {
+    const long = 'word '.repeat(60).trim();          // 299 chars
+    const out = buildSystemGroupPreview(long);
+    expect(out.length).toBeLessThanOrEqual(120);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  it('returns an empty string for empty content', () => {
+    expect(buildSystemGroupPreview('')).toBe('');
   });
 });
