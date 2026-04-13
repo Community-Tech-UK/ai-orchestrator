@@ -94,6 +94,18 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].groupPreview).toContain('foo busy');  // latest content
   });
 
+  it('should extend an existing system-event-group across process() calls', () => {
+    const m1 = makeOrchMsg('get_children', '**Active children:**\n- a idle', { id: 'g1', timestamp: 1_000 });
+    const m2 = makeOrchMsg('get_children', '**Active children:**\n- a busy', { id: 'g2', timestamp: 2_000 });
+    processor.process([m1, m2]);
+    const m3 = makeOrchMsg('get_children', '**Active children:**\n- a done', { id: 'g3', timestamp: 3_000 });
+    const items = processor.process([m1, m2, m3]);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('system-event-group');
+    expect(items[0].systemEvents?.length).toBe(3);
+    expect(items[0].groupPreview).toContain('a done');
+  });
+
   it('should create thought-group for messages with thinking', () => {
     const msg = makeMsg({
       type: 'assistant',
