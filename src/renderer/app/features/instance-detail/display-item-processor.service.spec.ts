@@ -126,6 +126,16 @@ describe('DisplayItemProcessor', () => {
     expect(items[2].systemEvents?.length).toBe(2);
   });
 
+  it('should leave a single orchestration message ungrouped', () => {
+    const msgs = [
+      makeOrchMsg('get_children', 'lone poll', { id: 'g1', timestamp: 1_000 }),
+    ];
+    const items = processor.process(msgs);
+    expect(items.length).toBe(1);
+    expect(items[0].type).toBe('message');
+    expect(items[0].message?.id).toBe('g1');
+  });
+
   it('should create thought-group for messages with thinking', () => {
     const msg = makeMsg({
       type: 'assistant',
