@@ -15,7 +15,7 @@ import {
   VcsGetFileHistoryPayloadSchema,
   VcsGetFileAtCommitPayloadSchema,
   VcsGetBlamePayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { createVcsManager, isGitAvailable } from '../../workspace/git/vcs-manager';
 
 export function registerVcsHandlers(): void {

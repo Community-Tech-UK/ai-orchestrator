@@ -17,10 +17,9 @@ import {
 import { ContextWarningComponent } from './context-warning.component';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { ElectronIpcService, FileIpcService, RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
+import { ElectronIpcService, RecentDirectoriesIpcService } from '../../core/services/ipc';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { DraftService } from '../../core/services/draft.service';
-import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import { PROVIDER_MODEL_LIST } from '../../../../shared/types/provider.types';
@@ -37,18 +36,9 @@ import { InstanceReviewPanelComponent } from './instance-review-panel.component'
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { TodoStore } from '../../core/state/todo.store';
-import { RemoteNodeStore } from '../../core/state/remote-node.store';
-import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
-
-interface WelcomeProjectContext {
-  branch: string | null;
-  hasChanges: boolean;
-  isRepo: boolean;
-  lastAccessed: number | null;
-  draftUpdatedAt: number | null;
-  hasDraft: boolean;
-}
+import { WelcomeCoordinatorService } from './welcome-coordinator.service';
+import { FileAttachmentService } from './file-attachment.service';
 
 interface RestartToast {
   id: string;
@@ -768,15 +758,13 @@ export class InstanceDetailComponent {
   private store = inject(InstanceStore);
   private settingsStore = inject(SettingsStore);
   private ipc = inject(ElectronIpcService);
-  private fileIpc = inject(FileIpcService);
   private recentDirsService = inject(RecentDirectoriesIpcService);
-  private vcsIpc = inject(VcsIpcService);
   private draftService = inject(DraftService);
-  private providerState = inject(ProviderStateService);
   private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
-  private remoteNodeStore = inject(RemoteNodeStore);
+  readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
+  private fileAttachment = inject(FileAttachmentService);
   todoStore = inject(TodoStore);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
@@ -866,14 +854,8 @@ export class InstanceDetailComponent {
     this.enteringInspectorToggle.set(null);
     this.inspectorBarWasVisible = false;
 
-    // Sync remote node selection from the draft so that sessions opened from a
-    // remote project group pre-select the correct node.  Falls back to null
-    // (local) when the draft has no node context.
-    this.welcomeSelectedNodeId.set(this.newSessionDraft.nodeId());
-
-    // Reset remote-browse dialog state so it doesn't bleed across sessions.
-    this.remoteBrowseOpen.set(false);
-    this.remoteBrowseNodeId.set(null);
+    // Reset welcome-screen state so it doesn't bleed across sessions.
+    this.welcomeCoordinator.resetState();
   });
 
   // Computed: any inspector is open
@@ -891,38 +873,17 @@ export class InstanceDetailComponent {
   showThinking = this.settingsStore.showThinking;
   thinkingDefaultExpanded = this.settingsStore.thinkingDefaultExpanded;
   showToolMessages = this.settingsStore.showToolMessages;
-  welcomePendingFiles = this.newSessionDraft.pendingFiles;
-  welcomePendingFolders = this.newSessionDraft.pendingFolders;
-  welcomeWorkingDirectory = this.newSessionDraft.workingDirectory;
-  welcomeSelectedNodeId = signal<string | null>(null);
-  remoteBrowseOpen = signal(false);
-  remoteBrowseNodeId = signal<string | null>(null);
-  welcomeSelectedCli = computed(() =>
-    this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation() ?? 'auto',
-  );
-  private welcomeProjectSnapshot = signal<{
-    branch: string | null;
-    hasChanges: boolean;
-    isRepo: boolean;
-    lastAccessed: number | null;
-  } | null>(null);
-  isWelcomeProjectContextLoading = signal(false);
-  welcomeProjectContext = computed<WelcomeProjectContext | null>(() => {
-    const workingDirectory = this.welcomeWorkingDirectory();
-    if (!workingDirectory) {
-      return null;
-    }
 
-    const snapshot = this.welcomeProjectSnapshot();
-    return {
-      branch: snapshot?.branch ?? null,
-      hasChanges: snapshot?.hasChanges ?? false,
-      isRepo: snapshot?.isRepo ?? false,
-      lastAccessed: snapshot?.lastAccessed ?? null,
-      draftUpdatedAt: this.newSessionDraft.updatedAt(),
-      hasDraft: this.newSessionDraft.hasActiveContent() || this.welcomePendingFiles().length > 0,
-    };
-  });
+  // Welcome-screen state delegated to WelcomeCoordinatorService
+  welcomePendingFiles = this.welcomeCoordinator.pendingFiles;
+  welcomePendingFolders = this.welcomeCoordinator.pendingFolders;
+  welcomeWorkingDirectory = this.welcomeCoordinator.workingDirectory;
+  welcomeSelectedNodeId = this.welcomeCoordinator.welcomeSelectedNodeId;
+  remoteBrowseOpen = this.welcomeCoordinator.remoteBrowseOpen;
+  remoteBrowseNodeId = this.welcomeCoordinator.remoteBrowseNodeId;
+  welcomeSelectedCli = this.welcomeCoordinator.selectedCli;
+  isWelcomeProjectContextLoading = this.welcomeCoordinator.isWelcomeProjectContextLoading;
+  welcomeProjectContext = this.welcomeCoordinator.projectContext;
   isEditingName = signal(false);
   isCreatingInstance = signal(false);
   isChangingMode = signal(false);
@@ -972,7 +933,6 @@ export class InstanceDetailComponent {
 
   // Track the provider we've fetched models for to avoid redundant fetches
   private lastFetchedProvider: string | null = null;
-  private welcomeContextRequestId = 0;
 
   // Effect: fetch models dynamically when provider changes
   private modelsFetchEffect = effect(() => {
@@ -1095,12 +1055,11 @@ export class InstanceDetailComponent {
       const inst = this.instance();
       const workingDirectory = this.welcomeWorkingDirectory();
       if (inst || !workingDirectory) {
-        this.welcomeProjectSnapshot.set(null);
-        this.isWelcomeProjectContextLoading.set(false);
+        this.welcomeCoordinator.isWelcomeProjectContextLoading.set(false);
         return;
       }
 
-      void this.loadWelcomeProjectContext(workingDirectory);
+      void this.welcomeCoordinator.loadWelcomeProjectContext(workingDirectory);
     });
   }
 
@@ -1260,12 +1219,7 @@ export class InstanceDetailComponent {
     if (!inst) return;
 
     const folders = this.pendingFolders();
-    let finalMessage = message;
-    if (folders.length > 0) {
-      const folderRefs = folders.map((f) => `[Folder: ${f}]`).join('\n');
-      finalMessage =
-        folders.length > 0 && message ? `${folderRefs}\n\n${message}` : folderRefs;
-    }
+    const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
 
     this.store.sendInput(inst.id, finalMessage, this.pendingFiles());
     this.draftService.clearPendingFiles(inst.id);
@@ -1336,7 +1290,7 @@ export class InstanceDetailComponent {
   async onFilePathDropped(filePath: string): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
-    const files = await this.loadDroppedFilesFromPaths([filePath]);
+    const files = await this.fileAttachment.loadDroppedFilesFromPaths([filePath]);
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);
     }
@@ -1346,7 +1300,7 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
-    const files = await this.loadDroppedFilesFromPaths(filePaths);
+    const files = await this.fileAttachment.loadDroppedFilesFromPaths(filePaths);
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);
     }
@@ -1489,278 +1443,77 @@ export class InstanceDetailComponent {
   }
 
   onWelcomeNodeChange(nodeId: string | null): void {
-    this.welcomeSelectedNodeId.set(nodeId);
-    this.newSessionDraft.setNodeId(nodeId);
+    this.welcomeCoordinator.onWelcomeNodeChange(nodeId);
   }
 
   async onWelcomeSendMessage(message: string): Promise<void> {
-    const workingDir = this.welcomeWorkingDirectory() || '.';
-    const provider = this.newSessionDraft.provider() ?? this.providerState.getProviderForCreation();
-    const model = this.newSessionDraft.model() ?? this.providerState.getModelForCreation();
-    const pendingFolders = this.welcomePendingFolders();
-    const finalMessage = this.prependPendingFolders(message, pendingFolders);
-    const forceNodeId = this.welcomeSelectedNodeId() ?? undefined;
-
-    // Validate selected remote node is still reachable
-    let effectiveWorkingDir = workingDir;
-    if (forceNodeId) {
-      const node = this.remoteNodeStore.nodeById(forceNodeId);
-      if (!node || (node.status !== 'connected' && node.status !== 'degraded')) {
-        this.store.setError('Selected remote node is no longer connected. Please choose another node or use Local.');
-        return;
-      }
-
-      // If the working directory is a local path that doesn't exist on the
-      // remote node, fall back to the first browsable root from that node.
-      const allowedDirs = node.capabilities?.workingDirectories ?? [];
-      const isWorkingDirOnNode = allowedDirs.some(
-        (d) => workingDir === d || workingDir.startsWith(d + '/') || workingDir.startsWith(d + '\\'),
-      );
-      if (!isWorkingDirOnNode && allowedDirs.length > 0) {
-        effectiveWorkingDir = allowedDirs[0];
-      } else if (!isWorkingDirOnNode) {
-        this.store.setError(
-          'The current working directory is not available on the remote node. Please browse and select a remote folder first.',
-        );
-        return;
-      }
-    }
-
-    this.isCreatingInstance.set(true);
-    const launched = await this.store.createInstanceWithMessage(
-      finalMessage,
-      this.welcomePendingFiles(),
-      effectiveWorkingDir,
-      provider,
-      model,
-      forceNodeId
-    );
-
-    if (!launched) {
-      // Only reset on failure — on success, the effect (which watches
-      // instance()) resets isCreatingInstance once the instance:created
-      // event arrives.  Resetting eagerly here races with that event and
-      // can briefly flash back to the welcome view.
-      this.isCreatingInstance.set(false);
-      // Still clear node selection so it doesn't leak into the next attempt
-      this.welcomeSelectedNodeId.set(null);
-      this.newSessionDraft.setNodeId(null);
-      return;
-    }
-
-    this.welcomeSelectedNodeId.set(null);
-    this.newSessionDraft.setNodeId(null);
-    this.newSessionDraft.clearActiveComposer();
-    await this.recentDirsService.addDirectory(
-      effectiveWorkingDir,
-      forceNodeId ? { nodeId: forceNodeId } : undefined,
+    await this.welcomeCoordinator.onWelcomeSendMessage(
+      message,
+      (creating) => this.isCreatingInstance.set(creating),
     );
   }
 
   onSelectWelcomeFolder(folder: string): void {
-    if (folder) {
-      this.newSessionDraft.setWorkingDirectory(folder);
-    }
+    this.welcomeCoordinator.onSelectWelcomeFolder(folder);
   }
 
   onWelcomeFilesDropped(files: File[]): void {
-    this.newSessionDraft.addPendingFiles(files);
+    this.welcomeCoordinator.onWelcomeFilesDropped(files);
   }
 
   onWelcomeImagesPasted(images: File[]): void {
-    this.newSessionDraft.addPendingFiles(images);
+    this.welcomeCoordinator.onWelcomeImagesPasted(images);
   }
 
   onWelcomeRemoveFile(file: File): void {
-    this.newSessionDraft.removePendingFile(file);
+    this.welcomeCoordinator.onWelcomeRemoveFile(file);
   }
 
   onWelcomeFolderDropped(folderPath: string): void {
-    this.newSessionDraft.addPendingFolder(folderPath);
+    this.welcomeCoordinator.onWelcomeFolderDropped(folderPath);
   }
 
   async onWelcomeFilePathDropped(filePath: string): Promise<void> {
-    const files = await this.loadFilesFromPaths([filePath]);
-    if (files.length > 0) {
-      this.newSessionDraft.addPendingFiles(files);
-    }
+    await this.welcomeCoordinator.onWelcomeFilePathDropped(filePath);
   }
 
   async onWelcomeFilePathsDropped(filePaths: string[]): Promise<void> {
-    const files = await this.loadFilesFromPaths(filePaths);
-    if (files.length > 0) {
-      this.newSessionDraft.addPendingFiles(files);
-    }
+    await this.welcomeCoordinator.onWelcomeFilePathsDropped(filePaths);
   }
 
   onWelcomeRemoveFolder(folder: string): void {
-    this.newSessionDraft.removePendingFolder(folder);
+    this.welcomeCoordinator.onWelcomeRemoveFolder(folder);
   }
 
   onWelcomeDiscardDraft(): void {
-    this.newSessionDraft.clearActiveComposer();
+    this.welcomeCoordinator.onWelcomeDiscardDraft();
   }
 
   onWelcomeBrowseRemote(nodeId: string): void {
-    this.remoteBrowseNodeId.set(nodeId);
-    this.remoteBrowseOpen.set(true);
+    this.welcomeCoordinator.onWelcomeBrowseRemote(nodeId);
   }
 
   onRemoteFolderSelected(path: string): void {
-    this.newSessionDraft.setWorkingDirectory(path);
-    this.remoteBrowseOpen.set(false);
-
-    // Track as recent directory with remote context and pre-select the
-    // remote node so the node picker reflects where the folder lives.
-    const nodeId = this.remoteBrowseNodeId();
-    if (nodeId) {
-      void this.recentDirsService.addDirectory(path, { nodeId });
-      this.welcomeSelectedNodeId.set(nodeId);
-      this.newSessionDraft.setNodeId(nodeId);
-    }
+    this.welcomeCoordinator.onRemoteFolderSelected(path);
   }
 
   async onAddFiles(): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
 
-    const files = await this.selectAndLoadFiles(inst.workingDirectory);
+    const files = await this.fileAttachment.selectAndLoadFiles(inst.workingDirectory);
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);
     }
   }
 
   async onWelcomeAddFiles(): Promise<void> {
-    const files = await this.selectAndLoadFiles(this.welcomeWorkingDirectory());
+    const files = await this.fileAttachment.selectAndLoadFiles(
+      this.welcomeWorkingDirectory(),
+    );
     if (files.length > 0) {
       this.newSessionDraft.addPendingFiles(files);
     }
-  }
-
-  private async selectAndLoadFiles(defaultPath?: string | null): Promise<File[]> {
-    const filePaths = await this.ipc.selectFiles({
-      multiple: true,
-      defaultPath: defaultPath || undefined,
-    });
-    if (!filePaths || filePaths.length === 0) {
-      return [];
-    }
-
-    return this.loadFilesFromPaths(filePaths);
-  }
-
-  private async loadFilesFromPaths(filePaths: string[]): Promise<File[]> {
-    const files: File[] = [];
-    for (const filePath of filePaths) {
-      try {
-        const response = await fetch(`file://${filePath}`);
-        const blob = await response.blob();
-        const fileName = filePath.split('/').pop() || 'file';
-        const file = new File([blob], fileName, {
-          type: blob.type || 'application/octet-stream'
-        });
-        files.push(file);
-      } catch (error) {
-        console.warn(`Failed to load file: ${filePath}`, error);
-      }
-    }
-    return files;
-  }
-
-  private async loadDroppedFilesFromPaths(filePaths: string[]): Promise<File[]> {
-    const acceptedPaths: string[] = [];
-    for (const filePath of filePaths) {
-      const stats = await this.fileIpc.getFileStats(filePath);
-      if (!stats) {
-        continue;
-      }
-
-      if (stats.isDirectory) {
-        console.log('Directory dropped - not supported yet:', filePath);
-        continue;
-      }
-
-      acceptedPaths.push(filePath);
-    }
-
-    return this.loadFilesFromPaths(acceptedPaths);
-  }
-
-  private prependPendingFolders(message: string, pendingFolders: string[]): string {
-    if (pendingFolders.length === 0) {
-      return message;
-    }
-
-    const folderRefs = pendingFolders.map((folder) => `[Folder: ${folder}]`).join('\n');
-    return message ? `${folderRefs}\n\n${message}` : folderRefs;
-  }
-
-  private async loadWelcomeProjectContext(workingDirectory: string): Promise<void> {
-    const requestId = ++this.welcomeContextRequestId;
-    this.isWelcomeProjectContextLoading.set(true);
-
-    try {
-      const [recentDirectories, repoResponse] = await Promise.all([
-        this.recentDirsService.getDirectories({ sortBy: 'lastAccessed' }),
-        this.vcsIpc.vcsIsRepo(workingDirectory),
-      ]);
-
-      if (!this.isLatestWelcomeContextRequest(requestId, workingDirectory)) {
-        return;
-      }
-
-      const recentEntry = this.findRecentDirectoryEntry(recentDirectories, workingDirectory);
-      const repoData = (repoResponse.data ?? null) as { isRepo?: boolean } | null;
-
-      if (!repoResponse.success || !repoData?.isRepo) {
-        this.welcomeProjectSnapshot.set({
-          branch: null,
-          hasChanges: false,
-          isRepo: false,
-          lastAccessed: recentEntry?.lastAccessed ?? null,
-        });
-        return;
-      }
-
-      const statusResponse = await this.vcsIpc.vcsGetStatus(workingDirectory);
-      if (!this.isLatestWelcomeContextRequest(requestId, workingDirectory)) {
-        return;
-      }
-
-      const statusData = (statusResponse.data ?? null) as {
-        branch?: string;
-        hasChanges?: boolean;
-      } | null;
-
-      this.welcomeProjectSnapshot.set({
-        branch: statusResponse.success ? statusData?.branch ?? null : null,
-        hasChanges: statusResponse.success ? !!statusData?.hasChanges : false,
-        isRepo: true,
-        lastAccessed: recentEntry?.lastAccessed ?? null,
-      });
-    } finally {
-      if (requestId === this.welcomeContextRequestId) {
-        this.isWelcomeProjectContextLoading.set(false);
-      }
-    }
-  }
-
-  private isLatestWelcomeContextRequest(requestId: number, workingDirectory: string): boolean {
-    return requestId === this.welcomeContextRequestId &&
-      !this.instance() &&
-      this.welcomeWorkingDirectory() === workingDirectory;
-  }
-
-  private findRecentDirectoryEntry(
-    entries: RecentDirectoryEntry[],
-    workingDirectory: string
-  ): RecentDirectoryEntry | null {
-    const normalized = this.normalizePathForComparison(workingDirectory);
-    return entries.find((entry) => this.normalizePathForComparison(entry.path) === normalized) ?? null;
-  }
-
-  private normalizePathForComparison(path: string | null | undefined): string {
-    return (path ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
   }
 
   onSelectChild(childId: string): void {

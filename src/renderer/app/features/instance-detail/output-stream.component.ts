@@ -34,6 +34,8 @@ import { DisplayItemProcessor, DisplayItem } from './display-item-processor.serv
 import { ExpansionStateService } from './expansion-state.service';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { InstanceStore } from '../../core/state/instance/instance.store';
+import { MessageFormatService } from './message-format.service';
+import { OutputScrollService } from './output-scroll.service';
 
 type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 
@@ -88,7 +90,7 @@ interface RenderedDisplayItem extends DisplayItem {
 
     <ng-template #itemBody let-item>
           @if (item.type === 'thought-group') {
-            @if (hasThoughtGroupContent(item)) {
+            @if (hasThoughtGroupContent(item, showThinking())) {
               <div class="thought-group">
                 @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
                   @if (showThinking()) {
@@ -180,7 +182,7 @@ interface RenderedDisplayItem extends DisplayItem {
                 [title]="item.message.timestamp | date: 'HH:mm:ss'">
                 @if (item.showHeader !== false && item.message.type !== 'user') {
                   <div class="message-header">
-                    <span class="message-type">{{ formatType(item.message.type) }}</span>
+                    <span class="message-type">{{ formatType(item.message.type, provider()) }}</span>
                     @if (item.repeatCount && item.repeatCount > 1) {
                       <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
                     }
@@ -865,7 +867,8 @@ export class OutputStreamComponent {
   // Scroll state - stored per instance
   protected showScrollToTop = signal(false);
   protected showScrollToBottom = signal(false);
-  private userScrolledUp = false;
+  /** Boxed boolean so OutputScrollService can mutate it by reference */
+  private userScrolledUpRef = { value: false };
   private scrollPositions = new Map<string, number>(); // instanceId -> scrollOffset
   private previousInstanceId: string | null = null;
   private lastAutoScrollInstanceId: string | null = null;
@@ -894,6 +897,8 @@ export class OutputStreamComponent {
   private perf = inject(PerfInstrumentationService);
   private destroyRef = inject(DestroyRef);
   private expansionState = inject(ExpansionStateService);
+  private messageFormat = inject(MessageFormatService);
+  private scrollService = inject(OutputScrollService);
   private displayItemProcessor = new DisplayItemProcessor();
 
   /**
@@ -989,7 +994,7 @@ export class OutputStreamComponent {
 
       if (currentInstanceId !== this.previousInstanceId) {
         // Instance changed - reset scroll state
-        this.userScrolledUp = false;
+        this.userScrolledUpRef.value = false;
         this.showScrollToTop.set(false);
         this.showScrollToBottom.set(false);
         this.hasOlderMessages.set(false);
@@ -1011,7 +1016,7 @@ export class OutputStreamComponent {
               nextViewport.scrollTop = savedPosition;
               const distanceFromBottom =
                 nextViewport.scrollHeight - nextViewport.scrollTop - nextViewport.clientHeight;
-              this.userScrolledUp = distanceFromBottom > 100;
+              this.userScrolledUpRef.value = distanceFromBottom > 100;
               this.showScrollToTop.set(savedPosition > 50);
               this.showScrollToBottom.set(distanceFromBottom > 50);
             } else {
@@ -1046,7 +1051,7 @@ export class OutputStreamComponent {
 
       requestAnimationFrame(() => {
         const viewport = this.getViewportElement();
-        if (viewport && !this.userScrolledUp) {
+        if (viewport && !this.userScrolledUpRef.value) {
           viewport.scrollTop = viewport.scrollHeight;
         }
       });
@@ -1076,42 +1081,25 @@ export class OutputStreamComponent {
   /**
    * Setup scroll event listener to detect user scrolling.
    * Returns the element and bound listener so the caller can remove it on destroy.
+   * Delegates to OutputScrollService.
    */
   private setupScrollListener(): { element: HTMLElement; listener: EventListener } | null {
     const el = this.getViewportElement();
     if (!el) return null;
-    let lastScrollTime = 0;
-
-    const listener: EventListener = () => {
-      // Measure scroll frame timing for perf budget
-      const now = performance.now();
-      if (lastScrollTime > 0) {
-        this.perf.recordScrollFrame(this.instanceId(), now - lastScrollTime, this.messages().length);
-      }
-      lastScrollTime = now;
-
-      const scrollOffset = el.scrollTop;
-      const viewportSize = el.clientHeight;
-      const totalSize = el.scrollHeight;
-      const autoScrollThreshold = 100;
-      const buttonShowThreshold = 50;
-
-      const distanceFromBottom = totalSize - scrollOffset - viewportSize;
-      const distanceFromTop = scrollOffset;
-
-      this.userScrolledUp = distanceFromBottom > autoScrollThreshold;
-      this.showScrollToTop.set(distanceFromTop > buttonShowThreshold);
-      this.showScrollToBottom.set(distanceFromBottom > buttonShowThreshold);
-      this.scrollPositions.set(this.instanceId(), scrollOffset);
-
-      // Trigger loading older messages when near the top
-      if (distanceFromTop < 200 && !this.isLoadingOlder() && this.hasOlderMessages()) {
-        this.loadOlderMessages();
-      }
-    };
-
-    el.addEventListener('scroll', listener, { passive: true });
-    return { element: el, listener };
+    return this.scrollService.setupScrollListener(
+      el,
+      {
+        showScrollToTop: this.showScrollToTop,
+        showScrollToBottom: this.showScrollToBottom,
+        scrollPositions: this.scrollPositions,
+        userScrolledUp: this.userScrolledUpRef,
+      },
+      () => this.instanceId(),
+      () => this.messages(),
+      () => this.isLoadingOlder(),
+      () => this.hasOlderMessages(),
+      () => { void this.loadOlderMessages(); },
+    );
   }
 
   /**
@@ -1205,9 +1193,7 @@ export class OutputStreamComponent {
   scrollToTop(): void {
     const el = this.getViewportElement();
     if (!el) return;
-
-    el.scrollTo({ top: 0, behavior: 'smooth' });
-    this.showScrollToTop.set(false);
+    this.scrollService.scrollToTop(el, { showScrollToTop: this.showScrollToTop });
   }
 
   /**
@@ -1216,10 +1202,10 @@ export class OutputStreamComponent {
   scrollToBottom(): void {
     const el = this.getViewportElement();
     if (!el) return;
-
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    this.userScrolledUp = false;
-    this.showScrollToBottom.set(false);
+    this.scrollService.scrollToBottom(el, {
+      showScrollToBottom: this.showScrollToBottom,
+      userScrolledUp: this.userScrolledUpRef,
+    });
   }
 
   /**
@@ -1303,153 +1289,53 @@ export class OutputStreamComponent {
     this.expansionState.toggleExpanded(this.instanceId(), itemId);
   }
 
-  /** Summary shown on a collapsed work-cycle header, e.g.
-   *  "7 thoughts · 4 Bash · 1 error" — counts grouped by sub-type. */
+  // ---- Formatting delegates (logic lives in MessageFormatService) ----
+
+  /** Summary shown on a collapsed work-cycle header. */
   summarizeCycle(item: DisplayItem): string {
-    const children = item.children;
-    if (!children || children.length === 0) return '';
-    let thoughtCount = 0;
-    let errorCount = 0;
-    const toolCounts = new Map<string, number>();
-    for (const child of children) {
-      if (child.type === 'thought-group') {
-        thoughtCount++;
-      } else if (child.type === 'tool-group' && child.toolMessages) {
-        for (const m of child.toolMessages) {
-          if (m.type === 'tool_use') {
-            const name = this.getToolName(m);
-            toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-          }
-        }
-      } else if (child.type === 'message' && child.message) {
-        if (child.message.type === 'error') errorCount++;
-        else if (child.message.type === 'tool_use') {
-          const name = this.getToolName(child.message);
-          toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-        }
-      }
-    }
-    const parts: string[] = [];
-    if (thoughtCount > 0) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? '' : 's'}`);
-    for (const [name, count] of toolCounts) parts.push(`${count} ${name}`);
-    if (errorCount > 0) parts.push(`${errorCount} error${errorCount === 1 ? '' : 's'}`);
-    return parts.length > 0 ? parts.join(' · ') : `${children.length} steps`;
+    return this.messageFormat.summarizeCycle(item);
   }
 
   /** "23s" / "2m 15s" elapsed across the cycle's children; empty if unknown. */
   formatCycleDuration(item: DisplayItem): string {
-    const children = item.children;
-    if (!children || children.length < 2) return '';
-    const firstTs = this.getCycleChildTimestamp(children[0]);
-    const lastTs = this.getCycleChildTimestamp(children[children.length - 1]);
-    if (firstTs === null || lastTs === null || lastTs <= firstTs) return '';
-    const seconds = Math.round((lastTs - firstTs) / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const rem = seconds % 60;
-    return rem > 0 ? `${minutes}m ${rem}s` : `${minutes}m`;
+    return this.messageFormat.formatCycleDuration(item);
   }
 
-  private getCycleChildTimestamp(child: DisplayItem): number | null {
-    if (child.timestamp) return child.timestamp;
-    if (child.message) return child.message.timestamp;
-    if (child.response) return child.response.timestamp;
-    if (child.toolMessages?.[0]) return child.toolMessages[0].timestamp;
-    return null;
-  }
-
-  formatType(type: string): string {
-    if (type === 'assistant') {
-      return this.getProviderDisplayName(this.provider());
-    }
-    const labels: Record<string, string> = {
-      user: 'You',
-      system: 'System',
-      tool_use: 'Tool',
-      tool_result: 'Result',
-      error: 'Error'
-    };
-    return labels[type] || type;
+  formatType(type: string, provider: string): string {
+    return this.messageFormat.formatType(type, provider);
   }
 
   protected getProviderDisplayName(provider: string): string {
-    switch (provider) {
-      case 'claude':
-        return 'Claude';
-      case 'copilot':
-        return 'Copilot';
-      case 'codex':
-        return 'Codex';
-      case 'gemini':
-        return 'Gemini';
-      case 'ollama':
-        return 'Ollama';
-      default:
-        return 'AI';
-    }
+    return this.messageFormat.getProviderDisplayName(provider);
   }
 
   hasContent(message: OutputMessage): boolean {
-    // Check if message has meaningful content to display
-    if (message.type === 'tool_use' || message.type === 'tool_result') {
-      return !!message.metadata || !!message.content;
-    }
-    // User messages may have attachments without text
-    if (message.attachments && message.attachments.length > 0) {
-      return true;
-    }
-    return !!message.content?.trim();
+    return this.messageFormat.hasContent(message);
   }
 
   isCompactionBoundary(message: OutputMessage): boolean {
-    return message.type === 'system' && !!message.metadata?.['isCompactionBoundary'];
+    return this.messageFormat.isCompactionBoundary(message);
   }
 
   isRestoreNotice(message: OutputMessage): boolean {
-    return message.type === 'system' && !!message.metadata?.['isRestoreNotice'];
+    return this.messageFormat.isRestoreNotice(message);
   }
 
   getCompactionLabel(message: OutputMessage): string {
-    const meta = message.metadata;
-    if (!meta) return 'Context compacted';
-
-    const prev = meta['previousUsage'] as { percentage?: number } | undefined;
-    const next = meta['newUsage'] as { percentage?: number } | undefined;
-    const method = meta['method'] as 'native' | 'restart-with-summary' | undefined;
-    const methodLabel = method ? `[${method}]` : '';
-
-    if (prev?.percentage !== undefined && next?.percentage !== undefined) {
-      return `Context compacted ${methodLabel} (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`.trim();
-    }
-
-    return `Context compacted ${methodLabel}`.trim();
+    return this.messageFormat.getCompactionLabel(message);
   }
 
-  /**
-   * Check if a thought-group has any content to display
-   * Returns false if thinking is hidden AND response is empty
-   */
-  hasThoughtGroupContent(item: DisplayItem): boolean {
-    const hasThinking = (item.thinking && item.thinking.length > 0) ||
-                       (item.thoughts && item.thoughts.length > 0);
-    const showsThinking = hasThinking && this.showThinking();
-    const hasResponse = !!(item.response && this.hasContent(item.response));
-
-    return showsThinking || hasResponse;
+  /** Returns false if thinking is hidden AND response is empty. */
+  hasThoughtGroupContent(item: DisplayItem, showThinking: boolean): boolean {
+    return this.messageFormat.hasThoughtGroupContent(item, showThinking);
   }
 
   getToolName(message: OutputMessage): string {
-    if (message.metadata && 'name' in message.metadata) {
-      return String(message.metadata['name']);
-    }
-    return message.type === 'tool_use' ? 'Tool Call' : 'Result';
+    return this.messageFormat.getToolName(message);
   }
 
   formatContent(message: OutputMessage): string {
-    if (message.metadata) {
-      return JSON.stringify(message.metadata, null, 2);
-    }
-    return message.content || '';
+    return this.messageFormat.formatContent(message);
   }
 
   onContextMenu(event: MouseEvent, item: DisplayItem): void {
@@ -1564,13 +1450,7 @@ export class OutputStreamComponent {
   }
 
   private getMessageSignature(messages: OutputMessage[]): string {
-    const lastMessage = messages[messages.length - 1];
-    return [
-      messages.length,
-      lastMessage?.id ?? '',
-      lastMessage?.timestamp ?? '',
-      lastMessage?.content?.length ?? 0
-    ].join(':');
+    return this.messageFormat.getMessageSignature(messages);
   }
 
 }

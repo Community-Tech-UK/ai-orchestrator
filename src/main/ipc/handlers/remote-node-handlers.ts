@@ -9,7 +9,7 @@ import { getNodeIdentityStore } from '../../remote-node/node-identity-store';
 import {
   RemoteNodeSetTokenPayloadSchema,
   RemoteNodeRevokePayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 import { getLocalIpv4Addresses } from '../../util/network-addresses';

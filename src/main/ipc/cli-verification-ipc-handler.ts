@@ -21,7 +21,7 @@ import {
   ProviderListModelsPayloadSchema,
   CliVerificationStartPayloadSchema,
   CliVerificationCancelPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 
 const logger = getLogger('CliVerification');

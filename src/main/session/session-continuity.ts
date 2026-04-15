@@ -20,6 +20,8 @@ import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { SnapshotIndex } from './snapshot-index';
+import { TerminationGateManager, type SessionTerminationGate, type TerminationGateResult } from './termination-gate-manager';
+import { SnapshotManager } from './snapshot-manager';
 import { cleanupOrphanedTmpFiles, repairFile, validateTranscript } from './session-repair';
 import { getSessionMutex } from './session-mutex';
 import { measureAsync } from '../util/slow-operations';
@@ -179,33 +181,8 @@ export interface PendingTask {
  * Pre-termination validation gate result.
  * Inspired by codex-plugin-cc's stop-review-gate-hook pattern.
  */
-export interface TerminationGateResult {
-  /** Whether the gate allows termination to proceed. */
-  pass: boolean;
-  /** Human-readable reason (displayed when blocked). */
-  reason?: string;
-  /** Optional structured data (review findings, verification results, etc.). */
-  data?: unknown;
-}
-
-/**
- * A pluggable gate that can block or allow session termination.
- * Register gates via `SessionContinuityManager.registerTerminationGate()`.
- *
- * Example: wire multi-verification or debate-coordinator as a gate to ensure
- * code changes pass review before an instance is torn down.
- */
-export interface SessionTerminationGate {
-  /** Unique name for logging/identification. */
-  name: string;
-  /**
-   * Validate whether the session may terminate.
-   * Receives the full session state; should return within `timeoutMs`.
-   */
-  validate(state: SessionState): Promise<TerminationGateResult>;
-  /** Max time to wait for this gate (ms). Defaults to 60 000. */
-  timeoutMs?: number;
-}
+// Re-exported from termination-gate-manager.ts for backward compatibility.
+export type { TerminationGateResult, SessionTerminationGate } from './termination-gate-manager';
 
 /**
  * Session continuity configuration
@@ -282,7 +259,10 @@ export class SessionContinuityManager extends EventEmitter {
   private pendingAutoSaveTimers = new Map<string, NodeJS.Timeout>();
   private autoSaveDeferredUntil = 0;
   private snapshotIndex: SnapshotIndex;
-  private terminationGates: SessionTerminationGate[] = [];
+  /** Extracted termination gate orchestration. */
+  readonly gateManager: TerminationGateManager;
+  /** Extracted snapshot persistence and retention. */
+  readonly snapshots: SnapshotManager;
   private instanceManager: InstanceManagerForContinuity | null = null;
 
   constructor(config: Partial<ContinuityConfig> = {}) {
@@ -296,6 +276,25 @@ export class SessionContinuityManager extends EventEmitter {
     this.quarantineDir = path.join(this.continuityDir, 'quarantine');
 
     this.snapshotIndex = new SnapshotIndex();
+    this.gateManager = new TerminationGateManager();
+    // Forward gate events up to the continuity manager's event bus
+    this.gateManager.on('gate:blocked', (data) => this.emit('gate:blocked', data));
+    this.snapshots = new SnapshotManager(
+      this.snapshotDir,
+      this.snapshotIndex,
+      {
+        writePayload: (filePath, data) => this.writePayload(filePath, data),
+        readPayload: <T>(filePath: string) => this.readPayload<T>(filePath),
+        migrateSessionState: (raw) => migrateSessionState(raw) as unknown as Record<string, unknown>,
+      },
+      {
+        maxSnapshots: this.config.maxSnapshots,
+        maxTotalSnapshots: this.config.maxTotalSnapshots,
+        snapshotRetentionDays: this.config.snapshotRetentionDays,
+      },
+    );
+    // Forward snapshot events
+    this.snapshots.on('snapshot:created', (snapshot) => this.emit('snapshot:created', snapshot));
     this.readyPromise = this.initAsync();
     registerCleanup(() => this.shutdown());
   }
@@ -538,58 +537,15 @@ export class SessionContinuityManager extends EventEmitter {
    * visibility into whether changes pass quality checks before teardown.
    */
   registerTerminationGate(gate: SessionTerminationGate): void {
-    this.terminationGates.push(gate);
-    logger.info('Registered termination gate', { name: gate.name });
+    this.gateManager.registerGate(gate);
   }
 
-  /**
-   * Unregister a termination gate by name.
-   */
   unregisterTerminationGate(name: string): void {
-    this.terminationGates = this.terminationGates.filter((g) => g.name !== name);
+    this.gateManager.unregisterGate(name);
   }
 
-  /**
-   * Run all registered termination gates for an instance.
-   * Returns combined results — gates that time out return `{ pass: true }` (fail-open).
-   */
   private async runTerminationGates(state: SessionState): Promise<TerminationGateResult[]> {
-    if (this.terminationGates.length === 0) return [];
-
-    const results: TerminationGateResult[] = [];
-    for (const gate of this.terminationGates) {
-      const timeoutMs = gate.timeoutMs ?? 60_000;
-      try {
-        const result = await Promise.race([
-          gate.validate(state),
-          new Promise<TerminationGateResult>((resolve) =>
-            setTimeout(() => resolve({ pass: true, reason: `Gate '${gate.name}' timed out after ${timeoutMs}ms` }), timeoutMs)
-          ),
-        ]);
-        results.push(result);
-
-        if (!result.pass) {
-          logger.warn('Termination gate blocked', {
-            gate: gate.name,
-            instanceId: state.instanceId,
-            reason: result.reason,
-          });
-          this.emit('gate:blocked', {
-            gate: gate.name,
-            instanceId: state.instanceId,
-            result,
-          });
-        }
-      } catch (error) {
-        // Gates must not block shutdown — fail-open on errors
-        logger.warn('Termination gate threw', {
-          gate: gate.name,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        results.push({ pass: true, reason: `Gate '${gate.name}' error: ${error instanceof Error ? error.message : String(error)}` });
-      }
-    }
-    return results;
+    return this.gateManager.runGates(state);
   }
 
   /**
@@ -604,7 +560,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     // Run termination gates before teardown
     const state = this.sessionStates.get(instanceId);
-    if (state && this.terminationGates.length > 0) {
+    if (state && this.gateManager.hasGates) {
       const gateResults = await this.runTerminationGates(state);
       const blocked = gateResults.filter((r) => !r.pass);
       if (blocked.length > 0) {
@@ -799,86 +755,22 @@ export class SessionContinuityManager extends EventEmitter {
     instanceId: string,
     name?: string,
     description?: string,
-    trigger: 'auto' | 'manual' | 'checkpoint' = 'manual'
+    trigger: 'auto' | 'manual' | 'checkpoint' = 'manual',
   ): Promise<SessionSnapshot | null> {
     await this.readyPromise;
     const state = this.sessionStates.get(instanceId);
     if (!state) return null;
-
-    let stateClone: SessionState;
-    try {
-      stateClone = structuredClone(state);
-    } catch {
-      stateClone = JSON.parse(JSON.stringify(state)) as SessionState;
-    }
-
-    const snapshot: SessionSnapshot = {
-      id: `snap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      instanceId,
-      sessionId: this.normalizeLookupIdentifier(state.sessionId) ?? undefined,
-      historyThreadId:
-        this.normalizeLookupIdentifier(state.historyThreadId) ?? undefined,
-      timestamp: Date.now(),
-      name,
-      description,
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-      state: stateClone,
-      metadata: {
-        messageCount: state.conversationHistory.length,
-        tokensUsed: state.contextUsage.used,
-        duration:
-          Date.now() - (state.conversationHistory[0]?.timestamp || Date.now()),
-        trigger
-      }
-    };
-
-    // Save snapshot
-    const snapshotFile = path.join(this.snapshotDir, `${snapshot.id}.json`);
-    await this.writePayload(snapshotFile, snapshot);
-
-    // Update index
-    this.snapshotIndex.add({
-      id: snapshot.id,
-      instanceId: snapshot.instanceId,
-      sessionId: snapshot.sessionId,
-      historyThreadId: snapshot.historyThreadId,
-      timestamp: snapshot.timestamp,
-      messageCount: snapshot.metadata.messageCount,
-      schemaVersion: CURRENT_SCHEMA_VERSION
-    });
-
-    // Cleanup old snapshots
-    await this.cleanupSnapshots(instanceId);
-
-    this.emit('snapshot:created', snapshot);
-    return snapshot;
+    return this.snapshots.createSnapshot(
+      state, instanceId, name, description, trigger,
+      (v) => this.normalizeLookupIdentifier(v),
+    );
   }
 
   /**
    * List available snapshots for a session — synchronous, uses index.
    */
   listSnapshots(identifier?: string): SessionSnapshot[] {
-    const metas = identifier
-      ? this.snapshotIndex.listForIdentifier(identifier)
-      : this.snapshotIndex.listAll();
-
-    // Return lightweight objects that satisfy SessionSnapshot shape.
-    // Full state is not included since this is just a listing.
-    return metas.map((meta) => ({
-      id: meta.id,
-      instanceId: meta.instanceId,
-      sessionId: meta.sessionId,
-      historyThreadId: meta.historyThreadId,
-      timestamp: meta.timestamp,
-      schemaVersion: meta.schemaVersion,
-      state: {} as SessionState, // not loaded for listing
-      metadata: {
-        messageCount: meta.messageCount,
-        tokensUsed: 0,
-        duration: 0,
-        trigger: 'auto' as const
-      }
-    }));
+    return this.snapshots.listSnapshots(identifier);
   }
 
   /**
@@ -1205,21 +1097,7 @@ export class SessionContinuityManager extends EventEmitter {
    * Load a specific snapshot from disk
    */
   private async loadSnapshot(snapshotId: string): Promise<SessionSnapshot | null> {
-    const snapshotFile = path.join(this.snapshotDir, `${snapshotId}.json`);
-
-    try {
-      await fs.promises.access(snapshotFile);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw error;
-    }
-
-    const snapshot = await this.readPayload<SessionSnapshot>(snapshotFile);
-    if (snapshot) {
-      const migratedState = migrateSessionState(snapshot.state as unknown as Record<string, unknown>);
-      snapshot.state = migratedState as unknown as SessionState;
-    }
-    return snapshot;
+    return this.snapshots.loadSnapshot(snapshotId);
   }
 
   /**
@@ -1376,109 +1254,11 @@ export class SessionContinuityManager extends EventEmitter {
    * Inspired by the codex-plugin-cc state pruning pattern (MAX_JOBS = 50).
    */
   private async cleanupSnapshots(instanceId: string): Promise<void> {
-    const cutoffTime =
-      Date.now() - this.config.snapshotRetentionDays * 24 * 60 * 60 * 1000;
-
-    // Collect IDs to remove: expired by age + excess by count
-    const toRemoveIds = new Set<string>();
-
-    // 1. Expired snapshots (all sessions)
-    for (const meta of this.snapshotIndex.getExpiredBefore(cutoffTime)) {
-      toRemoveIds.add(meta.id);
-    }
-
-    // 2. After removing expired, compute excess for this session
-    const sessionMetas = this.snapshotIndex
-      .listForSession(instanceId)
-      .filter((m) => !toRemoveIds.has(m.id));
-
-    if (sessionMetas.length > this.config.maxSnapshots) {
-      const excess = sessionMetas.slice(this.config.maxSnapshots);
-      for (const meta of excess) {
-        toRemoveIds.add(meta.id);
-      }
-    }
-
-    // 3. Global cap — remove oldest snapshots across all sessions if over limit
-    const remainingTotal = this.snapshotIndex.size - toRemoveIds.size;
-    if (remainingTotal > this.config.maxTotalSnapshots) {
-      const allMetas = this.snapshotIndex.listAll() // newest-first
-        .filter((m) => !toRemoveIds.has(m.id));
-      // Keep the newest maxTotalSnapshots, mark the rest for removal
-      const globalExcess = allMetas.slice(this.config.maxTotalSnapshots);
-      for (const meta of globalExcess) {
-        toRemoveIds.add(meta.id);
-      }
-    }
-
-    if (toRemoveIds.size > 0) {
-      logger.info('Pruning snapshots', {
-        count: toRemoveIds.size,
-        remainingAfter: this.snapshotIndex.size - toRemoveIds.size,
-        trigger: instanceId,
-      });
-    }
-
-    for (const id of toRemoveIds) {
-      const snapshotFile = path.join(this.snapshotDir, `${id}.json`);
-      try {
-        await fs.promises.unlink(snapshotFile);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          logger.warn('Failed to delete snapshot', { id, error: error instanceof Error ? error.message : String(error) });
-        }
-      }
-      this.snapshotIndex.remove(id);
-    }
+    return this.snapshots.cleanupSnapshots(instanceId);
   }
 
-  /**
-   * Global pruning pass — runs at startup to clean up snapshots that
-   * accumulated across previous app sessions. Removes age-expired and
-   * globally over-limit snapshots without requiring an instanceId.
-   */
   private async pruneOnStartup(): Promise<void> {
-    const cutoffTime =
-      Date.now() - this.config.snapshotRetentionDays * 24 * 60 * 60 * 1000;
-
-    const toRemoveIds = new Set<string>();
-
-    // Age-based pruning
-    for (const meta of this.snapshotIndex.getExpiredBefore(cutoffTime)) {
-      toRemoveIds.add(meta.id);
-    }
-
-    // Global cap pruning
-    const remainingTotal = this.snapshotIndex.size - toRemoveIds.size;
-    if (remainingTotal > this.config.maxTotalSnapshots) {
-      const allMetas = this.snapshotIndex.listAll()
-        .filter((m) => !toRemoveIds.has(m.id));
-      const globalExcess = allMetas.slice(this.config.maxTotalSnapshots);
-      for (const meta of globalExcess) {
-        toRemoveIds.add(meta.id);
-      }
-    }
-
-    if (toRemoveIds.size === 0) return;
-
-    logger.info('Startup snapshot pruning', {
-      count: toRemoveIds.size,
-      remainingAfter: this.snapshotIndex.size - toRemoveIds.size,
-    });
-
-    for (const id of toRemoveIds) {
-      const snapshotFile = path.join(this.snapshotDir, `${id}.json`);
-      try {
-        await fs.promises.unlink(snapshotFile);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          logger.warn('Failed to delete snapshot during startup prune', {
-            id, error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-      this.snapshotIndex.remove(id);
-    }
+    return this.snapshots.pruneOnStartup();
   }
 
   /**

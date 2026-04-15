@@ -11,6 +11,7 @@ import type {
   LoadedSkill,
   SkillMetadata,
 } from '../../shared/types/skill.types';
+import { SkillFrontmatterSchema } from '@contracts/schemas';
 
 const MAX_CACHED_SKILLS = 50;
 
@@ -126,55 +127,75 @@ export class SkillLoader extends EventEmitter {
     }
   }
 
+  /**
+   * Parse YAML frontmatter from skill content and validate against
+   * {@link SkillFrontmatterSchema} from `@contracts/schemas`.
+   *
+   * Falls back to manual field extraction when the frontmatter doesn't
+   * satisfy the schema (e.g. missing required description), ensuring
+   * backward compatibility with existing skill files.
+   */
   private parseMetadata(content: string, defaultName: string): SkillMetadata {
-    const metadata: SkillMetadata = {
+    const defaults: SkillMetadata = {
       name: defaultName,
       description: '',
       triggers: [],
       version: '1.0.0',
     };
 
-    // Parse YAML frontmatter
+    // Extract YAML frontmatter block
     const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    if (frontmatterMatch) {
-      const frontmatter = frontmatterMatch[1];
+    if (!frontmatterMatch) {
+      return defaults;
+    }
 
-      // Simple YAML parsing
-      const lines = frontmatter.split('\n');
-      for (const line of lines) {
-        const [key, ...valueParts] = line.split(':');
-        const value = valueParts.join(':').trim();
+    // Parse key-value pairs from frontmatter into a plain object
+    const raw: Record<string, unknown> = {};
+    const lines = frontmatterMatch[1].split('\n');
+    for (const line of lines) {
+      const [key, ...valueParts] = line.split(':');
+      const value = valueParts.join(':').trim();
+      const trimmedKey = key.trim();
+      if (!trimmedKey) continue;
 
-        switch (key.trim()) {
-          case 'name':
-            metadata.name = value;
-            break;
-          case 'description':
-            metadata.description = value;
-            break;
-          case 'version':
-            metadata.version = value;
-            break;
-          case 'author':
-            metadata.author = value;
-            break;
-          case 'category':
-            metadata.category = value;
-            break;
-          case 'triggers':
-            // Parse array format: [trigger1, trigger2] or - trigger format
-            if (value.startsWith('[')) {
-              metadata.triggers = value
-                .slice(1, -1)
-                .split(',')
-                .map(t => t.trim().replace(/['"]/g, ''));
-            }
-            break;
-        }
+      if (trimmedKey === 'triggers' && value.startsWith('[')) {
+        raw[trimmedKey] = value
+          .slice(1, -1)
+          .split(',')
+          .map(t => t.trim().replace(/['"]/g, ''))
+          .filter(Boolean);
+      } else {
+        raw[trimmedKey] = value;
       }
     }
 
-    return metadata;
+    // Validate with contracts-backed Zod schema
+    const result = SkillFrontmatterSchema.safeParse(raw);
+    if (result.success) {
+      return {
+        name: result.data.name,
+        description: result.data.description,
+        triggers: result.data.triggers ?? [],
+        version: result.data.version ?? '1.0.0',
+        author: result.data.author,
+        category: result.data.category,
+        icon: result.data.icon,
+        effort: result.data.effort,
+        preferredModel: result.data.preferredModel,
+      };
+    }
+
+    // Schema validation failed — fall back to manual mapping for
+    // backward compatibility (e.g. skills with empty descriptions)
+    return {
+      ...defaults,
+      name: typeof raw['name'] === 'string' && raw['name'] ? raw['name'] : defaultName,
+      description: typeof raw['description'] === 'string' ? raw['description'] : '',
+      version: typeof raw['version'] === 'string' && raw['version'] ? raw['version'] : '1.0.0',
+      author: typeof raw['author'] === 'string' ? raw['author'] : undefined,
+      category: typeof raw['category'] === 'string' ? raw['category'] : undefined,
+      triggers: Array.isArray(raw['triggers']) ? raw['triggers'] : [],
+    };
   }
 
   // ============ Progressive Loading ============

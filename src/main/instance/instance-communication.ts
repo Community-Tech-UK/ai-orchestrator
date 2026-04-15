@@ -26,6 +26,7 @@ import { ToolOutputParser } from './tool-output-parser';
 import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
+import { normalizeAdapterEvent } from '../providers/event-normalizer';
 import { getTokenStatsService } from '../memory/token-stats';
 
 /**
@@ -675,10 +676,30 @@ export class InstanceCommunicationManager extends EventEmitter {
       return false;
     };
 
+    // WS3: Emit normalized provider-agnostic events via the contracts-based
+    // ProviderRuntimeEvent system. Consumers (plugins, telemetry, observability)
+    // can listen for 'provider:normalized-event' on the communication manager
+    // instead of per-provider event shapes.
+    const emitNormalized = (rawEventType: string, args: unknown[]): void => {
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) return;
+      const envelope = normalizeAdapterEvent(
+        instance.provider,
+        instanceId,
+        rawEventType,
+        args,
+        instance.providerSessionId,
+      );
+      if (envelope) {
+        this.emit('provider:normalized-event', envelope);
+      }
+    };
+
     adapter.on('output', async (message: OutputMessage) => {
       if (isStaleAdapterEvent('output')) {
         return;
       }
+      emitNormalized('output', [message]);
 
       // Skip user messages echoed back by the CLI — we add them explicitly
       // in InstanceManager.sendInput() and InstanceLifecycle.createInstance().
@@ -919,6 +940,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('status')) {
         return;
       }
+      emitNormalized('status', [status]);
 
       const instance = this.deps.getInstance(instanceId);
       if (instance && instance.status !== status) {
@@ -973,6 +995,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
         return;
       }
+      emitNormalized('context', [usage]);
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
@@ -1069,6 +1092,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('error')) {
         return;
       }
+      emitNormalized('error', [error]);
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
@@ -1237,6 +1261,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('exit')) {
         return;
       }
+      emitNormalized('exit', [code, signal]);
       logger.info('Adapter exit event', { instanceId, code, signal });
 
       const instance = this.deps.getInstance(instanceId);

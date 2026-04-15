@@ -3,7 +3,7 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import {
   RemoteObserverStartPayloadSchema,
   validateIpcPayload,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 
 export function registerRemoteObserverHandlers(): void {

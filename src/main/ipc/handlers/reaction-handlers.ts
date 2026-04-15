@@ -6,7 +6,7 @@ import {
   ReactionUntrackInstancePayloadSchema,
   ReactionGetStatePayloadSchema,
   ReactionUpdateConfigPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getReactionEngine } from '../../reactions';
 
 export function registerReactionHandlers(): void {

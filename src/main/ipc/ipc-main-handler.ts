@@ -10,7 +10,7 @@ import {
   validateIpcPayload,
   UserActionRequestPayloadSchema,
   MemoryLoadHistoryPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { InstanceManager } from '../instance/instance-manager';
 import { WindowManager } from '../window-manager';
 import { IPC_CHANNELS } from '@contracts/channels';

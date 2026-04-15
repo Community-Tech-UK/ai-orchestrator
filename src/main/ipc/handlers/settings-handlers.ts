@@ -21,7 +21,7 @@ import {
   RemoteConfigDiscoverGitPayloadSchema,
   RemoteConfigInvalidatePayloadSchema,
   validateIpcPayload
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import type { AppSettings, ProjectConfig } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { exportSettings, importSettings } from '../../core/config/settings-export';

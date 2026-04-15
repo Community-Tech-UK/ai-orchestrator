@@ -15,7 +15,7 @@ import {
   CostGetBudgetStatusPayloadSchema,
   CostGetEntriesPayloadSchema,
   CostClearEntriesPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getCostTracker } from '../../core/system/cost-tracker';
 import { WindowManager } from '../../window-manager';
 

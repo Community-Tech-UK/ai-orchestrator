@@ -7,7 +7,7 @@ import {
   FsUnwatchParamsSchema,
   FsEventParamsSchema,
 } from '../../shared/validation/remote-fs-schemas';
-import { FileAttachmentSchema } from '../../shared/validation/ipc-schemas';
+import { FileAttachmentSchema } from '@contracts/schemas';
 
 // -- Shared sub-schemas -------------------------------------------------------
 

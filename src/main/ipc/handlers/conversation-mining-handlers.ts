@@ -7,7 +7,7 @@ import {
   ConvoImportFilePayloadSchema,
   ConvoImportStringPayloadSchema,
   ConvoDetectFormatPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 const logger = getLogger('ConversationMiningHandlers');
 

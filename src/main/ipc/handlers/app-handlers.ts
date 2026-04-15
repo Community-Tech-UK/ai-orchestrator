@@ -16,7 +16,7 @@ import {
   FileReadDirPayloadSchema,
   FileReadTextPayloadSchema,
   FileWriteTextPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 interface AppHandlerDependencies {
   windowManager: WindowManager;

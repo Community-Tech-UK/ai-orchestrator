@@ -76,6 +76,9 @@ import { ensureHookScript } from '../cli/hooks/hook-path-resolver';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
+import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
+import { PlanModeManager } from './lifecycle/plan-mode-manager';
+import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import { SessionRecoveryHandler, type RecoveryResult } from './lifecycle/session-recovery';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
@@ -252,6 +255,15 @@ export class InstanceLifecycleManager extends EventEmitter {
    * the full production lifecycle and is not delegated here.
    */
   readonly spawner: InstanceSpawner;
+
+  /** Extracted plan-mode state machine. */
+  readonly planMode: PlanModeManager;
+
+  /** Extracted deferred-permission resume flow. */
+  private readonly deferredPermission: DeferredPermissionHandler;
+
+  /** Extracted restart/respawn policy helpers. */
+  readonly restartHelpers: RestartPolicyHelpers;
 
   private getRecoveryEngine(): RecoveryRecipeEngine {
     if (!this.recoveryEngine) {
@@ -434,6 +446,50 @@ export class InstanceLifecycleManager extends EventEmitter {
         return adapter as unknown as import('./lifecycle/instance-spawner').CliAdapter;
       },
     });
+    this.planMode = new PlanModeManager(
+      { getInstance: deps.getInstance },
+      this,
+    );
+    this.deferredPermission = new DeferredPermissionHandler(
+      {
+        getInstance: deps.getInstance,
+        getAdapter: deps.getAdapter,
+        setAdapter: deps.setAdapter,
+        deleteAdapter: deps.deleteAdapter,
+        deleteDiffTracker: deps.deleteDiffTracker,
+        setDiffTracker: deps.setDiffTracker as ((id: string, tracker: unknown) => void) | undefined,
+        setupAdapterEvents: deps.setupAdapterEvents,
+        queueUpdate: deps.queueUpdate,
+      },
+      {
+        transitionState: (instance, newState) => this.transitionState(instance, newState),
+        resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance) as Promise<string>,
+        getMcpConfig: (loc) => this.getMcpConfig(loc),
+        getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
+        waitForResumeHealth: (id) => this.waitForResumeHealth(id),
+        createCliAdapter: (cliType, options, loc) => createCliAdapter(cliType as never, options, loc),
+        acquireSessionMutex: (id, label) => getSessionMutex().acquire(id, label),
+      },
+      {
+        writeDecision: (toolUseId, decision, reason) =>
+          getDeferDecisionStore().writeDecision(toolUseId, decision, reason),
+        getDecisionDir: () => getDeferDecisionStore().getDecisionDir(),
+        createDiffTracker: (workDir) => new SessionDiffTracker(workDir),
+      },
+    );
+    this.restartHelpers = new RestartPolicyHelpers(
+      {
+        loadMessages: (id) => getOutputStorageManager().loadMessages(id),
+        archiveInstance: (inst, status) => getHistoryManager().archiveInstance(inst, status),
+        resetBudgetTracker: (id) => getCompactionCoordinator().resetBudgetTracker(id),
+        clearFirstMessageTracking: (id) => deps.clearFirstMessageTracking(id),
+        deleteDiffTracker: deps.deleteDiffTracker,
+        setDiffTracker: deps.setDiffTracker
+          ? (id, workDir) => deps.setDiffTracker!(id, new SessionDiffTracker(workDir))
+          : undefined,
+      },
+      { getActiveMessages: (input) => this.getActiveMessages(input) },
+    );
     this.startIdleCheckTimer();
     this.setupMemoryMonitoring();
   }
@@ -532,13 +588,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private buildReplayContinuityMessage(instance: Instance, reason: string): string {
-    return buildSharedReplayContinuityMessage(this.getActiveMessages(instance), { reason })
-      || [
-        '[SYSTEM CONTINUITY NOTICE]',
-        `Native resume is unavailable for this provider. Continuity mode is replay-based (${reason}).`,
-        'Continue the previous task and ask for clarification only if essential context is missing.',
-        '[END CONTINUITY NOTICE]',
-      ].join('\n');
+    return this.restartHelpers.buildReplayContinuityMessage(instance, reason);
   }
 
   /**
@@ -560,37 +610,8 @@ export class InstanceLifecycleManager extends EventEmitter {
     ).catch(() => { /* non-critical */ });
   }
 
-  /**
-   * Build a rich fallback history message when --resume fails.
-   * Merges live + historical messages, deduplicates, then creates a
-   * token-budget-aware recovery message.
-   */
   private async buildFallbackHistory(instance: Instance, reason: string): Promise<string> {
-    const outputStorage = getOutputStorageManager();
-    const historicalMessages = await outputStorage.loadMessages(instance.id);
-
-    // Merge historical + live, dedup by message ID
-    const merged = [...historicalMessages, ...instance.outputBuffer];
-    const seenIds = new Set<string>();
-    const deduped: OutputMessage[] = [];
-    for (const m of merged) {
-      if (seenIds.has(m.id)) continue;
-      seenIds.add(m.id);
-      deduped.push(m);
-    }
-    const activeMessages = this.getActiveMessages({
-      outputBuffer: deduped,
-      archivedUpToMessageId: instance.archivedUpToMessageId,
-    });
-
-    // Get context window for budget calculation
-    const contextWindow = getProviderModelContextWindow(instance.provider, instance.currentModel);
-
-    const fallback = buildFallbackHistoryMessage(activeMessages, reason, contextWindow);
-    if (fallback) return fallback;
-
-    // Final fallback: use old summary-based method
-    return this.buildReplayContinuityMessage(instance, reason);
+    return this.restartHelpers.buildFallbackHistory(instance, reason);
   }
 
   private getSeededInitialUserMessage(config: InstanceCreateConfig): OutputMessage | undefined {
@@ -1850,59 +1871,19 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private createSessionBoundaryMessage(): OutputMessage {
-    return {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'system',
-      content: '— Previous session archived —',
-      metadata: {
-        kind: 'session-boundary',
-        archived: true,
-      },
-    };
+    return this.restartHelpers.createSessionBoundaryMessage();
   }
 
   private resetBackendSessionState(
     instance: Instance,
     cliType: CliType,
-    options?: { resetTotalTokensUsed?: boolean; resetFirstMessageTracking?: boolean }
+    options?: { resetTotalTokensUsed?: boolean; resetFirstMessageTracking?: boolean },
   ): void {
-    instance.contextUsage = {
-      used: 0,
-      total: getProviderModelContextWindow(cliType, instance.currentModel),
-      percentage: 0,
-    };
-    instance.diffStats = undefined;
-    if (options?.resetTotalTokensUsed) {
-      instance.totalTokensUsed = 0;
-    }
-
-    if (options?.resetFirstMessageTracking) {
-      this.deps.clearFirstMessageTracking(instance.id);
-    }
-    getCompactionCoordinator().resetBudgetTracker(instance.id);
-    this.deps.deleteDiffTracker?.(instance.id);
-    if (this.deps.setDiffTracker) {
-      this.deps.setDiffTracker(instance.id, new SessionDiffTracker(instance.workingDirectory));
-    }
+    this.restartHelpers.resetBackendSessionState(instance, cliType, options);
   }
 
   private async archiveRestartSnapshot(instance: Instance, messages: OutputMessage[]): Promise<void> {
-    if (instance.parentId || messages.length === 0) {
-      return;
-    }
-
-    const archivedInstance: Instance = {
-      ...instance,
-      id: `${instance.id}-restart-archive-${Date.now()}`,
-      outputBuffer: [...messages],
-      childrenIds: [...instance.childrenIds],
-      subscribedTo: [...instance.subscribedTo],
-      communicationTokens: new Map(instance.communicationTokens),
-      archivedUpToMessageId: undefined,
-    };
-
-    await getHistoryManager().archiveInstance(archivedInstance, 'completed');
+    return this.restartHelpers.archiveRestartSnapshot(instance, messages);
   }
 
   private async nativeResumeAfterRestart(
@@ -2638,131 +2619,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   }
 
   // ============================================
-  // Deferred Permission Resume
+  // Deferred Permission Resume (delegated to DeferredPermissionHandler)
   // ============================================
 
-  /**
-   * Resume a Claude CLI session after the user approves or denies a deferred tool use.
-   * Follows the same mutex + terminate + respawn pattern as toggleYoloMode.
-   *
-   * Flow:
-   * 1. Write the user's decision to a file keyed by tool_use_id
-   * 2. Terminate the old (exited) adapter
-   * 3. Spawn a new adapter with --resume pointing to the same session
-   * 4. The hook is re-invoked, reads the decision file, returns allow/deny
-   * 5. Claude CLI continues or receives a denial tool_result
-   */
   async resumeAfterDeferredPermission(
     instanceId: string,
-    approved: boolean
+    approved: boolean,
   ): Promise<void> {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    const release = await getSessionMutex().acquire(instanceId, 'resume-deferred-permission');
-    try {
-      const oldAdapter = this.deps.getAdapter(instanceId);
-      if (!oldAdapter) {
-        throw new Error(`No adapter for instance ${instanceId}`);
-      }
-
-      // Get deferred tool use from the Claude adapter
-      const claudeAdapter = oldAdapter as ClaudeCliAdapter;
-      const deferred = typeof claudeAdapter.getDeferredToolUse === 'function'
-        ? claudeAdapter.getDeferredToolUse()
-        : null;
-
-      if (!deferred) {
-        throw new Error(`No deferred tool use pending for instance ${instanceId}`);
-      }
-
-      logger.info('Resuming after deferred permission', {
-        instanceId,
-        approved,
-        toolName: deferred.toolName,
-        toolUseId: deferred.toolUseId,
-        sessionId: deferred.sessionId,
-      });
-
-      // 1. Write decision file for the hook to read on resume
-      const decisionStore = getDeferDecisionStore();
-      decisionStore.writeDecision(
-        deferred.toolUseId,
-        approved ? 'allow' : 'deny',
-        approved ? 'User approved via orchestrator UI' : 'User denied via orchestrator UI',
-      );
-
-      // 2. Terminate old adapter (process already exited, but clean up state)
-      this.transitionState(instance, 'respawning');
-      await oldAdapter.terminate(true).catch(() => { /* already exited */ });
-      this.deps.deleteAdapter(instanceId);
-      this.deps.deleteDiffTracker?.(instanceId);
-
-      // 3. Build spawn options with resume
-      const cliType = await this.resolveCliTypeForInstance(instance);
-      const spawnOptions: UnifiedSpawnOptions = {
-        sessionId: deferred.sessionId,
-        workingDirectory: instance.workingDirectory,
-        yoloMode: instance.yoloMode,
-        model: instance.currentModel,
-        resume: true,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-      };
-
-      // 4. Create and spawn new adapter
-      const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
-
-      // Inject the decision directory into the adapter's environment so the hook
-      // can find the decision file. The BaseCliAdapter.spawnProcess() uses
-      // this.config.env to extend the process environment.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (adapter as any).config.env = {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...((adapter as any).config.env || {}),
-        ORCHESTRATOR_DECISION_DIR: decisionStore.getDecisionDir(),
-      };
-
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-      if (this.deps.setDiffTracker) {
-        this.deps.setDiffTracker(instanceId, new SessionDiffTracker(instance.workingDirectory));
-      }
-
-      try {
-        const pid = await adapter.spawn();
-        instance.processId = pid;
-        instance.sessionId = deferred.sessionId;
-
-        const resumeHealthy = await this.waitForResumeHealth(instanceId);
-        if (!resumeHealthy) {
-          logger.warn('Resume health check failed after deferred permission', { instanceId });
-          // Still transition to idle — the CLI may recover on its own
-        }
-
-        this.transitionState(instance, 'idle');
-        logger.info('Resumed after deferred permission successfully', {
-          instanceId,
-          pid,
-          approved,
-          toolName: deferred.toolName,
-        });
-      } catch (error) {
-        this.transitionState(instance, 'error');
-        logger.error(
-          'Failed to resume after deferred permission',
-          error instanceof Error ? error : undefined,
-          { instanceId, approved },
-        );
-        throw error;
-      }
-
-      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-    } finally {
-      release();
-    }
+    return this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved);
   }
 
   // ============================================
@@ -3317,141 +3181,31 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   }
 
   // ============================================
-  // Plan Mode Management
+  // Plan Mode Management (delegated to PlanModeManager)
   // ============================================
 
-  /**
-   * Enter plan mode for an instance
-   */
   enterPlanMode(instanceId: string): Instance {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    instance.planMode = {
-      enabled: true,
-      state: 'planning',
-      planContent: undefined,
-      approvedAt: undefined
-    };
-
-    this.emit('state-update', {
-      instanceId,
-      status: instance.status,
-      planMode: instance.planMode
-    });
-
-    logger.info('Entered plan mode', { instanceId });
-    return instance;
+    return this.planMode.enterPlanMode(instanceId);
   }
 
-  /**
-   * Exit plan mode
-   */
   exitPlanMode(instanceId: string, force = false): Instance {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    if (!instance.planMode.enabled) {
-      throw new Error('Instance is not in plan mode');
-    }
-
-    if (!force && instance.planMode.state !== 'approved') {
-      throw new Error('Plan must be approved before exiting plan mode');
-    }
-
-    instance.planMode = {
-      enabled: false,
-      state: 'off',
-      planContent: undefined,
-      approvedAt: undefined
-    };
-
-    this.emit('state-update', {
-      instanceId,
-      status: instance.status,
-      planMode: instance.planMode
-    });
-
-    logger.info('Exited plan mode', { instanceId });
-    return instance;
+    return this.planMode.exitPlanMode(instanceId, force);
   }
 
-  /**
-   * Approve a plan in plan mode
-   */
   approvePlan(instanceId: string, planContent?: string): Instance {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    if (!instance.planMode.enabled) {
-      throw new Error('Instance is not in plan mode');
-    }
-
-    instance.planMode = {
-      enabled: true,
-      state: 'approved',
-      planContent: planContent || instance.planMode.planContent,
-      approvedAt: Date.now()
-    };
-
-    this.emit('state-update', {
-      instanceId,
-      status: instance.status,
-      planMode: instance.planMode
-    });
-
-    logger.info('Approved plan', { instanceId });
-    return instance;
+    return this.planMode.approvePlan(instanceId, planContent);
   }
 
-  /**
-   * Update plan content while in planning mode
-   */
   updatePlanContent(instanceId: string, planContent: string): Instance {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    if (!instance.planMode.enabled) {
-      throw new Error('Instance is not in plan mode');
-    }
-
-    instance.planMode.planContent = planContent;
-
-    this.emit('state-update', {
-      instanceId,
-      status: instance.status,
-      planMode: instance.planMode
-    });
-
-    return instance;
+    return this.planMode.updatePlanContent(instanceId, planContent);
   }
 
-  /**
-   * Get plan mode state for an instance
-   */
   getPlanModeState(instanceId: string): {
     enabled: boolean;
     state: string;
     planContent?: string;
   } {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    return {
-      enabled: instance.planMode.enabled,
-      state: instance.planMode.state,
-      planContent: instance.planMode.planContent
-    };
+    return this.planMode.getPlanModeState(instanceId);
   }
 
   // ============================================

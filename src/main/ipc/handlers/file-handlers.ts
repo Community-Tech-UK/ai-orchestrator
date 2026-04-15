@@ -17,7 +17,7 @@ import {
   WatcherGetChangesPayloadSchema,
   WatcherClearBufferPayloadSchema,
   MultiEditPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getExternalEditorManager } from '../../workspace/editor/external-editor';
 import { getFileWatcherManager } from '../../workspace/watcher/file-watcher';
 import { getMultiEditManager } from '../../workspace/multiedit-manager';

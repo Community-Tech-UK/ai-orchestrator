@@ -14,7 +14,7 @@ import {
   TodoWriteAllPayloadSchema,
   TodoClearPayloadSchema,
   TodoGetCurrentPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getTodoManager } from '../../tasks/todo-manager';
 import type { WindowManager } from '../../window-manager';
 

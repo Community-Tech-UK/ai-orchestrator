@@ -45,12 +45,13 @@ export const InstanceSendInputPayloadSchema = z.object({
     size: z.number().int().min(0).max(50 * 1024 * 1024),
     data: z.string().optional(),
   })).max(10).optional(),
+  isRetry: z.boolean().optional(),
 }).refine(
   (data) => data.message.trim().length > 0 || (data.attachments && data.attachments.length > 0),
   { message: 'Either message must be non-empty or attachments must be provided' }
 );
 
-// NOTE: InstanceSendInputPayload interface already defined in transport.types.ts
+export type InstanceSendInputPayload = z.infer<typeof InstanceSendInputPayloadSchema>;
 
 // ============ Output History ============
 
@@ -69,14 +70,14 @@ export const InstanceTerminatePayloadSchema = z.object({
   graceful: z.boolean().optional().default(true),
 });
 
-// NOTE: InstanceTerminatePayload interface already defined in transport.types.ts
+export type InstanceTerminatePayload = z.infer<typeof InstanceTerminatePayloadSchema>;
 
 export const InstanceRenamePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   displayName: DisplayNameSchema,
 });
 
-// NOTE: InstanceRenamePayload interface already defined in transport.types.ts
+export type InstanceRenamePayload = z.infer<typeof InstanceRenamePayloadSchema>;
 
 export const InstanceChangeAgentPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
@@ -101,6 +102,8 @@ export const InputRequiredResponsePayloadSchema = z.object({
   permissionKey: z.string().max(200).optional(),
   decisionAction: z.enum(['allow', 'deny']).optional(),
   decisionScope: z.enum(['once', 'session', 'always']).optional(),
+  /** Optional metadata for routing — e.g. type: 'deferred_permission' for defer flow. */
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponsePayloadSchema>;
@@ -126,3 +129,94 @@ export const InstanceCompactPayloadSchema = z.object({
 });
 
 export type ValidatedInstanceCompactPayload = z.infer<typeof InstanceCompactPayloadSchema>;
+
+// ============ User Action Response ============
+
+export const UserActionResponsePayloadSchema = z.object({
+  requestId: z.string().min(1).max(100),
+  action: z.enum(['approve', 'reject', 'custom']),
+  customValue: z.string().max(10000).optional(),
+});
+
+export type UserActionResponsePayload = z.infer<typeof UserActionResponsePayloadSchema>;
+
+// Raw payload from renderer for USER_ACTION_RESPOND (uses approved boolean, not action enum)
+export const UserActionRespondRawPayloadSchema = z.object({
+  requestId: z.string().min(1).max(100),
+  approved: z.boolean(),
+  selectedOption: z.string().max(10000).optional(),
+});
+
+// ============ User Action Request ============
+
+export const UserActionRequestPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  action: z.string().min(1).max(200),
+  description: z.string().min(1).max(10000),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+// ============ Commands ============
+
+const CommandIdSchema = z.string().min(1).max(100);
+
+export const CommandExecutePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  commandId: CommandIdSchema,
+  args: z.array(z.string().max(10000)).max(50).optional(),
+});
+
+export const CommandCreatePayloadSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().min(1).max(1000),
+  template: z.string().min(1).max(100000),
+  hint: z.string().max(500).optional(),
+  shortcut: z.string().max(50).optional(),
+});
+
+export const CommandUpdatePayloadSchema = z.object({
+  commandId: CommandIdSchema,
+  updates: z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().min(1).max(1000).optional(),
+    template: z.string().min(1).max(100000).optional(),
+    hint: z.string().max(500).optional(),
+    shortcut: z.string().max(50).optional(),
+  }),
+});
+
+export const CommandDeletePayloadSchema = z.object({
+  commandId: CommandIdSchema,
+});
+
+// ============ Plan Mode ============
+
+export const PlanModeEnterPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const PlanModeExitPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  force: z.boolean().optional(),
+});
+
+export const PlanModeApprovePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  planContent: z.string().max(500000),
+});
+
+export const PlanModeUpdatePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  planContent: z.string().max(500000),
+});
+
+export const PlanModeGetStatePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+// ============ Memory Load History ============
+
+export const MemoryLoadHistoryPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  limit: z.number().int().min(1).max(10000).optional(),
+});

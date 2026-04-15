@@ -19,7 +19,7 @@ import {
   SpecialistAddFindingPayloadSchema,
   SpecialistUpdateMetricsPayloadSchema,
   SpecialistGetPromptAdditionPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getSpecialistRegistry } from '../agents/specialists/specialist-registry';
 import type { SpecialistProfile, SpecialistStatus, SpecialistFinding, SpecialistCategory } from '../../shared/types/specialist.types';
 import { applySpecialistConstraints } from '../../shared/utils/permission-mapper';

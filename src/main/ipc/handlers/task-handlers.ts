@@ -13,7 +13,7 @@ import {
   TaskGetByChildPayloadSchema,
   TaskCancelPayloadSchema,
   TaskGetPreflightPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getTaskManager } from '../../orchestration/task-manager';
 import { getTaskPreflightService } from '../../security/task-preflight-service';
 

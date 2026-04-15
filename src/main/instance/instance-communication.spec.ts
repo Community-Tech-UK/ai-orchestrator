@@ -95,6 +95,7 @@ function createInstance(status: Instance['status'] = 'idle'): Instance {
     requestCount: 0,
     errorCount: 0,
     restartCount: 0,
+    restartEpoch: 0,
   };
 }
 
@@ -168,7 +169,7 @@ describe('InstanceCommunicationManager', () => {
 
     expect(instance.status).toBe('terminated');
     expect(instance.processId).toBeNull();
-    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined);
+    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined, undefined);
   });
 
   it('captures baselines from tool_result messages', async () => {

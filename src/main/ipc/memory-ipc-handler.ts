@@ -32,7 +32,7 @@ import {
   UnifiedMemoryRecordStrategyPayloadSchema,
   UnifiedMemoryRecordWorkflowPayloadSchema,
   UnifiedMemoryRetrievePayloadSchema
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 // Training handlers moved to training-ipc-handler.ts
 import type {
   MemoryManagerDecision,

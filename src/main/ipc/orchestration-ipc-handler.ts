@@ -40,7 +40,7 @@ import {
   SkillsLoadReferencePayloadSchema,
   SkillsLoadExamplePayloadSchema,
   SkillsMatchPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import type { ReviewAgentConfig } from '../../shared/types/review-agent.types';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { getHookEngine } from '../hooks/hook-engine';

@@ -20,7 +20,7 @@ import {
   CodebaseSearchPayloadSchema,
   CodebaseSearchSymbolsPayloadSchema,
   StoreIdSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { z } from 'zod';
 import {
   getCodebaseIndexingService,

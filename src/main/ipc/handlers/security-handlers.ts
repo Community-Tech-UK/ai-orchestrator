@@ -14,7 +14,7 @@ import {
   SecuritySetPermissionPresetPayloadSchema,
   BashValidatePayloadSchema,
   BashCommandPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import {
   detectSecretsInContent,
   detectSecretsInEnvContent,

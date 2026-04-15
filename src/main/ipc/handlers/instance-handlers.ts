@@ -26,7 +26,7 @@ import {
   InstanceCompactPayloadSchema,
   InstanceLoadOlderMessagesPayloadSchema,
   validateIpcPayload
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';

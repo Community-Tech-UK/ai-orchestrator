@@ -7,7 +7,7 @@ import {
   RepoJobGetPayloadSchema,
   RepoJobCancelPayloadSchema,
   RepoJobRerunPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getRepoJobService } from '../../repo-jobs';
 

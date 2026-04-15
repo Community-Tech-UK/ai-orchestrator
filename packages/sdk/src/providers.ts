@@ -1,5 +1,23 @@
 import { EventEmitter } from 'events';
 
+// Re-export the normalized runtime event contract from @contracts.
+// SDK consumers should prefer these types for new integrations.
+export type {
+  ProviderRuntimeEvent,
+  ProviderRuntimeEventEnvelope,
+  ProviderEventKind,
+  ProviderEventMapper,
+  ProviderOutputEvent,
+  ProviderToolUseEvent,
+  ProviderToolResultEvent,
+  ProviderStatusEvent,
+  ProviderContextEvent,
+  ProviderErrorEvent,
+  ProviderExitEvent,
+  ProviderSpawnedEvent,
+  ProviderCompleteEvent,
+} from '@contracts/types';
+
 export type ProviderType =
   | 'claude-cli'
   | 'anthropic-api'
@@ -66,6 +84,14 @@ export interface ProviderUsage {
   estimatedCost?: number;
 }
 
+/**
+ * Legacy provider event type.
+ *
+ * @deprecated Use {@link ProviderRuntimeEvent} from `@contracts/types` instead.
+ * The contracts-based type provides richer, provider-agnostic event coverage.
+ * This type is retained for backward compatibility and will be removed in a
+ * future version.
+ */
 export type ProviderEvent =
   | { type: 'text'; content: string }
   | { type: 'tool_use'; tool: string; input: unknown }

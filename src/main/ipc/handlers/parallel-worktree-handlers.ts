@@ -13,7 +13,7 @@ import {
   ParallelWorktreeGetResultsPayloadSchema,
   ParallelWorktreeResolveConflictPayloadSchema,
   ParallelWorktreeMergePayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getParallelWorktreeCoordinator } from '../../orchestration/parallel-worktree-coordinator';
 
 export function registerParallelWorktreeHandlers(): void {

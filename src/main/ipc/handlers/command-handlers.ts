@@ -16,7 +16,7 @@ import {
   PlanModeUpdatePayloadSchema,
   PlanModeGetStatePayloadSchema,
   validateIpcPayload
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getCommandManager } from '../../commands/command-manager';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
 import { InstanceManager } from '../../instance/instance-manager';

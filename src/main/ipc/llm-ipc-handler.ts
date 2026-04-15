@@ -15,7 +15,7 @@ import {
   LLMCountTokensPayloadSchema,
   LLMTruncateTokensPayloadSchema,
   LLMSetConfigPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 /**
  * Get the main window for sending events

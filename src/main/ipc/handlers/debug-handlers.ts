@@ -17,7 +17,7 @@ import {
   DebugConfigPayloadSchema,
   DebugFilePayloadSchema,
   DebugAllPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 /**
  * Map log level string to LogLevel type

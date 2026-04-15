@@ -52,44 +52,14 @@ import { getCrossModelReviewService } from './orchestration/cross-model-review-s
 import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ipc';
 import { getChannelManager, ChannelMessageRouter, ChannelPersistence, ChannelCredentialStore, ChannelAccessPolicyStore } from './channels';
 import { getRLMDatabase } from './persistence/rlm-database';
-// Orchestration singletons
-import { getConsensusManager } from './orchestration/consensus';
-import { getRestartPolicy } from './orchestration/restart-policy';
-import { getSupervisor } from './orchestration/supervisor';
-import { getSynthesisAgent } from './orchestration/synthesis-agent';
-import { getVotingSystem } from './orchestration/voting';
-// Learning singletons
-import { getABTestingEngine } from './learning/ab-testing';
-import { getOutcomeTracker } from './learning/outcome-tracker';
-import { getPromptEnhancer } from './learning/prompt-enhancer';
-import { getStrategyLearner } from './learning/strategy-learner';
-// Memory agents
-import { getAnswerAgent } from './memory/answer-agent';
-import { getCritiqueAgent } from './memory/critique-agent';
-// Mempalace-inspired memory features
-import { getKnowledgeGraphService } from './memory/knowledge-graph-service';
-import { getConversationMiner } from './memory/conversation-miner';
-import { getWakeContextBuilder } from './memory/wake-context-builder';
+// Bootstrap module registry (WS6) — replaces manual singleton wiring
+import { bootstrapAll } from './bootstrap';
+import { registerOrchestrationBootstrap } from './bootstrap/orchestration-bootstrap';
+import { registerLearningBootstrap } from './bootstrap/learning-bootstrap';
+import { registerMemoryBootstrap } from './bootstrap/memory-bootstrap';
+import { registerInfrastructureBootstrap } from './bootstrap/infrastructure-bootstrap';
+// Knowledge bridge still needed for reflector wiring (app-specific)
 import { getKnowledgeBridge } from './memory/knowledge-bridge';
-import { getCodebaseMiner } from './memory/codebase-miner';
-// RLM singletons
-import { getRLMContextManager } from './rlm/context-manager';
-import { getEpisodicRLMStore } from './rlm/episodic-rlm-store';
-import { getSmartCompactionManager } from './rlm/smart-compaction';
-import { getSummarizationWorker } from './rlm/summarization-worker';
-// Infrastructure singletons
-import { getCheckpointManager } from './session/checkpoint-manager';
-import { getHealthChecker } from './core/system/health-checker';
-import { getRetryManager } from './core/retry-manager';
-import { getFailoverManager } from './providers/failover-manager';
-import { getSandboxManager } from './security/sandbox-manager';
-import { getClaudeMdLoader } from './core/config/claude-md-loader';
-// Skills & hooks singletons
-import { getSkillMatcher } from './skills/skill-matcher';
-import { getTriggerMatcher } from './skills/trigger-matcher';
-import { getEnhancedHookExecutor } from './hooks/enhanced-hook-executor';
-// CLI singletons
-import { getCliDetectionService } from './cli/cli-detection';
 import { BaseCliAdapter } from './cli/adapters/base-cli-adapter';
 // Child auto-announce
 import { getChildAnnouncer } from './orchestration/child-announcer';
@@ -265,7 +235,7 @@ class AIOrchestratorApp {
         { name: 'Reflector agent', fn: () => { getReflectorAgent(); } },
         { name: 'Path validator', fn: () => initializePathValidator() },
         { name: 'Compaction coordinator', fn: () => this.setupCompactionCoordinator() },
-        { name: 'Doom loop detector', fn: () => { getDoomLoopDetector(); } },
+        // Doom loop detector init moved to orchestration-bootstrap (WS6)
         { name: 'Truncation cleanup', fn: () => { initTruncationCleanup(); } },
         { name: 'Resource governor', fn: () => {
           const im = this.instanceManager;
@@ -414,27 +384,21 @@ class AIOrchestratorApp {
           router.start();
         } },
 
-        // --- Orchestration ---
-        { name: 'Consensus manager', fn: () => { getConsensusManager(); } },
-        { name: 'Restart policy', fn: () => { getRestartPolicy(); } },
-        { name: 'Supervisor', fn: () => { getSupervisor(); } },
-        { name: 'Synthesis agent', fn: () => { getSynthesisAgent(); } },
-        { name: 'Voting system', fn: () => { getVotingSystem(); } },
+        // --- Domain singletons (WS6: bootstrap registry) ---
+        { name: 'Domain bootstrap', fn: async () => {
+          registerOrchestrationBootstrap();
+          registerLearningBootstrap();
+          registerMemoryBootstrap();
+          registerInfrastructureBootstrap();
+          const result = await bootstrapAll();
+          if (result.failed.length > 0) {
+            logger.warn('Some bootstrap modules failed (degraded mode)', {
+              failed: result.failed,
+            });
+          }
+        } },
 
-        // --- Learning / Self-improvement ---
-        { name: 'Outcome tracker', fn: () => { getOutcomeTracker(); } },
-        { name: 'Strategy learner', fn: () => { getStrategyLearner(); } },
-        { name: 'Prompt enhancer', fn: () => { getPromptEnhancer(); } },
-        { name: 'A/B testing engine', fn: () => { getABTestingEngine(); } },
-
-        // --- Memory agents ---
-        { name: 'Answer agent', fn: () => { getAnswerAgent(); } },
-        { name: 'Critique agent', fn: () => { getCritiqueAgent(); } },
-
-        // --- Mempalace-inspired memory features ---
-        { name: 'Knowledge graph service', fn: () => { getKnowledgeGraphService(); } },
-        { name: 'Conversation miner', fn: () => { getConversationMiner(); } },
-        { name: 'Wake context builder', fn: () => { getWakeContextBuilder(); } },
+        // Knowledge bridge wiring (app-specific: needs reflector agent)
         { name: 'Knowledge bridge', fn: () => {
           const bridge = getKnowledgeBridge();
           const reflector = getReflectorAgent();
@@ -446,33 +410,7 @@ class AIOrchestratorApp {
           });
           logger.info('Knowledge bridge wired to reflector events');
         } },
-        { name: 'Codebase miner', fn: () => { getCodebaseMiner(); } },
 
-        // --- RLM (Reinforcement Learning from Memory) ---
-        { name: 'RLM context manager', fn: () => { getRLMContextManager(); } },
-        { name: 'Episodic RLM store', fn: () => { getEpisodicRLMStore(); } },
-        { name: 'Smart compaction', fn: () => { getSmartCompactionManager(); } },
-        { name: 'Summarization worker', fn: () => {
-          const worker = getSummarizationWorker();
-          worker.initialize();
-          worker.start();
-        } },
-
-        // --- Infrastructure ---
-        { name: 'Checkpoint manager', fn: () => { getCheckpointManager(); } },
-        { name: 'Health checker', fn: () => { getHealthChecker(); } },
-        { name: 'Retry manager', fn: () => { getRetryManager(); } },
-        { name: 'Failover manager', fn: () => { getFailoverManager(); } },
-        { name: 'Sandbox manager', fn: () => { getSandboxManager(); } },
-        { name: 'Claude MD loader', fn: () => { getClaudeMdLoader(); } },
-
-        // --- Skills & Hooks ---
-        { name: 'Trigger matcher', fn: () => { getTriggerMatcher(); } },
-        { name: 'Skill matcher', fn: () => { getSkillMatcher(); } },
-        { name: 'Enhanced hook executor', fn: () => { getEnhancedHookExecutor(); } },
-
-        // --- CLI Detection ---
-        { name: 'CLI detection', fn: () => { getCliDetectionService(); } },
         { name: 'Codemem', fn: () => initializeCodemem() },
 
         // === Cross-project pattern adoptions ===

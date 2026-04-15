@@ -13,7 +13,7 @@ import {
   KgAddEntityPayloadSchema,
   CodebaseMineDirectoryPayloadSchema,
   CodebaseGetStatusPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 const logger = getLogger('KnowledgeGraphHandlers');
 

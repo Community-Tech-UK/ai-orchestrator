@@ -10,7 +10,7 @@ import {
   ConsensusQueryPayloadSchema,
   ConsensusAbortPayloadSchema,
   validateIpcPayload
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getConsensusCoordinator } from '../../orchestration/consensus-coordinator';
 import type { ConsensusResult } from '../../orchestration/consensus.types';
 

@@ -11,7 +11,7 @@ import {
   SupervisionCreateTreePayloadSchema,
   SupervisionGetTreePayloadSchema,
   SupervisionHandleFailurePayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getCircuitBreakerRegistry } from '../../process/circuit-breaker';
 
 export function registerSupervisionHandlers(): void {

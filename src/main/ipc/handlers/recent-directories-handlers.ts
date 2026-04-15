@@ -15,7 +15,7 @@ import {
   RecentDirsPinPayloadSchema,
   RecentDirsReorderPayloadSchema,
   RecentDirsClearPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getSettingsManager } from '../../core/config/settings-manager';
 
 const logger = getLogger('RecentDirectoriesHandlers');

@@ -4,7 +4,7 @@ import {
   InstructionsCreateDraftPayloadSchema,
   InstructionsResolvePayloadSchema,
   validateIpcPayload,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import {
   createInstructionMigrationDraft,
   resolveInstructionStack,

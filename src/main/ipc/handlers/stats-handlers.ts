@@ -15,7 +15,7 @@ import {
   StatsGetPayloadSchema,
   StatsGetSessionPayloadSchema,
   StatsExportPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 export function registerStatsHandlers(): void {
   const statsManager = getUsageStatsManager();

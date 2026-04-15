@@ -19,7 +19,7 @@ import {
   SnapshotGetDiffPayloadSchema,
   SnapshotDeletePayloadSchema,
   SnapshotCleanupPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { getSnapshotManager } from '../../persistence/snapshot-manager';
 
 export function registerSnapshotHandlers(): void {

@@ -22,7 +22,7 @@ import {
   VerifyGetResultPayloadSchema,
   VerifyCancelPayloadSchema,
   VerifyConfigurePayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 export function registerVerificationHandlers(): void {
   // ============================================

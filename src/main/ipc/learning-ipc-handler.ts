@@ -22,7 +22,7 @@ import {
   AbGetVariantPayloadSchema,
   AbRecordOutcomePayloadSchema,
   AbListExperimentsPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { RLMContextManager } from '../rlm/context-manager';
 import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';

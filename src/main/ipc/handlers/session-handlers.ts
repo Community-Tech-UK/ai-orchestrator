@@ -30,7 +30,7 @@ import {
   HistoryLoadPayloadSchema,
   HistoryDeletePayloadSchema,
   HistoryRestorePayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import {
   inferConversationHistoryProvider,
 } from '../../../shared/types/history.types';

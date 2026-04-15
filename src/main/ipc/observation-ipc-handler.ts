@@ -13,7 +13,7 @@ import {
   ObservationConfigurePayloadSchema,
   ObservationGetReflectionsPayloadSchema,
   ObservationGetObservationsPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 /**
  * Register all observation-related IPC handlers

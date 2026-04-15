@@ -15,7 +15,7 @@ describe('manifest validation', () => {
     const result = validateManifest({ version: '1.0.0' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Missing or empty "name" field');
+      expect(result.errors.some((e) => e.toLowerCase().includes('name'))).toBe(true);
     }
   });
 
@@ -23,7 +23,7 @@ describe('manifest validation', () => {
     const result = validateManifest({ name: 'test' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Missing or empty "version" field');
+      expect(result.errors.some((e) => e.toLowerCase().includes('version'))).toBe(true);
     }
   });
 
@@ -31,7 +31,7 @@ describe('manifest validation', () => {
     const result = validateManifest('string');
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Manifest must be an object');
+      expect(result.errors.length).toBeGreaterThan(0);
     }
   });
 
@@ -39,7 +39,7 @@ describe('manifest validation', () => {
     const result = validateManifest(null);
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Manifest must be an object');
+      expect(result.errors.length).toBeGreaterThan(0);
     }
   });
 
@@ -63,7 +63,7 @@ describe('manifest validation', () => {
     const result = validateManifest({ name: 'test', version: '1.0.0', hooks: 'not-array' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('"hooks" must be an array of strings');
+      expect(result.errors.some((e) => e.toLowerCase().includes('hook'))).toBe(true);
     }
   });
 
@@ -71,20 +71,23 @@ describe('manifest validation', () => {
     const result = validateManifest({});
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Missing or empty "name" field');
-      expect(result.errors).toContain('Missing or empty "version" field');
+      expect(result.errors.length).toBeGreaterThanOrEqual(2);
+      expect(result.errors.some((e) => e.toLowerCase().includes('name'))).toBe(true);
+      expect(result.errors.some((e) => e.toLowerCase().includes('version'))).toBe(true);
     }
   });
 
-  it('filters non-string values out of hooks array', () => {
+  it('rejects hooks array containing non-string values', () => {
+    // The Zod schema validates hook values as known event names.
+    // Non-string values (42, null) are rejected rather than silently filtered.
     const result = validateManifest({
       name: 'test',
       version: '1.0.0',
       hooks: ['instance.created', 42, null, 'instance.removed'],
     });
-    expect(result.valid).toBe(true);
-    if (result.valid) {
-      expect(result.manifest.hooks).toEqual(['instance.created', 'instance.removed']);
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.length).toBeGreaterThan(0);
     }
   });
 
@@ -102,7 +105,7 @@ describe('manifest validation', () => {
     const result = validateManifest({ name: '', version: '1.0.0' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Missing or empty "name" field');
+      expect(result.errors.some((e) => e.toLowerCase().includes('name'))).toBe(true);
     }
   });
 
@@ -110,7 +113,27 @@ describe('manifest validation', () => {
     const result = validateManifest({ name: 'test', version: '' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toContain('Missing or empty "version" field');
+      expect(result.errors.some((e) => e.toLowerCase().includes('version'))).toBe(true);
+    }
+  });
+
+  it('rejects manifest with non-semver version', () => {
+    const result = validateManifest({ name: 'test', version: 'beta' });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.some((e) => e.toLowerCase().includes('version'))).toBe(true);
+    }
+  });
+
+  it('rejects unknown hook event names', () => {
+    const result = validateManifest({
+      name: 'test',
+      version: '1.0.0',
+      hooks: ['not.a.real.hook'],
+    });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.some((e) => e.toLowerCase().includes('hook'))).toBe(true);
     }
   });
 });

@@ -21,17 +21,14 @@ import { HistoryStore } from '../../core/state/history.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
-import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { InstanceRowComponent } from './instance-row.component';
-import {
-  getConversationHistoryTitle,
-  type ConversationHistoryEntry,
-} from '../../../../shared/types/history.types';
+import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
+import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ProjectGroupComputationService } from './project-group-computation.service';
+import { HistoryRailService } from './history-rail.service';
 
 const ORDER_STORAGE_KEY = 'instance-list-order';
-const PINNED_HISTORY_STORAGE_KEY = 'instance-list-pinned-history';
-const SEEN_HISTORY_THREADS_STORAGE_KEY = 'instance-list-seen-history-threads';
 const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
 const NO_WORKSPACE_KEY = '__no_workspace__';
 type HistorySortMode = 'last-interacted' | 'created';
@@ -458,7 +455,7 @@ interface RailChangeSummary {
                         class="history-show-more"
                         (click)="toggleHistoryExpanded(group.key)"
                       >
-                        {{ expandedHistoryKeys().has(group.key) ? 'Show less' : 'Show more' }}
+                        {{ historyRail.expandedHistoryKeys().has(group.key) ? 'Show less' : 'Show more' }}
                       </button>
                     }
                   </div>
@@ -1320,8 +1317,10 @@ export class InstanceListComponent {
   private historyStore = inject(HistoryStore);
   private recentDirectoriesService = inject(RecentDirectoriesIpcService);
   private fileIpc = inject(FileIpcService);
-  private newSessionDraft = inject(NewSessionDraftService);
   protected readonly remoteNodeStore = inject(RemoteNodeStore);
+  protected readonly projectGroupComputation = inject(ProjectGroupComputationService);
+  protected readonly historyRail = inject(HistoryRailService);
+  private newSessionDraft = inject(NewSessionDraftService);
 
   filterText = signal('');
   statusFilter = signal<string>('all');
@@ -1329,14 +1328,10 @@ export class InstanceListComponent {
   collapsedIds = signal<Set<string>>(new Set());
   collapsedProjectKeys = signal<Set<string>>(new Set());
   rootInstanceOrder = signal<string[]>(this.loadOrder());
-  pinnedHistoryIds = signal<Set<string>>(this.loadPinnedHistoryIds());
-  restoringHistoryIds = signal<Set<string>>(new Set());
-  expandedHistoryKeys = signal<Set<string>>(new Set());
   recentDirectories = signal<RecentDirectoryEntry[]>([]);
   historySortMode = signal<HistorySortMode>(this.loadSortMode());
   openProjectMenuKey = signal<string | null>(null);
   preferredEditorLabel = signal('Editor');
-  seenHistoryThreads = signal<Record<string, number>>(this.loadSeenHistoryThreads());
   lastVisitedHistoryThreadId = signal<string | null>(null);
   selectedId = this.store.selectedInstanceId;
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
@@ -1357,7 +1352,7 @@ export class InstanceListComponent {
     const filter = this.filterText().trim().toLowerCase();
     const status = this.statusFilter();
     const location = this.locationFilter();
-    const childrenByParent = this.buildChildrenMap(instances);
+    const childrenByParent = this.projectGroupComputation.buildChildrenMap(instances);
     const instanceMap = new Map(instances.map((instance) => [instance.id, instance]));
     const selectedId = this.selectedId();
     const collapsed = this.collapsedIds();
@@ -1375,14 +1370,14 @@ export class InstanceListComponent {
       const projectKey = this.getProjectKey(root.workingDirectory);
       const title = this.getProjectTitle(root.workingDirectory);
       const subtitle = this.getProjectSubtitle(root.workingDirectory);
-      const projectMatches = !!filter && this.matchesProjectText(title, subtitle, filter);
+      const projectMatches = !!filter && this.projectGroupComputation.matchesProjectText(title, subtitle, filter);
       const rawHistoryItems = historyByProject.get(projectKey) ?? [];
       const existingGroup = groups.get(projectKey);
       const historyLookupItems = existingGroup?.historyItems ?? rawHistoryItems;
       const historyByThreadId = new Map(
-        historyLookupItems.map((entry) => [this.getHistoryThreadId(entry), entry])
+        historyLookupItems.map((entry) => [this.historyRail.getHistoryThreadId(entry), entry])
       );
-      const liveItems = this.buildVisibleItems(
+      const liveItems = this.projectGroupComputation.buildVisibleItems(
         root,
         {
           filter,
@@ -1410,7 +1405,7 @@ export class InstanceListComponent {
       );
       const historySourceItems = existingGroup?.historyItems ?? rawHistoryItems;
       const historyItems = historySourceItems.filter(
-        (entry) => !liveThreadIds.has(this.getHistoryThreadId(entry))
+        (entry) => !liveThreadIds.has(this.historyRail.getHistoryThreadId(entry))
       );
 
       if (liveItems.length === 0 && historyItems.length === 0) {
@@ -1418,7 +1413,7 @@ export class InstanceListComponent {
       }
 
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
-      const draftInfo = this.getProjectDraftInfo(root.workingDirectory);
+      const draftInfo = this.projectGroupComputation.getProjectDraftInfo(root.workingDirectory);
       const group = existingGroup ?? {
         key: projectKey,
         path: root.workingDirectory?.trim() || null,
@@ -1446,14 +1441,14 @@ export class InstanceListComponent {
         root.createdAt,
         ...rawHistoryItems.map((item) => item.createdAt)
       );
-      group.sessionCount += this.countSessionsInTree(root, childrenByParent, instanceMap);
-      group.busyCount += this.countBusySessions(root, childrenByParent, instanceMap);
+      group.sessionCount += this.projectGroupComputation.countSessionsInTree(root, childrenByParent, instanceMap);
+      group.busyCount += this.projectGroupComputation.countBusySessions(root, childrenByParent, instanceMap);
       group.hasSelectedInstance = group.hasSelectedInstance || liveItems.some((item) => item.instance.id === selectedId);
       group.isExpanded = !collapsedProjects.has(projectKey);
       group.historyItems = historyItems;
       group.hasDraft = group.hasDraft || draftInfo.hasDraft;
       group.draftUpdatedAt = group.draftUpdatedAt ?? draftInfo.draftUpdatedAt;
-      Object.assign(group, this.getProjectStateSummary(group.liveItems, group.historyItems, group.hasDraft));
+      Object.assign(group, this.projectGroupComputation.getProjectStateSummary(group.liveItems, group.historyItems, group.hasDraft));
       group.sessionCount += historyItems.length - previousHistoryCount;
       groups.set(projectKey, group);
       historyByProject.delete(projectKey);
@@ -1467,7 +1462,7 @@ export class InstanceListComponent {
 
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
       const workingDirectory = recentDirectory?.path || historyItems[0].workingDirectory || null;
-      const draftInfo = this.getProjectDraftInfo(workingDirectory);
+      const draftInfo = this.projectGroupComputation.getProjectDraftInfo(workingDirectory);
       groups.set(projectKey, {
         key: projectKey,
         path: workingDirectory,
@@ -1484,7 +1479,7 @@ export class InstanceListComponent {
         isPinned: recentDirectory?.isPinned ?? false,
         hasDraft: draftInfo.hasDraft,
         draftUpdatedAt: draftInfo.draftUpdatedAt,
-        ...this.getProjectStateSummary([], historyItems, draftInfo.hasDraft),
+        ...this.projectGroupComputation.getProjectStateSummary([], historyItems, draftInfo.hasDraft),
         lastActivity: recentDirectory?.lastAccessed ?? historyItems[0].endedAt,
         liveItems: [],
         historyItems,
@@ -1496,12 +1491,12 @@ export class InstanceListComponent {
       for (const recentDirectory of recentDirectoriesByKey.values()) {
         const title = recentDirectory.displayName || this.getProjectTitle(recentDirectory.path);
         const subtitle = this.getProjectSubtitle(recentDirectory.path);
-        if (filter && !this.matchesProjectText(title, subtitle, filter)) {
+        if (filter && !this.projectGroupComputation.matchesProjectText(title, subtitle, filter)) {
           continue;
         }
 
         const projectKey = this.getProjectKey(recentDirectory.path);
-        const draftInfo = this.getProjectDraftInfo(recentDirectory.path);
+        const draftInfo = this.projectGroupComputation.getProjectDraftInfo(recentDirectory.path);
         groups.set(projectKey, {
           key: projectKey,
           path: recentDirectory.path || null,
@@ -1515,7 +1510,7 @@ export class InstanceListComponent {
           isPinned: recentDirectory.isPinned,
           hasDraft: draftInfo.hasDraft,
           draftUpdatedAt: draftInfo.draftUpdatedAt,
-          ...this.getProjectStateSummary([], [], draftInfo.hasDraft),
+          ...this.projectGroupComputation.getProjectStateSummary([], [], draftInfo.hasDraft),
           lastActivity: recentDirectory.lastAccessed,
           liveItems: [],
           historyItems: [],
@@ -1645,11 +1640,11 @@ export class InstanceListComponent {
       const latestHistoryEntries = this.getLatestHistoryEntriesByThread(historyEntries);
       const lastVisitedThreadId = this.lastVisitedHistoryThreadId();
       const seenEntries = Array.from(latestHistoryEntries.values()).filter((entry) => {
-        const threadId = this.getHistoryThreadId(entry);
+        const threadId = this.historyRail.getHistoryThreadId(entry);
         return liveThreadIds.has(threadId) || threadId === lastVisitedThreadId;
       });
 
-      this.markHistoryEntriesSeen(seenEntries);
+      this.historyRail.markHistoryEntriesSeen(seenEntries);
     });
   }
 
@@ -1931,19 +1926,19 @@ export class InstanceListComponent {
   }
 
   async onRestoreHistory(entryId: string): Promise<void> {
-    if (this.restoringHistoryIds().has(entryId)) {
+    if (this.historyRail.restoringHistoryIds().has(entryId)) {
       return;
     }
 
     this.closeProjectMenu({ restoreFocus: false });
-    this.restoringHistoryIds.update((current) => new Set(current).add(entryId));
+    this.historyRail.restoringHistoryIds.update((current) => new Set(current).add(entryId));
 
     try {
       const entry = this.historyStore.entries().find((item) => item.id === entryId);
       const result = await this.historyStore.restoreEntry(entryId, entry?.workingDirectory);
       if (result.success && result.instanceId) {
         if (entry) {
-          this.markHistoryEntriesSeen([entry]);
+          this.historyRail.markHistoryEntriesSeen([entry]);
         }
         // Populate restored messages into the new instance's output buffer.
         // The instance:created event may carry outputBuffer, but this explicit
@@ -1965,7 +1960,7 @@ export class InstanceListComponent {
         console.error('Failed to restore history entry:', result.error);
       }
     } finally {
-      this.restoringHistoryIds.update((current) => {
+      this.historyRail.restoringHistoryIds.update((current) => {
         const next = new Set(current);
         next.delete(entryId);
         return next;
@@ -2058,167 +2053,6 @@ export class InstanceListComponent {
     items[nextIndex]?.focus();
   }
 
-  private buildChildrenMap(instances: Instance[]): Map<string, string[]> {
-    const childrenByParent = new Map<string, string[]>();
-    for (const instance of instances) {
-      if (!instance.parentId) {
-        continue;
-      }
-
-      const siblings = childrenByParent.get(instance.parentId) ?? [];
-      siblings.push(instance.id);
-      childrenByParent.set(instance.parentId, siblings);
-    }
-    return childrenByParent;
-  }
-
-  private buildVisibleItems(
-    instance: Instance,
-    context: {
-      filter: string;
-      status: string;
-      location: 'all' | 'local' | 'remote';
-      projectMatches: boolean;
-      collapsed: Set<string>;
-      childrenByParent: Map<string, string[]>;
-      instanceMap: Map<string, Instance>;
-    },
-    depth: number,
-    parentChain: boolean[],
-    isLastChild: boolean
-  ): HierarchicalInstance[] {
-    const childrenIds = context.childrenByParent.get(instance.id) ?? [];
-    const children = childrenIds
-      .map((childId) => context.instanceMap.get(childId))
-      .filter((child): child is Instance => child !== undefined)
-      .sort((left, right) => left.createdAt - right.createdAt);
-
-    const childParentChain = parentChain.concat(!isLastChild);
-    const visibleChildren = children.flatMap((child, index) =>
-      this.buildVisibleItems(
-        child,
-        context,
-        depth + 1,
-        childParentChain,
-        index === children.length - 1
-      )
-    );
-
-    const textMatches = !context.filter ||
-      context.projectMatches ||
-      instance.displayName.toLowerCase().includes(context.filter) ||
-      instance.id.toLowerCase().includes(context.filter);
-    const statusMatches = context.status === 'all' || instance.status === context.status;
-    const locationMatches =
-      context.location === 'all' ||
-      (context.location === 'remote' && instance.executionLocation?.type === 'remote') ||
-      (context.location === 'local' && (instance.executionLocation === undefined || instance.executionLocation.type === 'local'));
-    const selfVisible = textMatches && statusMatches && locationMatches;
-
-    if (!selfVisible && visibleChildren.length === 0) {
-      return [];
-    }
-
-    const hasChildren = children.length > 0;
-    const isExpanded = !context.collapsed.has(instance.id);
-    const currentItem: HierarchicalInstance = {
-      instance: {
-        ...instance,
-        childrenIds,
-      },
-      railTitle: instance.displayName,
-      depth,
-      hasChildren,
-      isExpanded,
-      isLastChild,
-      parentChain,
-    };
-
-    if (!hasChildren || !isExpanded) {
-      return [currentItem];
-    }
-
-    return [currentItem, ...visibleChildren];
-  }
-
-  private countSessionsInTree(
-    instance: Instance,
-    childrenByParent: Map<string, string[]>,
-    instanceMap: Map<string, Instance>
-  ): number {
-    const childrenIds = childrenByParent.get(instance.id) ?? [];
-    return 1 + childrenIds.reduce((count, childId) => {
-      const child = instanceMap.get(childId);
-      return child ? count + this.countSessionsInTree(child, childrenByParent, instanceMap) : count;
-    }, 0);
-  }
-
-  private countBusySessions(
-    instance: Instance,
-    childrenByParent: Map<string, string[]>,
-    instanceMap: Map<string, Instance>
-  ): number {
-    const isBusy = instance.status === 'busy' || instance.status === 'initializing' || instance.status === 'waiting_for_input';
-    const childrenIds = childrenByParent.get(instance.id) ?? [];
-
-    return (isBusy ? 1 : 0) + childrenIds.reduce((count, childId) => {
-      const child = instanceMap.get(childId);
-      return child ? count + this.countBusySessions(child, childrenByParent, instanceMap) : count;
-    }, 0);
-  }
-
-  private getProjectDraftInfo(workingDirectory: string | null | undefined): {
-    hasDraft: boolean;
-    draftUpdatedAt: number | null;
-  } {
-    if (!workingDirectory) {
-      return {
-        hasDraft: false,
-        draftUpdatedAt: null,
-      };
-    }
-
-    return {
-      hasDraft: this.newSessionDraft.hasSavedDraftFor(workingDirectory),
-      draftUpdatedAt: this.newSessionDraft.getDraftUpdatedAt(workingDirectory),
-    };
-  }
-
-  private getProjectStateSummary(
-    liveItems: HierarchicalInstance[],
-    historyItems: ConversationHistoryEntry[],
-    hasDraft: boolean
-  ): Pick<ProjectGroup, 'projectStateLabel' | 'projectStateTone'> {
-    const statuses = new Set(liveItems.map((item) => item.instance.status));
-
-    if (statuses.has('error')) {
-      return { projectStateLabel: 'Issue', projectStateTone: 'attention' };
-    }
-    if (statuses.has('waiting_for_input')) {
-      return { projectStateLabel: 'Awaiting input', projectStateTone: 'attention' };
-    }
-    if (statuses.has('busy')) {
-      return { projectStateLabel: 'Working', projectStateTone: 'working' };
-    }
-    if (statuses.has('initializing') || statuses.has('respawning')) {
-      return { projectStateLabel: 'Connecting', projectStateTone: 'connecting' };
-    }
-    if (liveItems.length > 0) {
-      return { projectStateLabel: 'Ready', projectStateTone: 'ready' };
-    }
-    if (hasDraft) {
-      return { projectStateLabel: 'Draft ready', projectStateTone: 'ready' };
-    }
-    if (historyItems.length > 0) {
-      return { projectStateLabel: 'Recent history', projectStateTone: 'history' };
-    }
-    return { projectStateLabel: 'Available', projectStateTone: 'history' };
-  }
-
-  private matchesProjectText(title: string, subtitle: string, filter: string): boolean {
-    return title.toLowerCase().includes(filter) || subtitle.toLowerCase().includes(filter);
-  }
-
   private buildHistoryEntriesByProject(
     entries: ConversationHistoryEntry[],
     filter: string,
@@ -2245,8 +2079,8 @@ export class InstanceListComponent {
 
       if (
         filter &&
-        !this.matchesProjectText(title, subtitle, filter) &&
-        !this.matchesHistoryText(entry, filter)
+        !this.projectGroupComputation.matchesProjectText(title, subtitle, filter) &&
+        !this.projectGroupComputation.matchesHistoryText(entry, filter)
       ) {
         continue;
       }
@@ -2257,7 +2091,7 @@ export class InstanceListComponent {
       groups.set(projectKey, projectEntries);
     }
 
-    const pinnedIds = this.pinnedHistoryIds();
+    const pinnedIds = this.historyRail.pinnedHistoryIds();
     const sortMode = this.historySortMode();
     for (const projectEntries of groups.values()) {
       projectEntries.sort((left, right) => {
@@ -2266,14 +2100,14 @@ export class InstanceListComponent {
         if (leftPinned !== rightPinned) {
           return leftPinned ? -1 : 1;
         }
-        return this.getHistorySortTimestamp(right, sortMode) - this.getHistorySortTimestamp(left, sortMode);
+        return this.historyRail.getHistorySortTimestamp(right, sortMode) - this.historyRail.getHistorySortTimestamp(left, sortMode);
       });
 
       const dedupedEntries: ConversationHistoryEntry[] = [];
       const seenThreadIds = new Set<string>();
 
       for (const entry of projectEntries) {
-        const dedupeKey = this.getHistoryThreadId(entry);
+        const dedupeKey = this.historyRail.getHistoryThreadId(entry);
         if (seenThreadIds.has(dedupeKey)) {
           continue;
         }
@@ -2286,14 +2120,6 @@ export class InstanceListComponent {
     }
 
     return groups;
-  }
-
-  private matchesHistoryText(entry: ConversationHistoryEntry, filter: string): boolean {
-    return (
-      entry.displayName.toLowerCase().includes(filter) ||
-      entry.firstUserMessage.toLowerCase().includes(filter) ||
-      entry.lastUserMessage.toLowerCase().includes(filter)
-    );
   }
 
   private getOrderedRootInstances(instances: Instance[]): Instance[] {
@@ -2370,193 +2196,36 @@ export class InstanceListComponent {
     }
   }
 
-  private loadPinnedHistoryIds(): Set<string> {
-    try {
-      const saved = localStorage.getItem(PINNED_HISTORY_STORAGE_KEY);
-      if (!saved) {
-        return new Set();
-      }
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) {
-        return new Set();
-      }
-      return new Set(parsed.filter((value): value is string => typeof value === 'string'));
-    } catch {
-      return new Set();
-    }
-  }
-
-  private savePinnedHistoryIds(ids: Set<string>): void {
-    try {
-      localStorage.setItem(PINNED_HISTORY_STORAGE_KEY, JSON.stringify(Array.from(ids)));
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadSeenHistoryThreads(): Record<string, number> {
-    try {
-      const saved = localStorage.getItem(SEEN_HISTORY_THREADS_STORAGE_KEY);
-      if (!saved) {
-        return {};
-      }
-
-      const parsed = JSON.parse(saved);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return {};
-      }
-
-      const next: Record<string, number> = {};
-      for (const [threadId, endedAt] of Object.entries(parsed)) {
-        if (!threadId.trim()) {
-          continue;
-        }
-        if (typeof endedAt === 'number' && Number.isFinite(endedAt)) {
-          next[threadId] = endedAt;
-        }
-      }
-
-      return next;
-    } catch {
-      return {};
-    }
-  }
-
-  private saveSeenHistoryThreads(seenThreads: Record<string, number>): void {
-    try {
-      const entries = Object.entries(seenThreads).filter(
-        ([threadId, endedAt]) => threadId.trim().length > 0 && Number.isFinite(endedAt)
-      );
-      if (entries.length === 0) {
-        localStorage.removeItem(SEEN_HISTORY_THREADS_STORAGE_KEY);
-        return;
-      }
-
-      localStorage.setItem(
-        SEEN_HISTORY_THREADS_STORAGE_KEY,
-        JSON.stringify(Object.fromEntries(entries))
-      );
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private markHistoryEntriesSeen(
-    entries: readonly Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'id' | 'endedAt'>[]
-  ): void {
-    if (entries.length === 0) {
-      return;
-    }
-
-    this.seenHistoryThreads.update((current) => {
-      let next: Record<string, number> | null = null;
-
-      for (const entry of entries) {
-        const threadId = this.getHistoryThreadId(entry);
-        if (!threadId.trim() || !Number.isFinite(entry.endedAt)) {
-          continue;
-        }
-
-        const seenEndedAt = (next ?? current)[threadId] ?? 0;
-        if (seenEndedAt >= entry.endedAt) {
-          continue;
-        }
-
-        next ??= { ...current };
-        next[threadId] = entry.endedAt;
-      }
-
-      if (!next) {
-        return current;
-      }
-
-      this.saveSeenHistoryThreads(next);
-      return next;
-    });
-  }
-
   isRestoringHistory(entryId: string): boolean {
-    return this.restoringHistoryIds().has(entryId);
+    return this.historyRail.isRestoringHistory(entryId);
   }
-
-  private readonly HISTORY_DISPLAY_LIMIT = 10;
 
   getVisibleHistoryItems(group: ProjectGroup): ConversationHistoryEntry[] {
-    if (this.expandedHistoryKeys().has(group.key)) {
-      return group.historyItems;
-    }
-    return group.historyItems.slice(0, this.HISTORY_DISPLAY_LIMIT);
+    return this.historyRail.getVisibleHistoryItems(group);
   }
 
   toggleHistoryExpanded(key: string): void {
-    this.expandedHistoryKeys.update((current) => {
-      const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
+    this.historyRail.toggleHistoryExpanded(key);
   }
 
   isPinnedHistory(entryId: string): boolean {
-    return this.pinnedHistoryIds().has(entryId);
+    return this.historyRail.isPinnedHistory(entryId);
   }
 
   togglePinnedHistory(entryId: string, event: Event): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.pinnedHistoryIds.update((current) => {
-      const next = new Set(current);
-      if (next.has(entryId)) {
-        next.delete(entryId);
-      } else {
-        next.add(entryId);
-      }
-      this.savePinnedHistoryIds(next);
-      return next;
-    });
+    this.historyRail.togglePinnedHistory(entryId, event);
   }
 
   getHistoryTitle(entry: ConversationHistoryEntry): string {
-    return getConversationHistoryTitle(entry);
+    return this.historyRail.getHistoryTitle(entry);
   }
 
   getHistoryPreviewTitle(entry: ConversationHistoryEntry): string {
-    return this.truncateRailText(this.getHistoryTitle(entry));
-  }
-
-  isHistoryThreadSeen(
-    entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'id' | 'endedAt'>
-  ): boolean {
-    const seenEndedAt = this.seenHistoryThreads()[this.getHistoryThreadId(entry)] ?? 0;
-    return seenEndedAt >= entry.endedAt;
+    return this.historyRail.getHistoryPreviewTitle(entry);
   }
 
   getHistoryChangeSummary(entry: ConversationHistoryEntry): RailChangeSummary | null {
-    if (this.isHistoryThreadSeen(entry)) {
-      return null;
-    }
-
-    if (!entry.changeSummary) {
-      return null;
-    }
-
-    const additions = Number(entry.changeSummary.additions ?? 0);
-    const deletions = Number(entry.changeSummary.deletions ?? 0);
-
-    if (!Number.isFinite(additions) || !Number.isFinite(deletions)) {
-      return null;
-    }
-    if (additions === 0 && deletions === 0) {
-      return null;
-    }
-
-    return {
-      additions,
-      deletions,
-    };
+    return this.historyRail.getHistoryChangeSummary(entry);
   }
 
   getHistoryProviderVisual(entry: ConversationHistoryEntry): {
@@ -2564,41 +2233,15 @@ export class InstanceListComponent {
     color: string;
     label: string;
   } {
-    switch (entry.provider) {
-      case 'claude':
-        return { icon: 'anthropic', color: '#D97706', label: 'Claude' };
-      case 'codex':
-        return { icon: 'openai', color: '#10A37F', label: 'Codex' };
-      case 'gemini':
-        return { icon: 'google', color: '#4285F4', label: 'Gemini' };
-      case 'copilot':
-        return { icon: 'github', color: '#6e40c9', label: 'Copilot' };
-      default:
-        return { icon: 'generic', color: 'rgba(214, 221, 208, 0.76)', label: 'AI session' };
-    }
+    return this.historyRail.getHistoryProviderVisual(entry);
   }
 
   formatRelativeTime(timestamp: number): string {
-    const diff = Date.now() - timestamp;
-    const minute = 60_000;
-    const hour = 60 * minute;
-    const day = 24 * hour;
-    const week = 7 * day;
-
-    if (diff < hour) {
-      return `${Math.max(1, Math.round(diff / minute))}m`;
-    }
-    if (diff < day) {
-      return `${Math.round(diff / hour)}h`;
-    }
-    if (diff < week) {
-      return `${Math.round(diff / day)}d`;
-    }
-    return `${Math.round(diff / week)}w`;
+    return this.historyRail.formatRelativeTime(timestamp);
   }
 
   formatHistoryTime(entry: ConversationHistoryEntry): string {
-    return this.formatRelativeTime(this.getHistorySortTimestamp(entry, this.historySortMode()));
+    return this.historyRail.formatHistoryTime(entry, this.historySortMode());
   }
 
   getProjectDraftTitle(group: ProjectGroup): string {
@@ -2622,7 +2265,7 @@ export class InstanceListComponent {
     // derivation as history items so the name stays stable across
     // live → history transitions and isn't affected by async auto-titling.
     if (matchingHistoryEntry) {
-      return getConversationHistoryTitle(matchingHistoryEntry);
+      return this.historyRail.getHistoryTitle(matchingHistoryEntry);
     }
 
     return instance.displayName;
@@ -2634,7 +2277,7 @@ export class InstanceListComponent {
     const latestEntries = new Map<string, ConversationHistoryEntry>();
 
     for (const entry of entries) {
-      const threadId = this.getHistoryThreadId(entry);
+      const threadId = this.historyRail.getHistoryThreadId(entry);
       const current = latestEntries.get(threadId);
       if (!current || entry.endedAt > current.endedAt) {
         latestEntries.set(threadId, entry);
@@ -2642,22 +2285,6 @@ export class InstanceListComponent {
     }
 
     return latestEntries;
-  }
-
-  private getHistoryThreadId(
-    entry: Pick<ConversationHistoryEntry, 'historyThreadId' | 'sessionId' | 'id'>
-  ): string {
-    const historyThreadId = entry.historyThreadId?.trim();
-    if (historyThreadId) {
-      return historyThreadId;
-    }
-
-    const sessionId = entry.sessionId.trim();
-    if (sessionId) {
-      return sessionId;
-    }
-
-    return entry.id;
   }
 
   private getInstanceThreadId(
@@ -2767,19 +2394,6 @@ export class InstanceListComponent {
     }
 
     return group.lastActivity;
-  }
-
-  private getHistorySortTimestamp(entry: ConversationHistoryEntry, mode: HistorySortMode): number {
-    return mode === 'created' ? entry.createdAt : entry.endedAt;
-  }
-
-  private truncateRailText(value: string, maxLength = 42): string {
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    if (normalized.length <= maxLength) {
-      return normalized;
-    }
-
-    return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
   }
 
   private loadSortMode(): HistorySortMode {

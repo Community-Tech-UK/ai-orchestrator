@@ -40,6 +40,7 @@ import type {
   TypedOrchestratorHooks,
 } from '../../shared/types/plugin.types';
 import type { PluginManifest } from '@sdk/plugins';
+import { PluginManifestSchema } from '@contracts/schemas';
 
 const logger = getLogger('PluginManager');
 
@@ -258,42 +259,26 @@ function toVerificationErrorPayload(
   };
 }
 
+/**
+ * Validate a plugin manifest using the contracts-backed Zod schema.
+ * Replaces hand-rolled field checks with {@link PluginManifestSchema}.
+ */
 export function validateManifest(
   manifest: unknown,
 ): { valid: true; manifest: PluginManifest } | { valid: false; errors: string[] } {
-  if (typeof manifest !== 'object' || manifest === null) {
-    return { valid: false, errors: ['Manifest must be an object'] };
+  const result = PluginManifestSchema.safeParse(manifest);
+  if (result.success) {
+    // ValidatedPluginManifest is structurally assignable to PluginManifest
+    return { valid: true, manifest: result.data as unknown as PluginManifest };
   }
 
-  const errors: string[] = [];
-  const m = manifest as Record<string, unknown>;
-
-  if (typeof m['name'] !== 'string' || m['name'].length === 0) {
-    errors.push('Missing or empty "name" field');
-  }
-  if (typeof m['version'] !== 'string' || m['version'].length === 0) {
-    errors.push('Missing or empty "version" field');
-  }
-  if (m['hooks'] !== undefined && !Array.isArray(m['hooks'])) {
-    errors.push('"hooks" must be an array of strings');
-  }
-
-  if (errors.length > 0) {
-    return { valid: false, errors };
-  }
-
-  return {
-    valid: true,
-    manifest: {
-      name: m['name'] as string,
-      version: m['version'] as string,
-      description: typeof m['description'] === 'string' ? m['description'] : undefined,
-      author: typeof m['author'] === 'string' ? m['author'] : undefined,
-      hooks: Array.isArray(m['hooks'])
-        ? m['hooks'].filter((h: unknown) => typeof h === 'string')
-        : undefined,
+  const errors = result.error.issues.map(
+    (issue) => {
+      const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
+      return `${path}${issue.message}`;
     },
-  };
+  );
+  return { valid: false, errors };
 }
 
 export interface OrchestratorPluginContext {

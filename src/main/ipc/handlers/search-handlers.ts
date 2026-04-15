@@ -11,7 +11,7 @@ import {
   SearchSemanticPayloadSchema,
   SearchBuildIndexPayloadSchema,
   SearchConfigureExaPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 export function registerSearchHandlers(): void {
   const searchManager = getSemanticSearchManager();

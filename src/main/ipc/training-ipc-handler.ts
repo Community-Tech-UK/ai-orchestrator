@@ -15,7 +15,7 @@ import {
   validateIpcPayload,
   TrainingGetStrategiesPayloadSchema,
   TrainingUpdateConfigPayloadSchema,
-} from '../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 // Helper function to create ErrorInfo from Error
 function createErrorInfo(error: unknown, code: string = 'TRAINING_ERROR'): ErrorInfo {

@@ -15,7 +15,7 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import {
   validateIpcPayload,
   EcosystemListPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getMarkdownCommandRegistry } from '../../commands/markdown-command-registry';
 import { getAgentRegistry } from '../../agents/agent-registry';

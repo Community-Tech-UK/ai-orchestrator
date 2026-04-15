@@ -12,7 +12,7 @@ import {
   LspFindReferencesPayloadSchema,
   LspFilePayloadSchema,
   LspWorkspaceSymbolPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 export function registerLspHandlers(): void {
   const lsp = getCodemem().gateway;

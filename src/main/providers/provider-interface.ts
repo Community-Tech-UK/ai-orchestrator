@@ -8,7 +8,6 @@ import type {
   ProviderCapabilities,
   ProviderConfig,
   ProviderStatus,
-  ProviderEvent,
   ProviderUsage,
   ProviderSessionOptions,
   ProviderAttachment,
@@ -33,7 +32,7 @@ export interface ProviderEvents {
 export abstract class BaseProvider extends EventEmitter {
   protected config: ProviderConfig;
   protected sessionId: string;
-  protected isActive: boolean = false;
+  protected isActive = false;
 
   constructor(config: ProviderConfig) {
     super();

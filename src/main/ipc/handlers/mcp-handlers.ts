@@ -13,7 +13,7 @@ import {
   McpCallToolPayloadSchema,
   McpReadResourcePayloadSchema,
   McpGetPromptPayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
 import { WindowManager } from '../../window-manager';
 import { getBrowserAutomationHealthService } from '../../browser-automation/browser-automation-health';

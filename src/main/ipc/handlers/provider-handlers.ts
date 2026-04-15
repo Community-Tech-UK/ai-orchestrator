@@ -20,7 +20,7 @@ import {
   PluginsGetPayloadSchema,
   PluginsGetMetaPayloadSchema,
   PluginsCreateTemplatePayloadSchema,
-} from '../../../shared/validation/ipc-schemas';
+} from '@contracts/schemas';
 
 interface RegisterProviderHandlersDeps {
   windowManager: WindowManager;
