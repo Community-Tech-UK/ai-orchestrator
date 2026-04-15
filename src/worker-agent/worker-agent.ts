@@ -14,7 +14,12 @@ import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
 import type { FileAttachment } from '../shared/types/instance.types';
 import type {
+  FsReadDirectoryParams,
   FsReadFileParams,
+  FsSearchParams,
+  FsStatParams,
+  FsUnwatchParams,
+  FsWatchParams,
   FsWriteFileParams
 } from '../shared/types/remote-fs.types';
 import {
@@ -376,23 +381,33 @@ export class WorkerAgent extends EventEmitter {
           await this.instanceManager.interrupt(params['instanceId'] as string);
           result = { ok: true };
           break;
+        case COORDINATOR_TO_NODE.INSTANCE_HIBERNATE:
+          await this.instanceManager.hibernate(params['instanceId'] as string);
+          result = { ok: true };
+          break;
+        case COORDINATOR_TO_NODE.INSTANCE_WAKE:
+          await this.instanceManager.wake(params['instanceId'] as string);
+          result = { ok: true };
+          break;
         case COORDINATOR_TO_NODE.NODE_PING:
           result = { pong: Date.now() };
           break;
         case COORDINATOR_TO_NODE.FS_READ_DIRECTORY:
-          result = await this.fsHandler!.readDirectory(params as any);
+          result = await this.fsHandler!.readDirectory(
+            params as unknown as FsReadDirectoryParams
+          );
           break;
         case COORDINATOR_TO_NODE.FS_STAT:
-          result = await this.fsHandler!.stat(params as any);
+          result = await this.fsHandler!.stat(params as unknown as FsStatParams);
           break;
         case COORDINATOR_TO_NODE.FS_SEARCH:
-          result = await this.fsHandler!.search(params as any);
+          result = await this.fsHandler!.search(params as unknown as FsSearchParams);
           break;
         case COORDINATOR_TO_NODE.FS_WATCH:
-          result = await this.fsHandler!.watch(params as any);
+          result = await this.fsHandler!.watch(params as unknown as FsWatchParams);
           break;
         case COORDINATOR_TO_NODE.FS_UNWATCH:
-          await this.fsHandler!.unwatch(params as any);
+          await this.fsHandler!.unwatch(params as unknown as FsUnwatchParams);
           result = { ok: true };
           break;
         case COORDINATOR_TO_NODE.FS_READ_FILE:

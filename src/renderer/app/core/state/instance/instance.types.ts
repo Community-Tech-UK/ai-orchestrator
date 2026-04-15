@@ -3,6 +3,7 @@
  */
 
 import type { AgentMode } from '../../../../../shared/types/agent.types';
+import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type {
   FileAttachment,
@@ -83,6 +84,7 @@ export interface Instance {
   status: InstanceStatus;
   contextUsage: ContextUsage;
   lastActivity: number;
+  activityState?: ActivityState;
   currentActivity?: string; // Human-readable activity description
   currentTool?: string; // Current tool being used
   providerSessionId: string;

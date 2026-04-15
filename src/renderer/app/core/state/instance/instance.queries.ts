@@ -9,6 +9,21 @@ import { InstanceStateService } from './instance-state.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
 import type { Instance, InstanceStatus } from './instance.types';
 
+function activityStateToLabel(activityState: Instance['activityState']): string {
+  switch (activityState) {
+    case 'active':
+      return 'Agent active';
+    case 'waiting_input':
+      return 'Waiting for input';
+    case 'blocked':
+      return 'Blocked';
+    case 'exited':
+      return 'Process exited';
+    default:
+      return '';
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceQueries {
   private stateService = inject(InstanceStateService);
@@ -95,13 +110,27 @@ export class InstanceQueries {
   readonly selectedInstanceActivity = computed(() => {
     const id = this.stateService.state().selectedInstanceId;
     if (!id) return '';
-    return this.activityDebouncer.getActivity(id);
+    const activity = this.activityDebouncer.getActivity(id);
+    if (activity) {
+      return activity;
+    }
+    return activityStateToLabel(this.stateService.state().instances.get(id)?.activityState);
   });
 
   /** Activities map from debouncer (for child panels) */
-  readonly instanceActivities = computed(() =>
-    this.activityDebouncer.activities()
-  );
+  readonly instanceActivities = computed(() => {
+    const merged = new Map(this.activityDebouncer.activities());
+    for (const instance of this.instances()) {
+      if (merged.has(instance.id)) {
+        continue;
+      }
+      const fallbackActivity = activityStateToLabel(instance.activityState);
+      if (fallbackActivity) {
+        merged.set(instance.id, fallbackActivity);
+      }
+    }
+    return merged;
+  });
 
   // ============================================
   // Message Queue Selectors

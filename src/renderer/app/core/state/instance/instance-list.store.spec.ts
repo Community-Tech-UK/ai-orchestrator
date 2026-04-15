@@ -79,6 +79,31 @@ describe('InstanceListStore', () => {
     expect(instance.provider).toBe('gemini');
   });
 
+  it('preserves activityState when deserializing instance payloads', () => {
+    const instance = store.deserializeInstance({
+      id: 'instance-activity',
+      displayName: 'Observed thread',
+      createdAt: 1,
+      historyThreadId: 'thread-activity',
+      parentId: null,
+      childrenIds: [],
+      status: 'processing',
+      activityState: 'blocked',
+      contextUsage: {
+        used: 0,
+        total: 200000,
+        percentage: 0,
+      },
+      lastActivity: 2,
+      sessionId: 'session-activity',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [],
+    });
+
+    expect(instance.activityState).toBe('blocked');
+  });
+
   it('preserves transcript and diff stats on resume restart', async () => {
     const instance = store.deserializeInstance({
       id: 'instance-3',

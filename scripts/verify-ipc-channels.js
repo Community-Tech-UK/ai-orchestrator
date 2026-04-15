@@ -4,7 +4,8 @@
  *
  * Verifies that:
  * 1. src/preload/generated/channels.ts matches packages/contracts channel files
- * 2. All channels in the legacy src/shared/types/ipc.types.ts are in contracts
+ * 2. The legacy src/shared/types/ipc.types.ts shim either re-exports contracts
+ *    directly or stays in sync with contracts during migration
  *
  * Usage:
  *   node scripts/verify-ipc-channels.js
@@ -22,6 +23,21 @@ const ROOT = path.resolve(__dirname, '..');
 const GENERATED_PATH = path.join(ROOT, 'src/preload/generated/channels.ts');
 const IPC_TYPES_PATH = path.join(ROOT, 'src/shared/types/ipc.types.ts');
 const CONTRACTS_INDEX_PATH = path.join(ROOT, 'packages/contracts/src/channels/index.ts');
+
+function readFile(filePath) {
+  return fs.readFileSync(filePath, 'utf-8');
+}
+
+function legacyShimReExportsContracts(filePath) {
+  const content = readFile(filePath);
+
+  return {
+    channels: /export\s+\{\s*IPC_CHANNELS\s*\}\s+from\s+['"]@contracts\/channels['"];?/.test(
+      content
+    ),
+    types: /export\s+type\s+\*\s+from\s+['"]@contracts\/types['"];?/.test(content),
+  };
+}
 
 function indexChannelsByName(channels) {
   return new Map(channels.map((channel) => [channel.name, channel]));
@@ -72,9 +88,12 @@ function main() {
     process.exit(1);
   }
 
-  const generatedChannels = extractIpcObjectChannels(GENERATED_PATH);
-  const legacyChannels = extractIpcObjectChannels(IPC_TYPES_PATH);
   const contractsChannels = extractContractsChannelEntries(CONTRACTS_INDEX_PATH);
+  const generatedChannels = extractIpcObjectChannels(GENERATED_PATH);
+  const legacyShim = legacyShimReExportsContracts(IPC_TYPES_PATH);
+  const legacyChannels = legacyShim.channels
+    ? contractsChannels
+    : extractIpcObjectChannels(IPC_TYPES_PATH);
 
   console.log('Generated channels: ' + generatedChannels.length);
   console.log('Legacy shim channels: ' + legacyChannels.length);
@@ -98,21 +117,30 @@ function main() {
     })
   );
 
-  // Legacy vs contracts (must be subset)
-  errors.push(
-    ...compareAgainstSource({
-      sourceName: 'legacy shim',
-      sourceChannels: legacyChannels,
-      targetName: 'contracts',
-      targetChannels: contractsChannels,
-    }),
-    ...compareAgainstSource({
-      sourceName: 'contracts',
-      sourceChannels: contractsChannels,
-      targetName: 'legacy shim',
-      targetChannels: legacyChannels,
-    })
-  );
+  if (legacyShim.channels) {
+    console.log('Legacy shim mode: direct re-export from contracts channels.');
+
+    if (!legacyShim.types) {
+      errors.push(
+        'Legacy IPC shim must also re-export types from @contracts/types when channel re-export mode is enabled'
+      );
+    }
+  } else {
+    errors.push(
+      ...compareAgainstSource({
+        sourceName: 'legacy shim',
+        sourceChannels: legacyChannels,
+        targetName: 'contracts',
+        targetChannels: contractsChannels,
+      }),
+      ...compareAgainstSource({
+        sourceName: 'contracts',
+        sourceChannels: contractsChannels,
+        targetName: 'legacy shim',
+        targetChannels: legacyChannels,
+      })
+    );
+  }
 
   // Report results
   if (errors.length > 0) {

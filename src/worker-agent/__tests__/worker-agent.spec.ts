@@ -51,6 +51,8 @@ class MockLocalInstanceManager extends EventEmitter {
   sendInput = vi.fn(async () => undefined);
   terminate = vi.fn(async () => undefined);
   interrupt = vi.fn(async () => undefined);
+  hibernate = vi.fn(async () => undefined);
+  wake = vi.fn(async () => undefined);
   terminateAll = vi.fn(async () => undefined);
   getInstanceCount = vi.fn(() => 0);
 }
@@ -144,6 +146,36 @@ describe('WorkerAgent', () => {
 
     const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
     expect(payload.error.code).toBe(-32003);
+  });
+
+  it('handles instance.hibernate RPC requests', async () => {
+    await (agent as unknown as {
+      handleRpcRequest: (msg: unknown) => Promise<void>;
+    }).handleRpcRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'instance.hibernate',
+      params: { instanceId: 'hib-1' },
+    });
+
+    expect(mockInstanceManager.hibernate).toHaveBeenCalledWith('hib-1');
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.result).toEqual({ ok: true });
+  });
+
+  it('handles instance.wake RPC requests', async () => {
+    await (agent as unknown as {
+      handleRpcRequest: (msg: unknown) => Promise<void>;
+    }).handleRpcRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'instance.wake',
+      params: { instanceId: 'wake-1' },
+    });
+
+    expect(mockInstanceManager.wake).toHaveBeenCalledWith('wake-1');
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.result).toEqual({ ok: true });
   });
 
   it('forwards permission requests from the local instance manager', () => {

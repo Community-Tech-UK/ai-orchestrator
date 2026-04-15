@@ -16,6 +16,7 @@ import type {
 import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
 import type { ChannelPlatform } from '@shared/types/channels';
+import type { ActivityState } from '@shared/types/activity.types';
 
 export type { IpcChannel };
 
@@ -63,6 +64,7 @@ export interface InstanceCreatePayload {
 export interface InstanceStateUpdatePayload {
   instanceId: string;
   status: InstanceStatus;
+  activityState?: ActivityState;
   contextUsage?: ContextUsage;
   error?: ErrorInfo;
   diffStats?: SessionDiffStats | null;
@@ -548,11 +550,11 @@ export interface TodoDeletePayload {
 
 export interface TodoWriteAllPayload {
   sessionId: string;
-  todos: Array<{
+  todos: {
     content: string;
     status: string;
     activeForm?: string;
-  }>;
+  }[];
 }
 
 export interface TodoClearPayload {
@@ -1273,11 +1275,11 @@ export interface HooksCreatePayload {
     enabled: boolean;
     event: string;
     toolMatcher?: string;
-    conditions: Array<{
+    conditions: {
       field: string;
       operator: string;
       pattern: string;
-    }>;
+    }[];
     action: 'warn' | 'block';
     message: string;
   };
@@ -1288,11 +1290,11 @@ export interface HooksUpdatePayload {
   updates: {
     name?: string;
     enabled?: boolean;
-    conditions?: Array<{
+    conditions?: {
       field: string;
       operator: string;
       pattern: string;
-    }>;
+    }[];
     action?: 'warn' | 'block';
     message?: string;
   };
@@ -1317,22 +1319,22 @@ export interface HooksEvaluatePayload {
 }
 
 export interface HooksImportPayload {
-  rules: Array<{
+  rules: {
     id: string;
     name: string;
     enabled: boolean;
     event: string;
     toolMatcher?: string;
-    conditions: Array<{
+    conditions: {
       field: string;
       operator: string;
       pattern: string;
-    }>;
+    }[];
     action: 'warn' | 'block';
     message: string;
     source: 'built-in' | 'project' | 'user';
     createdAt: number;
-  }>;
+  }[];
   overwrite?: boolean;
 }
 

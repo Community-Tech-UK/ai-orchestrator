@@ -1,13 +1,14 @@
 // src/renderer/app/features/remote-nodes/remote-nodes-page.component.ts
-import { Component, inject, OnInit, ChangeDetectionStrategy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { NodeCardComponent } from './node-card.component';
+import { NodeDetailComponent } from './node-detail.component';
 import { RemoteNodesStore } from './remote-nodes.store';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
 
 @Component({
   selector: 'app-remote-nodes-page',
   standalone: true,
-  imports: [NodeCardComponent],
+  imports: [NodeCardComponent, NodeDetailComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page-container">
@@ -39,9 +40,20 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
       } @else {
         <div class="nodes-grid">
           @for (node of store.nodes(); track node.id) {
-            <app-node-card [node]="node" />
+            <button
+              type="button"
+              class="node-button"
+              [class.selected]="selectedNodeId() === node.id"
+              (click)="selectNode(node.id)"
+            >
+              <app-node-card [node]="node" />
+            </button>
           }
         </div>
+
+        @if (selectedNode(); as node) {
+          <app-node-detail [node]="node" />
+        }
       }
     </div>
   `,
@@ -110,6 +122,20 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
       gap: 16px;
     }
 
+    .node-button {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .node-button.selected {
+      border-radius: 12px;
+      outline: 2px solid rgba(var(--primary-rgb), 0.45);
+      outline-offset: 2px;
+    }
+
     .empty-state {
       text-align: center;
       padding: 48px 24px;
@@ -132,14 +158,32 @@ import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.se
 export class RemoteNodesPageComponent implements OnInit {
   readonly store = inject(RemoteNodesStore);
   private readonly ipc = inject(RemoteNodeIpcService);
+  readonly selectedNodeId = signal<string | null>(null);
+  readonly selectedNode = computed(() => {
+    const selectedNodeId = this.selectedNodeId();
+    if (!selectedNodeId) {
+      return null;
+    }
+    return this.store.nodes().find((node) => node.id === selectedNodeId) ?? null;
+  });
   serverRunning = false;
 
   ngOnInit(): void {
-    this.store.refresh();
+    this.refresh();
   }
 
   refresh(): void {
-    this.store.refresh();
+    void this.store.refresh().then(() => {
+      const selectedNodeId = this.selectedNodeId();
+      const nodes = this.store.nodes();
+      if (!nodes.length) {
+        this.selectedNodeId.set(null);
+        return;
+      }
+      if (!selectedNodeId || !nodes.some((node) => node.id === selectedNodeId)) {
+        this.selectedNodeId.set(nodes[0].id);
+      }
+    });
   }
 
   async toggleServer(): Promise<void> {
@@ -150,5 +194,9 @@ export class RemoteNodesPageComponent implements OnInit {
       await this.ipc.startServer();
       this.serverRunning = true;
     }
+  }
+
+  selectNode(nodeId: string): void {
+    this.selectedNodeId.set(nodeId);
   }
 }

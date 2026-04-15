@@ -1413,6 +1413,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
         break;
       }
 
+      // ── Streaming deltas ──
+      // Codex app-server emits fine-grained deltas during reasoning and
+      // agent message generation. These notifications prove the turn is
+      // alive even when no tool_use/tool_result output events are emitted.
+      // Without a heartbeat here, the stuck-process detector fires during
+      // long reasoning phases (>120 s with no visible output).
+      case 'item/agentMessage/delta':
+      case 'item/reasoning/summaryPartAdded':
+      case 'item/reasoning/summaryTextDelta': {
+        this.emit('heartbeat');
+        break;
+      }
+
       default:
         break;
     }

@@ -28,9 +28,13 @@ import type { ChannelPersistence } from './channel-persistence';
 import { RateLimiter } from './rate-limiter';
 import type { BaseChannelAdapter } from './channel-adapter';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
+import { getSettingsManager } from '../core/config/settings-manager';
 import type { InboundChannelMessage } from '../../shared/types/channels';
 import { detectBrowserIntent } from './browser-intent';
-import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
+import {
+  getRemoteNodeConfig,
+  updateRemoteNodeConfig,
+} from '../remote-node/remote-node-config';
 import { getWorkerNodeRegistry } from '../remote-node';
 
 const logger = getLogger('ChannelMessageRouter');
@@ -671,6 +675,10 @@ export class ChannelMessageRouter {
       '`/new <number|project> -- <prompt>` — start a new session in a project',
       '`/clear` — remove channel pin',
       '`/switch` — clear your DM instance (start a new conversation)',
+      '`/nodes` — list connected worker nodes',
+      '`/nodes <name>` — show worker node details',
+      '`/run-on <node> <message>` — force a task onto a worker node',
+      '`/offload browser [on|off]` — toggle automatic browser-task offloading',
       '',
       '**Routing:**',
       '`@<project> <message>` — send to the latest session in a project, or start a new one there',
@@ -922,6 +930,9 @@ export class ChannelMessageRouter {
           return;
         case 'run-on':
           await this.handleRunOnCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'offload':
+          await this.handleOffloadCommand(msg, intent.commandArgs || '', adapter);
           return;
         default:
           await adapter.sendMessage(
@@ -1217,6 +1228,42 @@ export class ChannelMessageRouter {
 
     this.streamResults(msg, instance.id, adapter);
     await adapter.sendMessage(msg.chatId, `Running on **${node.name}**...`, { replyTo: msg.messageId });
+  }
+
+  private async handleOffloadCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const [target = '', mode = 'on'] = args.trim().toLowerCase().split(/\s+/);
+    if (target !== 'browser') {
+      await adapter.sendMessage(
+        msg.chatId,
+        'Usage: /offload browser [on|off]',
+        { replyTo: msg.messageId },
+      );
+      return;
+    }
+
+    if (mode === 'status') {
+      const enabled = getRemoteNodeConfig().autoOffloadBrowser;
+      await adapter.sendMessage(
+        msg.chatId,
+        `Browser auto-offloading is currently ${enabled ? 'enabled' : 'disabled'}.`,
+        { replyTo: msg.messageId },
+      );
+      return;
+    }
+
+    const enabled = !['off', 'false', 'disable', 'disabled'].includes(mode);
+    updateRemoteNodeConfig({ autoOffloadBrowser: enabled });
+    getSettingsManager().set('remoteNodesAutoOffloadBrowser', enabled);
+
+    await adapter.sendMessage(
+      msg.chatId,
+      `Browser auto-offloading ${enabled ? 'enabled' : 'disabled'}.`,
+      { replyTo: msg.messageId },
+    );
   }
 
   private async routeDefault(

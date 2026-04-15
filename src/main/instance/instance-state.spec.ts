@@ -26,7 +26,9 @@ describe('InstanceStateManager', () => {
     state.queueUpdate('instance-1', 'busy', contextUsage, diffStats);
     state.queueUpdate('instance-1', 'idle');
 
-    expect((state as unknown as { pendingUpdates: Map<string, unknown> }).pendingUpdates.get('instance-1')).toEqual({
+    expect(
+      (state as unknown as { pendingUpdates: Map<string, unknown> }).pendingUpdates.get('instance-1')
+    ).toMatchObject({
       instanceId: 'instance-1',
       status: 'idle',
       contextUsage,

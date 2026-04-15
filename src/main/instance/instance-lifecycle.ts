@@ -198,7 +198,8 @@ export interface LifecycleDependencies {
       recoveryMethod?: Instance['recoveryMethod'];
       archivedUpToMessageId?: string;
       historyThreadId?: string;
-    }
+    },
+    activityState?: import('../../shared/types/activity.types').ActivityState,
   ) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;
@@ -1797,6 +1798,9 @@ export class InstanceLifecycleManager extends EventEmitter {
               nativeSessionId,
             });
             await continuity.markNativeResumeFailed(instanceId);
+            // Remove event listeners BEFORE terminating so the exit handler
+            // doesn't treat the resume adapter's exit as a real instance exit.
+            adapter.removeAllListeners();
             await adapter.terminate(true).catch(() => { /* ignore */ });
             this.deps.deleteAdapter(instanceId);
             this.deps.deleteDiffTracker?.(instanceId);
@@ -2829,6 +2833,10 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
   /**
    * Interrupt an instance (like Ctrl+C)
+   *
+   * When the instance is 'busy', sends SIGINT and transitions to 'respawning'.
+   * When the instance is 'respawning' (e.g., second Escape press while stuck),
+   * force-terminates the adapter so the frontend can restart cleanly.
    */
   interruptInstance(instanceId: string): boolean {
     const adapter = this.deps.getAdapter(instanceId);
@@ -2839,7 +2847,32 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       return false;
     }
 
-    // Only allow interrupt when busy - block during respawning, initializing, etc.
+    // Force-terminate if already respawning (user pressed Escape again while stuck)
+    if (instance.status === 'respawning') {
+      logger.info('Force-terminating instance during respawning (second interrupt)', { instanceId });
+
+      // Resolve the pending respawn promise so waiters don't hang
+      const resolveRespawn = respawnResolvers.get(instance);
+      if (resolveRespawn) {
+        resolveRespawn();
+        respawnResolvers.delete(instance);
+        instance.respawnPromise = undefined;
+      }
+
+      // Force-kill the adapter (SIGKILL, no graceful wait)
+      adapter.terminate(false).catch((err) => {
+        logger.warn('Force-terminate during respawn failed', { error: err instanceof Error ? err.message : String(err), instanceId });
+      });
+
+      this.deps.clearInterrupted(instanceId);
+      this.transitionState(instance, 'error');
+      instance.processId = null;
+      this.deps.queueUpdate(instanceId, 'error', undefined, undefined, undefined,
+        { message: 'Session interrupted — use restart to continue', code: 'FORCE_INTERRUPTED', timestamp: Date.now() });
+      return true;
+    }
+
+    // Only allow interrupt when busy
     if (instance.status !== 'busy') {
       logger.warn('Cannot interrupt instance: not busy', { instanceId, status: instance.status });
       return false;
@@ -2943,6 +2976,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
               instanceId,
               error: spawnError instanceof Error ? spawnError.message : String(spawnError),
             });
+            // Remove event listeners BEFORE terminating so the exit handler
+            // doesn't treat the resume adapter's exit as a real instance exit
+            // (which would set the instance to terminated/error state and clear
+            // queued messages on the frontend).
+            adapter.removeAllListeners();
             // eslint-disable-next-line @typescript-eslint/no-empty-function
             await adapter.terminate(true).catch(() => {});
 
@@ -3112,6 +3150,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
               instanceId,
               error: spawnError instanceof Error ? spawnError.message : String(spawnError),
             });
+            // Remove event listeners BEFORE terminating so the exit handler
+            // doesn't treat the resume adapter's exit as a real instance exit
+            // (which would set the instance to terminated/error state and clear
+            // queued messages on the frontend).
+            adapter.removeAllListeners();
             await adapter.terminate(true).catch(() => { /* ignore */ });
 
             const fallbackSessionId = generateId();
@@ -3247,7 +3290,21 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         const instance = this.deps.getInstance(instanceId);
         if (!instance) return;
 
+        const previousActivityState = instance.activityState;
         instance.activityState = result.state;
+        if (previousActivityState !== result.state) {
+          this.deps.queueUpdate(
+            instanceId,
+            instance.status,
+            instance.contextUsage,
+            undefined,
+            undefined,
+            undefined,
+            instance.executionLocation,
+            undefined,
+            result.state,
+          );
+        }
 
         // Skip recovery detection for instances already being handled:
         // - 'respawning': auto-respawn from instance-communication.ts is in progress

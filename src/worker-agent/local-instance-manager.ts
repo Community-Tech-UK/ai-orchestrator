@@ -30,6 +30,7 @@ export interface ManagedInstance {
   instanceId: string;
   cliType: CliType;
   workingDirectory: string;
+  spawnParams: SpawnParams;
   adapter: WorkerManagedAdapter;
   createdAt: number;
   watchdogTimer: ReturnType<typeof setInterval> | null;
@@ -43,6 +44,7 @@ export interface ManagedInstance {
  */
 export class LocalInstanceManager extends EventEmitter {
   private readonly instances = new Map<string, ManagedInstance>();
+  private readonly hibernatedInstances = new Map<string, SpawnParams>();
   private readonly allowedDirs: string[];
   private readonly maxInstances: number;
 
@@ -182,6 +184,7 @@ export class LocalInstanceManager extends EventEmitter {
       instanceId: params.instanceId,
       cliType: params.cliType,
       workingDirectory: params.workingDirectory,
+      spawnParams: { ...params },
       adapter,
       createdAt: Date.now(),
       watchdogTimer: null,
@@ -218,11 +221,37 @@ export class LocalInstanceManager extends EventEmitter {
     await inst.adapter.interrupt();
   }
 
+  async hibernate(instanceId: string): Promise<void> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) throw new Error(`Instance not found: ${instanceId}`);
+    this.hibernatedInstances.set(instanceId, {
+      ...inst.spawnParams,
+      resume: true,
+    });
+    await this.terminate(instanceId);
+  }
+
+  async wake(instanceId: string): Promise<void> {
+    if (this.instances.has(instanceId)) {
+      return;
+    }
+    const spawnParams = this.hibernatedInstances.get(instanceId);
+    if (!spawnParams) {
+      throw new Error(`Hibernated instance not found: ${instanceId}`);
+    }
+    this.hibernatedInstances.delete(instanceId);
+    await this.spawn({
+      ...spawnParams,
+      resume: true,
+    });
+  }
+
   async terminateAll(): Promise<void> {
     const ids = [...this.instances.keys()];
     for (const id of ids) {
       this.clearWatchdog(id);
     }
+    this.hibernatedInstances.clear();
     await Promise.allSettled(ids.map((id) => this.terminate(id)));
   }
 }

@@ -1065,10 +1065,10 @@ export class InstanceDetailComponent {
 
   @HostListener('window:keydown', ['$event'])
   handleKeyboardShortcut(event: KeyboardEvent): void {
-    // Escape - interrupt busy instance
+    // Escape - interrupt busy or respawning instance
     if (event.key === 'Escape') {
       const inst = this.instance();
-      if (inst && inst.status === 'busy') {
+      if (inst && (inst.status === 'busy' || inst.status === 'respawning')) {
         event.preventDefault();
         this.onInterrupt();
       }
@@ -1428,10 +1428,23 @@ export class InstanceDetailComponent {
     }
   }
 
-  onInterrupt(): void {
+  async onInterrupt(): Promise<void> {
     const inst = this.instance();
-    if (inst && inst.status === 'busy') {
-      this.store.interruptInstance(inst.id);
+    if (!inst) return;
+
+    if (inst.status === 'busy' || inst.status === 'respawning') {
+      const interrupted = await this.store.interruptInstance(inst.id);
+      if (!interrupted) {
+        // Interrupt was rejected (e.g., status desync between frontend and backend).
+        // Force-terminate and restart so the user isn't stuck.
+        console.warn('Interrupt rejected, force-terminating and restarting', { instanceId: inst.id, status: inst.status });
+        try {
+          await this.store.terminateInstance(inst.id);
+          await this.store.restartInstance(inst.id);
+        } catch (err) {
+          console.error('Force-terminate + restart failed after rejected interrupt', err);
+        }
+      }
     }
   }
 

@@ -4,10 +4,12 @@
 
 import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
+import type { ActivityState } from '../../../../shared/types/activity.types';
 
 export interface StateUpdate {
   instanceId: string;
   status?: string;
+  activityState?: ActivityState;
   contextUsage?: {
     used: number;
     total: number;
@@ -55,6 +57,7 @@ export class UpdateBatcherService {
       displayName: update.displayName ?? existing?.displayName,
       // Preserve executionLocation if the new update doesn't carry it
       executionLocation: update.executionLocation ?? existing?.executionLocation,
+      activityState: update.activityState ?? existing?.activityState,
       providerSessionId: update.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: update.restartEpoch ?? existing?.restartEpoch,
       recoveryMethod: update.recoveryMethod ?? existing?.recoveryMethod,

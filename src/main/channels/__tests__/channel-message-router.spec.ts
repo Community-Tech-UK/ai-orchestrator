@@ -27,12 +27,33 @@ vi.mock('../../remote-node', () => ({
   }),
 }));
 
-vi.mock('../../remote-node/remote-node-config', () => ({
-  getRemoteNodeConfig: () => ({
+const { remoteNodeConfigState, updateRemoteNodeConfigMock, settingsSetMock } = vi.hoisted(() => {
+  const remoteNodeConfigState = {
     enabled: false,
     autoOffloadBrowser: false,
     autoOffloadGpu: false,
     maxRemoteInstances: 20,
+  };
+  const updateRemoteNodeConfigMock = vi.fn((partial: Partial<typeof remoteNodeConfigState>) => {
+    Object.assign(remoteNodeConfigState, partial);
+  });
+  const settingsSetMock = vi.fn();
+
+  return {
+    remoteNodeConfigState,
+    updateRemoteNodeConfigMock,
+    settingsSetMock,
+  };
+});
+
+vi.mock('../../remote-node/remote-node-config', () => ({
+  getRemoteNodeConfig: () => ({ ...remoteNodeConfigState }),
+  updateRemoteNodeConfig: updateRemoteNodeConfigMock,
+}));
+
+vi.mock('../../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({
+    set: settingsSetMock,
   }),
 }));
 
@@ -118,6 +139,12 @@ describe('ChannelMessageRouter', () => {
   let router: ChannelMessageRouter;
 
   beforeEach(() => {
+    remoteNodeConfigState.enabled = false;
+    remoteNodeConfigState.autoOffloadBrowser = false;
+    remoteNodeConfigState.autoOffloadGpu = false;
+    remoteNodeConfigState.maxRemoteInstances = 20;
+    updateRemoteNodeConfigMock.mockClear();
+    settingsSetMock.mockClear();
     adapter = makeMockAdapter();
     persistence = makeMockPersistence();
     channelManager = makeMockChannelManager(adapter);
@@ -518,6 +545,38 @@ describe('ChannelMessageRouter', () => {
       (channelManager.getAdapter as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
       await expect(router.handleInboundMessage(makeMessage())).resolves.toBeUndefined();
       expect(instanceManager.createInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('remote-node commands', () => {
+    it('enables browser auto-offloading via /offload browser', async () => {
+      await router.handleInboundMessage(
+        makeMessage({ chatId: 'c1', messageId: 'dm1', content: '/offload browser' }),
+      );
+
+      expect(updateRemoteNodeConfigMock).toHaveBeenCalledWith({ autoOffloadBrowser: true });
+      expect(settingsSetMock).toHaveBeenCalledWith('remoteNodesAutoOffloadBrowser', true);
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Browser auto-offloading enabled.',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('disables browser auto-offloading via /offload browser off', async () => {
+      remoteNodeConfigState.autoOffloadBrowser = true;
+
+      await router.handleInboundMessage(
+        makeMessage({ chatId: 'c1', messageId: 'dm2', content: '/offload browser off' }),
+      );
+
+      expect(updateRemoteNodeConfigMock).toHaveBeenCalledWith({ autoOffloadBrowser: false });
+      expect(settingsSetMock).toHaveBeenCalledWith('remoteNodesAutoOffloadBrowser', false);
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Browser auto-offloading disabled.',
+        expect.objectContaining({ replyTo: 'dm2' }),
+      );
     });
   });
 

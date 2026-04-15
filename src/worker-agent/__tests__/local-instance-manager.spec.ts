@@ -83,4 +83,32 @@ describe('LocalInstanceManager', () => {
 
     expect(permissionHandler).toHaveBeenCalledWith('test-3', permission);
   });
+
+  it('hibernates an instance and wakes it with resume enabled', async () => {
+    await manager.spawn({
+      instanceId: 'test-4',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+      systemPrompt: 'test',
+    });
+
+    await manager.hibernate('test-4');
+
+    expect(mockAdapter.terminate).toHaveBeenCalledOnce();
+    expect(manager.getInstanceCount()).toBe(0);
+
+    mockCreateCliAdapter.mockClear();
+    mockAdapter = new MockWorkerAdapter();
+
+    await manager.wake('test-4');
+
+    expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+      'claude',
+      expect.objectContaining({
+        sessionId: 'test-4',
+        resume: true,
+      }),
+    );
+    expect(manager.getInstanceCount()).toBe(1);
+  });
 });

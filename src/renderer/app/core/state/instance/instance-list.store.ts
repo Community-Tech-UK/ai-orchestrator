@@ -196,9 +196,13 @@ export class InstanceListStore {
    * the new CLI process is ready. Setting an optimistic 'waiting_for_input'
    * would trigger processMessageQueue prematurely, causing sendInput to
    * fail because the main process rejects messages during respawning.
+   *
+   * @returns true if the interrupt was accepted by the backend, false otherwise
    */
-  async interruptInstance(instanceId: string): Promise<void> {
-    await this.ipc.interruptInstance(instanceId);
+  async interruptInstance(instanceId: string): Promise<boolean> {
+    const result = await this.ipc.interruptInstance(instanceId);
+    const data = result.data as { interrupted?: boolean } | undefined;
+    return result.success && data?.interrupted === true;
   }
 
   /**
@@ -398,6 +402,10 @@ export class InstanceListStore {
         percentage: 0,
       },
       lastActivity: d['lastActivity'] as number,
+      activityState:
+        typeof d['activityState'] === 'string'
+          ? (d['activityState'] as Instance['activityState'])
+          : undefined,
       currentActivity:
         typeof d['currentActivity'] === 'string'
           ? d['currentActivity']

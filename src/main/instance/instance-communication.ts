@@ -51,7 +51,8 @@ export interface CommunicationDependencies {
       recoveryMethod?: Instance['recoveryMethod'];
       archivedUpToMessageId?: string;
       historyThreadId?: string;
-    }
+    },
+    activityState?: import('../../shared/types/activity.types').ActivityState,
   ) => void;
   getDiffTracker?: (id: string) => SessionDiffTracker | undefined;
   processOrchestrationOutput: (instanceId: string, content: string) => void;
@@ -488,17 +489,21 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
 
     logger.info('Sending message to adapter');
+    // Arm the stuck-process watchdog BEFORE awaiting sendInput(). Some
+    // adapters (e.g. Codex app-server) block inside sendInput() for the
+    // entire turn duration. If we armed after the await, the watchdog
+    // would only start AFTER the turn is already complete — too late to
+    // detect genuinely stuck turns, and it leaves the detector in
+    // 'generating' state with no work happening.
+    //
+    // Arming here starts the 2m soft / 4m hard clock immediately. Real
+    // adapter events still override this (recordOutput resets the clock;
+    // tool_executing extends timeouts for long tool runs). Adapters that
+    // return from sendInput() quickly (Claude, Gemini) are unaffected.
+    this.deps.onToolStateChange?.(instanceId, 'generating');
     try {
       await adapter.sendInput(finalMessage, attachments);
       logger.info('Message sent to adapter');
-      // Arm the stuck-process watchdog. Some adapters emit their first
-      // tool-state-change only once output starts streaming; if the CLI
-      // hangs before that, the detector would otherwise stay 'idle' and
-      // never time out. Explicitly transitioning to 'generating' starts
-      // the 2m soft / 4m hard clock immediately. Real adapter events
-      // still override this (recordOutput resets the clock; tool_executing
-      // extends timeouts for long tool runs).
-      this.deps.onToolStateChange?.(instanceId, 'generating');
     } catch (sendError) {
       // Check if this is a context overflow error thrown from sendInput.
       // The adapter's on('error') handler won't fire for thrown errors,
@@ -1255,6 +1260,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       } else {
         logger.info('Instance error during respawning - skipping force cleanup, letting lifecycle handle it', { instanceId });
       }
+    });
+
+    // Heartbeat events from adapters that block inside sendInput() (e.g.
+    // Codex app-server). These prove the adapter is alive and processing
+    // without adding messages to the output buffer.
+    adapter.on('heartbeat', () => {
+      if (isStaleAdapterEvent('heartbeat')) {
+        return;
+      }
+      this.deps.onOutput?.(instanceId);
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {

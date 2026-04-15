@@ -19,16 +19,17 @@ import type {
   ErrorInfo
 } from '../../shared/types/ipc.types';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
+import type { ActivityState } from '../../shared/types/activity.types';
 import { LIMITS } from '../../shared/constants/limits';
 
 const logger = getLogger('InstanceState');
 
 export class InstanceStateManager extends EventEmitter {
-  private instances: Map<string, Instance> = new Map();
-  private adapters: Map<string, CliAdapter> = new Map();
+  private instances = new Map<string, Instance>();
+  private adapters = new Map<string, CliAdapter>();
   private diffTrackers = new Map<string, SessionDiffTracker>();
   private stateMachines = new Map<string, InstanceStateMachine>();
-  private pendingUpdates: Map<string, InstanceStateUpdatePayload> = new Map();
+  private pendingUpdates = new Map<string, InstanceStateUpdatePayload>();
   private batchTimer: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -209,12 +210,14 @@ export class InstanceStateManager extends EventEmitter {
       recoveryMethod?: Instance['recoveryMethod'];
       archivedUpToMessageId?: string;
       historyThreadId?: string;
-    }
+    },
+    activityState?: ActivityState,
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
       instanceId,
       status,
+      activityState: activityState ?? existing?.activityState,
       contextUsage: contextUsage ?? existing?.contextUsage,
       diffStats: diffStats !== undefined ? diffStats : existing?.diffStats,
       displayName: displayName ?? existing?.displayName,

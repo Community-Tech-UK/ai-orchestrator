@@ -6,6 +6,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
+import { DraftService } from '../../services/draft.service';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
 import type { InstanceStatus, OutputMessage } from './instance.types';
@@ -18,6 +19,7 @@ export class InstanceMessagingStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(ElectronIpcService);
   private listStore = inject(InstanceListStore);
+  private draftService = inject(DraftService);
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
@@ -85,19 +87,37 @@ export class InstanceMessagingStore {
   }
 
   /**
-   * Clear the message queue and notify the user about dropped messages.
+   * Clear the message queue and restore the first message to the input draft.
    * Used when the instance enters a terminal state (failed/error/terminated).
+   * Instead of silently dropping messages, the user's text is preserved in the
+   * composer so they can re-send after restarting.
    */
   clearQueueWithNotification(instanceId: string): void {
     const queue = this.stateService.messageQueue().get(instanceId);
     if (!queue || queue.length === 0) return;
 
     const count = queue.length;
+
+    // Restore the first queued message to the input draft so the user
+    // doesn't lose their text. They can re-send after restarting.
+    const firstMessage = queue[0];
+    if (firstMessage?.message) {
+      this.draftService.setDraft(instanceId, firstMessage.message);
+    }
+
     this.clearMessageQueue(instanceId);
-    this.addErrorToOutput(
-      instanceId,
-      `${count} queued message${count > 1 ? 's were' : ' was'} discarded because the instance failed to start.`
-    );
+
+    if (count === 1) {
+      this.addErrorToOutput(
+        instanceId,
+        'Your message was restored to the input — restart the instance to send it.'
+      );
+    } else {
+      this.addErrorToOutput(
+        instanceId,
+        `Your message was restored to the input. ${count - 1} additional queued message${count > 1 ? 's were' : ' was'} discarded. Restart the instance to continue.`
+      );
+    }
   }
 
   /**
