@@ -229,6 +229,11 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-sonnet-4-6-20260401': { input: 3.0, output: 15.0 },
   'claude-opus-4-6-20260401': { input: 5.0, output: 25.0 },
   'claude-haiku-4-6-20260401': { input: 1.0, output: 5.0 },
+  // Claude Opus 4.7 (released 2026-04-16, bare-alias form — Anthropic
+  // dropped date suffixes from canonical IDs starting with 4.6).
+  // Pricing identical to Opus 4.6. Note: new tokenizer uses up to ~35%
+  // more tokens per char than 4.6, so effective cost may rise.
+  'claude-opus-4-7': { input: 5.0, output: 25.0 },
   // Claude 4.5 models (previous generation)
   'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
   'claude-opus-4-5-20250918': { input: 5.0, output: 25.0 },
@@ -358,11 +363,16 @@ export function getProviderModelContextWindow(
   // Models that natively support 1M context (no beta header needed).
   // Bare "opus" / "sonnet" resolve server-side to the latest (4.6+),
   // which has native 1M support.
+  //
+  // Opus 4.7: per Anthropic docs the default is 200k with 1M opt-in; this
+  // workspace is opted into the 1M context window, so 4.7 returns 1M here.
   if (
     normalizedModel === 'opus' ||
     normalizedModel === 'sonnet' ||
     normalizedModel.includes('opus-4-6') ||
     normalizedModel.includes('opus-4.6') ||
+    normalizedModel.includes('opus-4-7') ||
+    normalizedModel.includes('opus-4.7') ||
     normalizedModel.includes('sonnet-4-6') ||
     normalizedModel.includes('sonnet-4.6')
   ) {

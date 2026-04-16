@@ -464,11 +464,13 @@ export class CliVerificationCoordinator extends EventEmitter {
       await agent.provider.terminate();
       session.providers.delete(agentId);
 
-      // If no token count from context event, estimate from content length
-      // Rough estimate: ~4 characters per token for English text
+      // If no token count from context event, estimate from content length.
+      // Pass the CLI command (or agent name) so the counter uses
+      // family-specific char/token ratios (e.g. Claude ~3.8 vs the default 4.0).
       if (tokens === 0 && responseContent.length > 0) {
-        const promptTokens = estimateTokens(fullPrompt);
-        const responseTokens = estimateTokens(responseContent);
+        const modelHint = agent.command ?? agent.name;
+        const promptTokens = estimateTokens(fullPrompt, modelHint);
+        const responseTokens = estimateTokens(responseContent, modelHint);
         tokens = promptTokens + responseTokens;
       }
 

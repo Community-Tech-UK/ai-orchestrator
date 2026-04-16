@@ -299,6 +299,7 @@ export interface SessionForkPayload {
   instanceId: string;
   atMessageIndex?: number; // Fork at specific message, defaults to latest
   displayName?: string;
+  initialPrompt?: string; // If set, sent to the new fork's CLI as its first user message
 }
 
 export interface SessionExportPayload {

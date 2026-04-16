@@ -323,7 +323,6 @@ interface RestartToast {
             (addFiles)="onAddFiles()"
             (cancelQueuedMessage)="onCancelQueuedMessage($event)"
             (resendEdited)="onResendEdited($event)"
-            (requestInterrupt)="onInterrupt()"
           />
         </div>
       </app-drop-zone>
@@ -947,14 +946,14 @@ export class InstanceDetailComponent {
   pendingFiles = computed(() => {
     const inst = this.instance();
     if (!inst) return [];
-    this.draftService.version();
+    this.draftService.attachmentVersion();
     return this.draftService.getPendingFiles(inst.id);
   });
 
   pendingFolders = computed(() => {
     const inst = this.instance();
     if (!inst) return [];
-    this.draftService.version();
+    this.draftService.attachmentVersion();
     return this.draftService.getPendingFolders(inst.id);
   });
 
@@ -1230,10 +1229,16 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
+    // Pass the edited text as initialPrompt so the main process delivers it
+    // inside the fork's background init (right after CLI spawns). Sending via
+    // a separate IPC after fork raced the renderer's status-gated queue: the
+    // queue would drain before the new instance reached 'idle', and the
+    // message would silently land nowhere.
     const result = await this.ipc.forkSession(
       inst.id,
       event.messageIndex,
       `Edit resend at message ${event.messageIndex}`,
+      event.text,
     );
 
     if (!result?.success || !result.data) return;
@@ -1241,15 +1246,14 @@ export class InstanceDetailComponent {
     const data = result.data as { id?: string };
     if (!data.id) return;
 
-    // Pre-populate renderer state from the IPC response so sendInput doesn't race
-    // with the async 'instance:created' event. Without this, getInstance() can
-    // return undefined (silent drop) or a stale record depending on event arrival
-    // order.
+    // Pre-populate renderer state so 'output' events for the new fork don't
+    // arrive before the 'instance:created' event registers the instance.
     this.store.addInstanceFromData(result.data);
-
-    this.store.sendInput(data.id, event.text);
     this.store.setSelectedInstance(data.id);
-    await this.store.terminateInstance(inst.id);
+    // Force-terminate (graceful=false): the old instance may be busy mid-response;
+    // SIGTERM-with-grace would let it linger and emit confusing output. The new
+    // forked instance has the prior conversation, so the old CLI is disposable.
+    await this.store.terminateInstance(inst.id, false);
   }
 
   onEditLastMessage(): void {

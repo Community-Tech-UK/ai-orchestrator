@@ -116,7 +116,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         const forkedInstance = await instanceManager.forkInstance({
           instanceId: validated.instanceId,
           atMessageIndex: validated.atMessageIndex,
-          displayName: validated.displayName
+          displayName: validated.displayName,
+          initialPrompt: validated.initialPrompt
         });
         return {
           success: true,

@@ -21,7 +21,11 @@ import { JitterScheduler, getJitterScheduler } from '../jitter-scheduler';
 
 describe('JitterScheduler', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    // Pin the fake-timer clock to :30 of the minute so the scheduler's
+    // `avoidMinuteBoundary` guard (which adds 3s if the next fire lands within
+    // 2s of a :00 boundary) never trips. Without this, tests flake whenever
+    // wall-clock `Date.now()` at `useFakeTimers()` time falls in :58–:02.
+    vi.useFakeTimers({ now: new Date('2024-01-15T12:30:30.000Z').getTime() });
     JitterScheduler._resetForTesting();
   });
 

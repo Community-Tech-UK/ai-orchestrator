@@ -972,10 +972,13 @@ Provide your synthesis:`;
   }
 
   private estimateTokensUsed(debate: ActiveDebate): number {
+    // Pass the debate's synthesis model so the counter picks a family-specific
+    // char/token ratio (and any calibration) rather than the generic default.
+    const modelHint = debate.config.synthesisModel;
     let tokens = 0;
     for (const round of debate.rounds) {
       for (const contribution of round.contributions) {
-        tokens += estimateTokens(contribution.content);
+        tokens += estimateTokens(contribution.content, modelHint);
       }
     }
     return tokens;

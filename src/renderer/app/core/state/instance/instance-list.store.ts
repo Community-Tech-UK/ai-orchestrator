@@ -184,8 +184,8 @@ export class InstanceListStore {
   /**
    * Terminate an instance
    */
-  async terminateInstance(instanceId: string): Promise<void> {
-    await this.ipc.terminateInstance(instanceId);
+  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
+    await this.ipc.terminateInstance(instanceId, graceful);
   }
 
   /**
