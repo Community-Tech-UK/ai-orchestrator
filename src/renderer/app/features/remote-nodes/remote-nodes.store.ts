@@ -2,6 +2,7 @@
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { RemoteNodeIpcService, type RemoteNodeEvent } from '../../core/services/ipc/remote-node-ipc.service';
 import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { ServiceStatus } from '../../../../shared/types/service.types';
 
 @Injectable({ providedIn: 'root' })
 export class RemoteNodesStore implements OnDestroy {
@@ -23,6 +24,30 @@ export class RemoteNodesStore implements OnDestroy {
   readonly totalActiveInstances = computed(() =>
     this.nodes().reduce((sum, n) => sum + n.activeInstances, 0),
   );
+
+  /** Per-node service status cache. */
+  private readonly _serviceStatuses = signal<Record<string, ServiceStatus | null>>({});
+  readonly serviceStatuses = this._serviceStatuses.asReadonly();
+
+  async refreshServiceStatus(nodeId: string): Promise<void> {
+    const status = await this.ipc.getServiceStatus(nodeId);
+    this._serviceStatuses.update((prev) => ({ ...prev, [nodeId]: status }));
+  }
+
+  async restartService(nodeId: string): Promise<void> {
+    await this.ipc.restartService(nodeId);
+    await this.refreshServiceStatus(nodeId);
+  }
+
+  async stopService(nodeId: string): Promise<void> {
+    await this.ipc.stopService(nodeId);
+    await this.refreshServiceStatus(nodeId);
+  }
+
+  async uninstallService(nodeId: string): Promise<void> {
+    await this.ipc.uninstallService(nodeId);
+    await this.refreshServiceStatus(nodeId);
+  }
 
   constructor() {
     this.unsubscribe = this.ipc.onNodeEvent((event: RemoteNodeEvent) => {
