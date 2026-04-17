@@ -45,6 +45,7 @@
       "@contracts/schemas/orchestration":    ["./packages/contracts/src/schemas/orchestration.schemas"],
       "@contracts/schemas/remote-node":      ["./packages/contracts/src/schemas/remote-node.schemas"],
       "@contracts/schemas/plugin":           ["./packages/contracts/src/schemas/plugin.schemas"],
+      "@contracts/schemas/provider-runtime-events": ["./packages/contracts/src/schemas/provider-runtime-events.schemas"],
       "@contracts/types/provider-runtime-events": ["./packages/contracts/src/types/provider-runtime-events"],
       "@contracts/types/transport":          ["./packages/contracts/src/types/transport.types"],
       "@sdk/*": ["./packages/sdk/src/*"],
