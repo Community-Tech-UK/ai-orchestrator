@@ -297,4 +297,21 @@ describe('normalizeAdapterEvent', () => {
       recoverable: false,
     });
   });
+
+  it('generates a unique UUID v4 eventId for each envelope', () => {
+    const env1 = normalizeAdapterEvent('claude', 'inst-1', 'status', ['busy']);
+    const env2 = normalizeAdapterEvent('claude', 'inst-1', 'status', ['busy']);
+    expect(env1).not.toBeNull();
+    expect(env2).not.toBeNull();
+    expect(env1!.eventId).not.toBe(env2!.eventId);
+    expect(env1!.eventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it('passes the seq parameter through to the envelope', () => {
+    const env = normalizeAdapterEvent('claude', 'inst-1', 'status', ['busy'], undefined, 42);
+    expect(env).not.toBeNull();
+    expect(env!.seq).toBe(42);
+  });
 });

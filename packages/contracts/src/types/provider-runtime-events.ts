@@ -14,7 +14,8 @@
 
 /**
  * CLI-level provider name used in the envelope and adapter registry.
- * Matches `InstanceProvider` in `@shared/types/instance.types`.
+ * Subset of `InstanceProvider` — excludes `'auto'` which is a selection-time
+ * placeholder, not a concrete CLI.
  */
 export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot';
 
