@@ -246,9 +246,10 @@ describe('normalizeAdapterEvent', () => {
     expect(env!.instanceId).toBe('inst-1');
     expect(env!.sessionId).toBe('sess-1');
     expect(env!.event.kind).toBe('output');
-    // timestamp should be a valid ISO string
-    expect(() => new Date(env!.timestamp)).not.toThrow();
-    expect(new Date(env!.timestamp).toISOString()).toBe(env!.timestamp);
+    // timestamp should be a numeric ms-since-epoch value (Date.now())
+    expect(typeof env!.timestamp).toBe('number');
+    expect(Number.isFinite(env!.timestamp)).toBe(true);
+    expect(() => new Date(env!.timestamp).toISOString()).not.toThrow();
   });
 
   it('returns envelope without sessionId when omitted', () => {

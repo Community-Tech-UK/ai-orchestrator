@@ -9,7 +9,9 @@
  * stream instead of per-provider event shapes.
  */
 
+import { randomUUID } from 'node:crypto';
 import type {
+  ProviderName,
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
   ProviderEventMapper,
@@ -175,6 +177,9 @@ export function getEventMapper(provider: string): ProviderEventMapper | undefine
 /**
  * Wrap a raw adapter event into a normalized envelope.
  * Returns null if the event type is unrecognized by the mapper.
+ *
+ * @param seq Per-instance monotonic counter. Phase 1 bridging passes a
+ *   literal `0`; real sequencing arrives in Task 8 (subscribe-to-self bridge).
  */
 export function normalizeAdapterEvent(
   provider: string,
@@ -182,6 +187,7 @@ export function normalizeAdapterEvent(
   rawEventType: string,
   args: unknown[],
   sessionId?: string,
+  seq: number = 0,
 ): ProviderRuntimeEventEnvelope | null {
   const mapper = mapperRegistry.get(provider);
   if (!mapper) {
@@ -192,13 +198,16 @@ export function normalizeAdapterEvent(
   const event = mapper.normalize(rawEventType, ...args);
   if (!event) return null;
 
-  return {
-    timestamp: new Date().toISOString(),
-    provider,
+  const envelope: ProviderRuntimeEventEnvelope = {
+    eventId: randomUUID(),
+    seq,
+    timestamp: Date.now(),
+    provider: provider as ProviderName,
     instanceId,
     sessionId,
     event,
   };
+  return envelope;
 }
 
 // Register built-in mappers

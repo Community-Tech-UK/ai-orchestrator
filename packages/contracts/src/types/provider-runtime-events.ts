@@ -9,6 +9,16 @@
  */
 
 // ============================================
+// Provider Name
+// ============================================
+
+/**
+ * CLI-level provider name used in the envelope and adapter registry.
+ * Matches `InstanceProvider` in `@shared/types/instance.types`.
+ */
+export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot';
+
+// ============================================
 // Event Kind Discriminator
 // ============================================
 
@@ -131,6 +141,10 @@ export interface ProviderCompleteEvent {
 /**
  * Discriminated union of all provider runtime events.
  * Consumers can switch on `event.kind` for type-safe access to payloads.
+ *
+ * @frozen as of Wave 2 (2026-04-17). See the Wave 3 design doc for the v2
+ * taxonomy (5-family hierarchical). Do not add new `kind` values to this
+ * union. Additive optional fields on existing kinds are permitted.
  */
 export type ProviderRuntimeEvent =
   | ProviderOutputEvent
@@ -152,16 +166,17 @@ export type ProviderRuntimeEvent =
  * Includes common metadata applicable to all events.
  */
 export interface ProviderRuntimeEventEnvelope {
-  /** ISO 8601 timestamp of when the event was emitted. */
-  timestamp: string;
-  /** The provider that emitted this event (claude, codex, gemini, copilot). */
-  provider: string;
-  /** Instance ID this event belongs to. */
-  instanceId: string;
-  /** Optional session/conversation ID. */
-  sessionId?: string;
-  /** The normalized event payload. */
-  event: ProviderRuntimeEvent;
+  /** UUID v4 — globally unique, stable across IPC. */
+  readonly eventId: string;
+  /** Monotonic per-instance counter starting at 0. Renderer gap-detection. */
+  readonly seq: number;
+  /** Milliseconds since epoch (Date.now()). */
+  readonly timestamp: number;
+  /** CLI-level provider name. */
+  readonly provider: ProviderName;
+  readonly instanceId: string;
+  readonly sessionId?: string;
+  readonly event: ProviderRuntimeEvent;
 }
 
 // ============================================
