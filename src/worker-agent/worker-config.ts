@@ -16,7 +16,7 @@ export interface WorkerConfig {
   heartbeatIntervalMs: number;
 }
 
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
+export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
 const DEFAULTS: WorkerConfig = {
   nodeId: '',
