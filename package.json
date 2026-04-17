@@ -37,6 +37,8 @@
     "postinstall": "node scripts/rebuild-native-modules.js",
     "rebuild:native": "node scripts/rebuild-native-modules.js",
     "build:worker-agent": "tsx build-worker-agent.ts",
+    "build:worker-sea": "tsx build-worker-agent-sea.ts",
+    "build:worker-dist": "npm run build:worker-agent && npm run build:worker-sea",
     "download:winsw": "node scripts/download-winsw.js"
   },
   "keywords": [
@@ -121,6 +123,7 @@
     "esbuild": "^0.28.0",
     "eslint": "^9.39.1",
     "jsdom": "^27.4.0",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.21.0",
     "typescript": "~5.9.0",
     "typescript-eslint": "8.47.0",
