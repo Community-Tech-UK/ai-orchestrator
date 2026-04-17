@@ -20,6 +20,7 @@ import type { OutputMessage, InstanceStatus } from '../../shared/types/instance.
 import { isCliAvailable } from '../cli/cli-detection';
 import { generateId } from '../../shared/utils/id-generator';
 
+// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
 export class CodexCliProvider extends BaseProvider {
   private adapter: CodexCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;

@@ -14,6 +14,7 @@ import {
   type ToolModule,
 } from '@sdk';
 
+// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
 class TestProvider extends BaseProvider {
   getType() {
     return 'openai-compatible' as const;

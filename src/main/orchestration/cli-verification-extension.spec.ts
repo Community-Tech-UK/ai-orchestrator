@@ -13,6 +13,7 @@ import { VerificationRequest } from '../../shared/types/verification.types';
 /**
  * Mock Provider for testing
  */
+// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
 class MockProvider extends BaseProvider {
   public terminateCalled = false;
   public terminateGraceful: boolean | undefined;

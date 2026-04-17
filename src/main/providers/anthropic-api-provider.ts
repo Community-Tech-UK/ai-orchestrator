@@ -94,6 +94,7 @@ export interface AnthropicApiProviderConfig extends ProviderConfig {
  * Uses the Anthropic SDK directly with integrated prompt caching
  * and context editing capabilities.
  */
+// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
 export class AnthropicApiProvider extends BaseProvider {
   private client: Anthropic | null = null;
   private session: SessionState | null = null;

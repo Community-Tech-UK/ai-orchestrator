@@ -22,6 +22,7 @@ import type { ContextUsage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 
+// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
 export class ClaudeCliProvider extends BaseProvider {
   private adapter: ClaudeCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
