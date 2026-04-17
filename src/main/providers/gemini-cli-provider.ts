@@ -16,7 +16,7 @@ import type {
   ProviderSessionOptions,
   ProviderAttachment,
 } from '../../shared/types/provider.types';
-import type { OutputMessage, InstanceStatus } from '../../shared/types/instance.types';
+import type { OutputMessage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { generateId } from '../../shared/utils/id-generator';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
@@ -98,6 +98,8 @@ export class GeminiCliProvider extends BaseProvider {
       throw new Error('Provider already initialized');
     }
 
+    this.instanceId = options.instanceId ?? '';
+
     // Map session options to Gemini config
     // Don't specify a model by default - let Gemini CLI use its configured default
     // This avoids model access issues (e.g., gemini-1.5-pro may not be available)
@@ -114,58 +116,47 @@ export class GeminiCliProvider extends BaseProvider {
 
     this.adapter = new GeminiCliAdapter(geminiConfig);
 
-    // Forward adapter events to provider events
+    // Forward adapter events to the normalized envelope stream.
     // Note: Adapter emits OutputMessage objects during streaming, not plain strings
     this.adapter.on('output', (outputData: OutputMessage | string) => {
       if (typeof outputData === 'string') {
         // Plain string content
-        const message: OutputMessage = {
-          id: generateId(),
-          timestamp: Date.now(),
-          type: 'assistant',
-          content: outputData,
-        };
-        this.emit('output', message);
+        if (outputData) {
+          this.pushOutput(outputData, 'assistant');
+        }
       } else if (outputData && typeof outputData === 'object') {
         // OutputMessage object from adapter
         const content = outputData.content;
         if (typeof content === 'string' && content) {
-          const message: OutputMessage = {
-            id: outputData.id || generateId(),
-            timestamp: outputData.timestamp || Date.now(),
-            type: outputData.type || 'assistant',
+          this.pushOutput(
             content,
-            metadata: outputData.metadata,
-          };
-          this.emit('output', message);
+            outputData.type || 'assistant',
+            outputData.metadata,
+          );
         }
       }
     });
 
     this.adapter.on('status', (status: string) => {
-      this.emit('status', status as InstanceStatus);
+      this.pushStatus(status);
     });
 
     this.adapter.on('error', (error: Error | string) => {
-      if (typeof error === 'string') {
-        this.emit('error', new Error(error));
-      } else {
-        this.emit('error', error);
-      }
+      this.pushError(error instanceof Error ? error.message : String(error), false);
     });
 
     this.adapter.on('complete', () => {
-      this.emit('status', 'idle' as InstanceStatus);
+      this.pushStatus('idle');
     });
 
     this.adapter.on('exit', (code: number | null, signal: string | null) => {
       this.isActive = false;
-      this.emit('exit', code, signal);
+      this.pushExit(code, signal);
     });
 
     this.adapter.on('spawned', (pid: number) => {
       this.isActive = true;
-      this.emit('spawned', pid);
+      if (pid != null) this.pushSpawned(pid);
     });
 
     // Initialize the adapter
@@ -206,14 +197,14 @@ export class GeminiCliProvider extends BaseProvider {
         type: 'assistant',
         content: response.content,
       };
-      this.emit('output', outputMessage);
+      this.pushOutput(outputMessage.content, outputMessage.type, outputMessage.metadata);
     } catch (error) {
-      this.emit('error', error as Error);
+      this.pushError(error instanceof Error ? error.message : String(error), false);
       throw error;
     }
   }
 
-  async terminate(graceful: boolean = true): Promise<void> {
+  async terminate(graceful = true): Promise<void> {
     if (this.adapter) {
       await this.adapter.terminate(graceful);
       this.adapter = null;
