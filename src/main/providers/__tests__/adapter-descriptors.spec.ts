@@ -6,16 +6,64 @@ import { COPILOT_DESCRIPTOR } from '../copilot-sdk-provider';
 
 describe('adapter descriptors', () => {
   const descriptors = [
-    ['claude', CLAUDE_DESCRIPTOR, { subAgents: true }],
-    ['codex', CODEX_DESCRIPTOR, { subAgents: false }],
-    ['gemini', GEMINI_DESCRIPTOR, { sessionResume: false, subAgents: false }],
-    ['copilot', COPILOT_DESCRIPTOR, { permissionPrompts: false, subAgents: false }],
+    [
+      'claude',
+      CLAUDE_DESCRIPTOR,
+      'Claude Code',
+      {
+        interruption: true,
+        permissionPrompts: true,
+        sessionResume: true,
+        streamingOutput: true,
+        usageReporting: true,
+        subAgents: true,
+      },
+    ],
+    [
+      'codex',
+      CODEX_DESCRIPTOR,
+      'OpenAI Codex',
+      {
+        interruption: true,
+        permissionPrompts: true,
+        sessionResume: true,
+        streamingOutput: true,
+        usageReporting: true,
+        subAgents: false,
+      },
+    ],
+    [
+      'gemini',
+      GEMINI_DESCRIPTOR,
+      'Google Gemini',
+      {
+        interruption: true,
+        permissionPrompts: true,
+        sessionResume: false,
+        streamingOutput: true,
+        usageReporting: true,
+        subAgents: false,
+      },
+    ],
+    [
+      'copilot',
+      COPILOT_DESCRIPTOR,
+      'GitHub Copilot',
+      {
+        interruption: true,
+        permissionPrompts: false,
+        sessionResume: true,
+        streamingOutput: true,
+        usageReporting: true,
+        subAgents: false,
+      },
+    ],
   ] as const;
-  for (const [name, d, expected] of descriptors) {
-    it(`${name} descriptor has provider, displayName, capabilities, defaultConfig`, () => {
+  for (const [name, d, displayName, capabilities] of descriptors) {
+    it(`${name} descriptor is complete`, () => {
       expect(d.provider).toBe(name);
-      expect(typeof d.displayName).toBe('string');
-      expect(d.capabilities).toMatchObject(expected);
+      expect(d.displayName).toBe(displayName);
+      expect(d.capabilities).toEqual(capabilities);
       expect(d.defaultConfig.type).toBeDefined();
     });
   }
