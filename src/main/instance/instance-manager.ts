@@ -366,6 +366,9 @@ export class InstanceManager extends EventEmitter {
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.handleInputRequired(payload);
     });
+    this.communication.on('provider:normalized-event', (envelope) =>
+      this.emit('provider:normalized-event', envelope)
+    );
 
     // Lifecycle events
     this.lifecycle.on('created', (payload) => this.emit('instance:created', payload));

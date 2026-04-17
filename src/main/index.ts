@@ -81,6 +81,8 @@ import { WorkflowPersistence } from './workflows/workflow-persistence';
 import { initializeCodemem } from './codemem';
 import { providerAdapterRegistry } from './providers/provider-adapter-registry';
 import { registerBuiltInProviders } from './providers/register-built-in-providers';
+import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
+import { IPC_CHANNELS } from '@contracts/channels';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -549,6 +551,13 @@ class AIOrchestratorApp {
     this.instanceManager.on('instance:state-update', (update) => {
       this.windowManager.sendToRenderer('instance:state-update', update);
       observer.publishInstanceState(update as Record<string, unknown>);
+    });
+
+    this.instanceManager.on('provider:normalized-event', (envelope) => {
+      if (process.env['NODE_ENV'] !== 'production') {
+        ProviderRuntimeEventEnvelopeSchema.parse(envelope);
+      }
+      this.windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, envelope);
     });
 
     this.instanceManager.on('instance:output', (output) => {
