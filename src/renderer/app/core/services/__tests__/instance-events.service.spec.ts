@@ -50,8 +50,8 @@ describe('InstanceEventsService', () => {
 
   it('warns on seq gap per instanceId', () => {
     const svc = TestBed.inject(InstanceEventsService);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    svc.events$.subscribe(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    svc.events$.subscribe(() => undefined);
     captured!(makeEnv({ seq: 0 }));
     captured!(makeEnv({ seq: 2 })); // gap: expected 1
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/gap/i));
