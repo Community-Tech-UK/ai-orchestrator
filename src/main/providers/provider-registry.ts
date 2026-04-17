@@ -13,6 +13,7 @@ import { BaseProvider, ProviderFactory } from './provider-interface';
 import { ClaudeCliProvider } from './claude-cli-provider';
 import { CodexCliProvider } from './codex-cli-provider';
 import { GeminiCliProvider } from './gemini-cli-provider';
+import { CopilotSdkProvider } from './copilot-sdk-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 
@@ -59,6 +60,12 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     // Don't set a default model - let Gemini CLI use its configured default
     // This avoids model access issues
   },
+  'copilot': {
+    type: 'copilot',
+    name: 'GitHub Copilot CLI',
+    enabled: false,
+    // Copilot dynamically fetches available models from the CLI at runtime; don't pin a default.
+  },
   'amazon-bedrock': {
     type: 'amazon-bedrock',
     name: 'Amazon Bedrock',
@@ -96,6 +103,7 @@ export class ProviderRegistry {
     this.factories.set('anthropic-api', (config) => new AnthropicApiProvider(config));
     this.factories.set('openai', (config) => new CodexCliProvider(config));
     this.factories.set('google', (config) => new GeminiCliProvider(config));
+    this.factories.set('copilot', (config) => new CopilotSdkProvider(config));
   }
 
   /**
@@ -305,8 +313,8 @@ export class ProviderRegistry {
       'claude': 'claude-cli',
       'codex': 'openai',
       'gemini': 'google',
+      'copilot': 'copilot',
       'ollama': 'ollama',
-      // Note: 'copilot' not mapped - no provider implementation yet
     };
     return mapping[cliName] || null;
   }

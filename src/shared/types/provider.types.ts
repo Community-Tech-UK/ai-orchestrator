@@ -12,6 +12,7 @@ export type ProviderType =
   | 'openai-compatible' // OpenAI-compatible APIs (local, etc.)
   | 'ollama'          // Ollama local models
   | 'google'          // Google AI (Gemini)
+  | 'copilot'         // GitHub Copilot CLI (multi-LLM router via @github/copilot-sdk)
   | 'amazon-bedrock'  // AWS Bedrock
   | 'azure';          // Azure OpenAI
 
@@ -217,6 +218,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'openai-compatible': OPENAI_MODELS.GPT54,
   'ollama': 'llama3',
   'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
+  'copilot': COPILOT_MODELS.CLAUDE_SONNET_46,
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT54,
 };
@@ -451,7 +453,7 @@ const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
   claude: 'claude-cli',
   codex: 'openai',
   gemini: 'google',
-  copilot: 'claude-cli',
+  copilot: 'copilot',
   ollama: 'ollama',
 };
 
