@@ -14,15 +14,15 @@ function makeEnv(partial: Partial<ProviderRuntimeEventEnvelope> = {}): ProviderR
 
 describe('InstanceEventsService', () => {
   let captured: ((e: ProviderRuntimeEventEnvelope) => void) | undefined;
+  const hadElectronAPI = 'electronAPI' in (window as unknown as Record<string, unknown>);
+  const originalElectronAPI = (window as unknown as { electronAPI?: unknown }).electronAPI;
 
   beforeEach(() => {
     captured = undefined;
-    (globalThis as unknown as { window: unknown }).window = {
-      electronAPI: {
-        onProviderRuntimeEvent: (cb: (e: ProviderRuntimeEventEnvelope) => void) => {
-          captured = cb;
-          return () => { captured = undefined; };
-        },
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      onProviderRuntimeEvent: (cb: (e: ProviderRuntimeEventEnvelope) => void) => {
+        captured = cb;
+        return () => { captured = undefined; };
       },
     };
     TestBed.configureTestingModule({ providers: [InstanceEventsService] });
@@ -30,6 +30,11 @@ describe('InstanceEventsService', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+    if (hadElectronAPI) {
+      (window as unknown as { electronAPI: unknown }).electronAPI = originalElectronAPI;
+    } else {
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    }
   });
 
   it('exposes events$ that emits envelopes from preload', () => {
