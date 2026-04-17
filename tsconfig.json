@@ -32,6 +32,12 @@
       "@shared/*": ["./src/shared/*"],
       "@contracts/*": ["./packages/contracts/src/*"],
       "@contracts": ["./packages/contracts/src/index"],
+      "@contracts/schemas/settings":         ["./packages/contracts/src/schemas/settings.schemas"],
+      "@contracts/schemas/file-operations":  ["./packages/contracts/src/schemas/file-operations.schemas"],
+      "@contracts/schemas/security":         ["./packages/contracts/src/schemas/security.schemas"],
+      "@contracts/schemas/observability":    ["./packages/contracts/src/schemas/observability.schemas"],
+      "@contracts/schemas/workspace-tools":  ["./packages/contracts/src/schemas/workspace-tools.schemas"],
+      "@contracts/schemas/knowledge":        ["./packages/contracts/src/schemas/knowledge.schemas"],
       "@sdk/*": ["./packages/sdk/src/*"],
       "@sdk": ["./packages/sdk/src/index"]
     }
