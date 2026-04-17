@@ -16,7 +16,7 @@ export type {
   ProviderExitEvent,
   ProviderSpawnedEvent,
   ProviderCompleteEvent,
-} from '@contracts/types';
+} from '@contracts/types/provider-runtime-events';
 
 export type ProviderType =
   | 'claude-cli'

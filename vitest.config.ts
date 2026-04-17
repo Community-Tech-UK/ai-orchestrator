@@ -51,6 +51,8 @@ export default defineConfig({
       '@contracts/schemas/knowledge':       resolve(__dirname, './packages/contracts/src/schemas/knowledge.schemas'),
       '@contracts/schemas/remote-node':     resolve(__dirname, './packages/contracts/src/schemas/remote-node.schemas'),
       '@contracts/schemas/plugin':          resolve(__dirname, './packages/contracts/src/schemas/plugin.schemas'),
+      '@contracts/types/provider-runtime-events': resolve(__dirname, './packages/contracts/src/types/provider-runtime-events'),
+      '@contracts/types/transport':         resolve(__dirname, './packages/contracts/src/types/transport.types'),
       '@contracts': resolve(__dirname, './packages/contracts/src'),
       '@sdk': resolve(__dirname, './packages/sdk/src'),
     },

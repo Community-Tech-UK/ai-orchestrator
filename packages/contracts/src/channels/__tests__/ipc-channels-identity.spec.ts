@@ -23,6 +23,11 @@ describe('IPC_CHANNELS identity contract', () => {
   });
 
   it('legacy IPC shim re-exports contract types', () => {
-    expect(legacySource).toMatch(/export\s+type\s+\*\s+from\s+['"]@contracts\/types['"];?/);
+    expect(legacySource).toMatch(
+      /export\s+type\s+\*\s+from\s+['"]@contracts\/types\/provider-runtime-events['"];?/,
+    );
+    expect(legacySource).toMatch(
+      /export\s+type\s+\*\s+from\s+['"]@contracts\/types\/transport['"];?/,
+    );
   });
 });

@@ -21,7 +21,7 @@ import {
   CodexEventMapper,
   normalizeAdapterEvent,
 } from '../event-normalizer';
-import type { ProviderRuntimeEvent, ProviderRuntimeEventEnvelope } from '@contracts/types';
+import type { ProviderRuntimeEvent, ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // ============================================
 // Deterministic Fixtures

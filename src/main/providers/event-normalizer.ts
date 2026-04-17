@@ -13,7 +13,7 @@ import type {
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
   ProviderEventMapper,
-} from '@contracts/types';
+} from '@contracts/types/provider-runtime-events';
 import type { OutputMessage, ContextUsage } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 

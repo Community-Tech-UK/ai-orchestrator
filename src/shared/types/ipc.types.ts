@@ -7,4 +7,5 @@
  */
 
 export { IPC_CHANNELS } from '@contracts/channels';
-export type * from '@contracts/types';
+export type * from '@contracts/types/provider-runtime-events';
+export type * from '@contracts/types/transport';
