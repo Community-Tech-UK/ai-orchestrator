@@ -1,6 +1,7 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 export function createProviderDomain(
   ipcRenderer: IpcRenderer,
@@ -196,6 +197,23 @@ export function createProviderDomain(
       ) => callback(data);
       ipcRenderer.on('plugins:error', handler);
       return () => ipcRenderer.removeListener('plugins:error', handler);
+    },
+
+    // ============================================
+    // Runtime Events
+    // ============================================
+
+    /**
+     * Listen for normalized provider runtime events (status/output/exit/etc.)
+     * emitted by the main-process `BaseProvider.events$` stream.
+     */
+    onProviderRuntimeEvent: (
+      callback: (envelope: ProviderRuntimeEventEnvelope) => void
+    ): (() => void) => {
+      const handler = (_event: IpcRendererEvent, envelope: ProviderRuntimeEventEnvelope) =>
+        callback(envelope);
+      ipcRenderer.on(ch.PROVIDER_RUNTIME_EVENT, handler);
+      return () => ipcRenderer.removeListener(ch.PROVIDER_RUNTIME_EVENT, handler);
     },
 
     // ============================================
