@@ -22,6 +22,7 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
+import { getEventMapper } from './event-normalizer';
 
 /**
  * Events emitted by providers
@@ -61,6 +62,42 @@ export abstract class BaseProvider extends EventEmitter implements ProviderAdapt
     super();
     this.config = config;
     this.sessionId = '';
+
+    // Phase 1 transitional subscribe-to-self bridge: legacy `this.emit(...)`
+    // calls from subclasses fan into the normalized `events$` stream until
+    // Phase 5 migrates subclasses to `pushEvent()` directly.
+    //
+    // Guarded on `this.provider` / `this.instanceId`: adapters that have
+    // not yet completed Wave 2 Task 9 (declaring `provider` + `capabilities`)
+    // or that emit before `instanceId` is assigned do not participate —
+    // their legacy EventEmitter emits still flow to external listeners, we
+    // just don't synthesize an envelope that would fail schema validation.
+    this.on('output', (msg: OutputMessage) => {
+      if (!this.provider || !this.instanceId) return;
+      const ev = getEventMapper(this.provider)?.normalize('output', msg);
+      if (ev) this.pushEvent(ev);
+    });
+    this.on('status', (s: InstanceStatus | string) => {
+      if (!this.provider || !this.instanceId) return;
+      const status = typeof s === 'string' ? s : (s as { status?: string }).status ?? String(s);
+      this.pushEvent({ kind: 'status', status });
+    });
+    this.on('context', (usage: ContextUsage) => {
+      if (!this.provider || !this.instanceId) return;
+      this.pushEvent({ kind: 'context', used: usage.used, total: usage.total, percentage: usage.percentage });
+    });
+    this.on('error', (err: Error) => {
+      if (!this.provider || !this.instanceId) return;
+      this.pushEvent({ kind: 'error', message: err.message, recoverable: false });
+    });
+    this.on('exit', (code: number | null, signal: string | null) => {
+      if (!this.provider || !this.instanceId) return;
+      this.pushEvent({ kind: 'exit', code, signal });
+    });
+    this.on('spawned', (pid: number | null) => {
+      if (!this.provider || !this.instanceId) return;
+      if (pid != null) this.pushEvent({ kind: 'spawned', pid });
+    });
   }
 
   /**

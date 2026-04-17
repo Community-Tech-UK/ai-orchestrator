@@ -20,6 +20,13 @@ class TestProvider extends BaseProvider {
   async terminate(): Promise<void> { /* no-op */ }
 }
 
+const makeCfg = (): ProviderConfig => ({ type: 'claude-cli', name: 'test', enabled: true });
+const makeProvider = (): TestProvider => {
+  const p = new TestProvider(makeCfg());
+  (p as unknown as { instanceId: string }).instanceId = 'test-instance';
+  return p;
+};
+
 describe('BaseProvider.events$', () => {
   it('exposes an Observable of envelopes', async () => {
     const cfg: ProviderConfig = { type: 'claude-cli', name: 'test', enabled: true };
@@ -39,13 +46,6 @@ describe('BaseProvider.events$', () => {
 });
 
 describe('BaseProvider lifecycle helpers', () => {
-  const makeCfg = (): ProviderConfig => ({ type: 'claude-cli', name: 'test', enabled: true });
-  const makeProvider = (): TestProvider => {
-    const p = new TestProvider(makeCfg());
-    (p as unknown as { instanceId: string }).instanceId = 'test-instance';
-    return p;
-  };
-
   it('pushStatus emits a status envelope', async () => {
     const p = makeProvider();
     const events: ProviderRuntimeEventEnvelope[] = [];
@@ -103,5 +103,16 @@ describe('BaseProvider lifecycle helpers', () => {
     (p2 as unknown as { pushStatus: (s: string) => void }).pushStatus('a');
     await new Promise(r => setImmediate(r));
     expect(events2[0].seq).toBe(0);
+  });
+});
+
+describe('BaseProvider subscribe-to-self bridge', () => {
+  it('legacy emit() produces an envelope on events$', async () => {
+    const p = makeProvider();
+    const events: ProviderRuntimeEventEnvelope[] = [];
+    p.events$.subscribe(e => events.push(e));
+    p.emit('status', 'busy');
+    await new Promise(r => setImmediate(r));
+    expect(events[0].event).toMatchObject({ kind: 'status', status: 'busy' });
   });
 });
