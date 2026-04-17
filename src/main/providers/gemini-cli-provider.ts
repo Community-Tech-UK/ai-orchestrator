@@ -19,9 +19,38 @@ import type {
 import type { OutputMessage, InstanceStatus } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { generateId } from '../../shared/utils/id-generator';
+import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
+import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { ProviderName } from '@contracts/types/provider-runtime-events';
 
-// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
+const GEMINI_CAPABILITIES: ProviderAdapterCapabilities = {
+  interruption: true,
+  permissionPrompts: true,
+  sessionResume: false,
+  streamingOutput: true,
+  usageReporting: true,
+  subAgents: false,
+};
+
+export const DEFAULT_GEMINI_CONFIG: ProviderConfig = {
+  type: 'google',
+  name: 'Google AI',
+  enabled: false,
+  // Don't set a default model - let Gemini CLI use its configured default
+  // This avoids model access issues
+};
+
+export const GEMINI_DESCRIPTOR: ProviderAdapterDescriptor = {
+  provider: 'gemini',
+  displayName: 'Google Gemini',
+  capabilities: GEMINI_CAPABILITIES,
+  defaultConfig: DEFAULT_GEMINI_CONFIG,
+};
+
 export class GeminiCliProvider extends BaseProvider {
+  readonly provider: ProviderName = 'gemini';
+  readonly capabilities: ProviderAdapterCapabilities = GEMINI_CAPABILITIES;
+
   private adapter: GeminiCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
 

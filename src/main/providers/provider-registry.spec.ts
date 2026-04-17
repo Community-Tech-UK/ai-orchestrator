@@ -2,12 +2,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./claude-cli-provider', () => ({
   ClaudeCliProvider: vi.fn().mockImplementation(() => ({ type: 'claude-cli' })),
+  DEFAULT_CLAUDE_CONFIG: {
+    type: 'claude-cli',
+    name: 'Claude Code CLI',
+    enabled: true,
+    defaultModel: 'claude-sonnet',
+  },
 }));
 vi.mock('./codex-cli-provider', () => ({
   CodexCliProvider: vi.fn().mockImplementation(() => ({ type: 'openai' })),
+  DEFAULT_CODEX_CONFIG: {
+    type: 'openai',
+    name: 'OpenAI',
+    enabled: false,
+  },
 }));
 vi.mock('./gemini-cli-provider', () => ({
   GeminiCliProvider: vi.fn().mockImplementation(() => ({ type: 'google' })),
+  DEFAULT_GEMINI_CONFIG: {
+    type: 'google',
+    name: 'Google AI',
+    enabled: false,
+  },
+}));
+vi.mock('./copilot-sdk-provider', () => ({
+  CopilotSdkProvider: vi.fn().mockImplementation(() => ({ type: 'copilot' })),
+  DEFAULT_COPILOT_CONFIG: {
+    type: 'copilot',
+    name: 'GitHub Copilot CLI',
+    enabled: false,
+  },
 }));
 vi.mock('./anthropic-api-provider', () => ({
   AnthropicApiProvider: vi.fn().mockImplementation(() => ({ type: 'anthropic-api' })),

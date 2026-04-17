@@ -21,9 +21,37 @@ import { MODEL_PRICING, CLAUDE_MODELS } from '../../shared/types/provider.types'
 import type { ContextUsage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
+import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
+import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { ProviderName } from '@contracts/types/provider-runtime-events';
 
-// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
+const CLAUDE_CAPABILITIES: ProviderAdapterCapabilities = {
+  interruption: true,
+  permissionPrompts: true,
+  sessionResume: true,
+  streamingOutput: true,
+  usageReporting: true,
+  subAgents: true,
+};
+
+export const DEFAULT_CLAUDE_CONFIG: ProviderConfig = {
+  type: 'claude-cli',
+  name: 'Claude Code CLI',
+  enabled: true,
+  defaultModel: CLAUDE_MODELS.SONNET,
+};
+
+export const CLAUDE_DESCRIPTOR: ProviderAdapterDescriptor = {
+  provider: 'claude',
+  displayName: 'Claude Code',
+  capabilities: CLAUDE_CAPABILITIES,
+  defaultConfig: DEFAULT_CLAUDE_CONFIG,
+};
+
 export class ClaudeCliProvider extends BaseProvider {
+  readonly provider: ProviderName = 'claude';
+  readonly capabilities: ProviderAdapterCapabilities = CLAUDE_CAPABILITIES;
+
   private adapter: ClaudeCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
   private lastContextUsage: ContextUsage | null = null;

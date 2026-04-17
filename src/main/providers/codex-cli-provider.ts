@@ -19,9 +19,38 @@ import type {
 import type { OutputMessage, InstanceStatus } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { generateId } from '../../shared/utils/id-generator';
+import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
+import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { ProviderName } from '@contracts/types/provider-runtime-events';
 
-// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
+const CODEX_CAPABILITIES: ProviderAdapterCapabilities = {
+  interruption: true,
+  permissionPrompts: true,
+  sessionResume: true,
+  streamingOutput: true,
+  usageReporting: true,
+  subAgents: false,
+};
+
+export const DEFAULT_CODEX_CONFIG: ProviderConfig = {
+  type: 'openai',
+  name: 'OpenAI',
+  enabled: false,
+  // Don't set a default model - let Codex CLI use its configured default
+  // This avoids issues with ChatGPT accounts that don't support certain models
+};
+
+export const CODEX_DESCRIPTOR: ProviderAdapterDescriptor = {
+  provider: 'codex',
+  displayName: 'OpenAI Codex',
+  capabilities: CODEX_CAPABILITIES,
+  defaultConfig: DEFAULT_CODEX_CONFIG,
+};
+
 export class CodexCliProvider extends BaseProvider {
+  readonly provider: ProviderName = 'codex';
+  readonly capabilities: ProviderAdapterCapabilities = CODEX_CAPABILITIES;
+
   private adapter: CodexCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
 

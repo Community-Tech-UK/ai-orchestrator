@@ -32,19 +32,36 @@ import { MODEL_PRICING, COPILOT_MODELS } from '../../shared/types/provider.types
 import type { OutputMessage, InstanceStatus, ContextUsage } from '../../shared/types/instance.types';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
 import { generateId } from '../../shared/utils/id-generator';
+
+const COPILOT_CAPABILITIES: ProviderAdapterCapabilities = {
+  interruption: true,
+  // SDK uses approveAll by default; orchestrator does not mediate tool-use prompts today.
+  permissionPrompts: false,
+  sessionResume: true,
+  streamingOutput: true,
+  usageReporting: true,
+  subAgents: false,
+};
+
+export const DEFAULT_COPILOT_CONFIG: ProviderConfig = {
+  type: 'copilot',
+  name: 'GitHub Copilot CLI',
+  enabled: false,
+  // Copilot dynamically fetches available models from the CLI at runtime; don't pin a default.
+};
+
+export const COPILOT_DESCRIPTOR: ProviderAdapterDescriptor = {
+  provider: 'copilot',
+  displayName: 'GitHub Copilot',
+  capabilities: COPILOT_CAPABILITIES,
+  defaultConfig: DEFAULT_COPILOT_CONFIG,
+};
 
 export class CopilotSdkProvider extends BaseProvider {
   readonly provider: ProviderName = 'copilot';
-  readonly capabilities: ProviderAdapterCapabilities = {
-    interruption: true,
-    // SDK uses approveAll by default; orchestrator does not mediate tool-use prompts today.
-    permissionPrompts: false,
-    sessionResume: true,
-    streamingOutput: true,
-    usageReporting: true,
-    subAgents: false,
-  };
+  readonly capabilities: ProviderAdapterCapabilities = COPILOT_CAPABILITIES;
 
   private adapter: CopilotSdkAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;

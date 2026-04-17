@@ -10,36 +10,29 @@ import {
   type ProviderStatus,
 } from '../../shared/types/provider.types';
 import { BaseProvider, ProviderFactory } from './provider-interface';
-import { ClaudeCliProvider } from './claude-cli-provider';
-import { CodexCliProvider } from './codex-cli-provider';
-import { GeminiCliProvider } from './gemini-cli-provider';
-import { CopilotSdkProvider } from './copilot-sdk-provider';
+import { ClaudeCliProvider, DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider';
+import { CodexCliProvider, DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
+import { GeminiCliProvider, DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider';
+import { CopilotSdkProvider, DEFAULT_COPILOT_CONFIG } from './copilot-sdk-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 
 /**
- * Default provider configurations
+ * Default provider configurations.
+ *
+ * CLI-adapter entries (claude, codex, gemini, copilot) are co-located with
+ * their provider files and re-imported here so the descriptor exported from
+ * each provider module stays the single source of truth for default config.
  */
 const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
-  'claude-cli': {
-    type: 'claude-cli',
-    name: 'Claude Code CLI',
-    enabled: true,
-    defaultModel: CLAUDE_MODELS.SONNET,
-  },
+  'claude-cli': DEFAULT_CLAUDE_CONFIG,
   'anthropic-api': {
     type: 'anthropic-api',
     name: 'Anthropic API',
     enabled: false,
     defaultModel: CLAUDE_MODELS.SONNET,
   },
-  'openai': {
-    type: 'openai',
-    name: 'OpenAI',
-    enabled: false,
-    // Don't set a default model - let Codex CLI use its configured default
-    // This avoids issues with ChatGPT accounts that don't support certain models
-  },
+  'openai': DEFAULT_CODEX_CONFIG,
   'openai-compatible': {
     type: 'openai-compatible',
     name: 'OpenAI Compatible',
@@ -53,19 +46,8 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     apiEndpoint: 'http://localhost:11434',
     defaultModel: 'llama3',
   },
-  'google': {
-    type: 'google',
-    name: 'Google AI',
-    enabled: false,
-    // Don't set a default model - let Gemini CLI use its configured default
-    // This avoids model access issues
-  },
-  'copilot': {
-    type: 'copilot',
-    name: 'GitHub Copilot CLI',
-    enabled: false,
-    // Copilot dynamically fetches available models from the CLI at runtime; don't pin a default.
-  },
+  'google': DEFAULT_GEMINI_CONFIG,
+  'copilot': DEFAULT_COPILOT_CONFIG,
   'amazon-bedrock': {
     type: 'amazon-bedrock',
     name: 'Amazon Bedrock',
