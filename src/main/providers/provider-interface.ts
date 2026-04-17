@@ -14,7 +14,6 @@ import type {
   ProviderSessionOptions,
   ProviderAttachment,
 } from '../../shared/types/provider.types';
-import type { OutputMessage, InstanceStatus, ContextUsage } from '../../shared/types/instance.types';
 import type { ProviderAdapter, ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type {
   ProviderName,
@@ -22,27 +21,19 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
-import { getEventMapper } from './event-normalizer';
-
-/**
- * Events emitted by providers
- */
-export interface ProviderEvents {
-  'output': (message: OutputMessage) => void;
-  'status': (status: InstanceStatus) => void;
-  'context': (usage: ContextUsage) => void;
-  'error': (error: Error) => void;
-  'exit': (code: number | null, signal: string | null) => void;
-  'spawned': (pid: number | null) => void;
-}
 
 /**
  * Base provider interface that all providers must implement.
  *
- * Wave 2 addition: implements `ProviderAdapter` and exposes a typed
- * `events$` stream of normalized envelopes via `pushEvent()`. Subclasses
- * declare `provider` and `capabilities` so consumers can route events
- * by CLI family and inspect adapter-level flags.
+ * Wave 2: exposes a typed `events$` stream of normalized envelopes via
+ * `pushEvent()`. Wave-2 CLI/SDK subclasses declare `provider` and
+ * `capabilities` and call the `push*` helpers directly.
+ *
+ * `EventEmitter` inheritance is retained for `AnthropicApiProvider`
+ * (excluded from Wave 2 — 'anthropic-api' is not a valid `ProviderName`),
+ * which still uses `this.emit(...)`. The subscribe-to-self bridge that
+ * forwarded legacy emits into `events$` was removed once all four CLI
+ * providers migrated to `pushEvent` in Phase 5.
  */
 export abstract class BaseProvider extends EventEmitter implements ProviderAdapter {
   protected config: ProviderConfig;
@@ -62,42 +53,6 @@ export abstract class BaseProvider extends EventEmitter implements ProviderAdapt
     super();
     this.config = config;
     this.sessionId = '';
-
-    // Phase 1 transitional subscribe-to-self bridge: legacy `this.emit(...)`
-    // calls from subclasses fan into the normalized `events$` stream until
-    // Phase 5 migrates subclasses to `pushEvent()` directly.
-    //
-    // Guarded on `this.provider` / `this.instanceId`: adapters that have
-    // not yet completed Wave 2 Task 9 (declaring `provider` + `capabilities`)
-    // or that emit before `instanceId` is assigned do not participate —
-    // their legacy EventEmitter emits still flow to external listeners, we
-    // just don't synthesize an envelope that would fail schema validation.
-    this.on('output', (msg: OutputMessage) => {
-      if (!this.provider || !this.instanceId) return;
-      const ev = getEventMapper(this.provider)?.normalize('output', msg);
-      if (ev) this.pushEvent(ev);
-    });
-    this.on('status', (s: InstanceStatus | string) => {
-      if (!this.provider || !this.instanceId) return;
-      const status = typeof s === 'string' ? s : (s as { status?: string }).status ?? String(s);
-      this.pushEvent({ kind: 'status', status });
-    });
-    this.on('context', (usage: ContextUsage) => {
-      if (!this.provider || !this.instanceId) return;
-      this.pushEvent({ kind: 'context', used: usage.used, total: usage.total, percentage: usage.percentage });
-    });
-    this.on('error', (err: Error) => {
-      if (!this.provider || !this.instanceId) return;
-      this.pushEvent({ kind: 'error', message: err.message, recoverable: false });
-    });
-    this.on('exit', (code: number | null, signal: string | null) => {
-      if (!this.provider || !this.instanceId) return;
-      this.pushEvent({ kind: 'exit', code, signal });
-    });
-    this.on('spawned', (pid: number | null) => {
-      if (!this.provider || !this.instanceId) return;
-      if (pid != null) this.pushEvent({ kind: 'spawned', pid });
-    });
   }
 
   /**

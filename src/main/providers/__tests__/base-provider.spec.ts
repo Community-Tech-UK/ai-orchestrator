@@ -106,13 +106,3 @@ describe('BaseProvider lifecycle helpers', () => {
   });
 });
 
-describe('BaseProvider subscribe-to-self bridge', () => {
-  it('legacy emit() produces an envelope on events$', async () => {
-    const p = makeProvider();
-    const events: ProviderRuntimeEventEnvelope[] = [];
-    p.events$.subscribe(e => events.push(e));
-    p.emit('status', 'busy');
-    await new Promise(r => setImmediate(r));
-    expect(events[0].event).toMatchObject({ kind: 'status', status: 'busy' });
-  });
-});
