@@ -9,12 +9,23 @@ import { BaseProvider } from '../providers/provider-interface';
 import { ProviderConfig, ProviderType, ProviderCapabilities, ProviderStatus } from '../../shared/types/provider.types';
 import { ProviderSessionOptions } from '../../shared/types/provider.types';
 import { VerificationRequest } from '../../shared/types/verification.types';
+import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { ProviderName } from '@contracts/types/provider-runtime-events';
 
 /**
  * Mock Provider for testing
  */
-// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
 class MockProvider extends BaseProvider {
+  readonly provider: ProviderName = 'claude';
+  readonly capabilities: ProviderAdapterCapabilities = {
+    interruption: true,
+    permissionPrompts: true,
+    sessionResume: true,
+    streamingOutput: true,
+    usageReporting: true,
+    subAgents: true,
+  };
+
   public terminateCalled = false;
   public terminateGraceful: boolean | undefined;
   public terminateDelay = 0;
