@@ -27,7 +27,8 @@ import {
   NODE_TO_COORDINATOR,
   RPC_ERROR_CODES
 } from '../main/remote-node/worker-node-rpc';
-import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
+import type { EnrollmentResult, RpcScope } from '../main/remote-node/worker-node-rpc';
+import { createServiceManager } from './service/manager-factory';
 import {
   NodeFilesystemHandler,
   FsRpcError
@@ -54,6 +55,14 @@ interface RpcMessage {
   params?: unknown;
   result?: unknown;
   error?: { code: number; message: string };
+  scope?: RpcScope;
+}
+
+function validateScope(msg: RpcMessage, expected: RpcScope): string | null {
+  const scope = msg.scope ?? 'instance';
+  if (scope !== expected)
+    return `Method ${msg.method} requires scope=${expected} (received ${scope})`;
+  return null;
 }
 
 /**
@@ -445,6 +454,67 @@ export class WorkerAgent extends EventEmitter {
             params as unknown as SyncDeleteFileParams
           );
           break;
+        case COORDINATOR_TO_NODE.SERVICE_STATUS: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const mgr = await createServiceManager();
+          result = await mgr.status();
+          break;
+        }
+        case COORDINATOR_TO_NODE.SERVICE_RESTART: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          this.sendResult(msg.id!, { scheduled: true });
+          setTimeout(async () => {
+            try {
+              const mgr = await createServiceManager();
+              await mgr.restart();
+            } catch (e) {
+              console.error('[WorkerAgent] service.restart failed', e);
+            }
+          }, 250);
+          return;
+        }
+        case COORDINATOR_TO_NODE.SERVICE_STOP: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          this.sendResult(msg.id!, { scheduled: true });
+          setTimeout(async () => {
+            try {
+              const mgr = await createServiceManager();
+              await mgr.stop();
+            } catch (e) {
+              console.error('[WorkerAgent] service.stop failed', e);
+            }
+          }, 250);
+          return;
+        }
+        case COORDINATOR_TO_NODE.SERVICE_UNINSTALL: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          this.sendResult(msg.id!, { scheduled: true });
+          setTimeout(async () => {
+            try {
+              const mgr = await createServiceManager();
+              await mgr.uninstall();
+            } catch (e) {
+              console.error('[WorkerAgent] service.uninstall failed', e);
+            }
+          }, 250);
+          return;
+        }
         default:
           this.sendError(
             msg.id!,
