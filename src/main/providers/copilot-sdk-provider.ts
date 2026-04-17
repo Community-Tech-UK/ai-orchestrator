@@ -28,6 +28,7 @@ import type {
   ProviderSessionOptions,
   ProviderAttachment,
 } from '../../shared/types/provider.types';
+import { MODEL_PRICING, COPILOT_MODELS } from '../../shared/types/provider.types';
 import type { OutputMessage, InstanceStatus, ContextUsage } from '../../shared/types/instance.types';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
@@ -121,6 +122,7 @@ export class CopilotSdkProvider extends BaseProvider {
     });
 
     this.adapter.on('context', (usage: ContextUsage) => {
+      this.updateUsageFromContext(usage);
       this.emit('context', usage);
     });
 
@@ -157,8 +159,8 @@ export class CopilotSdkProvider extends BaseProvider {
     try {
       // sendInput() is the Copilot adapter's analogue of sendMessage(). It does
       // not return a response object — completion arrives via the `output`
-      // events set up in initialize(). Usage is updated via `context` events;
-      // currentUsage is not populated here (refinement tracked for Task 9+).
+      // events set up in initialize(). Usage is updated via `context` events
+      // handled in initialize(), which populate this.currentUsage.
       await this.adapter.sendInput(
         message,
         attachments?.map((a) => ({
@@ -190,5 +192,32 @@ export class CopilotSdkProvider extends BaseProvider {
 
   override getUsage(): ProviderUsage | null {
     return this.currentUsage;
+  }
+
+  /**
+   * Update usage statistics from context usage.
+   *
+   * Mirrors ClaudeCliProvider.updateUsageFromContext: context events give us
+   * the running total token count but no input/output split, so we estimate
+   * 70/30 to derive per-side cost. Model pricing falls back to Sonnet-class
+   * rates when the selected Copilot model is not in MODEL_PRICING.
+   */
+  private updateUsageFromContext(context: ContextUsage): void {
+    const modelId = this.config.defaultModel || COPILOT_MODELS.CLAUDE_SONNET_46;
+    const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId]
+      || { input: 3.0, output: 15.0 };
+
+    const estimatedInputTokens = Math.floor(context.used * 0.7);
+    const estimatedOutputTokens = context.used - estimatedInputTokens;
+
+    const inputCost = (estimatedInputTokens / 1_000_000) * pricing.input;
+    const outputCost = (estimatedOutputTokens / 1_000_000) * pricing.output;
+
+    this.currentUsage = {
+      inputTokens: estimatedInputTokens,
+      outputTokens: estimatedOutputTokens,
+      totalTokens: context.used,
+      estimatedCost: inputCost + outputCost,
+    };
   }
 }

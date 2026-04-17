@@ -37,4 +37,21 @@ describe('CopilotSdkProvider identity', () => {
     expect(p.getPid()).toBeNull();
     expect(p.getUsage()).toBeNull();
   });
+
+  it('populates currentUsage when a context event is processed', () => {
+    const p = new CopilotSdkProvider(makeConfig());
+    // Invoke the private updateUsageFromContext handler directly. This is the
+    // same path the 'context' event listener registered in initialize() takes,
+    // so it verifies the capability-declared usageReporting actually works
+    // without needing to stand up the full Copilot SDK adapter.
+    (p as unknown as { updateUsageFromContext: (c: { used: number; total: number; percentage: number }) => void })
+      .updateUsageFromContext({ used: 1000, total: 200000, percentage: 0.5 });
+
+    const usage = p.getUsage();
+    expect(usage).not.toBeNull();
+    expect(usage!.totalTokens).toBe(1000);
+    expect(usage!.inputTokens).toBe(700);
+    expect(usage!.outputTokens).toBe(300);
+    expect(usage!.estimatedCost).toBeGreaterThan(0);
+  });
 });
