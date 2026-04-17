@@ -12,7 +12,7 @@ import {
   isRpcNotification,
   RPC_ERROR_CODES,
 } from './worker-node-rpc';
-import type { RpcRequest, RpcResponse, RpcNotification } from './worker-node-rpc';
+import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
 import { validateAuthToken } from './auth-validator';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
@@ -170,9 +170,15 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   // Outbound — coordinator to node
   // ---------------------------------------------------------------------------
 
-  async sendRpc<T>(nodeId: string, method: string, params?: unknown, timeoutMs?: number): Promise<T> {
+  async sendRpc<T>(
+    nodeId: string,
+    method: string,
+    params?: unknown,
+    timeoutMs?: number,
+    scope?: RpcScope,
+  ): Promise<T> {
     const id = `coord-${++this.requestCounter}`;
-    const request = createRpcRequest(id, method, params);
+    const request = createRpcRequest(id, method, params, undefined, scope);
     const timeout = timeoutMs ?? RPC_TIMEOUT_MS;
 
     return new Promise<T>((resolve, reject) => {
