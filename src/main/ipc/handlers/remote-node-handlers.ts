@@ -2,6 +2,8 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getWorkerNodeRegistry, getWorkerNodeConnectionServer } from '../../remote-node';
+import { COORDINATOR_TO_NODE } from '../../remote-node/worker-node-rpc';
+import { sendServiceRpc } from '../../remote-node/service-rpc-client';
 import { getRemoteNodeConfig, updateRemoteNodeConfig } from '../../remote-node/remote-node-config';
 import { getDiscoveryService } from '../../remote-node/discovery-service';
 import { generateAuthToken } from '../../remote-node/auth-validator';
@@ -194,6 +196,82 @@ export function registerRemoteNodeHandlers(): void {
           success: false,
           error: {
             code: 'REMOTE_NODE_GET_SERVER_STATUS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_SERVICE_STATUS,
+    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+      try {
+        const data = await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_STATUS);
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_SERVICE_STATUS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_SERVICE_RESTART,
+    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+      try {
+        await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_RESTART);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_SERVICE_RESTART_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_SERVICE_STOP,
+    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+      try {
+        await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_STOP);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_SERVICE_STOP_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_SERVICE_UNINSTALL,
+    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+      try {
+        await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_UNINSTALL);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_SERVICE_UNINSTALL_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },
