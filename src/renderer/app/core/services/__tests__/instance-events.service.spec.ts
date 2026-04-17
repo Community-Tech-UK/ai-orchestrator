@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { InstanceEventsService } from '../instance-events.service';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
@@ -26,6 +26,10 @@ describe('InstanceEventsService', () => {
       },
     };
     TestBed.configureTestingModule({ providers: [InstanceEventsService] });
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
   });
 
   it('exposes events$ that emits envelopes from preload', () => {
