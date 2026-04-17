@@ -80,15 +80,14 @@ import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handl
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import { SessionRecoveryHandler, type RecoveryResult } from './lifecycle/session-recovery';
+import { IdleMonitor } from './lifecycle/idle-monitor';
+import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
-
-/** Stash for respawn-promise resolvers. Stored externally to avoid casting Instance. */
-const respawnResolvers = new WeakMap<Instance, () => void>();
 
 // Tools that require Claude CLI's interactive terminal and auto-deny in --print mode.
 // Always disallow these so Claude doesn't attempt them and misinterpret the auto-denial
@@ -245,10 +244,15 @@ export class InstanceLifecycleManager extends EventEmitter {
   private settings = getSettingsManager();
   private memoryMonitor = getMemoryMonitor();
   private outputStorage = getOutputStorageManager();
-  private idleCheckTimer: NodeJS.Timeout | null = null;
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
   private recoveryEngine: RecoveryRecipeEngine | null = null;
+
+  /** Extracted idle-monitoring loop (periodic activity poll + zombie cleanup). */
+  private readonly idleMonitor: IdleMonitor;
+
+  /** Extracted interrupt + post-interrupt/unexpected-exit respawn flows. */
+  private readonly interruptRespawn: InterruptRespawnHandler;
 
   /**
    * Focused spawner for isolated CLI process spawn operations (e.g. test harnesses,
@@ -491,7 +495,44 @@ export class InstanceLifecycleManager extends EventEmitter {
       },
       { getActiveMessages: (input) => this.getActiveMessages(input) },
     );
-    this.startIdleCheckTimer();
+    this.idleMonitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: this.settings.getAll().autoTerminateIdleMinutes }),
+      getRecoveryEngine: () => this.getRecoveryEngine(),
+      getActivityDetectors: () => this.activityDetectors,
+      getInstance: (id) => this.deps.getInstance(id),
+      forEachInstance: (cb) => this.deps.forEachInstance(cb),
+      getAdapter: (id) => this.deps.getAdapter(id),
+      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState) =>
+        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState),
+      deleteAdapter: (id) => { this.deps.deleteAdapter(id); },
+      transitionState: (instance, newState) => this.transitionState(instance, newState),
+      terminateInstance: (id, auto) => this.terminateInstance(id, auto),
+      hibernateInstance: (id) => this.hibernateInstance(id),
+      dispatchRecovery: (instanceId, failure) => this.dispatchRecoveryActions(instanceId, failure),
+    });
+    this.idleMonitor.start();
+    this.interruptRespawn = new InterruptRespawnHandler({
+      getInstance: (id) => this.deps.getInstance(id),
+      getAdapter: (id) => this.deps.getAdapter(id),
+      setAdapter: (id, adapter) => this.deps.setAdapter(id, adapter),
+      deleteAdapter: (id) => { this.deps.deleteAdapter(id); },
+      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState) =>
+        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState),
+      markInterrupted: (id) => this.deps.markInterrupted(id),
+      clearInterrupted: (id) => this.deps.clearInterrupted(id),
+      addToOutputBuffer: (instance, message) => this.deps.addToOutputBuffer(instance, message),
+      setupAdapterEvents: (id, adapter) => this.deps.setupAdapterEvents(id, adapter),
+      transitionState: (instance, newState) => this.transitionState(instance, newState),
+      getAdapterRuntimeCapabilities: (adapter) => this.getAdapterRuntimeCapabilities(adapter),
+      resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance),
+      getMcpConfig: (loc) => this.getMcpConfig(loc),
+      getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
+      waitForResumeHealth: (id, timeoutMs) => this.waitForResumeHealth(id, timeoutMs),
+      waitForAdapterWritable: (id, timeoutMs) => this.waitForAdapterWritable(id, timeoutMs),
+      buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
+      buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
+      emitOutput: (instanceId, message) => { this.emit('output', { instanceId, message }); },
+    });
     this.setupMemoryMonitoring();
   }
 
@@ -2832,395 +2873,33 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   // ============================================
 
   /**
-   * Interrupt an instance (like Ctrl+C)
+   * Interrupt an instance (like Ctrl+C) — delegates to InterruptRespawnHandler.
    *
    * When the instance is 'busy', sends SIGINT and transitions to 'respawning'.
    * When the instance is 'respawning' (e.g., second Escape press while stuck),
    * force-terminates the adapter so the frontend can restart cleanly.
    */
   interruptInstance(instanceId: string): boolean {
-    const adapter = this.deps.getAdapter(instanceId);
-    const instance = this.deps.getInstance(instanceId);
-
-    if (!adapter || !instance) {
-      logger.warn('Cannot interrupt instance: not found', { instanceId });
-      return false;
-    }
-
-    // Force-terminate if already respawning (user pressed Escape again while stuck)
-    if (instance.status === 'respawning') {
-      logger.info('Force-terminating instance during respawning (second interrupt)', { instanceId });
-
-      // Resolve the pending respawn promise so waiters don't hang
-      const resolveRespawn = respawnResolvers.get(instance);
-      if (resolveRespawn) {
-        resolveRespawn();
-        respawnResolvers.delete(instance);
-        instance.respawnPromise = undefined;
-      }
-
-      // Force-kill the adapter (SIGKILL, no graceful wait)
-      adapter.terminate(false).catch((err) => {
-        logger.warn('Force-terminate during respawn failed', { error: err instanceof Error ? err.message : String(err), instanceId });
-      });
-
-      this.deps.clearInterrupted(instanceId);
-      this.transitionState(instance, 'error');
-      instance.processId = null;
-      this.deps.queueUpdate(instanceId, 'error', undefined, undefined, undefined,
-        { message: 'Session interrupted — use restart to continue', code: 'FORCE_INTERRUPTED', timestamp: Date.now() });
-      return true;
-    }
-
-    // Only allow interrupt when busy
-    if (instance.status !== 'busy') {
-      logger.warn('Cannot interrupt instance: not busy', { instanceId, status: instance.status });
-      return false;
-    }
-
-    this.deps.markInterrupted(instanceId);
-
-    const success = adapter.interrupt();
-    if (success) {
-      // Use 'respawning' status to prevent further interrupts during recovery
-      this.transitionState(instance, 'respawning');
-      instance.lastActivity = Date.now();
-      this.deps.queueUpdate(instanceId, 'respawning', instance.contextUsage);
-
-      // Expose a promise that resolves when respawn completes.
-      // sendInput() awaits this so messages sent during respawning are
-      // held (not rejected) until the new adapter is ready.
-      let resolveRespawn!: () => void;
-      instance.respawnPromise = new Promise<void>((resolve) => {
-        resolveRespawn = resolve;
-      });
-      respawnResolvers.set(instance, resolveRespawn);
-    } else {
-      this.deps.clearInterrupted(instanceId);
-    }
-
-    return success;
+    return this.interruptRespawn.interrupt(instanceId);
   }
 
   /**
    * Respawn an instance after interrupt to continue the session
+   * (delegates to InterruptRespawnHandler).
    */
   async respawnAfterInterrupt(instanceId: string): Promise<void> {
-    logger.info('Starting respawn after interrupt', { instanceId });
-
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    const release = await getSessionMutex().acquire(instanceId, 'respawn-interrupt');
-    try {
-      const previousAdapter = this.deps.getAdapter(instanceId);
-      const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
-      const sessionId = instance.sessionId;
-      logger.debug('Respawning with session ID', { instanceId, sessionId });
-      if (!sessionId && capabilities.supportsResume) {
-        throw new Error(`Instance ${instanceId} has no session ID to resume`);
-      }
-      const hasConversation = instance.outputBuffer.some(
-        (msg) => msg.type === 'user' || msg.type === 'assistant'
-      );
-      // Skip --resume entirely if we previously observed that this session id
-      // is unknown to the CLI. Falls through to the fresh-session + replay path.
-      const resumeBlacklisted = instance.sessionResumeBlacklisted === true;
-      if (resumeBlacklisted) {
-        logger.info('Skipping --resume for blacklisted session id', { instanceId, sessionId });
-      }
-      const shouldResume =
-        capabilities.supportsResume && Boolean(sessionId) && !resumeBlacklisted;
-      const shouldForkSession = shouldResume && capabilities.supportsForkSession;
-
-      const newSessionId = shouldResume && shouldForkSession
-        ? generateId()
-        : shouldResume
-          ? sessionId
-          : generateId();
-      instance.sessionId = newSessionId;
-
-      const cliType = await this.resolveCliTypeForInstance(instance);
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        sessionId: shouldResume ? sessionId : newSessionId,
-        workingDirectory: instance.workingDirectory,
-        yoloMode: instance.yoloMode,
-        model: instance.currentModel,
-        resume: shouldResume,
-        forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-      };
-      const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-
-      try {
-        logger.debug('Spawning new process after interrupt', { instanceId });
-        let pid: number;
-        let actuallyResumed = shouldResume;
-        try {
-          pid = await adapter.spawn();
-          instance.processId = pid;
-          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
-            throw new Error('Native resume did not stabilize after interrupt');
-          }
-        } catch (spawnError) {
-          // Resume failed (e.g., corrupted session with empty messages).
-          // Fall back to a fresh session with replay continuity message.
-          if (shouldResume) {
-            logger.warn('Resume failed after interrupt, falling back to fresh session', {
-              instanceId,
-              error: spawnError instanceof Error ? spawnError.message : String(spawnError),
-            });
-            // Remove event listeners BEFORE terminating so the exit handler
-            // doesn't treat the resume adapter's exit as a real instance exit
-            // (which would set the instance to terminated/error state and clear
-            // queued messages on the frontend).
-            adapter.removeAllListeners();
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            await adapter.terminate(true).catch(() => {});
-
-            const fallbackSessionId = generateId();
-            instance.sessionId = fallbackSessionId;
-            // Fresh session — unblock future resume attempts against the new id.
-            instance.sessionResumeBlacklisted = false;
-            const fallbackOptions: UnifiedSpawnOptions = {
-              ...spawnOptions,
-              resume: false,
-              forkSession: false,
-              sessionId: fallbackSessionId,
-            };
-            const fallbackAdapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, fallbackAdapter);
-            this.deps.setAdapter(instanceId, fallbackAdapter);
-
-            pid = await fallbackAdapter.spawn();
-            actuallyResumed = false;
-
-            if (hasConversation) {
-              await fallbackAdapter.sendInput(
-                await this.buildFallbackHistory(instance, 'resume-failed-fallback')
-              );
-            }
-          } else {
-            throw spawnError;
-          }
-        }
-        if (actuallyResumed) {
-          // Clear any stale blacklist — resume just succeeded against this id.
-          instance.sessionResumeBlacklisted = false;
-        }
-        logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
-
-        instance.processId = pid;
-
-        // Verify the adapter is ready to accept input before declaring idle.
-        // After spawn, the CLI process needs a moment for its stdin pipe to
-        // become writable. Without this gate, sendInput() can race ahead and
-        // fail with "CLI not ready for input".
-        const currentAdapter = this.deps.getAdapter(instanceId);
-        if (currentAdapter && currentAdapter !== adapter) {
-          logger.warn('Adapter was replaced during respawn, skipping idle transition', { instanceId });
-        } else {
-          await this.waitForAdapterWritable(instanceId, 3000);
-        }
-
-        this.transitionState(instance, 'idle');
-        instance.lastActivity = Date.now();
-
-        if (!actuallyResumed && shouldResume) {
-          // Already sent continuity message in fallback path above
-        } else if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'interrupt-respawn'));
-        }
-
-        const message = {
-          id: generateId(),
-          type: 'system' as const,
-          content: actuallyResumed ? 'Interrupted — waiting for input' : 'Interrupted — session restarted (resume failed)',
-          timestamp: Date.now()
-        };
-        this.deps.addToOutputBuffer(instance, message);
-        this.emit('output', { instanceId, message });
-
-        instance.lastRespawnAt = Date.now();
-        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-        logger.info('Respawn after interrupt complete', { instanceId });
-      } catch (error) {
-        logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
-        this.transitionState(instance, 'error');
-        instance.processId = null;
-        this.deps.queueUpdate(instanceId, 'error');
-        throw error;
-      }
-    } finally {
-      release();
-
-      // Resolve the respawn promise so any sendInput() calls waiting on it
-      // can proceed (or fail cleanly if the instance is now in error state).
-      const resolveRespawn = respawnResolvers.get(instance);
-      if (resolveRespawn) {
-        resolveRespawn();
-        respawnResolvers.delete(instance);
-        instance.respawnPromise = undefined;
-      }
-    }
+    return this.interruptRespawn.respawnAfterInterrupt(instanceId);
   }
 
   /**
-   * Respawn an instance after its CLI process exited unexpectedly.
-   * Uses --resume to reconnect to the existing CLI session.
-   * Falls back to a fresh session with replay continuity if resume fails.
+   * Respawn an instance after its CLI process exited unexpectedly
+   * (delegates to InterruptRespawnHandler).
+   *
+   * Uses --resume to reconnect to the existing CLI session. Falls back to
+   * a fresh session with replay continuity if resume fails.
    */
   async respawnAfterUnexpectedExit(instanceId: string): Promise<void> {
-    logger.info('Auto-respawning after unexpected exit', { instanceId });
-
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    const release = await getSessionMutex().acquire(instanceId, 'respawn-unexpected');
-    try {
-      // Read capabilities from the previous adapter BEFORE deleting it.
-      // The exit handler in instance-communication.ts no longer calls deleteAdapter
-      // so the adapter is still available here.
-      const previousAdapter = this.deps.getAdapter(instanceId);
-      const capabilities = this.getAdapterRuntimeCapabilities(previousAdapter);
-
-      // Now clean up the previous adapter
-      this.deps.deleteAdapter(instanceId);
-
-      const sessionId = instance.sessionId;
-      const hasConversation = instance.outputBuffer.some(
-        (msg) => msg.type === 'user' || msg.type === 'assistant'
-      );
-      // Skip --resume if the current id was poisoned (e.g. "No conversation
-      // found" observed from a previous CLI process).
-      const resumeBlacklisted = instance.sessionResumeBlacklisted === true;
-      if (resumeBlacklisted) {
-        logger.info('Skipping --resume for blacklisted session id in auto-respawn', {
-          instanceId,
-          sessionId,
-        });
-      }
-      const shouldResume =
-        capabilities.supportsResume && Boolean(sessionId) && !resumeBlacklisted;
-      const shouldForkSession = shouldResume && capabilities.supportsForkSession;
-
-      const newSessionId = shouldResume && shouldForkSession
-        ? generateId()
-        : shouldResume
-          ? sessionId
-          : generateId();
-      instance.sessionId = newSessionId;
-
-      const cliType = await this.resolveCliTypeForInstance(instance);
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        sessionId: shouldResume ? sessionId : newSessionId,
-        workingDirectory: instance.workingDirectory,
-        yoloMode: instance.yoloMode,
-        model: instance.currentModel,
-        resume: shouldResume,
-        forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-      };
-      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-
-      try {
-        let pid: number;
-        let actuallyResumed = shouldResume;
-        try {
-          pid = await adapter.spawn();
-          instance.processId = pid;
-          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
-            throw new Error('Native resume did not stabilize after unexpected exit');
-          }
-        } catch (spawnError) {
-          if (shouldResume) {
-            logger.warn('Resume failed during auto-respawn, falling back to fresh session', {
-              instanceId,
-              error: spawnError instanceof Error ? spawnError.message : String(spawnError),
-            });
-            // Remove event listeners BEFORE terminating so the exit handler
-            // doesn't treat the resume adapter's exit as a real instance exit
-            // (which would set the instance to terminated/error state and clear
-            // queued messages on the frontend).
-            adapter.removeAllListeners();
-            await adapter.terminate(true).catch(() => { /* ignore */ });
-
-            const fallbackSessionId = generateId();
-            instance.sessionId = fallbackSessionId;
-            // Fresh session — unblock future resume attempts against the new id.
-            instance.sessionResumeBlacklisted = false;
-            const fallbackOptions: UnifiedSpawnOptions = {
-              ...spawnOptions,
-              resume: false,
-              forkSession: false,
-              sessionId: fallbackSessionId,
-            };
-            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, adapter);
-            this.deps.setAdapter(instanceId, adapter);
-
-            pid = await adapter.spawn();
-            actuallyResumed = false;
-
-            if (hasConversation) {
-              await adapter.sendInput(await this.buildFallbackHistory(instance, 'auto-respawn-fallback'));
-            }
-          } else {
-            throw spawnError;
-          }
-        }
-        if (actuallyResumed) {
-          // Clear any stale blacklist — resume just succeeded against this id.
-          instance.sessionResumeBlacklisted = false;
-        }
-        logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
-
-        instance.processId = pid;
-        this.transitionState(instance, 'idle');
-        instance.lastActivity = Date.now();
-
-        if (!actuallyResumed && shouldResume) {
-          // Already sent continuity message in fallback path
-        } else if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.buildReplayContinuityMessage(instance, 'auto-respawn'));
-        }
-
-        const message = {
-          id: generateId(),
-          type: 'system' as const,
-          content: actuallyResumed
-            ? 'Session reconnected automatically'
-            : 'Session restarted automatically (resume failed)',
-          timestamp: Date.now(),
-          metadata: { autoRespawn: true }
-        };
-        this.deps.addToOutputBuffer(instance, message);
-        this.emit('output', { instanceId, message });
-
-        instance.lastRespawnAt = Date.now();
-        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
-      } catch (error) {
-        logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
-        this.transitionState(instance, 'error');
-        instance.processId = null;
-        this.deps.queueUpdate(instanceId, 'error');
-        throw error;
-      }
-    } finally {
-      release();
-    }
+    return this.interruptRespawn.respawnAfterUnexpectedExit(instanceId);
   }
 
   // ============================================
@@ -3272,141 +2951,12 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   // ============================================
   // Idle Instance Management
   // ============================================
-
-  private startIdleCheckTimer(): void {
-    this.idleCheckTimer = setInterval(() => {
-      this.checkIdleInstances();
-      this.cleanupZombieProcesses();
-    }, 60000);
-  }
-
-  private checkIdleInstances(): void {
-    // Poll activity state for each tracked instance and detect failures.
-    // Single detect() call per instance to avoid redundant file I/O.
-    const recoveryEngine = this.getRecoveryEngine();
-
-    for (const [instanceId, detector] of this.activityDetectors) {
-      detector.detect().then(result => {
-        const instance = this.deps.getInstance(instanceId);
-        if (!instance) return;
-
-        const previousActivityState = instance.activityState;
-        instance.activityState = result.state;
-        if (previousActivityState !== result.state) {
-          this.deps.queueUpdate(
-            instanceId,
-            instance.status,
-            instance.contextUsage,
-            undefined,
-            undefined,
-            undefined,
-            instance.executionLocation,
-            undefined,
-            result.state,
-          );
-        }
-
-        // Skip recovery detection for instances already being handled:
-        // - 'respawning': auto-respawn from instance-communication.ts is in progress
-        // - 'error': already failed, don't try to recover again
-        // - 'initializing': still starting up
-        // - 'terminated': intentionally stopped
-        // Also skip remote instances for 'exited' detection — the local process
-        // check cannot accurately determine if a remote process is alive.
-        if (!recoveryEngine) return;
-
-        const skipRecovery = instance.status === 'respawning'
-          || instance.status === 'error'
-          || instance.status === 'initializing'
-          || instance.status === 'terminated';
-        if (skipRecovery) return;
-
-        const isRemote = instance.executionLocation?.type === 'remote';
-
-        let failure: DetectedFailure | null = null;
-
-        if (result.state === 'blocked' && !isRemote) {
-          failure = {
-            id: generateId(),
-            category: 'agent_stuck_blocked',
-            instanceId,
-            detectedAt: Date.now(),
-            context: {},
-            activityState: result.state,
-            severity: 'recoverable',
-          };
-        } else if (result.state === 'exited' && !isRemote && instance.status !== 'terminated') {
-          failure = {
-            id: generateId(),
-            category: 'process_exited_unexpected',
-            instanceId,
-            detectedAt: Date.now(),
-            context: {},
-            activityState: result.state,
-            severity: 'recoverable',
-          };
-        }
-
-        if (failure) {
-          recoveryEngine.handleFailure(failure).then(outcome => {
-            logger.info('Recovery outcome', { instanceId, category: failure!.category, outcome: outcome.status });
-            this.dispatchRecoveryActions(instanceId, failure!).catch(err => {
-              logger.warn('Recovery action dispatch failed', { instanceId, error: String(err) });
-            });
-          }).catch(err => {
-            logger.warn('Recovery failed', { instanceId, error: String(err) });
-          });
-        }
-      }).catch(err => {
-        logger.warn('Activity detection failed', { instanceId, error: String(err) });
-      });
-    }
-
-    const settingsAll = this.settings.getAll();
-    const idleMinutes = settingsAll.autoTerminateIdleMinutes;
-
-    if (idleMinutes <= 0) return;
-
-    const idleThreshold = idleMinutes * 60 * 1000;
-    const now = Date.now();
-
-    this.deps.forEachInstance((instance) => {
-      if (!instance.parentId) return;
-
-      if (
-        instance.status === 'idle' &&
-        now - instance.lastActivity > idleThreshold
-      ) {
-        const hasUserMessages = instance.outputBuffer.some(
-          (msg) => msg.type === 'user'
-        );
-
-        if (hasUserMessages) {
-          logger.info('Auto-hibernating idle instance (has conversation)', {
-            instanceId: instance.id,
-            displayName: instance.displayName,
-            idleMinutes
-          });
-          this.hibernateInstance(instance.id).catch((err) => {
-            logger.error('Auto-hibernate failed', err instanceof Error ? err : undefined, {
-              instanceId: instance.id
-            });
-          });
-        } else {
-          logger.info('Auto-terminating idle instance (no conversation)', {
-            instanceId: instance.id,
-            displayName: instance.displayName,
-            idleMinutes
-          });
-          void this.terminateInstance(instance.id, true).catch((err) =>
-            logger.error('Auto-terminate failed', err instanceof Error ? err : undefined, {
-              instanceId: instance.id
-            })
-          );
-        }
-      }
-    });
-  }
+  //
+  // The periodic check loop, zombie cleanup, and memory-pressure half-terminate
+  // live in `./lifecycle/idle-monitor.ts` and are wired up in the constructor.
+  // `dispatchRecoveryActions` stays here because it calls `restartInstance`,
+  // which is deeply coupled to the lifecycle manager; IdleMonitor invokes it
+  // via the `dispatchRecovery` callback.
 
   /**
    * Read recovery context flags set by recipes and dispatch the corresponding
@@ -3451,81 +3001,6 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     }
   }
 
-  private terminateIdleInstances(): void {
-    const idleInstances: Instance[] = [];
-    this.deps.forEachInstance((instance) => {
-      if (instance.status === 'idle' && instance.parentId) {
-        idleInstances.push(instance);
-      }
-    });
-
-    idleInstances.sort((a, b) => a.lastActivity - b.lastActivity);
-
-    const toTerminate = Math.ceil(idleInstances.length / 2);
-    for (let i = 0; i < toTerminate && i < idleInstances.length; i++) {
-      logger.warn('Terminating idle instance due to memory pressure', {
-        instanceId: idleInstances[i].id,
-        displayName: idleInstances[i].displayName
-      });
-      this.terminateInstance(idleInstances[i].id, true);
-    }
-  }
-
-  private cleanupZombieProcesses(): void {
-    const adapterEntriesToCleanup: string[] = [];
-
-    // First pass: identify adapters to cleanup
-    this.deps.forEachInstance((instance, instanceId) => {
-      const adapter = this.deps.getAdapter(instanceId);
-
-      if (adapter && (instance.status === 'error' || instance.status === 'terminated')) {
-        if (adapter.isRunning()) {
-          logger.warn('Found zombie process, force killing', {
-            instanceId,
-            status: instance.status
-          });
-          adapterEntriesToCleanup.push(instanceId);
-        } else {
-          this.deps.deleteAdapter(instanceId);
-        }
-      }
-
-      if (instance.processId && !this.deps.getAdapter(instanceId)) {
-        logger.warn('Instance claims PID but has no adapter, clearing PID', {
-          instanceId,
-          processId: instance.processId
-        });
-        instance.processId = null;
-        if (instance.status === 'busy' || instance.status === 'initializing') {
-          this.transitionState(instance, 'error');
-          this.deps.queueUpdate(instanceId, 'error');
-        }
-      }
-    });
-
-    // Second pass: cleanup adapters
-    for (const instanceId of adapterEntriesToCleanup) {
-      this.forceCleanupAdapter(instanceId).catch((err) => {
-        logger.error('Failed to cleanup zombie process', err instanceof Error ? err : undefined, { instanceId });
-      });
-    }
-  }
-
-  private async forceCleanupAdapter(instanceId: string): Promise<void> {
-    const adapter = this.deps.getAdapter(instanceId);
-    if (!adapter) return;
-
-    logger.info('Force cleaning up adapter', { instanceId });
-
-    try {
-      await adapter.terminate(false);
-    } catch (error) {
-      logger.error('Error during force cleanup', error instanceof Error ? error : undefined, { instanceId });
-    } finally {
-      this.deps.deleteAdapter(instanceId);
-    }
-  }
-
   // ============================================
   // Memory Monitoring
   // ============================================
@@ -3548,7 +3023,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
       const settingsAll = this.settings.getAll();
       if (settingsAll.autoTerminateOnMemoryPressure) {
-        this.terminateIdleInstances();
+        this.idleMonitor.terminateIdleHalf();
       }
     });
 
@@ -3586,10 +3061,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
    * Cleanup on shutdown
    */
   destroy(): void {
-    if (this.idleCheckTimer) {
-      clearInterval(this.idleCheckTimer);
-      this.idleCheckTimer = null;
-    }
+    this.idleMonitor.stop();
     this.memoryMonitor.stop();
   }
 }
