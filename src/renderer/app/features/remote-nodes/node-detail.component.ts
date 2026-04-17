@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import { NodeServicePanelComponent } from './node-service-panel/node-service-panel.component';
 
 @Component({
   selector: 'app-node-detail',
   standalone: true,
+  imports: [NodeServicePanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="detail-card">
@@ -54,6 +56,10 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
             <li>{{ workingDirectory }}</li>
           }
         </ul>
+      </div>
+
+      <div class="detail-section">
+        <app-node-service-panel [nodeId]="node().id" />
       </div>
     </section>
   `,
