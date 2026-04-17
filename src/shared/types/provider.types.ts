@@ -133,6 +133,12 @@ export interface ProviderSessionOptions {
   temperature?: number;
   workingDirectory: string;
   sessionId?: string;
+  /**
+   * Stable identifier for the orchestrator instance this session belongs to.
+   * Populated into every `ProviderRuntimeEventEnvelope.instanceId` emitted by
+   * the adapter. Added in Wave 2 (2026-04-17).
+   */
+  instanceId?: string;
   resume?: boolean;
   toolsEnabled?: boolean;
   yoloMode?: boolean;
