@@ -79,6 +79,12 @@ import { getPermissionManager } from './security/permission-manager';
 import { PermissionDecisionStore } from './security/permission-decision-store';
 import { WorkflowPersistence } from './workflows/workflow-persistence';
 import { initializeCodemem } from './codemem';
+import { providerAdapterRegistry } from './providers/provider-adapter-registry';
+import { registerBuiltInProviders } from './providers/register-built-in-providers';
+
+// Register built-in provider adapters once at startup so the instance
+// manager (and future consumers) can look them up by ProviderName.
+registerBuiltInProviders(providerAdapterRegistry);
 
 const logger = getLogger('App');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
