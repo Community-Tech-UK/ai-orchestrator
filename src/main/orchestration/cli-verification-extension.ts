@@ -367,6 +367,8 @@ export class CliVerificationCoordinator extends EventEmitter {
       };
     }
 
+    let sub: { unsubscribe(): void } | undefined;
+
     try {
       // Build prompt with personality
       const systemPrompt = this.buildAgentPrompt(agent.personality);
@@ -408,31 +410,31 @@ export class CliVerificationCoordinator extends EventEmitter {
       let tokens = 0;
       let responseComplete = false;
 
-      // Set up event listeners before sending message
-      agent.provider.on('output', (message: any) => {
-        // Handle both string content (Gemini/Codex) and object with content property (Claude)
-        const content = typeof message === 'string' ? message : message?.content;
-        if (content) {
-          responseContent += content;
-          // Emit streaming event for real-time UI updates
-          this.emit('verification:agent-stream', {
-            requestId: request.id,
-            agentId,
-            agentName: agent.name,
-            content,
-            totalContent: responseContent,
-          });
-        }
-      });
-
-      agent.provider.on('context', (usage: any) => {
-        tokens = usage.used || 0;
-      });
-
-      // Listen for status changes to know when response is complete
-      agent.provider.on('status', (status: any) => {
-        if (status === 'idle') {
-          responseComplete = true;
+      // Subscribe to typed events$ stream before sending message
+      sub = agent.provider.events$.subscribe(env => {
+        switch (env.event.kind) {
+          case 'output': {
+            const content = env.event.content;
+            if (content) {
+              responseContent += content;
+              this.emit('verification:agent-stream', {
+                requestId: request.id,
+                agentId,
+                agentName: agent.name,
+                content,
+                totalContent: responseContent,
+              });
+            }
+            break;
+          }
+          case 'context':
+            tokens = env.event.used || 0;
+            break;
+          case 'status':
+            if (env.event.status === 'idle') {
+              responseComplete = true;
+            }
+            break;
         }
       });
 
@@ -462,6 +464,7 @@ export class CliVerificationCoordinator extends EventEmitter {
 
       // Terminate provider and remove from session tracking
       await agent.provider.terminate();
+      sub?.unsubscribe();
       session.providers.delete(agentId);
 
       // If no token count from context event, estimate from content length.
@@ -509,6 +512,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       } catch {
         /* intentionally ignored: provider cleanup errors should not block error reporting */
       }
+      sub?.unsubscribe();
 
       // Emit agent complete event with error
       this.emit('verification:agent-complete', {
