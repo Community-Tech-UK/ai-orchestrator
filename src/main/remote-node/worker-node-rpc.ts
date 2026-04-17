@@ -36,8 +36,14 @@ export const COORDINATOR_TO_NODE = {
   SYNC_GET_BLOCK_SIGNATURES: 'sync.getBlockSignatures',
   SYNC_COMPUTE_DELTA: 'sync.computeDelta',
   SYNC_APPLY_DELTA: 'sync.applyDelta',
-  SYNC_DELETE_FILE: 'sync.deleteFile'
+  SYNC_DELETE_FILE: 'sync.deleteFile',
+  SERVICE_STATUS: 'service.status',
+  SERVICE_RESTART: 'service.restart',
+  SERVICE_STOP: 'service.stop',
+  SERVICE_UNINSTALL: 'service.uninstall'
 } as const;
+
+export type RpcScope = 'instance' | 'service';
 
 // -- JSON-RPC 2.0 Message Types --
 
@@ -47,6 +53,7 @@ export interface RpcRequest {
   method: string;
   params?: unknown;
   token?: string;
+  scope?: RpcScope;
 }
 
 export interface RpcResponse {
@@ -96,9 +103,10 @@ export function createRpcRequest(
   id: string | number,
   method: string,
   params?: unknown,
-  token?: string
+  token?: string,
+  scope?: RpcScope
 ): RpcRequest {
-  return { jsonrpc: '2.0', id, method, params, token };
+  return { jsonrpc: '2.0', id, method, params, token, scope };
 }
 
 export function createRpcResponse(
