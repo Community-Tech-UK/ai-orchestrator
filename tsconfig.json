@@ -49,7 +49,8 @@
       "@contracts/types/provider-runtime-events": ["./packages/contracts/src/types/provider-runtime-events"],
       "@contracts/types/transport":          ["./packages/contracts/src/types/transport.types"],
       "@sdk/*": ["./packages/sdk/src/*"],
-      "@sdk": ["./packages/sdk/src/index"]
+      "@sdk": ["./packages/sdk/src/index"],
+      "@sdk/provider-adapter": ["./packages/sdk/src/provider-adapter"]
     }
   },
   "angularCompilerOptions": {

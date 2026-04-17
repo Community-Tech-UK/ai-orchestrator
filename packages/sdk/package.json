@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "description": "SDK for building tools, plugins, and providers for AI Orchestrator",
   "exports": {
-    "./tools":     { "types": "./src/tools.ts",     "default": "./src/tools.ts" },
-    "./plugins":   { "types": "./src/plugins.ts",   "default": "./src/plugins.ts" },
-    "./providers": { "types": "./src/providers.ts", "default": "./src/providers.ts" }
+    "./tools":            { "types": "./src/tools.ts",            "default": "./src/tools.ts" },
+    "./plugins":          { "types": "./src/plugins.ts",          "default": "./src/plugins.ts" },
+    "./providers":        { "types": "./src/providers.ts",        "default": "./src/providers.ts" },
+    "./provider-adapter": { "types": "./src/provider-adapter.ts", "default": "./src/provider-adapter.ts" }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
