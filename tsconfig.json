@@ -50,7 +50,8 @@
       "@contracts/types/transport":          ["./packages/contracts/src/types/transport.types"],
       "@sdk/*": ["./packages/sdk/src/*"],
       "@sdk": ["./packages/sdk/src/index"],
-      "@sdk/provider-adapter": ["./packages/sdk/src/provider-adapter"]
+      "@sdk/provider-adapter": ["./packages/sdk/src/provider-adapter"],
+      "@sdk/provider-adapter-registry": ["./packages/sdk/src/provider-adapter-registry"]
     }
   },
   "angularCompilerOptions": {
