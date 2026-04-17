@@ -9,24 +9,24 @@ import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  InstanceCreatePayloadSchema,
-  InstanceCreateWithMessagePayloadSchema,
-  InstanceSendInputPayloadSchema,
-  InstanceTerminatePayloadSchema,
-  InstanceRenamePayloadSchema,
-  InstanceInterruptPayloadSchema,
-  InstanceRestartPayloadSchema,
-  InstanceRestartFreshPayloadSchema,
+  InputRequiredResponsePayloadSchema,
   InstanceChangeAgentPayloadSchema,
   InstanceChangeModelPayloadSchema,
-  InputRequiredResponsePayloadSchema,
+  InstanceCompactPayloadSchema,
+  InstanceCreatePayloadSchema,
+  InstanceCreateWithMessagePayloadSchema,
+  InstanceInterruptPayloadSchema,
+  InstanceLoadOlderMessagesPayloadSchema,
+  InstanceRenamePayloadSchema,
+  InstanceRestartFreshPayloadSchema,
+  InstanceRestartPayloadSchema,
+  InstanceSendInputPayloadSchema,
+  InstanceTerminatePayloadSchema,
   UserActionRespondRawPayloadSchema,
   UserActionResponsePayloadSchema,
-  InstanceCompactPayloadSchema,
-  InstanceLoadOlderMessagesPayloadSchema,
-  validateIpcPayload
-} from '@contracts/schemas';
+} from '@contracts/schemas/instance';
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';

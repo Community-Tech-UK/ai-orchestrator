@@ -7,15 +7,15 @@ import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getRecentDirectoriesManager } from '../../core/config/recent-directories-manager';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  RecentDirsGetPayloadSchema,
   RecentDirsAddPayloadSchema,
-  RecentDirsRemovePayloadSchema,
-  RecentDirsPinPayloadSchema,
-  RecentDirsReorderPayloadSchema,
   RecentDirsClearPayloadSchema,
-} from '@contracts/schemas';
+  RecentDirsGetPayloadSchema,
+  RecentDirsPinPayloadSchema,
+  RecentDirsRemovePayloadSchema,
+  RecentDirsReorderPayloadSchema,
+} from '@contracts/schemas/workspace-tools';
 import { getSettingsManager } from '../../core/config/settings-manager';
 
 const logger = getLogger('RecentDirectoriesHandlers');

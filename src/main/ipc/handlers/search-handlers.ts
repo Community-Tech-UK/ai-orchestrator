@@ -6,12 +6,12 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getSemanticSearchManager } from '../../workspace/semantic-search';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  SearchSemanticPayloadSchema,
   SearchBuildIndexPayloadSchema,
   SearchConfigureExaPayloadSchema,
-} from '@contracts/schemas';
+  SearchSemanticPayloadSchema,
+} from '@contracts/schemas/observability';
 
 export function registerSearchHandlers(): void {
   const searchManager = getSemanticSearchManager();

@@ -12,15 +12,16 @@ import type {
   HybridSearchResult,
   WatcherStatus
 } from '../../../shared/types/codebase.types';
+import { StoreIdSchema, validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  CodebaseIndexStorePayloadSchema,
   CodebaseIndexFilePayloadSchema,
+  CodebaseIndexStorePayloadSchema,
   CodebaseWatcherPayloadSchema,
+} from '@contracts/schemas/file-operations';
+import {
   CodebaseSearchPayloadSchema,
   CodebaseSearchSymbolsPayloadSchema,
-  StoreIdSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/workspace-tools';
 import { z } from 'zod';
 import {
   getCodebaseIndexingService,

@@ -9,18 +9,18 @@ import type { ProviderType } from '../../../shared/types/provider.types';
 import { getProviderRegistry } from '../../providers';
 import { getProviderPluginsManager } from '../../providers/provider-plugins';
 import type { WindowManager } from '../../window-manager';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
+  PluginsCreateTemplatePayloadSchema,
+  PluginsGetMetaPayloadSchema,
+  PluginsGetPayloadSchema,
+  PluginsInstallPayloadSchema,
+  PluginsLoadPayloadSchema,
+  PluginsUninstallPayloadSchema,
+  PluginsUnloadPayloadSchema,
   ProviderStatusPayloadSchema,
   ProviderUpdateConfigPayloadSchema,
-  PluginsLoadPayloadSchema,
-  PluginsUnloadPayloadSchema,
-  PluginsInstallPayloadSchema,
-  PluginsUninstallPayloadSchema,
-  PluginsGetPayloadSchema,
-  PluginsGetMetaPayloadSchema,
-  PluginsCreateTemplatePayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/provider';
 
 interface RegisterProviderHandlersDeps {
   windowManager: WindowManager;

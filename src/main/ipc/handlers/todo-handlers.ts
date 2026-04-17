@@ -5,16 +5,16 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  TodoGetListPayloadSchema,
-  TodoCreatePayloadSchema,
-  TodoUpdatePayloadSchema,
-  TodoDeletePayloadSchema,
-  TodoWriteAllPayloadSchema,
   TodoClearPayloadSchema,
+  TodoCreatePayloadSchema,
+  TodoDeletePayloadSchema,
   TodoGetCurrentPayloadSchema,
-} from '@contracts/schemas';
+  TodoGetListPayloadSchema,
+  TodoUpdatePayloadSchema,
+  TodoWriteAllPayloadSchema,
+} from '@contracts/schemas/session';
 import { getTodoManager } from '../../tasks/todo-manager';
 import type { WindowManager } from '../../window-manager';
 

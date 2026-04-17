@@ -7,17 +7,17 @@ import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getDebugCommandsManager } from '../../core/system/debug-commands';
 import { getLogManager } from '../../logging/logger';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
+  DebugAgentPayloadSchema,
+  DebugAllPayloadSchema,
+  DebugConfigPayloadSchema,
+  DebugFilePayloadSchema,
+  LogExportPayloadSchema,
   LogGetRecentPayloadSchema,
   LogSetLevelPayloadSchema,
   LogSetSubsystemLevelPayloadSchema,
-  LogExportPayloadSchema,
-  DebugAgentPayloadSchema,
-  DebugConfigPayloadSchema,
-  DebugFilePayloadSchema,
-  DebugAllPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/observability';
 
 /**
  * Map log level string to LogLevel type

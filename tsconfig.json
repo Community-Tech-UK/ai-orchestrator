@@ -38,6 +38,13 @@
       "@contracts/schemas/observability":    ["./packages/contracts/src/schemas/observability.schemas"],
       "@contracts/schemas/workspace-tools":  ["./packages/contracts/src/schemas/workspace-tools.schemas"],
       "@contracts/schemas/knowledge":        ["./packages/contracts/src/schemas/knowledge.schemas"],
+      "@contracts/schemas/common":           ["./packages/contracts/src/schemas/common.schemas"],
+      "@contracts/schemas/instance":         ["./packages/contracts/src/schemas/instance.schemas"],
+      "@contracts/schemas/session":          ["./packages/contracts/src/schemas/session.schemas"],
+      "@contracts/schemas/provider":         ["./packages/contracts/src/schemas/provider.schemas"],
+      "@contracts/schemas/orchestration":    ["./packages/contracts/src/schemas/orchestration.schemas"],
+      "@contracts/schemas/remote-node":      ["./packages/contracts/src/schemas/remote-node.schemas"],
+      "@contracts/schemas/plugin":           ["./packages/contracts/src/schemas/plugin.schemas"],
       "@sdk/*": ["./packages/sdk/src/*"],
       "@sdk": ["./packages/sdk/src/index"]
     }

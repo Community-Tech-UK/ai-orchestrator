@@ -5,17 +5,17 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  CostRecordUsagePayloadSchema,
-  CostGetSummaryPayloadSchema,
-  CostGetSessionCostPayloadSchema,
-  CostSetBudgetPayloadSchema,
+  CostClearEntriesPayloadSchema,
   CostGetBudgetPayloadSchema,
   CostGetBudgetStatusPayloadSchema,
   CostGetEntriesPayloadSchema,
-  CostClearEntriesPayloadSchema,
-} from '@contracts/schemas';
+  CostGetSessionCostPayloadSchema,
+  CostGetSummaryPayloadSchema,
+  CostRecordUsagePayloadSchema,
+  CostSetBudgetPayloadSchema,
+} from '@contracts/schemas/session';
 import { getCostTracker } from '../../core/system/cost-tracker';
 import { WindowManager } from '../../window-manager';
 

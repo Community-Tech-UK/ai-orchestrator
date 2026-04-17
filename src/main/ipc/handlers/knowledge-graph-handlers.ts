@@ -5,15 +5,15 @@ import { getLogger } from '../../logging/logger';
 import { getKnowledgeGraphService } from '../../memory/knowledge-graph-service';
 import { getCodebaseMiner } from '../../memory/codebase-miner';
 import {
+  CodebaseGetStatusPayloadSchema,
+  CodebaseMineDirectoryPayloadSchema,
+  KgAddEntityPayloadSchema,
   KgAddFactPayloadSchema,
   KgInvalidateFactPayloadSchema,
   KgQueryEntityPayloadSchema,
   KgQueryRelationshipPayloadSchema,
   KgTimelinePayloadSchema,
-  KgAddEntityPayloadSchema,
-  CodebaseMineDirectoryPayloadSchema,
-  CodebaseGetStatusPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/knowledge';
 
 const logger = getLogger('KnowledgeGraphHandlers');
 

@@ -6,12 +6,12 @@
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getSupervisorTree } from '../../process';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   SupervisionCreateTreePayloadSchema,
   SupervisionGetTreePayloadSchema,
   SupervisionHandleFailurePayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/orchestration';
 import { getCircuitBreakerRegistry } from '../../process/circuit-breaker';
 
 export function registerSupervisionHandlers(): void {

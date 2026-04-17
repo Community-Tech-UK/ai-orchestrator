@@ -5,15 +5,15 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  TaskGetStatusPayloadSchema,
-  TaskGetHistoryPayloadSchema,
-  TaskGetByParentPayloadSchema,
-  TaskGetByChildPayloadSchema,
   TaskCancelPayloadSchema,
+  TaskGetByChildPayloadSchema,
+  TaskGetByParentPayloadSchema,
+  TaskGetHistoryPayloadSchema,
   TaskGetPreflightPayloadSchema,
-} from '@contracts/schemas';
+  TaskGetStatusPayloadSchema,
+} from '@contracts/schemas/orchestration';
 import { getTaskManager } from '../../orchestration/task-manager';
 import { getTaskPreflightService } from '../../security/task-preflight-service';
 

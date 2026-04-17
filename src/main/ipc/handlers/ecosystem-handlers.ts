@@ -12,10 +12,8 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import {
-  validateIpcPayload,
-  EcosystemListPayloadSchema,
-} from '@contracts/schemas';
+import { validateIpcPayload } from '@contracts/schemas/common';
+import { EcosystemListPayloadSchema } from '@contracts/schemas/provider';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getMarkdownCommandRegistry } from '../../commands/markdown-command-registry';
 import { getAgentRegistry } from '../../agents/agent-registry';

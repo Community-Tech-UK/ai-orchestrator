@@ -1,9 +1,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import {
-  RemoteObserverStartPayloadSchema,
-  validateIpcPayload,
-} from '@contracts/schemas';
+import { validateIpcPayload } from '@contracts/schemas/common';
+import { RemoteObserverStartPayloadSchema } from '@contracts/schemas/settings';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 
 export function registerRemoteObserverHandlers(): void {

@@ -1,12 +1,12 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
+  ReactionGetStatePayloadSchema,
   ReactionTrackInstancePayloadSchema,
   ReactionUntrackInstancePayloadSchema,
-  ReactionGetStatePayloadSchema,
   ReactionUpdateConfigPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/orchestration';
 import { getReactionEngine } from '../../reactions';
 
 export function registerReactionHandlers(): void {
