@@ -95,24 +95,6 @@ export interface ProviderAttachment {
 }
 
 /**
- * Legacy provider response events (for streaming).
- *
- * @deprecated Use {@link ProviderRuntimeEvent} from `@contracts/types` instead.
- * This type uses a `type` discriminant with a limited set of event kinds.
- * The contracts-based `ProviderRuntimeEvent` uses a `kind` discriminant with
- * richer, provider-agnostic event coverage (status, context, exit, spawned, etc.).
- *
- * This type is retained for backward compatibility and will be removed in a
- * future version.
- */
-export type ProviderEvent =
-  | { type: 'text'; content: string }
-  | { type: 'tool_use'; tool: string; input: unknown }
-  | { type: 'tool_result'; toolUseId: string; result: string; isError?: boolean }
-  | { type: 'error'; message: string; code?: string }
-  | { type: 'done'; usage?: ProviderUsage };
-
-/**
  * Usage statistics from provider
  */
 export interface ProviderUsage {
