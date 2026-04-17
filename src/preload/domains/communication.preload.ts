@@ -61,6 +61,18 @@ export function createCommunicationDomain(
     remoteNodeGetServerStatus: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_GET_SERVER_STATUS),
 
+    remoteNodeServiceStatus: (nodeId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_SERVICE_STATUS, { nodeId }),
+
+    remoteNodeServiceRestart: (nodeId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_SERVICE_RESTART, { nodeId }),
+
+    remoteNodeServiceStop: (nodeId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_SERVICE_STOP, { nodeId }),
+
+    remoteNodeServiceUninstall: (nodeId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_SERVICE_UNINSTALL, { nodeId }),
+
     onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) =>
         callback(data);

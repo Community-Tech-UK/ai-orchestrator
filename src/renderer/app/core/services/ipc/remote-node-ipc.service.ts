@@ -2,6 +2,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from './electron-ipc.service';
 import type { WorkerNodeInfo } from '../../../../../shared/types/worker-node.types';
+import type { ServiceStatus } from '../../../../../shared/types/service.types';
 
 export interface RemoteNodeServerConfig {
   port?: number;
@@ -98,6 +99,37 @@ export class RemoteNodeIpcService {
     const result = await this.api.remoteNodeRevokeNode(nodeId) as IpcResult | null;
     if (result && !result.success) {
       throw new Error(result.error?.message ?? 'Failed to revoke node');
+    }
+  }
+
+  async getServiceStatus(nodeId: string): Promise<ServiceStatus | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeServiceStatus(nodeId) as IpcResult | null;
+    if (!result?.success) return null;
+    return (result.data ?? null) as ServiceStatus | null;
+  }
+
+  async restartService(nodeId: string): Promise<void> {
+    if (!this.api) return;
+    const result = await this.api.remoteNodeServiceRestart(nodeId) as IpcResult | null;
+    if (result && !result.success) {
+      throw new Error(result.error?.message ?? 'Failed to restart service');
+    }
+  }
+
+  async stopService(nodeId: string): Promise<void> {
+    if (!this.api) return;
+    const result = await this.api.remoteNodeServiceStop(nodeId) as IpcResult | null;
+    if (result && !result.success) {
+      throw new Error(result.error?.message ?? 'Failed to stop service');
+    }
+  }
+
+  async uninstallService(nodeId: string): Promise<void> {
+    if (!this.api) return;
+    const result = await this.api.remoteNodeServiceUninstall(nodeId) as IpcResult | null;
+    if (result && !result.success) {
+      throw new Error(result.error?.message ?? 'Failed to uninstall service');
     }
   }
 
