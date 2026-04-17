@@ -1,0 +1,9 @@
+.service-panel { padding: 12px; border: 1px solid var(--border, #ccc); border-radius: 8px; }
+header { display: flex; justify-content: space-between; align-items: center; }
+dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin: 8px 0; }
+.state-running { color: var(--success, #2a7); font-weight: 600; }
+.state-stopped { color: var(--warning, #a70); }
+.state-not-installed { color: var(--muted, #888); }
+.actions { display: flex; gap: 8px; margin-top: 8px; }
+.danger { background: var(--danger-bg, #a00); color: #fff; }
+.muted { color: var(--muted, #888); }

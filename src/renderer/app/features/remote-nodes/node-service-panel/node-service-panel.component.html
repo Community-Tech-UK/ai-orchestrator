@@ -1,0 +1,21 @@
+<div class="service-panel">
+  <header>
+    <h3>Service</h3>
+    <button (click)="refresh()">Refresh</button>
+  </header>
+  @if (status() === null) {
+    <p class="muted">No status yet — the node may not be running as a service.</p>
+  } @else {
+    <dl>
+      <dt>State</dt><dd class="state-{{status()!.state}}">{{ status()!.state }}</dd>
+      @if (status()!.pid) { <dt>PID</dt><dd>{{ status()!.pid }}</dd> }
+      @if (status()!.version) { <dt>Version</dt><dd>{{ status()!.version }}</dd> }
+      @if (status()!.uptimeSeconds) { <dt>Uptime</dt><dd>{{ status()!.uptimeSeconds }}s</dd> }
+    </dl>
+    <div class="actions">
+      <button (click)="restart()" [disabled]="status()!.state === 'not-installed'">Restart</button>
+      <button (click)="stop()"    [disabled]="status()!.state !== 'running'">Stop</button>
+      <button class="danger" (click)="uninstall()" [disabled]="status()!.state === 'not-installed'">Uninstall</button>
+    </div>
+  }
+</div>
