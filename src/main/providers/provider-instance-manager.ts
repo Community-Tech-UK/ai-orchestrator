@@ -1,5 +1,11 @@
 /**
- * Provider Registry - Manages available AI providers
+ * Provider Instance Manager - Manages available AI providers (configs,
+ * factories, status caching, CLI detection wiring).
+ *
+ * Wave 2 introduced a separate `ProviderAdapterRegistry` (see
+ * `@sdk/provider-adapter-registry`) that owns the normalized adapter surface
+ * built-in providers will register against. This class accepts that registry
+ * via its constructor so future tasks can delegate instance creation to it.
  */
 
 import {
@@ -9,6 +15,7 @@ import {
   type ProviderConfig,
   type ProviderStatus,
 } from '../../shared/types/provider.types';
+import type { ProviderAdapterRegistry } from '@sdk/provider-adapter-registry';
 import { BaseProvider, ProviderFactory } from './provider-interface';
 import { ClaudeCliProvider, DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider';
 import { CodexCliProvider, DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
@@ -16,6 +23,7 @@ import { GeminiCliProvider, DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider'
 import { CopilotSdkProvider, DEFAULT_COPILOT_CONFIG } from './copilot-sdk-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
+import { providerAdapterRegistry } from './provider-adapter-registry';
 
 /**
  * Default provider configurations.
@@ -63,16 +71,19 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
 };
 
 /**
- * Provider Registry - Singleton that manages provider configurations and creation
+ * Provider Instance Manager - Singleton that manages provider configurations
+ * and creation.
  */
-export class ProviderRegistry {
+export class ProviderInstanceManager {
   private configs = new Map<string, ProviderConfig>();
   private factories = new Map<string, ProviderFactory>();
   private statusCache = new Map<string, ProviderStatus>();
   private statusCacheTime = new Map<string, number>();
   private readonly STATUS_CACHE_TTL = 60000; // 1 minute
+  private readonly adapterRegistry: ProviderAdapterRegistry;
 
-  constructor() {
+  constructor(adapterRegistry: ProviderAdapterRegistry = providerAdapterRegistry) {
+    this.adapterRegistry = adapterRegistry;
     // Initialize with default configs
     for (const [type, config] of Object.entries(DEFAULT_PROVIDER_CONFIGS)) {
       this.configs.set(type, { ...config });
@@ -165,6 +176,10 @@ export class ProviderRegistry {
 
   /**
    * Create a provider instance
+   *
+   * wave2-task12 — when built-ins are registered on `adapterRegistry`,
+   * consider delegating to `this.adapterRegistry.create(...)` so the SDK
+   * surface becomes the single entry point for provider instantiation.
    */
   createProvider(type: ProviderType | string, configOverrides?: Partial<ProviderConfig>): BaseProvider {
     const factory = this.factories.get(type);
@@ -356,11 +371,11 @@ export class ProviderRegistry {
 }
 
 // Singleton instance
-let registryInstance: ProviderRegistry | null = null;
+let instanceManagerSingleton: ProviderInstanceManager | null = null;
 
-export function getProviderRegistry(): ProviderRegistry {
-  if (!registryInstance) {
-    registryInstance = new ProviderRegistry();
+export function getProviderInstanceManager(): ProviderInstanceManager {
+  if (!instanceManagerSingleton) {
+    instanceManagerSingleton = new ProviderInstanceManager();
   }
-  return registryInstance;
+  return instanceManagerSingleton;
 }

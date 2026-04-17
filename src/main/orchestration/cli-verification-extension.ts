@@ -15,7 +15,7 @@ import {
 } from '../../shared/types/verification.types';
 import { ProviderType } from '../../shared/types/provider.types';
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
-import { getProviderRegistry } from '../providers/provider-registry';
+import { getProviderInstanceManager } from '../providers/provider-instance-manager';
 import { BaseProvider } from '../providers/provider-interface';
 import { selectPersonalities, PERSONALITY_PROMPTS } from './personalities';
 import { generateId } from '../../shared/utils/id-generator';
@@ -82,7 +82,7 @@ const logger = getLogger('CliVerification');
 export class CliVerificationCoordinator extends EventEmitter {
   private static instance: CliVerificationCoordinator | null = null;
   private cliDetection = CliDetectionService.getInstance();
-  private registry = getProviderRegistry();
+  private registry = getProviderInstanceManager();
   private activeVerifications: Map<string, VerificationRequest> = new Map();
   private activeSessions: Map<string, ActiveSession> = new Map();
   private results: Map<string, VerificationResult> = new Map();

@@ -6,7 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type { ProviderType } from '../../../shared/types/provider.types';
-import { getProviderRegistry } from '../../providers';
+import { getProviderInstanceManager } from '../../providers';
 import { getProviderPluginsManager } from '../../providers/provider-plugins';
 import type { WindowManager } from '../../window-manager';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -34,7 +34,7 @@ interface RegisterProviderHandlersDeps {
 export function registerProviderHandlers(
   deps: RegisterProviderHandlersDeps
 ): void {
-  const registry = getProviderRegistry();
+  const registry = getProviderInstanceManager();
   const pluginManager = getProviderPluginsManager();
 
   // ============================================

@@ -44,7 +44,7 @@ vi.mock('../cli/cli-detection', () => ({
   },
 }));
 
-import { ProviderRegistry } from './provider-registry';
+import { ProviderInstanceManager } from './provider-instance-manager';
 import type { ProviderConfig } from '../../shared/types/provider.types';
 import type { BaseProvider } from './provider-interface';
 
@@ -52,11 +52,11 @@ function makeMinimalProvider(type: string): BaseProvider {
   return { type } as unknown as BaseProvider;
 }
 
-describe('ProviderRegistry runtime registration', () => {
-  let registry: ProviderRegistry;
+describe('ProviderInstanceManager runtime registration', () => {
+  let registry: ProviderInstanceManager;
 
   beforeEach(() => {
-    registry = new ProviderRegistry();
+    registry = new ProviderInstanceManager();
   });
 
   it('registers a custom provider factory and creates an instance', () => {

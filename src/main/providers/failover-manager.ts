@@ -16,7 +16,7 @@ const logger = getLogger('FailoverManager');
 import { CircuitBreaker, CircuitBreakerRegistry, CircuitState } from '../core/circuit-breaker';
 import { ErrorRecoveryManager } from '../core/error-recovery';
 import { ClassifiedError, ErrorCategory } from '../../shared/types/error-recovery.types';
-import { getProviderRegistry } from './provider-registry';
+import { getProviderInstanceManager } from './provider-instance-manager';
 
 /**
  * Provider health information
@@ -215,7 +215,7 @@ export class FailoverManager extends EventEmitter {
    * Check health of all configured providers
    */
   async checkAllProviderHealth(): Promise<Map<ProviderType, ProviderHealth>> {
-    const registry = getProviderRegistry();
+    const registry = getProviderInstanceManager();
     const results = new Map<ProviderType, ProviderHealth>();
 
     for (const providerType of this.config.providerPriority) {
@@ -348,7 +348,7 @@ export class FailoverManager extends EventEmitter {
         }
 
         // Verify provider is available
-        const registry = getProviderRegistry();
+        const registry = getProviderInstanceManager();
         const status = await registry.checkProviderStatus(candidate);
         if (!status.available) {
           breaker.recordFailure(new Error('Provider unavailable'), 0);
