@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { Subscription } from 'rxjs';
 import { getLogger } from '../logging/logger';
 import {
   VerificationConfig,
@@ -367,7 +368,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       };
     }
 
-    let sub: { unsubscribe(): void } | undefined;
+    let sub: Subscription | undefined;
 
     try {
       // Build prompt with personality
