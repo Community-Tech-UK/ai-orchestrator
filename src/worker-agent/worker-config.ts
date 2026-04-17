@@ -82,3 +82,12 @@ export function persistConfig(configPath: string, config: WorkerConfig): void {
   }
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
+
+export function resolveConfigPath(serviceMode: boolean): string {
+  if (serviceMode) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { servicePaths } = require('./service/paths') as typeof import('./service/paths');
+    return servicePaths().configFile;
+  }
+  return DEFAULT_CONFIG_PATH;
+}
