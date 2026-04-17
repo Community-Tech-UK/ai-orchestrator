@@ -8,12 +8,12 @@ import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import { getObservationStore } from '../observation/observation-store';
 import { getObservationIngestor } from '../observation/observation-ingestor';
 import { getReflectorAgent } from '../observation/reflector-agent';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   ObservationConfigurePayloadSchema,
   ObservationGetReflectionsPayloadSchema,
   ObservationGetObservationsPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/session';
 
 /**
  * Register all observation-related IPC handlers

@@ -6,11 +6,11 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import * as crypto from 'crypto';
 import { getLogger } from '../logging/logger';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   UserActionRequestPayloadSchema,
   MemoryLoadHistoryPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/instance';
 import { InstanceManager } from '../instance/instance-manager';
 import { WindowManager } from '../window-manager';
 import { IPC_CHANNELS } from '@contracts/channels';

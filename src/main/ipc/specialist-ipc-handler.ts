@@ -5,8 +5,8 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   SpecialistGetPayloadSchema,
   SpecialistGetByCategoryPayloadSchema,
   SpecialistAddCustomPayloadSchema,
@@ -19,7 +19,7 @@ import {
   SpecialistAddFindingPayloadSchema,
   SpecialistUpdateMetricsPayloadSchema,
   SpecialistGetPromptAdditionPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/orchestration';
 import { getSpecialistRegistry } from '../agents/specialists/specialist-registry';
 import type { SpecialistProfile, SpecialistStatus, SpecialistFinding, SpecialistCategory } from '../../shared/types/specialist.types';
 import { applySpecialistConstraints } from '../../shared/utils/permission-mapper';

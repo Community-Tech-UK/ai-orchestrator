@@ -5,8 +5,8 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   RlmAddSectionPayloadSchema,
   RlmRemoveSectionPayloadSchema,
   RlmStartSessionPayloadSchema,
@@ -22,7 +22,7 @@ import {
   AbGetVariantPayloadSchema,
   AbRecordOutcomePayloadSchema,
   AbListExperimentsPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/session';
 import { RLMContextManager } from '../rlm/context-manager';
 import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';

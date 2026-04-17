@@ -40,7 +40,7 @@ import type {
   TypedOrchestratorHooks,
 } from '../../shared/types/plugin.types';
 import type { PluginManifest } from '@sdk/plugins';
-import { PluginManifestSchema } from '@contracts/schemas';
+import { PluginManifestSchema } from '@contracts/schemas/plugin';
 
 const logger = getLogger('PluginManager');
 

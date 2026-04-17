@@ -6,8 +6,8 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import type { InstanceManager } from '../instance/instance-manager';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   WorkflowGetTemplatePayloadSchema,
   WorkflowStartPayloadSchema,
   WorkflowGetExecutionPayloadSchema,
@@ -33,6 +33,8 @@ import {
   HookApprovalsListPayloadSchema,
   HookApprovalsUpdatePayloadSchema,
   HookApprovalsClearPayloadSchema,
+} from '@contracts/schemas/orchestration';
+import {
   SkillsDiscoverPayloadSchema,
   SkillsGetPayloadSchema,
   SkillsLoadPayloadSchema,
@@ -40,7 +42,7 @@ import {
   SkillsLoadReferencePayloadSchema,
   SkillsLoadExamplePayloadSchema,
   SkillsMatchPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/provider';
 import type { ReviewAgentConfig } from '../../shared/types/review-agent.types';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { getHookEngine } from '../hooks/hook-engine';

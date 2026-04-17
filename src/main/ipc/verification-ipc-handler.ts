@@ -11,8 +11,8 @@ import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordin
 import { getAllPersonalities, getPersonalityDescription } from '../orchestration/personalities';
 import type { MergeStrategy } from '../../shared/types/worktree.types';
 import type { VerificationConfig, PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   WorktreeCreatePayloadSchema,
   WorktreeSessionPayloadSchema,
   WorktreeMergePayloadSchema,
@@ -22,7 +22,7 @@ import {
   VerifyGetResultPayloadSchema,
   VerifyCancelPayloadSchema,
   VerifyConfigurePayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/orchestration';
 
 export function registerVerificationHandlers(): void {
   // ============================================
