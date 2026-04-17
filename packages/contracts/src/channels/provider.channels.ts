@@ -62,4 +62,7 @@ export const PROVIDER_CHANNELS = {
   HOT_SWITCH_EVENT_STARTED: 'hot-switch:event:started',
   HOT_SWITCH_EVENT_COMPLETED: 'hot-switch:event:completed',
   HOT_SWITCH_EVENT_FAILED: 'hot-switch:event:failed',
+
+  // Provider runtime event forwarding (main -> renderer)
+  PROVIDER_RUNTIME_EVENT: 'provider:runtime-event',
 } as const;

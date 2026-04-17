@@ -488,6 +488,9 @@ export const IPC_CHANNELS = {
   HOT_SWITCH_EVENT_COMPLETED: 'hot-switch:event:completed',
   HOT_SWITCH_EVENT_FAILED: 'hot-switch:event:failed',
 
+  // Provider runtime event forwarding (main -> renderer)
+  PROVIDER_RUNTIME_EVENT: 'provider:runtime-event',
+
   // App operations
   APP_READY: 'app:ready',
   APP_GET_VERSION: 'app:get-version',
