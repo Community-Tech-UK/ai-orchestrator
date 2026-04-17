@@ -85,6 +85,34 @@ export abstract class BaseProvider extends EventEmitter implements ProviderAdapt
     this._events$.next(envelope);
   }
 
+  protected pushOutput(content: string, messageType?: string, metadata?: Record<string, unknown>): void {
+    this.pushEvent({ kind: 'output', content, messageType, metadata });
+  }
+  protected pushToolUse(toolName: string, input?: Record<string, unknown>, toolUseId?: string): void {
+    this.pushEvent({ kind: 'tool_use', toolName, input, toolUseId });
+  }
+  protected pushToolResult(params: { toolName: string; success: boolean; toolUseId?: string; output?: string; error?: string }): void {
+    this.pushEvent({ kind: 'tool_result', ...params });
+  }
+  protected pushStatus(status: string): void {
+    this.pushEvent({ kind: 'status', status });
+  }
+  protected pushContext(used: number, total: number, percentage?: number): void {
+    this.pushEvent({ kind: 'context', used, total, percentage });
+  }
+  protected pushError(message: string, recoverable = false, details?: Record<string, unknown>): void {
+    this.pushEvent({ kind: 'error', message, recoverable, details });
+  }
+  protected pushExit(code: number | null, signal: string | null): void {
+    this.pushEvent({ kind: 'exit', code, signal });
+  }
+  protected pushSpawned(pid: number): void {
+    this.pushEvent({ kind: 'spawned', pid });
+  }
+  protected pushComplete(params: { tokensUsed?: number; costUsd?: number; durationMs?: number } = {}): void {
+    this.pushEvent({ kind: 'complete', ...params });
+  }
+
   protected completeEvents(): void {
     this._events$.complete();
   }
