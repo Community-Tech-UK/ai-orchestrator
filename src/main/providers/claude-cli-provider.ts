@@ -110,6 +110,8 @@ export class ClaudeCliProvider extends BaseProvider {
       throw new Error('Provider already initialized');
     }
 
+    this.instanceId = options.instanceId ?? '';
+
     this.adapter = new ClaudeCliAdapter({
       workingDirectory: options.workingDirectory,
       sessionId: options.sessionId,
@@ -120,22 +122,22 @@ export class ClaudeCliProvider extends BaseProvider {
       yoloMode: options.yoloMode,
     });
 
-    // Forward adapter events to provider events
-    this.adapter.on('output', (message) => this.emit('output', message));
-    this.adapter.on('status', (status) => this.emit('status', status));
+    // Forward adapter events to the normalized envelope stream.
+    this.adapter.on('output', (message) => this.pushOutput(message.content, message.type, message.metadata));
+    this.adapter.on('status', (status) => this.pushStatus(status));
     this.adapter.on('context', (usage: ContextUsage) => {
       this.lastContextUsage = usage;
       this.updateUsageFromContext(usage);
-      this.emit('context', usage);
+      this.pushContext(usage.used, usage.total, usage.percentage);
     });
-    this.adapter.on('error', (error) => this.emit('error', error));
+    this.adapter.on('error', (error) => this.pushError(error instanceof Error ? error.message : String(error), false));
     this.adapter.on('exit', (code, signal) => {
       this.isActive = false;
-      this.emit('exit', code, signal);
+      this.pushExit(code, signal);
     });
     this.adapter.on('spawned', (pid) => {
       this.isActive = true;
-      this.emit('spawned', pid);
+      if (pid != null) this.pushSpawned(pid);
     });
 
     // Spawn the CLI process
@@ -159,7 +161,7 @@ export class ClaudeCliProvider extends BaseProvider {
     await this.adapter.sendInput(message, cliAttachments);
   }
 
-  async terminate(graceful: boolean = true): Promise<void> {
+  async terminate(graceful = true): Promise<void> {
     if (this.adapter) {
       await this.adapter.terminate(graceful);
       this.adapter = null;
@@ -181,7 +183,7 @@ export class ClaudeCliProvider extends BaseProvider {
   private updateUsageFromContext(context: ContextUsage): void {
     // Estimate cost based on model pricing
     const modelId = this.config.defaultModel || CLAUDE_MODELS.SONNET;
-    const pricing = (MODEL_PRICING as any)[modelId] || { input: 3.0, output: 15.0 };
+    const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId] || { input: 3.0, output: 15.0 };
 
     // Context usage gives us total tokens used, estimate input/output split
     // This is approximate since we don't have exact breakdown
