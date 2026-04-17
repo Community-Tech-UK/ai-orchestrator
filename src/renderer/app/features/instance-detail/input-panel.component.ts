@@ -141,11 +141,7 @@ import type {
       <!-- Edit mode indicator -->
       @if (editMode()) {
         <div class="edit-mode-bar">
-          @if (isBusy() || isRespawning()) {
-            <span>Interrupting… edit and press Enter to resend · Esc to cancel</span>
-          } @else {
-            <span>Editing last message · Enter to resend · Esc to cancel</span>
-          }
+          <span>Editing last message · Enter to resend · Esc to cancel</span>
         </div>
       }
 
@@ -940,7 +936,6 @@ export class InputPanelComponent implements OnDestroy {
   addFiles = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
   resendEdited = output<{ messageIndex: number; text: string }>();
-  requestInterrupt = output<void>(); // Emitted when edit mode is entered while busy
 
   editMode = signal(false);
   private stashedDraft = signal<string | null>(null);
@@ -1033,6 +1028,23 @@ export class InputPanelComponent implements OnDestroy {
     // Load commands on init
     this.commandStore.loadCommands();
 
+    // Reset edit-mode state when switching between instances. The composer is
+    // mounted once at the dashboard level and reused for every session, so
+    // component-local signals (editMode, stashedDraft, editMessageIndex)
+    // persist when instanceId changes unless we explicitly clear them.
+    // Without this, entering edit mode on session A leaves the "Editing last
+    // message" banner visible after switching to session B.
+    effect(() => {
+      this.instanceId(); // track changes to the active instance
+      untracked(() => {
+        if (this.editMode()) {
+          this.editMode.set(false);
+          this.stashedDraft.set(null);
+          this.editMessageIndex.set(null);
+        }
+      });
+    });
+
     // Keep the composer input synchronized with the correct backing draft store.
     effect(() => {
       if (this.editMode()) return;
@@ -1047,7 +1059,7 @@ export class InputPanelComponent implements OnDestroy {
       }
 
       const currentId = this.instanceId();
-      this.draftService.version();
+      this.draftService.textVersion();
       const savedDraft = this.draftService.getDraft(currentId);
       if (untracked(() => this.message()) !== savedDraft) {
         this.message.set(savedDraft);
@@ -1303,11 +1315,9 @@ export class InputPanelComponent implements OnDestroy {
     const last = this.lastUserMessage();
     if (!last || this.editMode()) return;
 
-    // Auto-interrupt if the instance is busy
-    if (this.isBusy()) {
-      this.requestInterrupt.emit();
-    }
-
+    // Don't interrupt the CLI — sending the edit forks to a new instance and
+    // force-terminates this one, so any --resume against the old session is
+    // both wasteful and prone to spurious "resume failed" errors.
     this.stashedDraft.set(this.message());
     this.message.set(last.text);
     this.editMessageIndex.set(last.bufferIndex);
@@ -1343,7 +1353,10 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   private sendEditedMessage(): void {
-    if (!this.canSend() || this.isBusy() || this.isRespawning() || this.disabled()) return;
+    // Allow resend even while busy/respawning — onResendEdited forks to a new
+    // instance and force-terminates this one, so the old CLI's state doesn't
+    // matter. `disabled` still blocks during initialization.
+    if (!this.canSend() || this.disabled()) return;
 
     const idx = this.editMessageIndex();
     if (idx === null) return;

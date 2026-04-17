@@ -7,15 +7,15 @@ import { ipcMain, BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { getLLMService, StreamChunk } from '../rlm/llm-service';
 import { getTokenCounter } from '../rlm/token-counter';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   LLMSummarizePayloadSchema,
   LLMSubQueryPayloadSchema,
   LLMCancelStreamPayloadSchema,
   LLMCountTokensPayloadSchema,
   LLMTruncateTokensPayloadSchema,
   LLMSetConfigPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/provider';
 
 /**
  * Get the main window for sending events

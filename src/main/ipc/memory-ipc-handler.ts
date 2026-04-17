@@ -8,11 +8,13 @@ import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { getMemoryManager } from '../memory/r1-memory-manager';
 import { getUnifiedMemory } from '../memory/unified-controller';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   DebateCancelPayloadSchema,
   DebateGetResultPayloadSchema,
   DebateStartPayloadSchema,
+} from '@contracts/schemas/orchestration';
+import {
   MemoryR1AddEntryPayloadSchema,
   MemoryR1ConfigurePayloadSchema,
   MemoryR1DecideOperationPayloadSchema,
@@ -31,8 +33,8 @@ import {
   UnifiedMemoryRecordSessionEndPayloadSchema,
   UnifiedMemoryRecordStrategyPayloadSchema,
   UnifiedMemoryRecordWorkflowPayloadSchema,
-  UnifiedMemoryRetrievePayloadSchema
-} from '@contracts/schemas';
+  UnifiedMemoryRetrievePayloadSchema,
+} from '@contracts/schemas/session';
 // Training handlers moved to training-ipc-handler.ts
 import type {
   MemoryManagerDecision,

@@ -511,8 +511,8 @@ export class InstanceStore implements OnDestroy {
   }
 
   /** Terminate an instance */
-  async terminateInstance(instanceId: string): Promise<void> {
-    return this.listStore.terminateInstance(instanceId);
+  async terminateInstance(instanceId: string, graceful = true): Promise<void> {
+    return this.listStore.terminateInstance(instanceId, graceful);
   }
 
   /** Interrupt an instance (Ctrl+C equivalent) */

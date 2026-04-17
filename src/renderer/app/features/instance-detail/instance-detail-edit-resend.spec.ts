@@ -1,26 +1,29 @@
 import { describe, it, expect, vi } from 'vitest';
 
 /**
- * Unit tests for the onResendEdited fork+send+swap+terminate flow.
+ * Unit tests for the onResendEdited fork+swap+terminate flow.
  *
- * Tests the logic in isolation following the same pattern as
- * instance-detail-inspectors.spec.ts.
+ * The edited text rides along on the fork via initialPrompt — the main
+ * process delivers it inside the new instance's background init, so the
+ * renderer never has to call sendInput separately. That removed a race
+ * where the renderer's status-gated queue would drain before the new
+ * fork transitioned to 'idle' and the message would silently land nowhere.
  */
 
 describe('onResendEdited flow', () => {
   function createMocks() {
     const forkSession = vi.fn();
-    const sendInput = vi.fn();
     const setSelectedInstance = vi.fn();
     const terminateInstance = vi.fn();
+    const addInstanceFromData = vi.fn();
 
     return {
       ipc: { forkSession },
-      store: { sendInput, setSelectedInstance, terminateInstance },
+      store: { setSelectedInstance, terminateInstance, addInstanceFromData },
       forkSession,
-      sendInput,
       setSelectedInstance,
       terminateInstance,
+      addInstanceFromData,
     };
   }
 
@@ -36,27 +39,34 @@ describe('onResendEdited flow', () => {
       instanceId,
       event.messageIndex,
       `Edit resend at message ${event.messageIndex}`,
+      event.text,
     );
 
-    if (!result?.success || !result.data?.id) return;
+    if (!result?.success || !result.data) return;
+    const data = result.data as { id?: string };
+    if (!data.id) return;
 
-    const newId = result.data.id as string;
-    mocks.store.sendInput(newId, event.text);
-    mocks.store.setSelectedInstance(newId);
-    await mocks.store.terminateInstance(instanceId);
+    mocks.store.addInstanceFromData(result.data);
+    mocks.store.setSelectedInstance(data.id);
+    await mocks.store.terminateInstance(instanceId, false);
   }
 
-  it('calls fork → send → swap → terminate in order', async () => {
+  it('forks with initialPrompt, swaps selection, terminates old', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: true, data: { id: 'new-123' } });
     mocks.terminateInstance.mockResolvedValue(undefined);
 
     await onResendEdited(mocks, 'old-456', { messageIndex: 3, text: 'edited question' });
 
-    expect(mocks.forkSession).toHaveBeenCalledWith('old-456', 3, 'Edit resend at message 3');
-    expect(mocks.sendInput).toHaveBeenCalledWith('new-123', 'edited question');
+    expect(mocks.forkSession).toHaveBeenCalledWith(
+      'old-456',
+      3,
+      'Edit resend at message 3',
+      'edited question',
+    );
+    expect(mocks.addInstanceFromData).toHaveBeenCalledWith({ id: 'new-123' });
     expect(mocks.setSelectedInstance).toHaveBeenCalledWith('new-123');
-    expect(mocks.terminateInstance).toHaveBeenCalledWith('old-456');
+    expect(mocks.terminateInstance).toHaveBeenCalledWith('old-456', false);
   });
 
   it('does nothing when instanceId is null', async () => {
@@ -67,25 +77,25 @@ describe('onResendEdited flow', () => {
     expect(mocks.forkSession).not.toHaveBeenCalled();
   });
 
-  it('does not send/swap/terminate when fork fails', async () => {
+  it('does not swap or terminate when fork fails', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: false, error: 'Fork failed' });
 
     await onResendEdited(mocks, 'old-456', { messageIndex: 3, text: 'edited' });
 
     expect(mocks.forkSession).toHaveBeenCalled();
-    expect(mocks.sendInput).not.toHaveBeenCalled();
+    expect(mocks.addInstanceFromData).not.toHaveBeenCalled();
     expect(mocks.setSelectedInstance).not.toHaveBeenCalled();
     expect(mocks.terminateInstance).not.toHaveBeenCalled();
   });
 
-  it('does not send/swap/terminate when fork returns no id', async () => {
+  it('does not swap or terminate when fork returns no id', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: true, data: {} });
 
     await onResendEdited(mocks, 'old-456', { messageIndex: 3, text: 'edited' });
 
-    expect(mocks.sendInput).not.toHaveBeenCalled();
+    expect(mocks.addInstanceFromData).not.toHaveBeenCalled();
     expect(mocks.setSelectedInstance).not.toHaveBeenCalled();
     expect(mocks.terminateInstance).not.toHaveBeenCalled();
   });
@@ -98,15 +108,26 @@ describe('onResendEdited flow', () => {
     await onResendEdited(mocks, 'old-456', { messageIndex: 0, text: 'revised first message' });
 
     // Fork at index 0 means the new instance starts with an empty conversation
-    expect(mocks.forkSession).toHaveBeenCalledWith('old-456', 0, 'Edit resend at message 0');
-    expect(mocks.sendInput).toHaveBeenCalledWith('new-789', 'revised first message');
+    expect(mocks.forkSession).toHaveBeenCalledWith(
+      'old-456',
+      0,
+      'Edit resend at message 0',
+      'revised first message',
+    );
+    expect(mocks.addInstanceFromData).toHaveBeenCalledWith({ id: 'new-789' });
     expect(mocks.setSelectedInstance).toHaveBeenCalledWith('new-789');
-    expect(mocks.terminateInstance).toHaveBeenCalledWith('old-456');
+    expect(mocks.terminateInstance).toHaveBeenCalledWith('old-456', false);
   });
 });
 
 /**
- * Note: The spec lists "onResendEdited is blocked when instance is busy" as a parent test,
- * but the busy guard lives in InputPanelComponent.sendEditedMessage(), not the parent.
- * The parent handler is never called when busy because the child blocks emission.
+ * Note: There is no busy-guard on edit resend. The flow forks to a new
+ * instance and force-terminates the old one (graceful=false), so a busy
+ * old CLI is killed cleanly without going through the SIGINT → --resume
+ * cycle that previously surfaced "Interrupted — session restarted (resume
+ * failed)" toasts.
+ *
+ * The edited text is passed as `initialPrompt` to the fork rather than
+ * via a separate sendInput call. The main process delivers it inside the
+ * new fork's background init, so it can't race the status-gated queue.
  */

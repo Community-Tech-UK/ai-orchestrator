@@ -6,15 +6,15 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import {
-  SecurityDetectSecretsPayloadSchema,
-  SecurityRedactContentPayloadSchema,
-  SecurityCheckFilePayloadSchema,
-  SecurityGetAuditLogPayloadSchema,
-  SecurityCheckEnvVarPayloadSchema,
-  SecuritySetPermissionPresetPayloadSchema,
-  BashValidatePayloadSchema,
   BashCommandPayloadSchema,
-} from '@contracts/schemas';
+  BashValidatePayloadSchema,
+  SecurityCheckEnvVarPayloadSchema,
+  SecurityCheckFilePayloadSchema,
+  SecurityDetectSecretsPayloadSchema,
+  SecurityGetAuditLogPayloadSchema,
+  SecurityRedactContentPayloadSchema,
+  SecuritySetPermissionPresetPayloadSchema,
+} from '@contracts/schemas/security';
 import {
   detectSecretsInContent,
   detectSecretsInEnvContent,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
-} from './ipc-schemas';
+} from '@contracts/schemas/instance';
 
 describe('InstanceCreatePayloadSchema forceNodeId', () => {
   const validUuid = '123e4567-e89b-12d3-a456-426614174000';

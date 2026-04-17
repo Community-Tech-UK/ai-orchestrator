@@ -139,6 +139,54 @@ describe('Edit Mode State', () => {
   });
 });
 
+describe('Edit Mode Reset on Instance Switch', () => {
+  // Mirrors the effect in InputPanelComponent that watches instanceId() and
+  // clears edit-mode state when it changes. The composer is a single component
+  // reused across all sessions, so without this reset the "Editing last
+  // message" banner leaks from one session to the next when the user switches.
+  function runResetIfEditing(
+    editMode: ReturnType<typeof signal<boolean>>,
+    stashedDraft: ReturnType<typeof signal<string | null>>,
+    editMessageIndex: ReturnType<typeof signal<number | null>>,
+  ) {
+    if (editMode()) {
+      editMode.set(false);
+      stashedDraft.set(null);
+      editMessageIndex.set(null);
+    }
+  }
+
+  it('clears editMode, stashedDraft, and editMessageIndex when instance switches mid-edit', () => {
+    const editMode = signal(false);
+    const stashedDraft = signal<string | null>(null);
+    const editMessageIndex = signal<number | null>(null);
+
+    // User enters edit mode on session A
+    stashedDraft.set('draft-on-a');
+    editMessageIndex.set(7);
+    editMode.set(true);
+
+    // User switches to session B — the effect reacting to instanceId() fires
+    runResetIfEditing(editMode, stashedDraft, editMessageIndex);
+
+    expect(editMode()).toBe(false);
+    expect(stashedDraft()).toBeNull();
+    expect(editMessageIndex()).toBeNull();
+  });
+
+  it('is a no-op when switching instances while not in edit mode', () => {
+    const editMode = signal(false);
+    const stashedDraft = signal<string | null>(null);
+    const editMessageIndex = signal<number | null>(null);
+
+    runResetIfEditing(editMode, stashedDraft, editMessageIndex);
+
+    expect(editMode()).toBe(false);
+    expect(stashedDraft()).toBeNull();
+    expect(editMessageIndex()).toBeNull();
+  });
+});
+
 describe('Edit Mode Send (resendEdited)', () => {
   it('emits correct messageIndex and text', () => {
     const editMessageIndex = signal<number | null>(3);
@@ -159,11 +207,16 @@ describe('Edit Mode Send (resendEdited)', () => {
     expect(canSend).toBe(false);
   });
 
-  it('blocks send when instance is busy', () => {
+  it('allows send while instance is busy (fork+terminate handles cleanup)', () => {
     const isBusy = signal(true);
     const editMode = signal(true);
+    const canSend = signal(true);
+    const disabled = signal(false);
 
-    const canResend = editMode() && !isBusy();
-    expect(canResend).toBe(false);
+    // Mirrors sendEditedMessage's guard: only canSend + !disabled gate the resend.
+    const canResend = editMode() && canSend() && !disabled();
+    expect(canResend).toBe(true);
+    // isBusy is intentionally not consulted.
+    expect(isBusy()).toBe(true);
   });
 });

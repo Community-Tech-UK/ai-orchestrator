@@ -82,14 +82,18 @@ export class InstancePersistenceManager {
     // Copy messages up to the fork point
     const forkedMessages = forkSourceMessages.slice(0, forkIndex);
 
-    // Create new instance with forked messages
+    // Create new instance with forked messages.
+    // initialPrompt (when set by edit-and-resend) is sent inside background
+    // init right after the CLI spawns, bypassing the renderer's status-gated
+    // queue. The queue would otherwise race the 'idle' transition.
     const forkedInstance = await this.deps.createInstance({
       workingDirectory: sourceInstance.workingDirectory,
       displayName:
         config.displayName || `Fork of ${sourceInstance.displayName}`,
       yoloMode: sourceInstance.yoloMode,
       agentId: sourceInstance.agentId,
-      initialOutputBuffer: forkedMessages
+      initialOutputBuffer: forkedMessages,
+      initialPrompt: config.initialPrompt
     });
 
     logger.info('Instance forked', { sourceId: sourceInstance.id, forkIndex, forkedId: forkedInstance.id });

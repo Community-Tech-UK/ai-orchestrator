@@ -1,13 +1,15 @@
 /**
- * @ai-orchestrator/contracts
+ * @ai-orchestrator/contracts — subpath-only module
  *
- * Single source of truth for all IPC channel definitions, Zod payload schemas,
- * and transport types used across the main process, preload, and renderer.
+ * This file intentionally exports nothing. Consumers must import via
+ * subpaths declared in package.json `exports`:
+ *
+ *   import { InstanceStatusSchema } from '@ai-orchestrator/contracts/schemas/instance';
+ *   import { INSTANCE_CHANNELS }    from '@ai-orchestrator/contracts/channels/instance';
+ *
+ * The package-level barrel was removed in Wave 1 (2026-04-17) to
+ * prevent circular deps, force tree-shaking, and keep imports grep-able.
+ * See docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md
+ * Item 10 for rationale.
  */
-
-export * from './channels/index';
-
-// Schemas and types are imported via sub-paths (@contracts/schemas, @contracts/types)
-// to avoid name collisions between Zod-inferred types and interface definitions.
-// Channels are re-exported here since they have no collisions.
-export type { IpcChannel } from './channels/index';
+export {};

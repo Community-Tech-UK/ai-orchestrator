@@ -47,6 +47,13 @@ export interface ForkConfig {
   instanceId: string;
   atMessageIndex?: number; // Fork at specific message, defaults to latest
   displayName?: string;
+  /**
+   * If set, the new fork's CLI is sent this message as soon as it spawns.
+   * Used by edit-and-resend so the user message is delivered inside the
+   * main-process init flow, not via the renderer's status-gated queue.
+   * Avoids the race where the queue drains before the new instance reaches 'idle'.
+   */
+  initialPrompt?: string;
 }
 
 /**

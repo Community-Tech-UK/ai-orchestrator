@@ -1,13 +1,13 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  RepoJobSubmitPayloadSchema,
-  RepoJobListPayloadSchema,
-  RepoJobGetPayloadSchema,
   RepoJobCancelPayloadSchema,
+  RepoJobGetPayloadSchema,
+  RepoJobListPayloadSchema,
   RepoJobRerunPayloadSchema,
-} from '@contracts/schemas';
+  RepoJobSubmitPayloadSchema,
+} from '@contracts/schemas/orchestration';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getRepoJobService } from '../../repo-jobs';
 

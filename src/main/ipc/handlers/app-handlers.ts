@@ -16,7 +16,7 @@ import {
   FileReadDirPayloadSchema,
   FileReadTextPayloadSchema,
   FileWriteTextPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/file-operations';
 
 interface AppHandlerDependencies {
   windowManager: WindowManager;

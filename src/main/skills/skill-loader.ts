@@ -11,7 +11,7 @@ import type {
   LoadedSkill,
   SkillMetadata,
 } from '../../shared/types/skill.types';
-import { SkillFrontmatterSchema } from '@contracts/schemas';
+import { SkillFrontmatterSchema } from '@contracts/schemas/plugin';
 
 const MAX_CACHED_SKILLS = 50;
 

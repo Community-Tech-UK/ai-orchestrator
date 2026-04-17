@@ -76,9 +76,14 @@ export class HistoryIpcService {
   /**
    * Fork a session at a specific message point
    */
-  async forkSession(instanceId: string, atMessageIndex?: number, displayName?: string): Promise<IpcResponse> {
+  async forkSession(
+    instanceId: string,
+    atMessageIndex?: number,
+    displayName?: string,
+    initialPrompt?: string,
+  ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.forkSession({ instanceId, atMessageIndex, displayName });
+    return this.api.forkSession({ instanceId, atMessageIndex, displayName, initialPrompt });
   }
 
   /**

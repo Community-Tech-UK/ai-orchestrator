@@ -460,6 +460,9 @@ vi.mock('../../../shared/types/provider.types', () => ({
   isModelTier: vi.fn().mockReturnValue(false),
   looksLikeCodexModelId: vi.fn().mockReturnValue(false),
   resolveModelForTier: vi.fn().mockReturnValue(undefined),
+  // Consumed at module load time by src/main/rlm/token-counter.ts via Object.entries().
+  // This spec does not exercise cost/pricing paths, so an empty table is sufficient.
+  MODEL_PRICING: {},
 }));
 
 // ---------------------------------------------------------------------------

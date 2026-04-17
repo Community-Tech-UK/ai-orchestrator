@@ -6,18 +6,18 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  EditorOpenFilePayloadSchema,
-  EditorOpenFileAtLinePayloadSchema,
   EditorOpenDirectoryPayloadSchema,
+  EditorOpenFileAtLinePayloadSchema,
+  EditorOpenFilePayloadSchema,
   EditorSetPreferredPayloadSchema,
+  MultiEditPayloadSchema,
+  WatcherClearBufferPayloadSchema,
+  WatcherGetChangesPayloadSchema,
   WatcherStartPayloadSchema,
   WatcherStopPayloadSchema,
-  WatcherGetChangesPayloadSchema,
-  WatcherClearBufferPayloadSchema,
-  MultiEditPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/file-operations';
 import { getExternalEditorManager } from '../../workspace/editor/external-editor';
 import { getFileWatcherManager } from '../../workspace/watcher/file-watcher';
 import { getMultiEditManager } from '../../workspace/multiedit-manager';

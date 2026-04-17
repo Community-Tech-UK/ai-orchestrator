@@ -323,6 +323,7 @@ export const SessionForkPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   atMessageIndex: z.number().int().min(0).optional(),
   displayName: DisplayNameSchema.optional(),
+  initialPrompt: z.string().optional(),
 });
 
 export const SessionExportPayloadSchema = z.object({

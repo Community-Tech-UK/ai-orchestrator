@@ -7,30 +7,30 @@ import { ipcMain, IpcMainInvokeEvent, dialog, clipboard, shell } from 'electron'
 import { promises as fs } from 'fs';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  SessionForkPayloadSchema,
-  SessionExportPayloadSchema,
-  SessionImportPayloadSchema,
-  SessionCopyToClipboardPayloadSchema,
-  SessionSaveToFilePayloadSchema,
-  SessionRevealFilePayloadSchema,
-  SessionSharePreviewPayloadSchema,
-  SessionShareSavePayloadSchema,
-  SessionShareLoadPayloadSchema,
-  SessionShareReplayPayloadSchema,
-  ArchiveSessionPayloadSchema,
-  ArchiveListPayloadSchema,
-  ArchiveRestorePayloadSchema,
+  ArchiveCleanupPayloadSchema,
   ArchiveDeletePayloadSchema,
   ArchiveGetMetaPayloadSchema,
+  ArchiveListPayloadSchema,
+  ArchiveRestorePayloadSchema,
+  ArchiveSessionPayloadSchema,
   ArchiveUpdateTagsPayloadSchema,
-  ArchiveCleanupPayloadSchema,
+  HistoryDeletePayloadSchema,
   HistoryListPayloadSchema,
   HistoryLoadPayloadSchema,
-  HistoryDeletePayloadSchema,
   HistoryRestorePayloadSchema,
-} from '@contracts/schemas';
+  SessionCopyToClipboardPayloadSchema,
+  SessionExportPayloadSchema,
+  SessionForkPayloadSchema,
+  SessionImportPayloadSchema,
+  SessionRevealFilePayloadSchema,
+  SessionSaveToFilePayloadSchema,
+  SessionShareLoadPayloadSchema,
+  SessionSharePreviewPayloadSchema,
+  SessionShareReplayPayloadSchema,
+  SessionShareSavePayloadSchema,
+} from '@contracts/schemas/session';
 import {
   inferConversationHistoryProvider,
 } from '../../../shared/types/history.types';
@@ -116,7 +116,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         const forkedInstance = await instanceManager.forkInstance({
           instanceId: validated.instanceId,
           atMessageIndex: validated.atMessageIndex,
-          displayName: validated.displayName
+          displayName: validated.displayName,
+          initialPrompt: validated.initialPrompt
         });
         return {
           success: true,

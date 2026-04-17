@@ -42,19 +42,13 @@ export class MarkdownService {
     // Custom renderer for syntax highlighting
     const renderer = new marked.Renderer();
 
-    // Custom code block rendering with syntax highlighting
+    // Code blocks: render escaped text immediately, defer syntax highlighting to idle time
     renderer.code = ({ text, lang }: Tokens.Code): string => {
       const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
-      let highlighted: string;
-
-      try {
-        highlighted = hljs.highlight(text, { language }).value;
-      } catch {
-        highlighted = this.escapeHtml(text);
-      }
-
+      const escaped = this.escapeHtml(text);
       const languageLabel = language !== 'plaintext' ? language : '';
       const copyId = `copy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const highlightAttr = language !== 'plaintext' ? ` data-highlight-lang="${language}"` : '';
 
       return `
         <div class="code-block-wrapper">
@@ -68,7 +62,7 @@ export class MarkdownService {
               Copy
             </button>
           </div>
-          <pre class="hljs" data-code-id="${copyId}"><code class="language-${language}">${highlighted}</code></pre>
+          <pre class="hljs" data-code-id="${copyId}"${highlightAttr}><code class="language-${language}">${escaped}</code></pre>
         </div>
       `;
     };
@@ -273,6 +267,44 @@ export class MarkdownService {
         button.addEventListener('click', () => this.handleCopyClick(copyId));
       }
     });
+  }
+
+  /**
+   * Highlight code blocks in a container asynchronously using requestIdleCallback.
+   * Blocks are processed incrementally so input events are never starved.
+   */
+  highlightCodeBlocksInElement(container: HTMLElement): void {
+    const blocks = Array.from(container.querySelectorAll<HTMLPreElement>('pre[data-highlight-lang]'));
+    if (blocks.length === 0) return;
+
+    let index = 0;
+    const highlightBatch = (deadline: IdleDeadline) => {
+      while (index < blocks.length && deadline.timeRemaining() > 2) {
+        const pre = blocks[index];
+        const lang = pre.getAttribute('data-highlight-lang');
+        const codeEl = pre.querySelector('code');
+        if (lang && codeEl) {
+          this.applyHighlight(codeEl, lang);
+        }
+        pre.removeAttribute('data-highlight-lang');
+        index++;
+      }
+      if (index < blocks.length) {
+        requestIdleCallback(highlightBatch);
+      }
+    };
+
+    requestIdleCallback(highlightBatch);
+  }
+
+  // hljs.highlight produces safe HTML (only <span class="hljs-*"> from plain text input)
+  private applyHighlight(codeEl: Element, lang: string): void {
+    try {
+      const result = hljs.highlight(codeEl.textContent || '', { language: lang });
+      codeEl.innerHTML = result.value;
+    } catch {
+      // keep escaped text on failure
+    }
   }
 
   /**

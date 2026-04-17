@@ -13,15 +13,15 @@ import type { WindowManager } from '../window-manager';
 import { CopilotSdkAdapter, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from '../cli/adapters/copilot-sdk-adapter';
 import { PROVIDER_MODEL_LIST } from '../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../shared/types/provider.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   CliDetectAllPayloadSchema,
   CliDetectOnePayloadSchema,
   CliTestConnectionPayloadSchema,
   ProviderListModelsPayloadSchema,
   CliVerificationStartPayloadSchema,
   CliVerificationCancelPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/provider';
 
 
 const logger = getLogger('CliVerification');

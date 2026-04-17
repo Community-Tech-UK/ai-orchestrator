@@ -11,6 +11,7 @@
  */
 
 import { LIMITS } from '../../shared/constants/limits';
+import { MODEL_PRICING } from '../../shared/types/provider.types';
 
 export type ModelFamily = 'gpt-4' | 'gpt-3.5' | 'claude' | 'llama' | 'unknown';
 
@@ -133,6 +134,57 @@ export function getModelFamily(model?: string): ModelFamily {
   }
 
   return 'unknown';
+}
+
+/**
+ * Legacy pricing fallback for retired Claude 3.x / GPT-3.5 / GPT-4 models.
+ * These aren't in the canonical `MODEL_PRICING` table (which covers 4.x+ only),
+ * but historical cost reports may still reference them.
+ */
+const LEGACY_PRICING: readonly (readonly [string, { input: number; output: number }])[] = [
+  ['claude-3-5-sonnet', { input: 3.0, output: 15.0 }],
+  ['claude-3-5-haiku', { input: 0.8, output: 4.0 }],
+  ['claude-3-opus', { input: 15.0, output: 75.0 }],
+  ['claude-3-sonnet', { input: 3.0, output: 15.0 }],
+  ['claude-3-haiku', { input: 0.25, output: 1.25 }],
+  ['gpt-4', { input: 30.0, output: 60.0 }],
+  ['gpt-3.5', { input: 0.5, output: 1.5 }],
+];
+
+/** MODEL_PRICING entries sorted by key length desc so the most specific match wins first. */
+const PRICING_ENTRIES_BY_SPECIFICITY = Object.entries(MODEL_PRICING)
+  .map(([k, v]) => [k.toLowerCase(), v] as const)
+  .sort((a, b) => b[0].length - a[0].length);
+
+/**
+ * Resolve pricing for a model from the canonical `MODEL_PRICING` table.
+ *
+ * Lookup order:
+ *   1. Exact match in `MODEL_PRICING`.
+ *   2. Legacy (Claude 3.x, GPT-3.5/4) substring match — checked before the
+ *      bare `opus`/`haiku`/`sonnet` aliases so retired models don't get
+ *      mispriced as current ones.
+ *   3. `MODEL_PRICING` substring match, most-specific-key-first (handles
+ *      provider-prefixed IDs like `anthropic.claude-opus-4-7`).
+ *   4. Returns `{ input: 0, output: 0 }` for unknown models — safer than
+ *      a silent wrong default.
+ */
+function lookupPricing(model?: string): { input: number; output: number } {
+  const lowerModel = (model || '').toLowerCase();
+  if (!lowerModel) return { input: 0, output: 0 };
+
+  const exact = MODEL_PRICING[lowerModel];
+  if (exact) return exact;
+
+  for (const [legacyKey, pricing] of LEGACY_PRICING) {
+    if (lowerModel.includes(legacyKey)) return pricing;
+  }
+
+  for (const [key, pricing] of PRICING_ENTRIES_BY_SPECIFICITY) {
+    if (lowerModel.includes(key)) return pricing;
+  }
+
+  return { input: 0, output: 0 };
 }
 
 /**
@@ -507,36 +559,9 @@ export class TokenCounter {
    * @returns Estimated cost in USD
    */
   estimateCost(inputTokens: number, outputTokens: number, model?: string): number {
-    // Pricing per 1M tokens (approximate, may change)
-    // Ordered by specificity (most specific first) for proper matching
-    const pricingOrder = [
-      { key: 'gpt-5.4-mini', pattern: 'gpt-5.4-mini', input: 1.5, output: 6.0 },
-      { key: 'gpt-5.4', pattern: 'gpt-5.4', input: 5.0, output: 20.0 },
-      { key: 'gpt-5.3-codex', pattern: 'gpt-5.3-codex', input: 2.5, output: 10.0 },
-      { key: 'gpt-4', pattern: 'gpt-4', input: 30.0, output: 60.0 },
-      { key: 'gpt-3.5-turbo', pattern: 'gpt-3.5', input: 0.5, output: 1.5 },
-      { key: 'claude-3.5-sonnet', pattern: 'claude-3.5-sonnet', input: 3.0, output: 15.0 },
-      { key: 'claude-3-opus', pattern: 'claude-3-opus', input: 15.0, output: 75.0 },
-      { key: 'claude-3-sonnet', pattern: 'claude-3-sonnet', input: 3.0, output: 15.0 },
-      { key: 'claude-3-haiku', pattern: 'claude-3-haiku', input: 0.25, output: 1.25 },
-      { key: 'claude-haiku-4-6', pattern: 'claude-haiku-4-6', input: 1.0, output: 5.0 },
-      { key: 'claude-haiku-4-5', pattern: 'claude-haiku-4-5', input: 1.0, output: 5.0 },
-    ];
-
-    const lowerModel = (model || '').toLowerCase();
-    let price = { input: 0.5, output: 1.5 }; // Default to gpt-3.5-turbo pricing
-
-    // Match by checking if the model contains the pattern
-    for (const entry of pricingOrder) {
-      if (lowerModel.includes(entry.pattern)) {
-        price = { input: entry.input, output: entry.output };
-        break;
-      }
-    }
-
+    const price = lookupPricing(model);
     const inputCost = (inputTokens / 1_000_000) * price.input;
     const outputCost = (outputTokens / 1_000_000) * price.output;
-
     return inputCost + outputCost;
   }
 }

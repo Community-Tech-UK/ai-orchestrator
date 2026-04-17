@@ -5,15 +5,15 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  ParallelWorktreeStartPayloadSchema,
-  ParallelWorktreeGetStatusPayloadSchema,
   ParallelWorktreeCancelPayloadSchema,
   ParallelWorktreeGetResultsPayloadSchema,
-  ParallelWorktreeResolveConflictPayloadSchema,
+  ParallelWorktreeGetStatusPayloadSchema,
   ParallelWorktreeMergePayloadSchema,
-} from '@contracts/schemas';
+  ParallelWorktreeResolveConflictPayloadSchema,
+  ParallelWorktreeStartPayloadSchema,
+} from '@contracts/schemas/orchestration';
 import { getParallelWorktreeCoordinator } from '../../orchestration/parallel-worktree-coordinator';
 
 export function registerParallelWorktreeHandlers(): void {

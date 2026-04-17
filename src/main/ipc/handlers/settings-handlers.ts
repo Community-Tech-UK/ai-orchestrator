@@ -5,23 +5,23 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  SettingsGetPayloadSchema,
-  SettingsUpdatePayloadSchema,
-  SettingsBulkUpdatePayloadSchema,
-  SettingsResetOnePayloadSchema,
-  ConfigResolvePayloadSchema,
-  ConfigGetProjectPayloadSchema,
-  ConfigSaveProjectPayloadSchema,
   ConfigCreateProjectPayloadSchema,
   ConfigFindProjectPayloadSchema,
+  ConfigGetProjectPayloadSchema,
+  ConfigResolvePayloadSchema,
+  ConfigSaveProjectPayloadSchema,
+  RemoteConfigDiscoverGitPayloadSchema,
+  RemoteConfigFetchGitHubPayloadSchema,
   RemoteConfigFetchUrlPayloadSchema,
   RemoteConfigFetchWellKnownPayloadSchema,
-  RemoteConfigFetchGitHubPayloadSchema,
-  RemoteConfigDiscoverGitPayloadSchema,
   RemoteConfigInvalidatePayloadSchema,
-  validateIpcPayload
-} from '@contracts/schemas';
+  SettingsBulkUpdatePayloadSchema,
+  SettingsGetPayloadSchema,
+  SettingsResetOnePayloadSchema,
+  SettingsUpdatePayloadSchema,
+} from '@contracts/schemas/settings';
 import type { AppSettings, ProjectConfig } from '../../../shared/types/settings.types';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { exportSettings, importSettings } from '../../core/config/settings-export';

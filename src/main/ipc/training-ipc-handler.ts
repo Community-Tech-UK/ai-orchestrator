@@ -11,11 +11,11 @@ import { ipcMain } from 'electron';
 import type { IpcResponse, ErrorInfo } from '../../shared/types/ipc.types';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import type { GRPOConfig, TrainingOutcome, GRPOBatch, TrainingStats } from '../learning/grpo-trainer';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
   TrainingGetStrategiesPayloadSchema,
   TrainingUpdateConfigPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/provider';
 
 // Helper function to create ErrorInfo from Error
 function createErrorInfo(error: unknown, code: string = 'TRAINING_ERROR'): ErrorInfo {

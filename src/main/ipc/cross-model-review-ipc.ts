@@ -8,7 +8,7 @@ import {
   ReviewDismissPayloadSchema,
   ReviewActionPayloadSchema,
 } from '../../shared/validation/cross-model-review-schemas';
-import { validateIpcPayload } from '@contracts/schemas';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getLogger } from '../logging/logger';

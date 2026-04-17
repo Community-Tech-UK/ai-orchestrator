@@ -6,14 +6,14 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getMcpManager } from '../../mcp/mcp-manager';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  McpServerPayloadSchema,
   McpAddServerPayloadSchema,
   McpCallToolPayloadSchema,
-  McpReadResourcePayloadSchema,
   McpGetPromptPayloadSchema,
-} from '@contracts/schemas';
+  McpReadResourcePayloadSchema,
+  McpServerPayloadSchema,
+} from '@contracts/schemas/provider';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
 import { WindowManager } from '../../window-manager';
 import { getBrowserAutomationHealthService } from '../../browser-automation/browser-automation-health';

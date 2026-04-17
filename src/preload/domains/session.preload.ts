@@ -15,6 +15,7 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       instanceId: string;
       atMessageIndex?: number;
       displayName?: string;
+      initialPrompt?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SESSION_FORK, payload);
     },

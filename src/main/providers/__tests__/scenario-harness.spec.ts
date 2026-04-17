@@ -21,7 +21,7 @@ import {
   CodexEventMapper,
   normalizeAdapterEvent,
 } from '../event-normalizer';
-import type { ProviderRuntimeEvent, ProviderRuntimeEventEnvelope } from '@contracts/types';
+import type { ProviderRuntimeEvent, ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // ============================================
 // Deterministic Fixtures
@@ -236,7 +236,7 @@ describe('Scenario 7: MCP tool lifecycle / tool result roundtrip', () => {
 
 describe('Scenario 8: Plugin hook roundtrip and payload validation', () => {
   it('should validate hook payloads using contract schemas', async () => {
-    const { validateHookPayload } = await import('@contracts/schemas');
+    const { validateHookPayload } = await import('@contracts/schemas/plugin');
 
     // Valid payload
     const result = validateHookPayload('instance.created', {
@@ -249,7 +249,7 @@ describe('Scenario 8: Plugin hook roundtrip and payload validation', () => {
   });
 
   it('should reject invalid hook payloads with actionable errors', async () => {
-    const { validateHookPayload } = await import('@contracts/schemas');
+    const { validateHookPayload } = await import('@contracts/schemas/plugin');
 
     expect(() => {
       validateHookPayload('instance.created', {

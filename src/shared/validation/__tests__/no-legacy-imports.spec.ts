@@ -36,15 +36,23 @@ describe('Legacy IPC schema shim guard', () => {
     expect(files).toEqual([]);
   });
 
-  it('should export all schemas from @contracts/schemas', async () => {
-    // Verify that the contracts package exports validateIpcPayload and key schemas
-    const contracts = await import('@contracts/schemas');
+  it('should export key schemas from their domain subpaths', async () => {
+    // Verify subpath exports resolve and expose the expected symbols.
+    // Each domain is imported from its specific subpath — the aggregate
+    // '@contracts/schemas' barrel was removed as part of the Wave 1
+    // subpath-exports discipline.
+    const common = await import('@contracts/schemas/common');
+    const instance = await import('@contracts/schemas/instance');
+    const session = await import('@contracts/schemas/session');
+    const provider = await import('@contracts/schemas/provider');
+    const orchestration = await import('@contracts/schemas/orchestration');
+    const settings = await import('@contracts/schemas/settings');
 
-    expect(contracts.validateIpcPayload).toBeDefined();
-    expect(contracts.InstanceCreatePayloadSchema).toBeDefined();
-    expect(contracts.SessionForkPayloadSchema).toBeDefined();
-    expect(contracts.ProviderStatusPayloadSchema).toBeDefined();
-    expect(contracts.DebateStartPayloadSchema).toBeDefined();
-    expect(contracts.SettingsGetPayloadSchema).toBeDefined();
+    expect(common.validateIpcPayload).toBeDefined();
+    expect(instance.InstanceCreatePayloadSchema).toBeDefined();
+    expect(session.SessionForkPayloadSchema).toBeDefined();
+    expect(provider.ProviderStatusPayloadSchema).toBeDefined();
+    expect(orchestration.DebateStartPayloadSchema).toBeDefined();
+    expect(settings.SettingsGetPayloadSchema).toBeDefined();
   });
 });

@@ -9,9 +9,9 @@ import { getDiscoveryService } from '../../remote-node/discovery-service';
 import { generateAuthToken } from '../../remote-node/auth-validator';
 import { getNodeIdentityStore } from '../../remote-node/node-identity-store';
 import {
-  RemoteNodeSetTokenPayloadSchema,
   RemoteNodeRevokePayloadSchema,
-} from '@contracts/schemas';
+  RemoteNodeSetTokenPayloadSchema,
+} from '@contracts/schemas/remote-node';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 import { getLocalIpv4Addresses } from '../../util/network-addresses';

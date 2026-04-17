@@ -6,7 +6,7 @@
  * Also stores pending file attachments per context.
  */
 
-import { Injectable, signal } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
 
 // Special context keys for non-instance views
 export const VERIFICATION_DRAFT_KEY = '__verification__';
@@ -24,11 +24,32 @@ export class DraftService {
   // Storage for pending folder paths keyed by context
   private pendingFolders = new Map<string, string[]>();
 
-  // Signal to notify when any draft changes (for reactive updates)
-  private _draftVersion = signal(0);
+  // Split version signals: text changes are debounced, attachment changes are immediate
+  private _textVersion = signal(0);
+  private _attachmentVersion = signal(0);
+  private textDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly TEXT_DEBOUNCE_MS = 250;
 
-  // Expose version as readonly for components to track changes
-  readonly version = this._draftVersion.asReadonly();
+  // Expose separate version signals for selective tracking
+  readonly textVersion = this._textVersion.asReadonly();
+  readonly attachmentVersion = this._attachmentVersion.asReadonly();
+
+  // Combined version for backward compatibility (any change triggers)
+  readonly version = computed(() => this._textVersion() + this._attachmentVersion());
+
+  private bumpTextVersion(): void {
+    if (this.textDebounceTimer !== null) {
+      clearTimeout(this.textDebounceTimer);
+    }
+    this.textDebounceTimer = setTimeout(() => {
+      this.textDebounceTimer = null;
+      this._textVersion.update(v => v + 1);
+    }, DraftService.TEXT_DEBOUNCE_MS);
+  }
+
+  private bumpAttachmentVersion(): void {
+    this._attachmentVersion.update(v => v + 1);
+  }
 
   /**
    * Get the draft for a given context
@@ -46,7 +67,7 @@ export class DraftService {
     } else {
       this.drafts.delete(contextKey);
     }
-    this._draftVersion.update(v => v + 1);
+    this.bumpTextVersion();
   }
 
   /**
@@ -54,7 +75,7 @@ export class DraftService {
    */
   clearDraft(contextKey: string): void {
     this.drafts.delete(contextKey);
-    this._draftVersion.update(v => v + 1);
+    this.bumpTextVersion();
   }
 
   /**
@@ -88,7 +109,7 @@ export class DraftService {
     } else {
       this.pendingFiles.delete(contextKey);
     }
-    this._draftVersion.update(v => v + 1);
+    this.bumpAttachmentVersion();
   }
 
   /**
@@ -97,7 +118,7 @@ export class DraftService {
   addPendingFiles(contextKey: string, files: File[]): void {
     const existing = this.pendingFiles.get(contextKey) || [];
     this.pendingFiles.set(contextKey, [...existing, ...files]);
-    this._draftVersion.update(v => v + 1);
+    this.bumpAttachmentVersion();
   }
 
   /**
@@ -111,7 +132,7 @@ export class DraftService {
     } else {
       this.pendingFiles.delete(contextKey);
     }
-    this._draftVersion.update(v => v + 1);
+    this.bumpAttachmentVersion();
   }
 
   /**
@@ -119,7 +140,7 @@ export class DraftService {
    */
   clearPendingFiles(contextKey: string): void {
     this.pendingFiles.delete(contextKey);
-    this._draftVersion.update(v => v + 1);
+    this.bumpAttachmentVersion();
   }
 
   /**
@@ -145,7 +166,7 @@ export class DraftService {
     // Avoid duplicates
     if (!existing.includes(folderPath)) {
       this.pendingFolders.set(contextKey, [...existing, folderPath]);
-      this._draftVersion.update(v => v + 1);
+      this.bumpAttachmentVersion();
     }
   }
 
@@ -160,7 +181,7 @@ export class DraftService {
     } else {
       this.pendingFolders.delete(contextKey);
     }
-    this._draftVersion.update(v => v + 1);
+    this.bumpAttachmentVersion();
   }
 
   /**
@@ -168,7 +189,7 @@ export class DraftService {
    */
   clearPendingFolders(contextKey: string): void {
     this.pendingFolders.delete(contextKey);
-    this._draftVersion.update(v => v + 1);
+    this.bumpAttachmentVersion();
   }
 
   /**

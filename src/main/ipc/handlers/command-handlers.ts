@@ -5,18 +5,18 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  CommandExecutePayloadSchema,
   CommandCreatePayloadSchema,
-  CommandUpdatePayloadSchema,
   CommandDeletePayloadSchema,
+  CommandExecutePayloadSchema,
+  CommandUpdatePayloadSchema,
+  PlanModeApprovePayloadSchema,
   PlanModeEnterPayloadSchema,
   PlanModeExitPayloadSchema,
-  PlanModeApprovePayloadSchema,
-  PlanModeUpdatePayloadSchema,
   PlanModeGetStatePayloadSchema,
-  validateIpcPayload
-} from '@contracts/schemas';
+  PlanModeUpdatePayloadSchema,
+} from '@contracts/schemas/instance';
 import { getCommandManager } from '../../commands/command-manager';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
 import { InstanceManager } from '../../instance/instance-manager';

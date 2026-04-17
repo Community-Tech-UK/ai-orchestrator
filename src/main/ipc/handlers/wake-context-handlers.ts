@@ -4,12 +4,12 @@ import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLogger } from '../../logging/logger';
 import { getWakeContextBuilder } from '../../memory/wake-context-builder';
 import {
-  WakeGeneratePayloadSchema,
   WakeAddHintPayloadSchema,
+  WakeGeneratePayloadSchema,
+  WakeListHintsPayloadSchema,
   WakeRemoveHintPayloadSchema,
   WakeSetIdentityPayloadSchema,
-  WakeListHintsPayloadSchema,
-} from '@contracts/schemas';
+} from '@contracts/schemas/knowledge';
 
 const logger = getLogger('WakeContextHandlers');
 

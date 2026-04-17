@@ -1057,6 +1057,18 @@ export class OutputStreamComponent {
       });
     });
 
+    // Deferred syntax highlighting: after Angular renders new content,
+    // highlight code blocks in idle time so input is never blocked.
+    effect(() => {
+      this.visibleItems();
+      setTimeout(() => {
+        const container = this.getViewportElement();
+        if (container) {
+          this.markdownService.highlightCodeBlocksInElement(container);
+        }
+      });
+    });
+
     // Setup scroll listener and delegated click handler after render
     afterNextRender(() => {
       const clickBinding = this.setupDelegatedClickHandler();

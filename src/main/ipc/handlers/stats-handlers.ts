@@ -6,16 +6,16 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getUsageStatsManager } from '../../core/system/usage-stats';
+import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  validateIpcPayload,
-  StatsRecordSessionStartPayloadSchema,
-  StatsRecordSessionEndPayloadSchema,
-  StatsRecordMessagePayloadSchema,
-  StatsRecordToolUsagePayloadSchema,
+  StatsExportPayloadSchema,
   StatsGetPayloadSchema,
   StatsGetSessionPayloadSchema,
-  StatsExportPayloadSchema,
-} from '@contracts/schemas';
+  StatsRecordMessagePayloadSchema,
+  StatsRecordSessionEndPayloadSchema,
+  StatsRecordSessionStartPayloadSchema,
+  StatsRecordToolUsagePayloadSchema,
+} from '@contracts/schemas/session';
 
 export function registerStatsHandlers(): void {
   const statsManager = getUsageStatsManager();
