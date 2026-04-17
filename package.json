@@ -36,7 +36,8 @@
     "generate:ipc": "node scripts/generate-preload-channels.js",
     "postinstall": "node scripts/rebuild-native-modules.js",
     "rebuild:native": "node scripts/rebuild-native-modules.js",
-    "build:worker-agent": "tsx build-worker-agent.ts"
+    "build:worker-agent": "tsx build-worker-agent.ts",
+    "download:winsw": "node scripts/download-winsw.js"
   },
   "keywords": [
     "ai",
