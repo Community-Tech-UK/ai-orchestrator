@@ -29,7 +29,7 @@ import type {
   ProviderAttachment,
 } from '../../shared/types/provider.types';
 import { MODEL_PRICING, COPILOT_MODELS } from '../../shared/types/provider.types';
-import type { OutputMessage, InstanceStatus, ContextUsage } from '../../shared/types/instance.types';
+import type { OutputMessage, ContextUsage } from '../../shared/types/instance.types';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
@@ -114,6 +114,8 @@ export class CopilotSdkProvider extends BaseProvider {
       throw new Error('Provider already initialized');
     }
 
+    this.instanceId = options.instanceId ?? '';
+
     // Map session options to Copilot SDK config. If no model is supplied we
     // fall back to the provider config default; the adapter itself will
     // ultimately fall back to 'gpt-4' if neither is set.
@@ -127,38 +129,33 @@ export class CopilotSdkProvider extends BaseProvider {
 
     this.adapter = new CopilotSdkAdapter(copilotConfig);
 
-    // Forward adapter events to provider events. The Copilot adapter already
-    // emits fully-formed OutputMessage objects (including streaming deltas,
-    // tool-use, tool-result variants) so we pass them through as-is.
+    // Forward adapter events directly to the normalized events$ stream via
+    // push* helpers (inline translation — no legacy this.emit relay).
     this.adapter.on('output', (message: OutputMessage) => {
-      this.emit('output', message);
+      this.pushOutput(message.content, message.type, message.metadata);
     });
 
     this.adapter.on('status', (status: string) => {
-      this.emit('status', status as InstanceStatus);
+      this.pushStatus(status);
     });
 
     this.adapter.on('context', (usage: ContextUsage) => {
       this.updateUsageFromContext(usage);
-      this.emit('context', usage);
+      this.pushContext(usage.used, usage.total, usage.percentage);
     });
 
     this.adapter.on('error', (error: Error | string) => {
-      if (typeof error === 'string') {
-        this.emit('error', new Error(error));
-      } else {
-        this.emit('error', error);
-      }
+      this.pushError(error instanceof Error ? error.message : String(error), false);
     });
 
     this.adapter.on('exit', (code: number | null, signal: string | null) => {
       this.isActive = false;
-      this.emit('exit', code, signal);
+      this.pushExit(code, signal);
     });
 
     this.adapter.on('spawned', (pid: number) => {
       this.isActive = true;
-      this.emit('spawned', pid);
+      if (pid != null) this.pushSpawned(pid);
     });
 
     // spawn() starts the SDK client + session and returns a synthetic PID
@@ -188,7 +185,7 @@ export class CopilotSdkProvider extends BaseProvider {
         })),
       );
     } catch (error) {
-      this.emit('error', error as Error);
+      this.pushError(error instanceof Error ? error.message : String(error), false);
       throw error;
     }
   }
