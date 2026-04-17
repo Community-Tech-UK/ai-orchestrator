@@ -3,6 +3,7 @@ import { isElevated, NotElevatedError } from '../service/privilege';
 import { resolveToken } from '../service/token-resolver';
 import { servicePaths } from '../service/paths';
 import { migrateConfigIfNeeded } from '../service/config-migration';
+import { activateVersion, listVersions } from '../service/rollback';
 import {
   DEFAULT_CONFIG_PATH,
   loadWorkerConfig,
@@ -14,7 +15,9 @@ export type ServiceCommand =
   | { kind: 'install'; coordinatorUrl: string; tokenOpts: TokenCliOpts }
   | { kind: 'uninstall' }
   | { kind: 'status' }
-  | { kind: 'run' };
+  | { kind: 'run' }
+  | { kind: 'list-versions' }
+  | { kind: 'activate-version'; version: string };
 
 interface TokenCliOpts {
   tokenFile?: string;
@@ -47,6 +50,12 @@ export function parseServiceArgs(argv: string[]): ServiceCommand | null {
   if (has('--uninstall-service')) return { kind: 'uninstall' };
   if (has('--service-status')) return { kind: 'status' };
   if (has('--service-run')) return { kind: 'run' };
+  if (has('--list-versions')) return { kind: 'list-versions' };
+  if (has('--activate-version')) {
+    const version = valueOf('--activate-version');
+    if (!version) throw new Error('--activate-version requires a version string');
+    return { kind: 'activate-version', version };
+  }
   return null;
 }
 
@@ -93,6 +102,20 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
     }
     case 'run':
       return 0;
+    case 'list-versions': {
+      const versions = await listVersions();
+      process.stdout.write(JSON.stringify(versions, null, 2) + '\n');
+      return 0;
+    }
+    case 'activate-version': {
+      if (!(await isElevated())) {
+        throw new NotElevatedError('Activating a worker service version');
+      }
+      await activateVersion(cmd.version);
+      await mgr.restart();
+      process.stdout.write(`Activated version ${cmd.version} and restarted service.\n`);
+      return 0;
+    }
   }
 }
 
