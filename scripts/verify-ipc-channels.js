@@ -35,7 +35,7 @@ function legacyShimReExportsContracts(filePath) {
     channels: /export\s+\{\s*IPC_CHANNELS\s*\}\s+from\s+['"]@contracts\/channels['"];?/.test(
       content
     ),
-    types: /export\s+type\s+\*\s+from\s+['"]@contracts\/types['"];?/.test(content),
+    types: /export\s+type\s+\*\s+from\s+['"]@contracts\/types\/[\w-]+['"];?/.test(content),
   };
 }
 
