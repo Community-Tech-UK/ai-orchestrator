@@ -56,6 +56,10 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_NODE_SET_TOKEN: 'remote-node:set-token',
   REMOTE_NODE_REVOKE: 'remote-node:revoke',
   REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
+  REMOTE_NODE_SERVICE_STATUS: 'remote-node:service:status',
+  REMOTE_NODE_SERVICE_RESTART: 'remote-node:service:restart',
+  REMOTE_NODE_SERVICE_STOP: 'remote-node:service:stop',
+  REMOTE_NODE_SERVICE_UNINSTALL: 'remote-node:service:uninstall',
 
   // Remote Filesystem operations
   REMOTE_FS_READ_DIR: 'remote-fs:read-dir',
