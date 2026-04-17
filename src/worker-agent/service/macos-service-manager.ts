@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { execFileCapture, ExecFileError } from './exec-file';
 import { generateLaunchdPlist } from './macos-launchd-plist';
 import { servicePaths } from './paths';
@@ -18,9 +19,15 @@ export class MacosServiceManager implements ServiceManager {
     await fs.mkdir(paths.configDir, { recursive: true });
     await fs.mkdir(paths.logDir, { recursive: true });
     await fs.mkdir('/usr/local/var/orchestrator', { recursive: true });
-    await fs.copyFile(opts.binaryPath, paths.binFile);
-    await fs.chmod(paths.binFile, 0o755);
-    await execFileCapture('chown', ['root:wheel', paths.binFile]);
+    const version = opts.version ?? 'unversioned';
+    const versionedDir = path.join(paths.versionedBinDir, version);
+    const versionedBin = path.join(versionedDir, 'worker-agent');
+    await fs.mkdir(versionedDir, { recursive: true });
+    await fs.copyFile(opts.binaryPath, versionedBin);
+    await fs.chmod(versionedBin, 0o755);
+    try { await fs.unlink(paths.currentBinLink); } catch { /* ignore */ }
+    await fs.symlink(versionedDir, paths.currentBinLink, 'dir');
+    await execFileCapture('chown', ['root:wheel', versionedBin]);
     await execFileCapture('chown', [
       '-R',
       `${USER_NAME}:${GROUP_NAME}`,

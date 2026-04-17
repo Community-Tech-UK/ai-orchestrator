@@ -19,6 +19,7 @@ export interface ServiceInstallOptions {
   serviceAccount?: string;   // Defaults per platform
   serviceName?: string;      // Defaults to 'ai-orchestrator-worker'
   logDir?: string;           // Defaults per platform
+  version?: string;          // Semver; drop into <binDir>/versions/<version>/
 }
 
 export interface ServiceManager {

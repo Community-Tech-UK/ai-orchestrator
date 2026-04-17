@@ -18,9 +18,15 @@ export class WindowsServiceManager implements ServiceManager {
     const winswExe = path.join(paths.binDir, `${SERVICE_ID}.exe`);
     const winswXml = path.join(paths.binDir, `${SERVICE_ID}.xml`);
 
-    // Copy SEA binary to final location
-    const targetBin = path.join(paths.binDir, 'worker-agent.exe');
-    await fs.copyFile(opts.binaryPath, targetBin);
+    // Copy SEA binary into versioned layout and point <binDir>\current at it.
+    const version = opts.version ?? 'unversioned';
+    const versionedDir = path.join(paths.versionedBinDir, version);
+    await fs.mkdir(versionedDir, { recursive: true });
+    const versionedBin = path.join(versionedDir, 'worker-agent.exe');
+    await fs.copyFile(opts.binaryPath, versionedBin);
+    try { await fs.unlink(paths.currentBinLink); } catch { /* ignore */ }
+    await fs.symlink(versionedDir, paths.currentBinLink, 'junction');
+    const targetBin = path.join(paths.currentBinLink, 'worker-agent.exe');
 
     // Copy bundled WinSW shim (renamed to the service id)
     const bundledWinsw = path.resolve(__dirname, '..', '..', '..', 'resources', 'winsw', 'WinSW-x64.exe');

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { execFileCapture } from './exec-file';
 import { generateSystemdUnit } from './linux-systemd-unit';
 import { servicePaths } from './paths';
@@ -27,10 +28,16 @@ export class LinuxServiceManager implements ServiceManager {
     await fs.mkdir(paths.configDir, { recursive: true });
     await fs.mkdir(paths.logDir, { recursive: true });
     await fs.mkdir('/var/lib/orchestrator', { recursive: true });
-    await fs.copyFile(opts.binaryPath, paths.binFile);
-    await fs.chmod(paths.binFile, 0o755);
+    const version = opts.version ?? 'unversioned';
+    const versionedDir = path.join(paths.versionedBinDir, version);
+    const versionedBin = path.join(versionedDir, 'worker-agent');
+    await fs.mkdir(versionedDir, { recursive: true });
+    await fs.copyFile(opts.binaryPath, versionedBin);
+    await fs.chmod(versionedBin, 0o755);
+    try { await fs.unlink(paths.currentBinLink); } catch { /* ignore */ }
+    await fs.symlink(versionedDir, paths.currentBinLink, 'dir');
     await execFileCapture('chown', ['-R', `${SERVICE_USER}:${SERVICE_GROUP}`, paths.logDir, '/var/lib/orchestrator']);
-    await execFileCapture('chown', ['root:root', paths.binFile]);
+    await execFileCapture('chown', ['root:root', versionedBin]);
 
     const unit = generateSystemdUnit({
       description: 'AI Orchestrator Worker',
