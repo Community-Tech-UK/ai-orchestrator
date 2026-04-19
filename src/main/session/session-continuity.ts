@@ -22,10 +22,11 @@ import { getLogger } from '../logging/logger';
 import { SnapshotIndex } from './snapshot-index';
 import { TerminationGateManager, type SessionTerminationGate, type TerminationGateResult } from './termination-gate-manager';
 import { SnapshotManager } from './snapshot-manager';
-import { cleanupOrphanedTmpFiles, repairFile, validateTranscript } from './session-repair';
+import { cleanupOrphanedTmpFiles, quarantineFile, repairFile, validateTranscript } from './session-repair';
 import { getSessionMutex } from './session-mutex';
 import { measureAsync } from '../util/slow-operations';
 import { getResumeHintManager } from './resume-hint';
+import { getSafeStorage } from './safe-storage-accessor';
 
 const logger = getLogger('SessionContinuity');
 
@@ -1157,6 +1158,41 @@ export class SessionContinuityManager extends EventEmitter {
     const result = this.deserializePayload<T>(raw, filePath);
     if (result) return result;
 
+    // Specific case: the envelope is structurally valid but decryption failed.
+    // This happens after reinstall / keychain rotation when safeStorage can
+    // no longer decrypt data written by a previous install (e.g. because of
+    // the `use-mock-keychain` switch or Keychain permission changes).
+    // repairFile() can't detect this — the file parses as valid JSON with
+    // a well-formed { encrypted: true, data: "<base64>" } envelope — so it
+    // would otherwise stay in states/ and re-throw the same decrypt error on
+    // every subsequent startup. Quarantine it so future startups stay clean.
+    try {
+      const parsedEnvelope = JSON.parse(raw) as Record<string, unknown>;
+      if (
+        parsedEnvelope &&
+        typeof parsedEnvelope === 'object' &&
+        parsedEnvelope['encrypted'] === true &&
+        typeof parsedEnvelope['data'] === 'string'
+      ) {
+        try {
+          const quarantinedPath = quarantineFile(filePath, this.quarantineDir);
+          logger.warn(
+            'Quarantined undecryptable session state file (likely post-reinstall safeStorage key change)',
+            { original: filePath, dest: quarantinedPath },
+          );
+        } catch (quarantineError) {
+          logger.error(
+            'Failed to quarantine undecryptable session state file',
+            quarantineError instanceof Error ? quarantineError : undefined,
+            { path: filePath },
+          );
+        }
+        return null;
+      }
+    } catch {
+      // raw isn't parseable as JSON — fall through to normal repair pathway
+    }
+
     // Deserialization failed — attempt repair (Layer 1).
     // If the repair rewrites the file, re-read it once; otherwise treat it as unrecoverable.
     try {
@@ -1180,9 +1216,9 @@ export class SessionContinuityManager extends EventEmitter {
   private serializePayload(data: unknown): string {
     const json = JSON.stringify(data);
     if (this.config.encryptOnDisk) {
-      // Lazy import to avoid triggering Keychain access on startup
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { safeStorage } = require('electron') as typeof import('electron');
+      // Lazy access to avoid triggering Keychain usage on startup.
+      // See safe-storage-accessor.ts for the why behind the indirection.
+      const safeStorage = getSafeStorage();
       if (safeStorage.isEncryptionAvailable()) {
         const encrypted = safeStorage.encryptString(json).toString('base64');
         return JSON.stringify({ encrypted: true, data: encrypted });
@@ -1215,9 +1251,9 @@ export class SessionContinuityManager extends EventEmitter {
           parsed['encrypted'] === true &&
           typeof parsed['data'] === 'string'
         ) {
-          // Lazy import to avoid triggering Keychain access on startup
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { safeStorage } = require('electron') as typeof import('electron');
+          // Lazy access to avoid triggering Keychain usage on startup.
+          // See safe-storage-accessor.ts for the why behind the indirection.
+          const safeStorage = getSafeStorage();
           const decrypted = safeStorage.decryptString(
             Buffer.from(parsed['data'], 'base64')
           );

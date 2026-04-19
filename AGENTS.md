@@ -90,3 +90,42 @@ When implementing features from `bigchange_*.md` files:
 - **IPC**: Handlers in `src/main/ipc/`, exposed via `src/preload/preload.ts`. Validate payloads with Zod schemas from `src/shared/validation/ipc-schemas.ts`.
 - **Angular components**: Standalone, `OnPush` change detection, signals for state.
 - **Testing singletons**: Call `MyService._resetForTesting()` in `beforeEach`.
+
+## Packaging Gotchas
+
+The packaged DMG has silently broken twice via these two traps. The `prebuild`
+script now guards #2, but both still need attention when making the relevant
+change.
+
+### 1. Adding a `@contracts/schemas/...` or `@contracts/types/...` subpath
+
+Files under `packages/contracts/src/schemas/` are named `<name>.schemas.ts`
+(similarly `<name>.types.ts`), but imports use the short form
+`@contracts/schemas/<name>`. That discrepancy is bridged by **three** places
+that must stay in sync — tsc path aliases are type-check-only and do not
+rewrite emitted JS:
+
+1. `tsconfig.json` — renderer + test type-checking
+2. `tsconfig.electron.json` — main-process type-checking
+3. `src/main/register-aliases.ts` (`exactAliases`) — **Node runtime resolver**
+
+Miss #3 and the packaged app crashes on startup with
+`Cannot find module '…/schemas/<name>'` even though typecheck and lint pass.
+
+Also update `vitest.config.ts` if the new subpath is imported from tests.
+
+### 2. Bumping Electron
+
+Native modules (`better-sqlite3`) must be recompiled against Electron's ABI
+whenever the Electron version changes. The `postinstall` hook handles fresh
+installs, but a standalone `npm install electron@<new>` won't re-trigger it.
+
+After bumping Electron:
+
+```bash
+npm run rebuild:native
+```
+
+`scripts/verify-native-abi.js` runs in `prebuild`/`prestart` and fails fast if
+the bundled `.node` binary's `NODE_MODULE_VERSION` doesn't match the installed
+Electron — catching the stale binary before it's packaged into a DMG.

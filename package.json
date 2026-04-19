@@ -11,8 +11,8 @@
   },
   "scripts": {
     "ng": "ng",
-    "prestart": "node scripts/check-node.js && npm run generate:ipc && npm run verify:ipc && npm run verify:exports",
-    "prebuild": "node scripts/check-node.js && npm run generate:ipc && npm run verify:ipc && npm run verify:exports",
+    "prestart": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:ipc && npm run verify:ipc && npm run verify:exports",
+    "prebuild": "node scripts/check-node.js && node scripts/verify-native-abi.js && npm run generate:ipc && npm run verify:ipc && npm run verify:exports",
     "pretest": "node scripts/check-node.js && node scripts/ensure-test-native-modules.js && npm run verify:exports",
     "start": "npm run build:main && concurrently -k \"npm run watch:main\" \"npm run start:renderer -- --port 4567\" \"wait-on http://localhost:4567 && npm run electron:dev\"",
     "start:renderer": "ng serve",
@@ -70,7 +70,6 @@
     "@angular/platform-browser-dynamic": "^21.2.5",
     "@angular/router": "^21.2.5",
     "@anthropic-ai/sdk": "^0.71.2",
-    "@github/copilot-sdk": "^0.1.16",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
     "@opentelemetry/resources": "^2.6.1",

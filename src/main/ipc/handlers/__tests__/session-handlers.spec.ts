@@ -469,5 +469,104 @@ describe('session-handlers', () => {
       // Should NOT mark native resume as failed (it wasn't attempted; the node is just offline)
       expect(mockMarkNativeResumeFailed).not.toHaveBeenCalled();
     });
+
+    it('serializes concurrent history restores so only one heavy spawn path runs at a time', async () => {
+      // Regression guard for the restore thundering-herd fix: when the user
+      // rapid-fires several history-restore clicks, the main process must not
+      // run the `createInstance + readyPromise + CLI spawn + context poll`
+      // pipeline in parallel — doing so starves the main event loop and can
+      // delay an individual spawn by 3+ minutes.
+      //
+      // We prove the mutex works by gating the first call's `loadConversation`
+      // on a promise we control. If the handler body were NOT wrapped in the
+      // `withHistoryRestoreLock` chain, the second invoke would also call
+      // `loadConversation` immediately and advance independently.
+      let releaseFirst!: (value: null) => void;
+      const firstGate = new Promise<null>((resolve) => {
+        releaseFirst = resolve;
+      });
+
+      mockLoadConversation.mockImplementationOnce(() => firstGate);
+      // Any later calls (from the second invoke, or any chained after) simply
+      // resolve to null — the handler short-circuits to HISTORY_NOT_FOUND.
+      mockLoadConversation.mockResolvedValue(null);
+
+      const first = invoke(IPC_CHANNELS.HISTORY_RESTORE, { entryId: 'entry-first' });
+      const second = invoke(IPC_CHANNELS.HISTORY_RESTORE, { entryId: 'entry-second' });
+
+      // Let microtasks flush so both invocations have had a chance to start.
+      // After this point: restore #1 is blocked on firstGate (inside the lock),
+      // restore #2 is queued on the chain and MUST NOT have called
+      // `loadConversation` yet.
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+
+      expect(mockLoadConversation).toHaveBeenCalledTimes(1);
+      expect(mockLoadConversation).toHaveBeenCalledWith('entry-first');
+
+      // Release the first call — now #1 completes, lock releases, #2 runs.
+      releaseFirst(null);
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      // Both restores short-circuited to HISTORY_NOT_FOUND (because
+      // loadConversation returned null in both cases after the gate opened).
+      expect(firstResult).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'HISTORY_NOT_FOUND' }),
+      });
+      expect(secondResult).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'HISTORY_NOT_FOUND' }),
+      });
+
+      expect(mockLoadConversation).toHaveBeenCalledTimes(2);
+      // Ordering is preserved: #1 first, #2 second.
+      expect(mockLoadConversation.mock.calls[0][0]).toBe('entry-first');
+      expect(mockLoadConversation.mock.calls[1][0]).toBe('entry-second');
+    });
+
+    it('keeps the restore queue alive after a thrown restore so later restores still run', async () => {
+      // Regression guard: the mutex chain must swallow rejections so a single
+      // failed restore doesn't poison the chain and block every subsequent
+      // restore forever. `historyRestoreChain = current.catch(() => undefined)`
+      // in withHistoryRestoreLock is the specific line under test.
+      let failFirst!: (reason: Error) => void;
+      const firstFailure = new Promise<never>((_resolve, reject) => {
+        failFirst = reject;
+      });
+
+      mockLoadConversation.mockImplementationOnce(() => firstFailure);
+      mockLoadConversation.mockResolvedValue(null);
+
+      const first = invoke(IPC_CHANNELS.HISTORY_RESTORE, { entryId: 'entry-a' });
+      const second = invoke(IPC_CHANNELS.HISTORY_RESTORE, { entryId: 'entry-b' });
+
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+
+      // Second call blocked behind the lock — loadConversation not yet called.
+      expect(mockLoadConversation).toHaveBeenCalledTimes(1);
+
+      failFirst(new Error('simulated loadConversation failure'));
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      // The handler itself catches the loadConversation rejection and turns it
+      // into a HISTORY_RESTORE_FAILED response, so the invoke resolves.
+      expect(firstResult).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'HISTORY_RESTORE_FAILED' }),
+      });
+      // Crucially, the second restore is not blocked forever — the chain
+      // recovered and ran the second handler.
+      expect(secondResult).toMatchObject({
+        success: false,
+        error: expect.objectContaining({ code: 'HISTORY_NOT_FOUND' }),
+      });
+      expect(mockLoadConversation).toHaveBeenCalledTimes(2);
+    });
   });
 });

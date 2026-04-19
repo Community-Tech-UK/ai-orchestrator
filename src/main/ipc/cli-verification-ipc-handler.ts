@@ -10,7 +10,7 @@ import { CliDetectionService, CliType } from '../cli/cli-detection';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
 import type { WindowManager } from '../window-manager';
-import { CopilotSdkAdapter, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from '../cli/adapters/copilot-sdk-adapter';
+import { CopilotCliAdapter, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from '../cli/adapters/copilot-cli-adapter';
 import { PROVIDER_MODEL_LIST } from '../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../shared/types/provider.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -173,7 +173,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
     async (): Promise<IpcResponse<CopilotModelInfo[]>> => {
       try {
         logger.info('Fetching Copilot models from CLI');
-        const adapter = new CopilotSdkAdapter();
+        const adapter = new CopilotCliAdapter();
         const models = await adapter.listAvailableModels();
         logger.info('Fetched Copilot models from CLI', { count: models.length });
         return { success: true, data: models };
@@ -209,7 +209,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
         // Copilot: dynamic listing via SDK
         if (provider === 'copilot') {
           try {
-            const adapter = new CopilotSdkAdapter();
+            const adapter = new CopilotCliAdapter();
             const copilotModels = await adapter.listAvailableModels();
             const models: ModelDisplayInfo[] = copilotModels
               .filter(m => m.enabled !== false)

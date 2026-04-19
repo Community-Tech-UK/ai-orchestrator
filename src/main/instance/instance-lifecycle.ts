@@ -63,8 +63,6 @@ import { RecoveryRecipeEngine } from '../session/recovery-recipe-engine';
 import { createBuiltinRecipes } from '../session/builtin-recovery-recipes';
 import { getCheckpointManager } from '../session/checkpoint-manager';
 import type { DetectedFailure } from '../../shared/types/recovery.types';
-import { buildReplayContinuityMessage as buildSharedReplayContinuityMessage } from '../session/replay-continuity';
-import { buildFallbackHistoryMessage } from '../session/fallback-history';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 import { InstanceStateMachine } from './instance-state-machine';
@@ -74,7 +72,6 @@ import type { DenyRule } from '../tools/tool-list-filter';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
 import { ensureHookScript } from '../cli/hooks/hook-path-resolver';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
-import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
@@ -85,6 +82,7 @@ import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
+import { warmCodememWithTimeout } from './warm-codemem';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -349,24 +347,18 @@ export class InstanceLifecycleManager extends EventEmitter {
   }
 
   private async warmCodememWorkspace(workspacePath: string): Promise<void> {
-    const codemem = getCodemem();
-    if (!codemem.isEnabled()) {
-      return;
-    }
-
-    try {
-      const result = await codemem.warmWorkspace(workspacePath);
-      logger.info('Codemem workspace warm-up completed', {
-        workspacePath,
-        ready: result.ready,
-        representativeFile: result.filePath,
-      });
-    } catch (error) {
-      logger.warn('Codemem workspace warm-up failed; continuing without blocking spawn', {
-        workspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    // Hard cap the time we're willing to block the spawn critical path on
+    // codemem warm-up. On large workspaces or when the main process event
+    // loop is already saturated (e.g. several restored instances streaming
+    // output in parallel after a history restore), `warmWorkspace` can take
+    // arbitrarily long. Previously this could delay `adapter.spawn()` by
+    // minutes. Cap it: whatever hasn't finished in time just continues in
+    // the background without blocking the spawn.
+    await warmCodememWithTimeout(getCodemem(), {
+      workspacePath,
+      timeoutMs: 2500,
+      logger,
+    });
   }
 
   /**

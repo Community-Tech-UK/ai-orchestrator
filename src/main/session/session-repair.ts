@@ -98,7 +98,7 @@ export function validateTranscript(
 // ---------------------------------------------------------------------------
 
 /** Move a corrupt file to the quarantine directory with a timestamped .corrupt extension. */
-function quarantineFile(filePath: string, quarantineDir: string): string {
+export function quarantineFile(filePath: string, quarantineDir: string): string {
   const basename = path.basename(filePath);
   const dest = path.join(quarantineDir, `${basename}.${Date.now()}.corrupt`);
   fs.renameSync(filePath, dest);

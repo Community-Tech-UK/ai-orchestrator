@@ -111,6 +111,23 @@ export const CODEX_TIMEOUTS = {
 
   /** Broker startup polling timeout. */
   BROKER_STARTUP_MS: 10_000,
+
+  /**
+   * Idle watchdog budget for the first exec-mode turn after spawn.
+   * Reset on every stdout/stderr chunk, fires only when the child has been
+   * silent this long. 60s is enough for legitimate cold-start activity
+   * (state-db iteration, model list refresh) but short enough to surface
+   * genuine hangs (broken auth, unreachable API, bad CODEX_HOME symlink)
+   * well under the old 10-minute retry chain.
+   */
+  EXEC_STARTUP_MS: 60_000,
+
+  /**
+   * Idle watchdog budget for subsequent exec-mode turns. Matches Codex CLI's
+   * own 300s stream-idle default so legitimately long silent stretches
+   * within a tool call don't cut the turn short.
+   */
+  EXEC_TURN_MS: 300_000,
 } as const;
 
 /**

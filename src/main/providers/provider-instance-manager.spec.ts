@@ -25,8 +25,8 @@ vi.mock('./gemini-cli-provider', () => ({
     enabled: false,
   },
 }));
-vi.mock('./copilot-sdk-provider', () => ({
-  CopilotSdkProvider: vi.fn().mockImplementation(() => ({ type: 'copilot' })),
+vi.mock('./copilot-cli-provider', () => ({
+  CopilotCliProvider: vi.fn().mockImplementation(() => ({ type: 'copilot' })),
   DEFAULT_COPILOT_CONFIG: {
     type: 'copilot',
     name: 'GitHub Copilot CLI',

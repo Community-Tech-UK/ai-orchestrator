@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CLAUDE_DESCRIPTOR } from '../claude-cli-provider';
 import { CODEX_DESCRIPTOR } from '../codex-cli-provider';
 import { GEMINI_DESCRIPTOR } from '../gemini-cli-provider';
-import { COPILOT_DESCRIPTOR } from '../copilot-sdk-provider';
+import { COPILOT_DESCRIPTOR } from '../copilot-cli-provider';
 
 describe('adapter descriptors', () => {
   const descriptors = [

@@ -608,17 +608,67 @@ export function terminateProcessTree(pid: number | undefined): void {
 }
 
 /**
+ * Extend PATH with the same common install dirs that BaseCliAdapter.spawnProcess
+ * adds. Packaged Electron apps launched from Finder/Dock inherit a minimal PATH
+ * (no /opt/homebrew/bin, no ~/.local/bin), so a bare `spawnSync('codex', ...)`
+ * returns ENOENT even when `codex` is installed. Mirroring the spawn helper's
+ * PATH logic keeps this preflight in sync with the path codex is actually
+ * launched from later.
+ */
+function buildCheckEnv(): Record<string, string> {
+  const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
+  const additionalPaths = [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    `${homeDir}/.local/bin`,
+    `${homeDir}/.npm-global/bin`,
+    `${homeDir}/.nvm/versions/node/current/bin`,
+    '/usr/bin',
+    '/bin',
+  ].filter(Boolean);
+  const currentPath = process.env['PATH'] || '';
+  const extendedPath = [...additionalPaths, currentPath].join(':');
+  return { ...getSafeEnvForTrustedProcess(), PATH: extendedPath };
+}
+
+/**
  * Checks whether `codex app-server` is available by running `codex app-server --help`.
  * Returns true if the subcommand exists, false otherwise.
+ *
+ * When this returns false the adapter silently falls back to exec mode, which
+ * has its own downsides (cold-start cost per turn, no native resume). Logging
+ * the failure reason is critical — otherwise "why is exec mode being used?"
+ * becomes unanswerable without reattaching a debugger.
  */
 export function checkAppServerAvailability(): boolean {
   try {
     const result = spawnSync('codex', ['app-server', '--help'], {
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: buildCheckEnv(),
     });
-    return result.status === 0 || (result.stdout?.toString() || '').includes('app-server');
-  } catch {
+
+    const stdout = result.stdout?.toString() ?? '';
+    const stderr = result.stderr?.toString() ?? '';
+    const available = result.status === 0 || stdout.includes('app-server');
+
+    if (!available) {
+      logger.warn('codex app-server subcommand not available — falling back to exec mode', {
+        status: result.status,
+        signal: result.signal,
+        timedOut: result.signal === 'SIGTERM' || (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT',
+        errorCode: (result.error as NodeJS.ErrnoException | undefined)?.code,
+        errorMessage: result.error?.message,
+        stdoutPreview: stdout.slice(0, 200),
+        stderrPreview: stderr.slice(0, 200),
+      });
+    }
+
+    return available;
+  } catch (err) {
+    logger.warn('codex app-server check threw — falling back to exec mode', {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return false;
   }
 }

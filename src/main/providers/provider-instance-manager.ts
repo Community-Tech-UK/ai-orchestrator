@@ -20,7 +20,7 @@ import { BaseProvider, ProviderFactory } from './provider-interface';
 import { ClaudeCliProvider, DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider';
 import { CodexCliProvider, DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
 import { GeminiCliProvider, DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider';
-import { CopilotSdkProvider, DEFAULT_COPILOT_CONFIG } from './copilot-sdk-provider';
+import { CopilotCliProvider, DEFAULT_COPILOT_CONFIG } from './copilot-cli-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 import { providerAdapterRegistry } from './provider-adapter-registry';
@@ -96,7 +96,7 @@ export class ProviderInstanceManager {
     this.factories.set('anthropic-api', (config) => new AnthropicApiProvider(config));
     this.factories.set('openai', (config) => new CodexCliProvider(config));
     this.factories.set('google', (config) => new GeminiCliProvider(config));
-    this.factories.set('copilot', (config) => new CopilotSdkProvider(config));
+    this.factories.set('copilot', (config) => new CopilotCliProvider(config));
   }
 
   /**

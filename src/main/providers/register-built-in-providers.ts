@@ -8,11 +8,11 @@ import type { ProviderAdapterRegistry } from '@sdk/provider-adapter-registry';
 import { ClaudeCliProvider, CLAUDE_DESCRIPTOR } from './claude-cli-provider';
 import { CodexCliProvider, CODEX_DESCRIPTOR } from './codex-cli-provider';
 import { GeminiCliProvider, GEMINI_DESCRIPTOR } from './gemini-cli-provider';
-import { CopilotSdkProvider, COPILOT_DESCRIPTOR } from './copilot-sdk-provider';
+import { CopilotCliProvider, COPILOT_DESCRIPTOR } from './copilot-cli-provider';
 
 export function registerBuiltInProviders(registry: ProviderAdapterRegistry): void {
   registry.register(CLAUDE_DESCRIPTOR,  (config) => new ClaudeCliProvider(config));
   registry.register(CODEX_DESCRIPTOR,   (config) => new CodexCliProvider(config));
   registry.register(GEMINI_DESCRIPTOR,  (config) => new GeminiCliProvider(config));
-  registry.register(COPILOT_DESCRIPTOR, (config) => new CopilotSdkProvider(config));
+  registry.register(COPILOT_DESCRIPTOR, (config) => new CopilotCliProvider(config));
 }

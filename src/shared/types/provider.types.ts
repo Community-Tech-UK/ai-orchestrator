@@ -12,7 +12,7 @@ export type ProviderType =
   | 'openai-compatible' // OpenAI-compatible APIs (local, etc.)
   | 'ollama'          // Ollama local models
   | 'google'          // Google AI (Gemini)
-  | 'copilot'         // GitHub Copilot CLI (multi-LLM router via @github/copilot-sdk)
+  | 'copilot'         // GitHub Copilot CLI (multi-LLM router via `copilot` binary)
   | 'amazon-bedrock'  // AWS Bedrock
   | 'azure';          // Azure OpenAI
 

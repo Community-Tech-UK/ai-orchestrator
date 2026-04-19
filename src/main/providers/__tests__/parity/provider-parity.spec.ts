@@ -72,8 +72,8 @@ class FakeCopilotAdapter extends EventEmitter {
   async checkStatus(): Promise<{ available: boolean }> { return { available: true }; }
 }
 
-vi.mock('../../../cli/adapters/copilot-sdk-adapter', () => ({
-  CopilotSdkAdapter: vi.fn().mockImplementation(() => new FakeCopilotAdapter()),
+vi.mock('../../../cli/adapters/copilot-cli-adapter', () => ({
+  CopilotCliAdapter: vi.fn().mockImplementation(() => new FakeCopilotAdapter()),
 }));
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ vi.mock('../../../cli/adapters/copilot-sdk-adapter', () => ({
 import { ClaudeCliProvider } from '../../claude-cli-provider';
 import { CodexCliProvider } from '../../codex-cli-provider';
 import { GeminiCliProvider } from '../../gemini-cli-provider';
-import { CopilotSdkProvider } from '../../copilot-sdk-provider';
+import { CopilotCliProvider } from '../../copilot-cli-provider';
 
 // ---------------------------------------------------------------------------
 // Fixture type: constructs a provider+adapter pair with instanceId 'i-parity'.
@@ -124,7 +124,7 @@ const PROVIDERS: Record<ProviderName, ParityFixture> = {
   },
   copilot: {
     setup: async () => {
-      const provider = new CopilotSdkProvider({ type: 'copilot', name: 'GitHub Copilot CLI', enabled: true });
+      const provider = new CopilotCliProvider({ type: 'copilot', name: 'GitHub Copilot CLI', enabled: true });
       const envelopes: ProviderRuntimeEventEnvelope[] = [];
       provider.events$.subscribe(e => envelopes.push(e));
       await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });

@@ -1,15 +1,21 @@
 /**
- * Copilot SDK Provider - Uses GitHub Copilot CLI for AI interactions
+ * Copilot CLI Provider - Uses the GitHub Copilot CLI (`copilot` binary) for AI
+ * interactions.
  *
- * This provider wraps the CopilotSdkAdapter (which drives @github/copilot-sdk)
- * to conform to the shared provider interface. Unlike the other CLI providers,
- * the Copilot adapter delegates process management to the SDK: the underlying
- * Copilot CLI is spawned and communicated with over JSON-RPC internally, so the
- * adapter exposes `spawn()` / `sendInput()` rather than `initialize()` /
- * `sendMessage()`. Results stream back via `output` / `status` / `context`
- * events rather than sendMessage's return value, so this wrapper does not
- * re-emit a synthetic assistant message from `sendMessage()` — the adapter's
- * own `output` events already cover that.
+ * This provider wraps the CopilotCliAdapter, which spawns `copilot -p` child
+ * processes per message (exec-per-message pattern, like Gemini) rather than
+ * managing a persistent interactive session. Multi-turn is achieved transparently
+ * via `--resume=<sessionId>` once the first turn completes.
+ *
+ * Predecessor note: this replaces the former `copilot-sdk-provider` which wrapped
+ * `@github/copilot-sdk`. The SDK had repeated ESM packaging issues (e.g. missing
+ * `.js` subpath imports in vscode-jsonrpc) that broke the packaged DMG; spawning
+ * the standalone CLI directly drops that fragility and matches the shape of
+ * every other provider in this project (Claude, Codex, Gemini).
+ *
+ * The adapter emits `output` / `status` / `context` events that we forward onto
+ * the normalized provider events$ stream. `sendMessage()` does not return an
+ * assistant message — completion is observed via the adapter's `output` events.
  *
  * Note on identity: `provider` is `'copilot'` because ProviderName names the
  * CLI transport, not the model family. Copilot routes across Claude / GPT /
@@ -18,7 +24,7 @@
  */
 
 import { BaseProvider } from './provider-interface';
-import { CopilotSdkAdapter, CopilotSdkConfig } from '../cli/adapters/copilot-sdk-adapter';
+import { CopilotCliAdapter, CopilotCliConfig } from '../cli/adapters/copilot-cli-adapter';
 import type {
   ProviderType,
   ProviderCapabilities,
@@ -37,7 +43,8 @@ import { generateId } from '../../shared/utils/id-generator';
 
 const COPILOT_CAPABILITIES: ProviderAdapterCapabilities = {
   interruption: true,
-  // SDK uses approveAll by default; orchestrator does not mediate tool-use prompts today.
+  // CLI runs with --allow-all-tools + --allow-all-paths/--allow-all-urls; the
+  // orchestrator does not mediate tool-use prompts today.
   permissionPrompts: false,
   sessionResume: true,
   streamingOutput: true,
@@ -59,11 +66,11 @@ export const COPILOT_DESCRIPTOR: ProviderAdapterDescriptor = {
   defaultConfig: DEFAULT_COPILOT_CONFIG,
 };
 
-export class CopilotSdkProvider extends BaseProvider {
+export class CopilotCliProvider extends BaseProvider {
   readonly provider: ProviderName = 'copilot';
   readonly capabilities: ProviderAdapterCapabilities = COPILOT_CAPABILITIES;
 
-  private adapter: CopilotSdkAdapter | null = null;
+  private adapter: CopilotCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
 
   constructor(config: ProviderConfig) {
@@ -88,10 +95,9 @@ export class CopilotSdkProvider extends BaseProvider {
 
   async checkStatus(): Promise<ProviderStatus> {
     try {
-      // The Copilot adapter probes the SDK directly rather than going through
-      // the CLI detection service; we do the same by constructing a throwaway
-      // adapter just for checkStatus().
-      const probe = new CopilotSdkAdapter();
+      // Build a throwaway adapter just to probe the CLI. checkStatus() on
+      // CopilotCliAdapter runs `copilot --version` in a 5-second timeout.
+      const probe = new CopilotCliAdapter();
       const cliStatus = await probe.checkStatus();
       return {
         type: 'copilot',
@@ -116,10 +122,10 @@ export class CopilotSdkProvider extends BaseProvider {
 
     this.instanceId = options.instanceId ?? '';
 
-    // Map session options to Copilot SDK config. If no model is supplied we
-    // fall back to the provider config default; the adapter itself will
-    // ultimately fall back to 'gpt-4' if neither is set.
-    const copilotConfig: CopilotSdkConfig = {
+    // Map session options to Copilot CLI config. If no model is supplied we
+    // fall back to the provider config default; the adapter itself will let
+    // the CLI use the user's configured default when neither is set.
+    const copilotConfig: CopilotCliConfig = {
       model: options.model || this.config.defaultModel,
       workingDir: options.workingDirectory,
       systemPrompt: options.systemPrompt,
@@ -127,7 +133,7 @@ export class CopilotSdkProvider extends BaseProvider {
       timeout: 300000,
     };
 
-    this.adapter = new CopilotSdkAdapter(copilotConfig);
+    this.adapter = new CopilotCliAdapter(copilotConfig);
 
     // Forward adapter events directly to the normalized events$ stream via
     // push* helpers (inline translation — no legacy this.emit relay).
@@ -158,8 +164,8 @@ export class CopilotSdkProvider extends BaseProvider {
       if (pid != null) this.pushSpawned(pid);
     });
 
-    // spawn() starts the SDK client + session and returns a synthetic PID
-    // (the SDK does not expose the underlying process PID).
+    // spawn() validates the CLI is available and marks the adapter ready.
+    // Multi-turn is handled transparently via --resume on subsequent sendInputs.
     await this.adapter.spawn();
     this.sessionId = this.adapter.getSessionId() || generateId();
     this.isActive = true;
@@ -199,8 +205,8 @@ export class CopilotSdkProvider extends BaseProvider {
   }
 
   override getPid(): number | null {
-    // The Copilot SDK does not expose the underlying CLI PID; the adapter
-    // always returns null here. Kept for interface symmetry.
+    // The Copilot CLI adapter runs exec-per-message, so there is no stable
+    // long-lived PID. Kept for interface symmetry.
     return this.adapter?.getPid() ?? null;
   }
 

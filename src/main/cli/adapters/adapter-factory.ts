@@ -11,7 +11,7 @@
 import { ClaudeCliAdapter, ClaudeCliSpawnOptions } from './claude-cli-adapter';
 import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
-import { CopilotSdkAdapter, CopilotSdkConfig } from './copilot-sdk-adapter';
+import { CopilotCliAdapter, CopilotCliConfig } from './copilot-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
@@ -62,7 +62,7 @@ export interface UnifiedSpawnOptions {
 /**
  * Adapter type union - the concrete adapter types
  */
-export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotSdkAdapter | RemoteCliAdapter;
+export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotCliAdapter | RemoteCliAdapter;
 
 /**
  * Maps settings CliType to detection CliType
@@ -210,17 +210,17 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
 }
 
 /**
- * Creates a Copilot SDK adapter
+ * Creates a Copilot CLI adapter (spawns the `copilot` binary directly).
  */
-export function createCopilotAdapter(options: UnifiedSpawnOptions): CopilotSdkAdapter {
-  const copilotConfig: CopilotSdkConfig = {
+export function createCopilotAdapter(options: UnifiedSpawnOptions): CopilotCliAdapter {
+  const copilotConfig: CopilotCliConfig = {
     workingDir: options.workingDirectory,
     model: options.model,
     systemPrompt: options.systemPrompt,
     yoloMode: options.yoloMode,
     timeout: options.timeout,
   };
-  return new CopilotSdkAdapter(copilotConfig);
+  return new CopilotCliAdapter(copilotConfig);
 }
 
 /**

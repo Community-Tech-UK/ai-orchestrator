@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
-import { CopilotSdkProvider } from '../copilot-sdk-provider';
+import { CopilotCliProvider } from '../copilot-cli-provider';
 import type { ProviderConfig } from '@shared/types/provider.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
@@ -10,14 +10,14 @@ const makeConfig = (): ProviderConfig => ({
   enabled: true,
 });
 
-describe('CopilotSdkProvider identity', () => {
+describe('CopilotCliProvider identity', () => {
   it('reports provider = copilot', () => {
-    const p = new CopilotSdkProvider(makeConfig());
+    const p = new CopilotCliProvider(makeConfig());
     expect(p.provider).toBe('copilot');
   });
 
   it('declares Wave 2 adapter capabilities', () => {
-    const p = new CopilotSdkProvider(makeConfig());
+    const p = new CopilotCliProvider(makeConfig());
     expect(p.capabilities).toEqual({
       interruption: true,
       permissionPrompts: false,
@@ -29,23 +29,23 @@ describe('CopilotSdkProvider identity', () => {
   });
 
   it('getType returns copilot', () => {
-    const p = new CopilotSdkProvider(makeConfig());
+    const p = new CopilotCliProvider(makeConfig());
     expect(p.getType()).toBe('copilot');
   });
 
   it('reports inactive/null accessors before initialize', () => {
-    const p = new CopilotSdkProvider(makeConfig());
+    const p = new CopilotCliProvider(makeConfig());
     expect(p.isRunning()).toBe(false);
     expect(p.getPid()).toBeNull();
     expect(p.getUsage()).toBeNull();
   });
 
   it('populates currentUsage when a context event is processed', () => {
-    const p = new CopilotSdkProvider(makeConfig());
+    const p = new CopilotCliProvider(makeConfig());
     // Invoke the private updateUsageFromContext handler directly. This is the
     // same path the 'context' event listener registered in initialize() takes,
     // so it verifies the capability-declared usageReporting actually works
-    // without needing to stand up the full Copilot SDK adapter.
+    // without needing to stand up the full Copilot CLI adapter.
     (p as unknown as { updateUsageFromContext: (c: { used: number; total: number; percentage: number }) => void })
       .updateUsageFromContext({ used: 1000, total: 200000, percentage: 0.5 });
 
@@ -71,17 +71,17 @@ class FakeAdapter extends EventEmitter {
   async checkStatus(): Promise<{ available: boolean }> { return { available: true }; }
 }
 
-vi.mock('../../cli/adapters/copilot-sdk-adapter', () => ({
-  CopilotSdkAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
+vi.mock('../../cli/adapters/copilot-cli-adapter', () => ({
+  CopilotCliAdapter: vi.fn().mockImplementation(() => new FakeAdapter()),
 }));
 
-describe('CopilotSdkProvider inline translation', () => {
-  let provider: CopilotSdkProvider;
+describe('CopilotCliProvider inline translation', () => {
+  let provider: CopilotCliProvider;
   let adapter: FakeAdapter;
   let envelopes: ProviderRuntimeEventEnvelope[];
 
   beforeEach(async () => {
-    provider = new CopilotSdkProvider(makeConfig());
+    provider = new CopilotCliProvider(makeConfig());
     envelopes = [];
     provider.events$.subscribe(e => envelopes.push(e));
     await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-1' });

@@ -224,6 +224,33 @@ function shorten(text: string | undefined, maxLen: number): string {
   return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + '…';
 }
 
+// ─── Error types ────────────────────────────────────────────────────────────
+
+/**
+ * Which phase of the exec-mode lifecycle the timeout fired in.
+ * - `startup`: first turn after spawn — short budget to surface auth/config hangs fast
+ * - `turn`: subsequent turns — long budget for legitimate long-running work
+ */
+export type CodexExecPhase = 'startup' | 'turn';
+
+/**
+ * Error thrown when an exec-mode `codex` child process fails to complete within
+ * its per-turn budget. Callers (notably the `sendMessage` retry loop) use
+ * `instanceof` to distinguish timeouts from transient errors so they don't
+ * compound the wait by retrying a hung process.
+ */
+export class CodexTimeoutError extends Error {
+  readonly phase: CodexExecPhase;
+  readonly timeoutMs: number;
+
+  constructor(phase: CodexExecPhase, timeoutMs: number) {
+    super(`Codex exec timed out after ${timeoutMs}ms during ${phase}`);
+    this.name = 'CodexTimeoutError';
+    this.phase = phase;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 // ─── Adapter ────────────────────────────────────────────────────────────────
 
 /**
@@ -269,6 +296,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ─── Exec mode state ──────────────────────────────────────────────
   private conversationHistory: CodexConversationEntry[] = [];
   private shouldResumeNextTurn: boolean;
+  /**
+   * Tracks whether at least one exec-mode turn has completed successfully.
+   * The first turn uses a short startup budget (`EXEC_STARTUP_MS`) to fail
+   * fast on cold-start hangs; subsequent turns use the longer turn budget
+   * (`EXEC_TURN_MS`). Resume sessions also start with the short budget —
+   * if auth/config is broken, it'll hang regardless of whether it's a
+   * resume or a fresh session.
+   */
+  private hasCompletedExecTurn = false;
 
   // ─── Resume cursor state ──────────────────────────────────────────
   private sessionScanner = new CodexSessionScanner();
@@ -419,20 +455,29 @@ export class CodexCliAdapter extends BaseCliAdapter {
         await Promise.race([
           this.initAppServerMode(),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Codex app-server initialization timed out after 30s')), 30_000)
+            setTimeout(
+              () => reject(new Error('Codex app-server initialization timed out after 30s')),
+              CODEX_TIMEOUTS.APP_SERVER_INIT_MS
+            )
           ),
         ]);
         this.useAppServer = true;
         logger.info('Codex adapter using app-server mode');
       } catch (err) {
+        // Falling back to exec mode silently here is how users ended up
+        // waiting 10 minutes for a "Codex CLI timeout" error. Log the
+        // specific reason at warn level so post-mortem debugging works.
+        const reason = err instanceof Error ? err.message : String(err);
         logger.warn('App-server initialization failed, falling back to exec mode', {
-          error: err instanceof Error ? err.message : String(err),
+          reason,
+          isTimeout: reason.includes('timed out'),
         });
         this.useAppServer = false;
         this.prepareCleanCodexHome();
       }
     } else {
-      // Exec mode: spawn per message
+      // Exec mode: spawn per message.
+      // The WHY is already logged by checkAppServerAvailability() at warn level.
       this.prepareCleanCodexHome();
       logger.info('Codex adapter using exec mode (app-server not available)');
     }
@@ -1698,12 +1743,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
   async sendMessage(message: CliMessage): Promise<CliResponse> {
     const normalizedMessage = await this.normalizeMessage(message);
     const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
+
+    // Phase-specific timeout budget. First turn after spawn gets the short
+    // startup budget so we surface cold-start hangs (broken auth, bad CODEX_HOME
+    // symlink, API unreachable) in ~60s instead of burning the full 5 minutes.
+    const phase: CodexExecPhase = this.hasCompletedExecTurn ? 'turn' : 'startup';
+    const timeoutMs = phase === 'startup'
+      ? CODEX_TIMEOUTS.EXEC_STARTUP_MS
+      : CODEX_TIMEOUTS.EXEC_TURN_MS;
+
+    // Retry only on truly transient failures. A timeout means the process
+    // either hung or is doing something that takes longer than our budget —
+    // neither is fixed by running it again. Retrying a timeout just doubles
+    // the user's wait before they see the failure.
     const maxAttempts = 2;
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const execution = await this.executePreparedMessage(preparedMessage);
+        const execution = await this.executePreparedMessage(preparedMessage, { timeoutMs, phase });
         const response = execution.response;
         const content = response.content.trim();
         const hasMeaningfulOutput = content.length > 0 || (response.toolCalls?.length || 0) > 0;
@@ -1713,17 +1771,41 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
         if (!shouldRetry) {
           this.recordConversationTurn(normalizedMessage, response);
+          this.hasCompletedExecTurn = true;
           // Note: 'complete' is emitted by execSendMessage() AFTER all
           // output events, to guarantee correct event ordering.
           return response;
         }
 
+        logger.info('Codex exec produced no meaningful output, retrying', {
+          attempt,
+          maxAttempts,
+          diagnosticsCount: execution.diagnostics.length,
+        });
         await this.delay(250 * attempt);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+
+        // Don't retry timeouts — the process hung, re-running it won't unhang it.
+        // Surface the typed error immediately so the UI can show a useful message.
+        if (lastError instanceof CodexTimeoutError) {
+          logger.warn('Codex exec timed out — not retrying', {
+            phase: lastError.phase,
+            timeoutMs: lastError.timeoutMs,
+            attempt,
+          });
+          throw lastError;
+        }
+
         if (attempt >= maxAttempts) {
           throw lastError;
         }
+
+        logger.info('Codex exec threw transient error, retrying', {
+          attempt,
+          maxAttempts,
+          errorMessage: lastError.message,
+        });
         await this.delay(250 * attempt);
       }
     }
@@ -1887,7 +1969,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
       .trim();
   }
 
-  private async executePreparedMessage(message: CliMessage): Promise<CodexExecutionResult> {
+  private async executePreparedMessage(
+    message: CliMessage,
+    options: { timeoutMs: number; phase: CodexExecPhase }
+  ): Promise<CodexExecutionResult> {
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
       const childProcess = this.spawnProcess(args);
@@ -1902,6 +1987,53 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       this.process = childProcess;
 
+      // Idle-based watchdog. The previous absolute budget would kill codex
+      // mid-work when the state-db iteration or long API calls took longer
+      // than the phase budget, even though the process was actively streaming
+      // progress. Reset the timer on every stdout OR stderr chunk so we only
+      // terminate when the process is genuinely silent for `options.timeoutMs`.
+      //
+      // `lastActivityAt` and `receivedAnyData` are captured on every chunk and
+      // logged on timeout so post-mortem diagnostics reveal whether the
+      // process produced anything at all before stalling.
+      const startedAt = Date.now();
+      let lastActivityAt = startedAt;
+      let receivedAnyData = false;
+      let idleTimer: NodeJS.Timeout | null = null;
+      const fireIdleTimeout = () => {
+        if (!this.process) return;
+        const elapsedMs = Date.now() - startedAt;
+        const silentMs = Date.now() - lastActivityAt;
+        logger.warn('Codex exec idle timeout — killing process tree', {
+          pid: this.process.pid,
+          phase: options.phase,
+          idleBudgetMs: options.timeoutMs,
+          silentMs,
+          elapsedMs,
+          receivedAnyData,
+          stdoutBytes: state.rawStdout.length,
+          stderrBytes: state.rawStderr.length,
+          stdoutTail: state.rawStdout.slice(-500),
+          stderrTail: state.rawStderr.slice(-500),
+          diagnosticsTail: state.diagnostics.slice(-5).map((d) => d.line),
+        });
+        terminateProcessTree(this.process.pid);
+        this.process = null;
+        reject(new CodexTimeoutError(options.phase, options.timeoutMs));
+      };
+      const resetIdleTimer = () => {
+        lastActivityAt = Date.now();
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(fireIdleTimeout, options.timeoutMs);
+      };
+      const clearIdleTimer = () => {
+        if (idleTimer) {
+          clearTimeout(idleTimer);
+          idleTimer = null;
+        }
+      };
+      resetIdleTimer();
+
       // Write the prompt to stdin — modern Codex CLI reads from stdin, not positional args
       if (childProcess.stdin) {
         if (message.content) {
@@ -1911,6 +2043,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       childProcess.stdout?.on('data', (data) => {
+        receivedAnyData = true;
+        resetIdleTimer();
         const chunk = data.toString();
         state.rawStdout += chunk;
         // Record activity from streaming output
@@ -1923,6 +2057,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       });
 
       childProcess.stderr?.on('data', (data) => {
+        receivedAnyData = true;
+        resetIdleTimer();
         const chunk = data.toString();
         state.rawStderr += chunk;
         state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
@@ -1943,23 +2079,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
       });
 
-      const timeout = setTimeout(() => {
-        if (this.process) {
-          // Use cross-platform process tree termination
-          terminateProcessTree(this.process.pid);
-          this.process = null;
-          reject(new Error('Codex CLI timeout'));
-        }
-      }, this.config.timeout);
-
       childProcess.on('error', (error) => {
-        clearTimeout(timeout);
+        clearIdleTimer();
         this.process = null;
         reject(error);
       });
 
       childProcess.on('close', (code, signal) => {
-        clearTimeout(timeout);
+        clearIdleTimer();
 
         if (state.partialStdout.trim()) {
           this.processStdoutLine(state.partialStdout, state);

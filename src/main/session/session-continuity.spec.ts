@@ -31,6 +31,15 @@ vi.mock('electron', () => ({
   safeStorage: mockState.safeStorage,
 }));
 
+// session-continuity.ts reaches safeStorage through this small relative-path
+// seam (see safe-storage-accessor.ts). Mocking it here means the production
+// code always uses `mockState.safeStorage` — vitest reliably intercepts
+// relative imports between project files, whereas `require('electron')` can
+// leak through to Node's native module resolution.
+vi.mock('./safe-storage-accessor', () => ({
+  getSafeStorage: () => mockState.safeStorage,
+}));
+
 vi.mock('../logging/logger', () => ({
   getLogger: () => mockState.logger,
 }));
@@ -316,5 +325,118 @@ describe('SessionContinuityManager logging', () => {
     const recoveredState = await manager.resumeSession('thread-failure');
     expect(recoveredState?.sessionId).toBe('native-session-new');
     expect(recoveredState?.nativeResumeFailedAt).toBeNull();
+  });
+
+  it('quarantines state files whose envelope is structurally valid but whose contents cannot be decrypted', async () => {
+    // This reproduces the post-reinstall / Keychain-rotation failure mode:
+    // after a new install, `safeStorage.decryptString` throws on ciphertext
+    // written by a previous install. The envelope ({encrypted, data}) still
+    // parses as valid JSON, so `repairFile()` can't detect it as corrupt and
+    // the file would otherwise stay in states/ and re-throw the same decrypt
+    // error on every subsequent startup. readPayload must quarantine it so
+    // future startups stay clean.
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    const quarantineDir = path.join(mockState.userDataDir, 'session-continuity', 'quarantine');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+
+    // Well-formed envelope, but `data` is not real ciphertext. We'll make
+    // decryptString throw for this file so deserializePayload returns null.
+    const undecryptableFile = path.join(stateDir, 'undecryptable.json');
+    await fs.promises.writeFile(
+      undecryptableFile,
+      JSON.stringify({
+        encrypted: true,
+        data: Buffer.from('not-real-ciphertext', 'utf8').toString('base64'),
+      })
+    );
+
+    mockState.safeStorage.isEncryptionAvailable.mockReturnValue(true);
+    mockState.safeStorage.decryptString.mockImplementation(() => {
+      throw new Error('Decryption failed (simulated post-reinstall key rotation).');
+    });
+
+    const manager = createManager({ encryptOnDisk: true });
+    await manager.readyPromise;
+
+    // Original file should have been moved into the quarantine directory,
+    // and readPayload should have returned null (no resumable session loaded).
+    const sessions = await manager.getResumableSessions();
+    expect(sessions).toHaveLength(0);
+
+    await expect(fs.promises.access(undecryptableFile)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const quarantineEntries = await fs.promises.readdir(quarantineDir);
+    const quarantinedMatch = quarantineEntries.find((f) =>
+      f.startsWith('undecryptable.json.') && f.endsWith('.corrupt'),
+    );
+    expect(quarantinedMatch).toBeDefined();
+
+    // The warn log should call this out specifically (post-reinstall hint),
+    // not bundle it together with a generic "skipped unloadable" message.
+    const quarantineLog = getLogCall(
+      mockState.logger.warn.mock.calls,
+      'Quarantined undecryptable session state file (likely post-reinstall safeStorage key change)',
+    );
+    expect(quarantineLog).toBeDefined();
+    expect(quarantineLog?.[1]).toEqual(
+      expect.objectContaining({
+        original: undecryptableFile,
+        dest: expect.stringContaining(path.join(quarantineDir, 'undecryptable.json.')),
+      })
+    );
+  });
+
+  it('leaves a good encrypted file untouched when its sibling is undecryptable', async () => {
+    // Regression guard: the quarantine branch in readPayload must not
+    // over-reach and touch files that load cleanly. Here both files use
+    // the encrypted envelope; `good-enc.json` decrypts normally while
+    // `bad-enc.json` throws inside decryptString.
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+
+    const goodState = makeState('good-session');
+    const goodFile = path.join(stateDir, 'good-enc.json');
+    const badFile = path.join(stateDir, 'bad-enc.json');
+
+    // Both envelopes carry distinguishable "ciphertext" so the mock can
+    // tell them apart by the bytes it receives.
+    await fs.promises.writeFile(
+      goodFile,
+      JSON.stringify({
+        encrypted: true,
+        data: Buffer.from('good-cipher', 'utf8').toString('base64'),
+      }),
+    );
+    await fs.promises.writeFile(
+      badFile,
+      JSON.stringify({
+        encrypted: true,
+        data: Buffer.from('bad-cipher', 'utf8').toString('base64'),
+      }),
+    );
+
+    mockState.safeStorage.isEncryptionAvailable.mockReturnValue(true);
+    mockState.safeStorage.decryptString.mockImplementation((value: Buffer) => {
+      const cipherText = value.toString('utf8');
+      if (cipherText === 'good-cipher') return JSON.stringify(goodState);
+      throw new Error(`Simulated decrypt failure for ${cipherText}.`);
+    });
+
+    const manager = createManager({ encryptOnDisk: true });
+    await manager.readyPromise;
+
+    const sessions = await manager.getResumableSessions();
+    const ids = sessions.map((s) => s.instanceId).sort();
+    expect(ids).toEqual(['good-session']);
+
+    // decryptString should have been called for BOTH files (once each).
+    const decryptCalls = mockState.safeStorage.decryptString.mock.calls.map(([buf]) =>
+      (buf as Buffer).toString('utf8'),
+    );
+    expect(decryptCalls.sort()).toEqual(['bad-cipher', 'good-cipher']);
+
+    // Good file still present, bad file quarantined.
+    await fs.promises.access(goodFile);
+    await expect(fs.promises.access(badFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

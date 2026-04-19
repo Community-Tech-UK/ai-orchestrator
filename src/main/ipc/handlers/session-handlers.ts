@@ -89,6 +89,28 @@ function getProviderDisplayName(provider: InstanceProvider): string {
   }
 }
 
+/**
+ * Serializes history-restore spawns. When the user rapid-fires several
+ * "restore from history" clicks, the main process would otherwise kick off
+ * multiple concurrent `createInstance` + background-init + CLI spawn + poll
+ * sequences. Each one runs codebase mining, CLI detection, RLM session setup,
+ * instruction-prompt assembly, and a 5-15s context-usage poll, plus the spawned
+ * CLI adapters start streaming in parallel — which starves the main process
+ * event loop and can delay any single instance's spawn by 3+ minutes.
+ *
+ * Queueing restores through a single promise chain keeps heavy setup work
+ * and the "has the CLI reported context?" poll strictly sequential, while
+ * still allowing other IPC handlers to run in parallel.
+ */
+let historyRestoreChain: Promise<unknown> = Promise.resolve();
+
+function withHistoryRestoreLock<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = historyRestoreChain.catch(() => undefined);
+  const current = previous.then(() => fn());
+  historyRestoreChain = current.catch(() => undefined);
+  return current;
+}
+
 interface SessionHandlersDeps {
   instanceManager: InstanceManager;
   serializeInstance: (instance: unknown) => Record<string, unknown>;
@@ -883,12 +905,16 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
   // Restore conversation as new instance
   // Uses a two-phase approach: try --resume first, fall back to fresh instance
+  //
+  // Each restore's heavy path (createInstance → readyPromise → CLI spawn →
+  // post-spawn poll) runs behind a single-slot mutex so rapid-fire restores
+  // don't overload the main process event loop. See withHistoryRestoreLock.
   ipcMain.handle(
     IPC_CHANNELS.HISTORY_RESTORE,
     async (
       event: IpcMainInvokeEvent,
       payload: unknown
-    ): Promise<IpcResponse> => {
+    ): Promise<IpcResponse> => withHistoryRestoreLock(async () => {
       try {
         const validated = validateIpcPayload(HistoryRestorePayloadSchema, payload, 'HISTORY_RESTORE');
         const data = await history.loadConversation(validated.entryId);
@@ -1290,7 +1316,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           }
         };
       }
-    }
+    })
   );
 
   // Clear all history
