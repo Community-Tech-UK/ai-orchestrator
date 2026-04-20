@@ -2,11 +2,31 @@ import { z } from 'zod';
 
 export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'copilot']);
 
+const ProviderRuntimeAttachmentSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  size: z.number().int().nonnegative(),
+  data: z.string(),
+});
+
+const ProviderRuntimeThinkingContentSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  format: z.enum(['structured', 'xml', 'bracket', 'header', 'sdk', 'unknown']),
+  timestamp: z.number().int().nonnegative().optional(),
+  tokenCount: z.number().int().nonnegative().optional(),
+});
+
 const ProviderOutputEventSchema = z.object({
   kind: z.literal('output'),
   content: z.string(),
   messageType: z.string().optional(),
+  messageId: z.string().optional(),
+  timestamp: z.number().int().nonnegative().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  attachments: z.array(ProviderRuntimeAttachmentSchema).optional(),
+  thinking: z.array(ProviderRuntimeThinkingContentSchema).optional(),
+  thinkingExtracted: z.boolean().optional(),
 });
 
 const ProviderToolUseEventSchema = z.object({

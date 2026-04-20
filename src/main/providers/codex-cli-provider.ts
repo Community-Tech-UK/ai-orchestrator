@@ -120,20 +120,14 @@ export class CodexCliProvider extends BaseProvider {
     // Note: Adapter emits OutputMessage objects during streaming, not plain strings
     this.adapter.on('output', (outputData: OutputMessage | string) => {
       if (typeof outputData === 'string') {
-        // Plain string content
         if (outputData) {
           this.pushOutput(outputData, 'assistant');
         }
-      } else if (outputData && typeof outputData === 'object') {
-        // OutputMessage object from adapter
-        const content = outputData.content;
-        if (typeof content === 'string' && content) {
-          this.pushOutput(
-            content,
-            outputData.type || 'assistant',
-            outputData.metadata,
-          );
-        }
+        return;
+      }
+
+      if (outputData && typeof outputData === 'object') {
+        this.pushOutput(outputData);
       }
     });
 
@@ -199,7 +193,7 @@ export class CodexCliProvider extends BaseProvider {
         type: 'assistant',
         content: response.content,
       };
-      this.pushOutput(outputMessage.content, outputMessage.type, outputMessage.metadata);
+      this.pushOutput(outputMessage);
     } catch (error) {
       this.pushError(error instanceof Error ? error.message : String(error), false);
       throw error;

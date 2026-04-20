@@ -90,11 +90,19 @@ describe('CopilotCliProvider inline translation', () => {
   });
 
   it('output (OutputMessage) becomes an output envelope', () => {
-    adapter.emit('output', { id: 'm1', type: 'assistant', content: 'hi', timestamp: Date.now(), metadata: { foo: 1 } });
+    const timestamp = 1713340800000;
+    adapter.emit('output', { id: 'm1', type: 'assistant', content: 'hi', timestamp, metadata: { foo: 1 } });
     const last = envelopes.at(-1)!;
     expect(last.provider).toBe('copilot');
     expect(last.instanceId).toBe('i-1');
-    expect(last.event).toEqual({ kind: 'output', content: 'hi', messageType: 'assistant', metadata: { foo: 1 } });
+    expect(last.event).toEqual({
+      kind: 'output',
+      content: 'hi',
+      messageType: 'assistant',
+      messageId: 'm1',
+      timestamp,
+      metadata: { foo: 1 },
+    });
   });
 
   it('status string becomes a status envelope', () => {

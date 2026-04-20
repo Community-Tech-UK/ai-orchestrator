@@ -32,11 +32,19 @@ describe('CodexCliProvider inline translation', () => {
   });
 
   it('output with OutputMessage object becomes an output envelope', () => {
-    adapter.emit('output', { id: 'm1', type: 'assistant', content: 'hi', timestamp: Date.now(), metadata: { foo: 1 } });
+    const timestamp = 1713340800000;
+    adapter.emit('output', { id: 'm1', type: 'assistant', content: 'hi', timestamp, metadata: { foo: 1 } });
     const last = envelopes.at(-1)!;
     expect(last.provider).toBe('codex');
     expect(last.instanceId).toBe('i-1');
-    expect(last.event).toEqual({ kind: 'output', content: 'hi', messageType: 'assistant', metadata: { foo: 1 } });
+    expect(last.event).toEqual({
+      kind: 'output',
+      content: 'hi',
+      messageType: 'assistant',
+      messageId: 'm1',
+      timestamp,
+      metadata: { foo: 1 },
+    });
   });
 
   it('output with plain string becomes an output envelope with messageType assistant', () => {
@@ -44,7 +52,32 @@ describe('CodexCliProvider inline translation', () => {
     const last = envelopes.at(-1)!;
     expect(last.provider).toBe('codex');
     expect(last.instanceId).toBe('i-1');
-    expect(last.event).toEqual({ kind: 'output', content: 'hello from string', messageType: 'assistant', metadata: undefined });
+    expect(last.event).toEqual({ kind: 'output', content: 'hello from string', messageType: 'assistant' });
+  });
+
+  it('output with attachments and thinking emits even when text content is empty', () => {
+    const timestamp = 1713340800123;
+    adapter.emit('output', {
+      id: 'm-structured',
+      type: 'assistant',
+      content: '',
+      timestamp,
+      attachments: [{ name: 'diagram.png', type: 'image/png', size: 4, data: 'abcd' }],
+      thinking: [{ id: 'thinking-1', content: 'Need to inspect the repo first', format: 'structured', tokenCount: 12 }],
+      thinkingExtracted: true,
+    });
+
+    const last = envelopes.at(-1)!;
+    expect(last.event).toEqual({
+      kind: 'output',
+      content: '',
+      messageType: 'assistant',
+      messageId: 'm-structured',
+      timestamp,
+      attachments: [{ name: 'diagram.png', type: 'image/png', size: 4, data: 'abcd' }],
+      thinking: [{ id: 'thinking-1', content: 'Need to inspect the repo first', format: 'structured', tokenCount: 12 }],
+      thinkingExtracted: true,
+    });
   });
 
   it('status string becomes a status envelope', () => {

@@ -18,6 +18,7 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import type { OutputMessage, ContextUsage } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
+import { toProviderOutputEvent } from './provider-output-event';
 
 const logger = getLogger('EventNormalizer');
 
@@ -32,12 +33,7 @@ export class ClaudeEventMapper implements ProviderEventMapper {
     switch (rawEventType) {
       case 'output': {
         const message = args[0] as OutputMessage;
-        return {
-          kind: 'output',
-          content: message.content,
-          messageType: message.type,
-          metadata: message.metadata,
-        };
+        return toProviderOutputEvent(message);
       }
       case 'status': {
         const status = args[0] as string;
@@ -89,12 +85,7 @@ export class CodexEventMapper implements ProviderEventMapper {
     switch (rawEventType) {
       case 'output': {
         const message = args[0] as OutputMessage;
-        return {
-          kind: 'output',
-          content: message.content,
-          messageType: message.type,
-          metadata: message.metadata,
-        };
+        return toProviderOutputEvent(message);
       }
       case 'status': {
         const status = args[0] as string;

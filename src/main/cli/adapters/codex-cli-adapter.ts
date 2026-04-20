@@ -78,6 +78,8 @@ interface CodexDiagnostic {
   fatal: boolean;
   line: string;
   level: 'error' | 'info' | 'warning';
+  /** True when already surfaced to the UI during stderr streaming; close-time emit skips these. */
+  streamed?: boolean;
 }
 
 interface CodexExecutionResult {
@@ -96,6 +98,8 @@ interface CodexExecutionState {
   toolCalls: CliToolCall[];
   threadId?: string;
   usage?: CliUsage;
+  /** Keys (category:line) of diagnostics already surfaced in real-time, to avoid spamming the UI during retry loops. */
+  emittedDiagnosticKeys: Set<string>;
 }
 
 interface CodexConversationEntry {
@@ -238,16 +242,33 @@ export type CodexExecPhase = 'startup' | 'turn';
  * its per-turn budget. Callers (notably the `sendMessage` retry loop) use
  * `instanceof` to distinguish timeouts from transient errors so they don't
  * compound the wait by retrying a hung process.
+ *
+ * When the timeout was preceded by network errors from codex's own API layer,
+ * `cause` points at the last such diagnostic so the UI can explain *why* we
+ * killed the process (connectivity vs. generic hang).
  */
 export class CodexTimeoutError extends Error {
   readonly phase: CodexExecPhase;
   readonly timeoutMs: number;
+  readonly networkErrorCount: number;
+  readonly lastNetworkError: string | null;
 
-  constructor(phase: CodexExecPhase, timeoutMs: number) {
-    super(`Codex exec timed out after ${timeoutMs}ms during ${phase}`);
+  constructor(
+    phase: CodexExecPhase,
+    timeoutMs: number,
+    details?: { networkErrorCount?: number; lastNetworkError?: string | null }
+  ) {
+    const networkErrorCount = details?.networkErrorCount ?? 0;
+    const lastNetworkError = details?.lastNetworkError ?? null;
+    const networkSuffix = networkErrorCount > 0
+      ? ` — codex reported ${networkErrorCount} network error${networkErrorCount === 1 ? '' : 's'} before going silent`
+      : '';
+    super(`Codex exec timed out after ${timeoutMs}ms during ${phase}${networkSuffix}`);
     this.name = 'CodexTimeoutError';
     this.phase = phase;
     this.timeoutMs = timeoutMs;
+    this.networkErrorCount = networkErrorCount;
+    this.lastNetworkError = lastNetworkError;
   }
 }
 
@@ -1792,6 +1813,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
           logger.warn('Codex exec timed out — not retrying', {
             phase: lastError.phase,
             timeoutMs: lastError.timeoutMs,
+            networkErrorCount: lastError.networkErrorCount,
+            lastNetworkError: lastError.lastNetworkError,
             attempt,
           });
           throw lastError;
@@ -1983,6 +2006,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         rawStderr: '',
         rawStdout: '',
         toolCalls: [],
+        emittedDiagnosticKeys: new Set<string>(),
       };
 
       this.process = childProcess;
@@ -2004,6 +2028,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
         if (!this.process) return;
         const elapsedMs = Date.now() - startedAt;
         const silentMs = Date.now() - lastActivityAt;
+        // Count network-layer errors so the UI can distinguish "codex can't
+        // reach its backend" from "codex hung doing something else entirely".
+        const networkErrors = state.diagnostics.filter((d) =>
+          /network error|sending request|connection (refused|reset|timed out|closed)|dns|tls|handshake/i.test(d.line)
+        );
+        const lastNetworkError = networkErrors.length > 0
+          ? networkErrors[networkErrors.length - 1]?.line ?? null
+          : null;
         logger.warn('Codex exec idle timeout — killing process tree', {
           pid: this.process.pid,
           phase: options.phase,
@@ -2016,10 +2048,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
           stdoutTail: state.rawStdout.slice(-500),
           stderrTail: state.rawStderr.slice(-500),
           diagnosticsTail: state.diagnostics.slice(-5).map((d) => d.line),
+          networkErrorCount: networkErrors.length,
+          lastNetworkError,
         });
         terminateProcessTree(this.process.pid);
         this.process = null;
-        reject(new CodexTimeoutError(options.phase, options.timeoutMs));
+        reject(new CodexTimeoutError(options.phase, options.timeoutMs, {
+          networkErrorCount: networkErrors.length,
+          lastNetworkError,
+        }));
       };
       const resetIdleTimer = () => {
         lastActivityAt = Date.now();
@@ -2059,23 +2096,48 @@ export class CodexCliAdapter extends BaseCliAdapter {
       childProcess.stderr?.on('data', (data) => {
         receivedAnyData = true;
         resetIdleTimer();
+        // Exec mode has no JSON-RPC notification stream, so stderr activity
+        // is our primary liveness signal during phases that produce no stdout
+        // (state-db iteration, network retries, `codex` Rust-level logging).
+        // Without this, `StuckProcessDetector` fires a false "no output for
+        // 120s" warning while the process is demonstrably alive. The detector's
+        // `recordStderr` path is never wired up, so it's safe to treat any
+        // stderr as full output-equivalent liveness here.
+        this.emit('heartbeat');
         const chunk = data.toString();
         state.rawStderr += chunk;
         state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
           const diagnostic = this.classifyDiagnostic(line);
           state.diagnostics.push(diagnostic);
 
-          // Emit fatal diagnostics immediately so the user doesn't wait
-          // minutes only to discover an auth/config error at the end.
-          if (diagnostic.fatal) {
-            this.emit('output', {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'error',
-              content: `[codex] ${diagnostic.line}`,
-              metadata: { diagnostic: true, category: diagnostic.category, fatal: true },
-            });
+          // Surface non-noise diagnostics (warning + error levels, including
+          // non-fatal ones like `[codex] ERROR codex_api: network error`)
+          // in real-time so the user can see what codex is doing during
+          // retry loops or long startup phases — not just at close. Dedupe
+          // per (category, line) so repeated identical errors from a retry
+          // burst appear once instead of spamming the transcript.
+          if (diagnostic.level === 'info') {
+            return;
           }
+          const dedupKey = `${diagnostic.category}:${diagnostic.line}`;
+          if (state.emittedDiagnosticKeys.has(dedupKey)) {
+            diagnostic.streamed = true;
+            return;
+          }
+          state.emittedDiagnosticKeys.add(dedupKey);
+          diagnostic.streamed = true;
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: diagnostic.fatal ? 'error' : 'system',
+            content: `[codex] ${diagnostic.line}`,
+            metadata: {
+              diagnostic: true,
+              category: diagnostic.category,
+              fatal: diagnostic.fatal,
+              level: diagnostic.level,
+            },
+          });
         });
       });
 
@@ -2225,6 +2287,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const seen = new Set<string>();
     for (const diagnostic of diagnostics) {
       if (diagnostic.level === 'info') {
+        continue;
+      }
+      // Already surfaced to the UI during stderr streaming — don't double-emit.
+      if (diagnostic.streamed) {
         continue;
       }
       const key = `${diagnostic.category}:${diagnostic.line}`;
@@ -2443,6 +2509,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
       const eventType = typeof event['type'] === 'string' ? event['type'] : '';
+
+      // Every valid JSON event from `codex exec --json` is proof the turn is
+      // alive. Without this, long reasoning phases (where Codex emits item
+      // deltas but no command_execution tool calls) look silent to the
+      // StuckProcessDetector, which fires a false "no output for 120s"
+      // warning and eventually force-kills a working instance at 240s.
+      // App-server mode already heartbeats on delta notifications (see
+      // handleNotification); this is the exec-mode analogue.
+      this.emit('heartbeat');
 
       // Capture thread/session ID from various Codex event names
       if (!state.threadId) {

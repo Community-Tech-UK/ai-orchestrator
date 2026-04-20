@@ -81,6 +81,7 @@ import { WorkflowPersistence } from './workflows/workflow-persistence';
 import { initializeCodemem } from './codemem';
 import { providerAdapterRegistry } from './providers/provider-adapter-registry';
 import { registerBuiltInProviders } from './providers/register-built-in-providers';
+import { ProviderOutputRendererGate } from './ipc/provider-output-renderer-gate';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import { IPC_CHANNELS } from '@contracts/channels';
 
@@ -190,6 +191,7 @@ class AIOrchestratorApp {
   private ipcHandler: IpcMainHandler;
   private instanceManager: InstanceManager;
   private handlersRegistered = false;
+  private providerOutputRendererGate = new ProviderOutputRendererGate();
 
   constructor() {
     this.windowManager = new WindowManager();
@@ -557,11 +559,16 @@ class AIOrchestratorApp {
       if (process.env['NODE_ENV'] !== 'production') {
         ProviderRuntimeEventEnvelopeSchema.parse(envelope);
       }
+
+      this.providerOutputRendererGate.noteEnvelope(envelope);
       this.windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, envelope);
     });
 
     this.instanceManager.on('instance:output', (output) => {
-      this.windowManager.sendToRenderer('instance:output', output);
+      if (this.providerOutputRendererGate.shouldForward(output)) {
+        this.windowManager.sendToRenderer('instance:output', output);
+      }
+
       observer.publishInstanceOutput(output.instanceId, output.message);
       // Track output for session continuity
       try {

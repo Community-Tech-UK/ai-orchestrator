@@ -138,7 +138,7 @@ export class CopilotCliProvider extends BaseProvider {
     // Forward adapter events directly to the normalized events$ stream via
     // push* helpers (inline translation — no legacy this.emit relay).
     this.adapter.on('output', (message: OutputMessage) => {
-      this.pushOutput(message.content, message.type, message.metadata);
+      this.pushOutput(message);
     });
 
     this.adapter.on('status', (status: string) => {

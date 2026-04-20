@@ -8,6 +8,8 @@ import {
   signal,
   HostListener,
   ChangeDetectionStrategy,
+  DestroyRef,
+  inject,
 } from '@angular/core';
 
 @Component({
@@ -85,24 +87,80 @@ export class DropZoneComponent {
 
   isDragOver = signal(false);
 
-  @HostListener('dragover', ['$event'])
-  onDragOver(event: DragEvent): void {
+  // Counts nested dragenter/dragleave pairs so child-element transitions don't
+  // prematurely dismiss the overlay. The previous rect-based check was unreliable:
+  // it left the overlay stuck whenever the drag was aborted outside the window
+  // (clientX/Y arrive as 0,0, which is inside a full-window rect) or when the
+  // browser silently dropped further drag events.
+  private dragCounter = 0;
+  private destroyRef = inject(DestroyRef);
+
+  constructor() {
+    // Safety-net: reset state if the drag is cancelled, lands on another window,
+    // or the user switches focus away mid-drag. These are the cases where the
+    // local dragleave/drop listeners are never called.
+    const reset = (): void => {
+      this.dragCounter = 0;
+      if (this.isDragOver()) {
+        this.isDragOver.set(false);
+      }
+    };
+
+    // Capture-phase Escape handler: when the drop overlay is visible, Escape
+    // should dismiss it without propagating to parent listeners
+    // (e.g. instance-detail's window:keydown, which interprets Escape as
+    // "interrupt busy instance" and can fall through to terminate the session).
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && this.isDragOver()) {
+        event.preventDefault();
+        event.stopPropagation();
+        // stopImmediatePropagation ensures no other capture-phase listener on
+        // window sees this Escape either.
+        event.stopImmediatePropagation();
+        reset();
+      }
+    };
+
+    window.addEventListener('blur', reset);
+    window.addEventListener('dragend', reset, true);
+    window.addEventListener('drop', reset, true);
+    // Capture phase so we run before parent components' bubble-phase handlers.
+    window.addEventListener('keydown', onKeyDown, true);
+
+    this.destroyRef.onDestroy(() => {
+      window.removeEventListener('blur', reset);
+      window.removeEventListener('dragend', reset, true);
+      window.removeEventListener('drop', reset, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+    });
+  }
+
+  @HostListener('dragenter', ['$event'])
+  onDragEnter(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
+    this.dragCounter++;
     this.isDragOver.set(true);
+  }
+
+  @HostListener('dragover', ['$event'])
+  onDragOver(event: DragEvent): void {
+    // preventDefault is required for the drop event to fire at all.
+    event.preventDefault();
+    event.stopPropagation();
+    // If we somehow missed the dragenter (e.g. drag started inside a child that
+    // swallowed it), make sure the overlay still appears.
+    if (!this.isDragOver()) {
+      this.isDragOver.set(true);
+    }
   }
 
   @HostListener('dragleave', ['$event'])
   onDragLeave(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
-
-    // Check if we're actually leaving the drop zone
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = event.clientX;
-    const y = event.clientY;
-
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+    this.dragCounter = Math.max(0, this.dragCounter - 1);
+    if (this.dragCounter === 0) {
       this.isDragOver.set(false);
     }
   }
@@ -118,6 +176,7 @@ export class DropZoneComponent {
   onDrop(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
+    this.dragCounter = 0;
     this.isDragOver.set(false);
 
     // Check for native file drop first

@@ -15,12 +15,14 @@ import type {
   ProviderAttachment,
 } from '../../shared/types/provider.types';
 import type { ProviderAdapter, ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
+import { toProviderOutputEvent } from './provider-output-event';
 
 /**
  * Base provider interface that all providers must implement.
@@ -77,8 +79,32 @@ export abstract class BaseProvider extends EventEmitter implements ProviderAdapt
     this._events$.next(envelope);
   }
 
-  protected pushOutput(content: string, messageType?: string, metadata?: Record<string, unknown>): void {
-    this.pushEvent({ kind: 'output', content, messageType, metadata });
+  protected pushOutput(message: OutputMessage): void;
+  protected pushOutput(content: string, messageType?: string, metadata?: Record<string, unknown>): void;
+  protected pushOutput(
+    contentOrMessage: OutputMessage | string,
+    messageType?: string,
+    metadata?: Record<string, unknown>,
+  ): void {
+    if (typeof contentOrMessage !== 'string') {
+      this.pushEvent(toProviderOutputEvent(contentOrMessage));
+      return;
+    }
+
+    const event: ProviderRuntimeEvent = {
+      kind: 'output',
+      content: contentOrMessage,
+    };
+
+    if (messageType !== undefined) {
+      event.messageType = messageType;
+    }
+
+    if (metadata !== undefined) {
+      event.metadata = { ...metadata };
+    }
+
+    this.pushEvent(event);
   }
   protected pushToolUse(toolName: string, input?: Record<string, unknown>, toolUseId?: string): void {
     this.pushEvent({ kind: 'tool_use', toolName, input, toolUseId });

@@ -18,7 +18,7 @@ import type {
   ProviderAttachment,
 } from '../../shared/types/provider.types';
 import { MODEL_PRICING, CLAUDE_MODELS } from '../../shared/types/provider.types';
-import type { ContextUsage } from '../../shared/types/instance.types';
+import type { ContextUsage, OutputMessage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
@@ -123,7 +123,7 @@ export class ClaudeCliProvider extends BaseProvider {
     });
 
     // Forward adapter events to the normalized envelope stream.
-    this.adapter.on('output', (message) => this.pushOutput(message.content, message.type, message.metadata));
+    this.adapter.on('output', (message: OutputMessage) => this.pushOutput(message));
     this.adapter.on('status', (status) => this.pushStatus(status));
     this.adapter.on('context', (usage: ContextUsage) => {
       this.lastContextUsage = usage;

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { BaseProvider } from '../provider-interface';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderConfig, ProviderStatus, ProviderSessionOptions, ProviderCapabilities } from '@shared/types/provider.types';
+import type { OutputMessage } from '@shared/types/instance.types';
 import type { ProviderName, ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 class TestProvider extends BaseProvider {
@@ -71,6 +72,37 @@ describe('BaseProvider lifecycle helpers', () => {
     (p as unknown as { pushError: (msg: string, recoverable?: boolean) => void }).pushError('oops', true);
     await new Promise(r => setImmediate(r));
     expect(events[0].event).toMatchObject({ kind: 'error', message: 'oops', recoverable: true });
+  });
+
+  it('pushOutput preserves rich OutputMessage fields', async () => {
+    const p = makeProvider();
+    const events: ProviderRuntimeEventEnvelope[] = [];
+    const message: OutputMessage = {
+      id: 'msg-rich',
+      timestamp: 1713340800000,
+      type: 'assistant',
+      content: '',
+      metadata: { foo: 1 },
+      attachments: [{ name: 'diagram.png', type: 'image/png', size: 4, data: 'abcd' }],
+      thinking: [{ id: 'thinking-1', content: 'Inspect the adapter first', format: 'structured', tokenCount: 12 }],
+      thinkingExtracted: true,
+    };
+
+    p.events$.subscribe(e => events.push(e));
+    (p as unknown as { pushOutput: (message: OutputMessage) => void }).pushOutput(message);
+    await new Promise(r => setImmediate(r));
+
+    expect(events[0].event).toEqual({
+      kind: 'output',
+      content: '',
+      messageType: 'assistant',
+      messageId: 'msg-rich',
+      timestamp: 1713340800000,
+      metadata: { foo: 1 },
+      attachments: [{ name: 'diagram.png', type: 'image/png', size: 4, data: 'abcd' }],
+      thinking: [{ id: 'thinking-1', content: 'Inspect the adapter first', format: 'structured', tokenCount: 12 }],
+      thinkingExtracted: true,
+    });
   });
 
   it('pushSpawned / pushComplete emit their kinds', async () => {

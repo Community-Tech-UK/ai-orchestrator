@@ -23,6 +23,7 @@
     "watch:main": "tsc -p tsconfig.electron.json --watch",
     "electron:dev": "electron .",
     "electron:build": "electron-builder",
+    "localbuild": "npm run rebuild:native && npm run build && npm run electron:build -- --mac --config.mac.identity=null",
     "test": "vitest run",
     "test:unit": "vitest",
     "test:unit:run": "vitest run",

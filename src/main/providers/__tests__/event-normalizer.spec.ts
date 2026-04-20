@@ -27,7 +27,7 @@ import type { OutputMessage, ContextUsage } from '../../../shared/types/instance
 function makeOutputMessage(overrides?: Partial<OutputMessage>): OutputMessage {
   return {
     id: 'msg-1',
-    timestamp: Date.now(),
+    timestamp: 1713340800000,
     type: 'assistant',
     content: 'Hello world',
     metadata: { model: 'opus' },
@@ -71,6 +71,8 @@ for (const { name, factory } of mapperCases) {
         kind: 'output',
         content: 'Hello world',
         messageType: 'assistant',
+        messageId: 'msg-1',
+        timestamp: 1713340800000,
         metadata: { model: 'opus' },
       });
     });
@@ -82,7 +84,29 @@ for (const { name, factory } of mapperCases) {
         kind: 'output',
         content: 'Hello world',
         messageType: 'assistant',
-        metadata: undefined,
+        messageId: 'msg-1',
+        timestamp: 1713340800000,
+      });
+    });
+
+    it('normalizes attachment-only output without dropping thinking payloads', () => {
+      const msg = makeOutputMessage({
+        content: '',
+        attachments: [{ name: 'diagram.png', type: 'image/png', size: 4, data: 'abcd' }],
+        thinking: [{ id: 'thinking-1', content: 'Inspect call flow', format: 'structured', tokenCount: 12 }],
+        thinkingExtracted: true,
+      });
+      const result = mapper.normalize('output', msg);
+      expect(result).toEqual({
+        kind: 'output',
+        content: '',
+        messageType: 'assistant',
+        messageId: 'msg-1',
+        timestamp: 1713340800000,
+        metadata: { model: 'opus' },
+        attachments: [{ name: 'diagram.png', type: 'image/png', size: 4, data: 'abcd' }],
+        thinking: [{ id: 'thinking-1', content: 'Inspect call flow', format: 'structured', tokenCount: 12 }],
+        thinkingExtracted: true,
       });
     });
 

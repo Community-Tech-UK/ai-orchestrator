@@ -15,6 +15,39 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
     expect(() => ProviderRuntimeEventEnvelopeSchema.parse(baseEnv)).not.toThrow();
   });
 
+  it('parses a rich output event with attachments and thinking', () => {
+    expect(() =>
+      ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: {
+          kind: 'output',
+          content: '',
+          messageType: 'assistant',
+          messageId: 'msg-1',
+          timestamp: 1713340800123,
+          metadata: { foo: 1 },
+          attachments: [
+            {
+              name: 'diagram.png',
+              type: 'image/png',
+              size: 4,
+              data: 'abcd',
+            },
+          ],
+          thinking: [
+            {
+              id: 'thinking-1',
+              content: 'Need to inspect the code path first',
+              format: 'structured',
+              tokenCount: 12,
+            },
+          ],
+          thinkingExtracted: true,
+        },
+      })
+    ).not.toThrow();
+  });
+
   it('rejects a non-UUID eventId', () => {
     expect(() => ProviderRuntimeEventEnvelopeSchema.parse({ ...baseEnv, eventId: 'not-a-uuid' })).toThrow();
   });

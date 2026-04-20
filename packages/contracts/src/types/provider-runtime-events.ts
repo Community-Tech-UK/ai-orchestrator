@@ -39,6 +39,27 @@ export type ProviderEventKind =
   | 'complete';     // Response turn completed
 
 // ============================================
+// Shared Output Payload Shapes
+// ============================================
+
+/** File attachment metadata carried with an output event. */
+export interface ProviderRuntimeAttachment {
+  name: string;
+  type: string;
+  size: number;
+  data: string;
+}
+
+/** Thinking/reasoning block carried with an output event. */
+export interface ProviderRuntimeThinkingContent {
+  id: string;
+  content: string;
+  format: 'structured' | 'xml' | 'bracket' | 'header' | 'sdk' | 'unknown';
+  timestamp?: number;
+  tokenCount?: number;
+}
+
+// ============================================
 // Event Payload Types
 // ============================================
 
@@ -49,8 +70,18 @@ export interface ProviderOutputEvent {
   content: string;
   /** Output message type (user, assistant, system, tool, etc.) */
   messageType?: string;
+  /** Stable message identifier from the originating adapter event. */
+  messageId?: string;
+  /** Original message timestamp (ms since epoch). */
+  timestamp?: number;
   /** Optional structured metadata (tool calls, citations, etc.) */
   metadata?: Record<string, unknown>;
+  /** File attachments associated with the message, if any. */
+  attachments?: ProviderRuntimeAttachment[];
+  /** Extracted thinking blocks associated with the message, if any. */
+  thinking?: ProviderRuntimeThinkingContent[];
+  /** Whether thinking content has already been extracted from the message. */
+  thinkingExtracted?: boolean;
 }
 
 /** A tool use invocation started by the provider. */
