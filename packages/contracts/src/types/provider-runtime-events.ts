@@ -17,7 +17,7 @@
  * Subset of `InstanceProvider` — excludes `'auto'` which is a selection-time
  * placeholder, not a concrete runtime.
  */
-export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot' | 'anthropic-api';
+export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot' | 'anthropic-api' | 'cursor';
 
 // ============================================
 // Event Kind Discriminator

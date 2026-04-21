@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'copilot', 'anthropic-api']);
+export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'copilot', 'anthropic-api', 'cursor']);
 
 const ProviderRuntimeAttachmentSchema = z.object({
   name: z.string(),
