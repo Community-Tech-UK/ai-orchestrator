@@ -783,6 +783,7 @@ export class InstanceManager extends EventEmitter {
       case 'codex':
       case 'gemini':
       case 'copilot':
+      case 'cursor':
         return instanceProvider;
       case 'auto':
       case undefined:
