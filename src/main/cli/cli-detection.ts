@@ -5,8 +5,10 @@
 
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
+import { isAbsolute } from 'path';
 import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
+import { buildCliPath, shouldUseCliShell } from './cli-environment';
 
 const logger = getLogger('CliDetection');
 
@@ -352,7 +354,7 @@ export class CliDetectionService {
 
       // Allow alternative paths (absolute paths starting with / or expanded ~)
       // The guard only rejects if someone passes a different command name
-      const isAbsolutePath = command.startsWith('/');
+      const isAbsolutePath = isAbsolute(command);
       if (!isAbsolutePath && command !== config.command) {
         result.error = 'Invalid CLI command';
         resolve(result);
@@ -364,29 +366,19 @@ export class CliDetectionService {
 
         // Extend PATH to include common CLI installation directories
         // This is needed for packaged Electron apps where PATH may be limited
-        const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
-        const additionalPaths = [
-          '/usr/local/bin',
-          '/opt/homebrew/bin',
-          `${homeDir}/.local/bin`,
-          `${homeDir}/.npm-global/bin`,
-          `${homeDir}/.nvm/versions/node/current/bin`,
-          '/usr/bin',
-          '/bin'
-        ].filter(Boolean);
-        const currentPath = process.env['PATH'] || '';
-        const extendedPath = [...additionalPaths, currentPath].join(':');
+        const extendedPath = buildCliPath(process.env);
 
         logger.debug('Checking command', {
           command,
           args: args.join(' '),
-          home: homeDir,
-          additionalPaths
+          shell: shouldUseCliShell(),
         });
 
         const proc = spawn(command, args, {
           timeout: 5000,
-          env: { ...process.env, PATH: extendedPath }
+          env: { ...process.env, PATH: extendedPath },
+          shell: shouldUseCliShell(),
+          windowsHide: true,
         });
 
         let stdout = '';

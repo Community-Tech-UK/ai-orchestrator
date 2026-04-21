@@ -21,6 +21,7 @@ import readline from 'readline';
 import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
+import { buildCliPath, shouldUseCliShell } from '../../cli-environment';
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -311,20 +312,19 @@ class SpawnedAppServerClient extends AppServerClientBase {
 
   async connect(options: CodexAppServerClientOptions = {}): Promise<void> {
     const env = options.env || getSafeEnvForTrustedProcess();
-    const isWindows = process.platform === 'win32';
-
     this.proc = spawn('codex', ['app-server'], {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
-      // On Windows, codex is a cmd.exe wrapper — need shell: true
-      shell: isWindows,
+      // On Windows, codex is typically a cmd.exe wrapper installed via npm.
+      shell: shouldUseCliShell(),
       // Unix: isolate into its own process group for clean tree kills
-      detached: !isWindows,
+      detached: !shouldUseCliShell(),
+      windowsHide: true,
     });
 
     // Prevent detached child from keeping Electron alive
-    if (this.proc.pid && !isWindows) {
+    if (this.proc.pid && !shouldUseCliShell()) {
       this.proc.unref();
     }
 
@@ -616,19 +616,8 @@ export function terminateProcessTree(pid: number | undefined): void {
  * launched from later.
  */
 function buildCheckEnv(): Record<string, string> {
-  const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
-  const additionalPaths = [
-    '/usr/local/bin',
-    '/opt/homebrew/bin',
-    `${homeDir}/.local/bin`,
-    `${homeDir}/.npm-global/bin`,
-    `${homeDir}/.nvm/versions/node/current/bin`,
-    '/usr/bin',
-    '/bin',
-  ].filter(Boolean);
-  const currentPath = process.env['PATH'] || '';
-  const extendedPath = [...additionalPaths, currentPath].join(':');
-  return { ...getSafeEnvForTrustedProcess(), PATH: extendedPath };
+  const env = getSafeEnvForTrustedProcess();
+  return { ...env, PATH: buildCliPath(env) };
 }
 
 /**
@@ -646,6 +635,8 @@ export function checkAppServerAvailability(): boolean {
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: buildCheckEnv(),
+      shell: shouldUseCliShell(),
+      windowsHide: true,
     });
 
     const stdout = result.stdout?.toString() ?? '';
