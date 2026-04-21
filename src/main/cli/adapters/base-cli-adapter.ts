@@ -4,11 +4,12 @@
  * (Claude Code, OpenAI Codex, Google Gemini, etc.)
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, spawnSync, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getOutputPersistenceManager } from '../../context/output-persistence';
+import { buildCliPath, shouldUseCliShell } from '../cli-environment';
 
 const logger = getLogger('BaseCliAdapter');
 
@@ -229,6 +230,20 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   private static killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
     if (pid === undefined) return;
+    if (process.platform === 'win32') {
+      try {
+        const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+          timeout: 5000,
+          windowsHide: true,
+        });
+        if (result.error && (result.error as NodeJS.ErrnoException).code === 'ENOENT') {
+          try { process.kill(pid, signal); } catch { /* already dead */ }
+        }
+      } catch {
+        try { process.kill(pid, signal); } catch { /* already dead */ }
+      }
+      return;
+    }
     try {
       // Negative PID sends signal to the entire process group
       process.kill(-pid, signal);
@@ -426,32 +441,22 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     // Extend PATH to include common CLI installation directories
     // This is needed for packaged Electron apps where PATH may be limited
-    const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
-    const additionalPaths = [
-      '/usr/local/bin',
-      '/opt/homebrew/bin',
-      `${homeDir}/.local/bin`,
-      `${homeDir}/.npm-global/bin`,
-      `${homeDir}/.nvm/versions/node/current/bin`,
-      '/usr/bin',
-      '/bin',
-    ].filter(Boolean);
-
-    const currentPath = process.env['PATH'] || '';
-    const extendedPath = [...additionalPaths, currentPath].join(':');
-
     // Build safe environment: strip API keys, secrets, and sensitive credentials
     // from child processes to prevent cross-provider credential leakage.
     // Uses getSafeEnv() which filters via blocklist (24 vars), block patterns (9 regexes),
     // and secret detection. Also removes CLAUDECODE to prevent "nested session" errors.
     const safeEnv = getSafeEnvForTrustedProcess();
     delete safeEnv['CLAUDECODE'];
+    const mergedEnv = { ...safeEnv, ...this.config.env };
+    mergedEnv['PATH'] = buildCliPath(mergedEnv);
 
     const proc = spawn(this.config.command, fullArgs, {
       cwd: this.config.cwd,
-      env: { ...safeEnv, ...this.config.env, PATH: extendedPath },
+      env: mergedEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
+      detached: !shouldUseCliShell(),
+      shell: shouldUseCliShell(),
+      windowsHide: true,
     });
 
     // Increment generation so stale watchdog callbacks from a previous
