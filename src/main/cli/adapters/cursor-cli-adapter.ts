@@ -53,7 +53,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
   async *sendMessageStream(_message: CliMessage): AsyncIterable<string> {
     void _message;
     throw new Error('CursorCliAdapter: stub — not yet implemented');
-    yield ''; // unreachable; retained to keep the generator semantics explicit for future maintainers
+    yield ''; // unreachable; required by the `require-yield` lint rule on generator functions
   }
 
   parseOutput(_raw: string): CliResponse {
