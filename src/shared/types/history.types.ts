@@ -106,6 +106,7 @@ function inferHistoryProviderFromRestoreId(
   if (normalized.startsWith('gemini-')) return 'gemini';
   if (normalized.startsWith('copilot-')) return 'copilot';
   if (normalized.startsWith('claude-')) return 'claude';
+  if (normalized.startsWith('u-')) return 'cursor';
 
   return undefined;
 }
@@ -139,10 +140,10 @@ function inferHistoryProviderFromModel(
   return undefined;
 }
 
-const HISTORY_PROVIDER_DIRECT_ADDRESS_PATTERNS: ReadonlyArray<{
+const HISTORY_PROVIDER_DIRECT_ADDRESS_PATTERNS: readonly {
   provider: Exclude<InstanceProvider, 'auto'>;
   pattern: RegExp;
-}> = [
+}[] = [
   { provider: 'codex', pattern: /^(?:hey|hi|hello)\s+codex\b/i },
   { provider: 'codex', pattern: /^(?:what(?:'s| is)|which)\s+(?:version|model)[^a-z0-9]+(?:of\s+)?codex\b/i },
   { provider: 'gemini', pattern: /^(?:hey|hi|hello)\s+gemini\b/i },

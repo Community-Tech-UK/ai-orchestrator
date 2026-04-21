@@ -85,6 +85,8 @@ export class MessageFormatService {
         return 'Gemini';
       case 'ollama':
         return 'Ollama';
+      case 'cursor':
+        return 'Cursor';
       default:
         return 'AI';
     }

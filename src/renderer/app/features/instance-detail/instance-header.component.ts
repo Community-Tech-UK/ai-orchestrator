@@ -1111,6 +1111,8 @@ export class InstanceHeaderComponent implements OnInit {
         return 'Ollama';
       case 'copilot':
         return 'Copilot';
+      case 'cursor':
+        return 'Cursor';
       default:
         return 'AI';
     }
@@ -1128,6 +1130,8 @@ export class InstanceHeaderComponent implements OnInit {
         return '#888888';
       case 'copilot':
         return '#A855F7';
+      case 'cursor':
+        return '#000000';
       default:
         return '#888888';
     }

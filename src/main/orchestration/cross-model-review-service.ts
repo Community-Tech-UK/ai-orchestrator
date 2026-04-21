@@ -34,7 +34,7 @@ const MIN_COOLDOWN_MS = 10_000;
 const MAX_REVIEW_HISTORY = 50;
 const RATE_LIMIT_CHECK_INTERVAL_MS = 30_000;
 const AVAILABILITY_REFRESH_INTERVAL_MS = 5 * 60_000;
-const SUPPORTED_REVIEWER_CLIS = new Set(['gemini', 'codex', 'copilot']);
+const SUPPORTED_REVIEWER_CLIS = new Set(['gemini', 'codex', 'copilot', 'cursor']);
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';

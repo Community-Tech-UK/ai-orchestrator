@@ -76,6 +76,19 @@ vi.mock('../../../cli/adapters/copilot-cli-adapter', () => ({
   CopilotCliAdapter: vi.fn().mockImplementation(() => new FakeCopilotAdapter()),
 }));
 
+// --- Cursor ---
+class FakeCursorAdapter extends EventEmitter {
+  async spawn(): Promise<void> { /* no-op */ }
+  getSessionId(): string { return 'sess-cursor'; }
+  getPid(): number | null { return null; }
+  async terminate(): Promise<void> { /* no-op */ }
+  async sendInput(): Promise<void> { /* no-op */ }
+}
+
+vi.mock('../../../cli/adapters/cursor-cli-adapter', () => ({
+  CursorCliAdapter: vi.fn().mockImplementation(() => new FakeCursorAdapter()),
+}));
+
 // ---------------------------------------------------------------------------
 // Provider imports — after vi.mock hoisting resolves the factories above.
 // ---------------------------------------------------------------------------
@@ -83,6 +96,7 @@ import { ClaudeCliProvider } from '../../claude-cli-provider';
 import { CodexCliProvider } from '../../codex-cli-provider';
 import { GeminiCliProvider } from '../../gemini-cli-provider';
 import { CopilotCliProvider } from '../../copilot-cli-provider';
+import { CursorCliProvider } from '../../cursor-cli-provider';
 
 // ---------------------------------------------------------------------------
 // Fixture type: constructs a provider+adapter pair with instanceId 'i-parity'.
@@ -125,6 +139,16 @@ const PROVIDERS: Record<ProviderName, ParityFixture> = {
   copilot: {
     setup: async () => {
       const provider = new CopilotCliProvider({ type: 'copilot', name: 'GitHub Copilot CLI', enabled: true });
+      const envelopes: ProviderRuntimeEventEnvelope[] = [];
+      provider.events$.subscribe(e => envelopes.push(e));
+      await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });
+      const adapter = (provider as unknown as { adapter: EventEmitter }).adapter;
+      return { provider, adapter, envelopes };
+    },
+  },
+  cursor: {
+    setup: async () => {
+      const provider = new CursorCliProvider({ type: 'cursor', name: 'Cursor CLI', enabled: true });
       const envelopes: ProviderRuntimeEventEnvelope[] = [];
       provider.events$.subscribe(e => envelopes.push(e));
       await provider.initialize({ workingDirectory: '/tmp', instanceId: 'i-parity' });

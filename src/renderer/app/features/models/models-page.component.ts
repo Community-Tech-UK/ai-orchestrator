@@ -589,7 +589,7 @@ export class ModelsPageComponent implements OnInit {
   readonly overrideMessage = signal<string | null>(null);
   readonly overrideIsError = signal(false);
 
-  readonly knownProviders = ['claude', 'copilot', 'codex', 'gemini'];
+  readonly knownProviders = ['claude', 'copilot', 'codex', 'gemini', 'cursor'];
 
   readonly filteredModels = computed(() => {
     const provider = this.activeProvider();

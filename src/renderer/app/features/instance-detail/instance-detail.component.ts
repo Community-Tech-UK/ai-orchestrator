@@ -430,6 +430,8 @@ export class InstanceDetailComponent {
         return 'Ollama';
       case 'copilot':
         return 'Copilot';
+      case 'cursor':
+        return 'Cursor';
       default:
         return 'AI';
     }

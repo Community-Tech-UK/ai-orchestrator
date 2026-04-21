@@ -498,6 +498,7 @@ export class InstanceListStore {
     if (normalized.startsWith('codex-')) return 'codex';
     if (normalized.startsWith('copilot-')) return 'copilot';
     if (normalized.startsWith('claude-')) return 'claude';
+    if (normalized.startsWith('u-')) return 'cursor';
 
     return undefined;
   }
@@ -507,7 +508,8 @@ export class InstanceListStore {
       || value === 'codex'
       || value === 'gemini'
       || value === 'copilot'
-      || value === 'ollama';
+      || value === 'ollama'
+      || value === 'cursor';
   }
 
   /**

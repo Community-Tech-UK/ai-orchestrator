@@ -504,6 +504,7 @@ export class NewSessionDraftService {
       value === 'codex' ||
       value === 'gemini' ||
       value === 'copilot' ||
+      value === 'cursor' ||
       value === 'auto';
   }
 }

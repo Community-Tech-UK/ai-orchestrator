@@ -232,7 +232,7 @@ export class HistoryRailService {
   }
 
   getHistoryProviderVisual(entry: ConversationHistoryEntry): {
-    icon: 'anthropic' | 'openai' | 'google' | 'github' | 'generic';
+    icon: 'anthropic' | 'openai' | 'google' | 'github' | 'cursor' | 'generic';
     color: string;
     label: string;
   } {
@@ -245,6 +245,8 @@ export class HistoryRailService {
         return { icon: 'google', color: '#4285F4', label: 'Gemini' };
       case 'copilot':
         return { icon: 'github', color: '#6e40c9', label: 'Copilot' };
+      case 'cursor':
+        return { icon: 'cursor', color: '#000000', label: 'Cursor' };
       default:
         return { icon: 'generic', color: 'rgba(214, 221, 208, 0.76)', label: 'AI session' };
     }

@@ -93,6 +93,11 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
                   <path d="M9 13.5c.8.8 1.8 1.2 3 1.2s2.2-.4 3-1.2"/>
                 </svg>
               }
+              @case ('cursor') {
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                </svg>
+              }
             }
           </span>
         }

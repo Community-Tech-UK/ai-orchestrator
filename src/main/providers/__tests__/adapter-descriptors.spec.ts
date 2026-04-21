@@ -3,6 +3,7 @@ import { CLAUDE_DESCRIPTOR } from '../claude-cli-provider';
 import { CODEX_DESCRIPTOR } from '../codex-cli-provider';
 import { GEMINI_DESCRIPTOR } from '../gemini-cli-provider';
 import { COPILOT_DESCRIPTOR } from '../copilot-cli-provider';
+import { CURSOR_DESCRIPTOR } from '../cursor-cli-provider';
 
 describe('adapter descriptors', () => {
   const descriptors = [
@@ -49,6 +50,19 @@ describe('adapter descriptors', () => {
       'copilot',
       COPILOT_DESCRIPTOR,
       'GitHub Copilot',
+      {
+        interruption: true,
+        permissionPrompts: false,
+        sessionResume: true,
+        streamingOutput: true,
+        usageReporting: true,
+        subAgents: false,
+      },
+    ],
+    [
+      'cursor',
+      CURSOR_DESCRIPTOR,
+      'Cursor',
       {
         interruption: true,
         permissionPrompts: false,

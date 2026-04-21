@@ -14,7 +14,7 @@ export interface CliInfo {
   error?: string;
 }
 
-export type CliType = 'claude' | 'gemini' | 'codex' | 'copilot';
+export type CliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'cursor';
 
 const BENCHMARK_FALLBACK_CLIS: CliInfo[] = [
   {

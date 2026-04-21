@@ -34,7 +34,7 @@ const logger = getLogger('ConsensusCoordinator');
 const MAX_CONCURRENT_QUERIES = 5;
 
 /** Default providers to query when none specified */
-const DEFAULT_PROVIDER_PRIORITY: CliType[] = ['claude', 'codex', 'gemini', 'copilot'];
+const DEFAULT_PROVIDER_PRIORITY: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
 
 /**
  * Maps user-facing provider names to CliType
@@ -45,6 +45,7 @@ function toCliType(provider: string): CliType {
     case 'codex': return 'codex';
     case 'gemini': return 'gemini';
     case 'copilot': return 'copilot';
+    case 'cursor': return 'cursor';
     default: return provider as CliType;
   }
 }

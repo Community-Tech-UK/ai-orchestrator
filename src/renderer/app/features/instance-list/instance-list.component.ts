@@ -1000,7 +1000,7 @@ export class InstanceListComponent {
   }
 
   getHistoryProviderVisual(entry: ConversationHistoryEntry): {
-    icon: 'anthropic' | 'openai' | 'google' | 'github' | 'generic';
+    icon: 'anthropic' | 'openai' | 'google' | 'github' | 'cursor' | 'generic';
     color: string;
     label: string;
   } {
