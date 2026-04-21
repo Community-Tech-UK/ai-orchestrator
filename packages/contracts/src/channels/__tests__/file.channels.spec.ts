@@ -21,4 +21,8 @@ describe('FILE_CHANNELS', () => {
     expect(FILE_CHANNELS.IMAGE_PASTE).toBe('image:paste');
     expect(FILE_CHANNELS.IMAGE_COPY_TO_CLIPBOARD).toBe('image:copy-to-clipboard');
   });
+
+  it('exposes the IMAGE_RESOLVE channel', () => {
+    expect(FILE_CHANNELS.IMAGE_RESOLVE).toBe('image:resolve');
+  });
 });

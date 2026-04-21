@@ -12,6 +12,7 @@
  */
 
 export * from './permission-manager';
+export * from './permission-enforcer';
 export * from './filesystem-policy';
 export * from './network-policy';
 export * from './sandbox-manager';

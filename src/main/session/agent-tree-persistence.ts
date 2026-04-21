@@ -5,7 +5,6 @@
  * is persisted to a state DB and reconstructed via BFS on resume.
  */
 
-import { app } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
@@ -16,6 +15,7 @@ import type {
   SpawnEdge,
 } from '../../shared/types/agent-tree.types';
 import { AGENT_TREE_SCHEMA_VERSION } from '../../shared/types/agent-tree.types';
+import { getProjectStoragePaths } from '../storage/project-storage-paths';
 
 const logger = getLogger('AgentTreePersistence');
 
@@ -37,11 +37,11 @@ interface InstanceData {
 
 export class AgentTreePersistence {
   private static instance: AgentTreePersistence | null = null;
-  private storagePath: string;
   private initialized = false;
+  private readonly storagePaths = getProjectStoragePaths();
 
   private constructor() {
-    this.storagePath = path.join(app.getPath('userData'), 'agent-trees');
+    // Singleton
   }
 
   static getInstance(): AgentTreePersistence {
@@ -57,8 +57,29 @@ export class AgentTreePersistence {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await fs.mkdir(this.storagePath, { recursive: true });
     this.initialized = true;
+  }
+
+  private async findSnapshotFile(snapshotId: string): Promise<string | null> {
+    const projectsRoot = this.storagePaths.getProjectsRoot();
+    let projects: string[] = [];
+    try {
+      projects = await fs.readdir(projectsRoot);
+    } catch {
+      return null;
+    }
+
+    for (const project of projects) {
+      const candidate = path.join(projectsRoot, project, 'agent-trees', `${snapshotId}.json`);
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        // Keep searching
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -163,7 +184,9 @@ export class AgentTreePersistence {
 
   async saveSnapshot(snapshot: AgentTreeSnapshot): Promise<string> {
     await this.initialize();
-    const filePath = path.join(this.storagePath, `${snapshot.id}.json`);
+    const storagePath = this.storagePaths.getAgentTreeRoot(snapshot.workingDirectory || process.cwd());
+    await fs.mkdir(storagePath, { recursive: true });
+    const filePath = path.join(storagePath, `${snapshot.id}.json`);
     await fs.writeFile(filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
     logger.info('Saved agent tree snapshot', {
       id: snapshot.id, rootId: snapshot.rootId, totalInstances: snapshot.totalInstances,
@@ -174,7 +197,11 @@ export class AgentTreePersistence {
   async loadSnapshot(snapshotId: string): Promise<AgentTreeSnapshot | null> {
     await this.initialize();
     try {
-      const data = await fs.readFile(path.join(this.storagePath, `${snapshotId}.json`), 'utf-8');
+      const filePath = await this.findSnapshotFile(snapshotId);
+      if (!filePath) {
+        return null;
+      }
+      const data = await fs.readFile(filePath, 'utf-8');
       const snapshot = JSON.parse(data) as AgentTreeSnapshot;
       if (snapshot.schemaVersion !== AGENT_TREE_SCHEMA_VERSION) {
         logger.warn('Snapshot schema version mismatch', {
@@ -193,22 +220,43 @@ export class AgentTreePersistence {
 
   async listSnapshots(): Promise<{ id: string; rootId: string; totalInstances: number; timestamp: number }[]> {
     await this.initialize();
-    const files = await fs.readdir(this.storagePath);
     const snapshots: { id: string; rootId: string; totalInstances: number; timestamp: number }[] = [];
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
+    const projectsRoot = this.storagePaths.getProjectsRoot();
+    let projects: string[] = [];
+    try {
+      projects = await fs.readdir(projectsRoot);
+    } catch {
+      return [];
+    }
+
+    for (const project of projects) {
+      const storagePath = path.join(projectsRoot, project, 'agent-trees');
+      let files: string[] = [];
       try {
-        const data = await fs.readFile(path.join(this.storagePath, file), 'utf-8');
-        const snap = JSON.parse(data) as AgentTreeSnapshot;
-        snapshots.push({ id: snap.id, rootId: snap.rootId, totalInstances: snap.totalInstances, timestamp: snap.timestamp });
-      } catch { /* skip corrupted */ }
+        files = await fs.readdir(storagePath);
+      } catch {
+        continue;
+      }
+
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const data = await fs.readFile(path.join(storagePath, file), 'utf-8');
+          const snap = JSON.parse(data) as AgentTreeSnapshot;
+          snapshots.push({ id: snap.id, rootId: snap.rootId, totalInstances: snap.totalInstances, timestamp: snap.timestamp });
+        } catch { /* skip corrupted */ }
+      }
     }
     return snapshots.sort((a, b) => b.timestamp - a.timestamp);
   }
 
   async deleteSnapshot(snapshotId: string): Promise<void> {
     await this.initialize();
-    try { await fs.unlink(path.join(this.storagePath, `${snapshotId}.json`)); } catch { /* already deleted */ }
+    const filePath = await this.findSnapshotFile(snapshotId);
+    if (!filePath) {
+      return;
+    }
+    try { await fs.unlink(filePath); } catch { /* already deleted */ }
   }
 }
 

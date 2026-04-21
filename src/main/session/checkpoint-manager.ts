@@ -11,7 +11,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
 import {
   SessionCheckpoint,
   CheckpointType,
@@ -24,6 +23,8 @@ import {
   SessionSnapshot,
 } from './session-continuity';
 import { getLogger } from '../logging/logger';
+import { getProjectStoragePaths } from '../storage/project-storage-paths';
+import { getGitCheckpointStore, type GitCheckpointSummary } from './git-checkpoint-store';
 
 const logger = getLogger('CheckpointManager');
 
@@ -149,6 +150,7 @@ export class CheckpointManager extends EventEmitter {
   private logDir: string;
   private lastCheckpointTime = new Map<string, number>();
   private pendingTransactions = new Map<string, TransactionLogEntry>();
+  private readonly storagePaths = getProjectStoragePaths();
 
   private constructor() {
     super();
@@ -156,8 +158,7 @@ export class CheckpointManager extends EventEmitter {
     this.errorRecovery = ErrorRecoveryManager.getInstance();
     this.continuity = getSessionContinuityManager();
 
-    const userData = app?.getPath?.('userData') || path.join(process.cwd(), '.checkpoint-data');
-    this.logDir = path.join(userData, 'transaction-logs');
+    this.logDir = this.storagePaths.getGlobalDomainRoot('transaction-logs');
 
     this.ensureDirectories();
     this.setupErrorRecoveryListeners();
@@ -349,6 +350,23 @@ export class CheckpointManager extends EventEmitter {
         }
       : { messages: [], contextUsage: { used: 0, total: 0 }, lastActivityAt: Date.now() };
 
+    let gitCheckpoint: GitCheckpointSummary | null = null;
+    if (snapshot?.state.workingDirectory) {
+      try {
+        gitCheckpoint = await getGitCheckpointStore().createCheckpoint({
+          checkpointId: `${sessionId}-${Date.now()}`,
+          sessionId,
+          workingDirectory: snapshot.state.workingDirectory,
+          description,
+        });
+      } catch (error) {
+        logger.warn('Failed to create git-backed checkpoint snapshot', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     const checkpoint = this.errorRecovery.createCheckpoint(sessionId, type, {
       conversationState,
       activeTasks: snapshot
@@ -362,6 +380,7 @@ export class CheckpointManager extends EventEmitter {
       metadata: {
         snapshotId: snapshot?.id ?? '',
         description,
+        ...(gitCheckpoint ? { gitCheckpoint } : {}),
       },
     });
 
@@ -397,6 +416,11 @@ export class CheckpointManager extends EventEmitter {
       // Try error recovery checkpoint first
       const recoveryCheckpoint = this.errorRecovery.restoreCheckpoint(checkpointId);
       if (recoveryCheckpoint) {
+        const gitCheckpoint = recoveryCheckpoint.metadata?.['gitCheckpoint'] as GitCheckpointSummary | undefined;
+        if (gitCheckpoint) {
+          await getGitCheckpointStore().restore(gitCheckpoint);
+        }
+
         // Find corresponding snapshot
         const snapshotId = (recoveryCheckpoint.metadata?.['snapshotId'] as string) || '';
         if (snapshotId) {

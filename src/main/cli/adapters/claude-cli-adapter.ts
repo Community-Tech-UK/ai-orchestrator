@@ -1176,6 +1176,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 block.tool_use_id
               );
 
+              // Capture the authoritative tool name (e.g. 'Edit', 'Write') from the
+              // original tool_use, so the renderer can request a precise settings.json
+              // allow-rule on user approval.
+              const denialToolContext = block.tool_use_id
+                ? this.toolUseContexts.get(block.tool_use_id)
+                : undefined;
+              const denialToolName = denialToolContext?.name;
+
               // Create a unique key for this permission request to avoid duplicate prompts
               const permissionKey = this.createPermissionKey(action, path);
 
@@ -1243,7 +1251,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
               this.emit('status', 'waiting_for_input' as InstanceStatus);
 
-              // Emit the input_required event for UI to handle
+              // Emit the input_required event for UI to handle.
+              // `path` is the UI-friendly (possibly truncated) string; `full_path`
+              // carries the untruncated value so downstream writers (e.g. the
+              // self-permission granter) can build an exact-path rule. `tool_name`
+              // is the original Claude CLI tool (Write/Edit/Read/Bash), which maps
+              // 1:1 to the settings.json permissions format `Tool(pattern)`.
               this.emit('input_required', {
                 id: inputRequestId,
                 prompt,
@@ -1253,6 +1266,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                   tool_use_id: block.tool_use_id,
                   action,
                   path: displayPath,
+                  full_path: path,
+                  tool_name: denialToolName,
                   permissionKey, // Include for cleanup after response
                   approvalTraceId,
                   traceStage: 'adapter:permission_denial_emit'

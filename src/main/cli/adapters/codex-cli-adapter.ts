@@ -532,15 +532,37 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       this.emit('status', 'idle' as InstanceStatus);
     } catch (error) {
+      const errText = error instanceof Error ? error.message : String(error);
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
         type: 'error',
-        content: `Codex error: ${error instanceof Error ? error.message : String(error)}`,
+        content: `Codex error: ${errText}`,
       });
-      this.emit('status', 'error' as InstanceStatus);
+
+      // In exec mode the child has already exited — there is no persistent
+      // state to recover and the next turn will spawn a fresh process. Forcing
+      // `status='error'` here triggers the renderer to clear the message queue
+      // with a "restart the instance" notice, which is wrong for transient
+      // failures (OpenAI HTTP 500 bursts, network blips, etc.). Return to idle
+      // so the user can simply retry. App-server mode keeps the stricter
+      // behavior because a failed turn there may have broken the persistent
+      // thread/client; that path has its own recovery.
+      const isRecoverable = !this.useAppServer || this.isRecoverableTurnError(errText);
+      this.emit('status', (isRecoverable ? 'idle' : 'error') as InstanceStatus);
       throw error;
     }
+  }
+
+  private isRecoverableTurnError(message: string): boolean {
+    // Treat transient backend and network errors as recoverable; the thread
+    // is almost certainly still alive on the app-server side and a fresh
+    // turn can be sent. Auth/model/session errors stay fatal — the instance
+    // genuinely needs a restart.
+    if (/unauthorized|authentication|forbidden|login required/i.test(message)) return false;
+    if (/session not found|thread not found|no matching session/i.test(message)) return false;
+    if (/unknown model|model not found|invalid model/i.test(message)) return false;
+    return /http 5\d\d|network error|connection (refused|reset|timed out|closed)|dns|tls|handshake|rate limit|timeout|socket hang up|econnreset/i.test(message);
   }
 
   /**
@@ -750,9 +772,90 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Sends a message via the app-server and emits real-time events.
+   * Starts a fresh Codex thread on the existing app-server client and swaps
+   * it in as the active thread. Used for silent mid-session recovery when the
+   * previous thread becomes unresolvable server-side (e.g. Codex retains
+   * threads for a bounded time and evicts long-idle ones). The user sees no
+   * failure — their retry runs against the new thread.
+   *
+   * The system prompt is re-sent on the first turn against the new thread
+   * because the server no longer has the original thread's context.
+   */
+  private async reopenAppServerThread(): Promise<void> {
+    if (!this.appServerClient) {
+      throw new Error('Cannot reopen thread: app-server client is not connected');
+    }
+    const cwd = this.cliConfig.workingDir || process.cwd();
+    const approvalPolicy = this.cliConfig.approvalMode === 'full-auto' ? 'never' : 'never';
+    const sandbox = this.mapSandboxMode();
+
+    const startResult = await this.appServerClient.request('thread/start', {
+      cwd,
+      model: this.cliConfig.model || null,
+      approvalPolicy,
+      sandbox,
+      serviceName: SERVICE_NAME,
+      ephemeral: this.cliConfig.ephemeral ?? false,
+      reasoningEffort: this.cliConfig.reasoningEffort || null,
+    });
+    const newThreadId = startResult.threadId || startResult.thread?.id || null;
+    if (!newThreadId) {
+      throw new Error('Thread reopen failed: app-server returned no thread id');
+    }
+
+    logger.info('App-server thread reopened after loss', {
+      previousThreadId: this.appServerThreadId,
+      newThreadId,
+    });
+
+    this.appServerThreadId = newThreadId;
+    this.sessionId = newThreadId;
+    // The new thread has no prior context — the next turn must re-send the
+    // system prompt so the model behaves consistently.
+    this.systemPromptSent = false;
+
+    // Refresh the persisted cursor so a later app restart resumes against the
+    // live thread instead of the dead one.
+    this.resumeCursor = {
+      provider: 'openai',
+      threadId: newThreadId,
+      workspacePath: cwd,
+      capturedAt: Date.now(),
+      scanSource: 'native',
+    };
+  }
+
+  /**
+   * Sends a message via the app-server with silent recovery from thread loss.
+   *
+   * If Codex reports the thread is gone (it evicts inactive threads after
+   * some interval), we transparently reopen a fresh thread and retry the
+   * same message once. The user sees their message succeed. A second failure
+   * — or any non-thread-loss error — propagates to the caller so the outer
+   * `sendInput` catch can classify and emit the appropriate status.
    */
   private async appServerSendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
+    try {
+      await this.appServerSendMessageInner(message, attachments);
+    } catch (err) {
+      if (!this.isRecoverableThreadResumeError(err)) {
+        throw err;
+      }
+      logger.warn('Codex app-server thread lost mid-turn, reopening and retrying', {
+        previousThreadId: this.appServerThreadId,
+        cause: err instanceof Error ? err.message : String(err),
+      });
+      await this.reopenAppServerThread();
+      await this.appServerSendMessageInner(message, attachments);
+    }
+  }
+
+  /**
+   * Internal implementation of a single turn against the current app-server
+   * thread. Does not retry on thread loss — that is handled by the outer
+   * `appServerSendMessage` wrapper.
+   */
+  private async appServerSendMessageInner(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.appServerClient || !this.appServerThreadId) {
       throw new Error('App-server not initialized');
     }
@@ -1655,9 +1758,45 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Sends a message via `codex exec` (spawn-per-message fallback mode).
+   * Sends a message via `codex exec` with silent recovery from thread loss.
+   *
+   * When `codex exec resume <threadId>` fails because the thread has been
+   * evicted server-side, we clear the stale session id (so the retry uses a
+   * fresh `codex exec` spawn) and run the turn again. The user sees their
+   * message succeed. This mirrors the app-server reopen logic but is simpler
+   * because exec mode has no persistent client state to rebuild.
    */
   private async execSendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
+    try {
+      await this.execSendMessageInner(message, attachments);
+    } catch (err) {
+      if (!this.isRecoverableThreadResumeError(err)) {
+        throw err;
+      }
+      const previousSessionId = this.sessionId;
+      logger.warn('Codex exec resume failed, retrying with a fresh session', {
+        previousSessionId,
+        cause: err instanceof Error ? err.message : String(err),
+      });
+
+      // Clear resume state so buildArgs() picks `codex exec` (not `exec resume`).
+      // A fresh placeholder keeps `sessionId` non-null for downstream consumers
+      // until the new turn captures a real threadId from codex stdout.
+      this.sessionId = `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      this.shouldResumeNextTurn = false;
+      this.resumeCursor = null;
+      // System prompt + conversation history are re-sent on a fresh thread.
+      this.systemPromptSent = false;
+
+      await this.execSendMessageInner(message, attachments);
+    }
+  }
+
+  /**
+   * Internal implementation of a single exec-mode turn. Does not retry on
+   * thread loss — handled by the outer `execSendMessage` wrapper.
+   */
+  private async execSendMessageInner(message: string, attachments?: FileAttachment[]): Promise<void> {
     const cliMessage: CliMessage = {
       role: 'user',
       content: message,
@@ -2053,6 +2192,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
         terminateProcessTree(this.process.pid);
         this.process = null;
+        clearLivenessTimer();
         reject(new CodexTimeoutError(options.phase, options.timeoutMs, {
           networkErrorCount: networkErrors.length,
           lastNetworkError,
@@ -2070,6 +2210,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
       };
       resetIdleTimer();
+
+      // Synthetic liveness heartbeat. Codex exec emits no progress events
+      // during long reasoning blocks, MCP tool calls, or web searches — the
+      // child sits silent between `item.created` and `item.completed` for
+      // minutes. Without this, the outer StuckProcessDetector fires a false
+      // "no output for 120s" warning (~150s after ~3 deferrals) even though
+      // the process is demonstrably alive. We emit heartbeats on a fixed
+      // cadence while the child is running; the idle watchdog above remains
+      // the real kill-switch so hung children are still terminated.
+      const livenessTimer: NodeJS.Timeout = setInterval(() => {
+        if (!this.process || this.process.killed || this.process.exitCode !== null) {
+          return;
+        }
+        this.emit('heartbeat');
+      }, CODEX_TIMEOUTS.EXEC_LIVENESS_HEARTBEAT_MS);
+      if (livenessTimer.unref) livenessTimer.unref();
+      const clearLivenessTimer = () => {
+        clearInterval(livenessTimer);
+      };
 
       // Write the prompt to stdin — modern Codex CLI reads from stdin, not positional args
       if (childProcess.stdin) {
@@ -2143,12 +2302,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       childProcess.on('error', (error) => {
         clearIdleTimer();
+        clearLivenessTimer();
         this.process = null;
         reject(error);
       });
 
       childProcess.on('close', (code, signal) => {
         clearIdleTimer();
+        clearLivenessTimer();
 
         if (state.partialStdout.trim()) {
           this.processStdoutLine(state.partialStdout, state);
@@ -2816,10 +2977,17 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
   }
 
+  /**
+   * Classifies an error as "the Codex thread/session is gone" (recoverable by
+   * reopening a fresh thread) vs. anything else. Requires BOTH the error text
+   * to mention thread/session context AND a loss indicator — without the
+   * context gate a bare "not found" from an unrelated source (e.g. a missing
+   * file) would incorrectly trigger a full thread reopen.
+   */
   private isRecoverableThreadResumeError(error: unknown): boolean {
-    const msg = String(error).toLowerCase();
-    return ['not found', 'missing thread', 'unknown thread', 'unknown session',
-            'expired', 'invalid thread'].some(pattern => msg.includes(pattern));
+    const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+    if (!/thread|session/.test(msg)) return false;
+    return /not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
   }
 
   getResumeCursor(): ResumeCursor | null {

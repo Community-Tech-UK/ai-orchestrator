@@ -277,7 +277,7 @@ export class SummarizationWorker extends EventEmitter {
       // Find large sections without summaries at depth 0
       // Priority: larger sections first, older sections first
       const stmt = db.prepare(`
-        SELECT 
+        SELECT
           cs.id,
           cs.store_id as storeId,
           cs.name,
@@ -289,10 +289,7 @@ export class SummarizationWorker extends EventEmitter {
         FROM context_sections cs
         WHERE cs.depth = 0
           AND cs.tokens >= ?
-          AND NOT EXISTS (
-            SELECT 1 FROM context_sections child 
-            WHERE child.summarizes_json LIKE '%' || cs.id || '%'
-          )
+          AND cs.parent_summary_id IS NULL
           AND (cs.pending_summary IS NULL OR cs.pending_summary = 0)
         ORDER BY cs.tokens DESC, cs.created_at ASC
         LIMIT ?
@@ -310,6 +307,7 @@ export class SummarizationWorker extends EventEmitter {
           if (!content && row.content_file) {
             // Use a minimal type cast that satisfies getSectionContent
             const sectionForContent = {
+              id: row.id,
               content_inline: row.content,
               content_file: row.content_file
             };

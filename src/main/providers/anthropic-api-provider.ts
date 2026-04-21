@@ -17,7 +17,6 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { EventEmitter } from 'events';
 import { BaseProvider } from './provider-interface';
 import { getPromptCacheManager, CacheableContext } from '../memory/prompt-cache';
 import { getContextEditingFallback, ContextState } from '../memory/context-editing-fallback';
@@ -50,6 +49,8 @@ import {
   supportsPromptCaching,
   supportsContextEditing,
 } from '../../shared/types/api-features.types';
+import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
+import type { ProviderName } from '@contracts/types/provider-runtime-events';
 
 // ============================================
 // Types
@@ -94,8 +95,17 @@ export interface AnthropicApiProviderConfig extends ProviderConfig {
  * Uses the Anthropic SDK directly with integrated prompt caching
  * and context editing capabilities.
  */
-// @ts-expect-error wave2-out-of-scope — anthropic-api is direct HTTP, not a CLI adapter; not normalized under ProviderName in Wave 2
 export class AnthropicApiProvider extends BaseProvider {
+  readonly provider: ProviderName = 'anthropic-api';
+  readonly capabilities: ProviderAdapterCapabilities = {
+    interruption: false,
+    permissionPrompts: false,
+    sessionResume: true,
+    streamingOutput: false,
+    usageReporting: true,
+    subAgents: false,
+  };
+
   private client: Anthropic | null = null;
   private session: SessionState | null = null;
   private currentUsage: ProviderUsage | null = null;
@@ -180,6 +190,7 @@ export class AnthropicApiProvider extends BaseProvider {
 
     this.client = new Anthropic({ apiKey });
     this.sessionId = options.sessionId || generateId();
+    this.instanceId = options.instanceId ?? (this.instanceId || this.sessionId);
     this.model = options.model || this.config.defaultModel || CLAUDE_MODELS.SONNET;
     this.maxTokens = options.maxTokens || 4096;
 
@@ -212,8 +223,7 @@ export class AnthropicApiProvider extends BaseProvider {
     };
 
     this.isActive = true;
-    this.emit('spawned', null); // No PID for API-based provider
-    this.emit('status', 'idle' as InstanceStatus);
+    this.pushStatus('idle' as InstanceStatus);
   }
 
   async sendMessage(message: string, attachments?: ProviderAttachment[]): Promise<void> {
@@ -221,7 +231,7 @@ export class AnthropicApiProvider extends BaseProvider {
       throw new Error('Provider not initialized');
     }
 
-    this.emit('status', 'busy' as InstanceStatus);
+    this.pushStatus('busy' as InstanceStatus);
 
     try {
       // Build user message with attachments
@@ -285,10 +295,11 @@ export class AnthropicApiProvider extends BaseProvider {
       // Update context usage
       this.updateContextUsage(response);
 
-      this.emit('status', 'idle' as InstanceStatus);
+      this.pushStatus('idle' as InstanceStatus);
     } catch (error) {
-      this.emit('error', error as Error);
-      this.emit('status', 'error' as InstanceStatus);
+      const message = error instanceof Error ? error.message : String(error);
+      this.pushError(message);
+      this.pushStatus('error' as InstanceStatus);
       throw error;
     }
   }
@@ -297,7 +308,8 @@ export class AnthropicApiProvider extends BaseProvider {
     this.client = null;
     this.session = null;
     this.isActive = false;
-    this.emit('exit', 0, null);
+    this.pushExit(0, null);
+    this.completeEvents();
   }
 
   override getUsage(): ProviderUsage | null {
@@ -369,7 +381,7 @@ export class AnthropicApiProvider extends BaseProvider {
             input: block.input,
           },
         };
-        this.emit('output', toolOutput);
+        this.pushOutput(toolOutput);
       }
     }
 
@@ -380,7 +392,7 @@ export class AnthropicApiProvider extends BaseProvider {
         type: 'assistant',
         content: textContent,
       };
-      this.emit('output', output);
+      this.pushOutput(output);
     }
   }
 
@@ -405,7 +417,7 @@ export class AnthropicApiProvider extends BaseProvider {
       total: this.session!.maxContextTokens,
       percentage: Math.min(percentage, 100),
     };
-    this.emit('context', contextUsage);
+    this.pushContext(contextUsage.used, contextUsage.total, contextUsage.percentage);
 
     // Update usage statistics
     const modelId = this.model;

@@ -86,6 +86,13 @@ describe('OrchestratorPluginManager', () => {
     ).mockResolvedValue([
       {
         filePath: '/tmp/plugin.js',
+        slot: 'hook',
+        loadReport: {
+          slot: 'hook',
+          detected: true,
+          ready: true,
+          phases: [],
+        },
         hooks: {
           'instance.output': hook,
         },
@@ -176,6 +183,13 @@ describe('OrchestratorPluginManager', () => {
     ).mockResolvedValue([
       {
         filePath: '/tmp/plugin.js',
+        slot: 'hook',
+        loadReport: {
+          slot: 'hook',
+          detected: true,
+          ready: true,
+          phases: [],
+        },
         hooks: {
           'instance.removed': vi.fn().mockRejectedValue(new Error('boom')),
         },

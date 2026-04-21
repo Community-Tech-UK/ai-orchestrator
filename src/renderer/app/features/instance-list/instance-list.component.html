@@ -1,0 +1,401 @@
+    <div class="instance-list-container">
+      <div class="list-header">
+        <div>
+          <p class="list-eyebrow">Project index</p>
+          <h2 class="list-title">Projects</h2>
+        </div>
+        <span class="list-count">{{ projectGroups().length }}</span>
+      </div>
+
+      <div class="filter-bar">
+        <input
+          type="text"
+          class="filter-input"
+          placeholder="Filter projects or sessions..."
+          [value]="filterText()"
+          (input)="onFilterChange($event)"
+        />
+        <div class="filter-controls">
+          <label class="filter-select-group">
+            <span class="filter-select-label">Sort</span>
+            <select
+              class="sort-filter"
+              [value]="historySortMode()"
+              (change)="onSortModeChange($event)"
+              title="Sort project threads"
+            >
+              <option value="last-interacted">Last interacted</option>
+              <option value="created">Created</option>
+            </select>
+          </label>
+          <label class="filter-select-group">
+            <span class="filter-select-label">State</span>
+            <select
+              class="status-filter"
+              [value]="statusFilter()"
+              (change)="onStatusFilterChange($event)"
+            >
+              <option value="all">All</option>
+              <option value="idle">Idle</option>
+              <option value="busy">Busy</option>
+              <option value="waiting_for_input">Waiting</option>
+              <option value="error">Error</option>
+            </select>
+          </label>
+          @if (remoteNodeStore.hasNodes()) {
+            <label class="filter-select-group">
+              <span class="filter-select-label">Location</span>
+              <select
+                class="status-filter"
+                [value]="locationFilter()"
+                (change)="onLocationFilterChange($event)"
+              >
+                <option value="all">All</option>
+                <option value="local">Local</option>
+                <option value="remote">Remote</option>
+              </select>
+            </label>
+          }
+        </div>
+      </div>
+
+      <div
+        class="instance-viewport"
+        cdkDropList
+        [cdkDropListData]="projectGroups()"
+        [cdkDropListDisabled]="isProjectDragDisabled()"
+        (cdkDropListDropped)="onProjectDrop($event)"
+      >
+        @for (group of projectGroups(); track group.key) {
+          <section
+            class="project-group"
+            [class.project-draggable]="canDragProject(group)"
+            cdkDrag
+            [cdkDragData]="group"
+            [cdkDragDisabled]="!canDragProject(group)"
+          >
+            <div class="project-drag-preview" *cdkDragPreview>
+              <span class="project-drag-title">{{ group.title }}</span>
+              <span class="project-drag-meta">{{ group.sessionCount }} sessions</span>
+            </div>
+            <div class="project-group-placeholder" *cdkDragPlaceholder></div>
+            <div
+              class="project-header-row"
+              [class.expanded]="group.isExpanded"
+              [class.has-selected-instance]="group.hasSelectedInstance"
+            >
+              <button
+                type="button"
+                class="project-header"
+                [class.expanded]="group.isExpanded"
+                [attr.aria-expanded]="group.isExpanded"
+                [attr.aria-controls]="'project-group-' + group.key"
+                (click)="toggleProjectGroup(group.key)"
+              >
+                <div class="project-copy">
+                  <div class="project-title-row">
+                    <span class="project-icon" aria-hidden="true">
+                      <svg viewBox="0 0 16 16">
+                        <path d="M1.5 3.5a1 1 0 0 1 1-1H6l1.1 1.4c.2.3.6.4.9.4h5.5a1 1 0 0 1 1 1v6.7a1.8 1.8 0 0 1-1.8 1.8H3.3A1.8 1.8 0 0 1 1.5 12V3.5Zm1 1v7.5c0 .4.3.8.8.8h9.4c.4 0 .8-.4.8-.8V5.5H7.9c-.6 0-1.2-.3-1.5-.8L5.5 3.5H2.5Z" />
+                      </svg>
+                    </span>
+                    <div class="project-title-primary">
+                      <span class="project-title">{{ group.title }}</span>
+                      @if (group.sessionCount > 0) {
+                        <span class="project-title-count">: {{ group.sessionCount }}</span>
+                      }
+                    </div>
+                    @if (group.isPinned) {
+                      <span class="project-pinned-pill">Pinned</span>
+                    }
+                    @if (group.hasDraft) {
+                      <span class="project-draft-pill" [title]="getProjectDraftTitle(group)">Draft</span>
+                    }
+                  </div>
+                  <span class="project-subtitle" [title]="group.subtitle">{{ group.subtitle }}</span>
+                </div>
+              </button>
+              <div class="project-actions" [class.visible]="openProjectMenuKey() === group.key">
+                <button
+                  type="button"
+                  class="project-action-btn project-drag-handle"
+                  cdkDragHandle
+                  [disabled]="!canDragProject(group)"
+                  aria-label="Reorder project"
+                  title="Drag to reorder project"
+                  (click)="$event.preventDefault(); $event.stopPropagation()"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4 3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm10-8a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm0 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" />
+                  </svg>
+                </button>
+                @if (group.path) {
+                  <button
+                    type="button"
+                    class="project-action-btn"
+                    [attr.aria-label]="group.hasDraft ? 'Resume draft in this project' : 'Start a new conversation in this project'"
+                    [attr.title]="group.hasDraft ? 'Resume draft in this project' : 'Start a new conversation in this project'"
+                    (click)="startProjectConversation(group, $event)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M8 1.5a.75.75 0 0 1 .75.75v5h5a.75.75 0 0 1 0 1.5h-5v5a.75.75 0 0 1-1.5 0v-5h-5a.75.75 0 0 1 0-1.5h5v-5A.75.75 0 0 1 8 1.5Z" />
+                    </svg>
+                  </button>
+                  <div class="project-menu-anchor">
+                    <button
+                      type="button"
+                      class="project-action-btn"
+                      [class.active]="openProjectMenuKey() === group.key"
+                      aria-haspopup="menu"
+                      [attr.aria-expanded]="openProjectMenuKey() === group.key"
+                      aria-label="Project options"
+                      title="Project options"
+                      (click)="toggleProjectMenu(group.key, $event)"
+                    >
+                      <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M3 8a1.25 1.25 0 1 1-2.5 0A1.25 1.25 0 0 1 3 8Zm6.25 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm6.25 0A1.25 1.25 0 1 1 13 8a1.25 1.25 0 0 1 2.5 0Z" />
+                      </svg>
+                    </button>
+                    @if (openProjectMenuKey() === group.key) {
+                      <div
+                        class="project-menu"
+                        role="menu"
+                        aria-label="Project options"
+                        tabindex="-1"
+                        (keydown)="onProjectMenuKeyDown($event)"
+                      >
+                        <button
+                          type="button"
+                          class="project-menu-item"
+                          role="menuitem"
+                          (click)="toggleProjectPinned(group, $event)"
+                        >
+                          {{ group.isPinned ? 'Unpin project' : 'Pin project' }}
+                        </button>
+                        <button
+                          type="button"
+                          class="project-menu-item"
+                          role="menuitem"
+                          (click)="openProjectInPreferredEditor(group, $event)"
+                        >
+                          Open in {{ preferredEditorLabel() }}
+                        </button>
+                        <button
+                          type="button"
+                          class="project-menu-item"
+                          role="menuitem"
+                          (click)="openProjectInSystemFileManager(group, $event)"
+                        >
+                          Open in {{ systemFileManagerLabel }}
+                        </button>
+                        <div class="project-menu-divider"></div>
+                        <button
+                          type="button"
+                          class="project-menu-item project-menu-item--danger"
+                          role="menuitem"
+                          (click)="removeProject(group, $event)"
+                        >
+                          Remove project
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+                <span class="project-chevron" aria-hidden="true">›</span>
+              </div>
+            </div>
+
+            @if (group.isExpanded) {
+              <div class="project-items" [id]="'project-group-' + group.key">
+                @if (group.liveItems.length > 0) {
+                  <div
+                    class="project-live-items"
+                    cdkDropList
+                    [cdkDropListData]="group.liveItems"
+                    (cdkDropListDropped)="onDrop($event, group)"
+                  >
+                    @for (item of group.liveItems; track item.instance.id) {
+                      <div
+                        class="drag-wrapper"
+                        [class.is-root]="item.depth === 0"
+                        [cdkDragDisabled]="item.depth > 0 || isDragDisabled()"
+                        cdkDrag
+                        [cdkDragData]="item"
+                      >
+                        <div class="drag-preview" *cdkDragPreview>
+                          <span class="drag-preview-name">{{ item.railTitle }}</span>
+                          @if (item.hasChildren) {
+                            <span class="drag-preview-children">+{{ item.instance.childrenIds.length }}</span>
+                          }
+                        </div>
+                        <div class="drag-placeholder" *cdkDragPlaceholder></div>
+
+                        <app-instance-row
+                          [instance]="item.instance"
+                          [displayTitle]="item.railTitle"
+                          [depth]="item.depth"
+                          [hasChildren]="item.hasChildren"
+                          [isExpanded]="item.isExpanded"
+                          [isLastChild]="item.isLastChild"
+                          [parentChain]="item.parentChain"
+                          [isSelected]="selectedId() === item.instance.id"
+                          [lastActivityLabel]="selectedId() === item.instance.id ? formatRelativeTime(item.instance.lastActivity) : null"
+                          [isDraggable]="item.depth === 0"
+                          (instanceSelect)="onSelectInstance($event)"
+                          (terminate)="onTerminateInstance($event)"
+                          (restart)="onRestartInstance($event)"
+                          (toggleExpand)="onToggleExpand($event)"
+                        />
+                      </div>
+                    }
+                  </div>
+                }
+
+                @if (group.historyItems.length > 0) {
+                  <div
+                    class="project-history-items"
+                    [class.with-divider]="group.liveItems.length > 0"
+                  >
+                    @for (entry of getVisibleHistoryItems(group); track entry.id) {
+                      <div
+                        class="history-entry"
+                        [class.pinned]="isPinnedHistory(entry.id)"
+                        [class.restoring]="isRestoringHistory(entry.id)"
+                      >
+                        <div class="history-entry-copy">
+                          <button
+                            type="button"
+                            class="history-entry-pin"
+                            [class.active]="isPinnedHistory(entry.id)"
+                            [attr.aria-label]="isPinnedHistory(entry.id) ? 'Unpin thread' : 'Pin thread'"
+                            [title]="isPinnedHistory(entry.id) ? 'Unpin thread' : 'Pin thread'"
+                            (click)="togglePinnedHistory(entry.id, $event)"
+                          >
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M10.9 1.8c.3 0 .6.1.8.3l2.2 2.2c.4.4.4 1 0 1.4l-1.5 1.5.5 3.9c0 .3-.1.6-.3.8l-1.1 1.1c-.2.2-.5.2-.8.1l-3.2-1.6-2.9 2.9-.7-.7 2.9-2.9-1.6-3.2c-.1-.3-.1-.6.1-.8L6.4 5c.2-.2.5-.3.8-.3l3.9.5 1.5-1.5c.1-.1.2-.2.2-.4 0-.1-.1-.3-.2-.4L10.4 2c-.1-.1-.3-.2-.4-.2-.1 0-.3.1-.4.2L8.1 3.5l.7.7-1.4 1.4-.7-.7L5.2 6.4l1.6 3.2 4-4-.7-.7 1.4-1.4.7.7 1.5-1.5c.3-.3.3-.9 0-1.2l-2.2-2.2c-.2-.2-.5-.3-.8-.3Z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="history-entry-main"
+                            [disabled]="isRestoringHistory(entry.id)"
+                            [attr.aria-label]="'Restore ' + getHistoryTitle(entry)"
+                            (click)="onRestoreHistory(entry.id)"
+                          >
+                            <span class="history-entry-title-row">
+                              <span
+                                class="history-entry-provider-badge"
+                                [style.color]="getHistoryProviderVisual(entry).color"
+                                [title]="getHistoryProviderVisual(entry).label"
+                              >
+                                @switch (getHistoryProviderVisual(entry).icon) {
+                                  @case ('anthropic') {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                      <path d="M12 1.75c.48 0 .87.39.87.87v4.04a.87.87 0 1 1-1.74 0V2.62c0-.48.39-.87.87-.87Z"/>
+                                      <path d="M17.88 3.33c.41.24.55.77.32 1.19l-2.02 3.5a.87.87 0 1 1-1.5-.87l2.02-3.5a.87.87 0 0 1 1.18-.32Z"/>
+                                      <path d="M21.82 7.47c.24.41.1.95-.32 1.18L18 10.67a.87.87 0 0 1-.87-1.5l3.5-2.02a.87.87 0 0 1 1.19.32Z"/>
+                                      <path d="M22.25 12c0 .48-.39.87-.87.87h-4.04a.87.87 0 1 1 0-1.74h4.04c.48 0 .87.39.87.87Z"/>
+                                      <path d="M20.67 17.88a.87.87 0 0 1-1.18.32l-3.5-2.02a.87.87 0 1 1 .87-1.5l3.5 2.02c.41.24.55.77.31 1.18Z"/>
+                                      <path d="M16.53 21.82a.87.87 0 0 1-1.18-.32l-2.02-3.5a.87.87 0 1 1 1.5-.87l2.02 3.5c.24.41.1.95-.32 1.19Z"/>
+                                      <path d="M12 22.25a.87.87 0 0 1-.87-.87v-4.04a.87.87 0 1 1 1.74 0v4.04c0 .48-.39.87-.87.87Z"/>
+                                      <path d="M7.47 20.67a.87.87 0 0 1-.32-1.18l2.02-3.5a.87.87 0 1 1 1.5.87l-2.02 3.5a.87.87 0 0 1-1.18.31Z"/>
+                                      <path d="M3.33 16.53a.87.87 0 0 1 .32-1.18l3.5-2.02a.87.87 0 1 1 .87 1.5l-3.5 2.02a.87.87 0 0 1-1.19-.32Z"/>
+                                      <path d="M1.75 12c0-.48.39-.87.87-.87h4.04a.87.87 0 1 1 0 1.74H2.62a.87.87 0 0 1-.87-.87Z"/>
+                                      <path d="M3.33 7.47a.87.87 0 0 1 1.18-.32l3.5 2.02a.87.87 0 1 1-.87 1.5l-3.5-2.02a.87.87 0 0 1-.31-1.18Z"/>
+                                      <path d="M7.47 3.33c.41-.24.95-.1 1.18.32l2.02 3.5a.87.87 0 1 1-1.5.87l-2.02-3.5a.87.87 0 0 1 .32-1.19Z"/>
+                                      <circle cx="12" cy="12" r="1.65"/>
+                                    </svg>
+                                  }
+                                  @case ('openai') {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                      <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.985 5.985 0 0 0 .517 4.91 6.046 6.046 0 0 0 6.51 2.9A6.065 6.065 0 0 0 19.02 19.81a5.985 5.985 0 0 0 3.998-2.9 6.046 6.046 0 0 0-.736-7.09z"/>
+                                    </svg>
+                                  }
+                                  @case ('google') {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                                    </svg>
+                                  }
+                                  @case ('github') {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                                    </svg>
+                                  }
+                                  @default {
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                                      <path d="M12 3.5 14.5 8l5 .7-3.6 3.5.9 4.9L12 14.9 7.2 17l.9-4.8L4.5 8.7 9.5 8 12 3.5Z"/>
+                                    </svg>
+                                  }
+                                }
+                              </span>
+                              <span class="history-entry-title">
+                                {{ getHistoryPreviewTitle(entry) }}
+                              </span>
+                            </span>
+                          </button>
+                        </div>
+                        <div class="history-entry-meta">
+                          @if (getHistoryChangeSummary(entry); as changeSummary) {
+                            <div class="history-entry-diff" title="Changes in this completed session">
+                              <span class="history-entry-diff-additions">
+                                +{{ changeSummary.additions }}
+                              </span>
+                              <span class="history-entry-diff-deletions">
+                                -{{ changeSummary.deletions }}
+                              </span>
+                            </div>
+                          } @else {
+                            <span
+                              class="history-entry-time"
+                              [title]="historySortMode() === 'created' ? 'Created' : 'Last interacted'"
+                            >
+                              {{ formatHistoryTime(entry) }}
+                            </span>
+                          }
+                          <button
+                            type="button"
+                            class="history-entry-action"
+                            aria-label="Archive thread"
+                            title="Archive thread"
+                            (click)="onArchiveHistory(entry.id, $event)"
+                          >
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M2.5 2.5h11a1 1 0 0 1 1 1v2.1a1 1 0 0 1-.29.7l-1.56 1.56a1 1 0 0 0-.29.7V13a1 1 0 0 1-1 1h-6.7a1 1 0 0 1-1-1V8.56a1 1 0 0 0-.29-.7L1.79 6.3a1 1 0 0 1-.29-.7V3.5a1 1 0 0 1 1-1Zm0 1v1.7l1.56 1.56c.38.37.59.88.59 1.4V13h6.7V8.16c0-.52.21-1.03.59-1.4L13.5 5.2V3.5h-11Zm3.1 2.9h4.8v1h-4.8v-1Z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    }
+                    @if (group.historyItems.length > 10) {
+                      <button
+                        type="button"
+                        class="history-show-more"
+                        (click)="toggleHistoryExpanded(group.key)"
+                      >
+                        {{ historyRail.expandedHistoryKeys().has(group.key) ? 'Show less' : 'Show more' }}
+                      </button>
+                    }
+                  </div>
+                }
+
+                @if (group.liveItems.length === 0 && group.historyItems.length === 0) {
+                  <div class="project-empty">No threads yet</div>
+                }
+              </div>
+            }
+          </section>
+        } @empty {
+          <div class="empty-state">
+            @if (filterText() || statusFilter() !== 'all' || locationFilter() !== 'all') {
+              <p>No projects match your filters</p>
+            } @else {
+              <p>No projects yet</p>
+              <p class="hint">Create a session to start building a workspace index</p>
+            }
+          </div>
+        }
+      </div>
+    </div>

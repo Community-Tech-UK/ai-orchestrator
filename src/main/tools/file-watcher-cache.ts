@@ -9,6 +9,8 @@
  */
 
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
+import * as path from 'path';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('FileWatcherCache');
@@ -19,6 +21,7 @@ const DEBOUNCE_MS = 200;
 interface CacheEntry<T> {
   value: T;
   loadedAt: number;
+  directorySignature: string;
 }
 
 export class FileWatcherCache<T> {
@@ -40,12 +43,22 @@ export class FileWatcherCache<T> {
 
     const cached = this.cache.get(key);
     if (cached && !this.invalidatedKeys.has(key)) {
-      return cached.value;
+      const currentSignature = await this.captureDirectorySignature(watchDir);
+      if (currentSignature === cached.directorySignature) {
+        return cached.value;
+      }
+
+      this.invalidatedKeys.add(key);
+      logger.debug('Cache invalidated by directory signature change', { key, watchDir });
     }
 
-    // Load fresh value
     const value = await loader();
-    this.cache.set(key, { value, loadedAt: Date.now() });
+    const directorySignature = await this.captureDirectorySignature(watchDir);
+    this.cache.set(key, {
+      value,
+      loadedAt: Date.now(),
+      directorySignature,
+    });
     this.invalidatedKeys.delete(key);
     return value;
   }
@@ -118,5 +131,54 @@ export class FileWatcherCache<T> {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  private async captureDirectorySignature(watchDir: string): Promise<string> {
+    try {
+      return await this.walkDirectory(watchDir, '');
+    } catch (err) {
+      logger.debug('Failed to capture directory signature', {
+        watchDir,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return `missing:${watchDir}`;
+    }
+  }
+
+  private async walkDirectory(absPath: string, relativePath: string): Promise<string> {
+    const stat = await fsPromises.stat(absPath);
+    const prefix = relativePath || '.';
+
+    if (!stat.isDirectory()) {
+      return `${prefix}|file|${stat.size}|${stat.mtimeMs}`;
+    }
+
+    const entries = await fsPromises.readdir(absPath, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    const childSignatures = await Promise.all(
+      entries.map(async (entry) => {
+        const childRelativePath = relativePath ? path.join(relativePath, entry.name) : entry.name;
+        const childAbsolutePath = path.join(absPath, entry.name);
+
+        if (entry.isDirectory()) {
+          return this.walkDirectory(childAbsolutePath, childRelativePath);
+        }
+
+        if (entry.isFile()) {
+          const childStat = await fsPromises.stat(childAbsolutePath);
+          return `${childRelativePath}|file|${childStat.size}|${childStat.mtimeMs}`;
+        }
+
+        if (entry.isSymbolicLink()) {
+          const target = await fsPromises.readlink(childAbsolutePath);
+          return `${childRelativePath}|symlink|${target}`;
+        }
+
+        return `${childRelativePath}|other|${entry.name}`;
+      }),
+    );
+
+    return `${prefix}|dir|${stat.mtimeMs}|${childSignatures.join(';')}`;
   }
 }

@@ -207,17 +207,6 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
-     * Listen for instance output
-     */
-    onInstanceOutput: (callback: (output: unknown) => void): (() => void) => {
-      const handler = (_event: IpcRendererEvent, output: unknown) =>
-        callback(output);
-      ipcRenderer.on(ch.INSTANCE_OUTPUT, handler);
-      return () =>
-        ipcRenderer.removeListener(ch.INSTANCE_OUTPUT, handler);
-    },
-
-    /**
      * Listen for batch updates
      */
     onBatchUpdate: (callback: (batch: unknown) => void): (() => void) => {

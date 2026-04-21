@@ -38,6 +38,19 @@ export const PluginHookEventSchema = z.enum([
 
 export type PluginHookEvent = z.infer<typeof PluginHookEventSchema>;
 
+export const PluginSlotSchema = z.enum([
+  'provider',
+  'channel',
+  'mcp',
+  'skill',
+  'hook',
+  'tracker',
+  'notifier',
+  'telemetry_exporter',
+]);
+
+export type PluginSlot = z.infer<typeof PluginSlotSchema>;
+
 /**
  * Plugin manifest schema — validates plugin.json files.
  */
@@ -50,6 +63,7 @@ export const PluginManifestSchema = z.object({
     .regex(/^\d+\.\d+\.\d+/, 'Plugin version must be semver (e.g., 1.0.0)'),
   description: z.string().max(2000).optional(),
   author: z.string().max(200).optional(),
+  slot: PluginSlotSchema.optional(),
   hooks: z.array(PluginHookEventSchema).optional(),
   config: z.object({
     schema: z.record(z.string(), z.unknown()),

@@ -1,12 +1,12 @@
 import { getLogger } from '../logging/logger';
 import { NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
 import { getWorkerNodeHealth } from './worker-node-health';
-import { validateAuthToken } from './auth-validator';
 import { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 import type { WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
 import type { WorkerNodeCapabilities } from '../../shared/types/worker-node.types';
+import { getRemoteAuthService } from '../auth/remote-auth';
 
 const logger = getLogger('RpcEventRouter');
 
@@ -99,10 +99,13 @@ export class RpcEventRouter {
   // ---------------------------------------------------------------------------
 
   private handleRpcRequest(nodeId: string, request: RpcRequest): void {
-    // Auth: validate token on every request
+    // node.register is authenticated during the initial WebSocket handshake.
     const params = request.params as Record<string, unknown> | undefined;
     const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
-    if (!validateAuthToken(token)) {
+    if (
+      request.method !== NODE_TO_COORDINATOR.REGISTER
+      && !getRemoteAuthService().validateSessionToken(token, nodeId)
+    ) {
       this.connection.sendResponse(
         nodeId,
         createRpcError(request.id, RPC_ERROR_CODES.UNAUTHORIZED, 'Invalid auth token'),
@@ -173,7 +176,7 @@ export class RpcEventRouter {
     if (!this.trustedNotificationMethods.has(notification.method)) {
       const params = notification.params as Record<string, unknown> | undefined;
       const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
-      if (!validateAuthToken(token)) {
+      if (!getRemoteAuthService().validateSessionToken(token, nodeId)) {
         logger.warn('Notification rejected: invalid auth token', { nodeId, method: notification.method });
         return;
       }
@@ -235,8 +238,6 @@ export class RpcEventRouter {
     });
 
     getWorkerNodeHealth().startMonitoring(nodeId);
-
-    this.connection.sendResponse(wsNodeId, createRpcResponse(request.id, { ok: true }));
 
     logger.info('Node registered via RPC', { nodeId, name });
   }

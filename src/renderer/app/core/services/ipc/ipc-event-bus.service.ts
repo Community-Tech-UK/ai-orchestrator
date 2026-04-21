@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, filter, map, merge, share } from 'rxjs';
+import { Observable, filter, map, share } from 'rxjs';
 
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { OutputMessage } from '../../../../../shared/types/instance.types';
@@ -7,8 +7,6 @@ import type { OrchestrationActivityPayload } from '../../../../../shared/types/i
 import type { StateUpdate } from '../../services/update-batcher.service';
 import { InstanceEventsService } from '../instance-events.service';
 import { InstanceIpcService } from './instance-ipc.service';
-
-const OUTPUT_EVENT_DEDUPE_WINDOW_MS = 60_000;
 
 function toOutputMessageType(
   messageType: string | undefined,
@@ -88,21 +86,10 @@ export interface InputRequiredEvent {
   requestId: string;
 }
 
-type OutputEventSource = 'legacy' | 'provider';
-
-interface TaggedInstanceOutputEvent {
-  source: OutputEventSource;
-  event: InstanceOutputEvent;
-}
-
 @Injectable({ providedIn: 'root' })
 export class IpcEventBusService {
-  private instanceIpc = inject(InstanceIpcService);
   private instanceEvents = inject(InstanceEventsService);
-  private pendingOutputSignatures = new Map<string, {
-    source: OutputEventSource;
-    expiresAt: number;
-  }>();
+  private instanceIpc = inject(InstanceIpcService);
 
   readonly instanceCreated$ = this.createStream<InstanceCreatedEvent>((next) =>
     this.instanceIpc.onInstanceCreated((data) => next(data as InstanceCreatedEvent)),
@@ -116,18 +103,9 @@ export class IpcEventBusService {
     this.instanceIpc.onInstanceStateUpdate((data) => next(data as StateUpdate)),
   );
 
-  readonly instanceOutput$ = merge(
-    this.createStream<InstanceOutputEvent>((next) =>
-      this.instanceIpc.onInstanceOutput((data) => next(data as InstanceOutputEvent)),
-    ).pipe(map((event) => ({ source: 'legacy' as const, event }))),
-    this.instanceEvents.outputEvents$.pipe(
-      map((envelope) => toInstanceOutputEventFromEnvelope(envelope)),
-      filter((event): event is InstanceOutputEvent => event !== null),
-      map((event) => ({ source: 'provider' as const, event })),
-    ),
-  ).pipe(
-    filter((taggedEvent) => !this.isDuplicateInstanceOutput(taggedEvent)),
-    map((taggedEvent) => taggedEvent.event),
+  readonly instanceOutput$ = this.instanceEvents.outputEvents$.pipe(
+    map((envelope) => toInstanceOutputEventFromEnvelope(envelope)),
+    filter((event): event is InstanceOutputEvent => event !== null),
     share(),
   );
 
@@ -154,58 +132,5 @@ export class IpcEventBusService {
       const unsubscribe = subscribe((event) => subscriber.next(event));
       return () => unsubscribe();
     }).pipe(share());
-  }
-
-  private isDuplicateInstanceOutput(taggedEvent: TaggedInstanceOutputEvent): boolean {
-    this.prunePendingOutputSignatures();
-
-    const eventSignature = this.getOutputEventSignature(taggedEvent.event);
-    if (!eventSignature) {
-      return false;
-    }
-
-    const now = Date.now();
-    const existing = this.pendingOutputSignatures.get(eventSignature);
-    if (existing && existing.expiresAt > now && existing.source !== taggedEvent.source) {
-      this.pendingOutputSignatures.delete(eventSignature);
-      return true;
-    }
-
-    this.pendingOutputSignatures.set(eventSignature, {
-      source: taggedEvent.source,
-      expiresAt: now + OUTPUT_EVENT_DEDUPE_WINDOW_MS,
-    });
-    return false;
-  }
-
-  private getOutputEventSignature(event: InstanceOutputEvent): string | null {
-    const messageId = event.message?.id;
-    if (typeof event.instanceId !== 'string' || event.instanceId.length === 0) {
-      return null;
-    }
-
-    if (typeof messageId !== 'string' || messageId.length === 0) {
-      return null;
-    }
-
-    return JSON.stringify([
-      event.instanceId,
-      messageId,
-      event.message.timestamp,
-      event.message.type,
-      event.message.content,
-      event.message.metadata ?? null,
-      event.message.attachments ?? null,
-      event.message.thinking ?? null,
-      event.message.thinkingExtracted ?? null,
-    ]);
-  }
-
-  private prunePendingOutputSignatures(now = Date.now()): void {
-    for (const [eventSignature, entry] of this.pendingOutputSignatures) {
-      if (entry.expiresAt <= now) {
-        this.pendingOutputSignatures.delete(eventSignature);
-      }
-    }
   }
 }

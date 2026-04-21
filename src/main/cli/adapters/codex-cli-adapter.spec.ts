@@ -21,11 +21,16 @@ function createMockProcess(): MockChildProcess {
   proc.stderr = new PassThrough();
   proc.stdin = new PassThrough();
   proc.killed = false;
+  // Real ChildProcess.exitCode is `null` until exit; not `undefined`.
+  // Liveness checks in adapters depend on this distinction.
+  (proc as unknown as { exitCode: number | null }).exitCode = null;
+  (proc as unknown as { pid: number }).pid = 99999;
   proc.kill = vi.fn().mockImplementation(() => {
     proc.killed = true;
     return true;
   }) as ChildProcess['kill'];
   proc.emitClose = (code = 0, signal = null) => {
+    (proc as unknown as { exitCode: number | null }).exitCode = code;
     proc.emit('close', code, signal);
   };
   return proc;
@@ -418,6 +423,94 @@ Hey! I'm here. What do you want to tackle?`;
     });
   });
 
+  describe('exec-mode liveness heartbeat', () => {
+    it('emits synthetic heartbeats at the configured cadence while a silent codex child is running', async () => {
+      const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+      const spawnSpy = vi.spyOn(
+        adapter as unknown as { spawnProcess(args: string[]): unknown },
+        'spawnProcess'
+      );
+      const proc = createMockProcess();
+      spawnSpy.mockReturnValueOnce(proc as unknown);
+
+      const heartbeats: number[] = [];
+      adapter.on('heartbeat', () => heartbeats.push(Date.now()));
+
+      vi.useFakeTimers();
+      try {
+        const execPromise = (adapter as unknown as {
+          executePreparedMessage(
+            message: { content: string; role: 'user' },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' }
+          ): Promise<unknown>;
+        }).executePreparedMessage(
+          { role: 'user', content: 'silent turn' },
+          { timeoutMs: 120_000, phase: 'turn' }
+        );
+
+        // Advance past several heartbeat intervals with the mock child
+        // producing NO stdout/stderr. Synthetic liveness should still
+        // heartbeat at 15s cadence. 40s → at least 2 ticks.
+        await vi.advanceTimersByTimeAsync(40_000);
+        expect(heartbeats.length).toBeGreaterThanOrEqual(2);
+
+        // Cleanly finish the turn so the promise resolves and timers clear.
+        proc.stdout.end();
+        proc.stderr.end();
+        proc.emitClose(0, null);
+        await vi.advanceTimersByTimeAsync(1);
+        await execPromise.catch(() => {
+          // We only care about the heartbeats, not the turn outcome.
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops synthetic heartbeats after the child exits', async () => {
+      const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+      const spawnSpy = vi.spyOn(
+        adapter as unknown as { spawnProcess(args: string[]): unknown },
+        'spawnProcess'
+      );
+      const proc = createMockProcess();
+      spawnSpy.mockReturnValueOnce(proc as unknown);
+
+      const heartbeats: number[] = [];
+      adapter.on('heartbeat', () => heartbeats.push(Date.now()));
+
+      vi.useFakeTimers();
+      try {
+        const execPromise = (adapter as unknown as {
+          executePreparedMessage(
+            message: { content: string; role: 'user' },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' }
+          ): Promise<unknown>;
+        }).executePreparedMessage(
+          { role: 'user', content: 'short turn' },
+          { timeoutMs: 120_000, phase: 'turn' }
+        );
+
+        // Fire one heartbeat, then close.
+        await vi.advanceTimersByTimeAsync(16_000);
+        const countAtClose = heartbeats.length;
+        expect(countAtClose).toBeGreaterThanOrEqual(1);
+
+        proc.stdout.end();
+        proc.stderr.end();
+        proc.emitClose(0, null);
+        await execPromise.catch(() => { /* outcome not asserted */ });
+
+        // Advance past multiple further heartbeat intervals — none should fire
+        // because the interval was cleared on close.
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(heartbeats.length).toBe(countAtClose);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('app-server init timeout', () => {
     it('falls back to exec mode when app-server init times out', async () => {
       const adapter = new CodexCliAdapter();
@@ -463,6 +556,368 @@ Hey! I'm here. What do you want to tackle?`;
       // The metadata field should exist (appServerAvailable is determined separately)
       expect(status.available).toBe(true);
       expect(status).toHaveProperty('metadata');
+    });
+  });
+
+  describe('sendInput failure recovery', () => {
+    // Regression: in exec mode the child has already exited when sendInput
+    // rejects — there is no persistent state to recover, so the adapter must
+    // emit status='idle' (not 'error') so the renderer can auto-retry instead
+    // of showing "restart the instance to send it."
+    async function spawnExecAdapter(): Promise<CodexCliAdapter> {
+      const adapter = new CodexCliAdapter();
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+        available: true,
+        authenticated: true,
+        path: 'codex',
+        version: '0.107.0',
+        metadata: { appServerAvailable: false },
+      });
+      await adapter.spawn();
+      return adapter;
+    }
+
+    function collectStatuses(adapter: CodexCliAdapter): string[] {
+      const statuses: string[] = [];
+      adapter.on('status', (status: string) => statuses.push(status));
+      return statuses;
+    }
+
+    it('emits status=idle in exec mode after a transient HTTP 500 failure', async () => {
+      const adapter = await spawnExecAdapter();
+      vi.spyOn(adapter, 'sendMessage').mockRejectedValue(
+        new Error('Codex exec failed: http 500 Internal Server Error')
+      );
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/http 500/i);
+
+      // busy during the turn, idle after (not 'error')
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
+
+    it('emits status=idle in exec mode even for auth errors (the child has already exited)', async () => {
+      const adapter = await spawnExecAdapter();
+      vi.spyOn(adapter, 'sendMessage').mockRejectedValue(
+        new Error('Codex exec failed: unauthorized')
+      );
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/unauthorized/i);
+
+      // Exec mode is always recoverable — a fresh process spawns on the next
+      // turn and will surface the auth error directly to the user.
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
+
+    it('emits status=idle in app-server mode for transient backend errors', async () => {
+      const adapter = await spawnExecAdapter();
+      // Flip the adapter into app-server mode and stub the RPC path.
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: unknown }).appServerClient = {};
+      vi.spyOn(
+        adapter as unknown as { appServerSendMessage(m: string, a?: unknown): Promise<void> },
+        'appServerSendMessage'
+      ).mockRejectedValue(new Error('Codex error: connection reset by peer'));
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/connection reset/i);
+
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
+
+    it('emits status=error in app-server mode for fatal auth errors', async () => {
+      const adapter = await spawnExecAdapter();
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: unknown }).appServerClient = {};
+      vi.spyOn(
+        adapter as unknown as { appServerSendMessage(m: string, a?: unknown): Promise<void> },
+        'appServerSendMessage'
+      ).mockRejectedValue(new Error('unauthorized: authentication required'));
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/unauthorized/i);
+
+      // App-server mode keeps the stricter behavior because a failed turn
+      // there may have broken the persistent thread/client; auth/session/model
+      // errors require a fresh instance.
+      expect(statuses).toEqual(['busy', 'error']);
+    });
+
+    it('emits status=error in app-server mode for session-not-found errors', async () => {
+      const adapter = await spawnExecAdapter();
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: unknown }).appServerClient = {};
+      vi.spyOn(
+        adapter as unknown as { appServerSendMessage(m: string, a?: unknown): Promise<void> },
+        'appServerSendMessage'
+      ).mockRejectedValue(new Error('thread not found: thread-abc'));
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread not found/i);
+
+      expect(statuses).toEqual(['busy', 'error']);
+    });
+
+    it('emits an error output message with the underlying Codex error text', async () => {
+      const adapter = await spawnExecAdapter();
+      vi.spyOn(adapter, 'sendMessage').mockRejectedValue(
+        new Error('Codex exec failed: http 500 Internal Server Error')
+      );
+
+      const outputs: { content: string; type: string }[] = [];
+      adapter.on('output', (msg: { content: string; type: string }) => {
+        outputs.push({ content: msg.content, type: msg.type });
+      });
+
+      await expect(adapter.sendInput('boom')).rejects.toThrow();
+      const errorMessages = outputs.filter((o) => o.type === 'error');
+      expect(errorMessages.length).toBeGreaterThanOrEqual(1);
+      expect(errorMessages[0].content).toContain('http 500');
+    });
+  });
+
+  describe('silent thread-loss recovery', () => {
+    // Codex evicts inactive threads server-side. When the user's next turn
+    // fails because the thread is gone, the adapter should transparently
+    // reopen a fresh thread and retry once — the user should see their
+    // message succeed, not "restart the instance."
+
+    async function spawnExecAdapter(): Promise<CodexCliAdapter> {
+      const adapter = new CodexCliAdapter();
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+        available: true,
+        authenticated: true,
+        path: 'codex',
+        version: '0.107.0',
+        metadata: { appServerAvailable: false },
+      });
+      await adapter.spawn();
+      return adapter;
+    }
+
+    describe('isRecoverableThreadResumeError classifier', () => {
+      it('matches thread-loss phrases with thread/session context', () => {
+        const adapter = new CodexCliAdapter();
+        const classify = (msg: string): boolean =>
+          (adapter as unknown as { isRecoverableThreadResumeError(e: unknown): boolean })
+            .isRecoverableThreadResumeError(new Error(msg));
+
+        expect(classify('Thread does not exist')).toBe(true);
+        expect(classify('thread not found: thread-abc')).toBe(true);
+        expect(classify('no such thread: xyz')).toBe(true);
+        expect(classify('unknown thread')).toBe(true);
+        expect(classify('session expired')).toBe(true);
+        expect(classify('invalid thread id')).toBe(true);
+        expect(classify('missing thread')).toBe(true);
+      });
+
+      it('ignores loss phrases that lack thread/session context', () => {
+        const adapter = new CodexCliAdapter();
+        const classify = (msg: string): boolean =>
+          (adapter as unknown as { isRecoverableThreadResumeError(e: unknown): boolean })
+            .isRecoverableThreadResumeError(new Error(msg));
+
+        // "not found" alone could be a missing file, missing config, etc. —
+        // reopening the thread for those would be wrong.
+        expect(classify('file not found')).toBe(false);
+        expect(classify('config not found')).toBe(false);
+        expect(classify('model does not exist')).toBe(false);
+        expect(classify('http 500 internal server error')).toBe(false);
+        expect(classify('unauthorized')).toBe(false);
+      });
+    });
+
+    describe('app-server mode', () => {
+      async function prepareAppServerAdapter(): Promise<CodexCliAdapter> {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+        (adapter as unknown as { appServerClient: unknown }).appServerClient = {};
+        (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-old';
+        return adapter;
+      }
+
+      it('silently reopens the thread and retries when mid-turn fails with thread-not-found', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValueOnce(new Error('Thread does not exist: thread-old'));
+        innerSpy.mockResolvedValueOnce(undefined);
+
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        );
+        reopenSpy.mockImplementation(async () => {
+          (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-new';
+        });
+
+        const statuses: string[] = [];
+        adapter.on('status', (s: string) => statuses.push(s));
+
+        // Should NOT throw — silent recovery succeeds
+        await adapter.sendInput('retry me');
+
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        expect(statuses).toEqual(['busy', 'idle']);
+        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-new');
+      });
+
+      it('does not retry on non-thread-loss errors (e.g. HTTP 500)', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValue(new Error('http 500 Internal Server Error'));
+
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        );
+
+        await expect(adapter.sendInput('boom')).rejects.toThrow(/http 500/i);
+
+        expect(innerSpy).toHaveBeenCalledTimes(1);
+        expect(reopenSpy).not.toHaveBeenCalled();
+      });
+
+      it('propagates the error if reopen itself fails', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValue(new Error('Thread does not exist'));
+
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        );
+        reopenSpy.mockRejectedValue(new Error('app-server crashed during reopen'));
+
+        await expect(adapter.sendInput('retry me')).rejects.toThrow(/app-server crashed/i);
+
+        // We attempted exactly one turn before reopen failure aborted the retry.
+        expect(innerSpy).toHaveBeenCalledTimes(1);
+        expect(reopenSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not infinite-loop if the second turn also fails with thread-not-found', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValue(new Error('Thread does not exist'));
+
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        );
+        reopenSpy.mockResolvedValue(undefined);
+
+        await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread does not exist/i);
+
+        // Exactly 2 inner attempts — no third attempt even though the second
+        // also looks like a thread-loss.
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect(reopenSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('reopenAppServerThread issues thread/start and updates thread state', async () => {
+        const adapter = await prepareAppServerAdapter();
+        (adapter as unknown as { systemPromptSent: boolean }).systemPromptSent = true;
+
+        const requestSpy = vi.fn().mockResolvedValue({ threadId: 'thread-fresh' });
+        (adapter as unknown as { appServerClient: { request: unknown } }).appServerClient = {
+          request: requestSpy,
+        };
+
+        await (adapter as unknown as { reopenAppServerThread(): Promise<void> }).reopenAppServerThread();
+
+        expect(requestSpy).toHaveBeenCalledWith('thread/start', expect.objectContaining({
+          cwd: expect.any(String),
+          approvalPolicy: 'never',
+        }));
+        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-fresh');
+        expect((adapter as unknown as { sessionId: string }).sessionId).toBe('thread-fresh');
+        // The new thread has no prior context — system prompt must re-send.
+        expect((adapter as unknown as { systemPromptSent: boolean }).systemPromptSent).toBe(false);
+      });
+    });
+
+    describe('exec mode', () => {
+      it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+        (adapter as unknown as { resumeCursor: unknown }).resumeCursor = {
+          provider: 'openai',
+          threadId: 'thread-old',
+          workspacePath: '/tmp',
+          capturedAt: Date.now(),
+          scanSource: 'native',
+        };
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { execSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'execSendMessageInner'
+        );
+        innerSpy
+          .mockImplementationOnce(async () => {
+            // At first call, adapter still has the stale resume state.
+            throw new Error('Thread does not exist: thread-old');
+          })
+          .mockImplementationOnce(async () => {
+            // Second call: caller has cleared resume state — verify here.
+            expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
+            expect((adapter as unknown as { sessionId: string }).sessionId).not.toBe('thread-old');
+          });
+
+        await adapter.sendInput('retry me');
+
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
+        expect((adapter as unknown as { sessionId: string }).sessionId).not.toBe('thread-old');
+        expect((adapter as unknown as { resumeCursor: unknown }).resumeCursor).toBeNull();
+      });
+
+      it('does not retry on non-thread-loss errors in exec mode', async () => {
+        const adapter = await spawnExecAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { execSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'execSendMessageInner'
+        );
+        innerSpy.mockRejectedValue(new Error('http 500 Internal Server Error'));
+
+        await expect(adapter.sendInput('boom')).rejects.toThrow(/http 500/i);
+        expect(innerSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not infinite-loop if fresh exec also fails with thread-not-found', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { execSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'execSendMessageInner'
+        );
+        innerSpy.mockRejectedValue(new Error('Thread does not exist'));
+
+        await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread does not exist/i);
+
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+      });
     });
   });
 });

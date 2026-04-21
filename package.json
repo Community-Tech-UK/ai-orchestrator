@@ -89,6 +89,7 @@
     "highlight.js": "^11.11.1",
     "html2canvas": "^1.4.1",
     "ignore": "^7.0.5",
+    "isomorphic-dompurify": "^3.9.0",
     "js-yaml": "^4.1.1",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",

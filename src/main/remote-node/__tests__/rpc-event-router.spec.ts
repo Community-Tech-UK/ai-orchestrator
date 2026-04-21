@@ -22,11 +22,15 @@ vi.mock('../worker-node-health', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock auth-validator — auth is tested in its own spec
+// Mock remote auth service — auth is tested in its own spec
 // ---------------------------------------------------------------------------
 
-vi.mock('../auth-validator', () => ({
-  validateAuthToken: vi.fn(() => true),
+const mockRemoteAuth = {
+  validateSessionToken: vi.fn(() => true),
+};
+
+vi.mock('../../auth/remote-auth', () => ({
+  getRemoteAuthService: () => mockRemoteAuth,
 }));
 
 // ---------------------------------------------------------------------------
@@ -167,10 +171,7 @@ describe('RpcEventRouter', () => {
     expect(registered?.activeInstances).toBe(0);
 
     expect(mockHealth.startMonitoring).toHaveBeenCalledWith('node-3');
-    expect(mockConnection.sendResponse).toHaveBeenCalledWith(
-      'node-3',
-      expect.objectContaining({ result: { ok: true } }),
-    );
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
   });
 
   it('falls back to WebSocket nodeId when params.nodeId is missing', () => {

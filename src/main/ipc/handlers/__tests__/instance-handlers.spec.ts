@@ -45,6 +45,8 @@ vi.mock('../../../logging/logger', () => ({
 // ============================================================
 
 const mockSettingsGet = vi.fn().mockReturnValue(undefined);
+const mockClearPrompt = vi.fn();
+const mockGrant = vi.fn();
 
 vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
@@ -67,6 +69,18 @@ vi.mock('../../../commands/command-manager', () => ({
     getCommands: vi.fn().mockReturnValue([]),
   }),
   CommandManager: vi.fn(),
+}));
+
+vi.mock('../../../remote/observer-server', () => ({
+  getRemoteObserverServer: () => ({
+    clearPrompt: mockClearPrompt,
+  }),
+}));
+
+vi.mock('../../../security/self-permission-granter', () => ({
+  getSelfPermissionGranter: () => ({
+    grant: mockGrant,
+  }),
 }));
 
 // ============================================================
@@ -117,6 +131,9 @@ function makeMockInstanceManager(): InstanceManager {
     serializeForIpc: vi.fn((inst: unknown) => inst as Record<string, unknown>),
     getOrchestrationHandler: vi.fn().mockReturnValue(orchestration),
     sendInputResponse: vi.fn(),
+    resumeAfterDeferredPermission: vi.fn(),
+    respawnAfterUnexpectedExit: vi.fn(),
+    emitSystemMessage: vi.fn(),
     clearPendingInputRequiredPermission: vi.fn(),
     recordInputRequiredPermissionDecision: vi.fn(),
   } as unknown as InstanceManager;
@@ -137,6 +154,8 @@ describe('instance-handlers', () => {
     handlers.clear();
     vi.clearAllMocks();
     mockSettingsGet.mockReturnValue(undefined);
+    mockGrant.mockReset();
+    mockClearPrompt.mockReset();
 
     mockInstanceManager = makeMockInstanceManager();
 
@@ -589,6 +608,129 @@ describe('instance-handlers', () => {
         action: 'allow',
         scope: 'session',
       });
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).not.toHaveBeenCalled();
+      expect(mockClearPrompt).toHaveBeenCalledWith('req-perm-1');
+    });
+
+    it('records deferred permission decisions before finalizing the prompt', async () => {
+      vi.mocked(mockInstanceManager.resumeAfterDeferredPermission).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-56',
+        requestId: 'req-defer-1',
+        response: 'approved',
+        decisionAction: 'allow',
+        decisionScope: 'session',
+        metadata: { type: 'deferred_permission' },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        requestId: 'req-defer-1',
+        responded: true,
+        resumed: true,
+      });
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
+        'inst-56',
+        true,
+      );
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
+        instanceId: 'inst-56',
+        requestId: 'req-defer-1',
+        action: 'allow',
+        scope: 'session',
+      });
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).not.toHaveBeenCalled();
+      expect(mockClearPrompt).toHaveBeenCalledWith('req-defer-1');
+    });
+
+    it('records allow/always only when the self-permission grant succeeds', async () => {
+      mockGrant.mockReturnValue({
+        ok: true,
+        rulePattern: 'Edit(/Users/test/.claude/settings.json)',
+        settingsFile: '/Users/test/.claude/settings.json',
+        alreadyExisted: false,
+      });
+      vi.mocked(mockInstanceManager.respawnAfterUnexpectedExit).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-57',
+        requestId: 'req-self-1',
+        response: 'allow',
+        decisionAction: 'allow',
+        decisionScope: 'always',
+        metadata: {
+          type: 'permission_denial',
+          tool_name: 'Edit',
+          full_path: '/Users/test/.claude/settings.json',
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        requestId: 'req-self-1',
+        responded: true,
+        granted: true,
+        rulePattern: 'Edit(/Users/test/.claude/settings.json)',
+        alreadyExisted: false,
+        respawned: true,
+      });
+      expect(mockGrant).toHaveBeenCalledWith({
+        toolName: 'Edit',
+        action: undefined,
+        path: '/Users/test/.claude/settings.json',
+        scopeTree: false,
+        instanceId: 'inst-57',
+        requestId: 'req-self-1',
+      });
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
+        instanceId: 'inst-57',
+        requestId: 'req-self-1',
+        action: 'allow',
+        scope: 'always',
+      });
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).not.toHaveBeenCalled();
+      expect(mockInstanceManager.respawnAfterUnexpectedExit).toHaveBeenCalledWith('inst-57');
+      expect(mockClearPrompt).toHaveBeenCalledWith('req-self-1');
+    });
+
+    it('does not persist allow/always when the self-permission grant fails', async () => {
+      mockGrant.mockReturnValue({
+        ok: false,
+        code: 'WRITE_FAILED',
+        message: 'disk full',
+        settingsFile: '/Users/test/.claude/settings.json',
+      });
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-58',
+        requestId: 'req-self-2',
+        response: 'allow',
+        decisionAction: 'allow',
+        decisionScope: 'always',
+        metadata: {
+          type: 'permission_denial',
+          tool_name: 'Edit',
+          full_path: '/Users/test/.claude/settings.json',
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        requestId: 'req-self-2',
+        responded: true,
+        granted: false,
+        rulePattern: undefined,
+        alreadyExisted: undefined,
+        respawned: false,
+      });
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).toHaveBeenCalledWith(
+        'inst-58',
+        'req-self-2',
+      );
+      expect(mockInstanceManager.respawnAfterUnexpectedExit).not.toHaveBeenCalled();
+      expect(mockClearPrompt).toHaveBeenCalledWith('req-self-2');
     });
 
     it('rejects missing instanceId with structured error', async () => {

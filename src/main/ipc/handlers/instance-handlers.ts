@@ -32,6 +32,7 @@ import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
 import { getRemoteObserverServer } from '../../remote/observer-server';
+import { getSelfPermissionGranter } from '../../security/self-permission-granter';
 
 const logger = getLogger('InstanceHandlers');
 
@@ -822,13 +823,6 @@ export function registerInstanceHandlers(deps: {
             approved
           );
 
-          instanceManager.clearPendingInputRequiredPermission(
-            validatedPayload.instanceId,
-            validatedPayload.requestId
-          );
-          getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
-
-          // Record permission decision if scope was provided
           if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
             instanceManager.recordInputRequiredPermissionDecision({
               instanceId: validatedPayload.instanceId,
@@ -836,11 +830,130 @@ export function registerInstanceHandlers(deps: {
               action: validatedPayload.decisionAction,
               scope: validatedPayload.decisionScope,
             });
+          } else {
+            instanceManager.clearPendingInputRequiredPermission(
+              validatedPayload.instanceId,
+              validatedPayload.requestId
+            );
           }
+          getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
 
           return {
             success: true,
             data: { requestId: validatedPayload.requestId, responded: true, resumed: true }
+          };
+        }
+
+        // Self-healing permission grant for tool_result permission denials.
+        // When the user selects "Always allow" for a `permission_denial` prompt
+        // (e.g. Claude was blocked from writing ~/.claude/settings.json by the
+        // CLI's own internal guard), write the matching rule to the user's
+        // Claude settings file and respawn the instance so the CLI picks it up.
+        // See: src/main/security/self-permission-granter.ts
+        if (
+          validatedPayload.metadata?.['type'] === 'permission_denial' &&
+          validatedPayload.decisionAction === 'allow' &&
+          validatedPayload.decisionScope === 'always'
+        ) {
+          const meta = validatedPayload.metadata;
+          const toolNameRaw = meta['tool_name'];
+          const actionRaw = meta['action'];
+          const fullPathRaw = meta['full_path'];
+          const displayPathRaw = meta['path'];
+
+          const grantResult = getSelfPermissionGranter().grant({
+            toolName: typeof toolNameRaw === 'string' ? toolNameRaw : undefined,
+            action: typeof actionRaw === 'string' ? actionRaw : undefined,
+            path:
+              typeof fullPathRaw === 'string'
+                ? fullPathRaw
+                : typeof displayPathRaw === 'string'
+                  ? displayPathRaw
+                  : undefined,
+            // User answer #2: default grant scope is "just this file".
+            scopeTree: false,
+            instanceId: validatedPayload.instanceId,
+            requestId: validatedPayload.requestId,
+          });
+
+          if (grantResult.ok) {
+            const suffix = grantResult.alreadyExisted ? ' (already present)' : '';
+            instanceManager.emitSystemMessage(
+              validatedPayload.instanceId,
+              `Permission rule ${grantResult.rulePattern} added to ${grantResult.settingsFile}${suffix}. Restarting session so Claude CLI picks up the new rule — please retry your request after the session reconnects.`,
+              {
+                selfPermissionGrant: true,
+                rulePattern: grantResult.rulePattern,
+                settingsFile: grantResult.settingsFile,
+                alreadyExisted: grantResult.alreadyExisted,
+              },
+            );
+          } else {
+            logger.warn('Self-permission grant failed', {
+              instanceId: validatedPayload.instanceId,
+              requestId: validatedPayload.requestId,
+              code: grantResult.code,
+              message: grantResult.message,
+            });
+            instanceManager.emitSystemMessage(
+              validatedPayload.instanceId,
+              `Failed to grant permission: ${grantResult.message}${grantResult.settingsFile ? ` (settings file: ${grantResult.settingsFile})` : ''}`,
+              {
+                selfPermissionGrantError: true,
+                code: grantResult.code,
+              },
+            );
+          }
+
+          if (grantResult.ok) {
+            // Keep our PermissionManager in sync with what was written to
+            // Claude's settings.json. Record before clearing so the pending
+            // request still exists in InstanceManager.
+            instanceManager.recordInputRequiredPermissionDecision({
+              instanceId: validatedPayload.instanceId,
+              requestId: validatedPayload.requestId,
+              action: 'allow',
+              scope: 'always',
+            });
+          } else {
+            instanceManager.clearPendingInputRequiredPermission(
+              validatedPayload.instanceId,
+              validatedPayload.requestId,
+            );
+          }
+          getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
+
+          // Only respawn when the grant actually landed — otherwise we'd just
+          // restart the session without fixing anything.
+          let respawned = false;
+          if (grantResult.ok) {
+            try {
+              await instanceManager.respawnAfterUnexpectedExit(validatedPayload.instanceId);
+              respawned = true;
+            } catch (respawnErr) {
+              logger.warn('Respawn after self-permission grant failed', {
+                instanceId: validatedPayload.instanceId,
+                requestId: validatedPayload.requestId,
+                error: respawnErr instanceof Error ? respawnErr.message : String(respawnErr),
+              });
+              instanceManager.emitSystemMessage(
+                validatedPayload.instanceId,
+                `Permission rule was saved but the session could not be restarted automatically. Please restart the instance manually.`,
+                { selfPermissionRespawnError: true },
+              );
+            }
+          }
+
+          return {
+            success: true,
+            data: {
+              requestId: validatedPayload.requestId,
+              responded: true,
+              granted: grantResult.ok,
+              rulePattern: grantResult.ok ? grantResult.rulePattern : undefined,
+              alreadyExisted: grantResult.ok ? grantResult.alreadyExisted : undefined,
+              respawned,
+            },
           };
         }
 
@@ -851,12 +964,6 @@ export function registerInstanceHandlers(deps: {
           validatedPayload.permissionKey
         );
 
-        instanceManager.clearPendingInputRequiredPermission(
-          validatedPayload.instanceId,
-          validatedPayload.requestId
-        );
-        getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
-
         // If the renderer attached a permission decision, persist it via PermissionManager.
         if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
           instanceManager.recordInputRequiredPermissionDecision({
@@ -865,7 +972,13 @@ export function registerInstanceHandlers(deps: {
             action: validatedPayload.decisionAction,
             scope: validatedPayload.decisionScope,
           });
+        } else {
+          instanceManager.clearPendingInputRequiredPermission(
+            validatedPayload.instanceId,
+            validatedPayload.requestId
+          );
         }
+        getRemoteObserverServer().clearPrompt(validatedPayload.requestId);
 
         return {
           success: true,

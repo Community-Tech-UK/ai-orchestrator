@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { parseCommandString, resolveTemplate } from '../../shared/types/command.types';
@@ -41,6 +42,7 @@ import { InstanceStateManager } from './instance-state';
 import { InstanceLifecycleManager } from './instance-lifecycle';
 import { InstanceCommunicationManager } from './instance-communication';
 import { InstanceContextManager } from './instance-context';
+import { InstanceEventAggregator } from './instance-event-aggregator';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
 import { WarmStartManager } from './warm-start-manager';
@@ -48,11 +50,18 @@ import { StuckProcessDetector } from './stuck-process-detector';
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
+import type {
+  ProviderName,
+  ProviderRuntimeEvent,
+  ProviderRuntimeEventEnvelope,
+} from '@contracts/types/provider-runtime-events';
+import { toProviderOutputEvent } from '../providers/provider-output-event';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -108,11 +117,13 @@ export class InstanceManager extends EventEmitter {
   private persistence: InstancePersistenceManager;
   private warmStart: WarmStartManager;
   private stuckDetector: StuckProcessDetector;
+  private lifecycleEvents = new InstanceEventAggregator();
 
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
   private settings = getSettingsManager();
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
+  private providerRuntimeSeqByInstance = new Map<string, number>();
 
   constructor() {
     super();
@@ -154,6 +165,7 @@ export class InstanceManager extends EventEmitter {
       getAdapter: (id) => this.state.getAdapter(id),
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
       deleteAdapter: (id) => this.state.deleteAdapter(id),
+      transitionState: (instance, status) => this.lifecycle.transitionStatePublic(instance, status),
       queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState) => (
         this.state.queueUpdate(
           id,
@@ -216,6 +228,8 @@ export class InstanceManager extends EventEmitter {
         const inst = this.state.getInstance(id);
         return inst?.contextUsage;
       },
+      emitProviderRuntimeEvent: (instanceId, event, options) =>
+        this.emitProviderRuntimeEvent(instanceId, event, options),
     });
 
     // Orchestration manager needs dependencies
@@ -297,7 +311,7 @@ export class InstanceManager extends EventEmitter {
           },
         };
         this.communication.addToOutputBuffer(instance, warningMessage);
-        this.emit('instance:output', { instanceId, message: warningMessage });
+        this.publishOutput(instanceId, warningMessage);
       }
     });
     this.stuckDetector.on('process:stuck', ({ instanceId }) => {
@@ -318,7 +332,7 @@ export class InstanceManager extends EventEmitter {
         allowNestedOrchestration: settingsAll.allowNestedOrchestration,
       },
       (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
-      (event, payload) => this.emit(event, payload)
+      (instanceId, message) => this.publishOutput(instanceId, message),
     );
 
     // Start periodic task timeout checking
@@ -347,7 +361,7 @@ export class InstanceManager extends EventEmitter {
           allowNestedOrchestration: newSettings.allowNestedOrchestration,
         },
         (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
-        (event, payload) => this.emit(event, payload)
+        (instanceId, message) => this.publishOutput(instanceId, message),
       );
     });
   }
@@ -361,23 +375,37 @@ export class InstanceManager extends EventEmitter {
     this.state.on('batch-update', (payload) => this.emit('instance:batch-update', payload));
 
     // Communication events
-    this.communication.on('output', (payload) => this.emit('instance:output', payload));
+    this.communication.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message));
     this.communication.on('input-required', (payload) => {
       logger.info('Input-required event received', summarizeInputRequiredPayload(payload));
       void this.handleInputRequired(payload);
     });
-    this.communication.on('provider:normalized-event', (envelope) =>
-      this.emit('provider:normalized-event', envelope)
-    );
 
     // Lifecycle events
-    this.lifecycle.on('created', (payload) => this.emit('instance:created', payload));
-    this.lifecycle.on('removed', (instanceId) => this.emit('instance:removed', instanceId));
-    this.lifecycle.on('output', (payload) => this.emit('instance:output', payload));
+    this.lifecycle.on('created', (payload) => {
+      const instanceId = typeof payload['id'] === 'string' ? String(payload['id']) : null;
+      if (instanceId) {
+        const instance = this.state.getInstance(instanceId);
+        if (instance) {
+          this.emit('instance:event', this.lifecycleEvents.recordCreated(instance));
+        }
+      }
+      this.emit('instance:created', payload);
+    });
+    this.lifecycle.on('removed', (instanceId) => {
+      const instance = this.state.getInstance(instanceId);
+      this.providerRuntimeSeqByInstance.delete(instanceId);
+      this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
+      this.emit('instance:removed', instanceId);
+    });
+    this.lifecycle.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message));
     this.lifecycle.on('agent-changed', (payload) => this.emit('instance:agent-changed', payload));
     this.lifecycle.on('yolo-toggled', (payload) => this.emit('instance:yolo-toggled', payload));
     this.lifecycle.on('model-changed', (payload) => this.emit('instance:model-changed', payload));
-    this.lifecycle.on('state-update', (payload) => this.emit('instance:state-update', payload));
+    this.lifecycle.on('state-update', (payload) => {
+      this.emit('instance:event', this.lifecycleEvents.recordStateUpdate(payload));
+      this.emit('instance:state-update', payload);
+    });
     this.lifecycle.on('memory:warning', (stats) => this.emit('memory:warning', stats));
     this.lifecycle.on('memory:critical', (stats) => this.emit('memory:critical', stats));
     this.lifecycle.on('memory:stats', (stats) => this.emit('memory:stats', stats));
@@ -470,7 +498,7 @@ export class InstanceManager extends EventEmitter {
       };
 
       this.communication.addToOutputBuffer(instance, systemMessage);
-      this.emit('instance:output', { instanceId, message: systemMessage });
+      this.publishOutput(instanceId, systemMessage);
     }
 
     return true;
@@ -534,21 +562,38 @@ export class InstanceManager extends EventEmitter {
 
       this.pendingPermissionRequestsByInputId.set(`${payload.instanceId}:${payload.requestId}`, request);
 
-      const decision = getPermissionManager().checkPermission(request);
-      if (decision.action === 'allow' || decision.action === 'deny') {
+      // Rationale: this branch handles tool_result permission denials that Claude CLI
+      // already rejected internally (e.g., edits to ~/.claude/settings*.json, which
+      // --dangerously-skip-permissions does NOT bypass). Because the CLI has already
+      // failed the tool_use, any "Permission granted." reply from the orchestrator is
+      // a no-op — `claude-cli-adapter.sendRaw` deliberately doesn't forward it to
+      // stdin (the CLI in print-mode isn't awaiting input). Therefore:
+      //
+      //   - YOLO's auto-allow (no matchedRule) is meaningless here and must NOT
+      //     suppress the user-visible prompt; otherwise the user sees nothing while
+      //     Claude silently retries the same denied tool_use and gives up.
+      //   - Rule-based allow is equally futile — same no-op sendRaw problem.
+      //   - Only an explicit matchedRule `deny` should short-circuit silently, since
+      //     that represents a deliberate user policy to abandon this kind of action.
+      //
+      // Everything else (YOLO allow, rule allow, default `ask`) falls through to
+      // `emit('instance:input-required', …)` below so the renderer shows the prompt.
+      const decision = getPermissionEnforcer().enforce(request);
+      if (decision.action === 'deny' && decision.matchedRule) {
         logger.info('[APPROVAL_TRACE] manager_auto_decision', {
           approvalTraceId,
           instanceId: payload.instanceId,
           requestId: payload.requestId,
           decision: decision.action,
-          reason: decision.reason
+          reason: decision.reason,
+          matchedRule: decision.matchedRule.name,
         });
-        const response =
-          decision.action === 'allow'
-            ? `Permission granted. (Rule: ${decision.reason})`
-            : `Permission denied. (Rule: ${decision.reason})`;
         try {
-          await this.sendInputResponse(payload.instanceId, response, permissionKey);
+          await this.sendInputResponse(
+            payload.instanceId,
+            `Permission denied. (Rule: ${decision.reason})`,
+            permissionKey,
+          );
         } catch {
           /* intentionally ignored: auto-response send failure is non-critical */
         }
@@ -559,11 +604,11 @@ export class InstanceManager extends EventEmitter {
             id: generateId(),
             timestamp: Date.now(),
             type: 'system' as const,
-            content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} by rules: ${decision.reason}`,
+            content: `Permission auto-denied by rules: ${decision.reason}`,
             metadata: { permissionDecision: true, action: decision.action, reason: decision.reason }
           };
           this.communication.addToOutputBuffer(instance, msg);
-          this.emit('instance:output', { instanceId: payload.instanceId, message: msg });
+          this.publishOutput(payload.instanceId, msg);
         }
 
         return;
@@ -599,7 +644,7 @@ export class InstanceManager extends EventEmitter {
 
       this.pendingPermissionRequestsByInputId.set(`${payload.instanceId}:${payload.requestId}`, request);
 
-      const decision = getPermissionManager().checkPermission(request);
+      const decision = getPermissionEnforcer().enforce(request);
       if (decision.action === 'allow' || decision.action === 'deny') {
         logger.info('[APPROVAL_TRACE] manager_auto_decision_deferred', {
           approvalTraceId,
@@ -632,7 +677,7 @@ export class InstanceManager extends EventEmitter {
             metadata: { permissionDecision: true, action: decision.action, reason: decision.reason }
           };
           this.communication.addToOutputBuffer(instance, msg);
-          this.emit('instance:output', { instanceId: payload.instanceId, message: msg });
+          this.publishOutput(payload.instanceId, msg);
         }
 
         return;
@@ -667,7 +712,7 @@ export class InstanceManager extends EventEmitter {
     if (!req) return;
     this.pendingPermissionRequestsByInputId.delete(key);
     try {
-      getPermissionManager().recordUserDecision(params.instanceId, req, params.action, params.scope);
+      getPermissionEnforcer().recordUserDecision(params.instanceId, req, params.action, params.scope);
     } catch {
       /* intentionally ignored: recording user decision failure is non-critical */
     }
@@ -683,6 +728,72 @@ export class InstanceManager extends EventEmitter {
       if (key.startsWith(keyPrefix)) {
         this.pendingPermissionRequestsByInputId.delete(key);
       }
+    }
+  }
+
+  private publishOutput(instanceId: string, message: OutputMessage): void {
+    this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message));
+  }
+
+  private emitProviderRuntimeEvent(
+    instanceId: string,
+    event: ProviderRuntimeEvent,
+    options?: {
+      provider?: ProviderName;
+      sessionId?: string;
+      timestamp?: number;
+    },
+  ): void {
+    const instance = this.state.getInstance(instanceId);
+    const provider = this.resolveProviderName(instanceId, options?.provider, instance?.provider);
+    if (!provider) {
+      return;
+    }
+
+    const envelope: ProviderRuntimeEventEnvelope = {
+      eventId: randomUUID(),
+      seq: this.nextProviderRuntimeSeq(instanceId),
+      timestamp: options?.timestamp ?? Date.now(),
+      provider,
+      instanceId,
+      sessionId: options?.sessionId ?? instance?.providerSessionId ?? instance?.sessionId,
+      event,
+    };
+
+    this.emit('provider:normalized-event', envelope);
+  }
+
+  private nextProviderRuntimeSeq(instanceId: string): number {
+    const next = this.providerRuntimeSeqByInstance.get(instanceId) ?? 0;
+    this.providerRuntimeSeqByInstance.set(instanceId, next + 1);
+    return next;
+  }
+
+  private resolveProviderName(
+    instanceId: string,
+    explicitProvider: ProviderName | undefined,
+    instanceProvider: Instance['provider'] | undefined,
+  ): ProviderName | null {
+    if (explicitProvider) {
+      return explicitProvider;
+    }
+
+    switch (instanceProvider) {
+      case 'claude':
+      case 'codex':
+      case 'gemini':
+      case 'copilot':
+        return instanceProvider;
+      case 'auto':
+      case undefined:
+        logger.debug('Skipping provider runtime event before provider resolution', { instanceId });
+        return null;
+      default:
+        logger.warn('Unsupported provider for runtime envelope', {
+          instanceId,
+          provider: instanceProvider,
+        });
+        return null;
     }
   }
 
@@ -962,7 +1073,7 @@ export class InstanceManager extends EventEmitter {
     if (shouldRunAsSubtask) {
       // Emit user message before spawning subtask (subtask path doesn't go through communication.sendInput)
       this.communication.addToOutputBuffer(instance, userMessage);
-      this.emit('instance:output', { instanceId, message: userMessage });
+      this.publishOutput(instanceId, userMessage);
       await this.spawnCommandSubtask(instanceId, resolvedMessage, {
         commandName: resolvedCommandName!,
         model: resolvedCommandMeta?.model,
@@ -1007,7 +1118,7 @@ export class InstanceManager extends EventEmitter {
     // Skip on retries to avoid duplicate user bubbles in the chat.
     if (!options?.isRetry) {
       this.communication.addToOutputBuffer(instance, userMessage);
-      this.emit('instance:output', { instanceId, message: userMessage });
+      this.publishOutput(instanceId, userMessage);
     }
 
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
@@ -1044,7 +1155,7 @@ export class InstanceManager extends EventEmitter {
       metadata: { source: 'command-subtask', commandName: options.commandName, model: routingDecision.model, agent: options.agent },
     };
     this.communication.addToOutputBuffer(parent, systemNote);
-    this.emit('instance:output', { instanceId: parentId, message: systemNote });
+    this.publishOutput(parentId, systemNote);
 
     // Create a child instance directly (same internal mechanics as orchestrator-driven spawning).
     // This intentionally does not reference external repos; it uses our own child prompt format.
@@ -1084,8 +1195,53 @@ export class InstanceManager extends EventEmitter {
     return this.communication.sendInputResponse(instanceId, response, permissionKey);
   }
 
+  /**
+   * Append a message to the instance output stream and publish the canonical
+   * provider runtime envelope.
+   */
+  emitOutputMessage(instanceId: string, message: OutputMessage): void {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) return;
+    this.communication.addToOutputBuffer(instance, message);
+    this.publishOutput(instanceId, message);
+  }
+
+  /**
+   * Append a system-level message to the instance's output buffer and publish
+   * it through the canonical provider runtime pipeline. Used by orchestration
+   * flows (permission grants, policy notices) that run outside the normal
+   * CLI-driven output path.
+   */
+  emitSystemMessage(
+    instanceId: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): void {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) return;
+    const msg = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system' as const,
+      content,
+      ...(metadata ? { metadata } : {}),
+    };
+    this.emitOutputMessage(instanceId, msg);
+  }
+
   queueContinuityPreamble(instanceId: string, preamble: string): void {
     this.communication.queueContinuityPreamble(instanceId, preamble);
+  }
+
+  /**
+   * Respawn the CLI for an instance using the same resume-or-fresh logic that
+   * fires when a process dies unexpectedly. Exposed publicly so orchestration
+   * flows (e.g. self-healing permission grants that require the CLI to re-read
+   * `~/.claude/settings.json`) can force a reconnect without losing replay
+   * continuity. Delegates to the private `lifecycle` manager.
+   */
+  async respawnAfterUnexpectedExit(instanceId: string): Promise<void> {
+    return this.lifecycle.respawnAfterUnexpectedExit(instanceId);
   }
 
   // ============================================
@@ -1287,12 +1443,27 @@ export class InstanceManager extends EventEmitter {
     // a child that produced no output would echo back one of the parent's messages.
     if (!storage.hasResult(childId)) {
       const task = taskManager.getTaskByChildId(childId);
+      const isOwn = (m: { metadata?: Record<string, unknown> }): boolean =>
+        !m.metadata?.['seededFromParent'];
       const lastAssistant = [...child.outputBuffer]
         .reverse()
-        .find((m) => m.type === 'assistant' && !m.metadata?.['seededFromParent']);
+        .find((m) => m.type === 'assistant' && isOwn(m));
+      // If there's no assistant message, fall back to the last error message —
+      // this happens with non-Claude providers (e.g. Gemini/Copilot) when a
+      // tool call fails silently and the adapter never produces a synthesized
+      // assistant reply. Using the error text gives the parent an actionable
+      // summary instead of an unhelpful "Child exited without producing any
+      // output." that hides the real cause.
+      const lastError = lastAssistant
+        ? undefined
+        : [...child.outputBuffer]
+            .reverse()
+            .find((m) => m.type === 'error' && isOwn(m));
       const summary = lastAssistant
         ? lastAssistant.content.substring(0, 500)
-        : 'Child exited without producing any output.';
+        : lastError
+          ? `Child errored before producing a reply: ${lastError.content.substring(0, 500)}`
+          : 'Child exited without producing any output.';
       const success = exitCode === 0 && lastAssistant !== undefined;
 
       try {
@@ -1345,7 +1516,7 @@ export class InstanceManager extends EventEmitter {
         metadata: { source: 'child-result', childId, exitCode }
       };
       this.communication.addToOutputBuffer(parent, resultMessage);
-      this.emit('instance:output', { instanceId: child.parentId, message: resultMessage });
+      this.publishOutput(child.parentId, resultMessage);
     }
 
     // 4. Clean up tasks in TaskManager

@@ -183,16 +183,6 @@ export class InstanceIpcService {
   }
 
   /**
-   * Subscribe to instance output
-   */
-  onInstanceOutput(callback: (output: unknown) => void): () => void {
-    if (!this.api) return () => { /* noop */ };
-    return this.api.onInstanceOutput((output) => {
-      this.ngZone.run(() => callback(output));
-    });
-  }
-
-  /**
    * Subscribe to batch updates
    */
   onBatchUpdate(callback: (batch: unknown) => void): () => void {

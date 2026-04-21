@@ -65,7 +65,10 @@ import { getCheckpointManager } from '../session/checkpoint-manager';
 import type { DetectedFailure } from '../../shared/types/recovery.types';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
-import { InstanceStateMachine } from './instance-state-machine';
+import {
+  IllegalTransitionError,
+  InstanceStateMachine,
+} from './instance-state-machine';
 import { getAutoTitleService } from './auto-title-service';
 import { ToolListFilter } from '../tools/tool-list-filter';
 import type { DenyRule } from '../tools/tool-list-filter';
@@ -535,10 +538,8 @@ export class InstanceLifecycleManager extends EventEmitter {
   /**
    * Public wrapper for transitionState — used by InstanceManager.updateInstanceStatus().
    *
-   * Attempts to transition the instance's state machine to `newState`.
-   * If the transition is invalid, logs a warning but still sets the status
-   * so that existing behaviour is preserved (observability-only, no breakage).
-   * If no state machine exists for the instance, falls back to direct assignment.
+   * The lifecycle state machine is authoritative. Illegal transitions fail
+   * fast instead of mutating state behind the state machine's back.
    */
   transitionStatePublic(instance: Instance, newState: InstanceStatus): void {
     this.transitionState(instance, newState);
@@ -546,29 +547,30 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   private transitionState(instance: Instance, newState: InstanceStatus): void {
     const previousStatus = instance.status;
-    const sm = this.deps.getStateMachine?.(instance.id);
-    if (!sm) {
-      // Legacy/unknown instance — fall back to direct assignment.
-      instance.status = newState;
-      this.emit('state-update', {
-        instanceId: instance.id,
-        status: instance.status,
-        previousStatus,
-        timestamp: Date.now(),
-      });
+    if (previousStatus === newState) {
       return;
     }
 
-    if (sm.canTransition(newState)) {
-      sm.transition(newState);
-    } else {
-      logger.warn('Invalid state transition detected', {
-        instanceId: instance.id,
-        from: sm.current,
-        to: newState,
-      });
+    let sm = this.deps.getStateMachine?.(instance.id);
+    if (!sm) {
+      sm = new InstanceStateMachine(previousStatus);
+      this.deps.setStateMachine?.(instance.id, sm);
     }
-    instance.status = newState;
+
+    try {
+      sm.transition(newState);
+    } catch (error) {
+      if (error instanceof IllegalTransitionError) {
+        logger.error('Illegal lifecycle transition blocked', undefined, {
+          instanceId: instance.id,
+          from: previousStatus,
+          to: newState,
+        });
+      }
+      throw error;
+    }
+
+    instance.status = sm.current;
     this.emit('state-update', {
       instanceId: instance.id,
       status: instance.status,

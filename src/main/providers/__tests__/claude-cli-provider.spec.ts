@@ -73,9 +73,8 @@ describe('ClaudeCliProvider inline translation', () => {
   });
 
   it('no legacy EventEmitter emission — emit count stays at 0', () => {
-    const outputSpy = vi.fn();
-    provider.on('output', outputSpy);
+    expect('on' in (provider as unknown as Record<string, unknown>)).toBe(false);
     adapter.emit('output', { id: 'm', type: 'assistant', content: 'x', timestamp: Date.now() });
-    expect(outputSpy).not.toHaveBeenCalled();
+    expect(envelopes.at(-1)!.event).toMatchObject({ kind: 'output', content: 'x' });
   });
 });

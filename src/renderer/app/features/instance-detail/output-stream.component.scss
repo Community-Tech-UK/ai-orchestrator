@@ -1,0 +1,561 @@
+      :host {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        position: relative;
+      }
+
+      /* #7: Anchor content to bottom when conversation is short */
+      .output-stream {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 8px 12px 8px 4px;
+        background: transparent;
+        border-radius: 18px;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        /* Use margin-top:auto on first child instead of justify-content:flex-end
+           to anchor short content to bottom without breaking scroll */
+      }
+
+      /* Push content to bottom when conversation is short */
+      .transcript-item:first-child {
+        margin-top: auto;
+      }
+
+      .transcript-item {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
+      /* #1: Tighter vertical spacing */
+      .message {
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        box-sizing: border-box;
+        padding: 2px 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        margin-bottom: 4px;
+      }
+
+      /* #4: Continuation messages tuck tight */
+      .message.continuation {
+        margin-top: -2px;
+        padding-top: 0;
+      }
+
+      /* User messages — right-aligned bubble, left-aligned text */
+      .message-user {
+        width: fit-content;
+        max-width: 85%;
+        margin-left: auto;
+        padding: 10px 16px;
+        text-align: left;
+        background: rgba(255, 255, 255, 0.07);
+        border: none;
+        box-shadow: none;
+        border-radius: 18px;
+        color: var(--text-secondary);
+      }
+
+      /* User message content — flex layout for inline timestamp */
+      .message-user .message-content {
+        display: flex;
+        flex-wrap: wrap;
+        column-gap: 12px;
+        row-gap: 2px;
+      }
+
+      .message-user .message-content > .markdown-content {
+        flex: 0 0 auto;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      /* Inline timestamp — sits right of text, drops below when text is long */
+      .inline-timestamp {
+        flex-shrink: 0;
+        margin-left: auto;
+        align-self: flex-end;
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-muted);
+        opacity: 0.5;
+        line-height: 1;
+        user-select: none;
+      }
+
+      .message-assistant {
+        margin-right: auto;
+        color: var(--text-primary);
+      }
+
+      /* #6: System messages — constrained width, centered */
+      .message-system {
+        width: fit-content;
+        max-width: 90%;
+        margin: 4px auto;
+        padding: 8px 14px;
+        background: rgba(var(--info-rgb), 0.06);
+        border: 1px solid rgba(var(--info-rgb), 0.10);
+        border-radius: 12px;
+        font-size: 12px;
+        color: var(--info-color);
+      }
+
+      .message-error {
+        width: fit-content;
+        max-width: 90%;
+        margin: 4px auto;
+        padding: 8px 14px;
+        background: var(--error-bg);
+        border: 1px solid rgba(var(--error-rgb), 0.16);
+        border-radius: 12px;
+        color: var(--error-color);
+      }
+
+      .message-tool_use,
+      .message-tool_result {
+        width: 100%;
+        padding: 8px 10px;
+        background: rgba(6, 10, 9, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        font-size: 12px;
+      }
+
+      .repeat-badge {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted, #9ca3af);
+        background: rgba(255, 255, 255, 0.06);
+        padding: 1px 6px;
+        border-radius: 10px;
+        line-height: 1.2;
+      }
+
+      /* System messages: info tone (not alarming) */
+      .message-system .repeat-badge {
+        color: var(--info-color);
+        background: rgba(var(--info-rgb), 0.12);
+      }
+
+      /* #5: Assistant label — smaller, subtler */
+      .message-header {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        min-width: 0;
+        margin-bottom: 2px;
+        font-size: 9px;
+      }
+
+      .message-type {
+        text-transform: uppercase;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        opacity: 0.36;
+        font-family: var(--font-mono);
+        font-size: 8px;
+      }
+
+      /* #3: Timestamps hidden by default, shown on hover */
+      .message-time {
+        font-family: var(--font-mono);
+        opacity: 0;
+        margin-left: auto;
+        font-size: 9px;
+        transition: opacity var(--transition-fast);
+      }
+
+      .message:hover .message-time,
+      .thought-group:hover .message-time {
+        opacity: 0.32;
+      }
+
+      .copy-message-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 24px;
+        height: 24px;
+        padding: 0 4px;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        color: var(--text-muted);
+        cursor: pointer;
+        opacity: 0;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+
+        svg {
+          flex-shrink: 0;
+        }
+      }
+
+      .copy-message-btn.copied {
+        background: rgba(34, 197, 94, 0.12);
+        color: #16a34a;
+        border: 1px solid rgba(34, 197, 94, 0.4);
+        opacity: 1;
+      }
+
+      .copy-label {
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 4px;
+      }
+
+      .message:hover .copy-message-btn {
+        opacity: 1;
+      }
+
+      /* Hover action bar — appears below messages on hover */
+      .message-hover-actions {
+        display: flex;
+        gap: 4px;
+        padding: 4px 0 0;
+        opacity: 0;
+        transition: opacity var(--transition-fast);
+      }
+
+      .message-hover-actions.align-right {
+        justify-content: flex-end;
+      }
+
+      .transcript-item:hover .message-hover-actions {
+        opacity: 1;
+      }
+
+      .action-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        border-radius: var(--radius-sm);
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+
+        svg {
+          flex-shrink: 0;
+        }
+      }
+
+      .action-btn.copied {
+        background: rgba(34, 197, 94, 0.12);
+        color: #16a34a;
+        border: 1px solid rgba(34, 197, 94, 0.4);
+      }
+
+      .message-content {
+        line-height: 1.62;
+        font-size: var(--output-font-size, 15px);
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .empty-stream {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: var(--text-secondary);
+        text-align: center;
+        border: 1px dashed rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .empty-stream .hint {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: var(--spacing-xs);
+      }
+
+      /* #1: Tighter thought-group spacing */
+      .thought-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+        box-sizing: border-box;
+        margin-right: auto;
+        margin-bottom: 4px;
+      }
+
+      .thought-group .message-assistant {
+        margin-right: 0;
+      }
+
+      /* File path styling - make clickable */
+      :host ::ng-deep .file-path {
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: rgba(var(--primary-rgb), 0.2);
+          border-color: var(--primary-color);
+          text-decoration: underline;
+        }
+      }
+
+      .scroll-to-top-btn,
+      .scroll-to-bottom-btn {
+        position: absolute;
+        right: 20px;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(12, 18, 17, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        transition: all var(--transition-fast);
+        z-index: 10;
+        flex-shrink: 0;
+
+        &:hover {
+          background: rgba(var(--primary-rgb), 0.92);
+          border-color: rgba(var(--primary-rgb), 0.92);
+          color: var(--bg-primary);
+          transform: scale(1.05);
+          box-shadow: 0 10px 20px rgba(var(--primary-rgb), 0.24);
+        }
+
+        svg {
+          flex-shrink: 0;
+        }
+      }
+
+      .scroll-to-top-btn {
+        top: 20px;
+      }
+
+      .scroll-to-bottom-btn {
+        bottom: 20px;
+      }
+
+      /* Restore-fallback notice — amber callout for lost CLI context */
+      .restore-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: fit-content;
+        max-width: 90%;
+        margin: 8px auto;
+        padding: 10px 16px;
+        background: rgba(245, 158, 11, 0.06);
+        border: 1px solid rgba(245, 158, 11, 0.14);
+        border-radius: 12px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: rgba(245, 158, 11, 0.85);
+      }
+
+      .restore-notice-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+        opacity: 0.7;
+      }
+
+      .restore-notice-content {
+        min-width: 0;
+      }
+
+      .compaction-boundary {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-md);
+        padding: 4px 0;
+        user-select: none;
+      }
+
+      .boundary-line {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(
+          to right,
+          transparent,
+          var(--border-color),
+          transparent
+        );
+      }
+
+      .boundary-label {
+        font-size: 11px;
+        font-family: var(--font-mono);
+        color: var(--text-muted);
+        white-space: nowrap;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .load-more-skeleton {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 16px 12px;
+      }
+
+      .skeleton-line {
+        height: 12px;
+        border-radius: 6px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.03) 0%,
+          rgba(255, 255, 255, 0.06) 50%,
+          rgba(255, 255, 255, 0.03) 100%
+        );
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+      }
+
+      .skeleton-line.wide { width: 80%; }
+      .skeleton-line.medium { width: 55%; }
+      .skeleton-line.narrow { width: 35%; }
+
+      @keyframes skeleton-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      .load-more-btn {
+        display: block;
+        margin: 8px auto 12px;
+        padding: 6px 16px;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.04);
+          border-color: rgba(255, 255, 255, 0.15);
+          color: var(--text-secondary);
+        }
+      }
+
+      .tool-calls-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 4px 0 8px;
+        padding: 5px 12px;
+        background: transparent;
+        border: 1px dashed rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-family: var(--font-mono);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.03);
+          border-color: rgba(255, 255, 255, 0.12);
+          color: var(--text-secondary);
+        }
+
+        .toggle-icon {
+          font-size: 9px;
+          opacity: 0.6;
+        }
+      }
+
+      /* Work-cycle: collapsible wrapper around a run of thinking/tool/error items */
+      .work-cycle {
+        width: 100%;
+        margin: 4px 0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.015);
+        overflow: hidden;
+      }
+
+      .work-cycle-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-family: var(--font-mono);
+        text-align: left;
+        cursor: pointer;
+        transition: background var(--transition-fast), color var(--transition-fast);
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.03);
+          color: var(--text-secondary);
+        }
+
+        .cycle-toggle-icon {
+          font-size: 10px;
+          opacity: 0.7;
+          width: 10px;
+          flex-shrink: 0;
+        }
+
+        .cycle-summary {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .cycle-duration {
+          flex-shrink: 0;
+          opacity: 0.5;
+          font-size: 11px;
+        }
+      }
+
+      .work-cycle.expanded .work-cycle-header {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .work-cycle-content {
+        padding: 6px 10px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }

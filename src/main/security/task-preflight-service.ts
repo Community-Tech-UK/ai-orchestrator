@@ -2,6 +2,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getBrowserAutomationHealthService } from '../browser-automation/browser-automation-health';
+import { BranchFreshness } from '../git/branch-freshness';
 import { getLogger } from '../logging/logger';
 import { getMcpManager } from '../mcp/mcp-manager';
 import { getFilesystemPolicy } from './filesystem-policy';
@@ -48,6 +49,7 @@ export class TaskPreflightService {
       resolveInstructionStack({ workingDirectory }),
       getBrowserAutomationHealthService().diagnose(),
     ]);
+    const branchFreshness = await new BranchFreshness().inspect(workingDirectory);
 
     const filesystem = getFilesystemPolicy();
     const filesystemConfig = filesystem.getConfig();
@@ -152,6 +154,14 @@ export class TaskPreflightService {
 
     if (hasProjectPermissionFile) {
       warnings.add('A project permission file is present. Runtime permission matching may be narrower than the global preset.');
+    }
+
+    if (branchFreshness.state === 'stale') {
+      warnings.add(branchFreshness.summary);
+      links.push({ label: 'Review branch status', route: '/vcs' });
+    } else if (branchFreshness.state === 'diverged') {
+      blockers.push(branchFreshness.summary);
+      links.push({ label: 'Open git status', route: '/vcs' });
     }
 
     const report: TaskPreflightReport = {

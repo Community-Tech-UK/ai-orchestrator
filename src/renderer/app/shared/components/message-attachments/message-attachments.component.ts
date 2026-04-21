@@ -450,28 +450,29 @@ export class MessageAttachmentsComponent {
   /**
    * Handle right-click on preview image to show native context menu
    */
-  onImageContextMenu(event: MouseEvent): void {
+  async onImageContextMenu(event: MouseEvent): Promise<void> {
     event.preventDefault();
+    // Stop bubbling so the enclosing transcript-item's (contextmenu) handler in
+    // output-stream.component doesn't also open the "Copy message / Fork from here"
+    // Angular menu on top of our native Electron menu.
+    event.stopPropagation();
+
     const attachment = this.previewAttachment();
     if (!attachment?.data) return;
 
-    this.ipc.invoke('image:context-menu', {
-      dataUrl: attachment.data,
-      filename: attachment.name,
-    });
+    await this.showImageContextMenu(attachment);
   }
 
   /**
    * Handle right-click on thumbnail to show native context menu
    */
-  onThumbnailContextMenu(event: MouseEvent, attachment: AttachmentDisplay): void {
+  async onThumbnailContextMenu(event: MouseEvent, attachment: AttachmentDisplay): Promise<void> {
     event.preventDefault();
+    event.stopPropagation();
+
     if (!attachment.data) return;
 
-    this.ipc.invoke('image:context-menu', {
-      dataUrl: attachment.data,
-      filename: attachment.name,
-    });
+    await this.showImageContextMenu(attachment);
   }
 
   /**
@@ -481,8 +482,14 @@ export class MessageAttachmentsComponent {
     const attachment = this.previewAttachment();
     if (!attachment?.data) return;
 
+    const dataUrl = await this.toClipboardCompatibleDataUrl(attachment.data);
+    if (!dataUrl) {
+      console.error('Failed to prepare image for clipboard');
+      return;
+    }
+
     const result = await this.ipc.invoke('image:copy-to-clipboard', {
-      dataUrl: attachment.data,
+      dataUrl,
     });
 
     if (result.success) {
@@ -490,5 +497,62 @@ export class MessageAttachmentsComponent {
     } else {
       console.error('Failed to copy image to clipboard:', result.error?.message);
     }
+  }
+
+  /**
+   * Show the native Electron context menu for an image.
+   * Converts the data URL to a clipboard-compatible format (PNG) first so
+   * that Electron's nativeImage.createFromDataURL — which only accepts PNG
+   * and JPEG — can round-trip our pasted WebP tiles.
+   */
+  private async showImageContextMenu(attachment: AttachmentDisplay): Promise<void> {
+    const dataUrl = await this.toClipboardCompatibleDataUrl(attachment.data!);
+    if (!dataUrl) {
+      console.error('Failed to prepare image for native context menu');
+      return;
+    }
+
+    const result = await this.ipc.invoke('image:context-menu', {
+      dataUrl,
+      filename: attachment.name,
+    });
+
+    if (!result.success) {
+      console.error('Image context menu failed:', result.error?.message);
+    }
+  }
+
+  /**
+   * Electron's nativeImage.createFromDataURL only supports PNG and JPEG.
+   * Pasted screenshots are stored as WebP (see instance-list.store tiling),
+   * so re-encode anything that isn't already PNG/JPEG via a canvas.
+   */
+  private toClipboardCompatibleDataUrl(dataUrl: string): Promise<string | null> {
+    const header = dataUrl.slice(0, 32).toLowerCase();
+    if (header.startsWith('data:image/png') || header.startsWith('data:image/jpeg')) {
+      return Promise.resolve(dataUrl);
+    }
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx || canvas.width === 0 || canvas.height === 0) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        try {
+          resolve(canvas.toDataURL('image/png'));
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
   }
 }

@@ -3,9 +3,21 @@ import type { InstanceStatus } from '../../shared/types/instance.types';
 /**
  * Error thrown when an invalid state transition is attempted.
  */
-export class InvalidTransitionError extends Error {
+export class IllegalTransitionError extends Error {
   constructor(from: InstanceStatus, to: InstanceStatus) {
-    super(`Invalid transition: ${from} → ${to}`);
+    super(`Illegal transition: ${from} → ${to}`);
+    this.name = 'IllegalTransitionError';
+  }
+}
+
+/**
+ * Back-compat alias retained while callers migrate to IllegalTransitionError.
+ *
+ * @deprecated Prefer {@link IllegalTransitionError}.
+ */
+export class InvalidTransitionError extends IllegalTransitionError {
+  constructor(from: InstanceStatus, to: InstanceStatus) {
+    super(from, to);
     this.name = 'InvalidTransitionError';
   }
 }
@@ -81,7 +93,7 @@ export class InstanceStateMachine {
 
   /**
    * Transitions to `next` state.
-   * Throws `InvalidTransitionError` if the transition is not permitted.
+   * Throws `IllegalTransitionError` if the transition is not permitted.
    */
   transition(next: InstanceStatus): void {
     if (!this.canTransition(next)) {

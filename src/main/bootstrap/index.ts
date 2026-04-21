@@ -38,9 +38,70 @@ export function registerBootstrapModule(module: BootstrapModule): void {
   registry.push(module);
 }
 
+/** Clear the registry between tests. */
+export function resetBootstrapRegistryForTesting(): void {
+  registry.length = 0;
+}
+
 /** Get all registered modules in dependency order. */
 export function getBootstrapModules(): readonly BootstrapModule[] {
   return registry;
+}
+
+function resolveBootstrapModules(): BootstrapModule[] {
+  if (registry.length <= 1) {
+    return [...registry];
+  }
+
+  const modulesByName = new Map(registry.map((module) => [module.name, module]));
+  const dependents = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+
+  for (const module of registry) {
+    dependents.set(module.name, []);
+    inDegree.set(module.name, 0);
+  }
+
+  for (const module of registry) {
+    for (const dependency of module.dependencies ?? []) {
+      if (!modulesByName.has(dependency)) {
+        throw new Error(
+          `Bootstrap module "${module.name}" depends on unknown module "${dependency}"`,
+        );
+      }
+      dependents.get(dependency)?.push(module.name);
+      inDegree.set(module.name, (inDegree.get(module.name) ?? 0) + 1);
+    }
+  }
+
+  const ready = registry
+    .filter((module) => (inDegree.get(module.name) ?? 0) === 0)
+    .map((module) => module.name);
+  const orderedNames: string[] = [];
+
+  while (ready.length > 0) {
+    const nextName = ready.shift();
+    if (!nextName) {
+      break;
+    }
+
+    orderedNames.push(nextName);
+    for (const dependent of dependents.get(nextName) ?? []) {
+      const nextDegree = (inDegree.get(dependent) ?? 0) - 1;
+      inDegree.set(dependent, nextDegree);
+      if (nextDegree === 0) {
+        ready.push(dependent);
+      }
+    }
+  }
+
+  if (orderedNames.length !== registry.length) {
+    throw new Error('Bootstrap module dependency cycle detected');
+  }
+
+  return orderedNames
+    .map((name) => modulesByName.get(name))
+    .filter((module): module is BootstrapModule => !!module);
 }
 
 /**
@@ -49,8 +110,9 @@ export function getBootstrapModules(): readonly BootstrapModule[] {
  */
 export async function bootstrapAll(): Promise<{ failed: string[] }> {
   const failed: string[] = [];
+  const modules = resolveBootstrapModules();
 
-  for (const mod of registry) {
+  for (const mod of modules) {
     try {
       logger.info(`Bootstrapping: ${mod.name} [${mod.domain}]`);
       await mod.init();
@@ -75,7 +137,7 @@ export async function bootstrapAll(): Promise<{ failed: string[] }> {
  * Tear down all modules in reverse order.
  */
 export async function teardownAll(): Promise<void> {
-  for (const mod of [...registry].reverse()) {
+  for (const mod of [...resolveBootstrapModules()].reverse()) {
     if (!mod.teardown) continue;
     try {
       logger.info(`Tearing down: ${mod.name}`);

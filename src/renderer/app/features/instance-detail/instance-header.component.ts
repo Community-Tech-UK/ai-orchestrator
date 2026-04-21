@@ -28,6 +28,7 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import type { ContextUsage, Instance } from '../../core/state/instance.store';
 import { getModelShortName } from '../../../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 
 interface EditorMenuItem {
   type: string;
@@ -56,14 +57,14 @@ interface EditorMenuItem {
             } @else {
               <h2
                 class="instance-name editable"
-                [title]="instance().displayName"
+                [title]="displayTitle()"
                 role="button"
                 tabindex="0"
                 (dblclick)="startEditName.emit()"
                 (keydown.enter)="startEditName.emit()"
                 (keydown.space)="startEditName.emit()"
               >
-                <span class="instance-name-text">{{ instance().displayName }}</span>
+                <span class="instance-name-text">{{ displayTitle() }}</span>
                 <span class="edit-icon">rename</span>
               </h2>
             }
@@ -910,6 +911,13 @@ export class InstanceHeaderComponent implements OnInit {
   contextUsage = input<ContextUsage | null>(null);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
+
+  // Effective display title — delegates to the shared resolver so the header
+  // stays in sync with the workspace rail list. See
+  // `resolveEffectiveInstanceTitle` in shared/types/history.types.ts.
+  readonly displayTitle = computed(() =>
+    resolveEffectiveInstanceTitle(this.instance())
+  );
 
   // Skills and hooks counts
   activeSkillCount = computed(() => this.skillStore.activeSkillCount());

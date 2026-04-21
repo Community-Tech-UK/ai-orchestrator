@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { ObservationIngestor, getObservationIngestor } from './observation-ingestor';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // Mock dependencies
 vi.mock('../logging/logger', () => ({
@@ -31,6 +32,22 @@ describe('ObservationIngestor', () => {
     ObservationIngestor._resetForTesting();
   });
 
+  function emitOutput(content: string, instanceId = 'inst-1'): void {
+    const envelope: ProviderRuntimeEventEnvelope = {
+      eventId: `${instanceId}-${content || 'empty'}-event`,
+      seq: 0,
+      timestamp: Date.now(),
+      provider: 'claude',
+      instanceId,
+      event: {
+        kind: 'output',
+        content,
+        messageType: 'assistant',
+      },
+    };
+    mockInstanceManager.emit('provider:normalized-event', envelope);
+  }
+
   describe('singleton pattern', () => {
     it('should return the same instance', () => {
       const instance1 = getObservationIngestor();
@@ -41,20 +58,20 @@ describe('ObservationIngestor', () => {
 
   describe('initialization', () => {
     it('should initialize and attach listeners', () => {
-      const listenerCountBefore = mockInstanceManager.listenerCount('instance:output');
+      const listenerCountBefore = mockInstanceManager.listenerCount('provider:normalized-event');
 
       ingestor.initialize(mockInstanceManager);
 
-      const listenerCountAfter = mockInstanceManager.listenerCount('instance:output');
+      const listenerCountAfter = mockInstanceManager.listenerCount('provider:normalized-event');
       expect(listenerCountAfter).toBeGreaterThan(listenerCountBefore);
     });
 
     it('should not initialize twice', () => {
       ingestor.initialize(mockInstanceManager);
-      const listenerCountAfter1 = mockInstanceManager.listenerCount('instance:output');
+      const listenerCountAfter1 = mockInstanceManager.listenerCount('provider:normalized-event');
 
       ingestor.initialize(mockInstanceManager);
-      const listenerCountAfter2 = mockInstanceManager.listenerCount('instance:output');
+      const listenerCountAfter2 = mockInstanceManager.listenerCount('provider:normalized-event');
 
       expect(listenerCountAfter1).toBe(listenerCountAfter2);
     });
@@ -68,10 +85,7 @@ describe('ObservationIngestor', () => {
     it('should capture events from instance output', () => {
       const bufferSizeBefore = ingestor.getBufferSize();
 
-      mockInstanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Hello world' },
-      });
+      emitOutput('Hello world');
 
       const bufferSizeAfter = ingestor.getBufferSize();
       expect(bufferSizeAfter).toBeGreaterThan(bufferSizeBefore);
@@ -93,9 +107,9 @@ describe('ObservationIngestor', () => {
       const bufferSizeBefore = ingestor.getBufferSize();
 
       // Emit malformed events
-      mockInstanceManager.emit('instance:output', null);
-      mockInstanceManager.emit('instance:output', { instanceId: 'inst-1' }); // Missing message
-      mockInstanceManager.emit('instance:output', { message: {} }); // Missing instanceId
+      mockInstanceManager.emit('provider:normalized-event', null);
+      mockInstanceManager.emit('provider:normalized-event', { instanceId: 'inst-1' });
+      mockInstanceManager.emit('provider:normalized-event', { event: {} });
 
       const bufferSizeAfter = ingestor.getBufferSize();
       expect(bufferSizeAfter).toBe(bufferSizeBefore); // Should not capture invalid events
@@ -113,10 +127,7 @@ describe('ObservationIngestor', () => {
 
       // Capture enough events to trigger flush
       for (let i = 0; i < 50; i++) {
-        mockInstanceManager.emit('instance:output', {
-          instanceId: 'inst-1',
-          message: { type: 'text', content: 'This is a longer message that will contribute to token count and eventually trigger a flush' },
-        });
+        emitOutput('This is a longer message that will contribute to token count and eventually trigger a flush');
       }
 
       expect(emitSpy).toHaveBeenCalledWith('ingestor:flush-ready', expect.any(Array));
@@ -127,10 +138,7 @@ describe('ObservationIngestor', () => {
 
       // Trigger flush
       for (let i = 0; i < 20; i++) {
-        mockInstanceManager.emit('instance:output', {
-          instanceId: 'inst-1',
-          message: { type: 'text', content: 'Message that adds tokens to buffer' },
-        });
+        emitOutput('Message that adds tokens to buffer');
       }
 
       // Check buffer is empty after flush
@@ -148,13 +156,7 @@ describe('ObservationIngestor', () => {
     it('should apply privacy filtering when enabled', () => {
       const emitSpy = vi.spyOn(ingestor, 'emit');
 
-      mockInstanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: {
-          type: 'text',
-          content: 'Check this URL: https://example.com/secret and path: /home/user/documents',
-        },
-      });
+      emitOutput('Check this URL: https://example.com/secret and path: /home/user/documents');
 
       ingestor.forceFlush();
 
@@ -172,10 +174,7 @@ describe('ObservationIngestor', () => {
       const emitSpy = vi.spyOn(ingestor, 'emit');
 
       const originalContent = 'Check this URL: https://example.com/secret';
-      mockInstanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: originalContent },
-      });
+      emitOutput(originalContent);
 
       ingestor.forceFlush();
 
@@ -228,10 +227,7 @@ describe('ObservationIngestor', () => {
       const emitSpy = vi.spyOn(ingestor, 'emit');
 
       // Capture a few events (not enough to trigger automatic flush)
-      mockInstanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Test message' },
-      });
+      emitOutput('Test message');
 
       ingestor.forceFlush();
 
@@ -254,10 +250,7 @@ describe('ObservationIngestor', () => {
     });
 
     it('should return current stats', () => {
-      mockInstanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Test' },
-      });
+      emitOutput('Test');
 
       const stats = ingestor.getStats();
 

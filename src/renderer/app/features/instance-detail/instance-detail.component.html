@@ -1,0 +1,298 @@
+    @if (instance(); as inst) {
+      <app-drop-zone
+        class="full-drop-zone"
+        (filesDropped)="onFilesDropped($event)"
+        (imagesPasted)="onImagesPasted($event)"
+        (filePathDropped)="onFilePathDropped($event)"
+        (filePathsDropped)="onFilePathsDropped($event)"
+        (folderDropped)="onFolderDropped($event)"
+      >
+        <div class="instance-detail">
+          <!-- Header -->
+          <app-instance-header
+            [instance]="inst"
+            [isEditingName]="isEditingName()"
+            [isChangingMode]="isChangingMode()"
+            [isTogglingYolo]="isTogglingYolo()"
+            [showModelDropdown]="showModelDropdown()"
+            [currentModel]="inst.currentModel"
+            [models]="availableModels()"
+            [contextUsage]="inst.contextUsage"
+            [canShowFileExplorer]="canShowFileExplorer()"
+            [isFileExplorerOpen]="isFileExplorerOpen()"
+            (startEditName)="onStartEditName()"
+            (cancelEditName)="onCancelEditName()"
+            (saveName)="onSaveName($event)"
+            (cycleAgentMode)="onCycleAgentMode()"
+            (toggleYolo)="onToggleYolo()"
+            (selectFolder)="onSelectFolder($event)"
+            (interrupt)="onInterrupt()"
+            (restart)="onRestart()"
+            (restartFresh)="onRestartFresh()"
+            (terminate)="onTerminate()"
+            (createChild)="onCreateChild()"
+            (toggleModelDropdown)="toggleModelDropdown()"
+            (closeModelDropdown)="showModelDropdown.set(false)"
+            (selectModel)="onChangeModel($event)"
+            (toggleFileExplorer)="toggleFileExplorer.emit()"
+            (reviewPanelToggle)="toggleCrossModelReviewPanel()"
+          />
+
+          <!-- Context warning -->
+          @if (contextWarningLevel()) {
+            <app-context-warning
+              [percentage]="inst.contextUsage.percentage"
+              [level]="contextWarningLevel()!"
+              [isCompacting]="isCompacting()"
+              [dismissed]="contextWarningDismissed()"
+              [isEstimated]="inst.contextUsage.isEstimated === true"
+              (compactNow)="onCompactNow()"
+              (dismiss)="onDismissContextWarning()"
+            />
+          }
+
+          @if (inst.status === 'error' && inst.recoveryMethod === 'failed') {
+            <div class="recovery-banner recovery-banner-error">
+              <svg class="recovery-banner-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div class="recovery-banner-body">
+                <span class="recovery-banner-title">Couldn't resume this session</span>
+                <span class="recovery-banner-desc">Your transcript is preserved. Start a fresh session to continue.</span>
+              </div>
+              <div class="recovery-banner-actions">
+                <button class="recovery-action recovery-action-primary" (click)="onRestartFresh()">
+                  Restart (fresh context)
+                </button>
+              </div>
+            </div>
+          }
+
+          <!-- Recovery banner for replay-fallback restores -->
+          @if (isReplayFallback() && !recoveryDismissed()) {
+            <div class="recovery-banner">
+              <svg class="recovery-banner-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div class="recovery-banner-body">
+                <span class="recovery-banner-title">Session context not restored</span>
+                <span class="recovery-banner-desc">Your conversation history is shown above, but {{ getProviderDisplayName(inst.provider) }} doesn't have this context. Consider re-summarizing what you were working on.</span>
+              </div>
+              <div class="recovery-banner-actions">
+                <button class="recovery-action recovery-action-primary" (click)="onRecoverySummarize()">Summarize & Continue</button>
+                <button class="recovery-action" (click)="onRecoveryDismiss()">Dismiss</button>
+              </div>
+            </div>
+          }
+
+          @if (restartToasts().length > 0) {
+            <div class="restart-toast-stack">
+              @for (toast of restartToasts(); track toast.id) {
+                <div class="restart-toast" [class.restart-toast-error]="toast.type === 'error'">
+                  {{ toast.message }}
+                </div>
+              }
+            </div>
+          }
+
+          <!-- Output stream (primary content) -->
+          <div class="output-section">
+            <app-output-stream
+              [messages]="inst.outputBuffer"
+              [instanceId]="inst.id"
+              [provider]="inst.provider"
+              [showThinking]="showThinking()"
+              [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
+              [showToolMessages]="showToolMessages()"
+              [isChild]="!!inst.parentId"
+              (editMessage)="onEditLastMessage()"
+            />
+            @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing') {
+              <app-activity-status
+                [status]="inst.status"
+                [activity]="currentActivity()"
+                [busySince]="busySince()"
+              />
+            }
+          </div>
+
+          <!-- Cross-model review panel -->
+          @if (showCrossModelReviewPanel() && currentReview()) {
+            <app-cross-model-review-panel
+              [review]="currentReview()"
+              (actionPerformed)="onReviewAction($event)"
+            />
+          }
+
+          <!-- Inspector toggles — only rendered when at least one has content -->
+          @if (anyInspectorVisible()) {
+            <div class="inspector-toggles-shell">
+              <div class="inspector-toggles"
+                   role="toolbar"
+                   aria-label="Session inspectors">
+              @if (todoStore.hasTodos()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showTodoInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'todo'"
+                  (animationend)="onInspectorToggleAnimationEnd('todo')"
+                  (click)="showTodoInspector.set(!showTodoInspector())"
+                  [attr.aria-expanded]="showTodoInspector()"
+                  title="Toggle task list"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>
+                  </svg>
+                  Tasks
+                  @if (!showTodoInspector()) {
+                    <span class="inspector-badge">{{ todoStore.stats().completed }}/{{ todoStore.stats().total }}</span>
+                  }
+                </button>
+              }
+              @if (reviewHasContent()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showReviewInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'review'"
+                  (animationend)="onInspectorToggleAnimationEnd('review')"
+                  (click)="showReviewInspector.set(!showReviewInspector())"
+                  [attr.aria-expanded]="showReviewInspector()"
+                  title="Toggle review panel"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>
+                  </svg>
+                  Review
+                  @if (!showReviewInspector()) {
+                    @if (reviewBadgeInfo(); as badge) {
+                      <span class="inspector-badge" [class.severity-error]="badge.hasErrors">
+                        {{ badge.issueCount }} {{ badge.issueCount === 1 ? 'issue' : 'issues' }}
+                      </span>
+                    } @else {
+                      <span class="inspector-badge running">running</span>
+                    }
+                  }
+                </button>
+              }
+              @if (hasChildren()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showChildrenInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'children'"
+                  (animationend)="onInspectorToggleAnimationEnd('children')"
+                  (click)="showChildrenInspector.set(!showChildrenInspector())"
+                  [attr.aria-expanded]="showChildrenInspector()"
+                  title="Toggle child agents"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                  Agents ({{ inst.childrenIds.length }})
+                </button>
+              }
+              <!-- Screen reader announcement for dynamically appearing toggles -->
+              <span class="sr-only" aria-live="polite">
+                @if (todoStore.hasTodos()) { Task list available. }
+                @if (reviewHasContent()) { Review results available. }
+              </span>
+              </div>
+            </div>
+          }
+
+          <!-- User action requests + on-demand inspector panels -->
+          <app-user-action-request [instanceId]="inst.id" />
+          @if (hasActiveInspector()) {
+            <div class="inspector-panels">
+              @if (showTodoInspector()) {
+                <app-todo-list [sessionId]="inst.sessionId" />
+              }
+              @if (showReviewInspector()) {
+                <app-instance-review-panel
+                  [instanceId]="inst.id"
+                  [workingDirectory]="inst.workingDirectory"
+                  (reviewStarted)="onReviewStarted()"
+                  (reviewCompleted)="onReviewCompleted($event)"
+                />
+              }
+              @if (showChildrenInspector()) {
+                <app-child-instances-panel
+                  [childrenIds]="inst.childrenIds"
+                  (selectChild)="onSelectChild($event)"
+                />
+              }
+            </div>
+          }
+
+          <!-- Input panel (composer) -->
+          <app-input-panel
+            [instanceId]="inst.id"
+            [disabled]="inst.status === 'terminated' || contextWarningLevel() === 'emergency'"
+            [placeholder]="inputPlaceholder()"
+            [pendingFiles]="pendingFiles()"
+            [pendingFolders]="pendingFolders()"
+            [queuedCount]="queuedMessageCount()"
+            [queuedMessages]="queuedMessages()"
+            [isBusy]="inst.status === 'busy'"
+            [isRespawning]="inst.status === 'respawning'"
+            [outputMessages]="inst.outputBuffer"
+            [instanceStatus]="inst.status"
+            [provider]="inst.provider"
+            [currentModel]="inst.currentModel"
+            [isReplayFallback]="isReplayFallback()"
+            (sendMessage)="onSendMessage($event)"
+            (removeFile)="onRemoveFile($event)"
+            (removeFolder)="onRemoveFolder($event)"
+            (addFiles)="onAddFiles()"
+            (cancelQueuedMessage)="onCancelQueuedMessage($event)"
+            (resendEdited)="onResendEdited($event)"
+          />
+        </div>
+      </app-drop-zone>
+    } @else if (isCreatingInstance()) {
+      <div class="creating-view">
+        <div class="creating-content">
+          <div class="creating-spinner"></div>
+          <p class="creating-text">Starting conversation...</p>
+        </div>
+      </div>
+    } @else {
+      <app-instance-welcome
+        [workingDirectory]="welcomeWorkingDirectory()"
+        [pendingFiles]="welcomePendingFiles()"
+        [pendingFolders]="welcomePendingFolders()"
+        [projectContext]="welcomeProjectContext()"
+        [isProjectContextLoading]="isWelcomeProjectContextLoading()"
+        [selectedCli]="welcomeSelectedCli()"
+        [initialNodeId]="welcomeSelectedNodeId()"
+        (selectFolder)="onSelectWelcomeFolder($event)"
+        (sendMessage)="onWelcomeSendMessage($event)"
+        (nodeChange)="onWelcomeNodeChange($event)"
+        (filesDropped)="onWelcomeFilesDropped($event)"
+        (imagesPasted)="onWelcomeImagesPasted($event)"
+        (folderDropped)="onWelcomeFolderDropped($event)"
+        (filePathDropped)="onWelcomeFilePathDropped($event)"
+        (filePathsDropped)="onWelcomeFilePathsDropped($event)"
+        (removeFile)="onWelcomeRemoveFile($event)"
+        (removeFolder)="onWelcomeRemoveFolder($event)"
+        (discardDraft)="onWelcomeDiscardDraft()"
+        (addFiles)="onWelcomeAddFiles()"
+        (browseRemote)="onWelcomeBrowseRemote($event)"
+      />
+    }
+    <app-remote-browse-modal
+      [nodeId]="remoteBrowseNodeId() || ''"
+      [isOpen]="remoteBrowseOpen()"
+      (folderSelected)="onRemoteFolderSelected($event)"
+      (closed)="remoteBrowseOpen.set(false)"
+    />

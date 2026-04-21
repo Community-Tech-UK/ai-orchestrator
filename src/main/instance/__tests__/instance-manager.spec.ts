@@ -926,19 +926,29 @@ describe('InstanceManager', () => {
       expect(updated?.lastActivity).toBeGreaterThanOrEqual(before);
     });
 
-    it('emits instance:output event for the user message', async () => {
+    it('emits provider:normalized-event for the user message', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         displayName: 'Output Event Test',
       });
 
       const outputEvents: unknown[] = [];
-      manager.on('instance:output', (payload) => outputEvents.push(payload));
+      manager.on('provider:normalized-event', (payload) => outputEvents.push(payload));
 
       await manager.sendInput(instance.id, 'user message text');
 
-      const userOutputs = (outputEvents as { instanceId: string; message: { type: string } }[])
-        .filter((e) => e.message?.type === 'user');
+      const userOutputs = (
+        outputEvents as {
+          instanceId: string;
+          event: { kind: string; messageType?: string; content?: string };
+        }[]
+      ).filter(
+        (event) =>
+          event.instanceId === instance.id &&
+          event.event.kind === 'output' &&
+          event.event.messageType === 'user' &&
+          event.event.content === 'user message text',
+      );
       expect(userOutputs.length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -1009,14 +1019,15 @@ describe('InstanceManager', () => {
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it('forwards stuck-process warnings as instance output events', async () => {
+    it('forwards stuck-process warnings as normalized output events', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         displayName: 'Stuck Warning Test',
       });
+      await instance.readyPromise;
 
       const handler = vi.fn();
-      manager.on('instance:output', handler);
+      manager.on('provider:normalized-event', handler);
 
       const stuckDetector = (manager as unknown as { stuckDetector: EventEmitter }).stuckDetector;
       stuckDetector.emit('process:suspect-stuck', {
@@ -1026,8 +1037,9 @@ describe('InstanceManager', () => {
 
       expect(handler).toHaveBeenCalledWith(expect.objectContaining({
         instanceId: instance.id,
-        message: expect.objectContaining({
-          type: 'system',
+        event: expect.objectContaining({
+          kind: 'output',
+          messageType: 'system',
           content: 'Instance may be stuck — no output for 300s. Will auto-restart if unresponsive.',
           metadata: expect.objectContaining({
             watchdogWarning: true,

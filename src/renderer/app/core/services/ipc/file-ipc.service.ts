@@ -3,6 +3,10 @@
  */
 
 import { Injectable, inject } from '@angular/core';
+import type {
+  ImageResolveRequest,
+  ImageResolveResponse,
+} from '@contracts/schemas/image';
 import { ElectronIpcService, IpcResponse, FileEntry } from './electron-ipc.service';
 
 @Injectable({ providedIn: 'root' })
@@ -74,6 +78,15 @@ export class FileIpcService {
     if (!this.api) return false;
     const response = await this.api.openPath(path);
     return response.success;
+  }
+
+  /**
+   * Resolve an inline image reference into a renderer attachment payload.
+   */
+  async resolveImage(payload: ImageResolveRequest): Promise<ImageResolveResponse | null> {
+    if (!this.api) return null;
+    const response = await this.api.imageResolve(payload);
+    return response.success ? (response.data as ImageResolveResponse) : null;
   }
 
   /**

@@ -11,6 +11,40 @@ import * as crypto from 'crypto';
 import type { Migration } from './rlm-types';
 import type { MigrationRow } from '../rlm-database.types';
 
+interface TableInfoRow {
+  name: string;
+}
+
+function ensureContextSectionSummaryColumns(
+  db: Database.Database
+): void {
+  const columns = db
+    .prepare(`PRAGMA table_info(context_sections)`)
+    .all() as TableInfoRow[];
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  if (!columnNames.has('pending_summary')) {
+    db.exec(`
+      ALTER TABLE context_sections
+      ADD COLUMN pending_summary INTEGER DEFAULT 0
+    `);
+  }
+
+  if (!columnNames.has('summary_priority')) {
+    db.exec(`
+      ALTER TABLE context_sections
+      ADD COLUMN summary_priority INTEGER DEFAULT 0
+    `);
+  }
+
+  if (!columnNames.has('last_summary_attempt')) {
+    db.exec(`
+      ALTER TABLE context_sections
+      ADD COLUMN last_summary_attempt INTEGER
+    `);
+  }
+}
+
 /**
  * Migrations to be applied in order
  */
@@ -487,6 +521,21 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS wake_hints;
     `,
   },
+
+  // Migration 014: Index to support SummarizationWorker scan.
+  // The worker queries depth=0 sections without summaries every 60s; before this
+  // index it did a full table scan + correlated LIKE subquery, blocking the
+  // main thread for seconds on a large context_sections table.
+  {
+    name: '014_add_summary_scan_index',
+    up: `
+      CREATE INDEX IF NOT EXISTS idx_sections_summary_scan
+        ON context_sections(depth, parent_summary_id, pending_summary, tokens DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_sections_summary_scan;
+    `,
+  },
 ];
 
 /**
@@ -529,6 +578,9 @@ export function createTables(db: Database.Database): void {
       depth INTEGER DEFAULT 0,
       summarizes_json TEXT,
       parent_summary_id TEXT,
+      pending_summary INTEGER DEFAULT 0,
+      summary_priority INTEGER DEFAULT 0,
+      last_summary_attempt INTEGER,
       file_path TEXT,
       language TEXT,
       source_url TEXT,
@@ -547,6 +599,7 @@ export function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_sections_depth
       ON context_sections(store_id, depth);
   `);
+  ensureContextSectionSummaryColumns(db);
 
   // Search Index table (inverted index)
   db.exec(`

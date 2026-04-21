@@ -119,7 +119,7 @@ export class InstanceOrchestrationManager {
   setupOrchestrationHandlers(
     settings: { maxTotalInstances: number; maxChildrenPerParent: number; allowNestedOrchestration: boolean },
     addToOutputBuffer: (instance: Instance, message: OutputMessage) => void,
-    emit: (event: string, payload: any) => void
+    publishOutput: (instanceId: string, message: OutputMessage) => void,
   ): void {
     // Always update the mutable settings ref — handlers read from this field
     this.orchestrationSettings = { ...settings };
@@ -365,10 +365,7 @@ export class InstanceOrchestrationManager {
             metadata: { source: 'orchestration', action, status, rawData: data }
           };
           addToOutputBuffer(instance, orchestrationMessage);
-          emit('instance:output', {
-            instanceId,
-            message: orchestrationMessage
-          });
+          publishOutput(instanceId, orchestrationMessage);
 
           // Serialize writes per instance to prevent concurrent stdin corruption
           const prev = this.writeQueues.get(instanceId) ?? Promise.resolve();

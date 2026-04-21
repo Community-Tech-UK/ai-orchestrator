@@ -128,6 +128,19 @@ export const CODEX_TIMEOUTS = {
    * within a tool call don't cut the turn short.
    */
   EXEC_TURN_MS: 300_000,
+
+  /**
+   * Synthetic liveness heartbeat cadence for exec-mode turns. Codex exec
+   * emits no progress events during long reasoning blocks, MCP tool calls,
+   * or web searches — the process sits silent between `item.created` and
+   * `item.completed` for minutes. Without a synthetic heartbeat, the outer
+   * `StuckProcessDetector` fires a false "no output for 120s" warning
+   * (after ~3 deferrals ≈ 150s) even though the child is demonstrably
+   * alive. Emit a heartbeat every this many ms while the child is running
+   * so the detector stays quiet; the idle watchdog (EXEC_TURN_MS / real
+   * data activity) remains the authoritative kill-switch.
+   */
+  EXEC_LIVENESS_HEARTBEAT_MS: 15_000,
 } as const;
 
 /**

@@ -30,6 +30,7 @@ export interface McpServerConfig {
   // Connection status
   status?: 'disconnected' | 'connecting' | 'connected' | 'error';
   error?: string;
+  lifecycle?: McpServerLifecycleReport;
 }
 
 /**
@@ -233,6 +234,26 @@ export interface McpManagerState {
   tools: McpTool[];
   resources: McpResource[];
   prompts: McpPrompt[];
+}
+
+export type McpLifecyclePhase = 'transport' | 'initialize' | 'discover' | 'ready';
+
+export type McpLifecyclePhaseState = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
+export interface McpLifecyclePhaseReport {
+  phase: McpLifecyclePhase;
+  state: McpLifecyclePhaseState;
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+}
+
+export interface McpServerLifecycleReport {
+  serverId: string;
+  status: 'disconnected' | 'connecting' | 'connected' | 'degraded' | 'error';
+  retryCount: number;
+  phases: McpLifecyclePhaseReport[];
+  error?: string;
 }
 
 /**

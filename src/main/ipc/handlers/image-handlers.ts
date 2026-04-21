@@ -10,6 +10,11 @@ import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import {
+  ImageResolveRequestSchema,
+  ImageResolveResponseSchema,
+} from '@contracts/schemas/image';
+import { getImageResolver } from '../../services/image-resolver';
 import { validatedHandler } from '../validated-handler';
 
 const ImageCopyPayloadSchema = z.object({
@@ -30,6 +35,21 @@ function copyImageFromDataUrl(dataUrl: string): void {
 }
 
 export function registerImageHandlers(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.IMAGE_RESOLVE,
+    validatedHandler(
+      'IMAGE_RESOLVE',
+      ImageResolveRequestSchema,
+      async (validated): Promise<IpcResponse> => {
+        const resolved = await getImageResolver().resolve(validated);
+        return {
+          success: true,
+          data: ImageResolveResponseSchema.parse(resolved),
+        };
+      }
+    )
+  );
+
   // Copy image to system clipboard as native image
   ipcMain.handle(
     IPC_CHANNELS.IMAGE_COPY_TO_CLIPBOARD,

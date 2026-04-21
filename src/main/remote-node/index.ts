@@ -50,6 +50,7 @@ export {
   type AuthResult
 } from './auth-validator';
 export type { EnrollmentResult } from './worker-node-rpc';
+export { getRemoteAuthService, RemoteAuthService } from '../auth/remote-auth';
 export {
   FileTransferService,
   getFileTransferService

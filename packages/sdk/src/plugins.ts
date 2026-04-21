@@ -17,6 +17,41 @@ export interface OutputMessage {
 
 export type PluginRecord = Record<string, unknown>;
 
+export type PluginSlot =
+  | 'provider'
+  | 'channel'
+  | 'mcp'
+  | 'skill'
+  | 'hook'
+  | 'tracker'
+  | 'notifier'
+  | 'telemetry_exporter';
+
+export type PluginLoadPhase =
+  | 'manifest_load'
+  | 'manifest_validation'
+  | 'instantiation'
+  | 'detect'
+  | 'hook_registration'
+  | 'ready';
+
+export type PluginPhaseStatus = 'pending' | 'succeeded' | 'failed' | 'skipped';
+
+export interface PluginPhaseResult {
+  phase: PluginLoadPhase;
+  status: PluginPhaseStatus;
+  timestamp: number;
+  message?: string;
+}
+
+export interface PluginLoadReport {
+  slot: PluginSlot;
+  detected: boolean;
+  ready: boolean;
+  phases: PluginPhaseResult[];
+  error?: string;
+}
+
 export interface PluginHookPayloads {
   'instance.created': PluginRecord & {
     id: string;
@@ -130,6 +165,7 @@ export interface PluginManifest {
   version: string;
   description?: string;
   author?: string;
+  slot?: PluginSlot;
   hooks?: string[];
   config?: {
     schema: Record<string, unknown>; // JSON Schema for plugin config

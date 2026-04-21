@@ -36,10 +36,20 @@ export interface UserActionRequest {
     type?: string;
     tool_use_id?: string;
     action?: string;
+    /** Display-friendly (possibly truncated) path shown in prompts. */
     path?: string;
+    /**
+     * Untruncated resource path or Bash command. Preferred over `path` when
+     * building rule strings (e.g. for `~/.claude/settings.json` allow-lists).
+     */
+    full_path?: string;
     originalContent?: string;
     approvalTraceId?: string;
-    /** Tool name for deferred permission requests (e.g., 'Bash') */
+    /**
+     * Canonical Claude CLI tool name for the denied tool_use (e.g. 'Edit',
+     * 'Write'). Set by the adapter for `permission_denial` prompts and by
+     * the hook bridge for `deferred_permission` prompts.
+     */
     tool_name?: string;
     /** Tool input for deferred permission requests (e.g., { command: '...' }) */
     tool_input?: Record<string, unknown>;
@@ -150,11 +160,11 @@ export interface UserActionRequest {
                     [value]="getInputRequiredScope(request.id)"
                     (change)="onInputRequiredScopeChange(request.id, $event)"
                     [disabled]="isResponding()"
-                    title="Remember this decision"
+                    [title]="isPermissionDenial(request) ? 'Remember this decision (Always writes an allow rule to ~/.claude/settings.json)' : 'Remember this decision'"
                   >
-                    <option value="once">Once</option>
-                    <option value="session">Session</option>
-                    <option value="always">Always</option>
+                    @for (scope of scopesFor(request); track scope) {
+                      <option [value]="scope">{{ scopeLabel(scope) }}</option>
+                    }
                   </select>
                 }
                 <button
@@ -531,8 +541,13 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
       const currentInstanceId = this.instanceId();
 
-      // Check if YOLO mode is enabled - skip showing dialog if so
-      if (currentInstanceId) {
+      // YOLO-mode suppression — don't short-circuit for `permission_denial`.
+      // Claude CLI has an internal guard for its own settings files that
+      // `--dangerously-skip-permissions` does NOT bypass, so the CLI itself
+      // denies the tool_use and the user must still decide whether to add a
+      // rule to ~/.claude/settings.json. Suppressing the prompt here would
+      // leave the user with no visible path to fix the denial.
+      if (currentInstanceId && metadata?.type !== 'permission_denial') {
         const instance = this.instanceStore.getInstance(currentInstanceId);
         if (instance?.yoloMode) {
           console.log('[APPROVAL_TRACE][renderer:user-action] skipped_yolo_enabled', {
@@ -679,6 +694,48 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   /** Returns true if this is a deferred permission request (defer-based flow). */
   isDeferredPermission(request: UserActionRequest): boolean {
     return request.permissionMetadata?.type === 'deferred_permission';
+  }
+
+  /**
+   * Returns true if this is a post-denial permission prompt surfaced because
+   * Claude CLI denied a tool use (e.g. self-editing `~/.claude/settings.json`
+   * under `--dangerously-skip-permissions`). When scope='always' is chosen for
+   * these prompts, the main process writes a rule to ~/.claude/settings.json
+   * and respawns the session so the CLI picks up the new allow-list entry.
+   */
+  isPermissionDenial(request: UserActionRequest): boolean {
+    return request.permissionMetadata?.type === 'permission_denial';
+  }
+
+  /**
+   * Returns the scope choices to show in the scope selector for a given
+   * request. `permission_denial` intentionally drops 'session' because
+   * remembering the grant only for the duration of the current Claude CLI
+   * session would require re-deriving an in-memory allow-list that the CLI
+   * doesn't expose; the meaningful options are 'once' (one-shot retry) and
+   * 'always' (persist to `~/.claude/settings.json`). Deferred permission
+   * prompts keep all three choices so users can opt into a session-scoped
+   * grant via the hook bridge's in-memory resume flow.
+   */
+  scopesFor(request: UserActionRequest): ('once' | 'session' | 'always')[] {
+    return this.isPermissionDenial(request)
+      ? ['once', 'always']
+      : ['once', 'session', 'always'];
+  }
+
+  /**
+   * Human-readable label for a scope choice. Kept inline so the template can
+   * render the options without a pipe or nested switch.
+   */
+  scopeLabel(scope: 'once' | 'session' | 'always'): string {
+    switch (scope) {
+      case 'once':
+        return 'Once';
+      case 'session':
+        return 'Session';
+      case 'always':
+        return 'Always';
+    }
   }
 
   onInputRequiredTextChange(requestId: string, event: Event): void {
@@ -847,10 +904,25 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           });
         }
 
-        // Pass metadata for deferred permissions so the IPC handler routes to resume flow
+        // Pass metadata so the IPC handler can route to the correct flow:
+        //   - `deferred_permission` → resume the CLI via the hook bridge
+        //   - `permission_denial` + scope='always' → write a rule to
+        //     ~/.claude/settings.json via SelfPermissionGranter and respawn
+        //     the session so the CLI picks up the new allow entry
+        // The full_path (untruncated) is preferred when building the rule
+        // pattern; `path` is the display-friendly version that may have been
+        // truncated for the user-visible prompt message.
         const ipcMetadata = this.isDeferredPermission(request)
           ? { type: 'deferred_permission', tool_use_id: meta?.tool_use_id }
-          : undefined;
+          : this.isPermissionDenial(request)
+            ? {
+                type: 'permission_denial',
+                tool_name: meta?.tool_name,
+                full_path: meta?.full_path,
+                path: meta?.path,
+                action: meta?.action,
+              }
+            : undefined;
 
         const result = await this.ipc.respondToInputRequired(
           request.instanceId,

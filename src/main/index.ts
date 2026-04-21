@@ -81,7 +81,7 @@ import { WorkflowPersistence } from './workflows/workflow-persistence';
 import { initializeCodemem } from './codemem';
 import { providerAdapterRegistry } from './providers/provider-adapter-registry';
 import { registerBuiltInProviders } from './providers/register-built-in-providers';
-import { ProviderOutputRendererGate } from './ipc/provider-output-renderer-gate';
+import { toOutputMessageFromProviderEnvelope } from './providers/provider-output-event';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import { IPC_CHANNELS } from '@contracts/channels';
 
@@ -191,7 +191,6 @@ class AIOrchestratorApp {
   private ipcHandler: IpcMainHandler;
   private instanceManager: InstanceManager;
   private handlersRegistered = false;
-  private providerOutputRendererGate = new ProviderOutputRendererGate();
 
   constructor() {
     this.windowManager = new WindowManager();
@@ -560,20 +559,16 @@ class AIOrchestratorApp {
         ProviderRuntimeEventEnvelopeSchema.parse(envelope);
       }
 
-      this.providerOutputRendererGate.noteEnvelope(envelope);
       this.windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, envelope);
-    });
-
-    this.instanceManager.on('instance:output', (output) => {
-      if (this.providerOutputRendererGate.shouldForward(output)) {
-        this.windowManager.sendToRenderer('instance:output', output);
+      const message = toOutputMessageFromProviderEnvelope(envelope);
+      if (!message) {
+        return;
       }
 
-      observer.publishInstanceOutput(output.instanceId, output.message);
-      // Track output for session continuity
+      observer.publishInstanceOutput(envelope.instanceId, message);
       try {
         const continuity = getSessionContinuityManager();
-        const instance = this.instanceManager.getInstance(output.instanceId);
+        const instance = this.instanceManager.getInstance(envelope.instanceId);
         if (instance) {
           const stateUpdate: Parameters<typeof continuity.updateState>[1] = {
             sessionId: instance.sessionId,
@@ -585,19 +580,23 @@ class AIOrchestratorApp {
           if (instance.currentModel) {
             stateUpdate.modelId = instance.currentModel;
           }
-          continuity.updateState(output.instanceId, stateUpdate);
+          continuity.updateState(envelope.instanceId, stateUpdate);
         }
-        const msg = output.message;
-        if (msg && (msg.type === 'user' || msg.type === 'assistant' || msg.type === 'tool_use' || msg.type === 'tool_result')) {
-          continuity.addConversationEntry(output.instanceId, {
-            id: msg.id || `msg-${Date.now()}`,
-            role: msg.type === 'user' ? 'user' : msg.type === 'assistant' ? 'assistant' : 'tool',
-            content: msg.content || '',
-            timestamp: msg.timestamp || Date.now(),
+        if (
+          message.type === 'user' ||
+          message.type === 'assistant' ||
+          message.type === 'tool_use' ||
+          message.type === 'tool_result'
+        ) {
+          continuity.addConversationEntry(envelope.instanceId, {
+            id: message.id || `msg-${Date.now()}`,
+            role: message.type === 'user' ? 'user' : message.type === 'assistant' ? 'assistant' : 'tool',
+            content: message.content || '',
+            timestamp: message.timestamp || Date.now(),
           });
         }
       } catch {
-        logger.warn('Failed to track conversation entry', { instanceId: output.instanceId });
+        logger.warn('Failed to track conversation entry', { instanceId: envelope.instanceId });
       }
     });
 
@@ -665,12 +664,19 @@ class AIOrchestratorApp {
     // Wire instance events to cross-model review
     const crossModelReview = getCrossModelReviewService();
 
-    this.instanceManager.on('instance:output', ({ instanceId, message }) => {
-      if (message.metadata?.source === 'cross-model-review') return;
-      const instance = this.instanceManager.getInstance(instanceId);
-      const provider = instance?.provider ?? 'claude';
+    this.instanceManager.on('provider:normalized-event', (envelope) => {
+      const message = toOutputMessageFromProviderEnvelope(envelope);
+      if (!message || message.metadata?.['source'] === 'cross-model-review') return;
+      const instance = this.instanceManager.getInstance(envelope.instanceId);
+      const provider = instance?.provider ?? envelope.provider;
       const firstUserPrompt = instance?.displayName ?? '';
-      crossModelReview.bufferMessage(instanceId, message.type, message.content, provider as string, firstUserPrompt);
+      crossModelReview.bufferMessage(
+        envelope.instanceId,
+        message.type,
+        message.content,
+        provider as string,
+        firstUserPrompt,
+      );
     });
 
     this.instanceManager.on('instance:batch-update', ({ updates }) => {
@@ -1000,11 +1006,7 @@ class AIOrchestratorApp {
               newUsage: result.newUsage,
             },
           };
-          // Emit as output so the renderer picks it up via the normal output pipeline
-          this.instanceManager.emit('instance:output', {
-            instanceId,
-            message: boundaryMessage,
-          });
+          this.instanceManager.emitOutputMessage(instanceId, boundaryMessage);
         }
       }
     });

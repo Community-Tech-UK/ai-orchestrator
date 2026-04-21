@@ -47,9 +47,6 @@ describe('FileWatcherCache', () => {
     // Trigger file change
     await fs.writeFile(testFile, 'v2');
 
-    // Wait for fs.watch debounce (200ms) + buffer for slow test environments
-    await new Promise(r => setTimeout(r, 1000));
-
     // Should reload
     const r2 = await cache.get('key1', tmpDir, loader);
     expect(r2).toBe('version-2');

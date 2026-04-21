@@ -37,6 +37,7 @@ export const FILE_CHANNELS = {
   IMAGE_PASTE: 'image:paste',
   IMAGE_COPY_TO_CLIPBOARD: 'image:copy-to-clipboard',
   IMAGE_CONTEXT_MENU: 'image:context-menu',
+  IMAGE_RESOLVE: 'image:resolve',
 
   // File Watcher
   WATCHER_START: 'watcher:start',

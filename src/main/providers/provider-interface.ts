@@ -2,7 +2,6 @@
  * Provider Interface - Base interface for all AI providers
  */
 
-import { EventEmitter } from 'events';
 import { Subject, type Observable } from 'rxjs';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -27,17 +26,11 @@ import { toProviderOutputEvent } from './provider-output-event';
 /**
  * Base provider interface that all providers must implement.
  *
- * Wave 2: exposes a typed `events$` stream of normalized envelopes via
- * `pushEvent()`. Wave-2 CLI/SDK subclasses declare `provider` and
- * `capabilities` and call the `push*` helpers directly.
- *
- * `EventEmitter` inheritance is retained for `AnthropicApiProvider`
- * (excluded from Wave 2 — 'anthropic-api' is not a valid `ProviderName`),
- * which still uses `this.emit(...)`. The subscribe-to-self bridge that
- * forwarded legacy emits into `events$` was removed once all four CLI
- * providers migrated to `pushEvent` in Phase 5.
+ * Exposes a typed `events$` stream of normalized envelopes via `pushEvent()`.
+ * Subclasses declare `provider` and `capabilities` and emit through the
+ * `push*` helpers instead of EventEmitter inheritance.
  */
-export abstract class BaseProvider extends EventEmitter implements ProviderAdapter {
+export abstract class BaseProvider implements ProviderAdapter {
   protected config: ProviderConfig;
   protected sessionId: string;
   protected instanceId = '';
@@ -52,7 +45,6 @@ export abstract class BaseProvider extends EventEmitter implements ProviderAdapt
   private _seq = 0;
 
   constructor(config: ProviderConfig) {
-    super();
     this.config = config;
     this.sessionId = '';
   }

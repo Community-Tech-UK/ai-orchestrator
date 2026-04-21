@@ -1,12 +1,9 @@
-import { EventEmitter } from 'events';
-
 // Re-export the normalized runtime event contract from @contracts.
 // SDK consumers should prefer these types for new integrations.
 export type {
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
   ProviderEventKind,
-  ProviderEventMapper,
   ProviderOutputEvent,
   ProviderToolUseEvent,
   ProviderToolResultEvent,
@@ -92,13 +89,6 @@ export interface ProviderUsage {
  * This type is retained for backward compatibility and will be removed in a
  * future version.
  */
-export type ProviderEvent =
-  | { type: 'text'; content: string }
-  | { type: 'tool_use'; tool: string; input: unknown }
-  | { type: 'tool_result'; toolUseId: string; result: string; isError?: boolean }
-  | { type: 'error'; message: string; code?: string }
-  | { type: 'done'; usage?: ProviderUsage };
-
 export interface ProviderSessionOptions {
   model?: string;
   systemPrompt?: string;
@@ -151,13 +141,12 @@ export interface ProviderEvents {
   spawned: (pid: number | null) => void;
 }
 
-export abstract class BaseProvider extends EventEmitter {
+export abstract class BaseProvider {
   protected config: ProviderConfig;
   protected sessionId: string;
   protected isActive = false;
 
   constructor(config: ProviderConfig) {
-    super();
     this.config = config;
     this.sessionId = '';
   }

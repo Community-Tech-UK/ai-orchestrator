@@ -148,6 +148,17 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     },
 
     /**
+     * Resolve an inline image reference into a message attachment.
+     */
+    imageResolve: (payload: {
+      kind: 'local' | 'remote' | 'data';
+      src: string;
+      alt?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.IMAGE_RESOLVE, payload);
+    },
+
+    /**
      * Open a documentation file from the docs folder
      */
     openDocsFile: (filename: string): Promise<IpcResponse> => {

@@ -113,9 +113,8 @@ describe('GeminiCliProvider inline translation', () => {
   });
 
   it('no legacy EventEmitter emission — output spy is not called', () => {
-    const outputSpy = vi.fn();
-    provider.on('output', outputSpy);
+    expect('on' in (provider as unknown as Record<string, unknown>)).toBe(false);
     adapter.emit('output', { id: 'm', type: 'assistant', content: 'x', timestamp: Date.now() });
-    expect(outputSpy).not.toHaveBeenCalled();
+    expect(envelopes.at(-1)!.event).toMatchObject({ kind: 'output', content: 'x' });
   });
 });

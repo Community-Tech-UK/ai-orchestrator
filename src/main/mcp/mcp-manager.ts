@@ -18,6 +18,8 @@ import { SseTransport } from './transports/sse-transport';
 const logger = getLogger('McpManager');
 import {
   McpServerConfig,
+  McpLifecyclePhase,
+  McpLifecyclePhaseState,
   McpTool,
   McpResource,
   McpPrompt,
@@ -63,6 +65,12 @@ export interface McpManagerEvents {
   'server:connected': (serverId: string) => void;
   'server:disconnected': (serverId: string) => void;
   'server:error': (serverId: string, error: string) => void;
+  'server:phase': (
+    serverId: string,
+    phase: McpLifecyclePhase,
+    state: McpLifecyclePhaseState,
+    error?: string,
+  ) => void;
   'tools:updated': (tools: McpTool[]) => void;
   'resources:updated': (resources: McpResource[]) => void;
   'prompts:updated': (prompts: McpPrompt[]) => void;
@@ -172,22 +180,27 @@ export class McpManager extends EventEmitter {
     connection.config.status = 'connecting';
 
     try {
-      if (connection.config.transport === 'stdio') {
-        await this.connectStdio(connection);
-      } else if (connection.config.transport === 'sse') {
-        await this.connectSse(connection);
-      } else {
-        throw new Error(`Transport ${connection.config.transport} not yet implemented`);
-      }
+      await this.runPhase(serverId, 'transport', async () => {
+        if (connection.config.transport === 'stdio') {
+          await this.connectStdio(connection);
+        } else if (connection.config.transport === 'sse') {
+          await this.connectSse(connection);
+        } else {
+          throw new Error(`Transport ${connection.config.transport} not yet implemented`);
+        }
+      });
 
-      // Initialize the server
-      await this.initializeServer(connection);
+      await this.runPhase(serverId, 'initialize', async () => {
+        await this.initializeServer(connection);
+      });
 
       connection.config.status = 'connected';
       this.emit('server:connected', serverId);
 
-      // Discover capabilities
-      await this.discoverCapabilities(connection);
+      await this.runPhase(serverId, 'discover', async () => {
+        await this.discoverCapabilities(connection);
+      });
+      this.emit('server:phase', serverId, 'ready', 'succeeded');
     } catch (error) {
       connection.config.status = 'error';
       connection.config.error = (error as Error).message;
@@ -668,6 +681,27 @@ export class McpManager extends EventEmitter {
     }
     if (caps?.prompts) {
       await this.listPrompts(connection);
+    }
+  }
+
+  private async runPhase(
+    serverId: string,
+    phase: McpLifecyclePhase,
+    work: () => Promise<void>,
+  ): Promise<void> {
+    this.emit('server:phase', serverId, phase, 'running');
+    try {
+      await work();
+      this.emit('server:phase', serverId, phase, 'succeeded');
+    } catch (error) {
+      this.emit(
+        'server:phase',
+        serverId,
+        phase,
+        'failed',
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     }
   }
 

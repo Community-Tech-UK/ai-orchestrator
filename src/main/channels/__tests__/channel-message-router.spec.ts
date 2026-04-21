@@ -4,6 +4,7 @@ import { ChannelMessageRouter } from '../channel-message-router';
 import type { ChannelManager, ChannelEvent } from '../channel-manager';
 import type { ChannelPersistence } from '../channel-persistence';
 import type { InboundChannelMessage, SentMessage } from '../../../shared/types/channels';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -75,6 +76,24 @@ function makeMessage(overrides: Partial<InboundChannelMessage> = {}): InboundCha
     isDM: true,
     timestamp: 1000,
     ...overrides,
+  };
+}
+
+function makeOutputEnvelope(
+  instanceId: string,
+  content: string,
+): ProviderRuntimeEventEnvelope {
+  return {
+    eventId: `${instanceId}-${content || 'empty'}-event`,
+    seq: 0,
+    timestamp: 1000,
+    provider: 'claude',
+    instanceId,
+    event: {
+      kind: 'output',
+      content,
+      messageType: 'assistant',
+    },
   };
 }
 
@@ -393,14 +412,8 @@ describe('ChannelMessageRouter', () => {
       await router.handleInboundMessage(makeMessage({ id: 'deb-1', chatId: 'c1', messageId: 'dm1' }));
 
       // Emit two output chunks from the created instance
-      instanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Hello ' },
-      });
-      instanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'World' },
-      });
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'Hello '));
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'World'));
 
       // Nothing sent yet (debounce hasn't fired)
       expect(adapter.sendMessage).not.toHaveBeenCalled();
@@ -420,10 +433,7 @@ describe('ChannelMessageRouter', () => {
 
       await router.handleInboundMessage(makeMessage({ id: 'deb-2', chatId: 'c1', messageId: 'dm1' }));
 
-      instanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Response text' },
-      });
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'Response text'));
 
       await vi.advanceTimersByTimeAsync(2000);
 
@@ -454,10 +464,7 @@ describe('ChannelMessageRouter', () => {
 
       await router.handleInboundMessage(makeMessage({ id: 'deb-3' }));
 
-      instanceManager.emit('instance:output', {
-        instanceId: 'other-inst',
-        message: { type: 'text', content: 'Not mine' },
-      });
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('other-inst', 'Not mine'));
 
       await vi.advanceTimersByTimeAsync(2000);
 
@@ -470,17 +477,11 @@ describe('ChannelMessageRouter', () => {
 
       await router.handleInboundMessage(makeMessage({ id: 'deb-4', chatId: 'c1', messageId: 'dm1' }));
 
-      instanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'First burst' },
-      });
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'First burst'));
 
       await vi.advanceTimersByTimeAsync(2000);
 
-      instanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Second burst' },
-      });
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'Second burst'));
 
       await vi.advanceTimersByTimeAsync(2000);
 
@@ -512,10 +513,7 @@ describe('ChannelMessageRouter', () => {
 
       adapter.sendMessage.mockClear();
 
-      instanceManager.emit('instance:output', {
-        instanceId: 'inst-1',
-        message: { type: 'text', content: 'Late output' },
-      });
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'Late output'));
 
       await vi.advanceTimersByTimeAsync(2000);
 

@@ -1,0 +1,222 @@
+    @if (displayItems().length === 0) {
+      <div class="empty-stream">
+        <p>No messages yet</p>
+        <p class="hint">Start a conversation</p>
+      </div>
+    } @else {
+      <div class="output-stream" #container>
+        @if (isLoadingOlder()) {
+          <div class="load-more-skeleton">
+            <div class="skeleton-line wide"></div>
+            <div class="skeleton-line medium"></div>
+            <div class="skeleton-line narrow"></div>
+          </div>
+        } @else if (hasOlderMessages()) {
+          <button class="load-more-btn" (click)="loadOlderMessages()">Load earlier messages</button>
+        }
+        @if (hiddenToolGroupCount() > 0) {
+          <button class="tool-calls-toggle" (click)="toggleToolCalls()">
+            <span class="toggle-icon">{{ effectiveShowToolCalls() ? '▾' : '▸' }}</span>
+            {{ hiddenToolGroupCount() }} tool call{{ hiddenToolGroupCount() !== 1 ? ' groups' : ' group' }} hidden
+          </button>
+        }
+        @for (item of visibleItems(); track item.id; let i = $index) {
+          <div class="transcript-item" [attr.data-item-index]="i" (contextmenu)="onContextMenu($event, item)">
+            <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: item }" />
+          </div>
+        }
+      </div>
+    }
+
+    <ng-template #itemBody let-item>
+          @if (item.type === 'thought-group') {
+            @if (hasThoughtGroupContent(item, showThinking())) {
+              <div class="thought-group">
+                @if ((item.thinking && item.thinking.length > 0) || (item.thoughts && item.thoughts.length > 0)) {
+                  @if (showThinking()) {
+                    <app-thought-process
+                      [thoughts]="item.thoughts || []"
+                      [thinkingBlocks]="item.thinking"
+                      [defaultExpanded]="thinkingDefaultExpanded()"
+                      [instanceId]="instanceId()"
+                      [itemId]="item.id"
+                    />
+                  }
+                }
+                @if (item.response && hasContent(item.response)) {
+                  <div class="message message-assistant" [class.continuation]="item.showHeader === false"
+                    [title]="item.response.timestamp | date: 'HH:mm:ss'">
+                    @if (item.showHeader !== false) {
+                      <div class="message-header">
+                        <span class="message-type">{{ getProviderDisplayName(provider()) }}</span>
+                        <span class="message-time">{{ item.response.timestamp | date: 'HH:mm:ss' }}</span>
+                      </div>
+                    }
+                    <div class="message-content">
+                      <div class="markdown-content" [innerHTML]="item.renderedResponse"></div>
+                      @if (item.response.attachments && item.response.attachments.length > 0) {
+                        <app-message-attachments [attachments]="item.response.attachments" />
+                      }
+                      @if (item.response.failedImages && item.response.failedImages.length > 0) {
+                        @for (failure of item.response.failedImages; track $index) {
+                          <app-failed-image-card [failure]="failure" />
+                        }
+                      }
+                    </div>
+                  </div>
+                  <div class="message-hover-actions">
+                    <button class="action-btn" [class.copied]="isMessageCopied(item.response.id)"
+                      (click)="copyMessageContent(item.response.content, item.response.id)"
+                      title="Copy to clipboard">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          } @else if (item.type === 'tool-group' && item.toolMessages) {
+            <app-tool-group [toolMessages]="item.toolMessages" [instanceId]="instanceId()" [itemId]="item.id" />
+          } @else if (item.type === 'system-event-group') {
+            <app-system-event-group
+              [events]="item.systemEvents!"
+              [label]="item.groupLabel!"
+              [preview]="item.groupPreview!"
+              [instanceId]="instanceId()"
+              [itemId]="item.id" />
+          } @else if (item.type === 'work-cycle' && item.children) {
+            <div class="work-cycle" [class.expanded]="isCycleExpanded(item.id)">
+              <button class="work-cycle-header" (click)="toggleCycle(item.id)">
+                <span class="cycle-toggle-icon">{{ isCycleExpanded(item.id) ? '▾' : '▸' }}</span>
+                <span class="cycle-summary">{{ summarizeCycle(item) }}</span>
+                @if (formatCycleDuration(item); as dur) {
+                  <span class="cycle-duration">{{ dur }}</span>
+                }
+              </button>
+              @if (isCycleExpanded(item.id)) {
+                <div class="work-cycle-content">
+                  @for (child of item.children; track child.id) {
+                    <div class="transcript-item" (contextmenu)="onContextMenu($event, child)">
+                      <ng-container [ngTemplateOutlet]="itemBody" [ngTemplateOutletContext]="{ $implicit: child }" />
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          } @else if (item.message) {
+            @if (isCompactionBoundary(item.message)) {
+              <div class="compaction-boundary">
+                <div class="boundary-line"></div>
+                <span class="boundary-label">{{ getCompactionLabel(item.message) }}</span>
+                <div class="boundary-line"></div>
+              </div>
+            } @else if (isRestoreNotice(item.message)) {
+              <div class="restore-notice">
+                <svg class="restore-notice-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="12"></line>
+                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <div class="restore-notice-content" [innerHTML]="item.renderedMessage"></div>
+              </div>
+            } @else if (hasContent(item.message)) {
+              <div class="message" [class]="'message-' + item.message.type"
+                [class.continuation]="item.showHeader === false"
+                [title]="item.message.timestamp | date: 'HH:mm:ss'">
+                @if (item.showHeader !== false && item.message.type !== 'user') {
+                  <div class="message-header">
+                    <span class="message-type">{{ formatType(item.message.type, provider()) }}</span>
+                    @if (item.repeatCount && item.repeatCount > 1) {
+                      <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
+                    }
+                    <span class="message-time">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
+                    @if (item.message.type === 'assistant') {
+                      <button class="copy-message-btn" [class.copied]="isMessageCopied(item.message.id)"
+                        (click)="copyMessageContent(item.message.content, item.message.id)"
+                        title="Copy to clipboard">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        @if (isMessageCopied(item.message.id)) {
+                          <span class="copy-label">Copied</span>
+                        }
+                      </button>
+                    }
+                  </div>
+                }
+                <div class="message-content">
+                  @if (item.message.type === 'tool_use' || item.message.type === 'tool_result') {
+                    <div class="code-block-wrapper">
+                      <div class="code-block-header">
+                        <span class="code-language">{{ getToolName(item.message) }}</span>
+                      </div>
+                      <pre class="hljs"><code>{{ formatContent(item.message) }}</code></pre>
+                    </div>
+                  } @else {
+                    <div class="markdown-content" [innerHTML]="item.renderedMessage"></div>
+                  }
+                  @if (item.message.attachments && item.message.attachments.length > 0) {
+                    <app-message-attachments [attachments]="item.message.attachments" />
+                  }
+                  @if (item.message.failedImages && item.message.failedImages.length > 0) {
+                    @for (failure of item.message.failedImages; track $index) {
+                      <app-failed-image-card [failure]="failure" />
+                    }
+                  }
+                  @if (item.message.type === 'user') {
+                    <span class="inline-timestamp">{{ item.message.timestamp | date: 'HH:mm' }}</span>
+                  }
+                </div>
+              </div>
+              @if (item.message.type === 'user') {
+                <div class="message-hover-actions align-right">
+                  @if (item.message.id === lastUserMessageId()) {
+                    <button class="action-btn" (click)="editMessage.emit()" title="Edit and resend">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </button>
+                  }
+                  <button class="action-btn" [class.copied]="isMessageCopied(item.message.id)"
+                    (click)="copyMessageContent(item.message.content, item.message.id)"
+                    title="Copy to clipboard">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  </button>
+                </div>
+              }
+            }
+          }
+    </ng-template>
+
+    <!-- Scroll to top button -->
+    @if (showScrollToTop()) {
+      <button class="scroll-to-top-btn" (click)="scrollToTop()" title="Scroll to top">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="18 15 12 9 6 15"></polyline>
+        </svg>
+      </button>
+    }
+
+    <!-- Scroll to bottom button -->
+    @if (showScrollToBottom()) {
+      <button class="scroll-to-bottom-btn" (click)="scrollToBottom()" title="Scroll to bottom">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+    }
+
+    <app-context-menu
+      [items]="contextMenuItems()"
+      [x]="contextMenuX()"
+      [y]="contextMenuY()"
+      [visible]="contextMenuVisible()"
+      (closed)="contextMenuVisible.set(false)"
+    />

@@ -154,7 +154,6 @@ export class IpcFacadeService {
   onInstanceCreated = this.instance.onInstanceCreated.bind(this.instance);
   onInstanceRemoved = this.instance.onInstanceRemoved.bind(this.instance);
   onInstanceStateUpdate = this.instance.onInstanceStateUpdate.bind(this.instance);
-  onInstanceOutput = this.instance.onInstanceOutput.bind(this.instance);
   onBatchUpdate = this.instance.onBatchUpdate.bind(this.instance);
   onUserActionRequest = this.instance.onUserActionRequest.bind(this.instance);
   respondToUserAction = this.instance.respondToUserAction.bind(this.instance);

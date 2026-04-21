@@ -34,13 +34,20 @@ import { getLogger } from '../logging/logger';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
+  PluginLoadPhase,
+  PluginLoadReport,
+  PluginPhaseResult,
   PluginHookEvent,
   PluginHookPayloads,
+  PluginSlot,
   PluginRecord,
   TypedOrchestratorHooks,
 } from '../../shared/types/plugin.types';
 import type { PluginManifest } from '@sdk/plugins';
 import { PluginManifestSchema } from '@contracts/schemas/plugin';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
+import { getPluginRegistry } from './plugin-registry';
 
 const logger = getLogger('PluginManager');
 
@@ -107,6 +114,20 @@ function toInstanceOutputPayload(payload: unknown): PluginHookPayloads['instance
   return {
     instanceId: payload['instanceId'],
     message: payload['message'],
+  };
+}
+
+function toInstanceOutputPayloadFromEnvelope(
+  envelope: ProviderRuntimeEventEnvelope,
+): PluginHookPayloads['instance.output'] | null {
+  const message = toOutputMessageFromProviderEnvelope(envelope);
+  if (!message) {
+    return null;
+  }
+
+  return {
+    instanceId: envelope.instanceId,
+    message,
   };
 }
 
@@ -288,13 +309,24 @@ export interface OrchestratorPluginContext {
 }
 
 export type OrchestratorHooks = TypedOrchestratorHooks;
+export interface PluginModuleDefinition {
+  hooks?: TypedOrchestratorHooks;
+  detect?: (
+    ctx: OrchestratorPluginContext,
+  ) => boolean | Promise<boolean>;
+  slot?: PluginSlot;
+}
+
 export type OrchestratorPluginModule =
   | OrchestratorHooks
-  | ((ctx: OrchestratorPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
+  | PluginModuleDefinition
+  | ((ctx: OrchestratorPluginContext) => OrchestratorHooks | PluginModuleDefinition | Promise<OrchestratorHooks | PluginModuleDefinition>);
 
 interface LoadedPlugin {
   filePath: string;
   hooks: TypedOrchestratorHooks;
+  slot: PluginSlot;
+  loadReport: PluginLoadReport;
   manifest?: PluginManifest;
 }
 
@@ -305,6 +337,43 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 10_000;
+
+function buildPhase(
+  phase: PluginLoadPhase,
+  status: PluginPhaseResult['status'],
+  message?: string,
+): PluginPhaseResult {
+  return {
+    phase,
+    status,
+    timestamp: Date.now(),
+    ...(message ? { message } : {}),
+  };
+}
+
+function isPluginModuleDefinition(value: unknown): value is PluginModuleDefinition {
+  return isRecord(value) && (
+    'hooks' in value ||
+    'detect' in value ||
+    'slot' in value
+  );
+}
+
+function normalizePluginModule(
+  value: OrchestratorHooks | PluginModuleDefinition,
+): PluginModuleDefinition {
+  if (isPluginModuleDefinition(value)) {
+    return {
+      hooks: value.hooks ?? {},
+      detect: value.detect,
+      slot: value.slot,
+    };
+  }
+
+  return {
+    hooks: value,
+  };
+}
 
 export class OrchestratorPluginManager {
   private static instance: OrchestratorPluginManager | null = null;
@@ -339,7 +408,17 @@ export class OrchestratorPluginManager {
       plugins: [],
       errors: [],
     };
-    entry.plugins.push({ filePath: 'test-plugin.js', hooks });
+    entry.plugins.push({
+      filePath: 'test-plugin.js',
+      hooks,
+      slot: 'hook',
+      loadReport: {
+        slot: 'hook',
+        detected: true,
+        ready: true,
+        phases: [],
+      },
+    });
     instance.cacheByWorkingDir.set(workingDirectory, entry);
   }
 
@@ -412,28 +491,80 @@ export class OrchestratorPluginManager {
     for (const dir of dirs) {
       const files = await this.walkJsFiles(dir);
       for (const filePath of files) {
+        const phases: PluginPhaseResult[] = [];
+        let manifest: PluginManifest | undefined;
+        let detected = true;
         try {
-          const mod = await this.loadModule(filePath);
-          const hooks: OrchestratorHooks =
-            typeof mod === 'function' ? await mod(ctx) : (mod || {});
-          let manifest: PluginManifest | undefined;
           const manifestPath = path.join(path.dirname(filePath), 'plugin.json');
           try {
             const manifestRaw = await fs.readFile(manifestPath, 'utf-8');
+            phases.push(buildPhase('manifest_load', 'succeeded'));
             const parsed: unknown = JSON.parse(manifestRaw);
             const result = validateManifest(parsed);
             if (result.valid) {
               manifest = result.manifest;
+              phases.push(buildPhase('manifest_validation', 'succeeded'));
             } else {
+              phases.push(buildPhase('manifest_validation', 'failed', result.errors.join(', ')));
               logger.warn(`Invalid plugin manifest at ${manifestPath}: ${result.errors.join(', ')}`);
               errors.push({ filePath: manifestPath, error: `Invalid manifest: ${result.errors.join(', ')}` });
             }
-          } catch {
-            // No manifest or unreadable — that's fine, it's optional
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+              phases.push(buildPhase('manifest_load', 'skipped', 'plugin.json not present'));
+              phases.push(buildPhase('manifest_validation', 'skipped', 'plugin.json not present'));
+            } else {
+              phases.push(buildPhase('manifest_load', 'failed', error instanceof Error ? error.message : String(error)));
+              phases.push(buildPhase('manifest_validation', 'skipped', 'manifest load failed'));
+            }
           }
-          plugins.push({ filePath, hooks, manifest });
+
+          const loaded = await this.loadModule(filePath);
+          phases.push(buildPhase('instantiation', 'succeeded'));
+          const resolved =
+            typeof loaded === 'function'
+              ? await loaded(ctx)
+              : loaded;
+          const moduleDef = normalizePluginModule(resolved || {});
+          const hooks = moduleDef.hooks ?? {};
+          const slot = manifest?.slot ?? moduleDef.slot ?? 'hook';
+
+          if (moduleDef.detect) {
+            detected = await moduleDef.detect(ctx);
+            phases.push(buildPhase('detect', detected ? 'succeeded' : 'skipped', detected ? undefined : 'detect() returned false'));
+          } else {
+            phases.push(buildPhase('detect', 'skipped', 'No detect() hook declared'));
+          }
+
+          phases.push(buildPhase('hook_registration', slot === 'hook' ? 'succeeded' : 'skipped'));
+          const loadReport: PluginLoadReport = {
+            slot,
+            detected,
+            ready: detected,
+            phases: [
+              ...phases,
+              buildPhase('ready', detected ? 'succeeded' : 'skipped', detected ? undefined : 'Plugin not detected in current environment'),
+            ],
+          };
+
+          plugins.push({ filePath, hooks, manifest, slot, loadReport });
         } catch (e) {
+          phases.push(buildPhase('instantiation', 'failed', e instanceof Error ? e.message : String(e)));
+          phases.push(buildPhase('ready', 'failed', e instanceof Error ? e.message : String(e)));
           errors.push({ filePath, error: e instanceof Error ? e.message : String(e) });
+          plugins.push({
+            filePath,
+            hooks: {},
+            slot: manifest?.slot ?? 'hook',
+            manifest,
+            loadReport: {
+              slot: manifest?.slot ?? 'hook',
+              detected,
+              ready: false,
+              phases,
+              error: e instanceof Error ? e.message : String(e),
+            },
+          });
         }
       }
     }
@@ -447,11 +578,19 @@ export class OrchestratorPluginManager {
 
     const { plugins, errors } = await this.loadPluginsForWorkingDirectory(workingDirectory, ctx);
     this.cacheByWorkingDir.set(workingDirectory, { loadedAt: now, plugins, errors });
+    getPluginRegistry().replacePlugins(workingDirectory, plugins.map((plugin) => ({
+      workingDirectory,
+      filePath: plugin.filePath,
+      slot: plugin.slot,
+      hooks: plugin.hooks,
+      manifest: plugin.manifest,
+      loadReport: plugin.loadReport,
+    })));
     return plugins;
   }
 
   async listPlugins(workingDirectory: string, instanceManager: InstanceManager): Promise<{
-    plugins: { filePath: string; hookKeys: string[]; manifest?: PluginManifest }[];
+    plugins: { filePath: string; hookKeys: string[]; manifest?: PluginManifest; slot: PluginSlot; loadReport: PluginLoadReport }[];
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   }> {
@@ -459,7 +598,13 @@ export class OrchestratorPluginManager {
     const plugins = await this.getPlugins(workingDirectory, ctx);
     const errors = this.cacheByWorkingDir.get(workingDirectory)?.errors || [];
     const list = plugins
-      .map((p) => ({ filePath: p.filePath, hookKeys: Object.keys(p.hooks || {}).sort(), manifest: p.manifest }))
+      .map((p) => ({
+        filePath: p.filePath,
+        hookKeys: Object.keys(p.hooks || {}).sort(),
+        manifest: p.manifest,
+        slot: p.slot,
+        loadReport: p.loadReport,
+      }))
       .sort((a, b) => a.filePath.localeCompare(b.filePath));
     return { plugins: list, scanDirs: this.getPluginDirs(workingDirectory), errors: errors.slice() };
   }
@@ -468,10 +613,12 @@ export class OrchestratorPluginManager {
     if (!workingDirectory) {
       this.cacheByWorkingDir.clear();
       this.configLoadedByWorkingDir.clear();
+      getPluginRegistry().clear();
       return;
     }
     this.cacheByWorkingDir.delete(workingDirectory);
     this.configLoadedByWorkingDir.delete(workingDirectory);
+    getPluginRegistry().clear(workingDirectory);
   }
 
   private static readonly HOOK_TIMEOUT_MS = 5_000;
@@ -535,6 +682,9 @@ export class OrchestratorPluginManager {
     // Broadcast to all cached working directories
     for (const [, entry] of this.cacheByWorkingDir) {
       for (const plugin of entry.plugins) {
+        if (plugin.slot !== 'hook' || !plugin.loadReport.ready) {
+          continue;
+        }
         await this.invokeHook(plugin, event, payload);
       }
     }
@@ -549,6 +699,9 @@ export class OrchestratorPluginManager {
     const plugins = await this.getPlugins(workingDirectory, ctx);
     await this.emitConfigLoadedIfNeeded(workingDirectory, plugins);
     for (const plugin of plugins) {
+      if (plugin.slot !== 'hook' || !plugin.loadReport.ready) {
+        continue;
+      }
       await this.invokeHook(plugin, event, payload);
     }
   }
@@ -633,8 +786,8 @@ export class OrchestratorPluginManager {
       void this.emitToPlugins(process.cwd(), ctx, 'instance.removed', { instanceId });
     });
 
-    instanceManager.on('instance:output', (payload: unknown) => {
-      const pluginPayload = toInstanceOutputPayload(payload);
+    instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
+      const pluginPayload = toInstanceOutputPayloadFromEnvelope(envelope);
       if (!pluginPayload) return;
       const instance = instanceManager.getInstance(pluginPayload.instanceId);
       const wd = instance?.workingDirectory || process.cwd();

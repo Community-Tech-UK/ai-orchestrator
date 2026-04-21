@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getMcpManager } from '../../mcp/mcp-manager';
+import { getMcpLifecycleManager } from '../../mcp/mcp-lifecycle-manager';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   McpAddServerPayloadSchema,
@@ -22,6 +23,7 @@ export function registerMcpHandlers(deps: {
   windowManager: WindowManager;
 }): void {
   const mcp = getMcpManager();
+  const lifecycle = getMcpLifecycleManager();
 
   // Set up event forwarding to renderer
   mcp.on('server:connected', (serverId) => {
@@ -52,6 +54,23 @@ export function registerMcpHandlers(deps: {
       });
   });
 
+  mcp.on('server:phase', (serverId, phase, phaseState, error) => {
+    deps.windowManager
+      .getMainWindow()
+      ?.webContents.send(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
+        serverId,
+        status:
+          phaseState === 'failed'
+            ? 'error'
+            : phase === 'ready' && phaseState === 'succeeded'
+              ? 'connected'
+              : 'connecting',
+        phase,
+        phaseState,
+        ...(error ? { error } : {}),
+      });
+  });
+
   mcp.on('tools:updated', () => {
     deps.windowManager
       .getMainWindow()
@@ -77,7 +96,7 @@ export function registerMcpHandlers(deps: {
     IPC_CHANNELS.MCP_GET_STATE,
     async (): Promise<IpcResponse> => {
       try {
-        const state = mcp.getState();
+        const state = lifecycle.getState();
         return {
           success: true,
           data: state
@@ -100,7 +119,7 @@ export function registerMcpHandlers(deps: {
     IPC_CHANNELS.MCP_GET_SERVERS,
     async (): Promise<IpcResponse> => {
       try {
-        const servers = mcp.getServers();
+        const servers = lifecycle.getServers();
         return {
           success: true,
           data: servers
@@ -185,7 +204,7 @@ export function registerMcpHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_CONNECT');
-        await mcp.connect(validated.serverId);
+        await lifecycle.connect(validated.serverId);
         return { success: true };
       } catch (error) {
         return {
@@ -233,7 +252,7 @@ export function registerMcpHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_RESTART');
-        await mcp.restart(validated.serverId);
+        await lifecycle.restart(validated.serverId);
         return { success: true };
       } catch (error) {
         return {

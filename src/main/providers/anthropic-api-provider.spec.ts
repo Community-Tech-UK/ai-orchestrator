@@ -7,6 +7,7 @@ import { AnthropicApiProvider, AnthropicApiProviderConfig } from './anthropic-ap
 import { PromptCacheManager } from '../memory/prompt-cache';
 import { ContextEditingFallback } from '../memory/context-editing-fallback';
 import type { ProviderConfig } from '../../shared/types/provider.types';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // Mock dependencies
 vi.mock('@anthropic-ai/sdk', () => {
@@ -119,6 +120,12 @@ describe('AnthropicApiProvider', () => {
     delete process.env.ANTHROPIC_API_KEY;
   });
 
+  function captureEvents(target: AnthropicApiProvider): ProviderRuntimeEventEnvelope[] {
+    const events: ProviderRuntimeEventEnvelope[] = [];
+    target.events$.subscribe((event) => events.push(event));
+    return events;
+  }
+
   describe('getType', () => {
     it('returns anthropic-api', () => {
       expect(provider.getType()).toBe('anthropic-api');
@@ -217,16 +224,15 @@ describe('AnthropicApiProvider', () => {
       });
     });
 
-    it('emits spawned event with null pid', async () => {
-      const spawnedHandler = vi.fn();
-      provider.on('spawned', spawnedHandler);
+    it('emits an idle status event on initialize', async () => {
+      const events = captureEvents(provider);
 
       await provider.initialize({
         sessionId: 'test-session',
         workingDirectory: '/test',
       });
 
-      expect(spawnedHandler).toHaveBeenCalledWith(null);
+      expect(events.at(-1)?.event).toEqual({ kind: 'status', status: 'idle' });
     });
 
     it('sets isActive to true', async () => {
@@ -259,46 +265,38 @@ describe('AnthropicApiProvider', () => {
     });
 
     it('emits busy status when sending', async () => {
-      const statusHandler = vi.fn();
-      provider.on('status', statusHandler);
+      const events = captureEvents(provider);
 
       await provider.sendMessage('Hello');
 
-      expect(statusHandler).toHaveBeenCalledWith('busy');
+      expect(events.some((event) => event.event.kind === 'status' && event.event.status === 'busy')).toBe(true);
     });
 
     it('emits output event with response', async () => {
-      const outputHandler = vi.fn();
-      provider.on('output', outputHandler);
+      const events = captureEvents(provider);
 
       await provider.sendMessage('Hello');
 
-      expect(outputHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'assistant',
-          content: 'Hello!',
-        })
-      );
+      expect(events.some((event) =>
+        event.event.kind === 'output'
+        && event.event.messageType === 'assistant'
+        && event.event.content === 'Hello!')).toBe(true);
     });
 
     it('emits context usage event', async () => {
-      const contextHandler = vi.fn();
-      provider.on('context', contextHandler);
+      const events = captureEvents(provider);
 
       await provider.sendMessage('Hello');
 
-      expect(contextHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          used: 150, // 100 input + 50 output
-          total: 200000,
-        })
-      );
+      expect(events.some((event) =>
+        event.event.kind === 'context'
+        && event.event.used === 150
+        && event.event.total === 200000)).toBe(true);
     });
 
     it('uses a 1M context total for explicit Claude 1M models', async () => {
       const explicitModelProvider = new AnthropicApiProvider(config);
-      const contextHandler = vi.fn();
-      explicitModelProvider.on('context', contextHandler);
+      const events = captureEvents(explicitModelProvider);
 
       await explicitModelProvider.initialize({
         sessionId: 'test-session',
@@ -308,20 +306,21 @@ describe('AnthropicApiProvider', () => {
 
       await explicitModelProvider.sendMessage('Hello');
 
-      expect(contextHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          total: 1000000,
-        })
-      );
+      expect(events.some((event) =>
+        event.event.kind === 'context'
+        && event.event.total === 1000000)).toBe(true);
     });
 
     it('emits idle status after completion', async () => {
-      const statusHandler = vi.fn();
-      provider.on('status', statusHandler);
+      const events = captureEvents(provider);
 
       await provider.sendMessage('Hello');
 
-      expect(statusHandler).toHaveBeenLastCalledWith('idle');
+      const statusEvents = events.filter(
+        (event): event is ProviderRuntimeEventEnvelope & { event: { kind: 'status'; status: string } } =>
+          event.event.kind === 'status',
+      );
+      expect(statusEvents.at(-1)?.event.status).toBe('idle');
     });
 
     it('uses context editing fallback when activated', async () => {
@@ -355,12 +354,11 @@ describe('AnthropicApiProvider', () => {
         workingDirectory: '/test',
       });
 
-      const exitHandler = vi.fn();
-      provider.on('exit', exitHandler);
+      const events = captureEvents(provider);
 
       await provider.terminate();
 
-      expect(exitHandler).toHaveBeenCalledWith(0, null);
+      expect(events.at(-1)?.event).toEqual({ kind: 'exit', code: 0, signal: null });
     });
   });
 
@@ -478,8 +476,7 @@ describe('AnthropicApiProvider', () => {
     });
 
     it('handles image attachments by emitting output', async () => {
-      const outputHandler = vi.fn();
-      provider.on('output', outputHandler);
+      const events = captureEvents(provider);
 
       await provider.sendMessage('What is in this image?', [
         {
@@ -490,12 +487,9 @@ describe('AnthropicApiProvider', () => {
         },
       ]);
 
-      // The provider should emit an output event
-      expect(outputHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'assistant',
-        })
-      );
+      expect(events.some((event) =>
+        event.event.kind === 'output'
+        && event.event.messageType === 'assistant')).toBe(true);
     });
   });
 
@@ -507,16 +501,15 @@ describe('AnthropicApiProvider', () => {
         workingDirectory: '/test',
       });
 
-      const errorHandler = vi.fn();
-      const statusHandler = vi.fn();
-      provider.on('error', errorHandler);
-      provider.on('status', statusHandler);
+      const events = captureEvents(provider);
 
       // First message should work fine (uses default mock)
       await provider.sendMessage('Hello');
 
-      expect(errorHandler).not.toHaveBeenCalled();
-      expect(statusHandler).toHaveBeenCalledWith('idle');
+      expect(events.some((event) => event.event.kind === 'error')).toBe(false);
+      expect(events.some((event) =>
+        event.event.kind === 'status'
+        && event.event.status === 'idle')).toBe(true);
     });
   });
 

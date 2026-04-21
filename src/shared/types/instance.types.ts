@@ -148,8 +148,10 @@ export interface OutputMessage {
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
   content: string;
   metadata?: Record<string, unknown>;
-  /** File attachments for user messages */
+  /** File attachments associated with this message. */
   attachments?: FileAttachment[];
+  /** Image references that failed to resolve into inline attachments. */
+  failedImages?: FailedImageRef[];
   /** Extracted thinking/reasoning content */
   thinking?: ThinkingContent[];
   /** Whether thinking has been extracted from this message */
@@ -160,7 +162,25 @@ export interface FileAttachment {
   name: string;
   type: string;
   size: number;
-  data: string; // base64 encoded
+  data: string; // data URL
+}
+
+export type ImageResolveKind = 'local' | 'remote' | 'data';
+
+export type ImageResolveFailureReason =
+  | 'too_large'
+  | 'not_found'
+  | 'denied'
+  | 'fetch_failed'
+  | 'unsupported'
+  | 'timeout'
+  | 'invalid_data_uri';
+
+export interface FailedImageRef {
+  src: string;
+  kind: ImageResolveKind;
+  reason: ImageResolveFailureReason;
+  message: string;
 }
 
 export interface CommunicationToken {

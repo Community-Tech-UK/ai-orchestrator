@@ -11,7 +11,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
 import { EventEmitter } from 'events';
 import { registerCleanup } from '../util/cleanup-registry';
 import { withLock } from '../util/file-lock';
@@ -27,6 +26,8 @@ import { getSessionMutex } from './session-mutex';
 import { measureAsync } from '../util/slow-operations';
 import { getResumeHintManager } from './resume-hint';
 import { getSafeStorage } from './safe-storage-accessor';
+import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compaction-policy';
+import { getProjectStoragePaths } from '../storage/project-storage-paths';
 
 const logger = getLogger('SessionContinuity');
 
@@ -265,13 +266,16 @@ export class SessionContinuityManager extends EventEmitter {
   /** Extracted snapshot persistence and retention. */
   readonly snapshots: SnapshotManager;
   private instanceManager: InstanceManagerForContinuity | null = null;
+  private readonly storagePaths = getProjectStoragePaths();
+  private readonly compactionPolicy = new SessionCompactionPolicy();
+  private readonly compactor = new ConversationHistoryCompactor<ConversationEntry>();
+  private readonly lastCompactionAt = new Map<string, number>();
 
   constructor(config: Partial<ContinuityConfig> = {}) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
 
-    const userData = app.getPath('userData');
-    this.continuityDir = path.join(userData, 'session-continuity');
+    this.continuityDir = this.storagePaths.getGlobalDomainRoot('session-continuity');
     this.stateDir = path.join(this.continuityDir, 'states');
     this.snapshotDir = path.join(this.continuityDir, 'snapshots');
     this.quarantineDir = path.join(this.continuityDir, 'quarantine');
@@ -523,6 +527,10 @@ export class SessionContinuityManager extends EventEmitter {
     const state = this.instanceToState(instance);
     this.sessionStates.set(instance.id, state);
     this.dirty.add(instance.id);
+    await this.appendSessionEvent(instance.id, 'tracking_started', {
+      workingDirectory: state.workingDirectory,
+      provider: state.provider ?? 'unknown',
+    });
 
     this.emit('tracking:started', { instanceId: instance.id });
   }
@@ -577,6 +585,12 @@ export class SessionContinuityManager extends EventEmitter {
     // Final save before stopping
     if (this.dirty.has(instanceId)) {
       await this.saveStateAsync(instanceId);
+    }
+
+    if (state) {
+      await this.appendSessionEvent(instanceId, 'tracking_stopped', {
+        archived: archive,
+      });
     }
 
     if (!archive) {
@@ -685,6 +699,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     Object.assign(state, normalizedUpdates);
     this.dirty.add(instanceId);
+    await this.appendSessionEvent(instanceId, 'state_updated', normalizedUpdates as Record<string, unknown>);
 
     this.emit('state:updated', { instanceId, updates: normalizedUpdates });
   }
@@ -718,32 +733,37 @@ export class SessionContinuityManager extends EventEmitter {
     if (!state) return;
 
     state.conversationHistory.push(entry);
+    await this.appendSessionEvent(instanceId, 'conversation_entry', {
+      role: entry.role,
+      timestamp: entry.timestamp,
+    });
 
-    // Trim if exceeding max entries
-    if (state.conversationHistory.length > this.config.maxConversationEntries) {
+    const decision = this.compactionPolicy.evaluate({
+      messageCount: state.conversationHistory.length,
+      maxConversationEntries: this.config.maxConversationEntries,
+      contextUsagePercent:
+        state.contextUsage.total > 0
+          ? Math.round((state.contextUsage.used / state.contextUsage.total) * 100)
+          : 0,
+      lastCompactedAt: this.lastCompactionAt.get(instanceId),
+    });
+
+    if (decision.shouldCompact) {
       const messageCountBeforeCompaction = state.conversationHistory.length;
-
-      // Compact older entries
-      const toCompact = state.conversationHistory.splice(
-        0,
-        state.conversationHistory.length - this.config.maxConversationEntries
-      );
-
-      // Create summary entry
-      const summaryEntry: ConversationEntry = {
-        id: `compacted-${Date.now()}`,
-        role: 'system',
-        content: `[Compacted ${toCompact.length} earlier messages. Key context preserved in session state.]`,
-        timestamp: Date.now(),
-        isCompacted: true
-      };
-      state.conversationHistory.unshift(summaryEntry);
-
-      this.emit('session:compacting', {
-        instanceId,
-        messageCount: messageCountBeforeCompaction,
-        tokenCount: state.contextUsage.used,
-      });
+      const result = this.compactor.compact(state.conversationHistory, decision);
+      if (result.compactedCount > 0) {
+        state.conversationHistory = result.entries;
+        this.lastCompactionAt.set(instanceId, Date.now());
+        await this.appendSessionEvent(instanceId, 'compaction_applied', {
+          compactedCount: result.compactedCount,
+          reason: decision.reason,
+        });
+        this.emit('session:compacting', {
+          instanceId,
+          messageCount: messageCountBeforeCompaction,
+          tokenCount: state.contextUsage.used,
+        });
+      }
     }
 
     this.dirty.add(instanceId);
@@ -761,10 +781,17 @@ export class SessionContinuityManager extends EventEmitter {
     await this.readyPromise;
     const state = this.sessionStates.get(instanceId);
     if (!state) return null;
-    return this.snapshots.createSnapshot(
+    const snapshot = await this.snapshots.createSnapshot(
       state, instanceId, name, description, trigger,
       (v) => this.normalizeLookupIdentifier(v),
     );
+    if (snapshot) {
+      await this.appendSessionEvent(instanceId, 'snapshot_created', {
+        snapshotId: snapshot.id,
+        trigger,
+      });
+    }
+    return snapshot;
   }
 
   /**
@@ -1085,6 +1112,10 @@ export class SessionContinuityManager extends EventEmitter {
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
       await measureAsync('session.save', () => this.writePayload(stateFile, state));
       this.dirty.delete(instanceId);
+      await this.appendSessionEvent(instanceId, 'state_saved', {
+        source: state.lastWriteSource ?? 'unknown',
+        timestamp: state.lastWriteTimestamp ?? Date.now(),
+      });
       this.emit('state:saved', { instanceId });
     } catch (error) {
       logger.error('Failed to save session state', error instanceof Error ? error : undefined, { instanceId });
@@ -1499,6 +1530,38 @@ export class SessionContinuityManager extends EventEmitter {
       }
     } catch {
       // Best effort — don't let cursor capture fail the save
+    }
+  }
+
+  private async appendSessionEvent(
+    instanceId: string,
+    type: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const state = this.sessionStates.get(instanceId);
+    if (!state) {
+      return;
+    }
+
+    const logPath = this.storagePaths.getSessionEventLogPath(state.workingDirectory, instanceId);
+    try {
+      await fs.promises.mkdir(path.dirname(logPath), { recursive: true });
+      await fs.promises.appendFile(
+        logPath,
+        JSON.stringify({
+          type,
+          instanceId,
+          timestamp: Date.now(),
+          payload,
+        }) + '\n',
+        'utf-8',
+      );
+    } catch (error) {
+      logger.warn('Failed to append session event log entry', {
+        instanceId,
+        type,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

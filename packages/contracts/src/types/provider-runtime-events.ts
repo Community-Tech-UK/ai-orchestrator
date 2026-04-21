@@ -13,11 +13,11 @@
 // ============================================
 
 /**
- * CLI-level provider name used in the envelope and adapter registry.
+ * Provider identifier used in the envelope and adapter registry.
  * Subset of `InstanceProvider` — excludes `'auto'` which is a selection-time
- * placeholder, not a concrete CLI.
+ * placeholder, not a concrete runtime.
  */
-export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot';
+export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot' | 'anthropic-api';
 
 // ============================================
 // Event Kind Discriminator
@@ -209,24 +209,4 @@ export interface ProviderRuntimeEventEnvelope {
   readonly instanceId: string;
   readonly sessionId?: string;
   readonly event: ProviderRuntimeEvent;
-}
-
-// ============================================
-// Event Mapper Interface
-// ============================================
-
-/**
- * Interface for per-provider event normalizers.
- * Each provider adapter implements this to convert raw events
- * into ProviderRuntimeEvents.
- */
-export interface ProviderEventMapper {
-  /** Provider identifier (e.g., 'claude', 'codex'). */
-  readonly provider: string;
-
-  /**
-   * Normalize a raw provider event into a ProviderRuntimeEvent.
-   * Returns null if the raw event should be filtered/ignored.
-   */
-  normalize(rawEventType: string, ...args: unknown[]): ProviderRuntimeEvent | null;
 }

@@ -29,16 +29,12 @@ describe('IpcEventBusService', () => {
   let capturedProviderRuntimeEvent:
     | ((event: ProviderRuntimeEventEnvelope) => void)
     | undefined;
-  let capturedLegacyOutput:
-    | ((event: unknown) => void)
-    | undefined;
 
   const hadElectronAPI = 'electronAPI' in (window as unknown as Record<string, unknown>);
   const originalElectronAPI = (window as unknown as { electronAPI?: unknown }).electronAPI;
 
   beforeEach(() => {
     capturedProviderRuntimeEvent = undefined;
-    capturedLegacyOutput = undefined;
 
     (window as unknown as { electronAPI: unknown }).electronAPI = {
       onProviderRuntimeEvent: (callback: (event: ProviderRuntimeEventEnvelope) => void) => {
@@ -59,12 +55,6 @@ describe('IpcEventBusService', () => {
             onInstanceCreated: () => () => undefined,
             onInstanceRemoved: () => () => undefined,
             onInstanceStateUpdate: () => () => undefined,
-            onInstanceOutput: (callback: (event: unknown) => void) => {
-              capturedLegacyOutput = callback;
-              return () => {
-                capturedLegacyOutput = undefined;
-              };
-            },
             onBatchUpdate: () => () => undefined,
             onOrchestrationActivity: () => () => undefined,
             onCompactStatus: () => () => undefined,
@@ -82,35 +72,6 @@ describe('IpcEventBusService', () => {
     } else {
       delete (window as unknown as { electronAPI?: unknown }).electronAPI;
     }
-  });
-
-  it('emits legacy instance output events', () => {
-    const service = TestBed.inject(IpcEventBusService);
-    const received: InstanceOutputEvent[] = [];
-
-    service.instanceOutput$.subscribe((event) => received.push(event));
-
-    capturedLegacyOutput?.({
-      instanceId: 'inst-1',
-      message: {
-        id: 'legacy-1',
-        timestamp: 1,
-        type: 'system',
-        content: 'legacy output',
-      },
-    });
-
-    expect(received).toEqual([
-      {
-        instanceId: 'inst-1',
-        message: {
-          id: 'legacy-1',
-          timestamp: 1,
-          type: 'system',
-          content: 'legacy output',
-        },
-      },
-    ]);
   });
 
   it('bridges provider runtime output envelopes into instanceOutput$', () => {
@@ -148,24 +109,19 @@ describe('IpcEventBusService', () => {
     ]);
   });
 
-  it('deduplicates provider output that also arrives via legacy instance output', () => {
+  it('ignores non-output provider runtime events', () => {
     const service = TestBed.inject(IpcEventBusService);
     const received: InstanceOutputEvent[] = [];
 
     service.instanceOutput$.subscribe((event) => received.push(event));
 
-    capturedProviderRuntimeEvent?.(makeProviderEnvelope());
-    capturedLegacyOutput?.({
-      instanceId: 'inst-1',
-      message: {
-        id: 'msg-1',
-        timestamp: 1_717_000_000_000,
-        type: 'assistant',
-        content: 'hello',
+    capturedProviderRuntimeEvent?.(makeProviderEnvelope({
+      event: {
+        kind: 'status',
+        status: 'busy',
       },
-    });
+    }));
 
-    expect(received).toHaveLength(1);
-    expect(received[0]?.message.id).toBe('msg-1');
+    expect(received).toHaveLength(0);
   });
 });

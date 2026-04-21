@@ -16,7 +16,6 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_SEND_INPUT: 'instance:send-input',
   INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
-  INSTANCE_OUTPUT: 'instance:output',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',
   INSTANCE_CREATED: 'instance:created',
   INSTANCE_REMOVED: 'instance:removed',

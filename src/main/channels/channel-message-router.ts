@@ -36,6 +36,8 @@ import {
   updateRemoteNodeConfig,
 } from '../remote-node/remote-node-config';
 import { getWorkerNodeRegistry } from '../remote-node';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -88,7 +90,7 @@ interface OutputStreamTracker {
   content: string;
   timer: ReturnType<typeof setTimeout> | null;
   pendingFinalization: boolean;
-  outputHandler: (payload: { instanceId: string; message: { type: string; content: string } }) => void;
+  outputHandler: (envelope: ProviderRuntimeEventEnvelope) => void;
   stateHandler: (payload: { instanceId: string; status?: string }) => void;
 }
 
@@ -140,7 +142,7 @@ export class ChannelMessageRouter {
       if (tracker.timer) {
         clearTimeout(tracker.timer);
       }
-      im.removeListener('instance:output', tracker.outputHandler);
+      im.removeListener('provider:normalized-event', tracker.outputHandler);
       im.removeListener('instance:state-update', tracker.stateHandler);
       this.outputStreams.delete(bufferKey);
     }
@@ -1399,7 +1401,7 @@ export class ChannelMessageRouter {
         clearTimeout(tracker.timer);
         tracker.timer = null;
       }
-      im.removeListener('instance:output', tracker.outputHandler);
+      im.removeListener('provider:normalized-event', tracker.outputHandler);
       im.removeListener('instance:state-update', tracker.stateHandler);
       this.outputStreams.delete(bufferKey);
     };
@@ -1466,10 +1468,11 @@ export class ChannelMessageRouter {
       tracker.timer = setTimeout(() => flush(), DEBOUNCE_MS);
     };
 
-    tracker.outputHandler = (payload: { instanceId: string; message: { type: string; content: string } }) => {
-      if (payload.instanceId !== instanceId) return;
+    tracker.outputHandler = (envelope: ProviderRuntimeEventEnvelope) => {
+      if (envelope.instanceId !== instanceId) return;
 
-      const content = payload.message?.content;
+      const message = toOutputMessageFromProviderEnvelope(envelope);
+      const content = message?.content;
       if (!content) return;
 
       tracker.content += content;
@@ -1496,7 +1499,7 @@ export class ChannelMessageRouter {
     };
 
     this.outputStreams.set(bufferKey, tracker);
-    im.on('instance:output', tracker.outputHandler);
+    im.on('provider:normalized-event', tracker.outputHandler);
     im.on('instance:state-update', tracker.stateHandler);
   }
 

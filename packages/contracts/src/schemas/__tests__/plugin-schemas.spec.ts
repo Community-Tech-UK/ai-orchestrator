@@ -84,6 +84,15 @@ describe('PluginManifestSchema', () => {
     expect(result.version).toBe('2.0.0-beta.1');
   });
 
+  it('accepts a declared plugin slot', () => {
+    const result = PluginManifestSchema.parse({
+      name: 'slot-plugin',
+      version: '1.0.0',
+      slot: 'notifier',
+    });
+    expect(result.slot).toBe('notifier');
+  });
+
   it('rejects invalid hook event names', () => {
     expect(() => PluginManifestSchema.parse({
       name: 'bad-hooks',

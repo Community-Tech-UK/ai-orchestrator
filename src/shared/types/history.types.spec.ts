@@ -3,6 +3,7 @@ import {
   getConversationHistoryTitle,
   inferConversationHistoryProvider,
   normalizeConversationHistoryEntryProvider,
+  resolveEffectiveInstanceTitle,
   type ConversationHistoryEntry,
 } from './history.types';
 
@@ -74,6 +75,50 @@ describe('history title helpers', () => {
         })
       )
     ).toBe('Plan the smoke test');
+  });
+});
+
+describe('resolveEffectiveInstanceTitle', () => {
+  it('returns the live displayName when it is populated', () => {
+    // Covers the regression where the sidebar rail diverged from the detail
+    // header because the rail preferred the matching history entry's
+    // firstUserMessage over the live (auto-titled) displayName.
+    expect(
+      resolveEffectiveInstanceTitle(
+        { displayName: 'Email Password Debug', isRenamed: false },
+        makeEntry({ firstUserMessage: 'b' })
+      )
+    ).toBe('Email Password Debug');
+  });
+
+  it('returns a user-renamed displayName verbatim', () => {
+    expect(
+      resolveEffectiveInstanceTitle(
+        { displayName: 'My Custom Name', isRenamed: true },
+        makeEntry({ firstUserMessage: 'original task' })
+      )
+    ).toBe('My Custom Name');
+  });
+
+  it('falls back to the matching history entry title when displayName is blank', () => {
+    expect(
+      resolveEffectiveInstanceTitle(
+        { displayName: '   ', isRenamed: false },
+        makeEntry({ firstUserMessage: 'Investigate prod error' })
+      )
+    ).toBe('Investigate prod error');
+  });
+
+  it('returns "Untitled thread" when displayName is blank and no history entry is provided', () => {
+    expect(
+      resolveEffectiveInstanceTitle({ displayName: '', isRenamed: false })
+    ).toBe('Untitled thread');
+  });
+
+  it('does not require a history entry when displayName is populated', () => {
+    expect(
+      resolveEffectiveInstanceTitle({ displayName: 'New Session', isRenamed: false })
+    ).toBe('New Session');
   });
 });
 

@@ -26,8 +26,11 @@ import { ToolOutputParser } from './tool-output-parser';
 import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
-import { normalizeAdapterEvent } from '../providers/event-normalizer';
 import { getTokenStatsService } from '../memory/token-stats';
+import type {
+  ProviderName,
+  ProviderRuntimeEvent,
+} from '@contracts/types/provider-runtime-events';
 
 /**
  * Dependencies required by the communication manager
@@ -37,6 +40,7 @@ export interface CommunicationDependencies {
   getAdapter: (id: string) => CliAdapter | undefined;
   setAdapter: (id: string, adapter: CliAdapter) => void;
   deleteAdapter: (id: string) => boolean;
+  transitionState?: (instance: Instance, status: InstanceStatus) => void;
   queueUpdate: (
     instanceId: string,
     status: InstanceStatus,
@@ -67,6 +71,15 @@ export interface CommunicationDependencies {
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
   getBudgetTracker?: (instanceId: string) => TokenBudgetTracker | undefined;
   getContextUsage?: (instanceId: string) => ContextUsage | undefined;
+  emitProviderRuntimeEvent?: (
+    instanceId: string,
+    event: ProviderRuntimeEvent,
+    options?: {
+      provider?: ProviderName;
+      sessionId?: string;
+      timestamp?: number;
+    },
+  ) => void;
 }
 
 /**
@@ -166,6 +179,13 @@ export class InstanceCommunicationManager extends EventEmitter {
    *
    * Codex in app-server mode is stateful — context accumulates across turns
    * and requires proactive warnings and proper exit handling.
+   *
+   * Copilot, Gemini, and the exec-mode Codex adapter all spawn a fresh child
+   * process per user turn and emit an `exit` event from their own terminate()
+   * override. Treating those per-turn exits as "instance crashed" would tear
+   * down the child instance after the first successful reply — which is
+   * exactly the "Child exited without producing any output" bug seen when
+   * spawning Copilot children.
    */
   private isStatelessExecAdapter(adapter: CliAdapter): boolean {
     // Adapters with native compaction support are stateful (e.g., Codex app-server mode).
@@ -174,7 +194,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       return false;
     }
     const adapterName = adapter.getName().toLowerCase();
-    return adapterName.includes('codex') || adapterName.includes('gemini');
+    return (
+      adapterName.includes('codex') ||
+      adapterName.includes('gemini') ||
+      adapterName.includes('copilot')
+    );
   }
 
   /**
@@ -282,6 +306,19 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.seenToolResultIds.delete(instanceId);
   }
 
+  private transitionInstanceStatus(instance: Instance, status: InstanceStatus): void {
+    if (instance.status === status) {
+      return;
+    }
+
+    if (this.deps.transitionState) {
+      this.deps.transitionState(instance, status);
+      return;
+    }
+
+    instance.status = status;
+  }
+
   queueContinuityPreamble(instanceId: string, preamble: string): void {
     if (!preamble.trim()) {
       return;
@@ -361,7 +398,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       logger.error('No adapter found for instance', undefined, { instanceId, status: instance.status });
       // Instance exists but adapter is missing - this is a bug state
       // Mark instance as error to prevent further confusion
-      instance.status = 'error';
+      this.transitionInstanceStatus(instance, 'error');
       this.deps.queueUpdate(instanceId, 'error');
       throw new Error(`Instance ${instanceId} is in an inconsistent state (no adapter). Please restart the instance.`);
     }
@@ -552,7 +589,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             };
             this.addToOutputBuffer(instance, idleMsg);
             this.emit('output', { instanceId, message: idleMsg });
-            instance.status = 'idle';
+            this.transitionInstanceStatus(instance, 'idle');
             this.deps.queueUpdate(instanceId, 'idle');
             return;
           }
@@ -583,12 +620,12 @@ export class InstanceCommunicationManager extends EventEmitter {
           this.addToOutputBuffer(instance, retryNote);
           this.emit('output', { instanceId, message: retryNote });
 
-          instance.status = 'busy';
+          this.transitionInstanceStatus(instance, 'busy');
           this.deps.queueUpdate(instanceId, 'busy');
 
           adapter.sendInput(retryMessage, attachments).catch(retryErr => {
             logger.error('Retry after compaction failed (sendInput path)', retryErr instanceof Error ? retryErr : undefined, { instanceId });
-            instance.status = 'idle';
+            this.transitionInstanceStatus(instance, 'idle');
             this.deps.queueUpdate(instanceId, 'idle');
           });
           return;
@@ -681,30 +718,21 @@ export class InstanceCommunicationManager extends EventEmitter {
       return false;
     };
 
-    // WS3: Emit normalized provider-agnostic events via the contracts-based
-    // ProviderRuntimeEvent system. Consumers (plugins, telemetry, observability)
-    // can listen for 'provider:normalized-event' on the communication manager
-    // instead of per-provider event shapes.
-    const emitNormalized = (rawEventType: string, args: unknown[]): void => {
-      const instance = this.deps.getInstance(instanceId);
-      if (!instance) return;
-      const envelope = normalizeAdapterEvent(
-        instance.provider,
-        instanceId,
-        rawEventType,
-        args,
-        instance.providerSessionId,
-      );
-      if (envelope) {
-        this.emit('provider:normalized-event', envelope);
-      }
+    const emitProviderRuntimeEvent = (
+      event: ProviderRuntimeEvent,
+      options?: {
+        provider?: ProviderName;
+        sessionId?: string;
+        timestamp?: number;
+      },
+    ): void => {
+      this.deps.emitProviderRuntimeEvent?.(instanceId, event, options);
     };
 
     adapter.on('output', async (message: OutputMessage) => {
       if (isStaleAdapterEvent('output')) {
         return;
       }
-      emitNormalized('output', [message]);
 
       // Skip user messages echoed back by the CLI — we add them explicitly
       // in InstanceManager.sendInput() and InstanceLifecycle.createInstance().
@@ -882,7 +910,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           this.emit('output', { instanceId, message: recoveryMessage });
 
           if (instance.status !== 'error' && instance.status !== 'terminated') {
-            instance.status = 'error';
+            this.transitionInstanceStatus(instance, 'error');
             this.deps.queueUpdate(instanceId, 'error');
             this.forceCleanupAdapter(instanceId).catch((err) => {
               logger.error('Failed to cleanup adapter after corrupted session', err instanceof Error ? err : undefined, { instanceId });
@@ -922,7 +950,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
           // Force the instance to stop — don't let the CLI keep retrying
           if (instance.status !== 'error' && instance.status !== 'terminated') {
-            instance.status = 'error';
+            this.transitionInstanceStatus(instance, 'error');
             this.deps.queueUpdate(instanceId, 'error');
             this.forceCleanupAdapter(instanceId).catch((err) => {
               logger.error('Failed to cleanup adapter after context overflow', err instanceof Error ? err : undefined, { instanceId });
@@ -945,7 +973,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('status')) {
         return;
       }
-      emitNormalized('status', [status]);
+      emitProviderRuntimeEvent({ kind: 'status', status });
 
       const instance = this.deps.getInstance(instanceId);
       if (instance && instance.status !== status) {
@@ -960,7 +988,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
 
         const previousStatus = instance.status;
-        instance.status = status;
+        this.transitionInstanceStatus(instance, status);
         instance.lastActivity = Date.now();
 
         if (status === 'idle' || status === 'ready' || status === 'waiting_for_input') {
@@ -1000,7 +1028,12 @@ export class InstanceCommunicationManager extends EventEmitter {
         });
         return;
       }
-      emitNormalized('context', [usage]);
+      emitProviderRuntimeEvent({
+        kind: 'context',
+        used: usage.used,
+        total: usage.total,
+        percentage: usage.percentage,
+      });
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
@@ -1097,7 +1130,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('error')) {
         return;
       }
-      emitNormalized('error', [error]);
+      emitProviderRuntimeEvent({
+        kind: 'error',
+        message: error instanceof Error ? error.message : String(error),
+        recoverable: false,
+      });
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
 
@@ -1168,7 +1205,7 @@ export class InstanceCommunicationManager extends EventEmitter {
               };
               this.addToOutputBuffer(instance, idleMessage);
               this.emit('output', { instanceId, message: idleMessage });
-              instance.status = 'idle';
+              this.transitionInstanceStatus(instance, 'idle');
               this.deps.queueUpdate(instanceId, 'idle');
               return;
             }
@@ -1203,12 +1240,12 @@ export class InstanceCommunicationManager extends EventEmitter {
               this.addToOutputBuffer(instance, successMessage);
               this.emit('output', { instanceId, message: successMessage });
 
-              instance.status = 'busy';
+              this.transitionInstanceStatus(instance, 'busy');
               this.deps.queueUpdate(instanceId, 'busy');
 
               retryAdapter.sendInput(retryMessage, lastMsg.attachments).catch(retryErr => {
                 logger.error('Retry after compaction failed', retryErr instanceof Error ? retryErr : undefined, { instanceId });
-                instance.status = 'idle';
+                this.transitionInstanceStatus(instance, 'idle');
                 this.deps.queueUpdate(instanceId, 'idle');
               });
               return;
@@ -1224,7 +1261,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             };
             this.addToOutputBuffer(instance, fallbackMessage);
             this.emit('output', { instanceId, message: fallbackMessage });
-            instance.status = 'idle';
+            this.transitionInstanceStatus(instance, 'idle');
             this.deps.queueUpdate(instanceId, 'idle');
             return;
           } catch (compactErr) {
@@ -1250,7 +1287,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       // Don't mark as error if we're in the middle of respawning - let respawnAfterInterrupt handle it
       if (instance.status !== 'respawning') {
-        instance.status = 'error';
+        this.transitionInstanceStatus(instance, 'error');
         this.deps.queueUpdate(instanceId, 'error');
 
         // Only force cleanup if not respawning - during respawn the lifecycle manager handles cleanup
@@ -1276,7 +1313,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('exit')) {
         return;
       }
-      emitNormalized('exit', [code, signal]);
+      emitProviderRuntimeEvent({ kind: 'exit', code, signal });
       logger.info('Adapter exit event', { instanceId, code, signal });
 
       const instance = this.deps.getInstance(instanceId);
@@ -1325,7 +1362,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.interruptedInstances.delete(instanceId);
         this.deps.onInterruptedExit(instanceId).catch((err) => {
           logger.error('Failed to respawn instance after interrupt', err instanceof Error ? err : undefined, { instanceId });
-          instance.status = 'error';
+          this.transitionInstanceStatus(instance, 'error');
           instance.processId = null;
           this.deps.queueUpdate(
             instanceId,
@@ -1377,7 +1414,7 @@ export class InstanceCommunicationManager extends EventEmitter {
             restartCount: instance.restartCount,
             previousStatus: instance.status,
           });
-          instance.status = 'respawning';
+          this.transitionInstanceStatus(instance, 'respawning');
           instance.processId = null;
           instance.restartCount++;
           this.deps.queueUpdate(instanceId, 'respawning');
@@ -1388,7 +1425,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
           this.deps.onUnexpectedExit!(instanceId).catch((err) => {
             logger.error('Auto-respawn failed', err instanceof Error ? err : undefined, { instanceId });
-            instance.status = 'error';
+            this.transitionInstanceStatus(instance, 'error');
             instance.processId = null;
             this.deps.queueUpdate(
               instanceId,
@@ -1404,7 +1441,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         const newStatus = code === 0 ? 'terminated' : 'error';
         logger.info('Instance exited unexpectedly', { instanceId, newStatus, code, signal });
-        instance.status = newStatus;
+        this.transitionInstanceStatus(instance, newStatus);
         instance.processId = null;
         this.deps.queueUpdate(
           instanceId,

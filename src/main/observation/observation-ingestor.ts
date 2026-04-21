@@ -9,6 +9,7 @@ import type {
 } from './observation.types';
 import { DEFAULT_OBSERVATION_CONFIG } from './observation.types';
 import type { InstanceManager } from '../instance/instance-manager';
+import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 
 const MAX_CAPTURED_OBSERVATION_CHARS = 4_000;
 const MAX_OUTPUT_MESSAGE_PREVIEW_CHARS = 600;
@@ -63,13 +64,14 @@ export class ObservationIngestor extends EventEmitter {
     this.logger.info('Initializing ObservationIngestor');
 
     // Attach listeners to instance manager events
-    instanceManager.on('instance:output', (data: unknown) => {
+    instanceManager.on('provider:normalized-event', (data: unknown) => {
       try {
         if (!data || typeof data !== 'object') {
           return;
         }
-        const { instanceId, message } = data as Record<string, unknown>;
-        if (!instanceId || !message) {
+        const envelope = data as Parameters<typeof toOutputMessageFromProviderEnvelope>[0];
+        const message = toOutputMessageFromProviderEnvelope(envelope);
+        if (!message) {
           return;
         }
 
@@ -79,10 +81,10 @@ export class ObservationIngestor extends EventEmitter {
           'event',
           summarized.content,
           summarized.metadata,
-          String(instanceId)
+          envelope.instanceId
         );
       } catch (error) {
-        this.logger.warn('Failed to capture instance:output event', {
+        this.logger.warn('Failed to capture provider output event', {
           error: error instanceof Error ? error.message : String(error)
         });
       }

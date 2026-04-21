@@ -17,10 +17,12 @@ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-run
 // Captured at module scope so tests can emit events on it.
 // ---------------------------------------------------------------------------
 let fakeCommunication: EventEmitter;
+let capturedCommunicationDeps: Record<string, unknown> | undefined;
 
 vi.mock('../instance-communication', () => {
   return {
-    InstanceCommunicationManager: vi.fn().mockImplementation(() => {
+    InstanceCommunicationManager: vi.fn().mockImplementation((deps: Record<string, unknown>) => {
+      capturedCommunicationDeps = deps;
       fakeCommunication = new EventEmitter();
       // Minimal surface expected by InstanceManager
       (fakeCommunication as EventEmitter & Record<string, unknown>).addToOutputBuffer = vi.fn();
@@ -466,12 +468,13 @@ import { InstanceManager } from '../instance-manager';
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('InstanceManager provider:normalized-event re-emit', () => {
+describe('InstanceManager provider:normalized-event emission', () => {
   beforeEach(() => {
     idCounter = 0;
+    capturedCommunicationDeps = undefined;
   });
 
-  it('re-emits provider:normalized-event from communication manager onto itself', () => {
+  it('publishes provider runtime envelopes through the manager sequencer', () => {
     const manager = new InstanceManager();
 
     const envelope: ProviderRuntimeEventEnvelope = {
@@ -486,9 +489,20 @@ describe('InstanceManager provider:normalized-event re-emit', () => {
     const received: ProviderRuntimeEventEnvelope[] = [];
     manager.on('provider:normalized-event', (env) => received.push(env));
 
-    fakeCommunication.emit('provider:normalized-event', envelope);
+    const emitProviderRuntimeEvent = capturedCommunicationDeps?.['emitProviderRuntimeEvent'];
+    expect(typeof emitProviderRuntimeEvent).toBe('function');
+    (emitProviderRuntimeEvent as (
+      instanceId: string,
+      event: ProviderRuntimeEventEnvelope['event'],
+      options?: { provider?: ProviderRuntimeEventEnvelope['provider'] },
+    ) => void)('inst-1', envelope.event, { provider: 'claude' });
 
     expect(received).toHaveLength(1);
-    expect(received[0]).toBe(envelope);
+    expect(received[0]).toMatchObject({
+      provider: 'claude',
+      instanceId: 'inst-1',
+      event: envelope.event,
+      seq: 0,
+    });
   });
 });

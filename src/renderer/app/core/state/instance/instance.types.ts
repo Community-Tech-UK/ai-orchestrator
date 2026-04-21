@@ -6,6 +6,7 @@ import type { AgentMode } from '../../../../../shared/types/agent.types';
 import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type {
+  FailedImageRef,
   FileAttachment,
   InstanceRecoveryMethod,
   ThinkingContent,
@@ -59,8 +60,10 @@ export interface OutputMessage {
   type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
   content: string;
   metadata?: Record<string, unknown>;
-  /** File attachments for user messages */
+  /** File attachments associated with this message. */
   attachments?: FileAttachment[];
+  /** Image refs that failed to resolve into inline attachments. */
+  failedImages?: FailedImageRef[];
   /** Extracted thinking/reasoning content */
   thinking?: ThinkingContent[];
   /** Whether thinking has been extracted from this message */

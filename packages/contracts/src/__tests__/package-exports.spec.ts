@@ -35,6 +35,7 @@ describe('packages/contracts/package.json exports', () => {
   });
 
   it('exposes types subpaths used by SDK', () => {
+    expect(pkg.exports['./types/instance-events']).toBeDefined();
     expect(pkg.exports['./types/provider-runtime-events']).toBeDefined();
     expect(pkg.exports['./types/transport']).toBeDefined();
   });

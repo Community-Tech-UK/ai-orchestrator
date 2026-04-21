@@ -378,21 +378,47 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             }
 
             case 'tool.execution_complete': {
+              const toolSucceeded = event.data?.success !== false;
+              // When a tool fails, also emit an `error` message so the failure
+              // is visible to parent instances and to the child-summary
+              // fallback path in handleChildExit. Without this, a Copilot
+              // child whose only output was a failed tool call shows up as
+              // "Child exited without producing any output."
               this.emit('output', {
                 id: generateId(),
                 timestamp: Date.now(),
                 type: 'tool_result',
-                content: event.data?.success ? 'Tool completed successfully' : 'Tool failed',
+                content: toolSucceeded ? 'Tool completed successfully' : 'Tool failed',
                 metadata: {
                   toolCallId: event.data?.toolCallId,
                   success: event.data?.success,
                 },
               } as OutputMessage);
+              if (!toolSucceeded) {
+                this.emit('output', {
+                  id: generateId(),
+                  timestamp: Date.now(),
+                  type: 'error',
+                  content: `Copilot tool call failed (toolCallId=${event.data?.toolCallId ?? 'unknown'})`,
+                  metadata: { toolCallId: event.data?.toolCallId, raw: event },
+                } as OutputMessage);
+              }
               break;
             }
 
             case 'session.error': {
-              this.emit('error', new Error(event.data?.message ?? 'Copilot session error'));
+              const sessionErrMsg = event.data?.message ?? 'Copilot session error';
+              // Also emit as an `error` OutputMessage so it lands in the
+              // instance's output buffer and becomes visible in the UI plus
+              // in the child-exit summary fallback.
+              this.emit('output', {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'error',
+                content: sessionErrMsg,
+                metadata: { source: 'copilot-session-error' },
+              } as OutputMessage);
+              this.emit('error', new Error(sessionErrMsg));
               break;
             }
 

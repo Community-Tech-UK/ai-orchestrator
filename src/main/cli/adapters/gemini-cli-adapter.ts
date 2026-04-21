@@ -201,8 +201,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         for (const line of lines) {
           try {
             const event = JSON.parse(line);
-            // Handle Gemini stream-json event types
-            // Assistant messages: {"type":"message","role":"assistant","content":"..."}
+            // Handle Gemini stream-json event types.
+            // Primary content events:
+            //   {"type":"message","role":"assistant","content":"..."}
+            //   {"type":"text","text":"..."}
             let newContent = '';
             if (
               event.type === 'message' &&
@@ -226,6 +228,91 @@ export class GeminiCliAdapter extends BaseCliAdapter {
                   accumulatedContent
                 }
               } as OutputMessage);
+              continue;
+            }
+
+            // Tool activity events — surface as tool_use / tool_result so the
+            // orchestrator (and child summary builder) can see what the model
+            // was actually doing. Without this, a Gemini child that only ran
+            // tools and hit an error never produces any visible output and
+            // shows up to the parent as "Child exited without producing any
+            // output." The exact event shape varies across gemini-cli
+            // versions, so we accept several common variants.
+            if (
+              event.type === 'tool_call' ||
+              event.type === 'tool_use' ||
+              event.type === 'tool.execution_start'
+            ) {
+              const toolName =
+                event.tool || event.name || event.toolName || event.data?.toolName || 'unknown';
+              this.emit('output', {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'tool_use',
+                content: `Using tool: ${toolName}`,
+                metadata: { toolName, raw: event },
+              } as OutputMessage);
+              continue;
+            }
+
+            // Tool failures — explicit error variants first, then generic
+            // tool_result events that carry an error payload.
+            if (
+              event.type === 'tool_error' ||
+              event.type === 'tool.execution_error' ||
+              (event.type === 'tool_result' && event.error)
+            ) {
+              const toolName =
+                event.tool || event.name || event.toolName || event.data?.toolName || 'unknown';
+              const errText =
+                typeof event.error === 'string'
+                  ? event.error
+                  : event.error?.message || event.message || JSON.stringify(event.error ?? event);
+              const content = `Tool ${toolName} failed: ${errText}`;
+              this.emit('output', {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'error',
+                content,
+                metadata: { toolName, raw: event },
+              } as OutputMessage);
+              continue;
+            }
+
+            if (
+              event.type === 'tool_result' ||
+              event.type === 'tool.execution_complete'
+            ) {
+              const toolName =
+                event.tool || event.name || event.toolName || event.data?.toolName || 'unknown';
+              const resultText =
+                typeof event.result === 'string'
+                  ? event.result
+                  : event.result !== undefined
+                    ? JSON.stringify(event.result)
+                    : 'ok';
+              this.emit('output', {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'tool_result',
+                content: `Tool ${toolName}: ${resultText.slice(0, 500)}`,
+                metadata: { toolName, raw: event },
+              } as OutputMessage);
+              continue;
+            }
+
+            // Generic error events that aren't tool-scoped.
+            if (event.type === 'error' || (event.type === 'result' && event.status === 'error')) {
+              const errText =
+                event.error?.message || event.message || JSON.stringify(event.error ?? event);
+              this.emit('output', {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'error',
+                content: errText,
+                metadata: { raw: event },
+              } as OutputMessage);
+              continue;
             }
           } catch {
             // Not JSON, emit raw if it looks like content
@@ -252,13 +339,31 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
       this.process.stderr?.on('data', (data) => {
         const errorStr = data.toString();
-        // Only emit as error if it's actually an error
-        if (
-          errorStr.includes('error') ||
-          errorStr.includes('Error') ||
-          errorStr.includes('fatal')
-        ) {
-          this.emit('error', new Error(errorStr.trim()));
+        const trimmed = errorStr.trim();
+        if (!trimmed) return;
+
+        // Surface stderr as a visible error message in the buffer so the
+        // parent instance (and handleChildExit's summary fallback) can see
+        // why the child failed. Without this, Gemini tool errors written to
+        // stderr vanish entirely. Treat anything that looks like an error
+        // as an `error` output so it's both visible and captured by the
+        // child-result storage fallback path.
+        const looksLikeError =
+          /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception/i.test(trimmed);
+
+        if (looksLikeError) {
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'error',
+            content: trimmed.slice(0, 2000),
+          } as OutputMessage);
+          this.emit('error', new Error(trimmed));
+        } else {
+          // Non-error stderr (debug banners, version notices). Still surface
+          // in case it contains useful diagnostic info, but as a system note
+          // rather than an error.
+          logger.debug('gemini stderr', { text: trimmed.slice(0, 500) });
         }
       });
 

@@ -14,10 +14,10 @@ import {
 } from './worker-node-rpc';
 import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
-import { validateAuthToken } from './auth-validator';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
+import { getRemoteAuthService } from '../auth/remote-auth';
 
 const logger = getLogger('WorkerNodeConnection');
 
@@ -352,17 +352,23 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       return;
     }
 
-    // Validate auth token
+    // Authenticate registration via session token or pairing token exchange.
     const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
-    if (!validateAuthToken(token)) {
+    const name = typeof params?.['name'] === 'string' ? params['name'] : newNodeId;
+    const auth = getRemoteAuthService().authenticateRegistration({
+      nodeId: newNodeId,
+      nodeName: name,
+      token,
+    });
+    if (auth.status === 'rejected') {
       const errorResponse = createRpcError(
         msg.id,
         RPC_ERROR_CODES.UNAUTHORIZED,
-        'Invalid or missing auth token',
+        auth.reason,
       );
       ws.send(JSON.stringify(errorResponse));
       ws.close(4001, 'Unauthorized');
-      logger.warn('Node registration rejected: invalid auth token', { nodeId: newNodeId });
+      logger.warn('Node registration rejected', { nodeId: newNodeId, reason: auth.reason });
       return;
     }
 
@@ -384,6 +390,14 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     // Forward the registration to the RPC router so it registers the node
     // in the registry and starts health monitoring.
     this.emit('rpc:request', newNodeId, msg as RpcRequest);
+    this.sendResponse(newNodeId, {
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        nodeId: auth.session.nodeId,
+        token: auth.session.token,
+      },
+    });
   }
 
   private handleMessage(nodeId: string, msg: unknown): void {

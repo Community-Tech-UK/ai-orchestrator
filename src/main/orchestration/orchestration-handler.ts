@@ -1142,8 +1142,17 @@ export class OrchestrationHandler extends EventEmitter {
         .map(r => `${r.provider}${r.model ? `/${r.model}` : ''}: ${r.success ? 'ok' : `failed: ${r.error}`} (${r.durationMs}ms)`)
         .join(', ');
 
-      this.injectResponse(instanceId, 'consensus_query', true, {
-        message: result.consensus,
+      // Success only when at least one provider produced a usable response.
+      // Previously we hardcoded `true` here, which reported SUCCESS to the
+      // requesting instance even when every provider failed — deeply confusing
+      // because `result.consensus` was then just "All providers failed".
+      const anyProviderSucceeded = result.successCount > 0;
+      const message = anyProviderSucceeded
+        ? result.consensus
+        : `Consensus query failed: all ${result.failureCount} provider(s) errored. ${providerSummary}`;
+
+      this.injectResponse(instanceId, 'consensus_query', anyProviderSucceeded, {
+        message,
         agreement: result.agreement,
         providers: providerSummary,
         successCount: result.successCount,
@@ -1151,6 +1160,18 @@ export class OrchestrationHandler extends EventEmitter {
         totalDurationMs: result.totalDurationMs,
         dissent: result.dissent.length > 0 ? result.dissent : undefined,
         edgeCases: result.edgeCases.length > 0 ? result.edgeCases : undefined,
+        // Surface per-provider error reasons so the parent can see WHY each
+        // provider failed rather than a generic "All providers failed".
+        errors: anyProviderSucceeded
+          ? undefined
+          : result.responses
+              .filter(r => !r.success)
+              .map(r => ({
+                provider: r.provider,
+                model: r.model,
+                error: r.error || 'unknown error',
+                durationMs: r.durationMs,
+              })),
       });
     } catch (error) {
       this.injectResponse(instanceId, 'consensus_query', false, {

@@ -10,6 +10,41 @@ import type { OutputMessage } from './instance.types';
 
 export type PluginRecord = Record<string, unknown>;
 
+export type PluginSlot =
+  | 'provider'
+  | 'channel'
+  | 'mcp'
+  | 'skill'
+  | 'hook'
+  | 'tracker'
+  | 'notifier'
+  | 'telemetry_exporter';
+
+export type PluginLoadPhase =
+  | 'manifest_load'
+  | 'manifest_validation'
+  | 'instantiation'
+  | 'detect'
+  | 'hook_registration'
+  | 'ready';
+
+export type PluginPhaseStatus = 'pending' | 'succeeded' | 'failed' | 'skipped';
+
+export interface PluginPhaseResult {
+  phase: PluginLoadPhase;
+  status: PluginPhaseStatus;
+  timestamp: number;
+  message?: string;
+}
+
+export interface PluginLoadReport {
+  slot: PluginSlot;
+  detected: boolean;
+  ready: boolean;
+  phases: PluginPhaseResult[];
+  error?: string;
+}
+
 export interface PluginHookPayloads {
   'instance.created': PluginRecord & {
     id: string;

@@ -68,6 +68,17 @@ vi.mock('../../../mcp/mcp-manager', () => ({
   getMcpManager: () => mockMcp,
 }));
 
+const mockLifecycle = {
+  getState: vi.fn().mockReturnValue({ servers: [], tools: [], resources: [], prompts: [] }),
+  getServers: vi.fn().mockReturnValue([]),
+  connect: vi.fn().mockResolvedValue(undefined),
+  restart: vi.fn().mockResolvedValue(undefined),
+};
+
+vi.mock('../../../mcp/mcp-lifecycle-manager', () => ({
+  getMcpLifecycleManager: () => mockLifecycle,
+}));
+
 // ============================================================
 // 4. Mock browser automation health service
 // ============================================================
@@ -140,6 +151,10 @@ describe('mcp-handlers', () => {
     mockMcp.callTool.mockResolvedValue({ success: true, content: [] });
     mockMcp.readResource.mockResolvedValue({ success: true, contents: [] });
     mockMcp.getPrompt.mockResolvedValue({ success: true, messages: [] });
+    mockLifecycle.getState.mockReturnValue({ servers: [], tools: [], resources: [], prompts: [] });
+    mockLifecycle.getServers.mockReturnValue([]);
+    mockLifecycle.connect.mockResolvedValue(undefined);
+    mockLifecycle.restart.mockResolvedValue(undefined);
     mockGetMainWindow.mockReturnValue({ webContents: { send: mockWebContentsSend } });
     mockDiagnose.mockResolvedValue({ status: 'ready', sources: [] });
 
@@ -194,17 +209,17 @@ describe('mcp-handlers', () => {
   describe('MCP_GET_STATE', () => {
     it('returns success with state data', async () => {
       const fakeState = { servers: [{ id: 's1' }], tools: [], resources: [], prompts: [] };
-      mockMcp.getState.mockReturnValue(fakeState);
+      mockLifecycle.getState.mockReturnValue(fakeState);
 
       const result = await invoke(IPC_CHANNELS.MCP_GET_STATE);
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual(fakeState);
-      expect(mockMcp.getState).toHaveBeenCalledOnce();
+      expect(mockLifecycle.getState).toHaveBeenCalledOnce();
     });
 
     it('returns failure when getState throws', async () => {
-      mockMcp.getState.mockImplementation(() => { throw new Error('state error'); });
+      mockLifecycle.getState.mockImplementation(() => { throw new Error('state error'); });
 
       const result = await invoke(IPC_CHANNELS.MCP_GET_STATE);
 
@@ -221,7 +236,7 @@ describe('mcp-handlers', () => {
   describe('MCP_GET_SERVERS', () => {
     it('returns success with servers list', async () => {
       const fakeServers = [{ id: 's1', name: 'My Server' }];
-      mockMcp.getServers.mockReturnValue(fakeServers);
+      mockLifecycle.getServers.mockReturnValue(fakeServers);
 
       const result = await invoke(IPC_CHANNELS.MCP_GET_SERVERS);
 
@@ -230,7 +245,7 @@ describe('mcp-handlers', () => {
     });
 
     it('returns failure when getServers throws', async () => {
-      mockMcp.getServers.mockImplementation(() => { throw new Error('servers error'); });
+      mockLifecycle.getServers.mockImplementation(() => { throw new Error('servers error'); });
 
       const result = await invoke(IPC_CHANNELS.MCP_GET_SERVERS);
 
@@ -317,7 +332,7 @@ describe('mcp-handlers', () => {
       const result = await invoke(IPC_CHANNELS.MCP_CONNECT, { serverId: 'server-1' });
 
       expect(result.success).toBe(true);
-      expect(mockMcp.connect).toHaveBeenCalledWith('server-1');
+      expect(mockLifecycle.connect).toHaveBeenCalledWith('server-1');
     });
 
     it('rejects invalid payload', async () => {
@@ -328,7 +343,7 @@ describe('mcp-handlers', () => {
     });
 
     it('returns failure when connect rejects', async () => {
-      mockMcp.connect.mockRejectedValue(new Error('connection refused'));
+      mockLifecycle.connect.mockRejectedValue(new Error('connection refused'));
 
       const result = await invoke(IPC_CHANNELS.MCP_CONNECT, { serverId: 'server-1' });
 
@@ -369,11 +384,11 @@ describe('mcp-handlers', () => {
       const result = await invoke(IPC_CHANNELS.MCP_RESTART, { serverId: 'server-1' });
 
       expect(result.success).toBe(true);
-      expect(mockMcp.restart).toHaveBeenCalledWith('server-1');
+      expect(mockLifecycle.restart).toHaveBeenCalledWith('server-1');
     });
 
     it('returns failure when restart rejects', async () => {
-      mockMcp.restart.mockRejectedValue(new Error('restart error'));
+      mockLifecycle.restart.mockRejectedValue(new Error('restart error'));
 
       const result = await invoke(IPC_CHANNELS.MCP_RESTART, { serverId: 'server-1' });
 

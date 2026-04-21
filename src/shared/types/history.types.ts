@@ -196,6 +196,41 @@ export function getConversationHistoryTitle(
 }
 
 /**
+ * Resolve the effective display title for a live instance, shared by both the
+ * workspace rail (sidebar list) and the detail header. Keeping a single
+ * resolver ensures the two views never drift out of sync.
+ *
+ * Priority:
+ *   1. The live `instance.displayName` when it has meaningful content.
+ *      Covers both user-renamed sessions (`isRenamed` is irrelevant — rename
+ *      just mutates `displayName`) and auto-titled sessions.
+ *   2. The matching history entry's derived title — only used as a fallback
+ *      when the live `displayName` is empty/whitespace, so the rail still
+ *      shows something sensible.
+ *   3. `'Untitled thread'` as a last-resort fallback.
+ */
+export function resolveEffectiveInstanceTitle(
+  instance: { displayName: string; isRenamed?: boolean },
+  matchingHistoryEntry?: Pick<
+    ConversationHistoryEntry,
+    'displayName' | 'isRenamed' | 'firstUserMessage' | 'lastUserMessage'
+  >
+): string {
+  // Live displayName wins whenever it has content. Auto-title (phase 1 + 2)
+  // and manual rename both flow into displayName, so a single check covers
+  // both cases — and it stays in sync with what the header is bound to.
+  if (instance.displayName.trim()) {
+    return instance.displayName;
+  }
+
+  if (matchingHistoryEntry) {
+    return getConversationHistoryTitle(matchingHistoryEntry);
+  }
+
+  return 'Untitled thread';
+}
+
+/**
  * Infer the original provider for legacy history entries saved before provider
  * metadata was persisted. When we cannot determine it with confidence, fall
  * back to Claude because that was the historic default.
