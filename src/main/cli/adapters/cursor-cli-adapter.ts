@@ -1,4 +1,4 @@
-import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus } from './base-cli-adapter';
+import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus, AdapterRuntimeCapabilities } from './base-cli-adapter';
 import type { FileAttachment } from '../../../shared/types/instance.types';
 
 export interface CursorCliConfig {
@@ -38,6 +38,16 @@ export class CursorCliAdapter extends BaseCliAdapter {
       codeExecution: true,
       contextWindow: 200_000,
       outputFormats: ['text', 'json', 'stream-json'],
+    };
+  }
+
+  override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
+    return {
+      supportsResume: true,
+      supportsForkSession: false,
+      supportsNativeCompaction: false,
+      supportsPermissionPrompts: false,
+      supportsDeferPermission: false,
     };
   }
 
