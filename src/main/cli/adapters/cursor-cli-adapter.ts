@@ -168,6 +168,18 @@ export class CursorCliAdapter extends BaseCliAdapter {
       let streamingContent = '';
       let hasReceivedDeltas = false;
 
+      // StreamContext is hoisted above the line-buffer loop so we allocate it
+      // once per turn rather than once per NDJSON line. The closures still
+      // capture the per-turn mutable state declared above.
+      const ctx: StreamContext = {
+        streamingMessageId: () => streamingMessageId,
+        setStreamingMessageId: (id) => { streamingMessageId = id; },
+        appendStreamingContent: (c) => { streamingContent += c; },
+        getStreamingContent: () => streamingContent,
+        markDeltaSeen: () => { hasReceivedDeltas = true; },
+        hasDeltaSeen: () => hasReceivedDeltas,
+      };
+
       // Line-buffered NDJSON parsing — cursor-agent emits one JSON object per line
       // on stdout under --output-format stream-json.
       let lineBuffer = '';
@@ -193,15 +205,6 @@ export class CursorCliAdapter extends BaseCliAdapter {
             // but banners or similar can sneak through). Skip.
             continue;
           }
-
-          const ctx: StreamContext = {
-            streamingMessageId: () => streamingMessageId,
-            setStreamingMessageId: (id) => { streamingMessageId = id; },
-            appendStreamingContent: (c) => { streamingContent += c; },
-            getStreamingContent: () => streamingContent,
-            markDeltaSeen: () => { hasReceivedDeltas = true; },
-            hasDeltaSeen: () => hasReceivedDeltas,
-          };
 
           this.handleCursorEvent(event, ctx);
         }
@@ -357,7 +360,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
         timestamp: Date.now(),
         type: 'assistant',
         content: text,
-        metadata: { streaming: true, accumulatedContent: extracted.response },
+        metadata: { streaming: true, accumulatedContent: extracted.response, thinkingExtracted: true },
         thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
       } as OutputMessage);
       return;
@@ -376,12 +379,14 @@ export class CursorCliAdapter extends BaseCliAdapter {
         const suffix = text.slice(streamed.length);
         if (suffix) {
           ctx.appendStreamingContent(suffix);
+          const extracted = extractThinkingContent(ctx.getStreamingContent());
           this.emit('output', {
             id: messageId,
             timestamp: Date.now(),
             type: 'assistant',
             content: suffix,
-            metadata: { streaming: true, accumulatedContent: ctx.getStreamingContent() },
+            metadata: { streaming: true, accumulatedContent: extracted.response, thinkingExtracted: true },
+            thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
           } as OutputMessage);
         }
         this.emitAssistantFlush(messageId, ctx.getStreamingContent());
@@ -406,7 +411,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       timestamp: Date.now(),
       type: 'assistant',
       content: '',
-      metadata: { streaming: false, accumulatedContent: extracted.response },
+      metadata: { streaming: false, accumulatedContent: extracted.response, thinkingExtracted: true },
       thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
     } as OutputMessage);
   }
