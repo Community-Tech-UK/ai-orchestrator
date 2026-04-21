@@ -575,3 +575,124 @@ describe('CursorCliAdapter — result event', () => {
     expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('sess-e');
   });
 });
+
+describe('CursorCliAdapter — resume-failure fallback', () => {
+  beforeEach(() => {
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
+    lastSpawnState.lastSpawnArgs = null;
+  });
+
+  interface OutputEvent {
+    id: string;
+    type: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }
+
+  it("clears cursorSessionId and retries once without --resume on 'invalid session id'", async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+    (adapter as unknown as { cursorSessionId: string | null }).cursorSessionId = 'stale';
+
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    // First spawn — verify --resume was included.
+    expect(lastSpawnState.lastSpawnArgs?.args).toEqual(expect.arrayContaining(['--resume', 'stale']));
+    expect(spawnedProcesses).toHaveLength(1);
+
+    const first = spawnedProcesses[0];
+    first.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'error', is_error: true,
+      result: 'invalid session id: stale',
+    }) + '\n');
+    // Yield so handleResultEvent can run dispatchTurn and spawn the retry.
+    await new Promise<void>((r) => setImmediate(r));
+
+    // Second spawn — verify --resume is NOT present.
+    expect(spawnedProcesses).toHaveLength(2);
+    expect(lastSpawnState.lastSpawnArgs?.args).not.toContain('--resume');
+
+    // Fire a 'close' on the first (pre-retry) process AFTER the retry spawned.
+    // dispatchTurn should have removed listeners, so this must NOT corrupt the
+    // retry's state.
+    first.emit('close', 0);
+
+    const second = spawnedProcesses[1];
+    second.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'new-sess', result: 'done',
+    }) + '\n');
+    second.emit('close', 0);
+
+    const resp = await sendPromise;
+    expect(resp.content).toBe('done');
+    expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('new-sess');
+
+    // User-visible recoverable-error notice was emitted exactly once, with
+    // metadata { recoverable: true, retryKind: 'resume-fallback' }.
+    const recoverables = outputs.filter(
+      (o) =>
+        o.type === 'error' &&
+        (o.metadata as { retryKind?: string } | undefined)?.retryKind === 'resume-fallback'
+    );
+    expect(recoverables).toHaveLength(1);
+    expect(recoverables[0].content).toBe('Previous Cursor session expired; starting fresh.');
+    expect(recoverables[0].metadata?.recoverable).toBe(true);
+  });
+
+  it('does NOT retry on non-resume errors; cursorSessionId preserved', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+    (adapter as unknown as { cursorSessionId: string | null }).cursorSessionId = 'sess-ok';
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[0];
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'error', is_error: true,
+      result: 'unrelated error',
+    }) + '\n');
+    proc.emit('close', 0);
+
+    await expect(sendPromise).rejects.toThrow('unrelated error');
+    expect(spawnedProcesses).toHaveLength(1);
+    expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('sess-ok');
+  });
+
+  it('retry also fails → rejects with the retry error (no infinite loop)', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+    (adapter as unknown as { cursorSessionId: string | null }).cursorSessionId = 'stale';
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const first = spawnedProcesses[0];
+    first.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'error', is_error: true,
+      result: 'session expired',
+    }) + '\n');
+    await new Promise<void>((r) => setImmediate(r));
+    first.emit('close', 0);
+
+    expect(spawnedProcesses).toHaveLength(2);
+    const second = spawnedProcesses[1];
+    second.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'error', is_error: true,
+      result: 'authentication failed',
+    }) + '\n');
+    second.emit('close', 0);
+
+    await expect(sendPromise).rejects.toThrow('authentication failed');
+    // Guard: the retry's error must NOT trigger a third spawn even if it
+    // happened to match the resume-failure pattern (it doesn't here, but the
+    // `!retriedWithoutResume` gate enforces this regardless).
+    expect(spawnedProcesses).toHaveLength(2);
+  });
+});

@@ -111,6 +111,16 @@ export class CursorCliAdapter extends BaseCliAdapter {
   /** Timestamp (ms) when the current sendMessage call was initiated. */
   private activeStartTime = 0;
 
+  /** Active per-turn fallback timeout handle; cleared across retries so it doesn't leak. */
+  private activeTimeout: NodeJS.Timeout | null = null;
+
+  /**
+   * Errors whose `result` string triggers a one-shot retry without --resume
+   * (Task 21). Matches cursor-agent's "invalid session id", "session not found",
+   * and "session expired" phrasings case-insensitively.
+   */
+  private readonly RESUME_FAILURE_PATTERN = /invalid session id|session not found|session expired/i;
+
   constructor(config: CursorCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
       command: 'cursor-agent',
@@ -162,12 +172,8 @@ export class CursorCliAdapter extends BaseCliAdapter {
       throw new Error('Cursor adapter not spawned; call spawn() before sendMessage.');
     }
 
-    const startTime = Date.now();
-    this.outputBuffer = '';
-
     return new Promise<CliResponse>((resolve, reject) => {
-      this.activeStartTime = startTime;
-      this.activeResultState = {
+      const resultState: ResultState = {
         message,
         resolver: resolve,
         rejecter: reject,
@@ -175,152 +181,216 @@ export class CursorCliAdapter extends BaseCliAdapter {
         retriedWithoutResume: false,
         retriedWithoutPartial: false,
       };
+      this.dispatchTurn(message, resultState);
+    });
+  }
 
-      const args = this.buildArgs(message);
-      logger.debug('Spawning cursor-agent', {
-        args: this.redactPromptForLog(args),
-        hasResumeId: !!this.cursorSessionId,
-      });
-      this.process = this.spawnProcess(args);
+  /**
+   * Spawn cursor-agent for one turn and wire the NDJSON stream + exit paths
+   * onto `resultState`. Reusable from both sendMessage (first attempt) and
+   * retryCurrentMessage (Task 21 resume-failure fallback, future Task 22
+   * partial-output fallback).
+   *
+   * Idempotency — when called for a retry, the previous turn's child process
+   * may still exist. We strip its listeners before overwriting `this.process`
+   * so stale 'close' / 'error' callbacks don't corrupt the retry's state, and
+   * we reset `resultState.completed` because handleResultEvent flipped it to
+   * true before asking us to retry.
+   */
+  private dispatchTurn(message: CliMessage, resultState: ResultState): void {
+    // Detach any previous turn's listeners so its eventual 'close' / 'error'
+    // / stdout / stderr cannot mutate activeResultState / this.process after
+    // the retry spawn. We also clear stdout/stderr listeners because their
+    // 'data' handlers capture this.outputBuffer by reference and would
+    // otherwise pollute the retry's buffer.
+    if (this.process) {
+      this.process.stdout?.removeAllListeners();
+      this.process.stderr?.removeAllListeners();
+      this.process.removeAllListeners();
+      this.process = null;
+    }
+    if (this.activeTimeout) {
+      clearTimeout(this.activeTimeout);
+      this.activeTimeout = null;
+    }
 
-      // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
-      this.process.on('error', (err) => {
-        if (this.activeResultState && !this.activeResultState.completed) {
-          this.activeResultState.completed = true;
+    // Reset per-turn state. resultState is reused across retry, so explicitly
+    // flip `completed` back to false — handleResultEvent set it true on the
+    // previous terminal event.
+    resultState.completed = false;
+    this.activeStartTime = Date.now();
+    this.activeResultState = resultState;
+    this.outputBuffer = '';
+
+    const args = this.buildArgs(message);
+    logger.debug('Spawning cursor-agent', {
+      args: this.redactPromptForLog(args),
+      hasResumeId: !!this.cursorSessionId,
+    });
+    this.process = this.spawnProcess(args);
+
+    // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
+    this.process.on('error', (err) => {
+      const rs = this.activeResultState;
+      this.activeResultState = null;
+      this.process = null;
+      if (this.activeTimeout) {
+        clearTimeout(this.activeTimeout);
+        this.activeTimeout = null;
+      }
+      if (rs && !rs.completed) {
+        rs.completed = true;
+        rs.rejecter(new Error(`Failed to spawn cursor-agent: ${err.message}`));
+      }
+    });
+
+    // cursor-agent reads prompt from positional arg, not stdin — close immediately.
+    if (this.process.stdin) {
+      this.process.stdin.end();
+    }
+
+    // Per-turn streaming state
+    let streamingMessageId: string | null = null;
+    let streamingContent = '';
+    let hasReceivedDeltas = false;
+
+    // StreamContext is hoisted above the line-buffer loop so we allocate it
+    // once per turn rather than once per NDJSON line. The closures still
+    // capture the per-turn mutable state declared above.
+    const ctx: StreamContext = {
+      streamingMessageId: () => streamingMessageId,
+      setStreamingMessageId: (id) => { streamingMessageId = id; },
+      appendStreamingContent: (c) => { streamingContent += c; },
+      getStreamingContent: () => streamingContent,
+      markDeltaSeen: () => { hasReceivedDeltas = true; },
+      hasDeltaSeen: () => hasReceivedDeltas,
+    };
+
+    // Line-buffered NDJSON parsing — cursor-agent emits one JSON object per line
+    // on stdout under --output-format stream-json.
+    let lineBuffer = '';
+
+    this.process.stdout?.on('data', (data) => {
+      const chunk = (data as Buffer).toString();
+      this.outputBuffer += chunk;
+      lineBuffer += chunk;
+
+      // Split into complete lines; keep the last partial line for next chunk.
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        let event: CursorEvent;
+        try {
+          event = JSON.parse(trimmed) as CursorEvent;
+        } catch {
+          // Non-JSON output (shouldn't happen under --output-format stream-json,
+          // but banners or similar can sneak through). Skip.
+          continue;
         }
-        this.activeResultState = null;
-        this.process = null;
-        reject(new Error(`Failed to spawn cursor-agent: ${err.message}`));
-      });
 
-      // cursor-agent reads prompt from positional arg, not stdin — close immediately.
-      if (this.process.stdin) {
-        this.process.stdin.end();
+        this.handleCursorEvent(event, ctx);
+      }
+    });
+
+    this.process.stderr?.on('data', (data) => {
+      const errorStr = (data as Buffer).toString();
+      // Heuristic: the CLI writes banners/info to stderr too. Only escalate
+      // if it looks like a real error. Task 23 will expand this.
+      if (/error|fatal|failed/i.test(errorStr)) {
+        logger.warn('cursor-agent stderr', { text: errorStr.trim() });
+      }
+    });
+
+    this.process.on('close', (code) => {
+      // Flush any final partial line (shouldn't have JSON mid-object under
+      // --stream because each event is newline-terminated, but be safe).
+      if (lineBuffer.trim()) {
+        try {
+          JSON.parse(lineBuffer.trim());
+        } catch {
+          /* drop incomplete trailing line */
+        }
+        lineBuffer = '';
       }
 
-      // Per-turn streaming state
-      let streamingMessageId: string | null = null;
-      let streamingContent = '';
-      let hasReceivedDeltas = false;
+      const duration = Date.now() - this.activeStartTime;
 
-      // StreamContext is hoisted above the line-buffer loop so we allocate it
-      // once per turn rather than once per NDJSON line. The closures still
-      // capture the per-turn mutable state declared above.
-      const ctx: StreamContext = {
-        streamingMessageId: () => streamingMessageId,
-        setStreamingMessageId: (id) => { streamingMessageId = id; },
-        appendStreamingContent: (c) => { streamingContent += c; },
-        getStreamingContent: () => streamingContent,
-        markDeltaSeen: () => { hasReceivedDeltas = true; },
-        hasDeltaSeen: () => hasReceivedDeltas,
-      };
-
-      // Line-buffered NDJSON parsing — cursor-agent emits one JSON object per line
-      // on stdout under --output-format stream-json.
-      let lineBuffer = '';
-
-      this.process.stdout?.on('data', (data) => {
-        const chunk = (data as Buffer).toString();
-        this.outputBuffer += chunk;
-        lineBuffer += chunk;
-
-        // Split into complete lines; keep the last partial line for next chunk.
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          let event: CursorEvent;
-          try {
-            event = JSON.parse(trimmed) as CursorEvent;
-          } catch {
-            // Non-JSON output (shouldn't happen under --output-format stream-json,
-            // but banners or similar can sneak through). Skip.
-            continue;
-          }
-
-          this.handleCursorEvent(event, ctx);
-        }
-      });
-
-      this.process.stderr?.on('data', (data) => {
-        const errorStr = (data as Buffer).toString();
-        // Heuristic: the CLI writes banners/info to stderr too. Only escalate
-        // if it looks like a real error. Task 23 will expand this.
-        if (/error|fatal|failed/i.test(errorStr)) {
-          logger.warn('cursor-agent stderr', { text: errorStr.trim() });
-        }
-      });
-
-      this.process.on('close', (code) => {
-        // Flush any final partial line (shouldn't have JSON mid-object under
-        // --stream because each event is newline-terminated, but be safe).
-        if (lineBuffer.trim()) {
-          try {
-            JSON.parse(lineBuffer.trim());
-          } catch {
-            /* drop incomplete trailing line */
-          }
-          lineBuffer = '';
-        }
-
-        const duration = Date.now() - startTime;
-
-        if (code !== 0 && code !== null) {
-          if (this.activeResultState && !this.activeResultState.completed) {
-            this.activeResultState.completed = true;
-            this.activeResultState.rejecter(new Error(`cursor-agent exited with code ${code}`));
-          }
-          this.process = null;
-          this.activeResultState = null;
-          return;
-        }
-
-        // If handleResultEvent already completed the call, don't double-resolve.
-        if (this.activeResultState?.completed) {
-          this.process = null;
-          this.activeResultState = null;
-          return;
-        }
-
-        // Fallback: close arrived without a terminal result event. Synthesize a
-        // minimal CliResponse via parseOutput (Tasks 17+ keep parseOutput a stub;
-        // this path is only exercised if cursor-agent exits unexpectedly).
-        const response = this.parseOutput(this.outputBuffer);
-        response.usage = { ...response.usage, duration };
-        this.emit('complete', response);
-        if (this.activeResultState) {
-          this.activeResultState.completed = true;
-          this.activeResultState.resolver(response);
-        } else {
-          resolve(response); // defensive — shouldn't happen
-        }
+      if (code !== 0 && code !== null) {
+        const rs = this.activeResultState;
         this.process = null;
         this.activeResultState = null;
-      });
-
-      // Fallback per-call timeout — belt and braces on top of BaseCliAdapter's
-      // stream-idle watchdog (which only fires when stdout is silent).
-      const timeoutMs = this.cliConfig.timeout ?? this.config.timeout ?? 300_000;
-      const timeout = setTimeout(() => {
-        if (this.process) {
-          try {
-            this.process.kill('SIGTERM');
-          } catch {
-            /* ignored */
-          }
-          if (this.activeResultState && !this.activeResultState.completed) {
-            this.activeResultState.completed = true;
-          }
-          this.activeResultState = null;
-          reject(new Error(`Cursor CLI timeout after ${timeoutMs}ms`));
+        if (this.activeTimeout) {
+          clearTimeout(this.activeTimeout);
+          this.activeTimeout = null;
         }
-      }, timeoutMs);
+        if (rs && !rs.completed) {
+          rs.completed = true;
+          rs.rejecter(new Error(`cursor-agent exited with code ${code}`));
+        }
+        return;
+      }
 
-      this.process.on('close', () => clearTimeout(timeout));
+      // If handleResultEvent already completed the call, don't double-resolve.
+      if (this.activeResultState?.completed) {
+        this.process = null;
+        this.activeResultState = null;
+        if (this.activeTimeout) {
+          clearTimeout(this.activeTimeout);
+          this.activeTimeout = null;
+        }
+        return;
+      }
+
+      // Fallback: close arrived without a terminal result event. Synthesize a
+      // minimal CliResponse via parseOutput (Tasks 17+ keep parseOutput a stub;
+      // this path is only exercised if cursor-agent exits unexpectedly).
+      const response = this.parseOutput(this.outputBuffer);
+      response.usage = { ...response.usage, duration };
+      this.emit('complete', response);
+      const rs = this.activeResultState;
+      this.process = null;
+      this.activeResultState = null;
+      if (this.activeTimeout) {
+        clearTimeout(this.activeTimeout);
+        this.activeTimeout = null;
+      }
+      if (rs) {
+        rs.completed = true;
+        rs.resolver(response);
+      }
     });
+
+    // Fallback per-call timeout — belt and braces on top of BaseCliAdapter's
+    // stream-idle watchdog (which only fires when stdout is silent).
+    const timeoutMs = this.cliConfig.timeout ?? this.config.timeout ?? 300_000;
+    this.activeTimeout = setTimeout(() => {
+      if (this.process) {
+        try {
+          this.process.kill('SIGTERM');
+        } catch {
+          /* ignored */
+        }
+        const rs = this.activeResultState;
+        this.activeResultState = null;
+        this.activeTimeout = null;
+        if (rs && !rs.completed) {
+          rs.completed = true;
+          rs.rejecter(new Error(`Cursor CLI timeout after ${timeoutMs}ms`));
+        }
+      }
+    }, timeoutMs);
+  }
+
+  /**
+   * Resume-failure retry hook (Task 21). Replays the current turn's message
+   * through dispatchTurn, which handles cleanup of the previous spawn.
+   */
+  private retryCurrentMessage(resultState: ResultState): void {
+    this.dispatchTurn(resultState.message, resultState);
   }
 
   async *sendMessageStream(_message: CliMessage): AsyncIterable<string> {
@@ -559,6 +629,31 @@ export class CursorCliAdapter extends BaseCliAdapter {
     // 3. Branch on is_error.
     if (event.is_error) {
       const errMsg = event.result ?? 'Cursor returned is_error without a result message';
+
+      // Task 21 — Resume-failure fallback: if the error looks like a stale
+      // session_id and we haven't already retried this turn, clear the resume
+      // id, notify the user, and re-spawn without --resume.
+      if (
+        this.cursorSessionId &&
+        !resultState.retriedWithoutResume &&
+        this.RESUME_FAILURE_PATTERN.test(errMsg)
+      ) {
+        logger.info('Cursor session expired; clearing and retrying once without --resume', {
+          prevSessionId: this.cursorSessionId,
+        });
+        this.cursorSessionId = null;
+        resultState.retriedWithoutResume = true;
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'error',
+          content: 'Previous Cursor session expired; starting fresh.',
+          metadata: { recoverable: true, retryKind: 'resume-fallback' },
+        } as OutputMessage);
+        this.retryCurrentMessage(resultState);
+        return;
+      }
+
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
