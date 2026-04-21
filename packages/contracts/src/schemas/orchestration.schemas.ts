@@ -521,7 +521,7 @@ export const ReactionUpdateConfigPayloadSchema = z.object({
 // ============ Consensus Payloads ============
 
 export const ConsensusProviderSpecSchema = z.object({
-  provider: z.enum(['claude', 'codex', 'gemini', 'copilot']),
+  provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
   model: z.string().optional(),
   weight: z.number().optional(),
 });
