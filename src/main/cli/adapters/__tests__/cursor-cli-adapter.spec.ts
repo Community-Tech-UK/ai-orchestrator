@@ -205,7 +205,6 @@ describe('CursorCliAdapter — system/init parsing', () => {
     lastSpawnState.lastSpawnArgs = null;
   });
 
-
   it('captures session_id from system.init event', async () => {
     const adapter = new CursorCliAdapter({});
     // Flip the spawn gate — spawn() is a stub until Task 23; flip directly.
