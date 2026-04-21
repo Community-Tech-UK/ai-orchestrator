@@ -14,7 +14,8 @@ export type ProviderType =
   | 'google'          // Google AI (Gemini)
   | 'copilot'         // GitHub Copilot CLI (multi-LLM router via `copilot` binary)
   | 'amazon-bedrock'  // AWS Bedrock
-  | 'azure';          // Azure OpenAI
+  | 'azure'           // Azure OpenAI
+  | 'cursor';         // Cursor AI editor CLI
 
 /**
  * Provider capability flags
@@ -188,6 +189,19 @@ export const COPILOT_MODELS = {
   CLAUDE_HAIKU_46: 'claude-haiku-4-6',
   GPT54_MINI: 'gpt-5.4-mini',
   GEMINI_20_FLASH_LITE: 'gemini-2.0-flash-lite',
+} as const;
+
+/**
+ * Cursor model identifiers.
+ *
+ * Cursor rotates its first-class model list frequently. The adapter treats
+ * `cliConfig.model` as opaque — this constant is only a minimal set of
+ * well-known aliases for UI tiering and pricing fallback. The real list is
+ * fetched dynamically at runtime (follow-up).
+ */
+export const CURSOR_MODELS = {
+  /** Sentinel: omit --model flag entirely so the CLI picks from subscription. */
+  AUTO: 'auto',
 } as const;
 
 /**
