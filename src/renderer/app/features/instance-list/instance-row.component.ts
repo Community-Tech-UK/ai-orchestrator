@@ -658,6 +658,8 @@ export class InstanceRowComponent {
         return { icon: 'github', color: '#6e40c9', label: 'Copilot' } as const;
       case 'ollama':
         return { icon: 'ollama', color: '#7dd3fc', label: 'Ollama' } as const;
+      case 'cursor':
+        return { icon: 'cursor', color: '#000000', label: 'Cursor' } as const;
     }
   });
   readonly needsAttention = computed(() =>

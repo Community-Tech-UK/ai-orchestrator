@@ -13,7 +13,7 @@ export interface CreateInstanceConfig {
   initialPrompt?: string;
   yoloMode?: boolean;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   forceNodeId?: string;
 }
@@ -22,7 +22,7 @@ export interface CreateInstanceWithMessageConfig {
   workingDirectory: string;
   message: string;
   attachments?: FileAttachment[];
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   forceNodeId?: string;
 }

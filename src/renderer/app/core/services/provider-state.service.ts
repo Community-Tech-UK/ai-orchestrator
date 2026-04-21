@@ -8,11 +8,11 @@ import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
 
-export type ProviderType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+export type ProviderType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
 
 function normalizeProvider(value: unknown): ProviderType {
   if (value === 'openai') return 'codex';
-  if (value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot' || value === 'auto') {
+  if (value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot' || value === 'cursor' || value === 'auto') {
     return value;
   }
   return 'claude';

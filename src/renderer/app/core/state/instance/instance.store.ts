@@ -470,7 +470,7 @@ export class InstanceStore implements OnDestroy {
     message: string,
     files?: File[],
     workingDirectory?: string,
-    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto',
+    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto',
     model?: string,
     forceNodeId?: string
   ): Promise<boolean> {

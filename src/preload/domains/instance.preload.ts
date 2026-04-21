@@ -20,7 +20,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       attachments?: unknown[];
       yoloMode?: boolean;
       agentId?: string;
-      provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+      provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
       model?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CREATE, payload);
@@ -33,7 +33,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       workingDirectory: string;
       message: string;
       attachments?: unknown[];
-      provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+      provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
       model?: string;
       forceNodeId?: string;
     }): Promise<IpcResponse> => {

@@ -70,7 +70,7 @@ export interface OutputMessage {
   thinkingExtracted?: boolean;
 }
 
-export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copilot';
+export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copilot' | 'cursor';
 
 export interface Instance {
   id: string;
@@ -146,7 +146,7 @@ export interface CreateInstanceConfig {
   parentId?: string;
   yoloMode?: boolean;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   forceNodeId?: string;
 }
