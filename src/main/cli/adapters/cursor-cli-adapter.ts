@@ -1,6 +1,6 @@
 import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus, AdapterRuntimeCapabilities } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
-import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import type { ContextUsage, FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 
@@ -59,6 +59,21 @@ type CursorEvent =
   | CursorToolCallEvent
   | CursorResultEvent;
 
+interface ResultState {
+  /** Captured so retry paths (Tasks 21, 22) can replay the message. */
+  message: CliMessage;
+  /** Promise resolve handle from sendMessage's Promise constructor. */
+  resolver: (r: CliResponse) => void;
+  /** Promise reject handle from sendMessage's Promise constructor. */
+  rejecter: (e: Error) => void;
+  /** Set true after the first terminal event (result or error) is consumed. */
+  completed: boolean;
+  /** Task 21 — set true once adapter retried without --resume. Prevents retry loops. */
+  retriedWithoutResume: boolean;
+  /** Task 22 — set true once adapter retried without --stream-partial-output. */
+  retriedWithoutPartial: boolean;
+}
+
 interface StreamContext {
   streamingMessageId(): string | null;
   setStreamingMessageId(id: string): void;
@@ -89,6 +104,12 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
   /** Ready gate — exec-per-message model has no persistent process. */
   private isSpawned = false;
+
+  /** Active call state — holds resolver/rejecter for the in-flight sendMessage promise. */
+  private activeResultState: ResultState | null = null;
+
+  /** Timestamp (ms) when the current sendMessage call was initiated. */
+  private activeStartTime = 0;
 
   constructor(config: CursorCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -145,6 +166,16 @@ export class CursorCliAdapter extends BaseCliAdapter {
     this.outputBuffer = '';
 
     return new Promise<CliResponse>((resolve, reject) => {
+      this.activeStartTime = startTime;
+      this.activeResultState = {
+        message,
+        resolver: resolve,
+        rejecter: reject,
+        completed: false,
+        retriedWithoutResume: false,
+        retriedWithoutPartial: false,
+      };
+
       const args = this.buildArgs(message);
       logger.debug('Spawning cursor-agent', {
         args: this.redactPromptForLog(args),
@@ -234,16 +265,36 @@ export class CursorCliAdapter extends BaseCliAdapter {
         const duration = Date.now() - startTime;
 
         if (code !== 0 && code !== null) {
+          if (this.activeResultState && !this.activeResultState.completed) {
+            this.activeResultState.completed = true;
+            this.activeResultState.rejecter(new Error(`cursor-agent exited with code ${code}`));
+          }
           this.process = null;
-          reject(new Error(`cursor-agent exited with code ${code}`));
+          this.activeResultState = null;
           return;
         }
 
+        // If handleResultEvent already completed the call, don't double-resolve.
+        if (this.activeResultState?.completed) {
+          this.process = null;
+          this.activeResultState = null;
+          return;
+        }
+
+        // Fallback: close arrived without a terminal result event. Synthesize a
+        // minimal CliResponse via parseOutput (Tasks 17+ keep parseOutput a stub;
+        // this path is only exercised if cursor-agent exits unexpectedly).
         const response = this.parseOutput(this.outputBuffer);
         response.usage = { ...response.usage, duration };
         this.emit('complete', response);
+        if (this.activeResultState) {
+          this.activeResultState.completed = true;
+          this.activeResultState.resolver(response);
+        } else {
+          resolve(response); // defensive — shouldn't happen
+        }
         this.process = null;
-        resolve(response);
+        this.activeResultState = null;
       });
 
       // Fallback per-call timeout — belt and braces on top of BaseCliAdapter's
@@ -332,7 +383,9 @@ export class CursorCliAdapter extends BaseCliAdapter {
         this.handleToolCallEvent(event);
         break;
       case 'result':
-        this.handleResultEvent(event);
+        if (this.activeResultState) {
+          this.handleResultEvent(event, this.activeResultState, this.activeStartTime);
+        }
         break;
     }
   }
@@ -472,9 +525,50 @@ export class CursorCliAdapter extends BaseCliAdapter {
     }
   }
 
-  private handleResultEvent(_event: CursorResultEvent): void {
-    // Implementation in Task 20.
-    void _event;
+  private handleResultEvent(event: CursorResultEvent, resultState: ResultState, startTime: number): void {
+    if (resultState.completed) return;
+    resultState.completed = true;
+
+    // 1. Capture session_id for subsequent --resume (even on error — harmless).
+    if (event.session_id) this.cursorSessionId = event.session_id;
+
+    // 2. Emit directional context usage.
+    const durationMs = event.duration_ms ?? (Date.now() - startTime);
+    const outputTokens = this.estimateTokens(this.outputBuffer);
+    const contextWindow = this.getCapabilities().contextWindow;
+    const used = Math.min(outputTokens, contextWindow);
+    const contextUsage: ContextUsage = {
+      used,
+      total: contextWindow,
+      percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
+    };
+    this.emit('context', contextUsage);
+
+    // 3. Branch on is_error.
+    if (event.is_error) {
+      const errMsg = event.result ?? 'Cursor returned is_error without a result message';
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: errMsg,
+        metadata: { sessionId: event.session_id, requestId: event.request_id },
+      } as OutputMessage);
+      resultState.rejecter(new Error(errMsg));
+      return;
+    }
+
+    // 4. Success — construct CliResponse, emit 'complete', resolve.
+    const response: CliResponse = {
+      id: this.generateResponseId(),
+      content: event.result ?? '',
+      role: 'assistant',
+      usage: { duration: durationMs, outputTokens },
+      metadata: { sessionId: event.session_id, requestId: event.request_id },
+      raw: this.outputBuffer,
+    };
+    this.emit('complete', response);
+    resultState.resolver(response);
   }
 
   /**

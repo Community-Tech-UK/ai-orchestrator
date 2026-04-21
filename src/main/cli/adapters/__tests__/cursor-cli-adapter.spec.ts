@@ -513,3 +513,64 @@ describe('CursorCliAdapter — tool_call event', () => {
     expect(errorOutputs).toHaveLength(1);
   });
 });
+
+describe('CursorCliAdapter — result event', () => {
+  beforeEach(() => {
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
+    lastSpawnState.lastSpawnArgs = null;
+  });
+
+  it('captures session_id, emits context, resolves sendMessage with result content', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent { id: string; type: string; content: string; metadata?: Record<string, unknown>; }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+    const contexts: { used: number; total: number; percentage: number }[] = [];
+    adapter.on('context', (c: { used: number; total: number; percentage: number }) => contexts.push(c));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess-2', duration_ms: 1000, duration_api_ms: 800, result: 'done',
+    }) + '\n');
+    proc.emit('close', 0);
+
+    const response = await sendPromise;
+    expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('sess-2');
+    expect(contexts.length).toBeGreaterThanOrEqual(1);
+    expect(response.content).toBe('done');
+    expect(response.usage?.duration).toBe(1000);
+  });
+
+  it('is_error:true emits error OutputMessage and rejects sendMessage', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent { id: string; type: string; content: string; }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-e"}\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'error', is_error: true,
+      session_id: 'sess-e', result: 'something went wrong',
+    }) + '\n');
+    proc.emit('close', 0);
+
+    await expect(sendPromise).rejects.toThrow('something went wrong');
+    const errorOutputs = outputs.filter(o => o.type === 'error');
+    expect(errorOutputs.length).toBeGreaterThanOrEqual(1);
+    expect(errorOutputs[0].content).toBe('something went wrong');
+  });
+});
