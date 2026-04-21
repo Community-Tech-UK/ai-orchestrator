@@ -38,12 +38,12 @@ export interface DetectionResult {
 /**
  * CLI type identifiers - only CLIs with provider implementations
  */
-export type CliType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'ollama';
+export type CliType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'ollama' | 'cursor';
 
 /**
  * CLIs that have provider implementations and can be used for verification
  */
-const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'ollama'];
+export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'ollama', 'cursor'];
 
 /**
  * Registry entry for a CLI tool
@@ -63,7 +63,7 @@ interface CliRegistryEntry {
 /**
  * Registry of known CLI tools - only includes CLIs with provider implementations
  */
-const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
+export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
   claude: {
     name: 'claude',
     command: 'claude',
@@ -146,6 +146,27 @@ const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       '/usr/local/bin/copilot',
       `${process.env['HOME']}/.local/bin/copilot`,
       `${process.env['HOME']}/.npm-global/bin/copilot`
+    ]
+  },
+  cursor: {
+    name: 'cursor',
+    command: 'cursor-agent',
+    displayName: 'Cursor CLI',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: [
+      'streaming',
+      'tool-use',
+      'file-access',
+      'shell',
+      'multi-turn',
+      'vision'
+    ],
+    alternativePaths: [
+      '/opt/homebrew/bin/cursor-agent',
+      '/usr/local/bin/cursor-agent',
+      `${process.env['HOME']}/.local/bin/cursor-agent`,
+      `${process.env['HOME']}/.cursor/bin/cursor-agent`
     ]
   },
   ollama: {
@@ -275,7 +296,7 @@ export class CliDetectionService {
   async getDefaultCli(): Promise<CliInfo | null> {
     const result = await this.detectAll();
     // Prefer claude, then gemini, then codex, then copilot, then others
-    const priority: CliType[] = ['claude', 'gemini', 'codex', 'copilot', 'ollama'];
+    const priority: CliType[] = ['claude', 'gemini', 'codex', 'copilot', 'cursor', 'ollama'];
     for (const type of priority) {
       const cli = result.available.find((c) => c.name === type);
       if (cli) return cli;
