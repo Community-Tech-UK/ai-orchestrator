@@ -7,9 +7,9 @@ describe('registerBuiltInProviders', () => {
   let registry: ProviderAdapterRegistryImpl;
   beforeEach(() => { registry = new ProviderAdapterRegistryImpl(); });
 
-  it('registers all four built-in adapters', () => {
+  it('registers all five built-in adapters', () => {
     registerBuiltInProviders(registry);
-    expect(registry.list().map(d => d.provider).sort()).toEqual(['claude', 'codex', 'copilot', 'gemini']);
+    expect(registry.list().map(d => d.provider).sort()).toEqual(['claude', 'codex', 'copilot', 'cursor', 'gemini']);
   });
 
   it('creating an adapter returns an instance that implements ProviderAdapter', () => {
