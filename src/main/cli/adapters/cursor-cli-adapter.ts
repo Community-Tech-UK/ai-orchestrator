@@ -442,9 +442,13 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
     // subtype === 'completed'
     const innerValue = (input ?? {}) as Record<string, unknown>;
-    const innerError = typeof innerValue === 'object' && innerValue
-      ? (innerValue['error'] as unknown) || (innerValue['success'] === false ? 'failed' : undefined)
-      : undefined;
+    const rawError = innerValue['error'];
+    const innerError: unknown =
+      rawError !== undefined && rawError !== null
+        ? rawError
+        : innerValue['success'] === false
+          ? 'failed'
+          : undefined;
     const failed = event.is_error === true || innerError !== undefined;
 
     this.emit('output', {
@@ -452,7 +456,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       timestamp: Date.now(),
       type: 'tool_result',
       content: failed
-        ? `Tool ${name} failed${innerError ? `: ${String(innerError)}` : ''}`
+        ? `Tool ${name} failed${innerError !== undefined ? `: ${String(innerError)}` : ''}`
         : `Tool ${name} completed`,
       metadata: { toolName: name, callId, success: !failed, output: innerValue, error: innerError },
     } as OutputMessage);
