@@ -717,7 +717,7 @@ describe('CursorCliAdapter — unknown-flag fallback for --stream-partial-output
     const first = spawnedProcesses[0];
 
     // Fire stderr then non-zero close.
-    first.stderr.emit('data', 'unknown flag: --stream-partial-output\n');
+    first.stderr.emit('data', "error: unknown option '--stream-partial-output'\n");
     first.emit('close', 1);
     await new Promise<void>((r) => setImmediate(r));
 
@@ -754,6 +754,31 @@ describe('CursorCliAdapter — unknown-flag fallback for --stream-partial-output
 
     const resp3 = await sendPromise3;
     expect(resp3.content).toBe('ok');
+  });
+
+  it('also handles spec-example wording ("unknown flag --stream-partial-output")', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const first = spawnedProcesses[0];
+    first.stderr.emit('data', 'unknown flag --stream-partial-output\n');
+    first.emit('close', 1);
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(spawnedProcesses).toHaveLength(2);
+    expect(lastSpawnState.lastSpawnArgs?.args).not.toContain('--stream-partial-output');
+    const second = spawnedProcesses[1];
+    second.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess-1', result: 'done'
+    }) + '\n');
+    second.emit('close', 0);
+
+    const resp = await sendPromise;
+    expect(resp.content).toBe('done');
   });
 
   it('non-zero exit WITHOUT --stream-partial-output mention does NOT retry and rejects with stderr included', async () => {

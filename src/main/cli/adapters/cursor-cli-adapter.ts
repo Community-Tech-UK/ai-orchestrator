@@ -332,7 +332,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
           !rs.completed &&
           this.partialOutputSupported &&
           !rs.retriedWithoutPartial &&
-          /unknown flag.*--stream-partial-output|--stream-partial-output.*unknown/i.test(stderrBuffer)
+          /(?:unknown|unrecognized)\s+(?:flag|option|argument).*--stream-partial-output|--stream-partial-output.*(?:unknown|unrecognized)/i.test(stderrBuffer)
         ) {
           logger.info('cursor-agent rejected --stream-partial-output; disabling and retrying');
           this.partialOutputSupported = false;
