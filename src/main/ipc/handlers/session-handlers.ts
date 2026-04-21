@@ -83,6 +83,8 @@ function getProviderDisplayName(provider: InstanceProvider): string {
       return 'Gemini';
     case 'copilot':
       return 'Copilot';
+    case 'cursor':
+      return 'Cursor';
     case 'claude':
     default:
       return 'Claude';

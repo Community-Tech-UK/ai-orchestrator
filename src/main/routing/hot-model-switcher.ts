@@ -515,6 +515,7 @@ export class HotModelSwitcher extends EventEmitter {
     if (name.includes('codex') || name.includes('openai')) return 'codex';
     if (name.includes('gemini')) return 'gemini';
     if (name.includes('copilot')) return 'copilot';
+    if (name.includes('cursor')) return 'cursor';
     if (name.includes('ollama')) return 'ollama';
     return 'claude'; // Default
   }

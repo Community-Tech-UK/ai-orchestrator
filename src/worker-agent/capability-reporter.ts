@@ -46,6 +46,7 @@ function detectClis(): CanonicalCliType[] {
     { name: 'codex', command: 'codex' },
     { name: 'gemini', command: 'gemini' },
     { name: 'copilot', command: 'gh' },
+    { name: 'cursor', command: 'cursor-agent' },
     { name: 'ollama', command: 'ollama' },
   ];
 
