@@ -797,3 +797,207 @@ describe('CursorCliAdapter — unknown-flag fallback for --stream-partial-output
     expect((adapter as unknown as { partialOutputSupported: boolean }).partialOutputSupported).toBe(true);
   });
 });
+
+describe('CursorCliAdapter — lifecycle + status + stderr', () => {
+  beforeEach(() => {
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
+    lastSpawnState.lastSpawnArgs = null;
+  });
+
+  it('checkStatus happy path — parses version from --version output', async () => {
+    const adapter = new CursorCliAdapter({});
+    const statusPromise = Promise.resolve().then(() => adapter.checkStatus());
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[0];
+    expect(lastSpawnState.lastSpawnArgs?.args).toEqual(['--version']);
+
+    proc.stdout.emit('data', '2026.04.17-787b533\n');
+    proc.emit('close', 0);
+
+    const result = await statusPromise;
+    expect(result).toMatchObject({ available: true });
+    expect(result.version).toMatch(/\d+\.\d+\.\d+/);
+  });
+
+  it('checkStatus timeout → available:false with Timeout error', async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = new CursorCliAdapter({});
+      const statusPromise = adapter.checkStatus();
+      // Let the Promise executor run so the spawn happens and timer is set.
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(5001);
+      const result = await statusPromise;
+      expect(result.available).toBe(false);
+      expect(result.error).toMatch(/Timeout/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sendMessage rejects with install hint on ENOENT spawn error', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[0];
+    const err = new Error('spawn cursor-agent ENOENT') as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    proc.emit('error', err);
+
+    await expect(sendPromise).rejects.toThrow(/cursor-agent.*not found|install|cursor\.com/i);
+  });
+
+  it('spawn() calls checkStatus, marks isSpawned, emits spawned event', async () => {
+    const adapter = new CursorCliAdapter({});
+    const spawnedEvents: number[] = [];
+    adapter.on('spawned', (pid: number) => spawnedEvents.push(pid));
+
+    const spawnPromise = adapter.spawn();
+    await new Promise<void>((r) => setImmediate(r));
+
+    // --version spawn — drive success.
+    const proc = spawnedProcesses[0];
+    proc.stdout.emit('data', '2026.04.17-787b533\n');
+    proc.emit('close', 0);
+
+    const pid = await spawnPromise;
+    expect(typeof pid).toBe('number');
+    expect((adapter as unknown as { isSpawned: boolean }).isSpawned).toBe(true);
+    // The --version probe spawn also emits 'spawned' (inherited from
+    // BaseCliAdapter.spawnProcess since the fake proc has a pid). What matters
+    // is that spawn() itself emitted a 'spawned' with the synthetic PID.
+    expect(spawnedEvents).toContain(pid);
+  });
+
+  it('spawn() rejects when already spawned', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    await expect(adapter.spawn()).rejects.toThrow(/already spawned/i);
+  });
+
+  it('terminate(true) clears cursor-specific instance state', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+    (adapter as unknown as { cursorSessionId: string | null }).cursorSessionId = 'x';
+    (adapter as unknown as { partialOutputSupported: boolean }).partialOutputSupported = false;
+
+    await adapter.terminate(true);
+
+    expect((adapter as unknown as { isSpawned: boolean }).isSpawned).toBe(false);
+    expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBeNull();
+    expect((adapter as unknown as { partialOutputSupported: boolean }).partialOutputSupported).toBe(true);
+  });
+
+  it('multi-turn: first sendMessage captures session_id, second includes --resume', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    // Turn 1 — no --resume yet.
+    const send1 = adapter.sendMessage({ role: 'user', content: 'first' });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(lastSpawnState.lastSpawnArgs?.args).not.toContain('--resume');
+
+    const proc1 = spawnedProcesses[0];
+    proc1.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess-mt', result: 'one',
+    }) + '\n');
+    proc1.emit('close', 0);
+    await send1;
+
+    // Turn 2 — --resume sess-mt present.
+    const send2 = adapter.sendMessage({ role: 'user', content: 'second' });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(lastSpawnState.lastSpawnArgs?.args).toEqual(
+      expect.arrayContaining(['--resume', 'sess-mt']),
+    );
+
+    const proc2 = spawnedProcesses[1];
+    proc2.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess-mt', result: 'two',
+    }) + '\n');
+    proc2.emit('close', 0);
+    const resp2 = await send2;
+    expect(resp2.content).toBe('two');
+  });
+
+  it('stderr matching generic error pattern emits error OutputMessage with metadata.kind === "stderr"', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { kind?: string; recoverable?: boolean };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[0];
+    proc.stderr.emit('data', 'error: some backend failure\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess', result: 'done',
+    }) + '\n');
+    proc.emit('close', 0);
+    await sendPromise;
+
+    const stderrErrors = outputs.filter(
+      (o) => o.type === 'error' && o.metadata?.kind === 'stderr',
+    );
+    expect(stderrErrors).toHaveLength(1);
+    expect(stderrErrors[0].content).toMatch(/error: some backend failure/);
+    expect(stderrErrors[0].metadata?.recoverable).toBe(false);
+  });
+
+  it('stderr matching keychain pattern emits error OutputMessage with metadata.kind === "keychain"', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { kind?: string; recoverable?: boolean };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[0];
+    proc.stderr.emit('data', 'SecItemCopyMatching failed: errSecInteractionNotAllowed\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess', result: 'done',
+    }) + '\n');
+    proc.emit('close', 0);
+    await sendPromise;
+
+    const keychainErrors = outputs.filter(
+      (o) => o.type === 'error' && o.metadata?.kind === 'keychain',
+    );
+    expect(keychainErrors).toHaveLength(1);
+    expect(keychainErrors[0].content).toMatch(/cursor-agent login/);
+    expect(keychainErrors[0].content).toMatch(/CURSOR_API_KEY/);
+    expect(keychainErrors[0].metadata?.recoverable).toBe(false);
+    // Keychain match has priority — no generic "stderr" error should be emitted
+    // for the same chunk.
+    const stderrErrors = outputs.filter(
+      (o) => o.type === 'error' && o.metadata?.kind === 'stderr',
+    );
+    expect(stderrErrors).toHaveLength(0);
+  });
+});

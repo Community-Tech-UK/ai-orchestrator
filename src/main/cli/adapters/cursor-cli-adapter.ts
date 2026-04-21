@@ -161,7 +161,63 @@ export class CursorCliAdapter extends BaseCliAdapter {
   }
 
   async checkStatus(): Promise<CliStatus> {
-    return { available: false, error: 'stub: implement in Phase 4' };
+    return new Promise((resolve) => {
+      const proc = this.spawnProcess(['--version']);
+      let output = '';
+      let errorOutput = '';
+
+      proc.stdout?.on('data', (data) => {
+        output += (data as Buffer).toString();
+      });
+      proc.stderr?.on('data', (data) => {
+        errorOutput += (data as Buffer).toString();
+      });
+
+      const timer = setTimeout(() => {
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          /* ignored */
+        }
+        resolve({
+          available: false,
+          error: 'Timeout checking Cursor CLI',
+        });
+      }, 5000);
+
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        const combined = `${output}\n${errorOutput}`;
+        // cursor-agent emits versions like "2026.04.17-787b533"; the dotted
+        // date fragment matches \d+\.\d+\.\d+ which is what we capture.
+        const versionMatch = combined.match(/(\d+\.\d+\.\d+)/);
+
+        if (code === 0 || versionMatch) {
+          resolve({
+            available: true,
+            version: versionMatch?.[1] ?? 'unknown',
+            path: 'cursor-agent',
+            // --version doesn't actually probe auth; treat a successful
+            // binary invocation as "authenticated enough" for the status
+            // check. Real auth errors surface via stderr/keychain handlers.
+            authenticated: true,
+          });
+        } else {
+          resolve({
+            available: false,
+            error: `Cursor CLI not found or failed (exit ${code}): ${combined.trim() || 'no output'}`,
+          });
+        }
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({
+          available: false,
+          error: `Failed to launch cursor-agent: ${err.message}`,
+        });
+      });
+    });
   }
 
   override async sendMessage(message: CliMessage): Promise<CliResponse> {
@@ -230,7 +286,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
     this.process = this.spawnProcess(args);
 
     // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
-    this.process.on('error', (err) => {
+    this.process.on('error', (err: NodeJS.ErrnoException) => {
       const rs = this.activeResultState;
       this.activeResultState = null;
       this.process = null;
@@ -240,7 +296,14 @@ export class CursorCliAdapter extends BaseCliAdapter {
       }
       if (rs && !rs.completed) {
         rs.completed = true;
-        rs.rejecter(new Error(`Failed to spawn cursor-agent: ${err.message}`));
+        if (err.code === 'ENOENT') {
+          rs.rejecter(new Error(
+            'cursor-agent not found on PATH. Install from https://cursor.com/cli ' +
+            '(curl https://cursor.com/install -fsSL | bash).',
+          ));
+        } else {
+          rs.rejecter(new Error(`Failed to spawn cursor-agent: ${err.message}`));
+        }
       }
     });
 
@@ -298,12 +361,41 @@ export class CursorCliAdapter extends BaseCliAdapter {
     });
 
     this.process.stderr?.on('data', (data) => {
-      const errorStr = (data as Buffer).toString();
-      stderrBuffer += errorStr;
-      // Heuristic: the CLI writes banners/info to stderr too. Only escalate
-      // if it looks like a real error. Task 23 will expand this.
-      if (/error|fatal|failed/i.test(errorStr)) {
-        logger.warn('cursor-agent stderr', { text: errorStr.trim() });
+      const chunk = (data as Buffer).toString();
+      // Always accumulate — Task 22's --stream-partial-output fallback scans
+      // this buffer on non-zero exit. Do this BEFORE any filtering.
+      stderrBuffer += chunk;
+
+      // Keychain remediation — specific signature matched first, because any
+      // Keychain error text also contains "failed" and would otherwise be
+      // eaten by the generic branch below.
+      if (/SecItemCopyMatching|keychain|login item/i.test(chunk)) {
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'error',
+          content:
+            "Cursor CLI couldn't read its credentials from Keychain. " +
+            'Try re-running `cursor-agent login`, grant Keychain access when prompted, ' +
+            'or set `CURSOR_API_KEY` in your environment.',
+          metadata: { recoverable: false, kind: 'keychain' },
+        } as OutputMessage);
+        logger.warn('cursor-agent keychain issue', { text: chunk.trim() });
+        return;
+      }
+
+      // Generic error path — banners/info also hit stderr; only escalate if
+      // the text looks like a real error. Emit an error OutputMessage so
+      // consumers can surface it alongside other turn events.
+      if (/error|fatal|failed/i.test(chunk)) {
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'error',
+          content: chunk.trim(),
+          metadata: { recoverable: false, kind: 'stderr' },
+        } as OutputMessage);
+        logger.warn('cursor-agent stderr', { text: chunk.trim() });
       }
     });
 
@@ -725,10 +817,50 @@ export class CursorCliAdapter extends BaseCliAdapter {
   // ============ InstanceManager Compatibility API ============
 
   /**
-   * Stub spawn — will be implemented in Phase 4.
+   * "Spawn" the adapter — validates cursor-agent is available and marks the
+   * adapter ready. The Cursor CLI runs exec-per-message, so there is no
+   * persistent process. Each sendMessage() spawns a fresh child.
    */
   async spawn(): Promise<number> {
-    throw new Error('CursorCliAdapter: stub — not yet implemented');
+    if (this.isSpawned) {
+      throw new Error('Adapter already spawned');
+    }
+
+    const status = await this.checkStatus();
+    if (!status.available) {
+      throw new Error(
+        `cursor-agent not available: ${status.error ?? 'cursor-agent command not found'}. ` +
+        `Install from https://cursor.com/cli (curl https://cursor.com/install -fsSL | bash).`,
+      );
+    }
+
+    this.isSpawned = true;
+    // Synthetic PID — no persistent process to attach to. Each sendMessage()
+    // spawns a child whose real PID is available via getPid() while in flight.
+    const fakePid = Math.floor(Math.random() * 100_000) + 10_000;
+    this.emit('spawned', fakePid);
+    this.emit('status', 'idle');
+    return fakePid;
+  }
+
+  /**
+   * Terminate the adapter. Clears cursor-specific session state; the parent
+   * class terminates any in-flight spawned child.
+   */
+  override async terminate(graceful = true): Promise<void> {
+    const wasSpawned = this.isSpawned;
+    await super.terminate(graceful);
+    this.isSpawned = false;
+    this.cursorSessionId = null;
+    this.partialOutputSupported = true; // reset feature flag for next spawn
+    this.activeResultState = null;
+    if (this.activeTimeout) {
+      clearTimeout(this.activeTimeout);
+      this.activeTimeout = null;
+    }
+    if (wasSpawned) {
+      this.emit('status', 'terminated');
+    }
   }
 
   /**
