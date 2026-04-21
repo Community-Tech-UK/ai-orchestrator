@@ -859,6 +859,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       this.activeTimeout = null;
     }
     if (wasSpawned) {
+      this.emit('exit', 0, null);
       this.emit('status', 'terminated');
     }
   }

@@ -894,6 +894,27 @@ describe('CursorCliAdapter — lifecycle + status + stderr', () => {
     expect((adapter as unknown as { partialOutputSupported: boolean }).partialOutputSupported).toBe(true);
   });
 
+  it("terminate() emits 'exit' (0, null) AND 'status' (terminated) when previously spawned", async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const exitEvents: { code: number | null; signal: NodeJS.Signals | null }[] = [];
+    const statusEvents: string[] = [];
+    adapter.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+      exitEvents.push({ code, signal });
+    });
+    adapter.on('status', (s: string) => statusEvents.push(s));
+
+    await adapter.terminate(true);
+
+    // Provider wrappers (e.g., CopilotCliProvider) subscribe to 'exit' to mark
+    // isActive = false AND call pushExit(code, signal). Matching Copilot's
+    // emit('exit', 0, null) keeps Cursor's lifecycle semantics identical so a
+    // CursorCliProvider following the same pattern won't silently stay active.
+    expect(exitEvents).toEqual([{ code: 0, signal: null }]);
+    expect(statusEvents).toContain('terminated');
+  });
+
   it('multi-turn: first sendMessage captures session_id, second includes --resume', async () => {
     const adapter = new CursorCliAdapter({});
     (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
