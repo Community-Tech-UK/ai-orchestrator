@@ -24,14 +24,14 @@ describe('ProviderSelectorComponent — cursor', () => {
     expect(instance.allProviders.map(p => p.id)).toContain('cursor');
   });
 
-  it('cursor option has name Cursor, a color, and an icon key', () => {
+  it('cursor option has name Cursor CLI, a color, and an icon key', () => {
     const fixture = TestBed.createComponent(ProviderSelectorComponent);
     const instance = fixture.componentInstance as unknown as {
       allProviders: { id: string; name: string; color: string; icon: string; description: string }[];
     };
     const opt = instance.allProviders.find(p => p.id === 'cursor');
     expect(opt).toBeDefined();
-    expect(opt?.name).toBe('Cursor');
+    expect(opt?.name).toBe('Cursor CLI');
     expect(opt?.color).toBeTruthy();
     expect(opt?.icon).toBeTruthy();
     expect(opt?.description).toBeTruthy();

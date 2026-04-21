@@ -343,7 +343,7 @@ export class ProviderSelectorComponent implements OnInit {
     },
     {
       id: 'cursor',
-      name: 'Cursor',
+      name: 'Cursor CLI',
       description: 'Cursor CLI (cursor-agent)',
       color: '#000000',
       icon: 'cursor',
