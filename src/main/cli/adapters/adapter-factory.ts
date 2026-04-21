@@ -12,6 +12,7 @@ import { ClaudeCliAdapter, ClaudeCliSpawnOptions } from './claude-cli-adapter';
 import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { CopilotCliAdapter, CopilotCliConfig } from './copilot-cli-adapter';
+import { CursorCliAdapter, CursorCliConfig } from './cursor-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
@@ -62,12 +63,12 @@ export interface UnifiedSpawnOptions {
 /**
  * Adapter type union - the concrete adapter types
  */
-export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotCliAdapter | RemoteCliAdapter;
+export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotCliAdapter | CursorCliAdapter | RemoteCliAdapter;
 
 /**
  * Maps settings CliType to detection CliType
  */
-function mapSettingsToDetectionType(settingsType: SettingsCliType): CliType | 'auto' {
+export function mapSettingsToDetectionType(settingsType: SettingsCliType): CliType | 'auto' {
   switch (settingsType) {
     case 'claude':
       return 'claude';
@@ -79,6 +80,8 @@ function mapSettingsToDetectionType(settingsType: SettingsCliType): CliType | 'a
       return 'gemini';
     case 'copilot':
       return 'copilot';
+    case 'cursor':
+      return 'cursor';
     case 'auto':
       return 'auto';
     default:
@@ -128,7 +131,7 @@ export async function resolveCliType(
 
   // Fall back to first available CLI (priority: claude > codex > gemini > ollama)
   const result = await detection.detectAll();
-  const priority: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'ollama'];
+  const priority: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'ollama'];
   logger.debug('Falling back to auto-detect', { priority });
 
   for (const cli of priority) {
@@ -224,6 +227,20 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): CopilotCliAd
 }
 
 /**
+ * Creates a Cursor CLI adapter (spawns the `cursor-agent` binary directly).
+ */
+export function createCursorAdapter(options: UnifiedSpawnOptions): CursorCliAdapter {
+  const cursorConfig: CursorCliConfig = {
+    workingDir: options.workingDirectory,
+    model: options.model,
+    systemPrompt: options.systemPrompt,
+    yoloMode: options.yoloMode,
+    timeout: options.timeout,
+  };
+  return new CursorCliAdapter(cursorConfig);
+}
+
+/**
  * Creates a CLI adapter for the specified type
  * Returns a ClaudeCliAdapter for Claude, or the appropriate adapter for other types
  */
@@ -250,6 +267,9 @@ export function createCliAdapter(
 
     case 'copilot':
       return createCopilotAdapter(options);
+
+    case 'cursor':
+      return createCursorAdapter(options);
 
     case 'ollama':
       // Ollama doesn't have a full CLI adapter yet, fall back to Claude
@@ -287,6 +307,8 @@ export function getCliDisplayName(cliType: CliType): string {
       return 'Google Gemini';
     case 'copilot':
       return 'GitHub Copilot';
+    case 'cursor':
+      return 'Cursor CLI';
     case 'ollama':
       return 'Ollama';
     default:
