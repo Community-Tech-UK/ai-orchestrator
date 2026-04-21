@@ -416,9 +416,56 @@ export class CursorCliAdapter extends BaseCliAdapter {
     } as OutputMessage);
   }
 
-  private handleToolCallEvent(_event: CursorToolCallEvent): void {
-    // Implementation in Task 19.
-    void _event;
+  private extractToolName(toolCall: Record<string, unknown>): { name: string; input: unknown } {
+    const keys = Object.keys(toolCall);
+    if (keys.length === 0) return { name: 'unknown_tool', input: null };
+    const firstKey = keys[0];
+    const stripped = firstKey.replace(/ToolCall$/, '');
+    const name = stripped.length === 0 ? 'unknown_tool' : stripped.charAt(0).toLowerCase() + stripped.slice(1);
+    return { name: name || 'unknown_tool', input: toolCall[firstKey] };
+  }
+
+  private handleToolCallEvent(event: CursorToolCallEvent): void {
+    const { name, input } = this.extractToolName(event.tool_call ?? {});
+    const callId = event.call_id;
+
+    if (event.subtype === 'started') {
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'tool_use',
+        content: `Using tool: ${name}`,
+        metadata: { toolName: name, callId, input },
+      } as OutputMessage);
+      return;
+    }
+
+    // subtype === 'completed'
+    const innerValue = (input ?? {}) as Record<string, unknown>;
+    const innerError = typeof innerValue === 'object' && innerValue
+      ? (innerValue['error'] as unknown) || (innerValue['success'] === false ? 'failed' : undefined)
+      : undefined;
+    const failed = event.is_error === true || innerError !== undefined;
+
+    this.emit('output', {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'tool_result',
+      content: failed
+        ? `Tool ${name} failed${innerError ? `: ${String(innerError)}` : ''}`
+        : `Tool ${name} completed`,
+      metadata: { toolName: name, callId, success: !failed, output: innerValue, error: innerError },
+    } as OutputMessage);
+
+    if (failed) {
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: `Tool ${name} failed: ${String(innerError ?? 'unknown error')}`,
+        metadata: { toolName: name, callId },
+      } as OutputMessage);
+    }
   }
 
   private handleResultEvent(_event: CursorResultEvent): void {

@@ -365,3 +365,151 @@ describe('CursorCliAdapter — assistant event', () => {
     expect(assistantOutputs[2].metadata?.accumulatedContent).toHaveLength(11);
   });
 });
+
+describe('CursorCliAdapter — tool_call event', () => {
+  beforeEach(() => {
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
+    lastSpawnState.lastSpawnArgs = null;
+  });
+
+  interface OutputEvent {
+    id: string;
+    type: string;
+    content: string;
+    metadata?: {
+      toolName?: string;
+      callId?: string;
+      input?: unknown;
+      success?: boolean;
+      output?: unknown;
+      error?: unknown;
+    };
+  }
+
+  it('tool_call.started with readToolCall emits one tool_use output with correct metadata', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-tc1"}\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      call_id: 't1',
+      tool_call: { readToolCall: { path: 'foo' } },
+      session_id: 'sess-tc1',
+    }) + '\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-tc1"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const toolUseOutputs = outputs.filter(o => o.type === 'tool_use');
+    expect(toolUseOutputs).toHaveLength(1);
+    expect(toolUseOutputs[0].metadata?.toolName).toBe('read');
+    expect(toolUseOutputs[0].metadata?.callId).toBe('t1');
+    expect(toolUseOutputs[0].metadata?.input).toEqual({ path: 'foo' });
+  });
+
+  it('tool_call.started with bashToolCall emits tool_use with toolName === bash', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-tc2"}\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      call_id: 't2',
+      tool_call: { bashToolCall: { cmd: 'ls' } },
+      session_id: 'sess-tc2',
+    }) + '\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-tc2"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const toolUseOutputs = outputs.filter(o => o.type === 'tool_use');
+    expect(toolUseOutputs).toHaveLength(1);
+    expect(toolUseOutputs[0].metadata?.toolName).toBe('bash');
+  });
+
+  it('tool_call.started with empty tool_call object emits unknown_tool and does not throw', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-tc3"}\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      call_id: 't3',
+      tool_call: {},
+      session_id: 'sess-tc3',
+    }) + '\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-tc3"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const toolUseOutputs = outputs.filter(o => o.type === 'tool_use');
+    expect(toolUseOutputs).toHaveLength(1);
+    expect(toolUseOutputs[0].metadata?.toolName).toBe('unknown_tool');
+  });
+
+  it('tool_call.completed with inner error emits tool_result (success=false) AND error output', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-tc4"}\n');
+    proc.stdout.emit('data', JSON.stringify({
+      type: 'tool_call',
+      subtype: 'completed',
+      call_id: 't4',
+      tool_call: { readToolCall: { error: 'ENOENT' } },
+      session_id: 'sess-tc4',
+    }) + '\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-tc4"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const toolResultOutputs = outputs.filter(o => o.type === 'tool_result');
+    const errorOutputs = outputs.filter(o => o.type === 'error');
+
+    expect(toolResultOutputs).toHaveLength(1);
+    expect(toolResultOutputs[0].metadata?.success).toBe(false);
+
+    expect(errorOutputs).toHaveLength(1);
+  });
+});
