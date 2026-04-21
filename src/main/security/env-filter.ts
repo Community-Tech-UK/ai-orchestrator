@@ -34,6 +34,7 @@ export const DEFAULT_ENV_FILTER_CONFIG: EnvFilterConfig = {
     'ANTHROPIC_API_KEY',
     'OPENAI_API_KEY',
     'CLAUDE_API_KEY',
+    'CURSOR_API_KEY',
     'GEMINI_API_KEY',
     'MISTRAL_API_KEY',
     'GROQ_API_KEY',
@@ -173,7 +174,15 @@ export function shouldAllowEnvVar(
   value: string | undefined,
   config: EnvFilterConfig = DEFAULT_ENV_FILTER_CONFIG
 ): FilterResult {
-  // Check explicit blocklist first (always blocked regardless of value)
+  // Explicit allowlist wins over everything else. An operator who names
+  // a variable by exact name is expressing explicit trust — this is how
+  // getSafeEnvForTrustedProcess lets AI provider API keys (which are
+  // intentionally in the default blocklist) reach trusted child processes.
+  if (config.allowlist.includes(name)) {
+    return { name, allowed: true, reason: 'allowlist' };
+  }
+
+  // Check explicit blocklist (always blocked regardless of value)
   if (config.blocklist.includes(name)) {
     return { name, allowed: false, reason: 'blocklist' };
   }
@@ -185,20 +194,14 @@ export function shouldAllowEnvVar(
     }
   }
 
-  // Run secret detection BEFORE allowlist/allow-patterns so that a variable
+  // Run secret detection BEFORE allow-patterns so that a variable
   // whose value looks like a secret is blocked even if its name matches
   // an allow pattern (e.g. MY_CONFIG="sk-proj-...").
-  // Codex + GPT-5.4 both flagged the original ordering as a policy gap.
   if (value && config.blockAllSecrets) {
     const secret = detectSecretsInKeyValue(name, value);
     if (secret && config.blockSecretTypes.includes(secret.type)) {
       return { name, allowed: false, reason: 'secret_detected', secretType: secret.type };
     }
-  }
-
-  // Check explicit allowlist (high priority after security checks)
-  if (config.allowlist.includes(name)) {
-    return { name, allowed: true, reason: 'allowlist' };
   }
 
   // Check allow patterns
@@ -293,6 +296,7 @@ const TRUSTED_PROCESS_ALLOWED_KEYS = [
   'ANTHROPIC_API_KEY',
   'OPENAI_API_KEY',
   'CLAUDE_API_KEY',
+  'CURSOR_API_KEY',
   'GEMINI_API_KEY',
   'MISTRAL_API_KEY',
   'GROQ_API_KEY',
