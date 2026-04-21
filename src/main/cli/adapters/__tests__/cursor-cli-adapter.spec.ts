@@ -572,5 +572,6 @@ describe('CursorCliAdapter — result event', () => {
     const errorOutputs = outputs.filter(o => o.type === 'error');
     expect(errorOutputs.length).toBeGreaterThanOrEqual(1);
     expect(errorOutputs[0].content).toBe('something went wrong');
+    expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('sess-e');
   });
 });

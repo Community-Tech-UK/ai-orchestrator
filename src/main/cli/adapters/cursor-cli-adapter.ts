@@ -185,6 +185,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
       // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
       this.process.on('error', (err) => {
+        if (this.activeResultState && !this.activeResultState.completed) {
+          this.activeResultState.completed = true;
+        }
+        this.activeResultState = null;
         this.process = null;
         reject(new Error(`Failed to spawn cursor-agent: ${err.message}`));
       });
@@ -307,6 +311,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
           } catch {
             /* ignored */
           }
+          if (this.activeResultState && !this.activeResultState.completed) {
+            this.activeResultState.completed = true;
+          }
+          this.activeResultState = null;
           reject(new Error(`Cursor CLI timeout after ${timeoutMs}ms`));
         }
       }, timeoutMs);
@@ -534,6 +542,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
     // 2. Emit directional context usage.
     const durationMs = event.duration_ms ?? (Date.now() - startTime);
+    // NOTE: this is a raw NDJSON-stream byte estimate (bytes/4), not true model
+    // output tokens. Cursor does not emit per-turn token counts, so we provide
+    // this as a directional signal only. Consumers computing cost should treat
+    // it as an upper-bound noise floor.
     const outputTokens = this.estimateTokens(this.outputBuffer);
     const contextWindow = this.getCapabilities().contextWindow;
     const used = Math.min(outputTokens, contextWindow);
