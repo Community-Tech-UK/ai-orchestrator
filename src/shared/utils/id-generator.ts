@@ -88,6 +88,7 @@ export const INSTANCE_ID_PREFIXES = {
   gemini: 'g',
   codex: 'x',
   copilot: 'p',
+  cursor: 'u',
   anthropic: 'a',
   generic: 'i',
 } as const;
