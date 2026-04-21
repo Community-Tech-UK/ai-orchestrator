@@ -19,3 +19,22 @@ describe('CursorCliAdapter — identity', () => {
     expect(caps.supportsPermissionPrompts).toBe(false);
   });
 });
+
+describe('CursorCliAdapter — buildArgs baseline', () => {
+  it('includes -p, --output-format stream-json, --force, --sandbox disabled', () => {
+    const adapter = new CursorCliAdapter({});
+    const args = (adapter as unknown as { buildArgs: (m: { content: string }) => string[] })
+      .buildArgs({ content: 'hi' });
+    expect(args).toEqual(expect.arrayContaining([
+      '-p', '--output-format', 'stream-json',
+      '--force', '--sandbox', 'disabled',
+    ]));
+  });
+
+  it('positional prompt appears at the end', () => {
+    const adapter = new CursorCliAdapter({});
+    const args = (adapter as unknown as { buildArgs: (m: { content: string }) => string[] })
+      .buildArgs({ content: 'hello' });
+    expect(args[args.length - 1]).toBe('hello');
+  });
+});

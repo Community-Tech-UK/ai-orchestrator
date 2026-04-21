@@ -12,6 +12,15 @@ export interface CursorCliConfig {
 export class CursorCliAdapter extends BaseCliAdapter {
   private cliConfig: CursorCliConfig;
 
+  /** Cursor's own session_id, captured from terminal `result` events for --resume. */
+  private cursorSessionId: string | null = null;
+
+  /** Feature flag: becomes false after unknown-flag fallback (see Task 16). */
+  private partialOutputSupported = true;
+
+  /** Ready gate — exec-per-message model has no persistent process. */
+  private isSpawned = false;
+
   constructor(config: CursorCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
       command: 'cursor-agent',
@@ -71,9 +80,34 @@ export class CursorCliAdapter extends BaseCliAdapter {
     throw new Error('CursorCliAdapter: stub — not yet implemented');
   }
 
-  protected buildArgs(_message: CliMessage): string[] {
-    void _message;
-    throw new Error('CursorCliAdapter: stub — not yet implemented');
+  protected override buildArgs(message: CliMessage): string[] {
+    const args: string[] = [
+      '-p',
+      '--output-format', 'stream-json',
+      '--force',
+      '--sandbox', 'disabled',
+    ];
+
+    if (this.partialOutputSupported) {
+      args.push('--stream-partial-output');
+    }
+
+    const model = this.cliConfig.model;
+    const isAutoSentinel = !model || model.toLowerCase() === 'auto';
+    if (!isAutoSentinel) {
+      args.push('--model', model);
+    }
+
+    if (this.cursorSessionId) {
+      args.push('--resume', this.cursorSessionId);
+    }
+
+    const prompt = this.cliConfig.systemPrompt
+      ? `${this.cliConfig.systemPrompt}\n\n${message.content}`
+      : message.content;
+    args.push(prompt);
+
+    return args;
   }
 
   // ============ InstanceManager Compatibility API ============
