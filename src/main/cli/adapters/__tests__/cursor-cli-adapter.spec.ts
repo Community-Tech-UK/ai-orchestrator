@@ -205,6 +205,7 @@ describe('CursorCliAdapter — system/init parsing', () => {
     lastSpawnState.lastSpawnArgs = null;
   });
 
+
   it('captures session_id from system.init event', async () => {
     const adapter = new CursorCliAdapter({});
     // Flip the spawn gate — spawn() is a stub until Task 23; flip directly.
@@ -232,5 +233,136 @@ describe('CursorCliAdapter — system/init parsing', () => {
       (adapter as unknown as { cursorSessionId: string | null }).cursorSessionId
     ).toBe('sess-1');
     expect(emitted).toContainEqual({ status: 'busy' });
+  });
+});
+
+describe('CursorCliAdapter — assistant event', () => {
+  beforeEach(() => {
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
+    lastSpawnState.lastSpawnArgs = null;
+  });
+
+  it('emits streaming output messages with a stable per-turn messageId', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { streaming?: boolean; accumulatedContent?: string };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello wo"}]},"timestamp_ms":100}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"rld"}]},"timestamp_ms":200}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello world"}]}}\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-1"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const assistantOutputs = outputs.filter(o => o.type === 'assistant');
+
+    expect(assistantOutputs).toHaveLength(3);
+    expect(assistantOutputs[0].metadata?.streaming).toBe(true);
+    expect(assistantOutputs[0].content).toBe('Hello wo');
+    expect(assistantOutputs[0].metadata?.accumulatedContent).toBe('Hello wo');
+    expect(assistantOutputs[1].metadata?.streaming).toBe(true);
+    expect(assistantOutputs[1].content).toBe('rld');
+    expect(assistantOutputs[1].metadata?.accumulatedContent).toBe('Hello world');
+    expect(assistantOutputs[2].metadata?.streaming).toBe(false);
+    expect(assistantOutputs[2].content).toBe('');
+    expect(assistantOutputs[2].metadata?.accumulatedContent).toBe('Hello world');
+    // Stable per-turn ID:
+    const ids = new Set(assistantOutputs.map(o => o.id));
+    expect(ids.size).toBe(1);
+  });
+
+  it('dedupe — final ⊆ streaming: terminal flush only, accumulated length 11', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { streaming?: boolean; accumulatedContent?: string };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello wo"}]},"timestamp_ms":100}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"rld"}]},"timestamp_ms":200}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello world"}]}}\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-1"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const assistantOutputs = outputs.filter(o => o.type === 'assistant');
+
+    const flushes = assistantOutputs.filter(o => o.metadata?.streaming === false);
+    expect(flushes).toHaveLength(1);
+    expect(flushes[0].content).toBe('');
+    expect(flushes[0].metadata?.accumulatedContent).toHaveLength(11);
+    expect(flushes[0].metadata?.accumulatedContent).toBe('Hello world');
+    // No streaming:true delta with "Hello world" as content (that would be a duplicate).
+    const duplicateDeltas = assistantOutputs.filter(
+      o => o.metadata?.streaming === true && o.content === 'Hello world'
+    );
+    expect(duplicateDeltas).toHaveLength(0);
+  });
+
+  it('dedupe — final extends streaming: emits suffix delta + flush, accumulated length 11', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { streaming?: boolean; accumulatedContent?: string };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]},"timestamp_ms":100}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello world"}]}}\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-1"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const assistantOutputs = outputs.filter(o => o.type === 'assistant');
+
+    expect(assistantOutputs).toHaveLength(3);
+    expect(assistantOutputs[0].content).toBe('Hello');
+    expect(assistantOutputs[1].metadata?.streaming).toBe(true);
+    expect(assistantOutputs[1].content).toBe(' world');
+    expect(assistantOutputs[1].metadata?.accumulatedContent).toBe('Hello world');
+    expect(assistantOutputs[2].metadata?.streaming).toBe(false);
+    expect(assistantOutputs[2].metadata?.accumulatedContent).toBe('Hello world');
+    expect(assistantOutputs[2].metadata?.accumulatedContent).toHaveLength(11);
   });
 });

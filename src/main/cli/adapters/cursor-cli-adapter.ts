@@ -1,6 +1,8 @@
 import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus, AdapterRuntimeCapabilities } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
-import type { FileAttachment } from '../../../shared/types/instance.types';
+import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import { generateId } from '../../../shared/utils/id-generator';
+import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 
 const logger = getLogger('CursorCliAdapter');
 
@@ -334,9 +336,79 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
   // Stub handlers — Task 18/19/20 will fill bodies.
 
-  private handleAssistantEvent(_event: CursorAssistantEvent, _ctx: StreamContext): void {
-    // Implementation in Task 18.
-    void _event; void _ctx;
+  private handleAssistantEvent(event: CursorAssistantEvent, ctx: StreamContext): void {
+    const text = event.message?.content?.[0]?.text ?? '';
+    if (!text) return;
+
+    let messageId = ctx.streamingMessageId();
+    if (!messageId) {
+      messageId = generateId();
+      ctx.setStreamingMessageId(messageId);
+    }
+
+    const isDelta = !!event.timestamp_ms || !!event.model_call_id;
+    if (isDelta) {
+      ctx.markDeltaSeen();
+      ctx.appendStreamingContent(text);
+      const current = ctx.getStreamingContent();
+      const extracted = extractThinkingContent(current);
+      this.emit('output', {
+        id: messageId,
+        timestamp: Date.now(),
+        type: 'assistant',
+        content: text,
+        metadata: { streaming: true, accumulatedContent: extracted.response },
+        thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
+      } as OutputMessage);
+      return;
+    }
+
+    // Final (non-delta) assistant event — apply dedupe rule.
+    const streamed = ctx.getStreamingContent();
+    if (ctx.hasDeltaSeen() && streamed.length > 0) {
+      if (text === streamed || streamed.startsWith(text)) {
+        // final ⊆ streamed — emit terminal flush only, no new text.
+        this.emitAssistantFlush(messageId, streamed);
+        return;
+      }
+      if (text.startsWith(streamed)) {
+        // final extends streamed — emit suffix delta, then flush.
+        const suffix = text.slice(streamed.length);
+        if (suffix) {
+          ctx.appendStreamingContent(suffix);
+          this.emit('output', {
+            id: messageId,
+            timestamp: Date.now(),
+            type: 'assistant',
+            content: suffix,
+            metadata: { streaming: true, accumulatedContent: ctx.getStreamingContent() },
+          } as OutputMessage);
+        }
+        this.emitAssistantFlush(messageId, ctx.getStreamingContent());
+        return;
+      }
+      // Unexpected — concat safely (defensive; don't lose text).
+      logger.warn('Cursor assistant final does not extend or equal streamed content; concatenating');
+      ctx.appendStreamingContent(text);
+      this.emitAssistantFlush(messageId, ctx.getStreamingContent());
+      return;
+    }
+
+    // No deltas seen — final is the only emission.
+    ctx.appendStreamingContent(text);
+    this.emitAssistantFlush(messageId, text);
+  }
+
+  private emitAssistantFlush(messageId: string, fullContent: string): void {
+    const extracted = extractThinkingContent(fullContent);
+    this.emit('output', {
+      id: messageId,
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: '',
+      metadata: { streaming: false, accumulatedContent: extracted.response },
+      thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
+    } as OutputMessage);
   }
 
   private handleToolCallEvent(_event: CursorToolCallEvent): void {
