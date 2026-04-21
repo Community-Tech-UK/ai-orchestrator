@@ -6,7 +6,7 @@
  * to provide comprehensive context for code understanding.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   AssembledContext,
   ContextChunk,
@@ -53,10 +53,10 @@ interface SymbolRow {
 // ============================================================================
 
 export class ContextAssembler {
-  private db: Database.Database;
+  private db: SqliteDriver;
   private hybridSearch: HybridSearchService;
 
-  constructor(db: Database.Database) {
+  constructor(db: SqliteDriver) {
     this.db = db;
     this.hybridSearch = getHybridSearchService(db);
   }
@@ -433,7 +433,7 @@ export class ContextAssembler {
 
 let contextAssemblerInstance: ContextAssembler | null = null;
 
-export function getContextAssembler(db: Database.Database): ContextAssembler {
+export function getContextAssembler(db: SqliteDriver): ContextAssembler {
   if (!contextAssemblerInstance) {
     contextAssemblerInstance = new ContextAssembler(db);
   }

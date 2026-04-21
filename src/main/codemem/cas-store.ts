@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   Chunk,
   MerkleNode,
@@ -63,7 +63,7 @@ interface WorkspaceSymbolRow {
 }
 
 export class CasStore {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: SqliteDriver) {}
 
   upsertChunk(chunk: Chunk): void {
     this.db.prepare(`

@@ -9,8 +9,10 @@ describe('INSTANCE_CHANNELS', () => {
     expect(INSTANCE_CHANNELS.CONTEXT_WARNING).toBe('context:warning');
   });
 
-  it('is deeply readonly (const assertion)', () => {
-    // TypeScript will prevent assignment; runtime check verifies no enumerable mutations
-    expect(Object.isFrozen(INSTANCE_CHANNELS) || typeof INSTANCE_CHANNELS === 'object').toBe(true);
+  it('uses unique string channel names within the instance domain', () => {
+    const values = Object.values(INSTANCE_CHANNELS);
+
+    expect(new Set(values).size).toBe(values.length);
+    expect(values.every((value) => /^[a-z-]+:[a-z-]+$/.test(value))).toBe(true);
   });
 });

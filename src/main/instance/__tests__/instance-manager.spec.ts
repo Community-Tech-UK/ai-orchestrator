@@ -579,6 +579,38 @@ vi.mock('../../persistence/rlm-database', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Codemem mock — CodememService's field initializer calls `new Database()`
+// from better-sqlite3, whose .node binary is compiled for Electron's ABI
+// (postinstall rebuilds for Electron). Under plain Node.js (Vitest runtime),
+// that ABI mismatch throws ERR_DLOPEN_FAILED on class instantiation, which
+// cascades into spawn failure → `failed` state → InvalidTransitionError during
+// teardown. Mocking the module prevents any CodememService construction.
+// The test surface we need: getCodemem() must return an object with
+// isEnabled() (used by warmCodememWithTimeout to short-circuit).
+// ---------------------------------------------------------------------------
+vi.mock('../../codemem', () => {
+  const stub = {
+    isEnabled: vi.fn(() => false),
+    isLspEnabled: vi.fn(() => false),
+    initialize: vi.fn().mockResolvedValue(undefined),
+    shutdown: vi.fn().mockResolvedValue(undefined),
+    warmWorkspace: vi.fn().mockResolvedValue({ ready: false, filePath: null }),
+    store: {},
+    indexManager: {},
+    periodicScan: {},
+    gateway: {},
+    facade: {},
+  };
+  return {
+    CodememService: vi.fn(() => stub),
+    getCodemem: vi.fn(() => stub),
+    initializeCodemem: vi.fn().mockResolvedValue(stub),
+    shutdownCodemem: vi.fn().mockResolvedValue(undefined),
+    resetCodememForTesting: vi.fn(),
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Now import the class under test (after all mocks are defined)
 // ---------------------------------------------------------------------------
 

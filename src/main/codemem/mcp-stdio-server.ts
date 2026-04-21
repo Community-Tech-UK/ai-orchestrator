@@ -1,6 +1,6 @@
-import Database from 'better-sqlite3';
 import { createInterface } from 'node:readline';
 import { stdin, stdout } from 'node:process';
+import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { AgentLspFacade } from './agent-lsp-facade';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     throw new Error('AI_ORCHESTRATOR_CODEMEM_DB_PATH is required');
   }
 
-  const db = new Database(dbPath);
+  const db = defaultDriverFactory(dbPath);
   migrate(db);
 
   const store = new CasStore(db);

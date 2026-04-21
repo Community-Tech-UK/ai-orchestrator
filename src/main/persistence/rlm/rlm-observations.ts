@@ -4,7 +4,7 @@
  * CRUD operations for observation and reflection persistence.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { ObservationRow, ReflectionRow } from '../rlm-database.types';
 
 // ============================================
@@ -15,7 +15,7 @@ import type { ObservationRow, ReflectionRow } from '../rlm-database.types';
  * Add an observation.
  */
 export function addObservation(
-  db: Database.Database,
+  db: SqliteDriver,
   observation: {
     id: string;
     summary: string;
@@ -61,7 +61,7 @@ export function addObservation(
  * Get observations with optional filtering.
  */
 export function getObservations(
-  db: Database.Database,
+  db: SqliteDriver,
   options?: {
     promoted?: boolean;
     since?: number;
@@ -95,7 +95,7 @@ export function getObservations(
  * Update an observation (e.g., mark as promoted).
  */
 export function updateObservation(
-  db: Database.Database,
+  db: SqliteDriver,
   id: string,
   updates: {
     promoted?: boolean;
@@ -124,7 +124,7 @@ export function updateObservation(
 /**
  * Delete expired observations.
  */
-export function deleteExpiredObservations(db: Database.Database): number {
+export function deleteExpiredObservations(db: SqliteDriver): number {
   const now = Date.now();
   const stmt = db.prepare(`DELETE FROM observations WHERE (created_at + ttl) < ?`);
   const result = stmt.run(now);
@@ -139,7 +139,7 @@ export function deleteExpiredObservations(db: Database.Database): number {
  * Add a reflection.
  */
 export function addReflection(
-  db: Database.Database,
+  db: SqliteDriver,
   reflection: {
     id: string;
     title: string;
@@ -183,7 +183,7 @@ export function addReflection(
  * Get reflections with optional filtering.
  */
 export function getReflections(
-  db: Database.Database,
+  db: SqliteDriver,
   options?: {
     minConfidence?: number;
     promotedToProcedural?: boolean;
@@ -222,7 +222,7 @@ export function getReflections(
  * Update a reflection.
  */
 export function updateReflection(
-  db: Database.Database,
+  db: SqliteDriver,
   id: string,
   updates: {
     usageCount?: number;
@@ -261,7 +261,7 @@ export function updateReflection(
 /**
  * Delete expired reflections.
  */
-export function deleteExpiredReflections(db: Database.Database): number {
+export function deleteExpiredReflections(db: SqliteDriver): number {
   const now = Date.now();
   const stmt = db.prepare(`DELETE FROM reflections WHERE (created_at + ttl) < ? AND promoted_to_procedural = 0`);
   const result = stmt.run(now);
@@ -271,7 +271,7 @@ export function deleteExpiredReflections(db: Database.Database): number {
 /**
  * Get observation statistics.
  */
-export function getObservationStats(db: Database.Database): {
+export function getObservationStats(db: SqliteDriver): {
   totalObservations: number;
   totalReflections: number;
   promotedReflections: number;

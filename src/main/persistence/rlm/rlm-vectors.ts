@@ -4,14 +4,14 @@
  * Vector operations for semantic search.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { VectorRow } from '../rlm-database.types';
 
 /**
  * Add a vector embedding.
  */
 export function addVector(
-  db: Database.Database,
+  db: SqliteDriver,
   vector: {
     id: string;
     storeId: string;
@@ -42,7 +42,7 @@ export function addVector(
 /**
  * Get all vectors for a store.
  */
-export function getVectors(db: Database.Database, storeId: string): VectorRow[] {
+export function getVectors(db: SqliteDriver, storeId: string): VectorRow[] {
   const stmt = db.prepare(`SELECT * FROM vectors WHERE store_id = ?`);
   return stmt.all(storeId) as VectorRow[];
 }
@@ -50,7 +50,7 @@ export function getVectors(db: Database.Database, storeId: string): VectorRow[] 
 /**
  * Get a vector by section ID.
  */
-export function getVectorBySectionId(db: Database.Database, sectionId: string): VectorRow | null {
+export function getVectorBySectionId(db: SqliteDriver, sectionId: string): VectorRow | null {
   const stmt = db.prepare(`SELECT * FROM vectors WHERE section_id = ?`);
   return stmt.get(sectionId) as VectorRow | null;
 }
@@ -58,7 +58,7 @@ export function getVectorBySectionId(db: Database.Database, sectionId: string): 
 /**
  * Delete a vector by section ID.
  */
-export function deleteVector(db: Database.Database, sectionId: string): void {
+export function deleteVector(db: SqliteDriver, sectionId: string): void {
   const stmt = db.prepare(`DELETE FROM vectors WHERE section_id = ?`);
   stmt.run(sectionId);
 }

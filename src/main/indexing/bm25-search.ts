@@ -8,7 +8,7 @@
  * not child_process.exec(). This is safe database SQL execution.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   BM25SearchOptions,
   BM25SearchResult,
@@ -22,9 +22,9 @@ const logger = getLogger('Bm25Search');
 // ============================================================================
 
 export class BM25Search {
-  private db: Database.Database;
+  private db: SqliteDriver;
 
-  constructor(db: Database.Database) {
+  constructor(db: SqliteDriver) {
     this.db = db;
   }
 
@@ -217,7 +217,7 @@ export class BM25Search {
 
 let bm25SearchInstance: BM25Search | null = null;
 
-export function getBM25Search(db: Database.Database): BM25Search {
+export function getBM25Search(db: SqliteDriver): BM25Search {
   if (!bm25SearchInstance) {
     bm25SearchInstance = new BM25Search(db);
   }

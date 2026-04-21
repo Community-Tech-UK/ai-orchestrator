@@ -1,5 +1,5 @@
 // src/main/persistence/rlm/rlm-verbatim.ts
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import * as crypto from 'crypto';
 import type { VerbatimSegmentRow, ConversationImportRow } from '../rlm-database.types';
 
@@ -22,7 +22,7 @@ function generateSegmentId(sourceFile: string, chunkIndex: number): string {
   return `vseg_${hash}`;
 }
 
-export function addSegment(db: Database.Database, params: AddSegmentParams): string {
+export function addSegment(db: SqliteDriver, params: AddSegmentParams): string {
   const id = params.id ?? generateSegmentId(params.sourceFile, params.chunkIndex);
 
   db.prepare(`
@@ -38,11 +38,11 @@ export function addSegment(db: Database.Database, params: AddSegmentParams): str
   return id;
 }
 
-export function getSegment(db: Database.Database, id: string): VerbatimSegmentRow | undefined {
+export function getSegment(db: SqliteDriver, id: string): VerbatimSegmentRow | undefined {
   return db.prepare('SELECT * FROM verbatim_segments WHERE id = ?').get(id) as VerbatimSegmentRow | undefined;
 }
 
-export function queryByWingRoom(db: Database.Database, filter: { wing?: string; room?: string; limit?: number }): VerbatimSegmentRow[] {
+export function queryByWingRoom(db: SqliteDriver, filter: { wing?: string; room?: string; limit?: number }): VerbatimSegmentRow[] {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -65,18 +65,18 @@ export function queryByWingRoom(db: Database.Database, filter: { wing?: string; 
   `).all(...params) as VerbatimSegmentRow[];
 }
 
-export function getTopByImportance(db: Database.Database, limit: number, wing?: string): VerbatimSegmentRow[] {
+export function getTopByImportance(db: SqliteDriver, limit: number, wing?: string): VerbatimSegmentRow[] {
   if (wing) {
     return db.prepare('SELECT * FROM verbatim_segments WHERE wing = ? ORDER BY importance DESC LIMIT ?').all(wing, limit) as VerbatimSegmentRow[];
   }
   return db.prepare('SELECT * FROM verbatim_segments ORDER BY importance DESC LIMIT ?').all(limit) as VerbatimSegmentRow[];
 }
 
-export function deleteBySource(db: Database.Database, sourceFile: string): number {
+export function deleteBySource(db: SqliteDriver, sourceFile: string): number {
   return db.prepare('DELETE FROM verbatim_segments WHERE source_file = ?').run(sourceFile).changes;
 }
 
-export function getSegmentCount(db: Database.Database): number {
+export function getSegmentCount(db: SqliteDriver): number {
   return (db.prepare('SELECT COUNT(*) as count FROM verbatim_segments').get() as { count: number }).count;
 }
 
@@ -87,7 +87,7 @@ export interface RecordImportParams {
   messageCount: number;
 }
 
-export function recordImport(db: Database.Database, params: RecordImportParams): string {
+export function recordImport(db: SqliteDriver, params: RecordImportParams): string {
   const id = `imp_${crypto.randomUUID().slice(0, 12)}`;
   db.prepare(`
     INSERT INTO conversation_imports (id, file_path, format, wing, message_count, status, imported_at)
@@ -96,7 +96,7 @@ export function recordImport(db: Database.Database, params: RecordImportParams):
   return id;
 }
 
-export function updateImportStatus(db: Database.Database, id: string, status: 'imported' | 'failed', segmentsCreated?: number, error?: string): void {
+export function updateImportStatus(db: SqliteDriver, id: string, status: 'imported' | 'failed', segmentsCreated?: number, error?: string): void {
   db.prepare(`
     UPDATE conversation_imports
     SET status = ?, segments_created = COALESCE(?, segments_created), error = ?
@@ -104,11 +104,11 @@ export function updateImportStatus(db: Database.Database, id: string, status: 'i
   `).run(status, segmentsCreated ?? null, error ?? null, id);
 }
 
-export function getImport(db: Database.Database, id: string): ConversationImportRow | undefined {
+export function getImport(db: SqliteDriver, id: string): ConversationImportRow | undefined {
   return db.prepare('SELECT * FROM conversation_imports WHERE id = ?').get(id) as ConversationImportRow | undefined;
 }
 
-export function isFileImported(db: Database.Database, filePath: string): boolean {
+export function isFileImported(db: SqliteDriver, filePath: string): boolean {
   const row = db.prepare("SELECT id FROM conversation_imports WHERE file_path = ? AND status = 'imported' LIMIT 1").get(filePath);
   return row !== undefined;
 }

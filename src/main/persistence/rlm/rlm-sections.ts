@@ -4,7 +4,7 @@
  * Section CRUD operations.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { ContextSectionRow } from '../rlm-database.types';
 import { saveContent, loadContent, deleteContent, shouldStoreInline } from './rlm-content';
 import { updateStoreStatsForSection } from './rlm-stores';
@@ -13,7 +13,7 @@ import { updateStoreStatsForSection } from './rlm-stores';
  * Add a section to a store.
  */
 export function addSection(
-  db: Database.Database,
+  db: SqliteDriver,
   contentDir: string,
   section: {
     id: string;
@@ -80,7 +80,7 @@ export function addSection(
 /**
  * Get a section by ID.
  */
-export function getSection(db: Database.Database, sectionId: string): ContextSectionRow | null {
+export function getSection(db: SqliteDriver, sectionId: string): ContextSectionRow | null {
   const stmt = db.prepare(`
     SELECT * FROM context_sections WHERE id = ?
   `);
@@ -107,7 +107,7 @@ export function getSectionContent(
  * Get sections for a store with optional filtering.
  */
 export function getSections(
-  db: Database.Database,
+  db: SqliteDriver,
   storeId: string,
   options?: {
     type?: string;
@@ -152,7 +152,7 @@ export function getSections(
  * Remove a section.
  */
 export function removeSection(
-  db: Database.Database,
+  db: SqliteDriver,
   contentDir: string,
   sectionId: string
 ): void {

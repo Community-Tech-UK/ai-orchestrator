@@ -11,7 +11,7 @@
  * which is safe database SQL insertion. No shell commands are used.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   SearchEvent,
   SearchMetrics,
@@ -60,9 +60,9 @@ interface AggregateRow {
 // ============================================================================
 
 export class SearchAnalytics {
-  private db: Database.Database;
+  private db: SqliteDriver;
 
-  constructor(db: Database.Database) {
+  constructor(db: SqliteDriver) {
     this.db = db;
     this.ensureTable();
   }
@@ -433,7 +433,7 @@ export class SearchAnalytics {
 
 let searchAnalyticsInstance: SearchAnalytics | null = null;
 
-export function getSearchAnalytics(db: Database.Database): SearchAnalytics {
+export function getSearchAnalytics(db: SqliteDriver): SearchAnalytics {
   if (!searchAnalyticsInstance) {
     searchAnalyticsInstance = new SearchAnalytics(db);
   }

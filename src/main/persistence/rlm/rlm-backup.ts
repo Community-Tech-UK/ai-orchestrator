@@ -6,9 +6,10 @@
  * not child_process.exec(). This is safe database SQL execution.
  */
 
-import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import { copyDirectoryRecursive, getDirectorySize } from './rlm-content';
 
 /**
@@ -16,7 +17,7 @@ import { copyDirectoryRecursive, getDirectorySize } from './rlm-content';
  * Uses SQLite's backup API for WAL-safe consistent backups.
  */
 export function backupDatabase(
-  db: Database.Database,
+  db: SqliteDriver,
   contentDir: string,
   targetPath: string,
   options?: { includeContent?: boolean }
@@ -77,7 +78,7 @@ export function restoreDatabase(
 
   // Verify backup is a valid SQLite database
   try {
-    const testDb = new Database(sourcePath, { readonly: true });
+    const testDb = defaultDriverFactory(sourcePath, { readonly: true });
     testDb.pragma('integrity_check');
     testDb.close();
   } catch (error) {
@@ -120,7 +121,7 @@ export function restoreDatabase(
 /**
  * Create a WAL checkpoint.
  */
-export function checkpoint(db: Database.Database): void {
+export function checkpoint(db: SqliteDriver): void {
   db.pragma('wal_checkpoint(TRUNCATE)');
 }
 
@@ -128,7 +129,7 @@ export function checkpoint(db: Database.Database): void {
  * Vacuum the database.
  * Uses better-sqlite3's exec for SQL execution (not child_process).
  */
-export function vacuum(db: Database.Database): void {
+export function vacuum(db: SqliteDriver): void {
   db.exec('VACUUM');
 }
 
@@ -136,7 +137,7 @@ export function vacuum(db: Database.Database): void {
  * Get database statistics.
  */
 export function getStats(
-  db: Database.Database,
+  db: SqliteDriver,
   dbPath: string
 ): {
   stores: number;

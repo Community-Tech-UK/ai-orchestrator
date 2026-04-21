@@ -5,7 +5,7 @@
  * Reciprocal Rank Fusion (RRF) for optimal retrieval quality.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   HybridSearchOptions,
   HybridSearchResult,
@@ -43,13 +43,13 @@ interface RankedResult {
 const logger = getLogger('HybridSearch');
 
 export class HybridSearchService {
-  private db: Database.Database;
+  private db: SqliteDriver;
   private config: SearchConfig;
   private bm25: BM25Search;
   private vectorStore: VectorStore;
   private hydeService: HyDEService;
 
-  constructor(db: Database.Database, config: Partial<SearchConfig> = {}) {
+  constructor(db: SqliteDriver, config: Partial<SearchConfig> = {}) {
     this.db = db;
     this.config = { ...DEFAULT_SEARCH_CONFIG, ...config };
     this.bm25 = getBM25Search(db);
@@ -365,7 +365,7 @@ export class HybridSearchService {
 let hybridSearchInstance: HybridSearchService | null = null;
 
 export function getHybridSearchService(
-  db: Database.Database,
+  db: SqliteDriver,
   config?: Partial<SearchConfig>
 ): HybridSearchService {
   if (!hybridSearchInstance) {

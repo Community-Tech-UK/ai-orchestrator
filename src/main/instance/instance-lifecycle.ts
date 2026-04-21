@@ -1507,7 +1507,17 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       }
 
-      this.transitionState(instance, 'terminated');
+      // Terminal states (`failed`, `terminated`) are absorbing in the state
+      // machine. If the instance is already terminal, skip the transition but
+      // still run the rest of the cleanup — the previous behavior threw an
+      // IllegalTransitionError whenever terminateInstance() was invoked on a
+      // spawn-failed instance (common path: spawn error → state=failed → user
+      // dismisses the entry → terminateInstance() → crash, leaving child
+      // list / adapter cleanup half-done). Making terminate idempotent on
+      // terminal instances is the correct behavior.
+      if (instance.status !== 'terminated' && instance.status !== 'failed') {
+        this.transitionState(instance, 'terminated');
+      }
       instance.processId = null;
 
       // Remove from parent's children list

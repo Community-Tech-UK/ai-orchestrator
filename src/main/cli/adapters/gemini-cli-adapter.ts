@@ -22,7 +22,7 @@ import type {
   OutputMessage,
   ContextUsage,
   InstanceStatus,
-  ThinkingContent
+  FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
@@ -472,7 +472,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
     const id = this.generateResponseId();
     const toolCalls = this.extractToolCalls(raw);
-    let content =
+    const content =
       this.extractContentFromStreamJson(raw) || this.cleanContent(raw);
     const usage = this.extractUsage(raw);
 
@@ -715,7 +715,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   // These methods provide the spawn/sendInput pattern expected by InstanceManager
   // Unlike Claude CLI which maintains a persistent process, Gemini runs exec per message
 
-  private isSpawned: boolean = false;
+  private isSpawned = false;
 
   /**
    * "Spawn" the CLI adapter - marks it as ready to receive messages.
@@ -746,7 +746,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
    * Send a message to Gemini via exec command.
    * Each call spawns a new process.
    */
-  async sendInput(message: string, attachments?: any[]): Promise<void> {
+  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }

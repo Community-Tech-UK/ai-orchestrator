@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger.js';
 
 const logger = getLogger('PermissionDecisionStore');
@@ -17,7 +17,7 @@ export interface PermissionDecisionRecord {
 }
 
 export class PermissionDecisionStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: SqliteDriver) {}
 
   record(decision: PermissionDecisionRecord): void {
     try {

@@ -2,13 +2,13 @@
  * Channel Persistence - SQLite queries for channel_messages table
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type { ChannelMessageRow } from '../../shared/types/channels';
 
 type SaveMessageParams = Omit<ChannelMessageRow, 'created_at'>;
 
 export class ChannelPersistence {
-  constructor(private db: Database.Database) {}
+  constructor(private db: SqliteDriver) {}
 
   saveMessage(msg: SaveMessageParams): void {
     const stmt = this.db.prepare(`

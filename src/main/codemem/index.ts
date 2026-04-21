@@ -1,9 +1,10 @@
-import Database from 'better-sqlite3';
 import { app } from 'electron';
 import * as path from 'node:path';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { McpServer } from '../mcp/mcp-server';
 import { registerCleanup } from '../util/cleanup-registry';
+import { defaultDriverFactory } from '../db/better-sqlite3-driver';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
 import { CodeIndexManager } from './code-index-manager';
@@ -14,7 +15,9 @@ import { LspWorkerGateway } from '../lsp-worker/gateway-rpc';
 import { createCodememMcpTools } from './mcp-tools';
 
 export class CodememService {
-  private readonly db = new Database(path.join(app.getPath('userData'), 'codemem.sqlite'));
+  private readonly db: SqliteDriver = defaultDriverFactory(
+    path.join(app.getPath('userData'), 'codemem.sqlite'),
+  );
   readonly store: CasStore;
   readonly indexManager: CodeIndexManager;
   readonly periodicScan: PeriodicScan;

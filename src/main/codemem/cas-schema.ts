@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 
 export const CAS_SCHEMA_VERSION = 2;
 
@@ -67,7 +67,7 @@ const MIGRATIONS: Record<number, string[]> = {
   ],
 };
 
-export function migrate(db: Database.Database): void {
+export function migrate(db: SqliteDriver): void {
   db.pragma('journal_mode = WAL');
   for (const statements of Object.values(MIGRATIONS)) {
     for (const statement of statements) {

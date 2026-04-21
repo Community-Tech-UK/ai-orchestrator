@@ -5,11 +5,48 @@
 
 import 'zone.js';
 import 'zone.js/testing';
+import { vi } from 'vitest';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
+import {
+  initSqliteWasm,
+  createSqliteWasmDatabase,
+} from './main/db/sqlite-wasm-driver';
+
+// ============================================================================
+// better-sqlite3 → sqlite-wasm (test-only)
+//
+// better-sqlite3 is a native module. Its compiled `.node` binary is built
+// against Electron's ABI (NODE_MODULE_VERSION 143 for Electron 40) but vitest
+// runs under the installed Node (ABI 141). Loading it in tests crashes at
+// `new Database(...)` with "was compiled against a different Node.js version".
+//
+// The `SqliteDriver` port in `src/main/db/sqlite-driver.ts` lets us swap the
+// backend without touching application code. Here, in the vitest process only,
+// we replace `import Database from 'better-sqlite3'` with a constructor that
+// returns a WASM-backed driver (`@sqlite.org/sqlite-wasm`, FTS5 included).
+// Production is unaffected — `vi.mock` only applies to the vitest module graph.
+//
+// Initialize the WASM module up-front so the mock factory's synchronous
+// constructor has a ready runtime.
+// ============================================================================
+
+await initSqliteWasm();
+
+vi.mock('better-sqlite3', () => {
+  class MockDatabase {
+    constructor(filename: string, options?: { readonly?: boolean }) {
+      // Constructor returning an object causes `new MockDatabase(...)` to
+      // yield that object. The returned driver exposes every method and
+      // property tests and production code actually use.
+      return createSqliteWasmDatabase(filename, options) as unknown as MockDatabase;
+    }
+  }
+  return { default: MockDatabase };
+});
 
 // Node 25's experimental webstorage installs a broken `globalThis.localStorage = {}`
 // stub before jsdom loads. Vitest's jsdom populateGlobal sees localStorage "already

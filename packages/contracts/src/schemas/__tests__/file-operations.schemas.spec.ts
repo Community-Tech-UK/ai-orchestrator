@@ -30,9 +30,17 @@ describe('file-operations.schemas', () => {
   it('MultiEditOperationSchema parses operations without throwing on well-formed input', () => {
     const valid = MultiEditOperationSchema.safeParse({
       filePath: '/tmp/x.txt',
-      content: 'hi',
+      oldString: 'before',
+      newString: 'after',
     });
-    expect(typeof valid).toBe('object');
+    expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data).toEqual({
+        filePath: '/tmp/x.txt',
+        oldString: 'before',
+        newString: 'after',
+      });
+    }
   });
 
   it('exports all file-operations-group schemas as Zod schemas', () => {

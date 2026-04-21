@@ -4,7 +4,7 @@
  * Search index operations.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { SearchIndexEntry, SearchResultRow, SearchResult, ContextSectionRow } from '../rlm-database.types';
 import { getSections, getSectionContent } from './rlm-sections';
 
@@ -12,7 +12,7 @@ import { getSections, getSectionContent } from './rlm-sections';
  * Index a section for search.
  */
 export function indexSection(
-  db: Database.Database,
+  db: SqliteDriver,
   storeId: string,
   sectionId: string,
   content: string
@@ -77,7 +77,7 @@ export function indexSection(
  * Search the index for a pattern.
  */
 export function searchIndex(
-  db: Database.Database,
+  db: SqliteDriver,
   storeId: string,
   pattern: string,
   options?: {
@@ -129,7 +129,7 @@ export function searchIndex(
  * Rebuild the search index for a store.
  */
 export function rebuildIndex(
-  db: Database.Database,
+  db: SqliteDriver,
   contentDir: string,
   storeId: string
 ): number {

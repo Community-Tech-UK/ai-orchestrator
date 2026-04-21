@@ -1,125 +1,143 @@
-// src/main/instance/__tests__/instance-deps.spec.ts
-import { describe, it, expect, vi } from 'vitest';
-import type {
-  CoreDeps,
-  AgentDeps,
-  SettingsDeps,
-  SupervisionDeps,
-  SessionDeps,
-  PermissionDeps,
-  ObservationDeps,
-  MemoryDeps,
-  HistoryDeps,
-} from '../instance-deps';
+import Module from 'node:module';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// ── Shape tests ─────────────────────────────────────────────────────────────
-// These verify that the interfaces are structurally correct and that
-// mock implementations satisfy them — no singleton initialization required.
+const {
+  agentRegistry,
+  getAgentById,
+  getDefaultAgent,
+  settingsManager,
+  supervisorTree,
+  sessionContinuityManager,
+  permissionManager,
+  memoryMonitor,
+} = vi.hoisted(() => ({
+  agentRegistry: {
+    resolveAgent: vi.fn(),
+  },
+  getAgentById: vi.fn(),
+  getDefaultAgent: vi.fn(),
+  settingsManager: {
+    getAll: vi.fn(),
+  },
+  supervisorTree: {
+    registerInstance: vi.fn(),
+    unregisterInstance: vi.fn(),
+  },
+  sessionContinuityManager: {
+    updateState: vi.fn(),
+    createSnapshot: vi.fn(),
+  },
+  permissionManager: {
+    loadProjectRules: vi.fn(),
+  },
+  memoryMonitor: {
+    getPressureLevel: vi.fn(),
+  },
+}));
 
-describe('CoreDeps interfaces', () => {
-  it('AgentDeps can be implemented with vi.fn()', () => {
-    const deps: AgentDeps = {
-      resolveAgent: vi.fn().mockResolvedValue({}),
-      getAgentById: vi.fn().mockReturnValue(undefined),
-      getDefaultAgent: vi.fn().mockReturnValue({ id: 'build', name: 'Build' }),
-    };
-    expect(deps.resolveAgent).toBeDefined();
-    expect(deps.getAgentById).toBeDefined();
-    expect(deps.getDefaultAgent).toBeDefined();
+import { productionCoreDeps } from '../instance-deps';
+
+describe('productionCoreDeps', () => {
+  const requireImpl = Module.prototype.require;
+  let requireSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireSpy = vi.spyOn(Module.prototype, 'require').mockImplementation(function mockRequire(id: string) {
+      switch (id) {
+        case '../agents/agent-registry':
+          return { getAgentRegistry: () => agentRegistry };
+        case '../../shared/types/agent.types':
+          return { getAgentById, getDefaultAgent };
+        case '../core/config/settings-manager':
+          return { getSettingsManager: () => settingsManager };
+        case '../process':
+          return { getSupervisorTree: () => supervisorTree };
+        case '../session/session-continuity':
+          return { getSessionContinuityManager: () => sessionContinuityManager };
+        case '../security/permission-manager':
+          return { getPermissionManager: () => permissionManager };
+        case '../memory':
+          return { getMemoryMonitor: () => memoryMonitor };
+        default:
+          return requireImpl.apply(this, [id]);
+      }
+    });
+
+    agentRegistry.resolveAgent.mockResolvedValue({ id: 'resolved-agent' });
+    getAgentById.mockReturnValue({ id: 'lookup-agent' });
+    getDefaultAgent.mockReturnValue({ id: 'default-agent' });
+    settingsManager.getAll.mockReturnValue({ theme: 'dark' });
+    sessionContinuityManager.createSnapshot.mockResolvedValue({ id: 'snap-1' });
+    permissionManager.loadProjectRules.mockResolvedValue([{ id: 'rule-1' }]);
+    memoryMonitor.getPressureLevel.mockReturnValue('normal');
   });
 
-  it('SettingsDeps can be implemented with vi.fn()', () => {
-    const deps: SettingsDeps = {
-      getAll: vi.fn().mockReturnValue({}),
-    };
-    expect(deps.getAll).toBeDefined();
+  afterEach(() => {
+    requireSpy.mockRestore();
   });
 
-  it('SupervisionDeps can be implemented with vi.fn()', () => {
-    const deps: SupervisionDeps = {
-      registerInstance: vi.fn(),
-      unregisterInstance: vi.fn(),
-    };
-    expect(deps.registerInstance).toBeDefined();
-    expect(deps.unregisterInstance).toBeDefined();
+  it('delegates agent lookups and resolution', async () => {
+    const deps = productionCoreDeps();
+
+    await expect(deps.agents.resolveAgent('builder', '/tmp/project')).resolves.toEqual({
+      id: 'resolved-agent',
+    });
+    expect(agentRegistry.resolveAgent).toHaveBeenCalledWith('/tmp/project', 'builder');
+
+    expect(deps.agents.getAgentById('lookup-agent')).toEqual({ id: 'lookup-agent' });
+    expect(getAgentById).toHaveBeenCalledWith('lookup-agent');
+
+    expect(deps.agents.getDefaultAgent()).toEqual({ id: 'default-agent' });
+    expect(getDefaultAgent).toHaveBeenCalledTimes(1);
   });
 
-  it('SessionDeps can be implemented with vi.fn()', () => {
-    const deps: SessionDeps = {
-      updateState: vi.fn(),
-      createSnapshot: vi.fn().mockResolvedValue('snap-1'),
-    };
-    expect(deps.updateState).toBeDefined();
-    expect(deps.createSnapshot).toBeDefined();
+  it('delegates settings and supervision operations', () => {
+    const deps = productionCoreDeps();
+
+    expect(deps.settings.getAll()).toEqual({ theme: 'dark' });
+    expect(settingsManager.getAll).toHaveBeenCalledTimes(1);
+
+    deps.supervision.registerInstance('inst-1', 'parent-1');
+    expect(supervisorTree.registerInstance).toHaveBeenCalledWith('inst-1', 'parent-1', '', 'inst-1');
+
+    deps.supervision.unregisterInstance('inst-1');
+    expect(supervisorTree.unregisterInstance).toHaveBeenCalledWith('inst-1');
   });
 
-  it('PermissionDeps can be implemented with vi.fn()', () => {
-    const deps: PermissionDeps = {
-      loadProjectRules: vi.fn().mockResolvedValue([]),
-    };
-    expect(deps.loadProjectRules).toBeDefined();
+  it('delegates session persistence and normalizes snapshot ids', async () => {
+    const deps = productionCoreDeps();
+    const state = { status: 'running' };
+
+    deps.session.updateState('inst-1', state);
+    expect(sessionContinuityManager.updateState).toHaveBeenCalledWith('inst-1', state);
+
+    await expect(
+      deps.session.createSnapshot('inst-1', 'Checkpoint', 'manual snapshot', 'manual'),
+    ).resolves.toBe('snap-1');
+    expect(sessionContinuityManager.createSnapshot).toHaveBeenCalledWith(
+      'inst-1',
+      'Checkpoint',
+      'manual snapshot',
+      'manual',
+    );
+
+    sessionContinuityManager.createSnapshot.mockResolvedValueOnce(undefined);
+    await expect(
+      deps.session.createSnapshot('inst-1', 'Checkpoint', 'manual snapshot', 'manual'),
+    ).resolves.toBe('');
   });
 
-  it('ObservationDeps can be implemented with vi.fn()', () => {
-    const deps: ObservationDeps = {
-      buildContext: vi.fn().mockReturnValue(''),
-    };
-    expect(deps.buildContext).toBeDefined();
-  });
+  it('delegates permissions, memory pressure, and preserves the documented no-op behaviors', async () => {
+    const deps = productionCoreDeps();
 
-  it('MemoryDeps can be implemented with vi.fn()', () => {
-    const deps: MemoryDeps = {
-      getCurrentPressure: vi.fn().mockReturnValue('normal'),
-    };
-    expect(deps.getCurrentPressure).toBeDefined();
-  });
+    await expect(deps.permissions.loadProjectRules('/tmp/project')).resolves.toEqual([]);
+    expect(permissionManager.loadProjectRules).toHaveBeenCalledWith('/tmp/project');
 
-  it('HistoryDeps can be implemented with vi.fn()', () => {
-    const deps: HistoryDeps = {
-      addThread: vi.fn(),
-    };
-    expect(deps.addThread).toBeDefined();
-  });
-
-  it('CoreDeps assembles all sub-deps', () => {
-    const deps: CoreDeps = {
-      agents: {
-        resolveAgent: vi.fn().mockResolvedValue({}),
-        getAgentById: vi.fn().mockReturnValue(undefined),
-        getDefaultAgent: vi.fn().mockReturnValue({ id: 'build', name: 'Build' }),
-      },
-      settings: { getAll: vi.fn().mockReturnValue({}) },
-      supervision: {
-        registerInstance: vi.fn(),
-        unregisterInstance: vi.fn(),
-      },
-      session: {
-        updateState: vi.fn(),
-        createSnapshot: vi.fn().mockResolvedValue('snap-1'),
-      },
-      permissions: { loadProjectRules: vi.fn().mockResolvedValue([]) },
-      observation: { buildContext: vi.fn().mockReturnValue('') },
-      memory: { getCurrentPressure: vi.fn().mockReturnValue('normal') },
-      history: { addThread: vi.fn() },
-    };
-
-    // Verify each group is present and callable
-    expect(deps.agents.getDefaultAgent()).toMatchObject({ id: 'build' });
-    expect(deps.settings.getAll()).toBeDefined();
-    deps.supervision.registerInstance('inst-1', null);
-    expect(deps.supervision.registerInstance).toHaveBeenCalledWith('inst-1', null);
+    expect(deps.observation.buildContext('inst-1')).toBe('');
     expect(deps.memory.getCurrentPressure()).toBe('normal');
-  });
-});
+    expect(memoryMonitor.getPressureLevel).toHaveBeenCalledTimes(1);
 
-// ── productionCoreDeps structural test ──────────────────────────────────────
-// We only verify the shape is correct (all keys present).
-// We do NOT call the function because it would initialize singletons.
-
-describe('productionCoreDeps export', () => {
-  it('is exported as a function', async () => {
-    // Dynamic import to avoid singleton side-effects at describe time
-    const mod = await import('../instance-deps');
-    expect(typeof mod.productionCoreDeps).toBe('function');
+    expect(() => deps.history.addThread('inst-1')).not.toThrow();
   });
 });

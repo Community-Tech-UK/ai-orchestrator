@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
-import { signal, WritableSignal, NO_ERRORS_SCHEMA } from '@angular/core';
+import { Component, Input, signal, WritableSignal } from '@angular/core';
 import {
   ComponentFixture,
   TestBed
@@ -23,6 +23,27 @@ import {
 import { VerificationResultsComponent } from './verification-results.component';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { VerificationResult } from '../../../../../shared/types/verification.types';
+
+@Component({
+  selector: 'app-consensus-heatmap',
+  standalone: true,
+  template: ''
+})
+class ConsensusHeatmapStubComponent {
+  @Input() agents: unknown;
+  @Input() matrix: unknown;
+}
+
+@Component({
+  selector: 'app-streaming-text',
+  standalone: true,
+  template: '<div class="streaming-text-stub">{{ text }}</div>'
+})
+class StreamingTextStubComponent {
+  @Input() text = '';
+  @Input() isStreaming = false;
+  @Input() options: unknown;
+}
 
 describe('VerificationResultsComponent', () => {
   let component: VerificationResultsComponent;
@@ -280,13 +301,11 @@ describe('VerificationResultsComponent', () => {
       imports: [VerificationResultsComponent],
       providers: [
         { provide: VerificationStore, useValue: mockVerificationStore }
-      ],
-      schemas: [NO_ERRORS_SCHEMA]
+      ]
     })
       .overrideComponent(VerificationResultsComponent, {
         set: {
-          imports: [],
-          schemas: [NO_ERRORS_SCHEMA]
+          imports: [ConsensusHeatmapStubComponent, StreamingTextStubComponent],
         }
       })
       .compileComponents();

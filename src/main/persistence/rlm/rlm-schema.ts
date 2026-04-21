@@ -6,7 +6,7 @@
  * not child_process.exec(). This is safe as it's database SQL execution.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import * as crypto from 'crypto';
 import type { Migration } from './rlm-types';
 import type { MigrationRow } from '../rlm-database.types';
@@ -16,7 +16,7 @@ interface TableInfoRow {
 }
 
 function ensureContextSectionSummaryColumns(
-  db: Database.Database
+  db: SqliteDriver
 ): void {
   const columns = db
     .prepare(`PRAGMA table_info(context_sections)`)
@@ -542,7 +542,7 @@ export const MIGRATIONS: Migration[] = [
  * Create all tables for the RLM database.
  * Uses better-sqlite3's exec method for SQL execution (not child_process).
  */
-export function createTables(db: Database.Database): void {
+export function createTables(db: SqliteDriver): void {
   // Context Stores table
   db.exec(`
     CREATE TABLE IF NOT EXISTS context_stores (
@@ -751,7 +751,7 @@ export function createTables(db: Database.Database): void {
 /**
  * Create the migrations tracking table.
  */
-export function createMigrationsTable(db: Database.Database): void {
+export function createMigrationsTable(db: SqliteDriver): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -774,7 +774,7 @@ export function computeMigrationChecksum(migration: Migration): string {
 /**
  * Get all applied migrations.
  */
-export function getAppliedMigrations(db: Database.Database): MigrationRow[] {
+export function getAppliedMigrations(db: SqliteDriver): MigrationRow[] {
   const stmt = db.prepare(`SELECT * FROM _migrations ORDER BY id ASC`);
   return stmt.all() as MigrationRow[];
 }
@@ -787,7 +787,7 @@ export function getAppliedMigrations(db: Database.Database): MigrationRow[] {
  * @param onMigrationsComplete - Callback when all migrations are complete
  */
 export function runMigrations(
-  db: Database.Database,
+  db: SqliteDriver,
   onMigrationApplied?: (name: string) => void,
   onMigrationsComplete?: (applied: number) => void
 ): void {
@@ -845,7 +845,7 @@ export function runMigrations(
  * Get schema information.
  */
 export function getSchemaInfo(
-  db: Database.Database,
+  db: SqliteDriver,
   schemaVersion: number
 ): {
   version: number;

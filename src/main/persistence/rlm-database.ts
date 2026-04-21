@@ -5,7 +5,8 @@
  * This is a facade that delegates to focused sub-modules.
  */
 
-import Database from 'better-sqlite3';
+import { defaultDriverFactory } from '../db/better-sqlite3-driver';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { app } from 'electron';
 import * as path from 'path';
 import { EventEmitter } from 'events';
@@ -49,7 +50,7 @@ export type { RLMDatabaseConfig };
 
 export class RLMDatabase extends EventEmitter {
   private static instance: RLMDatabase | null = null;
-  private db: Database.Database;
+  private db: SqliteDriver;
   private contentDir: string;
   private config: RLMDatabaseConfig;
   private initialized = false;
@@ -93,8 +94,8 @@ export class RLMDatabase extends EventEmitter {
     return this.initialized;
   }
 
-  private initializeDatabase(): Database.Database {
-    const db = new Database(this.config.dbPath!);
+  private initializeDatabase(): SqliteDriver {
+    const db = defaultDriverFactory(this.config.dbPath!);
 
     if (this.config.enableWAL) {
       db.pragma('journal_mode = WAL');
@@ -584,14 +585,14 @@ export class RLMDatabase extends EventEmitter {
   }
 
   /**
-   * Expose the raw better-sqlite3 Database instance for services that need
-   * direct access (e.g., TokenStatsService for lightweight stat writes).
+   * Expose the underlying SQLite driver for services that need direct access
+   * (e.g., TokenStatsService for lightweight stat writes, or DI wiring).
    */
-  getRawDb(): Database.Database {
+  getRawDb(): SqliteDriver {
     return this.db;
   }
 
-  getDb(): Database.Database {
+  getDb(): SqliteDriver {
     return this.db;
   }
 }

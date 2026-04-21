@@ -4,14 +4,14 @@
  * Session operations.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { RLMSessionRow } from '../rlm-database.types';
 
 /**
  * Create a new session.
  */
 export function createSession(
-  db: Database.Database,
+  db: SqliteDriver,
   session: {
     id: string;
     storeId: string;
@@ -38,7 +38,7 @@ export function createSession(
 /**
  * Get a session by ID.
  */
-export function getSession(db: Database.Database, sessionId: string): RLMSessionRow | null {
+export function getSession(db: SqliteDriver, sessionId: string): RLMSessionRow | null {
   const stmt = db.prepare(`SELECT * FROM rlm_sessions WHERE id = ?`);
   return stmt.get(sessionId) as RLMSessionRow | null;
 }
@@ -46,7 +46,7 @@ export function getSession(db: Database.Database, sessionId: string): RLMSession
 /**
  * List sessions, optionally filtered by store.
  */
-export function listSessions(db: Database.Database, storeId?: string): RLMSessionRow[] {
+export function listSessions(db: SqliteDriver, storeId?: string): RLMSessionRow[] {
   if (storeId) {
     const stmt = db.prepare(`
       SELECT * FROM rlm_sessions WHERE store_id = ? ORDER BY started_at DESC
@@ -61,7 +61,7 @@ export function listSessions(db: Database.Database, storeId?: string): RLMSessio
  * Update a session.
  */
 export function updateSession(
-  db: Database.Database,
+  db: SqliteDriver,
   sessionId: string,
   updates: {
     totalQueries?: number;
@@ -111,7 +111,7 @@ export function updateSession(
 /**
  * End a session.
  */
-export function endSession(db: Database.Database, sessionId: string): void {
+export function endSession(db: SqliteDriver, sessionId: string): void {
   const stmt = db.prepare(`
     UPDATE rlm_sessions SET ended_at = ?, last_activity_at = ? WHERE id = ?
   `);

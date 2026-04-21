@@ -3,7 +3,7 @@
  * to SQLite so they survive app restarts.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
 import type { AccessPolicy } from '../../shared/types/channels';
 
@@ -17,7 +17,7 @@ export interface SavedAccessPolicy {
 }
 
 export class ChannelAccessPolicyStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: SqliteDriver) {}
 
   /**
    * Save or update the access policy for a platform.

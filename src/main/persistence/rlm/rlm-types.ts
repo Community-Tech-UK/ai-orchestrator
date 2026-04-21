@@ -4,7 +4,7 @@
  * Configuration and internal types for the RLM database.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 
 export interface RLMDatabaseConfig {
   dbPath?: string;
@@ -20,7 +20,7 @@ export interface Migration {
 }
 
 export interface RLMDatabaseContext {
-  db: Database.Database;
+  db: SqliteDriver;
   contentDir: string;
   config: RLMDatabaseConfig;
 }

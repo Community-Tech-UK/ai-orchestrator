@@ -4,7 +4,7 @@
  * Store CRUD operations.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { ContextStoreRow, ContextSectionRow } from '../rlm-database.types';
 import { deleteContent } from './rlm-content';
 
@@ -12,7 +12,7 @@ import { deleteContent } from './rlm-content';
  * Create a new context store.
  */
 export function createStore(
-  db: Database.Database,
+  db: SqliteDriver,
   store: {
     id: string;
     instanceId: string;
@@ -38,7 +38,7 @@ export function createStore(
 /**
  * Get a store by ID.
  */
-export function getStore(db: Database.Database, storeId: string): ContextStoreRow | null {
+export function getStore(db: SqliteDriver, storeId: string): ContextStoreRow | null {
   const stmt = db.prepare(`
     SELECT * FROM context_stores WHERE id = ?
   `);
@@ -48,7 +48,7 @@ export function getStore(db: Database.Database, storeId: string): ContextStoreRo
 /**
  * Get a store by instance ID.
  */
-export function getStoreByInstance(db: Database.Database, instanceId: string): ContextStoreRow | null {
+export function getStoreByInstance(db: SqliteDriver, instanceId: string): ContextStoreRow | null {
   const stmt = db.prepare(`
     SELECT * FROM context_stores WHERE instance_id = ?
   `);
@@ -58,7 +58,7 @@ export function getStoreByInstance(db: Database.Database, instanceId: string): C
 /**
  * List all stores.
  */
-export function listStores(db: Database.Database): ContextStoreRow[] {
+export function listStores(db: SqliteDriver): ContextStoreRow[] {
   const stmt = db.prepare(`
     SELECT * FROM context_stores ORDER BY last_accessed DESC
   `);
@@ -69,7 +69,7 @@ export function listStores(db: Database.Database): ContextStoreRow[] {
  * Update store statistics.
  */
 export function updateStoreStats(
-  db: Database.Database,
+  db: SqliteDriver,
   storeId: string,
   stats: {
     totalTokens?: number;
@@ -105,7 +105,7 @@ export function updateStoreStats(
  * Delete a store and all its content files.
  */
 export function deleteStore(
-  db: Database.Database,
+  db: SqliteDriver,
   contentDir: string,
   storeId: string,
   getSections: (storeId: string) => ContextSectionRow[]
@@ -127,7 +127,7 @@ export function deleteStore(
  * Update store stats for section add/remove.
  */
 export function updateStoreStatsForSection(
-  db: Database.Database,
+  db: SqliteDriver,
   storeId: string,
   tokens: number,
   size: number,

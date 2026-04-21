@@ -1,5 +1,5 @@
 // src/main/persistence/rlm/rlm-knowledge-graph.ts
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import * as crypto from 'crypto';
 import type { KGEntityRow, KGTripleRow } from '../rlm-database.types';
 import type { KGQueryResult, KGStats, KGDirection } from '../../../shared/types/knowledge-graph.types';
@@ -18,7 +18,7 @@ function generateTripleId(subjectId: string, predicate: string, objectId: string
   return `t_${subjectId}_${predicate}_${objectId}_${hash}`;
 }
 
-export function upsertEntity(db: Database.Database, name: string, type = 'unknown', properties: Record<string, unknown> = {}): string {
+export function upsertEntity(db: SqliteDriver, name: string, type = 'unknown', properties: Record<string, unknown> = {}): string {
   const id = normalizeEntityId(name);
   db.prepare(`
     INSERT INTO kg_entities (id, name, type, properties_json, created_at)
@@ -31,11 +31,11 @@ export function upsertEntity(db: Database.Database, name: string, type = 'unknow
   return id;
 }
 
-export function getEntity(db: Database.Database, id: string): KGEntityRow | undefined {
+export function getEntity(db: SqliteDriver, id: string): KGEntityRow | undefined {
   return db.prepare('SELECT * FROM kg_entities WHERE id = ?').get(id) as KGEntityRow | undefined;
 }
 
-export function listEntities(db: Database.Database, type?: string): KGEntityRow[] {
+export function listEntities(db: SqliteDriver, type?: string): KGEntityRow[] {
   if (type) {
     return db.prepare('SELECT * FROM kg_entities WHERE type = ? ORDER BY name').all(type) as KGEntityRow[];
   }
@@ -53,7 +53,7 @@ export interface AddTripleParams {
   sourceFile?: string | null;
 }
 
-export function addTriple(db: Database.Database, params: AddTripleParams): string {
+export function addTriple(db: SqliteDriver, params: AddTripleParams): string {
   const subjectId = normalizeEntityId(params.subject);
   const objectId = normalizeEntityId(params.object);
   const predicate = normalizePredicate(params.predicate);
@@ -80,7 +80,7 @@ export function addTriple(db: Database.Database, params: AddTripleParams): strin
   return id;
 }
 
-export function invalidateTriple(db: Database.Database, subject: string, predicate: string, object: string, ended?: string): number {
+export function invalidateTriple(db: SqliteDriver, subject: string, predicate: string, object: string, ended?: string): number {
   const subjectId = normalizeEntityId(subject);
   const objectId = normalizeEntityId(object);
   const pred = normalizePredicate(predicate);
@@ -97,7 +97,7 @@ interface QueryEntityOptions {
   asOf?: string;
 }
 
-export function queryEntity(db: Database.Database, name: string, options: QueryEntityOptions = {}): KGQueryResult[] {
+export function queryEntity(db: SqliteDriver, name: string, options: QueryEntityOptions = {}): KGQueryResult[] {
   const entityId = normalizeEntityId(name);
   const direction = options.direction ?? 'both';
   const results: KGQueryResult[] = [];
@@ -158,7 +158,7 @@ export function queryEntity(db: Database.Database, name: string, options: QueryE
   return results;
 }
 
-export function queryRelationship(db: Database.Database, predicate: string, asOf?: string): KGQueryResult[] {
+export function queryRelationship(db: SqliteDriver, predicate: string, asOf?: string): KGQueryResult[] {
   const pred = normalizePredicate(predicate);
   const temporalClause = asOf
     ? 'AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)'
@@ -186,7 +186,7 @@ export function queryRelationship(db: Database.Database, predicate: string, asOf
   }));
 }
 
-export function timeline(db: Database.Database, entityName?: string, limit = 100): KGQueryResult[] {
+export function timeline(db: SqliteDriver, entityName?: string, limit = 100): KGQueryResult[] {
   const baseQuery = `
     SELECT t.*, s.name as subject_name, o.name as object_name
     FROM kg_triples t
@@ -225,7 +225,7 @@ export function timeline(db: Database.Database, entityName?: string, limit = 100
   }));
 }
 
-export function getStats(db: Database.Database): KGStats {
+export function getStats(db: SqliteDriver): KGStats {
   const entities = (db.prepare('SELECT COUNT(*) as count FROM kg_entities').get() as { count: number }).count;
   const triples = (db.prepare('SELECT COUNT(*) as count FROM kg_triples').get() as { count: number }).count;
   const currentFacts = (db.prepare('SELECT COUNT(*) as count FROM kg_triples WHERE valid_to IS NULL').get() as { count: number }).count;

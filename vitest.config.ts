@@ -6,7 +6,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.spec.ts', 'src/**/*.test.ts', 'packages/**/*.spec.ts', 'packages/**/*.test.ts', 'scripts/**/*.spec.ts'],
-    exclude: ['src/**/*.bench.ts', 'src/**/*.load.ts', 'src/main/channels/__tests__/whatsapp-adapter.spec.ts'],
+    exclude: ['src/**/*.bench.ts', 'src/**/*.load.ts'],
     setupFiles: ['src/test-setup.ts'],
     coverage: {
       provider: 'v8',

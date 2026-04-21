@@ -3,7 +3,7 @@
  * so connections auto-reconnect on app restart.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('ChannelCredentialStore');
@@ -15,7 +15,7 @@ export interface SavedCredential {
 }
 
 export class ChannelCredentialStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: SqliteDriver) {}
 
   save(platform: string, token: string): void {
     this.db.prepare(`

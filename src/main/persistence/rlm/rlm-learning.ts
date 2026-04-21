@@ -4,7 +4,7 @@
  * Outcomes, patterns, experiences, and insights operations.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { OutcomeRow, PatternRow, ExperienceRow, InsightRow } from '../rlm-database.types';
 
 // ============================================
@@ -15,7 +15,7 @@ import type { OutcomeRow, PatternRow, ExperienceRow, InsightRow } from '../rlm-d
  * Add an outcome.
  */
 export function addOutcome(
-  db: Database.Database,
+  db: SqliteDriver,
   outcome: {
     id: string;
     taskType: string;
@@ -57,7 +57,7 @@ export function addOutcome(
  * Get outcomes with optional filtering.
  */
 export function getOutcomes(
-  db: Database.Database,
+  db: SqliteDriver,
   options?: {
     taskType?: string;
     agentId?: string;
@@ -100,7 +100,7 @@ export function getOutcomes(
  * Upsert a pattern.
  */
 export function upsertPattern(
-  db: Database.Database,
+  db: SqliteDriver,
   pattern: {
     id: string;
     type: string;
@@ -133,7 +133,7 @@ export function upsertPattern(
 /**
  * Get patterns, optionally filtered by type.
  */
-export function getPatterns(db: Database.Database, type?: string): PatternRow[] {
+export function getPatterns(db: SqliteDriver, type?: string): PatternRow[] {
   if (type) {
     const stmt = db.prepare(`
       SELECT * FROM patterns WHERE type = ? ORDER BY effectiveness DESC
@@ -152,7 +152,7 @@ export function getPatterns(db: Database.Database, type?: string): PatternRow[] 
  * Upsert an experience.
  */
 export function upsertExperience(
-  db: Database.Database,
+  db: SqliteDriver,
   experience: {
     id: string;
     taskType: string;
@@ -191,7 +191,7 @@ export function upsertExperience(
 /**
  * Get an experience by task type.
  */
-export function getExperience(db: Database.Database, taskType: string): ExperienceRow | null {
+export function getExperience(db: SqliteDriver, taskType: string): ExperienceRow | null {
   const stmt = db.prepare(`SELECT * FROM experiences WHERE task_type = ?`);
   return stmt.get(taskType) as ExperienceRow | null;
 }
@@ -199,7 +199,7 @@ export function getExperience(db: Database.Database, taskType: string): Experien
 /**
  * Get all experiences.
  */
-export function getAllExperiences(db: Database.Database): ExperienceRow[] {
+export function getAllExperiences(db: SqliteDriver): ExperienceRow[] {
   const stmt = db.prepare(`SELECT * FROM experiences ORDER BY last_updated DESC`);
   return stmt.all() as ExperienceRow[];
 }
@@ -212,7 +212,7 @@ export function getAllExperiences(db: Database.Database): ExperienceRow[] {
  * Add an insight.
  */
 export function addInsight(
-  db: Database.Database,
+  db: SqliteDriver,
   insight: {
     id: string;
     type: string;
@@ -243,7 +243,7 @@ export function addInsight(
 /**
  * Get insights, optionally filtered by type.
  */
-export function getInsights(db: Database.Database, type?: string): InsightRow[] {
+export function getInsights(db: SqliteDriver, type?: string): InsightRow[] {
   const now = Date.now();
   if (type) {
     const stmt = db.prepare(`

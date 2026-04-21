@@ -6,7 +6,7 @@
  * optimization opportunities.
  */
 
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 
@@ -137,18 +137,18 @@ export function classifyToolType(message: OutputMessage): ToolType {
 
 export class TokenStatsService {
   private static instance: TokenStatsService | null = null;
-  private db: Database.Database | null = null;
+  private db: SqliteDriver | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private insertStmt: any | null = null;
   private ready = false;
 
-  private constructor(db: Database.Database | null) {
+  private constructor(db: SqliteDriver | null) {
     if (db) {
       this.initWithDb(db);
     }
   }
 
-  static getInstance(db?: Database.Database | null): TokenStatsService {
+  static getInstance(db?: SqliteDriver | null): TokenStatsService {
     if (!this.instance) {
       this.instance = new TokenStatsService(db ?? null);
     }
@@ -159,7 +159,7 @@ export class TokenStatsService {
     this.instance = null;
   }
 
-  private initWithDb(db: Database.Database): void {
+  private initWithDb(db: SqliteDriver): void {
     this.db = db;
     try {
       // The table is created via migration; prepare insert statement
@@ -180,7 +180,7 @@ export class TokenStatsService {
    * Provide (or replace) the database connection.
    * Call this once the RLM database is available.
    */
-  setDatabase(db: Database.Database): void {
+  setDatabase(db: SqliteDriver): void {
     this.initWithDb(db);
   }
 
@@ -412,6 +412,6 @@ export class TokenStatsService {
 // Singleton getter
 // ============================================
 
-export function getTokenStatsService(db?: Database.Database | null): TokenStatsService {
+export function getTokenStatsService(db?: SqliteDriver | null): TokenStatsService {
   return TokenStatsService.getInstance(db);
 }

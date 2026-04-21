@@ -15,7 +15,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
-import { signal, WritableSignal, NO_ERRORS_SCHEMA } from '@angular/core';
+import {
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+  signal,
+  WritableSignal,
+} from '@angular/core';
 import {
   ComponentFixture,
   TestBed
@@ -34,6 +41,66 @@ import type {
   SynthesisStrategy,
   VerificationResult
 } from '../../../../../shared/types/verification.types';
+
+@Component({
+  selector: 'app-agent-card',
+  standalone: true,
+  template: ''
+})
+class AgentCardStubComponent {
+  @Input() cli: unknown;
+  @Input() selected = false;
+  @Input() unavailable = false;
+  @Output() agentSelect = new EventEmitter<void>();
+  @Output() configure = new EventEmitter<void>();
+  @Output() install = new EventEmitter<void>();
+}
+
+@Component({
+  selector: 'app-agent-config-panel',
+  standalone: true,
+  template: ''
+})
+class AgentConfigPanelStubComponent {
+  @Output() closePanel = new EventEmitter<void>();
+}
+
+@Component({
+  selector: 'app-verification-monitor',
+  standalone: true,
+  template: ''
+})
+class VerificationMonitorStubComponent {}
+
+@Component({
+  selector: 'app-verification-results',
+  standalone: true,
+  template: ''
+})
+class VerificationResultsStubComponent {}
+
+@Component({
+  selector: 'app-drop-zone',
+  standalone: true,
+  template: '<ng-content></ng-content>'
+})
+class DropZoneStubComponent {
+  @Output() filesDropped = new EventEmitter<File[]>();
+  @Output() imagesPasted = new EventEmitter<File[]>();
+}
+
+@Component({
+  selector: 'app-task-preflight-card',
+  standalone: true,
+  template: ''
+})
+class TaskPreflightCardStubComponent {
+  @Input() report: unknown;
+  @Input() loading = false;
+  @Input() title = '';
+  @Input() subtitle = '';
+  @Input() emptyMessage = '';
+}
 
 describe('VerificationDashboardComponent', () => {
   let component: VerificationDashboardComponent;
@@ -212,15 +279,28 @@ describe('VerificationDashboardComponent', () => {
     setupMocks();
 
     await TestBed.configureTestingModule({
-      imports: [VerificationDashboardComponent, FormsModule],
+      imports: [VerificationDashboardComponent],
       providers: [
         { provide: VerificationStore, useValue: mockVerificationStore },
         { provide: CliStore, useValue: mockCliStore },
         { provide: DraftService, useValue: mockDraftService },
         { provide: Router, useValue: mockRouter }
-      ],
-      schemas: [NO_ERRORS_SCHEMA]
-    }).compileComponents();
+      ]
+    })
+      .overrideComponent(VerificationDashboardComponent, {
+        set: {
+          imports: [
+            FormsModule,
+            AgentCardStubComponent,
+            AgentConfigPanelStubComponent,
+            VerificationMonitorStubComponent,
+            VerificationResultsStubComponent,
+            DropZoneStubComponent,
+            TaskPreflightCardStubComponent,
+          ],
+        }
+      })
+      .compileComponents();
 
     fixture = TestBed.createComponent(VerificationDashboardComponent);
     component = fixture.componentInstance;

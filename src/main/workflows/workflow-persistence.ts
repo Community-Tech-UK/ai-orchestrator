@@ -1,11 +1,11 @@
-import type Database from 'better-sqlite3';
+import type { SqliteDriver } from '../db/sqlite-driver';
 import type { WorkflowExecution } from '../../shared/types/workflow.types.js';
 import { getLogger } from '../logging/logger.js';
 
 const logger = getLogger('WorkflowPersistence');
 
 export class WorkflowPersistence {
-  constructor(private db: Database.Database) {}
+  constructor(private db: SqliteDriver) {}
 
   save(execution: WorkflowExecution): void {
     try {
