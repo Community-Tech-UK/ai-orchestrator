@@ -217,6 +217,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'copilot': COPILOT_MODELS.CLAUDE_SONNET_46,
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT54,
+  cursor: CURSOR_MODELS.AUTO,
 };
 
 /**
@@ -312,6 +313,10 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.GEMINI_20_FLASH_LITE, name: 'Gemini 2.0 Flash Lite', tier: 'fast' },
   ],
   ollama: [],
+  cursor: [
+    { id: CURSOR_MODELS.AUTO, name: 'Auto (let Cursor pick)', tier: 'balanced' },
+    // No hardcoded per-model entries — dynamic list populates later.
+  ],
 };
 
 /**
@@ -451,6 +456,7 @@ const CLI_TO_PROVIDER_TYPE: Record<string, ProviderType> = {
   gemini: 'google',
   copilot: 'copilot',
   ollama: 'ollama',
+  cursor: 'cursor',
 };
 
 /**
