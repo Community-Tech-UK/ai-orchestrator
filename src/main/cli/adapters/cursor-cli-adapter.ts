@@ -46,19 +46,23 @@ export class CursorCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(_message: CliMessage): Promise<CliResponse> {
+    void _message;
     throw new Error('CursorCliAdapter: stub — not yet implemented');
   }
 
   async *sendMessageStream(_message: CliMessage): AsyncIterable<string> {
+    void _message;
     throw new Error('CursorCliAdapter: stub — not yet implemented');
-    yield ''; // unreachable, but required so TS keeps this as a generator signature
+    yield ''; // unreachable; retained to keep the generator semantics explicit for future maintainers
   }
 
   parseOutput(_raw: string): CliResponse {
+    void _raw;
     throw new Error('CursorCliAdapter: stub — not yet implemented');
   }
 
   protected buildArgs(_message: CliMessage): string[] {
+    void _message;
     throw new Error('CursorCliAdapter: stub — not yet implemented');
   }
 
@@ -75,6 +79,8 @@ export class CursorCliAdapter extends BaseCliAdapter {
    * Stub sendInput — will be implemented in Phase 4.
    */
   async sendInput(_message: string, _attachments?: FileAttachment[]): Promise<void> {
+    void _message;
+    void _attachments;
     throw new Error('CursorCliAdapter: stub — not yet implemented');
   }
 }
