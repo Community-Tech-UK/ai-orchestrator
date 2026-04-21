@@ -21,6 +21,7 @@ import { ClaudeCliProvider, DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider'
 import { CodexCliProvider, DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
 import { GeminiCliProvider, DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider';
 import { CopilotCliProvider, DEFAULT_COPILOT_CONFIG } from './copilot-cli-provider';
+import { CursorCliProvider, DEFAULT_CURSOR_CONFIG } from './cursor-cli-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 import { providerAdapterRegistry } from './provider-adapter-registry';
@@ -28,11 +29,11 @@ import { providerAdapterRegistry } from './provider-adapter-registry';
 /**
  * Default provider configurations.
  *
- * CLI-adapter entries (claude, codex, gemini, copilot) are co-located with
- * their provider files and re-imported here so the descriptor exported from
- * each provider module stays the single source of truth for default config.
+ * CLI-adapter entries (claude, codex, gemini, copilot, cursor) are co-located
+ * with their provider files and re-imported here so the descriptor exported
+ * from each provider module stays the single source of truth for default config.
  */
-const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
+export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   'claude-cli': DEFAULT_CLAUDE_CONFIG,
   'anthropic-api': {
     type: 'anthropic-api',
@@ -56,6 +57,7 @@ const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   },
   'google': DEFAULT_GEMINI_CONFIG,
   'copilot': DEFAULT_COPILOT_CONFIG,
+  'cursor': DEFAULT_CURSOR_CONFIG,
   'amazon-bedrock': {
     type: 'amazon-bedrock',
     name: 'Amazon Bedrock',
@@ -97,6 +99,7 @@ export class ProviderInstanceManager {
     this.factories.set('openai', (config) => new CodexCliProvider(config));
     this.factories.set('google', (config) => new GeminiCliProvider(config));
     this.factories.set('copilot', (config) => new CopilotCliProvider(config));
+    this.factories.set('cursor', (config) => new CursorCliProvider(config));
   }
 
   /**
@@ -303,17 +306,23 @@ export class ProviderInstanceManager {
   }
 
   /**
-   * Map CLI name to provider type
+   * Map CLI name to provider type.
+   *
+   * Lifted to a class-level readonly constant so that tests and future
+   * callers can introspect the mapping without recreating the Record on
+   * every method invocation.
    */
+  private readonly cliToProviderType: Record<string, ProviderType> = {
+    'claude': 'claude-cli',
+    'codex': 'openai',
+    'gemini': 'google',
+    'copilot': 'copilot',
+    'cursor': 'cursor',
+    'ollama': 'ollama',
+  };
+
   private mapCliToProviderType(cliName: string): ProviderType | null {
-    const mapping: Record<string, ProviderType> = {
-      'claude': 'claude-cli',
-      'codex': 'openai',
-      'gemini': 'google',
-      'copilot': 'copilot',
-      'ollama': 'ollama',
-    };
-    return mapping[cliName] || null;
+    return this.cliToProviderType[cliName] || null;
   }
 
   /**
