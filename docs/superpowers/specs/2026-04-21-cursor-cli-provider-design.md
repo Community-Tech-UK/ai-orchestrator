@@ -54,7 +54,7 @@ Primary sources consulted:
 - **Yolo / force:** `-f` / `--force` / `--yolo`.
 - **Session resume:** `--resume [chatId]`, `--continue` (= `--resume=-1`).
 - **Sandbox:** `--sandbox enabled|disabled`.
-- **Streaming deltas:** `--stream-partial-output` appears in local `cursor-agent --help` output but is not prominently documented on the public docs site. The adapter passes it conditionally: we attempt it first and fall back to plain `--output-format stream-json` if the flag is rejected. **Verify during implementation** against the installed `cursor-agent` version on the developer machine; gate the flag behind a feature-detect on first `checkStatus()`.
+- **Streaming deltas:** `--stream-partial-output` — documented on the public docs site as "Stream partial output as individual text deltas (only works with `--print` and stream-json format)". Flag availability may still differ across installed `cursor-agent` versions, so the adapter passes it conditionally: attempt first and fall back to plain `--output-format stream-json` on unknown-flag rejection. Gate the flag behind a feature-detect on first `checkStatus()`.
 - **Agent mode:** `--mode plan|ask` (default mode is "agent").
 
 ### Stream-JSON event schema (confirmed from docs)
