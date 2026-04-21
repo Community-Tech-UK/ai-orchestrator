@@ -8,7 +8,7 @@
  */
 
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto';
+export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto' | 'cursor';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
 
@@ -200,7 +200,8 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'claude', label: 'Claude Code' },
       { value: 'gemini', label: 'Gemini CLI' },
       { value: 'codex', label: 'OpenAI Codex CLI' },
-      { value: 'copilot', label: 'GitHub Copilot' }
+      { value: 'copilot', label: 'GitHub Copilot' },
+      { value: 'cursor', label: 'Cursor CLI' }
     ]
   },
   {
@@ -459,6 +460,7 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'codex', label: 'OpenAI Codex CLI' },
       { value: 'copilot', label: 'GitHub Copilot' },
       { value: 'claude', label: 'Claude Code' },
+      { value: 'cursor', label: 'Cursor CLI' },
     ],
   },
   {

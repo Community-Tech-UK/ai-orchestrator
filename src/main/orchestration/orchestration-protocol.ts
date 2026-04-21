@@ -10,6 +10,7 @@ import type {
   GetChildSectionCommand
 } from '../../shared/types/child-result.types';
 import type { ConsensusStrategy } from './consensus.types';
+import type { CanonicalCliType } from '../../shared/types/settings.types';
 
 const logger = getLogger('OrchestrationProtocol');
 
@@ -43,8 +44,8 @@ export interface SpawnChildCommand {
   workingDirectory?: string;
   agentId?: string;
   model?: string;
-  /** CLI provider to use: 'claude', 'codex', 'gemini', 'copilot', or 'auto' (default) */
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'auto';
+  /** CLI provider to use: any CanonicalCliType value, or 'auto' (default) */
+  provider?: CanonicalCliType;
   /** Explicitly enable YOLO for this child (requires user confirmation upstream) */
   yoloMode?: boolean;
 }
@@ -158,7 +159,7 @@ export interface ConsensusQueryCommand {
   /** Context to include with the question */
   context?: string;
   /** Which providers to query (default: all available) */
-  providers?: ('claude' | 'codex' | 'gemini' | 'copilot')[];
+  providers?: Exclude<CanonicalCliType, 'auto'>[];
   /** Consensus strategy: 'majority' (default), 'weighted', or 'all' (no synthesis, raw responses) */
   strategy?: ConsensusStrategy;
   /** Timeout per provider in seconds (default: 60) */
