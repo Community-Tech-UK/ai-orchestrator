@@ -269,6 +269,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
     // Line-buffered NDJSON parsing — cursor-agent emits one JSON object per line
     // on stdout under --output-format stream-json.
     let lineBuffer = '';
+    let stderrBuffer = '';
 
     this.process.stdout?.on('data', (data) => {
       const chunk = (data as Buffer).toString();
@@ -298,6 +299,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
     this.process.stderr?.on('data', (data) => {
       const errorStr = (data as Buffer).toString();
+      stderrBuffer += errorStr;
       // Heuristic: the CLI writes banners/info to stderr too. Only escalate
       // if it looks like a real error. Task 23 will expand this.
       if (/error|fatal|failed/i.test(errorStr)) {
@@ -321,6 +323,33 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
       if (code !== 0 && code !== null) {
         const rs = this.activeResultState;
+
+        // Feature-detect fallback for --stream-partial-output. If the installed
+        // cursor-agent doesn't recognize the flag, retry once without it and
+        // cache the fallback on the adapter so subsequent turns also skip it.
+        if (
+          rs &&
+          !rs.completed &&
+          this.partialOutputSupported &&
+          !rs.retriedWithoutPartial &&
+          /unknown flag.*--stream-partial-output|--stream-partial-output.*unknown/i.test(stderrBuffer)
+        ) {
+          logger.info('cursor-agent rejected --stream-partial-output; disabling and retrying');
+          this.partialOutputSupported = false;
+          rs.retriedWithoutPartial = true;
+          // Pre-clean state — dispatchTurn's cleanup prologue handles listeners,
+          // but we set these to null so the retry's cleanup is a no-op rather
+          // than racing with the already-fired close event.
+          this.process = null;
+          if (this.activeTimeout) {
+            clearTimeout(this.activeTimeout);
+            this.activeTimeout = null;
+          }
+          this.activeResultState = null;
+          this.retryCurrentMessage(rs);
+          return;
+        }
+
         this.process = null;
         this.activeResultState = null;
         if (this.activeTimeout) {
@@ -329,7 +358,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
         }
         if (rs && !rs.completed) {
           rs.completed = true;
-          rs.rejecter(new Error(`cursor-agent exited with code ${code}`));
+          rs.rejecter(new Error(`cursor-agent exited with code ${code}: ${stderrBuffer.trim() || 'no stderr'}`));
         }
         return;
       }

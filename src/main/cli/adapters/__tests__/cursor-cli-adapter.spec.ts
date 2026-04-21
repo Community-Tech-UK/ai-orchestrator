@@ -696,3 +696,79 @@ describe('CursorCliAdapter — resume-failure fallback', () => {
     expect(spawnedProcesses).toHaveLength(2);
   });
 });
+
+describe('CursorCliAdapter — unknown-flag fallback for --stream-partial-output', () => {
+  beforeEach(() => {
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
+    lastSpawnState.lastSpawnArgs = null;
+  });
+
+  it('first spawn exits non-zero with stderr mentioning --stream-partial-output → retries without flag and caches fallback', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    // First sendMessage.
+    const sendPromise1 = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    // First spawn: --stream-partial-output IS present.
+    expect(lastSpawnState.lastSpawnArgs?.args).toContain('--stream-partial-output');
+    const first = spawnedProcesses[0];
+
+    // Fire stderr then non-zero close.
+    first.stderr.emit('data', 'unknown flag: --stream-partial-output\n');
+    first.emit('close', 1);
+    await new Promise<void>((r) => setImmediate(r));
+
+    // Retry spawn: --stream-partial-output is ABSENT.
+    expect(spawnedProcesses).toHaveLength(2);
+    expect(lastSpawnState.lastSpawnArgs?.args).not.toContain('--stream-partial-output');
+    const second = spawnedProcesses[1];
+
+    // Let the retry succeed.
+    second.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    second.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess-1', result: 'done'
+    }) + '\n');
+    second.emit('close', 0);
+
+    const resp1 = await sendPromise1;
+    expect(resp1.content).toBe('done');
+    // Instance flag cached.
+    expect((adapter as unknown as { partialOutputSupported: boolean }).partialOutputSupported).toBe(false);
+
+    // Third invocation (new sendMessage on the SAME adapter) — flag stays absent.
+    const sendPromise3 = adapter.sendMessage({ role: 'user', content: 'follow-up' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(spawnedProcesses).toHaveLength(3);
+    expect(lastSpawnState.lastSpawnArgs?.args).not.toContain('--stream-partial-output');
+    const third = spawnedProcesses[2];
+    third.stdout.emit('data', JSON.stringify({
+      type: 'result', subtype: 'success', is_error: false,
+      session_id: 'sess-1', result: 'ok'
+    }) + '\n');
+    third.emit('close', 0);
+
+    const resp3 = await sendPromise3;
+    expect(resp3.content).toBe('ok');
+  });
+
+  it('non-zero exit WITHOUT --stream-partial-output mention does NOT retry and rejects with stderr included', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[0];
+    proc.stderr.emit('data', 'some unrelated failure\n');
+    proc.emit('close', 42);
+
+    await expect(sendPromise).rejects.toThrow(/exited with code 42.*some unrelated failure/);
+    expect(spawnedProcesses).toHaveLength(1);
+    expect((adapter as unknown as { partialOutputSupported: boolean }).partialOutputSupported).toBe(true);
+  });
+});
