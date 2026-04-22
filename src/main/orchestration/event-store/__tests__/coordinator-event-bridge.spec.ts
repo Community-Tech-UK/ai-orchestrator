@@ -151,4 +151,39 @@ describe('CoordinatorEventBridge', () => {
     expect(typeof call['timestamp']).toBe('number');
     expect(call['metadata']).toEqual({ instanceId: 'inst-3' });
   });
+
+  it('maps parallel worktree events into lane and branch lifecycle entries', () => {
+    const coordinator = new EventEmitter();
+    bridge.wireParallelWorktreeCoordinator(coordinator);
+
+    coordinator.emit('worktree:created', {
+      executionId: 'exec-1',
+      taskId: 'task-1',
+      session: {
+        id: 'worktree-1',
+        branchName: 'codex/feature',
+        worktreePath: '/tmp/worktree',
+      },
+    });
+
+    expect(mockStore.append).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: 'worktree.created',
+        aggregateId: 'exec-1',
+        metadata: expect.objectContaining({
+          executionId: 'exec-1',
+          laneId: 'exec-1',
+          worktreeId: 'worktree-1',
+          branchName: 'codex/feature',
+        }),
+      }),
+    );
+    expect(mockStore.append).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: 'branch.prepared',
+      }),
+    );
+  });
 });

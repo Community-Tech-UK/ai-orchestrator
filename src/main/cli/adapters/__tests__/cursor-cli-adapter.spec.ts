@@ -364,6 +364,79 @@ describe('CursorCliAdapter — assistant event', () => {
     expect(assistantOutputs[2].metadata?.accumulatedContent).toBe('Hello world');
     expect(assistantOutputs[2].metadata?.accumulatedContent).toHaveLength(11);
   });
+
+  it('ignores buffered assistant copies with model_call_id before tool calls', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { streaming?: boolean; accumulatedContent?: string };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]},"timestamp_ms":100}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]},"timestamp_ms":101,"model_call_id":"call-1"}\n');
+    proc.stdout.emit('data', '{"type":"tool_call","subtype":"started","call_id":"tool-1","tool_call":{"readToolCall":{"path":"README.md"}}}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":" world"}]},"timestamp_ms":200}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello world"}]}}\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-1"}\n');
+    proc.emit('close', 0);
+
+    await sendPromise;
+
+    const assistantOutputs = outputs.filter(o => o.type === 'assistant');
+    expect(assistantOutputs).toHaveLength(3);
+    expect(assistantOutputs[0].content).toBe('Hello');
+    expect(assistantOutputs[1].content).toBe(' world');
+    expect(assistantOutputs[1].metadata?.accumulatedContent).toBe('Hello world');
+    expect(assistantOutputs[2].metadata?.streaming).toBe(false);
+    expect(assistantOutputs[2].metadata?.accumulatedContent).toBe('Hello world');
+  });
+
+  it('processes a trailing assistant event even when the final line has no newline terminator', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    interface OutputEvent {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: { streaming?: boolean; accumulatedContent?: string };
+    }
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (m: OutputEvent) => outputs.push(m));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I\\u0027ll create a new `cur"}]},"timestamp_ms":100}\n');
+    proc.stdout.emit('data', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I\\u0027ll create a new `cursor_plan.md`"}]}}');
+    proc.emit('close', 0);
+
+    const response = await sendPromise;
+    const assistantOutputs = outputs.filter(o => o.type === 'assistant');
+
+    expect(response.content).toBe('');
+    expect(assistantOutputs).toHaveLength(3);
+    expect(assistantOutputs[0].content).toBe("I'll create a new `cur");
+    expect(assistantOutputs[1].content).toBe("sor_plan.md`");
+    expect(assistantOutputs[1].metadata?.streaming).toBe(true);
+    expect(assistantOutputs[1].metadata?.accumulatedContent).toBe("I'll create a new `cursor_plan.md`");
+    expect(assistantOutputs[2].metadata?.streaming).toBe(false);
+    expect(assistantOutputs[2].metadata?.accumulatedContent).toBe("I'll create a new `cursor_plan.md`");
+  });
 });
 
 describe('CursorCliAdapter — tool_call event', () => {
@@ -414,8 +487,10 @@ describe('CursorCliAdapter — tool_call event', () => {
 
     const toolUseOutputs = outputs.filter(o => o.type === 'tool_use');
     expect(toolUseOutputs).toHaveLength(1);
+    expect(toolUseOutputs[0].metadata?.name).toBe('read');
     expect(toolUseOutputs[0].metadata?.toolName).toBe('read');
     expect(toolUseOutputs[0].metadata?.callId).toBe('t1');
+    expect(toolUseOutputs[0].metadata?.tool_use_id).toBe('t1');
     expect(toolUseOutputs[0].metadata?.input).toEqual({ path: 'foo' });
   });
 
@@ -508,6 +583,9 @@ describe('CursorCliAdapter — tool_call event', () => {
     const errorOutputs = outputs.filter(o => o.type === 'error');
 
     expect(toolResultOutputs).toHaveLength(1);
+    expect(toolResultOutputs[0].metadata?.name).toBe('read');
+    expect(toolResultOutputs[0].metadata?.tool_use_id).toBe('t4');
+    expect(toolResultOutputs[0].metadata?.is_error).toBe(true);
     expect(toolResultOutputs[0].metadata?.success).toBe(false);
 
     expect(errorOutputs).toHaveLength(1);
@@ -573,6 +651,27 @@ describe('CursorCliAdapter — result event', () => {
     expect(errorOutputs.length).toBeGreaterThanOrEqual(1);
     expect(errorOutputs[0].content).toBe('something went wrong');
     expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('sess-e');
+  });
+
+  it('processes a trailing result event when the final line has no newline terminator', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const contexts: { used: number; total: number; percentage: number }[] = [];
+    adapter.on('context', (c: { used: number; total: number; percentage: number }) => contexts.push(c));
+
+    const sendPromise = adapter.sendMessage({ role: 'user', content: 'hi' });
+    await new Promise<void>((r) => setImmediate(r));
+
+    const proc = spawnedProcesses[spawnedProcesses.length - 1];
+    proc.stdout.emit('data', '{"type":"system","subtype":"init","session_id":"sess-1"}\n');
+    proc.stdout.emit('data', '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-2","result":"done"}');
+    proc.emit('close', 0);
+
+    const response = await sendPromise;
+    expect(response.content).toBe('done');
+    expect((adapter as unknown as { cursorSessionId: string | null }).cursorSessionId).toBe('sess-2');
+    expect(contexts.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -879,6 +978,25 @@ describe('CursorCliAdapter — lifecycle + status + stderr', () => {
     (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
 
     await expect(adapter.spawn()).rejects.toThrow(/already spawned/i);
+  });
+
+  it('sendInput emits ready -> busy -> idle on success', async () => {
+    const adapter = new CursorCliAdapter({});
+    (adapter as unknown as { isSpawned: boolean }).isSpawned = true;
+
+    const statuses: string[] = [];
+    adapter.on('status', (s: string) => statuses.push(s));
+
+    vi.spyOn(adapter, 'sendMessage').mockResolvedValue({
+      id: 'r1',
+      content: 'ok',
+      role: 'assistant',
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      raw: '',
+    });
+
+    await adapter.sendInput('hi');
+    expect(statuses).toEqual(['ready', 'busy', 'idle']);
   });
 
   it('terminate(true) clears cursor-specific instance state', async () => {

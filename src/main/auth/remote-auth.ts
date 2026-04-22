@@ -3,7 +3,7 @@ import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getNodeIdentityStore } from '../remote-node/node-identity-store';
 import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
-import type { NodeIdentity } from '../../shared/types/worker-node.types';
+import type { NodeIdentity, RemotePairingCredentialInfo } from '../../shared/types/worker-node.types';
 
 const logger = getLogger('RemoteAuth');
 
@@ -22,12 +22,7 @@ function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
-export interface RemotePairingCredential {
-  token: string;
-  createdAt: number;
-  expiresAt: number;
-  label?: string;
-}
+export interface RemotePairingCredential extends RemotePairingCredentialInfo {}
 
 export interface RemoteSession {
   nodeId: string;
@@ -132,6 +127,18 @@ export class RemoteAuthService {
   listSessions(): NodeIdentity[] {
     this.ensureLoadedFromSettings();
     return getNodeIdentityStore().getAll();
+  }
+
+  listPendingPairings(): RemotePairingCredentialInfo[] {
+    this.pruneExpiredPairings();
+    return [...this.pendingPairings.values()]
+      .sort((left, right) => left.expiresAt - right.expiresAt)
+      .map((pairing) => ({ ...pairing }));
+  }
+
+  revokePairingCredential(token: string): boolean {
+    this.pruneExpiredPairings();
+    return this.pendingPairings.delete(token.trim());
   }
 
   revokeSession(nodeId: string): boolean {

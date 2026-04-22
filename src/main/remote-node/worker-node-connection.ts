@@ -155,6 +155,10 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     this.wss = null;
   }
 
+  isRunning(): boolean {
+    return this.wss !== null;
+  }
+
   broadcastNodesToRenderer(nodes: WorkerNodeInfo[]): void {
     try {
       const { BrowserWindow } = require('electron');

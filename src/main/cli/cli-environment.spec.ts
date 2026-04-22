@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildCliPath, getCliAdditionalPaths, shouldUseCliShell } from './cli-environment';
+import {
+  buildCliEnv,
+  buildCliPath,
+  buildCliSpawnOptions,
+  getCliAdditionalPaths,
+  shouldUseCliShell,
+} from './cli-environment';
 
 describe('cli-environment', () => {
   it('adds npm global directories for Windows CLI wrappers', () => {
@@ -42,5 +48,24 @@ describe('cli-environment', () => {
   it('requires shell execution on Windows for npm-installed wrappers', () => {
     expect(shouldUseCliShell('win32')).toBe(true);
     expect(shouldUseCliShell('darwin')).toBe(false);
+  });
+
+  it('builds spawn options that combine PATH expansion and Windows shell handling', () => {
+    const env = {
+      APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      PATH: 'C:\\Windows\\System32',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const builtEnv = buildCliEnv(env, 'win32');
+    const spawnOptions = buildCliSpawnOptions(env, 'win32');
+
+    expect(builtEnv['PATH']).toContain('C:\\Users\\User\\AppData\\Roaming\\npm');
+    expect(spawnOptions).toMatchObject({
+      env: builtEnv,
+      shell: true,
+      windowsHide: true,
+    });
   });
 });

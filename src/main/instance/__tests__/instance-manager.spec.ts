@@ -273,7 +273,7 @@ vi.mock('../../orchestration/orchestration-protocol', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../commands/command-manager', () => ({
   getCommandManager: vi.fn(() => ({
-    getCommandByName: vi.fn().mockReturnValue(null),
+    executeCommandString: vi.fn().mockResolvedValue(null),
   })),
 }));
 

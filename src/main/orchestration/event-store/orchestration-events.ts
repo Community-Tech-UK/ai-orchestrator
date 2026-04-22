@@ -5,6 +5,8 @@
  * used by the append-only event store.
  */
 
+import type { LaneEventType } from '../../../shared/types/lane-events';
+
 export type OrchestrationEventType =
   | 'verification.requested'
   | 'verification.agent_responded'
@@ -15,7 +17,8 @@ export type OrchestrationEventType =
   | 'debate.completed'
   | 'consensus.started'
   | 'consensus.vote_cast'
-  | 'consensus.completed';
+  | 'consensus.completed'
+  | LaneEventType;
 
 export interface OrchestrationEvent {
   id: string;
@@ -27,5 +30,12 @@ export interface OrchestrationEvent {
     instanceId?: string;
     userId?: string;
     source?: string;
+    laneId?: string;
+    worktreeId?: string;
+    branchName?: string;
+    executionId?: string;
+    taskId?: string;
+    sessionId?: string;
+    worktreePath?: string;
   };
 }

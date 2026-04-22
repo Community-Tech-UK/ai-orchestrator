@@ -197,6 +197,47 @@ describe('ClaudeCliAdapter', () => {
       expect(DEFER_MIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     });
   });
+
+  describe('permission hook settings', () => {
+    it('wraps the defer hook in a node command for Windows-safe execution', () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+
+      try {
+        const adapter = new ClaudeCliAdapter({
+          permissionHookPath: 'C:\\Program Files\\AI Orchestrator\\defer-permission-hook.mjs',
+        });
+        (
+          adapter as unknown as {
+            cachedCliStatus: { available: boolean; version: string };
+          }
+        ).cachedCliStatus = { available: true, version: '2.1.98' };
+
+        const args = (
+          adapter as unknown as {
+            buildArgs(message: { role: 'user'; content: string }): string[];
+          }
+        ).buildArgs({ role: 'user', content: 'hello' });
+
+        const settingsIndex = args.indexOf('--settings');
+        expect(settingsIndex).toBeGreaterThan(-1);
+
+        const settings = JSON.parse(args[settingsIndex + 1] ?? '{}') as {
+          hooks?: {
+            PreToolUse?: Array<{
+              hooks?: Array<{ command?: string }>;
+            }>;
+          };
+        };
+
+        expect(settings.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command).toBe(
+          'node "C:\\Program Files\\AI Orchestrator\\defer-permission-hook.mjs"',
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+      }
+    });
+  });
 });
 
 describe('NdjsonParser (used by ClaudeCliAdapter for stream parsing)', () => {

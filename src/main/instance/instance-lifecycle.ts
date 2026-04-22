@@ -15,6 +15,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { CopilotCliAdapter } from '../cli/adapters/copilot-cli-adapter';
 import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
@@ -121,6 +122,21 @@ function summarizeAttachments(
     size: attachment.size,
     dataLength: attachment.data.length,
   }));
+}
+
+async function getKnownModelsForCli(cliType: string): Promise<string[]> {
+  if (cliType === 'copilot') {
+    try {
+      const models = await new CopilotCliAdapter().listAvailableModels();
+      return models.map(model => model.id);
+    } catch (error) {
+      logger.warn('Falling back to static Copilot model list during validation', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return getModelsForProvider(cliType).map(model => model.id);
 }
 
 function summarizeInitialOutputBuffer(
@@ -816,6 +832,20 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
   }
 
+  private async waitForInputReadinessBoundary(
+    instanceId: string,
+    adapter?: CliAdapter,
+  ): Promise<void> {
+    const capabilities = this.getAdapterRuntimeCapabilities(
+      adapter ?? this.deps.getAdapter(instanceId),
+    );
+    if (!capabilities.supportsPermissionPrompts && !capabilities.supportsDeferPermission) {
+      return;
+    }
+
+    await this.waitForAdapterWritable(instanceId, 3_000);
+  }
+
   // ============================================
   // Instruction Prompt Loading
   // ============================================
@@ -1178,16 +1208,16 @@ export class InstanceLifecycleManager extends EventEmitter {
 
           // Then: validate concrete model IDs against the provider's model list
           if (resolvedModel) {
-            const providerModels = getModelsForProvider(resolvedCliType);
+            const providerModels = await getKnownModelsForCli(resolvedCliType);
             if (providerModels.length > 0) {
-              const isValid = providerModels.some(m => m.id === resolvedModel);
+              const isValid = providerModels.includes(resolvedModel);
               const allowCodexDynamicModel = resolvedCliType === 'codex' && looksLikeCodexModelId(resolvedModel);
               if (!isValid && !allowCodexDynamicModel) {
                 const providerDefault = getDefaultModelForCli(resolvedCliType);
                 logger.warn('Model not valid for target provider, falling back to provider default', {
                   model: resolvedModel,
                   provider: resolvedCliType,
-                  validModels: providerModels.map(m => m.id),
+                  validModels: providerModels,
                   fallbackModel: providerDefault ?? 'none',
                 });
                 resolvedModel = providerDefault;
@@ -1256,6 +1286,8 @@ export class InstanceLifecycleManager extends EventEmitter {
             this.deps.deleteAdapter(instance.id);
             return;
           }
+
+          await this.waitForInputReadinessBoundary(instance.id, adapter);
 
           // The warm adapter is already spawned; mark the instance as idle.
           this.transitionState(instance, 'idle');
@@ -1326,6 +1358,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
 
             instance.processId = pid;
+            await this.waitForInputReadinessBoundary(instance.id, adapter);
             // Create activity detector for this instance
             const detector = new ActivityStateDetector(
               instance.id,
@@ -1818,6 +1851,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         let pid = await adapter.spawn();
         instance.processId = pid;
+        await this.waitForInputReadinessBoundary(instanceId, adapter);
 
         // Create activity detector for woken instance
         const wakeDetector = new ActivityStateDetector(
@@ -1871,6 +1905,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
             pid = await adapter.spawn();
             instance.processId = pid;
+            await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
               await adapter.sendInput(
@@ -2267,6 +2302,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       try {
         const pid = await adapter.spawn();
         instance.processId = pid;
+        await this.waitForInputReadinessBoundary(instanceId, adapter);
         instance.recoveryMethod = 'fresh';
         this.transitionState(instance, 'idle');
         this.deps.startStuckTracking?.(instanceId);
@@ -2415,6 +2451,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
             throw new Error('Native resume did not stabilize after agent mode change');
           }
+          await this.waitForInputReadinessBoundary(instanceId, adapter);
         } catch (spawnError) {
           if (shouldResume) {
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
@@ -2427,6 +2464,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
+            await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
               await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
@@ -2608,6 +2646,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
             throw new Error('Native resume did not stabilize after YOLO toggle');
           }
+          await this.waitForInputReadinessBoundary(instanceId, adapter);
         } catch (spawnError) {
           if (shouldResume) {
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
@@ -2621,6 +2660,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
+            await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
               await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
@@ -2816,6 +2856,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
             throw new Error('Native resume did not stabilize after model change');
           }
+          await this.waitForInputReadinessBoundary(instanceId, adapter);
         } catch (spawnError) {
           if (shouldResume) {
             logger.warn('Failed to spawn with resume, falling back to fresh session', { error: spawnError instanceof Error ? spawnError.message : String(spawnError), instanceId });
@@ -2828,6 +2869,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
+            await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
               await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));

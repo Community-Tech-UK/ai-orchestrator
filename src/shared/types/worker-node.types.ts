@@ -52,3 +52,10 @@ export interface NodeIdentity {
   token: string;
   createdAt: number;
 }
+
+export interface RemotePairingCredentialInfo {
+  token: string;
+  createdAt: number;
+  expiresAt: number;
+  label?: string;
+}

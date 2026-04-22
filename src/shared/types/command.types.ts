@@ -29,9 +29,19 @@ export interface CommandTemplate {
    * Callers can use this to render override indicators in the UI.
    */
   priority?: number;
+  /**
+   * How the resolved command should be executed.
+   * Defaults to `prompt`, which expands the template and sends it to the model.
+   */
+  execution?: CommandExecution;
   createdAt: number;
   updatedAt: number;
 }
+
+export type CommandExecution =
+  | { type: 'prompt' }
+  | { type: 'compact' }
+  | { type: 'ui'; actionId: string };
 
 /**
  * Parsed command with resolved arguments
@@ -40,6 +50,7 @@ export interface ParsedCommand {
   command: CommandTemplate;
   args: string[];
   resolvedPrompt: string;
+  execution: CommandExecution;
 }
 
 /**
@@ -132,6 +143,7 @@ $ARGUMENTS`,
     description: 'Compact context to free up space',
     template: '',
     hint: 'Compact the current conversation context',
+    execution: { type: 'compact' },
     builtIn: true,
   },
   {
@@ -139,9 +151,41 @@ $ARGUMENTS`,
     description: 'Open the RLM context manager',
     template: '',
     hint: 'Open the RLM page',
+    execution: { type: 'ui', actionId: 'app.open-rlm' },
     builtIn: true,
   },
 ];
+
+const DEFAULT_COMMAND_EXECUTION: CommandExecution = { type: 'prompt' };
+
+export function getCommandExecution(command: Pick<CommandTemplate, 'execution'>): CommandExecution {
+  return command.execution ?? DEFAULT_COMMAND_EXECUTION;
+}
+
+export function createMarkdownCommandId(name: string): string {
+  return `file:${encodeURIComponent(name)}`;
+}
+
+export function isMarkdownCommandId(commandId: string): boolean {
+  return commandId.startsWith('file:');
+}
+
+export function getMarkdownCommandNameFromId(commandId: string): string | null {
+  if (!isMarkdownCommandId(commandId)) {
+    return null;
+  }
+
+  const encodedName = commandId.slice('file:'.length);
+  if (!encodedName) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(encodedName);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve command template placeholders

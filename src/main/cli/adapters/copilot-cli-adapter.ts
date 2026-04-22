@@ -85,32 +85,149 @@ export interface CopilotModelInfo {
   enabled: boolean;
 }
 
-/**
- * Default Copilot models (used as fallback when CLI runtime model listing
- * isn't reachable). These are the latest and best models exposed through the
- * GitHub Copilot CLI as of authoring; the list is also used by the settings
- * UI to populate the model dropdown before a live connection is established.
- */
-export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
-  // Flagship tier
-  { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', supportsVision: true, contextWindow: 1_000_000, enabled: true },
-  { id: 'o3', name: 'OpenAI o3', supportsVision: true, contextWindow: 200_000, enabled: true },
-  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Preview)', supportsVision: true, contextWindow: 2_000_000, enabled: true },
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', supportsVision: true, contextWindow: 2_000_000, enabled: true },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', supportsVision: true, contextWindow: 2_000_000, enabled: true },
-  // High-performance tier
-  { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', supportsVision: true, contextWindow: 1_000_000, enabled: true },
-  { id: 'gpt-5.4', name: 'GPT-5.4', supportsVision: true, contextWindow: 200_000, enabled: true },
-  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', supportsVision: true, contextWindow: 1_000_000, enabled: true },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', supportsVision: true, contextWindow: 1_000_000, enabled: true },
-  // Fast tier
-  { id: 'claude-haiku-4-6', name: 'Claude Haiku 4.6', supportsVision: true, contextWindow: 1_000_000, enabled: true },
-  { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', supportsVision: true, contextWindow: 200_000, enabled: true },
-  { id: 'gemini-2.0-flash-lite', name: 'Gemini Flash Lite', supportsVision: true, contextWindow: 1_000_000, enabled: true },
-];
+export const COPILOT_AUTO_MODEL_ID = 'auto';
+
+const COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
+
+let cachedCopilotModels: CopilotModelInfo[] | null = null;
+let cachedCopilotModelsAt = 0;
+let copilotModelDiscoveryPromise: Promise<CopilotModelInfo[]> | null = null;
 
 /** Default context window when we don't know the model. Matches the old SDK adapter. */
 const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+function toTitleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatCopilotModelDisplayName(modelId: string): string {
+  const normalized = modelId.trim().toLowerCase();
+  if (!normalized) {
+    return modelId;
+  }
+
+  if (normalized === COPILOT_AUTO_MODEL_ID) {
+    return 'Auto';
+  }
+
+  if (normalized === 'o3') {
+    return 'OpenAI o3';
+  }
+
+  const parts = normalized.split('-');
+  if (parts.length === 0) {
+    return modelId;
+  }
+
+  if (parts[0] === 'gpt' && parts[1]) {
+    const [_, version, ...rest] = parts;
+    return [`GPT-${version}`, ...rest.map(toTitleCase)].join(' ');
+  }
+
+  return parts
+    .map((part, index) => {
+      if (index > 0 && /^\d/.test(part)) {
+        return part;
+      }
+      return toTitleCase(part);
+    })
+    .join(' ');
+}
+
+function estimateCopilotModelContextWindow(modelId: string): number {
+  const normalized = modelId.trim().toLowerCase();
+  if (
+    normalized.includes('claude-sonnet-4.6')
+    || normalized.includes('claude-opus-4.6')
+    || normalized.includes('claude-opus-4.7')
+  ) {
+    return 1_000_000;
+  }
+
+  return DEFAULT_CONTEXT_WINDOW;
+}
+
+function toCopilotModelInfo(modelId: string): CopilotModelInfo {
+  return {
+    id: modelId,
+    name: formatCopilotModelDisplayName(modelId),
+    supportsVision: normalizedCopilotVisionModel(modelId),
+    contextWindow: estimateCopilotModelContextWindow(modelId),
+    enabled: true,
+  };
+}
+
+function normalizedCopilotVisionModel(modelId: string): boolean {
+  const normalized = modelId.trim().toLowerCase();
+  return normalized === COPILOT_AUTO_MODEL_ID
+    || normalized.startsWith('claude-')
+    || normalized.startsWith('gpt-')
+    || normalized.startsWith('gemini-')
+    || normalized === 'o3'
+    || normalized.startsWith('grok-')
+    || normalized.startsWith('goldeneye')
+    || normalized.startsWith('raptor');
+}
+
+function ensureCopilotAutoModel(models: CopilotModelInfo[]): CopilotModelInfo[] {
+  if (models.some(model => model.id === COPILOT_AUTO_MODEL_ID)) {
+    return models;
+  }
+
+  return [toCopilotModelInfo(COPILOT_AUTO_MODEL_ID), ...models];
+}
+
+function parseCopilotModelIdsFromHelpConfig(output: string): string[] {
+  const lines = output.split(/\r?\n/);
+  const modelIds: string[] = [];
+  let inModelSection = false;
+
+  for (const line of lines) {
+    if (!inModelSection) {
+      if (/^\s*`model`:\s+AI model to use for Copilot CLI/i.test(line)) {
+        inModelSection = true;
+      }
+      continue;
+    }
+
+    if (/^\s*`[^`]+`:/i.test(line)) {
+      break;
+    }
+
+    const match = line.match(/^\s*-\s+"([^"]+)"\s*$/);
+    if (match?.[1]) {
+      modelIds.push(match[1]);
+    }
+  }
+
+  return [...new Set(modelIds)];
+}
+
+/**
+ * Default Copilot models (used as fallback when CLI runtime model listing
+ * isn't reachable). This list mirrors the current stable `copilot help config`
+ * output, with an explicit `auto` entry added because Copilot CLI accepts
+ * `--model auto` even though `help config` does not list it.
+ */
+export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
+  'auto',
+  'claude-sonnet-4.6',
+  'claude-sonnet-4.5',
+  'claude-haiku-4.5',
+  'claude-opus-4.7',
+  'claude-opus-4.6',
+  'claude-opus-4.6-fast',
+  'claude-opus-4.5',
+  'claude-sonnet-4',
+  'gpt-5.4',
+  'gpt-5.3-codex',
+  'gpt-5.2-codex',
+  'gpt-5.2',
+  'gpt-5.1',
+  'gpt-5.4-mini',
+  'gpt-5-mini',
+  'gpt-4.1',
+].map(toCopilotModelInfo);
 
 /**
  * Copilot CLI Adapter - Spawns the `copilot` binary per message.
@@ -437,12 +554,19 @@ export class CopilotCliAdapter extends BaseCliAdapter {
                 const outputTokens = this.estimateTokens(streamingContent || this.outputBuffer);
                 this.cumulativeTokensUsed += outputTokens;
                 const contextWindow = this.getCapabilities().contextWindow;
-                const used = Math.min(outputTokens, contextWindow);
+                // Report occupancy as the running cumulative estimate
+                // (input + output across turns) rather than this-turn output
+                // only, which dramatically under-reported and kept the
+                // context bar near zero indefinitely. Flagged `isEstimated`
+                // because copilot's usage object doesn't expose real input
+                // token counts.
+                const used = Math.min(this.cumulativeTokensUsed, contextWindow);
                 const contextUsage: ContextUsage = {
                   used,
                   total: contextWindow,
                   percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
                   cumulativeTokens: this.cumulativeTokensUsed,
+                  isEstimated: true,
                 };
                 this.emit('context', contextUsage);
 
@@ -614,9 +738,14 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   protected buildArgs(message: CliMessage): string[] {
     const args: string[] = [];
 
-    // Model selection (optional — CLI falls back to the user's configured default).
-    if (this.cliConfig.model) {
-      args.push('--model', this.cliConfig.model);
+    // Model selection. Pass `auto` explicitly so the CLI uses its own
+    // auto-routing instead of falling through to any saved config override.
+    const configuredModel = this.cliConfig.model?.trim();
+    if (configuredModel) {
+      const normalizedModel = configuredModel.toLowerCase() === COPILOT_AUTO_MODEL_ID
+        ? COPILOT_AUTO_MODEL_ID
+        : configuredModel;
+      args.push('--model', normalizedModel);
     }
 
     // Non-interactive mode requires --allow-all-tools. Tighten via
@@ -721,6 +850,12 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       throw new Error('Copilot adapter does not currently support attachments in orchestrator mode.');
     }
 
+    // Fold the outgoing user message into the cumulative-token estimate so
+    // the context bar reflects input as well as output. Copilot's `result.usage`
+    // doesn't split input/output tokens, so this is the only place we can
+    // credit input bytes against context occupancy.
+    this.cumulativeTokensUsed += this.estimateTokens(message);
+
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
@@ -772,12 +907,73 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
   /**
    * Lists available Copilot models. The CLI does not expose a stable
-   * machine-readable model listing in non-interactive mode today, so we
-   * return a curated default list. Downstream consumers treat this as a
-   * hint, not authoritative.
+   * machine-readable model listing, so we parse the installed binary's
+   * `help config` output and cache the result. This keeps the renderer and
+   * model validation aligned with the actual local Copilot CLI version.
    */
   async listAvailableModels(): Promise<CopilotModelInfo[]> {
-    return COPILOT_DEFAULT_MODELS;
+    const now = Date.now();
+    if (cachedCopilotModels && (now - cachedCopilotModelsAt) < COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS) {
+      return cachedCopilotModels;
+    }
+
+    if (copilotModelDiscoveryPromise) {
+      return copilotModelDiscoveryPromise;
+    }
+
+    copilotModelDiscoveryPromise = new Promise<CopilotModelInfo[]>((resolve, reject) => {
+      const proc = this.spawnProcess(['--no-auto-update', '--log-level', 'none', 'help', 'config']);
+      let output = '';
+      let errorOutput = '';
+
+      proc.stdout?.on('data', (data) => {
+        output += data.toString();
+      });
+      proc.stderr?.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
+      const timer = setTimeout(() => {
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          /* ignored */
+        }
+        reject(new Error('Timeout fetching Copilot model list'));
+      }, 5000);
+
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        const discoveredIds = parseCopilotModelIdsFromHelpConfig(output);
+        if (code === 0 && discoveredIds.length > 0) {
+          const models = ensureCopilotAutoModel(discoveredIds.map(toCopilotModelInfo));
+          cachedCopilotModels = models;
+          cachedCopilotModelsAt = Date.now();
+          resolve(models);
+          return;
+        }
+
+        reject(
+          new Error(
+            `Failed to parse Copilot model list (exit ${code}): ${errorOutput.trim() || 'no output'}`
+          )
+        );
+      });
+
+      proc.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    }).catch((error) => {
+      logger.warn('Falling back to default Copilot model list', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return COPILOT_DEFAULT_MODELS;
+    }).finally(() => {
+      copilotModelDiscoveryPromise = null;
+    });
+
+    return copilotModelDiscoveryPromise;
   }
 }
 

@@ -11,8 +11,10 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     /**
      * List all commands (built-in + custom)
      */
-    listCommands: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.COMMAND_LIST);
+    listCommands: (payload?: {
+      workingDirectory?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.COMMAND_LIST, payload);
     },
 
     /**

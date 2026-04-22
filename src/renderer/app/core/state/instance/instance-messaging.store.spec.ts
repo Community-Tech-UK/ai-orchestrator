@@ -33,8 +33,8 @@ function createInstance(overrides: Partial<Instance> = {}): Instance {
 }
 
 describe('InstanceMessagingStore', () => {
-  let store: InstanceMessagingStore;
-  let stateService: InstanceStateService;
+  let store: InstanceMessagingStore | undefined;
+  let stateService: InstanceStateService | undefined;
 
   const ipcMock = {
     sendInput: vi.fn(),
@@ -51,6 +51,7 @@ describe('InstanceMessagingStore', () => {
     listStoreMock.validateFiles.mockReset();
     listStoreMock.validateFiles.mockReturnValue([]);
     listStoreMock.fileToAttachments.mockReset();
+    TestBed.resetTestingModule();
 
     TestBed.configureTestingModule({
       providers: [
@@ -66,26 +67,33 @@ describe('InstanceMessagingStore', () => {
   });
 
   afterEach(() => {
-    clearInterval((store as { queueWatchdog: ReturnType<typeof setInterval> | null }).queueWatchdog ?? undefined);
+    clearInterval(
+      (store as { queueWatchdog: ReturnType<typeof setInterval> | null } | undefined)
+        ?.queueWatchdog ?? undefined
+    );
     TestBed.resetTestingModule();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
+    store = undefined;
+    stateService = undefined;
   });
 
   it('stops retrying when the backend reports a permanent error state', async () => {
-    stateService.addInstance(createInstance());
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance());
     ipcMock.sendInput.mockResolvedValue({
       success: false,
       error: { message: 'Instance inst-1 is in error state and cannot accept input' },
     });
 
-    await store.sendInput('inst-1', 'ok');
+    await currentStore.sendInput('inst-1', 'ok');
     await vi.advanceTimersByTimeAsync(5000);
 
-    const instance = stateService.getInstance('inst-1');
+    const instance = currentStateService.getInstance('inst-1');
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
     expect(instance?.status).toBe('error');
-    expect(store.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
     expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
       type: 'error',
       content: expect.stringContaining('Failed to send message'),
@@ -93,7 +101,9 @@ describe('InstanceMessagingStore', () => {
   });
 
   it('keeps respawning failures queued until the instance is ready again', async () => {
-    stateService.addInstance(createInstance());
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance());
     ipcMock.sendInput
       .mockResolvedValueOnce({
         success: false,
@@ -101,18 +111,18 @@ describe('InstanceMessagingStore', () => {
       })
       .mockResolvedValueOnce({ success: true });
 
-    await store.sendInput('inst-1', 'retry me');
+    await currentStore.sendInput('inst-1', 'retry me');
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(1);
-    expect(stateService.getInstance('inst-1')?.status).toBe('respawning');
-    expect(store.getMessageQueue('inst-1')).toEqual([{ message: 'retry me', files: undefined, retryCount: 1 }]);
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('respawning');
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([{ message: 'retry me', files: undefined, retryCount: 1 }]);
 
-    stateService.updateInstance('inst-1', { status: 'idle' });
-    store.processMessageQueue('inst-1');
+    currentStateService.updateInstance('inst-1', { status: 'idle' });
+    currentStore.processMessageQueue('inst-1');
     await vi.advanceTimersByTimeAsync(150);
 
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
-    expect(store.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 });

@@ -28,7 +28,11 @@ vi.mock('../../../logging/logger', () => ({
   }),
 }));
 
-import { ensureHookScript, getDeferPermissionHookPath } from '../hook-path-resolver';
+import {
+  buildDeferPermissionHookCommand,
+  ensureHookScript,
+  getDeferPermissionHookPath,
+} from '../hook-path-resolver';
 
 describe('hook-path-resolver', () => {
   let tempRoot = '';
@@ -76,5 +80,17 @@ describe('hook-path-resolver', () => {
 
   it('throws when the hook file is missing', () => {
     expect(() => ensureHookScript()).toThrow(/Defer permission hook script not found/);
+  });
+
+  it('formats the defer hook as a node command on Unix', () => {
+    expect(
+      buildDeferPermissionHookCommand('/tmp/my hooks/defer-permission-hook.mjs', 'darwin'),
+    ).toBe(`node '/tmp/my hooks/defer-permission-hook.mjs'`);
+  });
+
+  it('formats the defer hook as a node command on Windows', () => {
+    expect(
+      buildDeferPermissionHookCommand('C:\\Program Files\\AI Orchestrator\\defer-permission-hook.mjs', 'win32'),
+    ).toBe('node "C:\\Program Files\\AI Orchestrator\\defer-permission-hook.mjs"');
   });
 });

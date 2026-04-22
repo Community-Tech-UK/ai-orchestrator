@@ -8,9 +8,13 @@ import {
   CommandTemplate,
   ParsedCommand,
   BUILT_IN_COMMANDS,
+  getCommandExecution,
+  getMarkdownCommandNameFromId,
+  isMarkdownCommandId,
   resolveTemplate,
   parseCommandString,
 } from '../../shared/types/command.types';
+import { getMarkdownCommandRegistry } from './markdown-command-registry';
 
 interface CommandStoreSchema {
   customCommands: CommandTemplate[];
@@ -58,7 +62,7 @@ class CommandManager {
   /**
    * Get all commands (built-in + custom)
    */
-  getAllCommands(): CommandTemplate[] {
+  private getLocalCommands(): CommandTemplate[] {
     const builtIn = Array.from(this.builtInCommands.values());
     const custom = store.get('customCommands').map((c) => ({ ...c, source: 'store' as const }));
     return [...builtIn, ...custom];
@@ -67,7 +71,7 @@ class CommandManager {
   /**
    * Get command by ID
    */
-  getCommand(commandId: string): CommandTemplate | undefined {
+  private getLocalCommand(commandId: string): CommandTemplate | undefined {
     // Check built-in first
     if (this.builtInCommands.has(commandId)) {
       return this.builtInCommands.get(commandId);
@@ -80,7 +84,7 @@ class CommandManager {
   /**
    * Get command by name
    */
-  getCommandByName(name: string): CommandTemplate | undefined {
+  private getLocalCommandByName(name: string): CommandTemplate | undefined {
     // Check built-in first
     for (const cmd of this.builtInCommands.values()) {
       if (cmd.name === name) return cmd;
@@ -91,33 +95,94 @@ class CommandManager {
   }
 
   /**
+   * Get all commands visible for a working directory.
+   * Local built-in/stored commands keep precedence over markdown commands with the same name.
+   */
+  async getAllCommands(workingDirectory?: string): Promise<CommandTemplate[]> {
+    const localCommands = this.getLocalCommands();
+    if (!workingDirectory) {
+      return localCommands;
+    }
+
+    const markdownCommands = (await getMarkdownCommandRegistry().listCommands(workingDirectory)).commands;
+    const localNames = new Set(localCommands.map((command) => command.name));
+    return [
+      ...localCommands,
+      ...markdownCommands.filter((command) => !localNames.has(command.name)),
+    ];
+  }
+
+  /**
+   * Get command by ID, including markdown commands scoped to a working directory.
+   */
+  async getCommand(commandId: string, workingDirectory?: string): Promise<CommandTemplate | undefined> {
+    const localCommand = this.getLocalCommand(commandId);
+    if (localCommand) {
+      return localCommand;
+    }
+
+    if (!workingDirectory || !isMarkdownCommandId(commandId)) {
+      return undefined;
+    }
+
+    const name = getMarkdownCommandNameFromId(commandId);
+    if (!name) {
+      return undefined;
+    }
+
+    return getMarkdownCommandRegistry().getCommand(workingDirectory, name);
+  }
+
+  /**
+   * Get command by name, including markdown commands scoped to a working directory.
+   */
+  async getCommandByName(name: string, workingDirectory?: string): Promise<CommandTemplate | undefined> {
+    const localCommand = this.getLocalCommandByName(name);
+    if (localCommand) {
+      return localCommand;
+    }
+
+    if (!workingDirectory) {
+      return undefined;
+    }
+
+    return getMarkdownCommandRegistry().getCommand(workingDirectory, name);
+  }
+
+  /**
    * Execute a command with arguments
    */
-  executeCommand(commandId: string, args: string[]): ParsedCommand | null {
-    const command = this.getCommand(commandId);
+  async executeCommand(
+    commandId: string,
+    args: string[],
+    workingDirectory?: string,
+  ): Promise<ParsedCommand | null> {
+    const command = await this.getCommand(commandId, workingDirectory);
     if (!command) return null;
 
     return {
       command,
       args,
       resolvedPrompt: resolveTemplate(command.template, args),
+      execution: getCommandExecution(command),
     };
   }
 
   /**
    * Execute a command from a command string (e.g., "/review focus on errors")
    */
-  executeCommandString(input: string): ParsedCommand | null {
+  async executeCommandString(input: string, workingDirectory?: string): Promise<ParsedCommand | null> {
     const parsed = parseCommandString(input);
     if (!parsed) return null;
 
-    const command = this.getCommandByName(parsed.name);
+    const command = await this.getCommandByName(parsed.name, workingDirectory);
     if (!command) return null;
 
     return {
       command,
       args: parsed.args,
       resolvedPrompt: resolveTemplate(command.template, parsed.args),
+      execution: getCommandExecution(command),
     };
   }
 
@@ -132,7 +197,7 @@ class CommandManager {
     shortcut?: string;
   }): CommandTemplate {
     // Check for duplicate name
-    if (this.getCommandByName(config.name)) {
+    if (this.getLocalCommandByName(config.name)) {
       throw new Error(`Command with name "${config.name}" already exists`);
     }
 
@@ -181,7 +246,7 @@ class CommandManager {
 
     // Check for duplicate name if name is being changed
     if (updates.name && updates.name !== custom[index].name) {
-      if (this.getCommandByName(updates.name)) {
+      if (this.getLocalCommandByName(updates.name)) {
         throw new Error(`Command with name "${updates.name}" already exists`);
       }
     }

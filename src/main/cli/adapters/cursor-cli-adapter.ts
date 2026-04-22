@@ -115,6 +115,14 @@ export class CursorCliAdapter extends BaseCliAdapter {
   private activeTimeout: NodeJS.Timeout | null = null;
 
   /**
+   * Lifetime directional spend estimate across turns.
+   *
+   * Cursor does not expose actual context-window occupancy, so we keep rough
+   * spend telemetry separately from `ContextUsage.used`.
+   */
+  private cumulativeTokensUsed = 0;
+
+  /**
    * Errors whose `result` string triggers a one-shot retry without --resume
    * (Task 21). Matches cursor-agent's "invalid session id", "session not found",
    * and "session expired" phrasings case-insensitively.
@@ -284,6 +292,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       hasResumeId: !!this.cursorSessionId,
     });
     this.process = this.spawnProcess(args);
+    const turnProcess = this.process;
 
     // Handle spawn errors (e.g., ENOENT when binary doesn't exist)
     this.process.on('error', (err: NodeJS.ErrnoException) => {
@@ -404,11 +413,19 @@ export class CursorCliAdapter extends BaseCliAdapter {
       // --stream because each event is newline-terminated, but be safe).
       if (lineBuffer.trim()) {
         try {
-          JSON.parse(lineBuffer.trim());
+          const trailingEvent = JSON.parse(lineBuffer.trim()) as CursorEvent;
+          this.handleCursorEvent(trailingEvent, ctx);
         } catch {
           /* drop incomplete trailing line */
         }
         lineBuffer = '';
+      }
+
+      // A trailing result event can trigger an in-close retry path that swaps
+      // in a fresh child process. Once that happens, the new turn owns all
+      // adapter state and this old close handler must not clean it up.
+      if (this.process !== turnProcess) {
+        return;
       }
 
       const duration = Date.now() - this.activeStartTime;
@@ -514,10 +531,80 @@ export class CursorCliAdapter extends BaseCliAdapter {
     this.dispatchTurn(resultState.message, resultState);
   }
 
-  async *sendMessageStream(_message: CliMessage): AsyncIterable<string> {
-    void _message;
-    throw new Error('CursorCliAdapter: stub — not yet implemented');
-    yield ''; // unreachable; required by the `require-yield` lint rule on generator functions
+  async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
+    if (!this.isSpawned) {
+      throw new Error('Cursor adapter not spawned; call spawn() before sendMessageStream.');
+    }
+
+    const queue: string[] = [];
+    let wakeReader: (() => void) | null = null;
+    let completed = false;
+    let streamError: Error | null = null;
+    let sawAssistantChunk = false;
+
+    const wake = () => {
+      if (wakeReader) {
+        const resolve = wakeReader;
+        wakeReader = null;
+        resolve();
+      }
+    };
+
+    const onOutput = (output: OutputMessage) => {
+      if (output.type !== 'assistant' || typeof output.content !== 'string' || output.content.length === 0) {
+        return;
+      }
+      sawAssistantChunk = true;
+      queue.push(output.content);
+      wake();
+    };
+
+    const onError = (error: Error | string) => {
+      streamError = error instanceof Error ? error : new Error(String(error));
+      completed = true;
+      wake();
+    };
+
+    this.on('output', onOutput);
+    this.on('error', onError);
+
+    const sendPromise = this.sendMessage(message)
+      .then((response) => {
+        if (!sawAssistantChunk && response.content) {
+          queue.push(response.content);
+        }
+      })
+      .catch((error) => {
+        streamError = error instanceof Error ? error : new Error(String(error));
+      })
+      .finally(() => {
+        completed = true;
+        wake();
+      });
+
+    try {
+      while (!completed || queue.length > 0) {
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => {
+            wakeReader = resolve;
+          });
+          continue;
+        }
+
+        const nextChunk = queue.shift();
+        if (nextChunk) {
+          yield nextChunk;
+        }
+      }
+
+      await sendPromise;
+      if (streamError) {
+        throw streamError;
+      }
+    } finally {
+      this.off('output', onOutput);
+      this.off('error', onError);
+    }
   }
 
   parseOutput(raw: string): CliResponse {
@@ -595,13 +682,20 @@ export class CursorCliAdapter extends BaseCliAdapter {
     const text = event.message?.content?.[0]?.text ?? '';
     if (!text) return;
 
+    // Cursor currently emits buffered copies before tool calls when
+    // `--stream-partial-output` is enabled. Those carry both timestamp_ms and
+    // model_call_id and should not be appended as real-time deltas.
+    if (event.timestamp_ms && event.model_call_id) {
+      return;
+    }
+
     let messageId = ctx.streamingMessageId();
     if (!messageId) {
       messageId = generateId();
       ctx.setStreamingMessageId(messageId);
     }
 
-    const isDelta = !!event.timestamp_ms || !!event.model_call_id;
+    const isDelta = !!event.timestamp_ms;
     if (isDelta) {
       ctx.markDeltaSeen();
       ctx.appendStreamingContent(text);
@@ -687,7 +781,15 @@ export class CursorCliAdapter extends BaseCliAdapter {
         timestamp: Date.now(),
         type: 'tool_use',
         content: `Using tool: ${name}`,
-        metadata: { toolName: name, callId, input },
+        metadata: {
+          // Keep parity with downstream parser/hook expectations (`name`, `input`,
+          // `tool_use_id`) while retaining cursor-specific aliases.
+          name,
+          input,
+          tool_use_id: callId,
+          toolName: name,
+          callId,
+        },
       } as OutputMessage);
       return;
     }
@@ -710,7 +812,16 @@ export class CursorCliAdapter extends BaseCliAdapter {
       content: failed
         ? `Tool ${name} failed${innerError !== undefined ? `: ${String(innerError)}` : ''}`
         : `Tool ${name} completed`,
-      metadata: { toolName: name, callId, success: !failed, output: innerValue, error: innerError },
+      metadata: {
+        name,
+        tool_use_id: callId,
+        is_error: failed,
+        toolName: name,
+        callId,
+        success: !failed,
+        output: innerValue,
+        error: innerError,
+      },
     } as OutputMessage);
 
     if (failed) {
@@ -731,19 +842,26 @@ export class CursorCliAdapter extends BaseCliAdapter {
     // 1. Capture session_id for subsequent --resume (even on error — harmless).
     if (event.session_id) this.cursorSessionId = event.session_id;
 
-    // 2. Emit directional context usage.
+    // 2. Emit context telemetry.
     const durationMs = event.duration_ms ?? (Date.now() - startTime);
-    // NOTE: this is a raw NDJSON-stream byte estimate (bytes/4), not true model
-    // output tokens. Cursor does not emit per-turn token counts, so we provide
-    // this as a directional signal only. Consumers computing cost should treat
-    // it as an upper-bound noise floor.
+    // Cursor CLI does not emit authoritative context-window occupancy, so we
+    // approximate it from the byte stream: per-turn output we've seen + a
+    // running tally of user-message input bytes we've sent. Both are flagged
+    // with `isEstimated: true` so the UI (and CompactionCoordinator) can
+    // treat this as advisory rather than authoritative. The estimate is
+    // deliberately conservative — it misses tool-call results that cursor
+    // reads on its own — so expect the bar to under-report rather than
+    // trigger false-positive compaction.
     const outputTokens = this.estimateTokens(this.outputBuffer);
+    this.cumulativeTokensUsed += outputTokens;
     const contextWindow = this.getCapabilities().contextWindow;
-    const used = Math.min(outputTokens, contextWindow);
+    const used = Math.min(this.cumulativeTokensUsed, contextWindow);
     const contextUsage: ContextUsage = {
       used,
       total: contextWindow,
-      percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
+      percentage: contextWindow > 0 ? (used / contextWindow) * 100 : 0,
+      cumulativeTokens: this.cumulativeTokensUsed,
+      isEstimated: true,
     };
     this.emit('context', contextUsage);
 
@@ -864,12 +982,42 @@ export class CursorCliAdapter extends BaseCliAdapter {
     }
   }
 
-  /**
-   * Stub sendInput — will be implemented in Phase 4.
-   */
-  async sendInput(_message: string, _attachments?: FileAttachment[]): Promise<void> {
-    void _message;
-    void _attachments;
-    throw new Error('CursorCliAdapter: stub — not yet implemented');
+  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+    if (!this.isSpawned) {
+      throw new Error('Adapter not spawned - call spawn() first');
+    }
+
+    if (attachments && attachments.length > 0) {
+      throw new Error('Cursor adapter does not currently support attachments in orchestrator mode.');
+    }
+
+    // Fold the outgoing user message into the cumulative-token estimate so the
+    // context bar reflects input as well as output. Cursor does not report
+    // real occupancy; this keeps the estimate directional rather than 0.
+    this.cumulativeTokensUsed += this.estimateTokens(message);
+
+    // The lifecycle state machine disallows idle -> busy directly.
+    // Cursor instances are usually idle between turns, so move through ready.
+    this.emit('status', 'ready');
+    this.emit('status', 'busy');
+
+    try {
+      await this.sendMessage({
+        role: 'user',
+        content: message,
+      });
+      this.emit('status', 'idle');
+    } catch (error) {
+      const outputMessage: OutputMessage = {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: error instanceof Error ? error.message : String(error),
+      };
+      this.emit('output', outputMessage);
+      this.emit('status', 'error');
+      this.emit('error', error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   }
 }

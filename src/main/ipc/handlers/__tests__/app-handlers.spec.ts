@@ -89,6 +89,9 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
+  default: {
+    existsSync: vi.fn().mockReturnValue(false),
+  },
 }));
 
 // ============================================================
@@ -109,7 +112,11 @@ async function invoke(
 ): Promise<IpcResponse<Record<string, unknown>>> {
   const handler = handlers.get(channel);
   if (!handler) throw new Error(`No handler registered for channel: ${channel}`);
-  return handler({}, payload) as Promise<IpcResponse<Record<string, unknown>>>;
+  return handler({
+    sender: {
+      send: vi.fn(),
+    },
+  }, payload) as Promise<IpcResponse<Record<string, unknown>>>;
 }
 
 function makeMockWindowManager(): WindowManager {

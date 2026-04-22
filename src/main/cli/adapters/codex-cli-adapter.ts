@@ -1085,6 +1085,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
       armIdleWatchdog();
 
+      // Signal liveness to StuckProcessDetector on every notification.
+      // Only a subset of notifications (command_execution items) produce
+      // adapter `output` events — non-command tool items (mcp calls,
+      // custom tools, reasoning blocks) would otherwise let the 120s soft
+      // warning fire even though codex is actively streaming work.
+      this.emit('heartbeat');
+
       // Thread-level notifications always apply
       if (notification.method === 'thread/started' || notification.method === 'thread/name/updated') {
         this.handleTurnNotification(state, notification);
@@ -1105,7 +1112,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.handleTurnNotification(state, notification);
     });
 
-    let turnTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       // Start the turn
       this.turnInProgress = true;
@@ -1151,10 +1157,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // Uses the short timeout because no item has started yet.
       armIdleWatchdog();
 
-      // Wait for completion with timeout protection.
-      // If the codex process crashes or the socket drops, the exitPromise
-      // will resolve and we reject to avoid hanging forever.
-      const timeoutMs = this.config.timeout;
+      // Wait for completion. Two termination conditions:
+      //   1. state.completion — turn/completed notification or idle watchdog fires
+      //   2. exitPromise — codex app-server process died mid-turn
+      //
+      // No absolute turn-duration ceiling: a legitimate turn (e.g. many tool
+      // calls) may run for tens of minutes. The idle watchdog
+      // (NOTIFICATION_IDLE_ACTIVE_MS while items are in flight,
+      // NOTIFICATION_IDLE_MS when idle between items) is the single source of
+      // truth for hang detection — it resets on every notification, so active
+      // work keeps the turn alive indefinitely.
       const completionOrCrash = Promise.race([
         state.completion,
         client.exitPromise.then(() => {
@@ -1163,13 +1175,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
           }
           return state;
         }),
-        new Promise<never>((_, reject) => {
-          turnTimeoutTimer = setTimeout(
-            () => reject(new Error(`Codex app-server turn timed out after ${timeoutMs}ms`)),
-            timeoutMs
-          );
-          turnTimeoutTimer.unref();
-        }),
       ]);
 
       return await completionOrCrash;
@@ -1177,7 +1182,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.turnInProgress = false;
       this.currentTurnId = null;
       // Clear all timers to prevent leaks
-      if (turnTimeoutTimer) clearTimeout(turnTimeoutTimer);
       if (idleTimer) clearTimeout(idleTimer);
       if (state.completionTimer) {
         clearTimeout(state.completionTimer);

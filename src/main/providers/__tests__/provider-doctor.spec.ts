@@ -30,6 +30,12 @@ describe('ProviderDoctor', () => {
     expect(probes.map(p => p.name)).toContain('authenticated');
   });
 
+  it('tracks cursor as a CLI-installed probe only', () => {
+    const doctor = ProviderDoctor.getInstance();
+    const probes = doctor.getProbesForProvider('cursor');
+    expect(probes.map((probe) => probe.name)).toEqual(['cli_installed']);
+  });
+
   it('should aggregate healthy results correctly', () => {
     const doctor = ProviderDoctor.getInstance();
     const overall = doctor.aggregateProbeResults([
@@ -96,5 +102,14 @@ describe('ProviderDoctor', () => {
     expect(recs).toHaveLength(1);
     expect(recs[0]).toContain('claude auth login');
     expect(recs[0]).toContain('claude doctor');
+  });
+
+  it('recommends the direct Copilot CLI install path', () => {
+    const doctor = ProviderDoctor.getInstance();
+    const recs = doctor.generateRecommendations('copilot', [
+      { name: 'cli_installed', status: 'fail', message: 'copilot not found in PATH', latencyMs: 0 },
+    ]);
+
+    expect(recs[0]).toContain('@github/copilot');
   });
 });

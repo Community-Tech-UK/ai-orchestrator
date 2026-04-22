@@ -19,9 +19,11 @@ import * as fs from 'fs/promises';
 import type { Stats } from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-import type { CommandTemplate } from '../../shared/types/command.types';
+import {
+  createMarkdownCommandId,
+  type CommandTemplate,
+} from '../../shared/types/command.types';
 import { parseMarkdownFrontmatter } from '../../shared/utils/markdown-frontmatter';
-import { generateId } from '../../shared/utils/id-generator';
 
 type CommandFrontmatter = {
   name?: string;
@@ -162,7 +164,7 @@ export class MarkdownCommandRegistry {
   }): CommandTemplate {
     const now = Date.now();
     return {
-      id: `file-${generateId()}`,
+      id: createMarkdownCommandId(params.name),
       name: params.name,
       description: params.description,
       template: params.template,

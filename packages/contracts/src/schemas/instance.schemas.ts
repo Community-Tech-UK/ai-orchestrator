@@ -160,6 +160,10 @@ export const UserActionRequestPayloadSchema = z.object({
 
 const CommandIdSchema = z.string().min(1).max(100);
 
+export const CommandListPayloadSchema = z.object({
+  workingDirectory: z.string().min(1).max(10000).optional(),
+});
+
 export const CommandExecutePayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   commandId: CommandIdSchema,

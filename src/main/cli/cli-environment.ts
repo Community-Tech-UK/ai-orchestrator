@@ -46,6 +46,27 @@ export function buildCliPath(
     .join(getPathDelimiter(platform));
 }
 
+export function buildCliEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    PATH: buildCliPath(env, platform),
+  };
+}
+
+export function buildCliSpawnOptions(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): Pick<import('child_process').SpawnOptions, 'env' | 'shell' | 'windowsHide'> {
+  return {
+    env: buildCliEnv(env, platform),
+    shell: shouldUseCliShell(platform),
+    windowsHide: true,
+  };
+}
+
 export function shouldUseCliShell(
   platform: NodeJS.Platform = process.platform,
 ): boolean {

@@ -494,6 +494,8 @@ export const IPC_CHANNELS = {
   // App operations
   APP_READY: 'app:ready',
   APP_GET_VERSION: 'app:get-version',
+  APP_GET_STARTUP_CAPABILITIES: 'app:get-startup-capabilities',
+  APP_STARTUP_CAPABILITIES: 'app:startup-capabilities',
   APP_OPEN_DOCS: 'app:open-docs',
 
   // Settings operations
@@ -668,6 +670,9 @@ export const IPC_CHANNELS = {
   REMOTE_NODE_NODES_CHANGED: 'remote-node:nodes-changed',
   REMOTE_NODE_REGENERATE_TOKEN: 'remote-node:regenerate-token',
   REMOTE_NODE_SET_TOKEN: 'remote-node:set-token',
+  REMOTE_NODE_ISSUE_PAIRING: 'remote-node:issue-pairing',
+  REMOTE_NODE_LIST_PAIRINGS: 'remote-node:list-pairings',
+  REMOTE_NODE_REVOKE_PAIRING: 'remote-node:revoke-pairing',
   REMOTE_NODE_REVOKE: 'remote-node:revoke',
   REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
   REMOTE_NODE_SERVICE_STATUS: 'remote-node:service:status',

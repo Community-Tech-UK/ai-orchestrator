@@ -311,6 +311,41 @@ describe('InstanceCommunicationManager', () => {
 
     expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
   });
+
+  it('normalizes idle to busy status updates through ready', () => {
+    const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'idle';
+    const transitionState = vi.fn((target: Instance, status: Instance['status']) => {
+      if (target.status === 'idle' && status === 'busy') {
+        throw new Error('Illegal transition: idle → busy');
+      }
+      target.status = status;
+    });
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      transitionState,
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'busy');
+
+    expect(transitionState).toHaveBeenNthCalledWith(1, instance, 'ready');
+    expect(transitionState).toHaveBeenNthCalledWith(2, instance, 'busy');
+    expect(instance.status).toBe('busy');
+    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'busy', instance.contextUsage);
+  });
 });
 
 describe('tool result deduplication', () => {

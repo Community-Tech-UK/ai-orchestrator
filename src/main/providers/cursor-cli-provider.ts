@@ -234,16 +234,17 @@ export class CursorCliProvider extends BaseProvider {
     const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId]
       || { input: 3.0, output: 15.0 };
 
-    const estimatedInputTokens = Math.floor(context.used * 0.7);
-    const estimatedOutputTokens = context.used - estimatedInputTokens;
+    const tokenBasis = context.cumulativeTokens ?? context.used;
+    const estimatedInputTokens = Math.floor(tokenBasis * 0.7);
+    const normalizedOutputTokens = tokenBasis - estimatedInputTokens;
 
     const inputCost = (estimatedInputTokens / 1_000_000) * pricing.input;
-    const outputCost = (estimatedOutputTokens / 1_000_000) * pricing.output;
+    const outputCost = (normalizedOutputTokens / 1_000_000) * pricing.output;
 
     this.currentUsage = {
       inputTokens: estimatedInputTokens,
-      outputTokens: estimatedOutputTokens,
-      totalTokens: context.used,
+      outputTokens: normalizedOutputTokens,
+      totalTokens: tokenBasis,
       estimatedCost: inputCost + outputCost,
     };
   }

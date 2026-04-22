@@ -28,3 +28,6 @@ export { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 
 // Copilot CLI adapter
 export { CopilotCliAdapter, CopilotCliConfig, CopilotCliAdapterEvents, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from './copilot-cli-adapter';
+
+// ACP CLI adapter
+export { AcpCliAdapter, AcpCliAdapterConfig } from './acp-cli-adapter';

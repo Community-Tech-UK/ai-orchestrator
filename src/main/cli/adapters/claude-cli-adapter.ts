@@ -20,6 +20,7 @@ import { NdjsonParser } from '../ndjson-parser';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
+import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
 import type { CliStreamMessage } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
@@ -682,7 +683,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               matcher: 'Bash',
               hooks: [{
                 type: 'command',
-                command: this.spawnOptions.permissionHookPath
+                command: buildDeferPermissionHookCommand(this.spawnOptions.permissionHookPath)
               }]
             }]
           }

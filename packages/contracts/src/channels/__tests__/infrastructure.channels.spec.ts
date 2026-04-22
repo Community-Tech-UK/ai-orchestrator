@@ -14,6 +14,8 @@ describe('INFRASTRUCTURE_CHANNELS', () => {
   it('has app channels', () => {
     expect(INFRASTRUCTURE_CHANNELS.APP_READY).toBe('app:ready');
     expect(INFRASTRUCTURE_CHANNELS.APP_GET_VERSION).toBe('app:get-version');
+    expect(INFRASTRUCTURE_CHANNELS.APP_GET_STARTUP_CAPABILITIES).toBe('app:get-startup-capabilities');
+    expect(INFRASTRUCTURE_CHANNELS.APP_STARTUP_CAPABILITIES).toBe('app:startup-capabilities');
   });
 
   it('has security channels', () => {

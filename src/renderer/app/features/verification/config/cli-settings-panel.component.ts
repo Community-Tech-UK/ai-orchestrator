@@ -21,8 +21,10 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
+import { ProviderIpcService } from '../../../core/services/ipc/provider-ipc.service';
 import { ApiKeyManagerComponent } from './api-key-manager.component';
 import { VerificationPreferencesComponent } from './verification-preferences.component';
+import { getModelsForProvider } from '../../../../../shared/types/provider.types';
 
 interface CliSettingsEntry {
   command: string;
@@ -124,10 +126,10 @@ interface CliSettingsEntry {
                       <div class="detail-row">
                         <span class="detail-label">Default Model:</span>
                         <select
-                          [value]="cli.defaultModel || ''"
+                          [value]="getSelectedModelValue(cli)"
                           (change)="updateDefaultModel(cli.command, $event)"
                         >
-                          <option value="">Auto</option>
+                          <option [value]="getAutoModelValue(cli.command)">Auto</option>
                           @for (model of cli.availableModels; track model) {
                             <option [value]="model">{{ model }}</option>
                           }
@@ -777,6 +779,7 @@ interface CliSettingsEntry {
 })
 export class CliSettingsPanelComponent implements OnInit {
   private store = inject(VerificationStore);
+  private providerIpc = inject(ProviderIpcService);
 
   // Tabs
   tabs = [
@@ -805,13 +808,13 @@ export class CliSettingsPanelComponent implements OnInit {
   verboseLogging = false;
   saveRawResponses = false;
 
-  // Available models per CLI
-  private modelOptions: Record<string, string[]> = {
-    claude: ['opus', 'sonnet', 'haiku'],
-    gemini: ['gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
-    codex: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.2', 'o3'],
+  private readonly fallbackModelOptions: Record<string, string[]> = {
+    claude: this.normalizeModelOptions('claude', getModelsForProvider('claude').map((model) => model.id)),
+    gemini: this.normalizeModelOptions('gemini', getModelsForProvider('gemini').map((model) => model.id)),
+    codex: this.normalizeModelOptions('codex', getModelsForProvider('codex').map((model) => model.id)),
+    cursor: this.normalizeModelOptions('cursor', getModelsForProvider('cursor').map((model) => model.id)),
     ollama: ['llama3.3:70b', 'llama3.2:8b', 'codellama:34b', 'qwen2.5-coder:32b'],
-    copilot: ['claude-opus-4-6', 'o3', 'gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-2.5-pro', 'claude-sonnet-4-6', 'gpt-5.4', 'gemini-3-flash-preview', 'gemini-2.0-flash', 'claude-haiku-4-6', 'gpt-5.4-mini'], // Copilot uses full model IDs
+    copilot: this.normalizeModelOptions('copilot', getModelsForProvider('copilot').map((model) => model.id)),
   };
 
   ngOnInit(): void {
@@ -830,10 +833,11 @@ export class CliSettingsPanelComponent implements OnInit {
       defaultModel: undefined,
       defaultTimeout: cli.command === 'ollama' ? 600 : 300,
       autoApprove: true,
-      availableModels: this.modelOptions[cli.command] || [],
+      availableModels: this.getFallbackModels(cli.command),
       error: cli.error,
     }));
     this.cliSettings.set(settings);
+    void this.refreshAvailableModels(settings);
   }
 
   async rescanClis(): Promise<void> {
@@ -874,7 +878,9 @@ export class CliSettingsPanelComponent implements OnInit {
 
   updateDefaultModel(command: string, event: Event): void {
     const select = event.target as HTMLSelectElement;
-    this.updateCliSetting(command, { defaultModel: select.value || undefined });
+    this.updateCliSetting(command, {
+      defaultModel: this.normalizeSelectedModel(command, select.value),
+    });
   }
 
   updateTimeout(command: string, event: Event): void {
@@ -903,6 +909,14 @@ export class CliSettingsPanelComponent implements OnInit {
       ollama: 'N/A (local)',
     };
     return flags[command] || '--auto';
+  }
+
+  getAutoModelValue(command: string): string {
+    return command === 'copilot' || command === 'cursor' ? 'auto' : '';
+  }
+
+  getSelectedModelValue(cli: CliSettingsEntry): string {
+    return cli.defaultModel ?? this.getAutoModelValue(cli.command);
   }
 
   browsePath(command: string): void {
@@ -1019,5 +1033,61 @@ export class CliSettingsPanelComponent implements OnInit {
   close(): void {
     // Emit close event or navigate back
     history.back();
+  }
+
+  private getFallbackModels(command: string): string[] {
+    return [...(this.fallbackModelOptions[command] || [])];
+  }
+
+  private normalizeSelectedModel(command: string, value: string): string | undefined {
+    const autoValue = this.getAutoModelValue(command);
+    if (!value) {
+      return autoValue || undefined;
+    }
+    if (value === autoValue) {
+      return autoValue || undefined;
+    }
+    return value;
+  }
+
+  private normalizeModelOptions(command: string, modelIds: string[]): string[] {
+    const autoValue = this.getAutoModelValue(command);
+    return [...new Set(
+      modelIds
+        .map((modelId) => modelId.trim())
+        .filter(Boolean)
+        .filter((modelId) => modelId !== autoValue)
+    )];
+  }
+
+  private supportsDynamicModelLookup(command: string): command is 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' {
+    return command === 'claude'
+      || command === 'codex'
+      || command === 'gemini'
+      || command === 'copilot'
+      || command === 'cursor';
+  }
+
+  private async refreshAvailableModels(settings: CliSettingsEntry[]): Promise<void> {
+    const commands = [...new Set(
+      settings
+        .filter((cli) => cli.installed && this.supportsDynamicModelLookup(cli.command))
+        .map((cli) => cli.command)
+    )];
+
+    await Promise.all(commands.map(async (command) => {
+      try {
+        const response = await this.providerIpc.listModelsForProvider(command);
+        const discoveredModels = response.success
+          ? this.normalizeModelOptions(command, (response.data ?? []).map((model) => model.id))
+          : [];
+        if (discoveredModels.length === 0) {
+          return;
+        }
+        this.updateCliSetting(command, { availableModels: discoveredModels });
+      } catch {
+        // Keep fallback models when dynamic discovery fails.
+      }
+    }));
   }
 }

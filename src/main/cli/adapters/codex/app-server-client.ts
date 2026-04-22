@@ -21,7 +21,7 @@ import readline from 'readline';
 import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
-import { buildCliPath, shouldUseCliShell } from '../../cli-environment';
+import { buildCliSpawnOptions } from '../../cli-environment';
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -311,20 +311,17 @@ class SpawnedAppServerClient extends AppServerClientBase {
   }
 
   async connect(options: CodexAppServerClientOptions = {}): Promise<void> {
-    const env = options.env || getSafeEnvForTrustedProcess();
+    const spawnOptions = buildCliSpawnOptions(options.env || getSafeEnvForTrustedProcess());
     this.proc = spawn('codex', ['app-server'], {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env,
-      // On Windows, codex is typically a cmd.exe wrapper installed via npm.
-      shell: shouldUseCliShell(),
       // Unix: isolate into its own process group for clean tree kills
-      detached: !shouldUseCliShell(),
-      windowsHide: true,
+      detached: !spawnOptions.shell,
+      ...spawnOptions,
     });
 
     // Prevent detached child from keeping Electron alive
-    if (this.proc.pid && !shouldUseCliShell()) {
+    if (this.proc.pid && !spawnOptions.shell) {
       this.proc.unref();
     }
 
@@ -608,16 +605,12 @@ export function terminateProcessTree(pid: number | undefined): void {
 }
 
 /**
- * Extend PATH with the same common install dirs that BaseCliAdapter.spawnProcess
- * adds. Packaged Electron apps launched from Finder/Dock inherit a minimal PATH
- * (no /opt/homebrew/bin, no ~/.local/bin), so a bare `spawnSync('codex', ...)`
- * returns ENOENT even when `codex` is installed. Mirroring the spawn helper's
- * PATH logic keeps this preflight in sync with the path codex is actually
- * launched from later.
+ * Returns the sanitized environment used for Codex launch preflights.
+ * PATH expansion and Windows shell handling are layered in by
+ * `buildCliSpawnOptions()` so this stays aligned with the real launch path.
  */
 function buildCheckEnv(): Record<string, string> {
-  const env = getSafeEnvForTrustedProcess();
-  return { ...env, PATH: buildCliPath(env) };
+  return getSafeEnvForTrustedProcess() as Record<string, string>;
 }
 
 /**
@@ -631,12 +624,11 @@ function buildCheckEnv(): Record<string, string> {
  */
 export function checkAppServerAvailability(): boolean {
   try {
+    const spawnOptions = buildCliSpawnOptions(buildCheckEnv());
     const result = spawnSync('codex', ['app-server', '--help'], {
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildCheckEnv(),
-      shell: shouldUseCliShell(),
-      windowsHide: true,
+      ...spawnOptions,
     });
 
     const stdout = result.stdout?.toString() ?? '';

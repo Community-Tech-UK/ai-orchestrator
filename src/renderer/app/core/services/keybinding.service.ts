@@ -12,13 +12,16 @@ import { Injectable, NgZone, signal, computed, inject } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import {
   KeyBinding,
+  KeybindingEligibilityState,
   KeyCombo,
   KeybindingContext,
   DEFAULT_KEYBINDINGS,
   KeybindingCustomization,
   matchesKeyCombo,
+  matchesKeybindingWhen,
   formatKeyBinding,
 } from '../../../../shared/types/keybinding.types';
+import { ActionDispatchService } from './action-dispatch.service';
 
 export interface KeybindingEvent {
   binding: KeyBinding;
@@ -33,6 +36,7 @@ type KeybindingHandler = (event: KeybindingEvent) => void;
 export class KeybindingService {
   private document = inject(DOCUMENT);
   private zone = inject(NgZone);
+  private actionDispatch = inject(ActionDispatchService);
 
   // State
   private bindings = signal<KeyBinding[]>([...DEFAULT_KEYBINDINGS]);
@@ -115,6 +119,10 @@ export class KeybindingService {
       // Check context
       if (binding.context && binding.context !== 'global') {
         if (binding.context !== context) continue;
+      }
+
+      if (!matchesKeybindingWhen(binding.when, this.actionDispatch.getState())) {
+        continue;
       }
 
       // If we're in an input and the binding is global without requiring modifiers,
@@ -210,6 +218,7 @@ export class KeybindingService {
 
     // Run handlers in Angular zone
     this.zone.run(() => {
+      void this.actionDispatch.dispatch(binding.action);
       for (const handler of handlers) {
         handler(bindingEvent);
       }
@@ -267,6 +276,10 @@ export class KeybindingService {
    */
   isEnabled(): boolean {
     return this.enabled();
+  }
+
+  setEligibilityState(state: Partial<KeybindingEligibilityState>): void {
+    this.actionDispatch.setState(state);
   }
 
   /**

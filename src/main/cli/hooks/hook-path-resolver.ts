@@ -13,6 +13,14 @@ const logger = getLogger('HookPathResolver');
 
 const HOOK_FILENAME = 'defer-permission-hook.mjs';
 
+function quoteHookArg(hookPath: string, platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    return `"${hookPath.replace(/"/g, '""')}"`;
+  }
+
+  return `'${hookPath.replace(/'/g, `'\\''`)}'`;
+}
+
 function getProjectRoot(): string {
   try {
     const appPath = app?.getAppPath?.();
@@ -41,6 +49,17 @@ export function getDeferPermissionHookPath(): string {
     return path.join(resourcesPath, 'hooks', HOOK_FILENAME);
   }
   return path.join(getProjectRoot(), 'src', 'main', 'cli', 'hooks', HOOK_FILENAME);
+}
+
+/**
+ * Claude hook config expects a shell command string, not argv tuples.
+ * Execute the script via `node` so the same command works on Windows and Unix.
+ */
+export function buildDeferPermissionHookCommand(
+  hookPath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return `node ${quoteHookArg(hookPath, platform)}`;
 }
 
 /**

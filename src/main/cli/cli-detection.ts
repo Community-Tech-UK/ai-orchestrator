@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { isAbsolute } from 'path';
 import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
-import { buildCliPath, shouldUseCliShell } from './cli-environment';
+import { buildCliSpawnOptions } from './cli-environment';
 
 const logger = getLogger('CliDetection');
 
@@ -387,19 +387,17 @@ export class CliDetectionService {
 
         // Extend PATH to include common CLI installation directories
         // This is needed for packaged Electron apps where PATH may be limited
-        const extendedPath = buildCliPath(process.env);
+        const spawnOptions = buildCliSpawnOptions(process.env);
 
         logger.debug('Checking command', {
           command,
           args: args.join(' '),
-          shell: shouldUseCliShell(),
+          shell: spawnOptions.shell,
         });
 
         const proc = spawn(command, args, {
           timeout: 5000,
-          env: { ...process.env, PATH: extendedPath },
-          shell: shouldUseCliShell(),
-          windowsHide: true,
+          ...spawnOptions,
         });
 
         let stdout = '';

@@ -10,6 +10,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { crossPlatformPathsEqual } from '../../shared/utils/cross-platform-path';
 
 const logger = getLogger('WarmStartManager');
 
@@ -110,7 +111,7 @@ export class WarmStartManager {
       return null;
     }
 
-    if (workingDirectory && this.warm.workingDirectory !== workingDirectory) {
+    if (workingDirectory && !crossPlatformPathsEqual(this.warm.workingDirectory, workingDirectory)) {
       logger.debug('Warm process workingDirectory mismatch — keeping warm process', {
         wanted: workingDirectory,
         have: this.warm.workingDirectory,
@@ -132,7 +133,7 @@ export class WarmStartManager {
    */
   hasWarm(provider: string, workingDirectory?: string): boolean {
     if (this.warm === null || this.warm.provider !== provider) return false;
-    if (workingDirectory && this.warm.workingDirectory !== workingDirectory) return false;
+    if (workingDirectory && !crossPlatformPathsEqual(this.warm.workingDirectory, workingDirectory)) return false;
     return true;
   }
 

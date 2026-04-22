@@ -3,6 +3,7 @@ import { join } from 'path';
 import { createInterface } from 'readline';
 import { homedir } from 'os';
 import { getLogger } from '../../../logging/logger';
+import { crossPlatformPathsEqual } from '../../../../shared/utils/cross-platform-path';
 
 const logger = getLogger('CodexSessionScanner');
 
@@ -93,7 +94,11 @@ export class CodexSessionScanner {
         if (!line.trim()) continue;
         try {
           const entry = JSON.parse(line);
-          if (entry.type === 'session_meta' && entry.cwd === targetCwd) {
+          if (
+            entry.type === 'session_meta'
+            && typeof entry.cwd === 'string'
+            && crossPlatformPathsEqual(entry.cwd, targetCwd)
+          ) {
             return true;
           }
         } catch {
@@ -135,7 +140,10 @@ export class CodexSessionScanner {
         try {
           const entry = JSON.parse(line);
           if (entry.type === 'session_meta') {
-            if (entry.cwd === targetCwd) {
+            if (
+              typeof entry.cwd === 'string'
+              && crossPlatformPathsEqual(entry.cwd, targetCwd)
+            ) {
               matchesCwd = true;
               model = entry.model ?? null;
             }

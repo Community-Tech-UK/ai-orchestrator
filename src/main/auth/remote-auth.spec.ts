@@ -65,6 +65,22 @@ describe('RemoteAuthService', () => {
     }
   });
 
+  it('lists and revokes pending one-time pairing credentials', () => {
+    const service = new RemoteAuthService();
+    const first = service.issuePairingCredential({ label: 'Laptop', ttlMs: 5 * 60_000 });
+    const second = service.issuePairingCredential({ label: 'Desktop', ttlMs: 10 * 60_000 });
+
+    expect(service.listPendingPairings()).toEqual([
+      expect.objectContaining({ token: first.token, label: 'Laptop' }),
+      expect.objectContaining({ token: second.token, label: 'Desktop' }),
+    ]);
+
+    expect(service.revokePairingCredential(first.token)).toBe(true);
+    expect(service.listPendingPairings()).toEqual([
+      expect.objectContaining({ token: second.token, label: 'Desktop' }),
+    ]);
+  });
+
   it('rejects reusing a session token for a different node id', () => {
     const service = new RemoteAuthService();
     const first = service.authenticateRegistration({

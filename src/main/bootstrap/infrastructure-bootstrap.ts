@@ -53,4 +53,15 @@ export function registerInfrastructureBootstrap(): void {
       getCliDetectionService();
     },
   });
+
+  registerBootstrapModule({
+    name: 'Startup capability probe',
+    domain: 'infrastructure',
+    failureMode: 'degraded',
+    dependencies: ['CLI detection'],
+    init: async () => {
+      const { getCapabilityProbe } = require('./capability-probe') as typeof import('./capability-probe');
+      await getCapabilityProbe().run();
+    },
+  });
 }

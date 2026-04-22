@@ -55,6 +55,18 @@ export function createCommunicationDomain(
     remoteNodeSetToken: (token: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_SET_TOKEN, { token }),
 
+    remoteNodeIssuePairing: (payload?: {
+      label?: string;
+      ttlMs?: number;
+    }): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_ISSUE_PAIRING, payload ?? {}),
+
+    remoteNodeListPairings: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_LIST_PAIRINGS),
+
+    remoteNodeRevokePairing: (token: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_REVOKE_PAIRING, { token }),
+
     remoteNodeRevokeNode: (nodeId: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_REVOKE, { nodeId }),
 

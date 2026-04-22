@@ -102,4 +102,16 @@ describe('CodexSessionScanner', () => {
     const result = await scanner.findSessionForWorkspace('/projects/my-app');
     expect(result).toBeNull();
   });
+
+  it('matches Windows workspace paths across separator and case differences', async () => {
+    createRolloutFile('2026/04/09', 'rollout-win.jsonl', [
+      { type: 'session_meta', cwd: 'C:\\Users\\Alice\\Work\\My-App', model: 'gpt-5.4' },
+      { type: 'event_msg', threadId: 'thread_windows' },
+    ]);
+
+    const result = await scanner.findSessionForWorkspace('c:/users/alice/work/my-app/');
+
+    expect(result).not.toBeNull();
+    expect(result!.threadId).toBe('thread_windows');
+  });
 });

@@ -28,6 +28,7 @@ import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { terminateProcessTree } from './app-server-client';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
+import { buildCliSpawnOptions } from '../../cli-environment';
 
 const logger = getLogger('CodexBrokerManager');
 
@@ -154,12 +155,12 @@ export class CodexBrokerManager {
     // Spawn broker as detached process so it survives if the orchestrator restarts.
     // Use sanitized env to prevent credential leakage (matching BaseCliAdapter behavior).
     const logFile = join(this.sessionDir, 'broker.log');
-    const safeEnv = getSafeEnvForTrustedProcess();
+    const spawnOptions = buildCliSpawnOptions(getSafeEnvForTrustedProcess());
     const proc = spawn('codex', ['app-server', '--broker', '--endpoint', endpoint], {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: safeEnv,
+      ...spawnOptions,
     });
 
     // Redirect output to log file

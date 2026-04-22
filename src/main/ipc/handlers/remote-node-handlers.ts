@@ -7,14 +7,16 @@ import { sendServiceRpc } from '../../remote-node/service-rpc-client';
 import { getRemoteNodeConfig, updateRemoteNodeConfig } from '../../remote-node/remote-node-config';
 import { getDiscoveryService } from '../../remote-node/discovery-service';
 import { generateAuthToken } from '../../remote-node/auth-validator';
-import { getNodeIdentityStore } from '../../remote-node/node-identity-store';
 import {
+  RemoteNodeIssuePairingPayloadSchema,
   RemoteNodeRevokePayloadSchema,
+  RemoteNodeRevokePairingPayloadSchema,
   RemoteNodeSetTokenPayloadSchema,
 } from '@contracts/schemas/remote-node';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 import { getLocalIpv4Addresses } from '../../util/network-addresses';
+import { getRemoteAuthService } from '../../auth/remote-auth';
 
 const logger = getLogger('RemoteNodeHandlers');
 
@@ -148,13 +150,77 @@ export function registerRemoteNodeHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_ISSUE_PAIRING,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeIssuePairingPayloadSchema.parse(payload ?? {});
+        const credential = getRemoteAuthService().issuePairingCredential(validated);
+        return {
+          success: true,
+          data: credential,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_ISSUE_PAIRING_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_LIST_PAIRINGS,
+    async (): Promise<IpcResponse> => {
+      try {
+        return {
+          success: true,
+          data: getRemoteAuthService().listPendingPairings(),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_LIST_PAIRINGS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_REVOKE_PAIRING,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeRevokePairingPayloadSchema.parse(payload);
+        return {
+          success: true,
+          data: { revoked: getRemoteAuthService().revokePairingCredential(validated.token) },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_REVOKE_PAIRING_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_REVOKE,
     async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = RemoteNodeRevokePayloadSchema.parse(payload);
-        const store = getNodeIdentityStore();
-        store.remove(validated.nodeId);
-        getSettingsManager().set('remoteNodesRegisteredNodes', store.toJson());
+        getRemoteAuthService().revokeSession(validated.nodeId);
         const server = getWorkerNodeConnectionServer();
         if (server.isNodeConnected(validated.nodeId)) {
           server.disconnectNode(validated.nodeId);
@@ -182,13 +248,19 @@ export function registerRemoteNodeHandlers(): void {
         return {
           success: true,
           data: {
+            running: server.isRunning(),
             connectedCount: server.getConnectedNodeIds().length,
-            runningConfig: {
-              port: config.serverPort,
-              host: config.serverHost,
-              namespace: config.namespace,
-            },
+            registeredCount: getRemoteAuthService().listSessions().length,
+            pendingPairingCount: getRemoteAuthService().listPendingPairings().length,
+            runningConfig: server.isRunning()
+              ? {
+                  port: config.serverPort,
+                  host: config.serverHost,
+                  namespace: config.namespace,
+                }
+              : null,
             localIps: getLocalIpv4Addresses(),
+            requireTls: Boolean(config.tlsCertPath && config.tlsKeyPath),
           },
         };
       } catch (error) {

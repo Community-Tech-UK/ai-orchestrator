@@ -19,6 +19,7 @@ import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
+import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
@@ -59,6 +60,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   settingsStore = inject(SettingsStore);
   private remoteNodeStore = inject(RemoteNodeStore);
   private electronIpc = inject(ElectronIpcService);
+  private actionDispatch = inject(ActionDispatchService);
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
   private newSessionDraft = inject(NewSessionDraftService);
@@ -104,13 +106,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private resizeStartX = 0;
   private resizeStartWidth = 0;
 
-  private keybindingCleanup: (() => void)[] = [];
+  private actionCleanup: (() => void)[] = [];
 
   constructor() {
     effect(() => {
       if (!this.canShowFileExplorer()) {
         this.showFileExplorer.set(false);
       }
+    });
+
+    effect(() => {
+      const selectedInstance = this.store.selectedInstance();
+      this.keybindingService.setEligibilityState({
+        instanceSelected: !!selectedInstance,
+        multipleInstances: this.store.instances().length > 1,
+        instanceRunning: selectedInstance?.status === 'busy' || selectedInstance?.status === 'respawning',
+        commandPaletteOpen: this.showCommandPalette(),
+        historyOpen: this.showHistory(),
+        sidebarVisible: this.showSidebar(),
+      });
     });
   }
 
@@ -161,106 +175,111 @@ export class DashboardComponent implements OnInit, OnDestroy {
    * Register all keybinding handlers
    */
   private registerKeybindingHandlers(): void {
-    // Command palette - Cmd+Shift+P or Cmd+K
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('toggle-command-palette', () => {
-        if (this.store.selectedInstance()) {
+    this.actionCleanup.push(
+      this.actionDispatch.register({
+        id: 'toggle-command-palette',
+        when: ['instance-selected'],
+        run: () => {
           this.showCommandPalette.set(!this.showCommandPalette());
-        }
-      })
-    );
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'toggle-settings',
+        run: () => {
+          void this.router.navigate(['/settings']);
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'toggle-history',
+        run: () => {
+          this.showHistory.set(!this.showHistory());
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'toggle-sidebar',
+        run: () => {
+          this.showSidebar.set(!this.showSidebar());
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'new-instance',
+        run: () => {
+          this.createInstance();
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'close-instance',
+        when: ['instance-selected'],
+        run: () => {
+          const instance = this.store.selectedInstance();
+          if (instance) {
+            void this.store.terminateInstance(instance.id);
+          }
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'next-instance',
+        when: ['multiple-instances'],
+        run: () => {
+          const instances = this.store.instances();
+          const selected = this.store.selectedInstance();
+          if (instances.length > 1 && selected) {
+            const currentIndex = instances.findIndex((instance) => instance.id === selected.id);
+            const nextIndex = (currentIndex + 1) % instances.length;
+            this.store.setSelectedInstance(instances[nextIndex].id);
+          }
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'prev-instance',
+        when: ['multiple-instances'],
+        run: () => {
+          const instances = this.store.instances();
+          const selected = this.store.selectedInstance();
+          if (instances.length > 1 && selected) {
+            const currentIndex = instances.findIndex((instance) => instance.id === selected.id);
+            const prevIndex =
+              currentIndex === 0 ? instances.length - 1 : currentIndex - 1;
+            this.store.setSelectedInstance(instances[prevIndex].id);
+          }
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'restart-instance',
+        when: ['instance-selected'],
+        run: () => {
+          const instance = this.store.selectedInstance();
+          if (instance) {
+            void this.store.restartInstance(instance.id);
+          }
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'cancel-operation',
+        when: ['command-palette-open', 'history-open', 'instance-running'],
+        run: () => {
+          if (this.showCommandPalette()) {
+            this.showCommandPalette.set(false);
+            return;
+          }
 
-    // Settings - Cmd+,
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('toggle-settings', () => {
-        void this.router.navigate(['/settings']);
-      })
-    );
+          if (this.showHistory()) {
+            this.showHistory.set(false);
+            return;
+          }
 
-    // History - Cmd+H
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('toggle-history', () => {
-        this.showHistory.set(!this.showHistory());
-      })
-    );
-
-    // Sidebar toggle - Cmd+B
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('toggle-sidebar', () => {
-        this.showSidebar.set(!this.showSidebar());
-      })
-    );
-
-    // New instance - Cmd+N
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('new-instance', () => {
-        this.createInstance();
-      })
-    );
-
-    // Close instance - Cmd+W
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('close-instance', () => {
-        const instance = this.store.selectedInstance();
-        if (instance) {
-          this.store.terminateInstance(instance.id);
-        }
-      })
-    );
-
-    // Next instance - Ctrl+Tab
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('next-instance', () => {
-        const instances = this.store.instances();
-        const selected = this.store.selectedInstance();
-        if (instances.length > 1 && selected) {
-          const currentIndex = instances.findIndex((i) => i.id === selected.id);
-          const nextIndex = (currentIndex + 1) % instances.length;
-          this.store.setSelectedInstance(instances[nextIndex].id);
-        }
-      })
-    );
-
-    // Previous instance - Ctrl+Shift+Tab
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('prev-instance', () => {
-        const instances = this.store.instances();
-        const selected = this.store.selectedInstance();
-        if (instances.length > 1 && selected) {
-          const currentIndex = instances.findIndex((i) => i.id === selected.id);
-          const prevIndex =
-            currentIndex === 0 ? instances.length - 1 : currentIndex - 1;
-          this.store.setSelectedInstance(instances[prevIndex].id);
-        }
-      })
-    );
-
-    // Restart instance - Cmd+Shift+R
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('restart-instance', () => {
-        const instance = this.store.selectedInstance();
-        if (instance) {
-          this.store.restartInstance(instance.id);
-        }
-      })
-    );
-
-    // Cancel operation - Escape
-    this.keybindingCleanup.push(
-      this.keybindingService.onAction('cancel-operation', () => {
-        // Close any open modals first
-        if (this.showCommandPalette()) {
-          this.showCommandPalette.set(false);
-        } else if (this.showHistory()) {
-          this.showHistory.set(false);
-        } else {
-          // No modals open - interrupt the selected instance if busy or respawning
           const instance = this.store.selectedInstance();
           if (instance && (instance.status === 'busy' || instance.status === 'respawning')) {
-            this.store.interruptInstance(instance.id);
+            void this.store.interruptInstance(instance.id);
           }
-        }
-      })
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'app.open-rlm',
+        run: () => {
+          this.openRlm();
+        },
+      }),
     );
   }
 
@@ -322,8 +341,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    // Cleanup keybinding handlers
-    this.keybindingCleanup.forEach((cleanup) => cleanup());
-    this.keybindingCleanup = [];
+    this.actionCleanup.forEach((cleanup) => cleanup());
+    this.actionCleanup = [];
   }
 }

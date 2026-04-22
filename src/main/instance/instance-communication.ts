@@ -319,6 +319,27 @@ export class InstanceCommunicationManager extends EventEmitter {
     instance.status = status;
   }
 
+  /**
+   * Some stateless adapters emit `busy` as the first status after `idle`.
+   * The lifecycle state machine forbids idle -> busy directly, so normalize
+   * through ready to keep strict transition rules while accepting adapter output.
+   */
+  private transitionAdapterStatus(instanceId: string, instance: Instance, nextStatus: InstanceStatus): InstanceStatus {
+    const previousStatus = instance.status;
+    if (previousStatus === 'idle' && nextStatus === 'busy') {
+      logger.debug('Normalizing adapter status transition via ready', {
+        instanceId,
+        from: previousStatus,
+        to: nextStatus,
+      });
+      this.transitionInstanceStatus(instance, 'ready');
+    }
+
+    const effectivePreviousStatus = instance.status;
+    this.transitionInstanceStatus(instance, nextStatus);
+    return effectivePreviousStatus;
+  }
+
   queueContinuityPreamble(instanceId: string, preamble: string): void {
     if (!preamble.trim()) {
       return;
@@ -987,8 +1008,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           return;
         }
 
-        const previousStatus = instance.status;
-        this.transitionInstanceStatus(instance, status);
+        const previousStatus = this.transitionAdapterStatus(instanceId, instance, status);
         instance.lastActivity = Date.now();
 
         if (status === 'idle' || status === 'ready' || status === 'waiting_for_input') {
@@ -1674,6 +1694,18 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (instance.status !== 'busy') return;
     // Skip if under threshold
     if (usage.percentage < 80) return;
+    // Skip adapters that handle context pressure themselves. Claude CLI and
+    // Codex in app-server mode emit their own compaction events
+    // (`thread/compacted` for Codex) when they hit the model's internal
+    // threshold. Our proactive 80% warning is redundant noise for those and
+    // injects "delegate to children" guidance that's misleading when the
+    // adapter is about to auto-compact anyway. Non-compacting adapters
+    // (Cursor, Copilot, Gemini, Codex exec mode) still get the warning
+    // because they have no in-band recovery path.
+    const adapter = this.deps.getAdapter(instanceId);
+    if (adapter && this.getAdapterRuntimeCapabilities(adapter).supportsNativeCompaction) {
+      return;
+    }
 
     this.contextWarningIssued.add(instanceId);
 

@@ -22,6 +22,7 @@ export { registerSearchHandlers } from './search-handlers';
 export { registerStatsHandlers } from './stats-handlers';
 export { registerCommandHandlers } from './command-handlers';
 export { registerAppHandlers } from './app-handlers';
+export { registerEventStoreHandlers } from './event-store-handlers';
 export { registerFileHandlers } from './file-handlers';
 export { registerCodebaseHandlers } from './codebase-handlers';
 export { registerSupervisionHandlers } from './supervision-handlers';

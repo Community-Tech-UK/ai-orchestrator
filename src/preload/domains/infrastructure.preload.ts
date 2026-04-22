@@ -40,6 +40,23 @@ export function createInfrastructureDomain(
       return ipcRenderer.invoke(ch.APP_GET_VERSION);
     },
 
+    /**
+     * Get the structured startup capability report.
+     */
+    getStartupCapabilities: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.APP_GET_STARTUP_CAPABILITIES);
+    },
+
+    /**
+     * Listen for startup capability updates emitted during app bootstrap.
+     */
+    onStartupCapabilities: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.APP_STARTUP_CAPABILITIES, handler);
+      return () =>
+        ipcRenderer.removeListener(ch.APP_STARTUP_CAPABILITIES, handler);
+    },
+
     // ============================================
     // Settings
     // ============================================

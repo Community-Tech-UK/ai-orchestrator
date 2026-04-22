@@ -14,9 +14,7 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
-import { parseCommandString, resolveTemplate } from '../../shared/types/command.types';
 import { getCommandManager } from '../commands/command-manager';
-import { getMarkdownCommandRegistry } from '../commands/markdown-command-registry';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
@@ -52,6 +50,10 @@ import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { getPermissionEnforcer } from '../security/permission-enforcer';
 import { getPermissionManager, type PermissionRequest, type PermissionScope } from '../security/permission-manager';
+import {
+  getToolExecutionGate,
+  type ToolExecutionGateDecision,
+} from '../security/tool-execution-gate';
 import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
@@ -526,6 +528,8 @@ export class InstanceManager extends EventEmitter {
     const approvalTraceId = typeof meta['approvalTraceId'] === 'string'
       ? String(meta['approvalTraceId'])
       : `approval-manager-${payload.requestId}`;
+    let permissionGateDecision: ToolExecutionGateDecision | undefined;
+    let permissionGateToolName: string | undefined;
     logger.info('[APPROVAL_TRACE] manager_handle_input_required', {
       approvalTraceId,
       instanceId: payload.instanceId,
@@ -538,6 +542,9 @@ export class InstanceManager extends EventEmitter {
       const action = meta['action'] as string | undefined;
       const rawPath = meta['path'] as string | undefined;
       const permissionKey = meta['permissionKey'] as string | undefined;
+      const toolName = typeof meta['tool_name'] === 'string'
+        ? String(meta['tool_name'])
+        : (action || 'claude-cli');
 
       const scope = this.mapCliPermissionActionToScope(action);
       const resource =
@@ -561,6 +568,12 @@ export class InstanceManager extends EventEmitter {
       };
 
       this.pendingPermissionRequestsByInputId.set(`${payload.instanceId}:${payload.requestId}`, request);
+      permissionGateToolName = toolName;
+      permissionGateDecision = getToolExecutionGate().evaluate({
+        request,
+        toolName,
+        toolInput: rawPath ? { path: rawPath } : undefined,
+      });
 
       // Rationale: this branch handles tool_result permission denials that Claude CLI
       // already rejected internally (e.g., edits to ~/.claude/settings*.json, which
@@ -578,20 +591,29 @@ export class InstanceManager extends EventEmitter {
       //
       // Everything else (YOLO allow, rule allow, default `ask`) falls through to
       // `emit('instance:input-required', …)` below so the renderer shows the prompt.
-      const decision = getPermissionEnforcer().enforce(request);
-      if (decision.action === 'deny' && decision.matchedRule) {
+      const decision = permissionGateDecision;
+      if (decision.action === 'deny') {
         logger.info('[APPROVAL_TRACE] manager_auto_decision', {
           approvalTraceId,
           instanceId: payload.instanceId,
           requestId: payload.requestId,
           decision: decision.action,
           reason: decision.reason,
-          matchedRule: decision.matchedRule.name,
+          source: decision.source,
+        });
+        this.emitPermissionLifecycleEvent({
+          instanceId: payload.instanceId,
+          requestId: payload.requestId,
+          outcome: 'deny',
+          toolName,
+          reason: decision.reason,
+          source: decision.source,
+          metadataType: metaType,
         });
         try {
           await this.sendInputResponse(
             payload.instanceId,
-            `Permission denied. (Rule: ${decision.reason})`,
+            `Permission denied. (${decision.reason})`,
             permissionKey,
           );
         } catch {
@@ -604,8 +626,11 @@ export class InstanceManager extends EventEmitter {
             id: generateId(),
             timestamp: Date.now(),
             type: 'system' as const,
-            content: `Permission auto-denied by rules: ${decision.reason}`,
-            metadata: { permissionDecision: true, action: decision.action, reason: decision.reason }
+            content: `Permission auto-denied for ${toolName}: ${decision.reason}`,
+            metadata: {
+              permissionDecision: true,
+              ...this.toPermissionGateMetadata(decision),
+            }
           };
           this.communication.addToOutputBuffer(instance, msg);
           this.publishOutput(payload.instanceId, msg);
@@ -643,8 +668,14 @@ export class InstanceManager extends EventEmitter {
       };
 
       this.pendingPermissionRequestsByInputId.set(`${payload.instanceId}:${payload.requestId}`, request);
+      permissionGateToolName = toolName || 'unknown';
+      permissionGateDecision = getToolExecutionGate().evaluate({
+        request,
+        toolName: toolName || 'unknown',
+        toolInput,
+      });
 
-      const decision = getPermissionEnforcer().enforce(request);
+      const decision = permissionGateDecision;
       if (decision.action === 'allow' || decision.action === 'deny') {
         logger.info('[APPROVAL_TRACE] manager_auto_decision_deferred', {
           approvalTraceId,
@@ -653,6 +684,15 @@ export class InstanceManager extends EventEmitter {
           decision: decision.action,
           reason: decision.reason,
           toolName,
+        });
+        this.emitPermissionLifecycleEvent({
+          instanceId: payload.instanceId,
+          requestId: payload.requestId,
+          outcome: decision.action === 'allow' ? 'allow' : 'deny',
+          toolName: toolName || 'unknown',
+          reason: decision.reason,
+          source: decision.source,
+          metadataType: metaType,
         });
 
         // Auto-resume with the decision
@@ -674,7 +714,10 @@ export class InstanceManager extends EventEmitter {
             timestamp: Date.now(),
             type: 'system' as const,
             content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} for ${toolName}: ${decision.reason}`,
-            metadata: { permissionDecision: true, action: decision.action, reason: decision.reason }
+            metadata: {
+              permissionDecision: true,
+              ...this.toPermissionGateMetadata(decision),
+            }
           };
           this.communication.addToOutputBuffer(instance, msg);
           this.publishOutput(payload.instanceId, msg);
@@ -689,11 +732,24 @@ export class InstanceManager extends EventEmitter {
       ...payload,
       metadata: {
         ...meta,
+        toolGate: permissionGateDecision
+          ? this.toPermissionGateMetadata(permissionGateDecision)
+          : undefined,
+        toolName: permissionGateToolName,
         approvalTraceId,
         traceStage: 'main:instance-manager:forwarded'
       }
     };
     this.emit('instance:input-required', forwardedPayload);
+    this.emitPermissionLifecycleEvent({
+      instanceId: payload.instanceId,
+      requestId: payload.requestId,
+      outcome: 'defer',
+      toolName: permissionGateToolName,
+      reason: permissionGateDecision?.reason ?? 'Awaiting user approval',
+      source: permissionGateDecision?.source ?? 'permission-rule',
+      metadataType: metaType,
+    });
     logger.info('[APPROVAL_TRACE] manager_forward_to_renderer', {
       approvalTraceId,
       instanceId: payload.instanceId,
@@ -729,6 +785,42 @@ export class InstanceManager extends EventEmitter {
         this.pendingPermissionRequestsByInputId.delete(key);
       }
     }
+  }
+
+  private toPermissionGateMetadata(decision: ToolExecutionGateDecision): Record<string, unknown> {
+    return {
+      action: decision.action,
+      reason: decision.reason,
+      source: decision.source,
+      permissionAction: decision.permission.action,
+      permissionReason: decision.permission.reason,
+      permissionMode: decision.permission.mode,
+      toolPermissionBehavior: decision.toolPermission?.behavior,
+      validationErrors: decision.validation?.errors,
+      bashRisk: decision.bashValidation?.risk,
+      bashMessage: decision.bashValidation?.message,
+    };
+  }
+
+  private emitPermissionLifecycleEvent(params: {
+    instanceId: string;
+    requestId: string;
+    outcome: 'allow' | 'deny' | 'defer';
+    toolName?: string;
+    reason: string;
+    source: string;
+    metadataType: string;
+  }): void {
+    this.emit('permission:lifecycle', {
+      instanceId: params.instanceId,
+      requestId: params.requestId,
+      outcome: params.outcome,
+      toolName: params.toolName,
+      reason: params.reason,
+      source: params.source,
+      metadataType: params.metadataType,
+      timestamp: Date.now(),
+    });
   }
 
   private publishOutput(instanceId: string, message: OutputMessage): void {
@@ -973,26 +1065,33 @@ export class InstanceManager extends EventEmitter {
 
     // Resolve slash commands before we do any context budgeting or send to the provider.
     // This keeps UX consistent (user types `/commit`, instance receives the expanded template).
-    const parsedCommand = parseCommandString(message);
     let resolvedMessage = message;
     let resolvedCommandName: string | undefined;
-    let resolvedCommandMeta: { model?: string; agent?: string; subtask?: boolean; source?: string } | undefined;
-    if (parsedCommand) {
-      const cmdManager = getCommandManager();
-      const storeOrBuiltin = cmdManager.getCommandByName(parsedCommand.name);
-      const fileCmd = await getMarkdownCommandRegistry().getCommand(instance.workingDirectory, parsedCommand.name);
-      const cmd = storeOrBuiltin || fileCmd;
-
-      if (cmd) {
-        resolvedCommandName = cmd.name;
-        resolvedMessage = resolveTemplate(cmd.template, parsedCommand.args);
-        resolvedCommandMeta = {
-          model: cmd.model,
-          agent: cmd.agent,
-          subtask: cmd.subtask,
-          source: cmd.source,
-        };
-      }
+    let resolvedCommandMeta: {
+      executionType: 'prompt' | 'compact' | 'ui';
+      model?: string;
+      agent?: string;
+      subtask?: boolean;
+      source?: string;
+      uiActionId?: string;
+    } | undefined;
+    const resolvedCommand = await getCommandManager().executeCommandString(
+      message,
+      instance.workingDirectory,
+    );
+    if (resolvedCommand) {
+      resolvedCommandName = resolvedCommand.command.name;
+      resolvedMessage = resolvedCommand.resolvedPrompt;
+      resolvedCommandMeta = {
+        executionType: resolvedCommand.execution.type,
+        model: resolvedCommand.command.model,
+        agent: resolvedCommand.command.agent,
+        subtask: resolvedCommand.command.subtask,
+        source: resolvedCommand.command.source,
+        uiActionId: resolvedCommand.execution.type === 'ui'
+          ? resolvedCommand.execution.actionId
+          : undefined,
+      };
     }
 
     // Update activity and request count
@@ -1061,9 +1160,39 @@ export class InstanceManager extends EventEmitter {
           model: resolvedCommandMeta?.model,
           agent: resolvedCommandMeta?.agent,
           subtask: resolvedCommandMeta?.subtask,
+          executionType: resolvedCommandMeta?.executionType,
+          uiActionId: resolvedCommandMeta?.uiActionId,
         },
       };
     }
+    if (resolvedCommandMeta?.executionType === 'compact') {
+      if (!options?.isRetry) {
+        this.communication.addToOutputBuffer(instance, userMessage);
+        this.publishOutput(instanceId, userMessage);
+      }
+
+      await getCompactionCoordinator().compactInstance(instanceId);
+      return;
+    }
+
+    if (resolvedCommandMeta?.executionType === 'ui') {
+      if (!options?.isRetry) {
+        this.communication.addToOutputBuffer(instance, userMessage);
+        this.publishOutput(instanceId, userMessage);
+      }
+
+      this.emitSystemMessage(
+        instanceId,
+        `Command /${resolvedCommandName} must be executed through the UI command dispatcher.`,
+        {
+          source: 'command-dispatch',
+          commandName: resolvedCommandName,
+          uiActionId: resolvedCommandMeta.uiActionId,
+        },
+      );
+      return;
+    }
+
     // If the command requests a subtask (or specifies model/agent), run it in a child instance.
     // This avoids trying to change system prompts/models mid-session.
     const shouldRunAsSubtask =

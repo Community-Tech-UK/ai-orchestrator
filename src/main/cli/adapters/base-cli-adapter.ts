@@ -9,7 +9,7 @@ import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getOutputPersistenceManager } from '../../context/output-persistence';
-import { buildCliPath, shouldUseCliShell } from '../cli-environment';
+import { buildCliSpawnOptions } from '../cli-environment';
 
 const logger = getLogger('BaseCliAdapter');
 
@@ -448,15 +448,13 @@ export abstract class BaseCliAdapter extends EventEmitter {
     const safeEnv = getSafeEnvForTrustedProcess();
     delete safeEnv['CLAUDECODE'];
     const mergedEnv = { ...safeEnv, ...this.config.env };
-    mergedEnv['PATH'] = buildCliPath(mergedEnv);
+    const spawnOptions = buildCliSpawnOptions(mergedEnv);
 
     const proc = spawn(this.config.command, fullArgs, {
       cwd: this.config.cwd,
-      env: mergedEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: !shouldUseCliShell(),
-      shell: shouldUseCliShell(),
-      windowsHide: true,
+      detached: !spawnOptions.shell,
+      ...spawnOptions,
     });
 
     // Increment generation so stale watchdog callbacks from a previous

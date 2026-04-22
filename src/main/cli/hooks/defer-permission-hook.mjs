@@ -35,7 +35,7 @@ const reply = (decision, reason) => {
   }));
 };
 
-const input = JSON.parse(readFileSync('/dev/stdin', 'utf8'));
+const input = JSON.parse(readFileSync(0, 'utf8'));
 const toolName = input.tool_name || '';
 const toolUseId = input.tool_use_id || '';
 

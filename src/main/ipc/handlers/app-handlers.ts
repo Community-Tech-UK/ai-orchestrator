@@ -17,6 +17,7 @@ import {
   FileReadTextPayloadSchema,
   FileWriteTextPayloadSchema,
 } from '@contracts/schemas/file-operations';
+import { getCapabilityProbe } from '../../bootstrap/capability-probe';
 
 interface AppHandlerDependencies {
   windowManager: WindowManager;
@@ -27,7 +28,12 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
   const { getIpcAuthToken } = deps;
 
   // App ready signal — no payload, keep plain
-  ipcMain.handle(IPC_CHANNELS.APP_READY, async (): Promise<IpcResponse> => {
+  ipcMain.handle(IPC_CHANNELS.APP_READY, async (event): Promise<IpcResponse> => {
+    const startupCapabilities =
+      getCapabilityProbe().getLastReport()
+      ?? await getCapabilityProbe().run();
+
+    event.sender.send(IPC_CHANNELS.APP_STARTUP_CAPABILITIES, startupCapabilities);
     return {
       success: true,
       data: {
@@ -37,6 +43,30 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
       }
     };
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.APP_GET_STARTUP_CAPABILITIES,
+    async (): Promise<IpcResponse> => {
+      try {
+        const report =
+          getCapabilityProbe().getLastReport()
+          ?? await getCapabilityProbe().run();
+        return {
+          success: true,
+          data: report,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'APP_GET_STARTUP_CAPABILITIES_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
 
   // Get app version — no payload, keep plain
   ipcMain.handle(

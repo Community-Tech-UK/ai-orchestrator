@@ -11,9 +11,30 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService, RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
-import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+
+interface RegisteredNodeRecord {
+  nodeId?: string;
+  nodeName?: string;
+  token?: string;
+  createdAt?: number;
+}
+
+interface NodeHealthEntry {
+  id: string;
+  name: string;
+  status: WorkerNodeInfo['status'];
+  address?: string;
+  createdAt?: number;
+  connectedAt?: number;
+  lastHeartbeat?: number;
+  supportsBrowser: boolean;
+  supportsGpu: boolean;
+  supportedClis: string[];
+}
 
 @Component({
   standalone: true,
@@ -28,7 +49,6 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
         <div class="error-msg">{{ error() }}</div>
       }
 
-      <!-- Enable toggle -->
       <div class="connection-card">
         <div class="card-row">
           <div class="card-info">
@@ -47,15 +67,18 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
           </label>
         </div>
 
-        <p class="field-hint" style="margin: 0;">
+        <p class="field-hint connection-summary">
           @if (serverStatus().running) {
             <span class="status-badge connected">Running on {{ serverStatus().host ?? store.remoteNodesServerHost() }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>
+            <span>{{ serverStatus().registeredCount ?? nodeHealthEntries().length }} registered</span>
+            <span>{{ serverStatus().pendingPairingCount ?? pendingPairings().length }} pending pairing credentials</span>
           } @else {
             <span class="status-badge disconnected">Server stopped</span>
           }
         </p>
+
         @if (serverStatus().running && serverStatus().localIps?.length) {
-          <p class="field-hint" style="margin: 0;">
+          <p class="field-hint connection-summary">
             Workers should connect to
             @for (ip of serverStatus().localIps!; track ip; let last = $last) {
               <span class="machine-ip">{{ ip }}:{{ serverStatus().port ?? store.remoteNodesServerPort() }}</span>@if (!last) {<span> or </span>}
@@ -65,47 +88,48 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       </div>
 
       @if (store.remoteNodesEnabled()) {
-        <!-- Server Config -->
         <div class="connection-card">
           <span class="card-name">Server Configuration</span>
 
-          <div class="field-group">
-            <label class="field-label" for="rn-port">Port</label>
-            <input
-              id="rn-port"
-              type="number"
-              class="field-input"
-              [value]="draftPort()"
-              (input)="draftPort.set(+$any($event.target).value)"
-              min="1024"
-              max="65535"
-              placeholder="4878"
-            />
-          </div>
+          <div class="field-grid">
+            <div class="field-group">
+              <label class="field-label" for="rn-port">Port</label>
+              <input
+                id="rn-port"
+                type="number"
+                class="field-input"
+                [value]="draftPort()"
+                (input)="draftPort.set(+$any($event.target).value)"
+                min="1024"
+                max="65535"
+                placeholder="4878"
+              />
+            </div>
 
-          <div class="field-group">
-            <label class="field-label" for="rn-host">Host</label>
-            <input
-              id="rn-host"
-              type="text"
-              class="field-input"
-              [value]="draftHost()"
-              (input)="draftHost.set($any($event.target).value)"
-              placeholder="0.0.0.0"
-            />
-          </div>
+            <div class="field-group">
+              <label class="field-label" for="rn-host">Host</label>
+              <input
+                id="rn-host"
+                type="text"
+                class="field-input"
+                [value]="draftHost()"
+                (input)="draftHost.set($any($event.target).value)"
+                placeholder="0.0.0.0"
+              />
+            </div>
 
-          <div class="field-group">
-            <label class="field-label" for="rn-namespace">Namespace</label>
-            <input
-              id="rn-namespace"
-              type="text"
-              class="field-input"
-              [value]="draftNamespace()"
-              (input)="draftNamespace.set($any($event.target).value)"
-              placeholder="default"
-            />
-            <p class="field-hint">Logical grouping name for this node cluster.</p>
+            <div class="field-group">
+              <label class="field-label" for="rn-namespace">Namespace</label>
+              <input
+                id="rn-namespace"
+                type="text"
+                class="field-input"
+                [value]="draftNamespace()"
+                (input)="draftNamespace.set($any($event.target).value)"
+                placeholder="default"
+              />
+              <p class="field-hint">Logical grouping name for this node cluster.</p>
+            </div>
           </div>
 
           <div class="field-group">
@@ -191,26 +215,183 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
           }
         </div>
 
-        <!-- Auth Token -->
         <div class="connection-card">
-          <span class="card-name">Enrollment Token</span>
-          <p class="field-hint" style="margin: 0 0 0.5rem;">Remote nodes use this token to authenticate when joining.</p>
+          <div class="card-row">
+            <div>
+              <span class="card-name">Quick Pairing</span>
+              <p class="field-hint section-inline-hint">Issue one-time credentials, then share a link or QR code with the remote machine.</p>
+            </div>
+            <span class="status-badge" [class]="pendingPairings().length > 0 ? 'status-badge connecting' : 'status-badge disconnected'">
+              {{ pendingPairings().length }} pending
+            </span>
+          </div>
+
+          <div class="field-grid">
+            <div class="field-group">
+              <label class="field-label" for="rn-pairing-label">Label</label>
+              <input
+                id="rn-pairing-label"
+                type="text"
+                class="field-input"
+                [value]="pairingLabel()"
+                (input)="pairingLabel.set($any($event.target).value)"
+                placeholder="Studio MacBook"
+              />
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="rn-pairing-ttl">Credential Lifetime</label>
+              <select
+                id="rn-pairing-ttl"
+                class="field-input"
+                [value]="pairingTtlMinutes()"
+                (change)="pairingTtlMinutes.set(+$any($event.target).value)"
+              >
+                <option [value]="15">15 minutes</option>
+                <option [value]="60">1 hour</option>
+                <option [value]="240">4 hours</option>
+                <option [value]="1440">24 hours</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button
+              class="btn btn-primary"
+              type="button"
+              (click)="createPairingCredential()"
+              [disabled]="pairingBusy() || !serverStatus().running"
+            >
+              {{ pairingBusy() ? 'Issuing...' : 'Issue One-Time Credential' }}
+            </button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              (click)="refreshPairings()"
+              [disabled]="pairingBusy()"
+            >
+              Refresh
+            </button>
+          </div>
+
+          @if (!serverStatus().running) {
+            <p class="field-hint">Start the remote-node server before sharing pairing credentials.</p>
+          }
+
+          @if (activePairing(); as pairing) {
+            <div class="pairing-presentation">
+              <div class="pairing-qr-shell">
+                @if (pairingQrCode()) {
+                  <img
+                    class="pairing-qr-image"
+                    [src]="pairingQrCode() || ''"
+                    alt="Pairing QR code"
+                  />
+                } @else {
+                  <div class="pairing-qr-placeholder">QR preview unavailable</div>
+                }
+              </div>
+
+              <div class="pairing-details">
+                <div class="field-group">
+                  <span class="field-label">One-Time Credential</span>
+                  <input
+                    type="text"
+                    class="field-input mono"
+                    [value]="pairing.token"
+                    readonly
+                  />
+                </div>
+
+                <div class="field-group">
+                  <span class="field-label">Pairing Link</span>
+                  <input
+                    type="text"
+                    class="field-input mono"
+                    [value]="pairingLink()"
+                    readonly
+                  />
+                </div>
+
+                <div class="field-group">
+                  <span class="field-label">Connection Config</span>
+                  <pre class="config-preview">{{ pairingConfigPreview() }}</pre>
+                </div>
+
+                <div class="meta-row">
+                  <span>{{ pairing.label || 'Unlabeled credential' }}</span>
+                  <span [class.warning-text]="pairingExpiresSoon(pairing)">
+                    Expires {{ formatExpiry(pairing.expiresAt) }}
+                  </span>
+                  <span>Created {{ formatRelativeTime(pairing.createdAt) }}</span>
+                </div>
+
+                <div class="btn-row">
+                  <button class="btn btn-secondary small" type="button" (click)="copyPairingToken(pairing.token)">
+                    Copy Token
+                  </button>
+                  <button class="btn btn-secondary small" type="button" (click)="copyPairingLink(pairing.token)">
+                    Copy Link
+                  </button>
+                  <button class="btn btn-secondary small" type="button" (click)="copyPairingConfig(pairing.token)">
+                    Copy Config
+                  </button>
+                  <button class="btn btn-danger small" type="button" (click)="revokePairing(pairing.token)">
+                    Revoke
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+
+          @if (pendingPairings().length > 0) {
+            <div class="field-group">
+              <span class="field-label">Pending Credentials</span>
+              @for (pairing of pendingPairings(); track pairing.token) {
+                <div class="node-row">
+                  <div>
+                    <span class="node-id">{{ pairing.label || abbreviateToken(pairing.token) }}</span>
+                    <div class="node-meta">
+                      <span>{{ abbreviateToken(pairing.token) }}</span>
+                      <span [class.warning-text]="pairingExpiresSoon(pairing)">Expires {{ formatExpiry(pairing.expiresAt) }}</span>
+                    </div>
+                  </div>
+                  <div class="btn-row compact">
+                    <button class="btn btn-secondary small" type="button" (click)="copyPairingLink(pairing.token)">
+                      Copy Link
+                    </button>
+                    <button class="btn btn-danger small" type="button" (click)="revokePairing(pairing.token)">
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="connection-card">
+          <div class="card-row">
+            <div>
+              <span class="card-name">Legacy Enrollment Token</span>
+              <p class="field-hint section-inline-hint">Compatibility fallback for older workers that do not yet support one-time pairing.</p>
+            </div>
+          </div>
 
           @if (!customTokenMode()) {
             <div class="token-row">
               <input
                 [type]="tokenRevealed() ? 'text' : 'password'"
-                class="field-input token-input"
+                class="field-input token-input mono"
                 [value]="store.remoteNodesEnrollmentToken() || '(not set)'"
                 readonly
-                style="font-family: var(--font-family-mono, monospace); letter-spacing: 0.04em;"
               />
               <button
                 class="btn btn-icon"
                 type="button"
                 (click)="tokenRevealed.set(!tokenRevealed())"
                 [attr.aria-label]="tokenRevealed() ? 'Hide token' : 'Show token'"
-                title="{{ tokenRevealed() ? 'Hide' : 'Show' }}"
+                [title]="tokenRevealed() ? 'Hide' : 'Show'"
               >
                 @if (tokenRevealed()) {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -246,36 +427,31 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
               >
                 Set Custom Token
               </button>
-            </div>
-
-            <div style="margin-top: 0.75rem; border-top: 1px solid var(--border-color, #333); padding-top: 0.75rem;">
               <button
-                class="btn btn-primary"
+                class="btn btn-secondary"
                 type="button"
-                (click)="copyConnectionConfig()"
+                (click)="copyLegacyConnectionConfig()"
                 [disabled]="!store.remoteNodesEnrollmentToken()"
               >
-                Copy Connection Config
+                Copy Legacy Config
               </button>
-              <p class="field-hint" style="margin-top: 0.375rem;">Copies a JSON config for remote nodes to use when connecting.</p>
             </div>
           } @else {
             <label class="field-label" for="rn-custom-token">Custom Token (min 16 characters)</label>
             <input
               id="rn-custom-token"
               type="text"
-              class="field-input"
+              class="field-input mono"
               [value]="customTokenValue()"
               (input)="customTokenValue.set($any($event.target).value)"
               placeholder="Enter secure token..."
-              style="font-family: var(--font-family-mono, monospace);"
             />
             <div class="btn-row">
               <button
                 class="btn btn-primary"
                 type="button"
                 (click)="saveCustomToken()"
-                [disabled]="customTokenValue().length < 16 || savingToken()"
+                [disabled]="customTokenValue().trim().length < 16 || savingToken()"
               >
                 {{ savingToken() ? 'Saving...' : 'Save Token' }}
               </button>
@@ -290,46 +466,66 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
           }
         </div>
 
-        <!-- Registered Nodes -->
-        <div class="connection-card">
-          <span class="card-name">Registered Nodes</span>
-
-          @if (registeredNodeEntries().length === 0) {
-            <p class="field-hint" style="margin: 0;">No nodes have registered yet. Share the enrollment token with remote machines to connect them.</p>
-          } @else {
-            @for (entry of registeredNodeEntries(); track entry.id) {
-              <div class="node-row">
-                <span class="node-id">{{ entry.id }}</span>
-                <button
-                  class="btn btn-danger"
-                  type="button"
-                  (click)="revokeNode(entry.id)"
-                  style="padding: 0.25rem 0.625rem; font-size: 0.8125rem;"
-                >
-                  Revoke
-                </button>
-              </div>
-            }
-          }
-        </div>
-
-        <!-- Connected Nodes Status -->
         <div class="connection-card">
           <div class="card-row">
-            <span class="card-name">Connected Nodes</span>
+            <span class="card-name">Node Health</span>
             <span class="status-badge" [class]="connectedCount() > 0 ? 'status-badge connected' : 'status-badge disconnected'">
               {{ connectedCount() }} {{ connectedCount() === 1 ? 'node' : 'nodes' }} connected
             </span>
           </div>
 
-          @for (node of liveNodes(); track node.id) {
-            <div class="node-row">
-              <div>
-                <span class="node-id">{{ node.name }}</span>
-                <span class="field-hint" style="margin: 0 0 0 0.5rem;">{{ node.address }}</span>
+          @if (nodeHealthEntries().length === 0) {
+            <p class="field-hint">No nodes have registered yet. Issue a one-time credential above, or share the legacy token with older workers.</p>
+          } @else {
+            @for (entry of nodeHealthEntries(); track entry.id) {
+              <div class="node-health-card">
+                <div class="node-row node-row-header">
+                  <div>
+                    <span class="node-id">{{ entry.name }}</span>
+                    <div class="node-meta">
+                      <span>{{ entry.id }}</span>
+                      @if (entry.address) {
+                        <span>{{ entry.address }}</span>
+                      }
+                    </div>
+                  </div>
+                  <div class="status-actions">
+                    <span class="status-badge" [class]="'status-badge ' + entry.status">{{ entry.status }}</span>
+                    <button
+                      class="btn btn-danger small"
+                      type="button"
+                      (click)="revokeNode(entry.id)"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+
+                <div class="node-meta">
+                  <span>Registered {{ formatRelativeTime(entry.createdAt) }}</span>
+                  @if (entry.connectedAt) {
+                    <span>Connected {{ formatRelativeTime(entry.connectedAt) }}</span>
+                  }
+                  @if (entry.lastHeartbeat) {
+                    <span>Heartbeat {{ formatRelativeTime(entry.lastHeartbeat) }}</span>
+                  }
+                </div>
+
+                @if (entry.supportsBrowser || entry.supportsGpu || entry.supportedClis.length > 0) {
+                  <div class="badge-row">
+                    @if (entry.supportsBrowser) {
+                      <span class="capability-chip">Browser</span>
+                    }
+                    @if (entry.supportsGpu) {
+                      <span class="capability-chip">GPU</span>
+                    }
+                    @for (cli of entry.supportedClis; track cli) {
+                      <span class="capability-chip">{{ cli }}</span>
+                    }
+                  </div>
+                }
               </div>
-              <span class="status-badge" [class]="'status-badge ' + node.status">{{ node.status }}</span>
-            </div>
+            }
           }
         </div>
       }
@@ -346,6 +542,14 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
     .section-desc {
       margin: 0; font-size: 0.875rem;
       color: var(--text-muted, #888);
+    }
+
+    .connection-summary {
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.625rem;
+      align-items: center;
     }
 
     .connection-card {
@@ -435,6 +639,12 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       gap: 0.25rem;
     }
 
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+
     .field-input {
       padding: 0.5rem;
       border: 1px solid var(--border-color, #333);
@@ -444,6 +654,11 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       font-size: 0.875rem;
       width: 100%;
       box-sizing: border-box;
+    }
+
+    .mono {
+      font-family: var(--font-family-mono, monospace);
+      letter-spacing: 0.03em;
     }
 
     .remote-nodes-tab .btn {
@@ -470,6 +685,7 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
     .remote-nodes-tab .btn-secondary:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
     .remote-nodes-tab .btn-danger { background: var(--error-color, #ef4444); color: white; }
     .remote-nodes-tab .btn-danger:hover:not(:disabled) { opacity: 0.9; }
+    .remote-nodes-tab .btn.small { min-height: 1.875rem; padding: 0.35rem 0.75rem; font-size: 0.8125rem; }
 
     .remote-nodes-tab .btn-icon {
       width: auto;
@@ -508,7 +724,79 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       flex-wrap: wrap;
     }
 
-    /* Toggle switch */
+    .btn-row.compact {
+      justify-content: flex-end;
+    }
+
+    .section-inline-hint {
+      margin: 0.125rem 0 0;
+    }
+
+    .pairing-presentation {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 1rem;
+      align-items: start;
+      padding-top: 0.25rem;
+    }
+
+    .pairing-qr-shell {
+      border: 1px solid var(--border-color, #333);
+      border-radius: 8px;
+      background: var(--bg-primary, #0f0f0f);
+      min-height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.75rem;
+      box-sizing: border-box;
+    }
+
+    .pairing-qr-image {
+      width: 100%;
+      max-width: 220px;
+      height: auto;
+      display: block;
+    }
+
+    .pairing-qr-placeholder {
+      color: var(--text-muted, #888);
+      font-size: 0.8125rem;
+      text-align: center;
+    }
+
+    .pairing-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .config-preview {
+      margin: 0;
+      padding: 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border-color, #333);
+      background: var(--bg-primary, #0f0f0f);
+      color: var(--text-primary, #e5e5e5);
+      font-size: 0.75rem;
+      line-height: 1.45;
+      overflow: auto;
+      font-family: var(--font-family-mono, monospace);
+    }
+
+    .meta-row,
+    .node-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.625rem;
+      font-size: 0.75rem;
+      color: var(--text-muted, #6b7280);
+    }
+
+    .warning-text {
+      color: #f59e0b;
+    }
+
     .toggle-label {
       position: relative;
       display: inline-flex;
@@ -551,7 +839,6 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       transform: translateX(16px);
     }
 
-    /* Node rows */
     .node-row {
       display: flex;
       align-items: center;
@@ -562,6 +849,10 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
 
     .node-row:first-of-type {
       border-top: none;
+    }
+
+    .node-row-header {
+      padding-top: 0;
     }
 
     .node-id {
@@ -576,16 +867,69 @@ import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types'
       font-weight: 600;
       color: var(--text-primary, #e5e5e5);
     }
+
+    .node-health-card {
+      border-top: 1px solid var(--border-color, #333);
+      padding-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .node-health-card:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .status-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375rem;
+    }
+
+    .capability-chip {
+      border-radius: 999px;
+      border: 1px solid var(--border-color, #333);
+      background: var(--bg-primary, #0f0f0f);
+      color: var(--text-primary, #e5e5e5);
+      font-size: 0.75rem;
+      padding: 0.2rem 0.55rem;
+      text-transform: capitalize;
+    }
+
+    @media (max-width: 720px) {
+      .pairing-presentation {
+        grid-template-columns: 1fr;
+      }
+
+      .pairing-qr-shell {
+        min-height: 0;
+      }
+
+      .token-row {
+        flex-wrap: wrap;
+      }
+
+      .status-actions {
+        justify-content: flex-start;
+      }
+    }
   `]
 })
 export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly store = inject(SettingsStore);
   private readonly ipc = inject(RemoteNodeIpcService);
 
-  // Server status
   protected readonly serverStatus = signal<RemoteNodeServerStatus>({ running: false });
 
-  // Draft config signals (local state — not written to store until Apply is clicked)
   protected readonly draftPort = signal(0);
   protected readonly draftHost = signal('');
   protected readonly draftNamespace = signal('');
@@ -594,24 +938,26 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly draftAutoOffloadBrowser = signal(true);
   protected readonly draftAutoOffloadGpu = signal(false);
 
-  // Token UI
   protected readonly tokenRevealed = signal(false);
   protected readonly customTokenMode = signal(false);
   protected readonly customTokenValue = signal('');
+  protected readonly pairingLabel = signal('');
+  protected readonly pairingTtlMinutes = signal(60);
+  protected readonly pendingPairings = signal<RemotePairingCredentialInfo[]>([]);
+  protected readonly pairingQrCode = signal<string | null>(null);
 
-  // Async operation flags
   protected readonly applying = signal(false);
   protected readonly regenerating = signal(false);
   protected readonly savingToken = signal(false);
+  protected readonly pairingBusy = signal(false);
 
-  // Live node data
   protected readonly liveNodes = signal<WorkerNodeInfo[]>([]);
   protected readonly connectedCount = signal(0);
 
-  // Error
   protected readonly error = signal<string | null>(null);
 
   private unsubscribeNodeEvent: (() => void) | null = null;
+  private unsubscribeNodesChanged: (() => void) | null = null;
 
   readonly hasDraftChanges = () => {
     return (
@@ -625,27 +971,82 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     );
   };
 
-  readonly registeredNodeEntries = () => {
-    const nodes = this.store.remoteNodesRegisteredNodes();
-    return Object.keys(nodes).map(id => ({ id, data: nodes[id] }));
+  readonly activePairing = () => this.pendingPairings()[0] ?? null;
+
+  readonly pairingLink = () => {
+    const pairing = this.activePairing();
+    return pairing ? this.buildPairingLink(pairing.token) : '';
+  };
+
+  readonly pairingConfigPreview = () => {
+    const pairing = this.activePairing();
+    return pairing
+      ? JSON.stringify(this.buildConnectionConfig(pairing.token), null, 2)
+      : '';
+  };
+
+  readonly nodeHealthEntries = (): NodeHealthEntry[] => {
+    const registeredNodes = this.store.remoteNodesRegisteredNodes() as Record<string, RegisteredNodeRecord>;
+    const liveById = new Map(this.liveNodes().map((node) => [node.id, node]));
+    const ids = new Set<string>([
+      ...Object.keys(registeredNodes),
+      ...liveById.keys(),
+    ]);
+    const rank: Record<WorkerNodeInfo['status'], number> = {
+      connected: 0,
+      degraded: 1,
+      connecting: 2,
+      disconnected: 3,
+    };
+
+    return [...ids]
+      .map((id) => {
+        const registered = registeredNodes[id];
+        const live = liveById.get(id);
+        return {
+          id,
+          name: live?.name ?? registered?.nodeName ?? id,
+          status: live?.status ?? 'disconnected',
+          address: live?.address,
+          createdAt: registered?.createdAt,
+          connectedAt: live?.connectedAt,
+          lastHeartbeat: live?.lastHeartbeat,
+          supportsBrowser: live?.capabilities.hasBrowserRuntime ?? false,
+          supportsGpu: Boolean(live?.capabilities.gpuName),
+          supportedClis: live?.capabilities.supportedClis ?? [],
+        };
+      })
+      .sort((left, right) => {
+        const statusDiff = rank[left.status] - rank[right.status];
+        if (statusDiff !== 0) {
+          return statusDiff;
+        }
+        return left.name.localeCompare(right.name);
+      });
   };
 
   async ngOnInit(): Promise<void> {
     this.syncDraftsFromStore();
-    await this.refreshStatus();
+    await Promise.all([
+      this.refreshStatus(),
+      this.refreshNodes(),
+      this.refreshPairings(),
+    ]);
 
     this.unsubscribeNodeEvent = this.ipc.onNodeEvent(() => {
       void this.refreshNodes();
-      this.connectedCount.set(
-        this.liveNodes().filter(n => n.status === 'connected').length
-      );
+      void this.refreshStatus();
     });
 
-    await this.refreshNodes();
+    this.unsubscribeNodesChanged = this.ipc.onNodesChanged((nodes) => {
+      this.liveNodes.set(nodes);
+      this.connectedCount.set(nodes.filter((node) => node.status === 'connected').length);
+    });
   }
 
   ngOnDestroy(): void {
     this.unsubscribeNodeEvent?.();
+    this.unsubscribeNodesChanged?.();
   }
 
   private syncDraftsFromStore(): void {
@@ -672,9 +1073,20 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     try {
       const nodes = await this.ipc.listNodes();
       this.liveNodes.set(nodes);
-      this.connectedCount.set(nodes.filter(n => n.status === 'connected').length);
+      this.connectedCount.set(nodes.filter((node) => node.status === 'connected').length);
     } catch {
-      // Non-fatal
+      // Non-fatal.
+    }
+  }
+
+  protected async refreshPairings(): Promise<void> {
+    try {
+      const pairings = await this.ipc.listPairingCredentials();
+      this.pendingPairings.set(pairings);
+      await this.updatePairingQrCode();
+    } catch {
+      this.pendingPairings.set([]);
+      this.pairingQrCode.set(null);
     }
   }
 
@@ -718,39 +1130,72 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     }
   }
 
-  async copyToken(): Promise<void> {
-    const token = this.store.remoteNodesEnrollmentToken();
-    if (!token) return;
+  async createPairingCredential(): Promise<void> {
+    if (!this.serverStatus().running) {
+      return;
+    }
+
+    this.pairingBusy.set(true);
+    this.error.set(null);
     try {
-      await navigator.clipboard.writeText(token);
-    } catch {
-      // Clipboard not available in all environments
+      const pairing = await this.ipc.issuePairingCredential({
+        label: this.pairingLabel().trim() || undefined,
+        ttlMs: this.pairingTtlMinutes() * 60_000,
+      });
+
+      if (pairing) {
+        this.pairingLabel.set('');
+      }
+
+      await Promise.all([
+        this.refreshPairings(),
+        this.refreshStatus(),
+      ]);
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.pairingBusy.set(false);
     }
   }
 
-  async copyConnectionConfig(): Promise<void> {
+  async copyToken(): Promise<void> {
     const token = this.store.remoteNodesEnrollmentToken();
-    const namespace = this.store.remoteNodesNamespace();
     if (!token) return;
+    await this.writeClipboard(token);
+  }
 
-    const configuredHost = this.store.remoteNodesServerHost();
-    const localIps = this.serverStatus().localIps ?? [];
-    // Use the first real IP instead of 0.0.0.0 so workers can actually connect
-    const host = (configuredHost === '0.0.0.0' && localIps.length > 0)
-      ? localIps[0]
-      : configuredHost;
+  async copyLegacyConnectionConfig(): Promise<void> {
+    const token = this.store.remoteNodesEnrollmentToken();
+    if (!token) return;
+    await this.writeClipboard(JSON.stringify(this.buildConnectionConfig(token), null, 2));
+  }
 
-    const config = {
-      token,
-      namespace,
-      host,
-      port: this.store.remoteNodesServerPort(),
-    };
+  async copyPairingToken(token: string): Promise<void> {
+    await this.writeClipboard(token);
+  }
 
+  async copyPairingLink(token: string): Promise<void> {
+    await this.writeClipboard(this.buildPairingLink(token));
+  }
+
+  async copyPairingConfig(token: string): Promise<void> {
+    await this.writeClipboard(JSON.stringify(this.buildConnectionConfig(token), null, 2));
+  }
+
+  async revokePairing(token: string): Promise<void> {
+    if (!confirm('Revoke this one-time pairing credential?')) {
+      return;
+    }
+
+    this.error.set(null);
     try {
-      await navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-    } catch {
-      // Clipboard not available in all environments
+      await this.ipc.revokePairingCredential(token);
+      await Promise.all([
+        this.refreshPairings(),
+        this.refreshStatus(),
+      ]);
+    } catch (err) {
+      this.error.set((err as Error).message);
     }
   }
 
@@ -800,6 +1245,116 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       await this.refreshNodes();
     } catch (err) {
       this.error.set((err as Error).message);
+    }
+  }
+
+  protected abbreviateToken(token: string): string {
+    return token.length <= 18
+      ? token
+      : `${token.slice(0, 8)}...${token.slice(-6)}`;
+  }
+
+  protected pairingExpiresSoon(pairing: RemotePairingCredentialInfo): boolean {
+    return pairing.expiresAt - Date.now() <= 15 * 60_000;
+  }
+
+  protected formatExpiry(timestamp: number): string {
+    const remainingMs = timestamp - Date.now();
+    if (remainingMs <= 0) {
+      return 'now';
+    }
+
+    const remainingMinutes = Math.round(remainingMs / 60_000);
+    if (remainingMinutes < 60) {
+      return `in ${remainingMinutes}m`;
+    }
+
+    const remainingHours = Math.round(remainingMinutes / 60);
+    if (remainingHours < 48) {
+      return `in ${remainingHours}h`;
+    }
+
+    const remainingDays = Math.round(remainingHours / 24);
+    return `in ${remainingDays}d`;
+  }
+
+  protected formatRelativeTime(timestamp?: number): string {
+    if (!timestamp) {
+      return 'never';
+    }
+
+    const deltaMs = Date.now() - timestamp;
+    if (deltaMs < 60_000) {
+      return 'just now';
+    }
+
+    const deltaMinutes = Math.round(deltaMs / 60_000);
+    if (deltaMinutes < 60) {
+      return `${deltaMinutes}m ago`;
+    }
+
+    const deltaHours = Math.round(deltaMinutes / 60);
+    if (deltaHours < 48) {
+      return `${deltaHours}h ago`;
+    }
+
+    const deltaDays = Math.round(deltaHours / 24);
+    return `${deltaDays}d ago`;
+  }
+
+  private buildConnectionConfig(token: string): Record<string, unknown> {
+    return {
+      token,
+      namespace: this.store.remoteNodesNamespace(),
+      host: this.getConnectionHost(),
+      port: this.store.remoteNodesServerPort(),
+      requireTls: this.serverStatus().requireTls ?? this.store.remoteNodesRequireTls(),
+    };
+  }
+
+  private buildPairingLink(token: string): string {
+    const params = new URLSearchParams({
+      host: this.getConnectionHost(),
+      port: String(this.store.remoteNodesServerPort()),
+      namespace: this.store.remoteNodesNamespace(),
+      token,
+      requireTls: String(this.serverStatus().requireTls ?? this.store.remoteNodesRequireTls()),
+    });
+    return `ai-orchestrator://remote-node/pair?${params.toString()}`;
+  }
+
+  private getConnectionHost(): string {
+    const configuredHost = this.serverStatus().host ?? this.store.remoteNodesServerHost();
+    const localIps = this.serverStatus().localIps ?? [];
+    return configuredHost === '0.0.0.0' && localIps.length > 0
+      ? localIps[0]
+      : configuredHost;
+  }
+
+  private async updatePairingQrCode(): Promise<void> {
+    const pairing = this.activePairing();
+    if (!pairing) {
+      this.pairingQrCode.set(null);
+      return;
+    }
+
+    try {
+      const dataUrl = await QRCode.toDataURL(this.buildPairingLink(pairing.token), {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 220,
+      });
+      this.pairingQrCode.set(dataUrl);
+    } catch {
+      this.pairingQrCode.set(null);
+    }
+  }
+
+  private async writeClipboard(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard access is not always available in the Electron sandbox.
     }
   }
 }

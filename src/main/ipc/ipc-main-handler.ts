@@ -35,6 +35,8 @@ import { getReactionEngine } from '../reactions';
 import { getKnowledgeGraphService } from '../memory/knowledge-graph-service';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { getRLMDatabase } from '../persistence/rlm-database';
+import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
 
 // Import extracted handlers
 import {
@@ -59,6 +61,7 @@ import {
   registerAppHandlers,
   registerFileHandlers,
   registerCodebaseHandlers,
+  registerEventStoreHandlers,
   registerSupervisionHandlers,
   registerRecentDirectoriesHandlers,
   registerEcosystemHandlers,
@@ -171,6 +174,17 @@ export class IpcMainHandler {
     registerAppHandlers({
       windowManager: this.windowManager,
       getIpcAuthToken: () => this.ipcAuthToken
+    });
+
+    const getEventStore = () => {
+      const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
+      store.initialize();
+      return store;
+    };
+    registerEventStoreHandlers({
+      getByAggregateId: (aggregateId) => getEventStore().getByAggregateId(aggregateId),
+      getByType: (type, limit) => getEventStore().getByType(type as never, limit),
+      getRecentEvents: (limit) => getEventStore().getRecentEvents(limit),
     });
 
     // Settings, config, and remote config handlers

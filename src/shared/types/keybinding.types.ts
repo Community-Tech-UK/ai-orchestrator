@@ -28,6 +28,8 @@ export interface KeyBinding {
   action: string;
   // Optional context when the binding is active
   context?: KeybindingContext;
+  // Additional eligibility checks evaluated against the current UI state
+  when?: KeybindingWhen[];
   // Whether this binding can be customized
   customizable?: boolean;
   // Category for grouping in UI
@@ -78,6 +80,32 @@ export type KeybindingAction =
   // Custom command
   | `command:${string}`;
 
+export type KeybindingWhen =
+  | 'instance-selected'
+  | 'multiple-instances'
+  | 'instance-running'
+  | 'command-palette-open'
+  | 'history-open'
+  | 'sidebar-visible';
+
+export interface KeybindingEligibilityState {
+  instanceSelected: boolean;
+  multipleInstances: boolean;
+  instanceRunning: boolean;
+  commandPaletteOpen: boolean;
+  historyOpen: boolean;
+  sidebarVisible: boolean;
+}
+
+export const DEFAULT_KEYBINDING_ELIGIBILITY_STATE: KeybindingEligibilityState = {
+  instanceSelected: false,
+  multipleInstances: false,
+  instanceRunning: false,
+  commandPaletteOpen: false,
+  historyOpen: false,
+  sidebarVisible: true,
+};
+
 /**
  * Default keybindings
  */
@@ -122,6 +150,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'w', modifiers: ['meta'] },
     action: 'close-instance',
     context: 'global',
+    when: ['instance-selected'],
     category: 'Instance',
     customizable: true,
   },
@@ -132,6 +161,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'Tab', modifiers: ['ctrl'] },
     action: 'next-instance',
     context: 'global',
+    when: ['multiple-instances'],
     category: 'Instance',
     customizable: true,
   },
@@ -142,6 +172,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'Tab', modifiers: ['ctrl', 'shift'] },
     action: 'prev-instance',
     context: 'global',
+    when: ['multiple-instances'],
     category: 'Instance',
     customizable: true,
   },
@@ -152,6 +183,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'r', modifiers: ['meta', 'shift'] },
     action: 'restart-instance',
     context: 'global',
+    when: ['instance-selected'],
     category: 'Instance',
     customizable: true,
   },
@@ -164,6 +196,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'p', modifiers: ['meta', 'shift'] },
     action: 'toggle-command-palette',
     context: 'global',
+    when: ['instance-selected'],
     category: 'UI',
     customizable: true,
   },
@@ -174,6 +207,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'k', modifiers: ['meta'] },
     action: 'toggle-command-palette',
     context: 'global',
+    when: ['instance-selected'],
     category: 'UI',
     customizable: true,
   },
@@ -266,6 +300,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'Escape', modifiers: [] },
     action: 'cancel-operation',
     context: 'global',
+    when: ['command-palette-open', 'history-open', 'instance-running'],
     category: 'Session',
     customizable: false,
   },
@@ -406,4 +441,32 @@ export function matchesKeyCombo(event: KeyboardEventLike, combo: KeyCombo): bool
 
   // Check the key
   return event.key.toLowerCase() === combo.key.toLowerCase();
+}
+
+export function matchesKeybindingWhen(
+  when: KeybindingWhen[] | undefined,
+  state: KeybindingEligibilityState,
+): boolean {
+  if (!when || when.length === 0) {
+    return true;
+  }
+
+  return when.some((clause) => {
+    switch (clause) {
+      case 'instance-selected':
+        return state.instanceSelected;
+      case 'multiple-instances':
+        return state.multipleInstances;
+      case 'instance-running':
+        return state.instanceRunning;
+      case 'command-palette-open':
+        return state.commandPaletteOpen;
+      case 'history-open':
+        return state.historyOpen;
+      case 'sidebar-visible':
+        return state.sidebarVisible;
+      default:
+        return false;
+    }
+  });
 }

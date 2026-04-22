@@ -83,13 +83,14 @@ export class ProviderDoctor {
         name: 'cli_installed',
         description: 'Check if the CLI binary is installed and accessible',
         critical: true,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'cursor'],
         run: async (provider) => {
           const cliMap: Record<string, string> = {
             'claude-cli': 'claude',
             'codex-cli': 'codex',
             'gemini-cli': 'gemini',
-            'copilot': 'gh',
+            'copilot': 'copilot',
+            'cursor': 'cursor-agent',
           };
           const cmd = cliMap[provider];
           if (!cmd) {
@@ -124,7 +125,7 @@ export class ProviderDoctor {
         name: 'authenticated',
         description: 'Check if the provider has valid credentials',
         critical: false,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'anthropic-api'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'anthropic-api'],
         run: async (provider) => {
           if (provider === 'claude-cli') {
             const start = Date.now();
@@ -142,7 +143,6 @@ export class ProviderDoctor {
             'anthropic-api': 'ANTHROPIC_API_KEY',
             'codex-cli': 'OPENAI_API_KEY',
             'gemini-cli': 'GOOGLE_API_KEY',
-            'copilot': 'GITHUB_TOKEN',
           };
           const envKey = envMap[provider];
           if (!envKey) {
@@ -261,7 +261,8 @@ export class ProviderDoctor {
             'claude-cli': 'npm install -g @anthropic-ai/claude-code',
             'codex-cli': 'npm install -g @openai/codex',
             'gemini-cli': 'npm install -g @google/gemini-cli',
-            'copilot': 'Install GitHub CLI from https://cli.github.com',
+            'copilot': 'npm install -g @github/copilot',
+            'cursor': 'Install Cursor and ensure `cursor-agent` is on PATH',
           };
           recs.push(`CLI not found. To install: ${installCmds[provider] ?? 'Check docs'}`);
           break;

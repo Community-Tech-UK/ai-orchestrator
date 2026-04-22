@@ -3,10 +3,12 @@
  * Includes built-in commands and skills from the skill registry
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { CommandIpcService } from '../services/ipc';
 import { SkillStore } from './skill.store';
+import { InstanceStore } from './instance.store';
 import type { CommandTemplate } from '../../../../shared/types/command.types';
+import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 
 // Extended command type that includes skill commands
 export interface ExtendedCommand extends CommandTemplate {
@@ -19,12 +21,16 @@ export interface ExtendedCommand extends CommandTemplate {
 export class CommandStore {
   private ipcService = inject(CommandIpcService);
   private skillStore = inject(SkillStore);
+  private instanceStore = inject(InstanceStore);
 
   // State
   private _commands = signal<CommandTemplate[]>([]);
   private _loading = signal(false);
   private _error = signal<string | null>(null);
   private _searchQuery = signal('');
+  private lastLoadedWorkingDirectory: string | null = null;
+  private loadSequence = 0;
+  private skillsLoaded = false;
 
   // Selectors - raw commands without skills
   rawCommands = this._commands.asReadonly();
@@ -83,19 +89,43 @@ export class CommandStore {
   /**
    * Load all commands from main process (including skills)
    */
-  async loadCommands(): Promise<void> {
+  constructor() {
+    effect(() => {
+      const workingDirectory = this.instanceStore.selectedInstance()?.workingDirectory ?? null;
+      void this.loadCommands(workingDirectory);
+    });
+  }
+
+  async loadCommands(
+    workingDirectory: string | null = this.instanceStore.selectedInstance()?.workingDirectory ?? null,
+  ): Promise<void> {
+    const normalizedWorkingDirectory = workingDirectory ?? null;
+    if (
+      this.lastLoadedWorkingDirectory === normalizedWorkingDirectory &&
+      this._commands().length > 0
+    ) {
+      return;
+    }
+
+    const requestId = ++this.loadSequence;
     this._loading.set(true);
     this._error.set(null);
 
     try {
-      // Load both commands and skills in parallel
-      const [commandResponse] = await Promise.all([
-        this.ipcService.listCommands(),
-        this.skillStore.discoverSkills(), // Load skills for command palette integration
-      ]);
+      const pendingWork: [Promise<IpcResponse>, Promise<unknown>] = [
+        this.ipcService.listCommands(normalizedWorkingDirectory ?? undefined),
+        this.skillsLoaded ? Promise.resolve() : this.skillStore.discoverSkills(),
+      ];
+      const [commandResponse] = await Promise.all(pendingWork);
+
+      if (requestId !== this.loadSequence) {
+        return;
+      }
 
       if (commandResponse.success && 'data' in commandResponse && commandResponse.data) {
         this._commands.set(commandResponse.data as CommandTemplate[]);
+        this.lastLoadedWorkingDirectory = normalizedWorkingDirectory;
+        this.skillsLoaded = true;
       } else {
         const errorMsg = 'error' in commandResponse ? commandResponse.error?.message : 'Failed to load commands';
         this._error.set(errorMsg || 'Failed to load commands');

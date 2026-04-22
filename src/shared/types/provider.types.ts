@@ -174,21 +174,23 @@ export const GOOGLE_MODELS = {
  * These are the latest models - will be dynamically fetched from CLI at runtime
  */
 export const COPILOT_MODELS = {
-  // Flagship tier - latest and best
-  CLAUDE_OPUS_46: 'claude-opus-4-6',
-  O3: 'o3',
-  GEMINI_3_1_PRO: 'gemini-3.1-pro-preview',
-  GEMINI_3_PRO: 'gemini-3-pro-preview',
-  GEMINI_25_PRO: 'gemini-2.5-pro',
-  // High performance tier
-  CLAUDE_SONNET_46: 'claude-sonnet-4-6',
+  AUTO: 'auto',
+  CLAUDE_SONNET_46: 'claude-sonnet-4.6',
+  CLAUDE_SONNET_45: 'claude-sonnet-4.5',
+  CLAUDE_HAIKU_45: 'claude-haiku-4.5',
+  CLAUDE_OPUS_47: 'claude-opus-4.7',
+  CLAUDE_OPUS_46: 'claude-opus-4.6',
+  CLAUDE_OPUS_46_FAST: 'claude-opus-4.6-fast',
+  CLAUDE_OPUS_45: 'claude-opus-4.5',
+  CLAUDE_SONNET_4: 'claude-sonnet-4',
   GPT54: 'gpt-5.4',
-  GEMINI_3_FLASH: 'gemini-3-flash-preview',
-  GEMINI_20_FLASH: 'gemini-2.0-flash',
-  // Fast tier
-  CLAUDE_HAIKU_46: 'claude-haiku-4-6',
+  GPT53_CODEX: 'gpt-5.3-codex',
+  GPT52_CODEX: 'gpt-5.2-codex',
+  GPT52: 'gpt-5.2',
+  GPT51: 'gpt-5.1',
   GPT54_MINI: 'gpt-5.4-mini',
-  GEMINI_20_FLASH_LITE: 'gemini-2.0-flash-lite',
+  GPT5_MINI: 'gpt-5-mini',
+  GPT41: 'gpt-4.1',
 } as const;
 
 /**
@@ -214,7 +216,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'openai-compatible': OPENAI_MODELS.GPT54,
   'ollama': 'llama3',
   'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
-  'copilot': COPILOT_MODELS.CLAUDE_SONNET_46,
+  'copilot': COPILOT_MODELS.AUTO,
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT54,
   cursor: CURSOR_MODELS.AUTO,
@@ -275,7 +277,8 @@ export interface ModelDisplayInfo {
 /**
  * Default/fallback models per CLI provider (for dropdown display).
  * Used when the provider does not support dynamic model listing.
- * Copilot dynamically fetches models via SDK; others use these static lists.
+ * Copilot dynamically fetches models from the installed CLI; this table is the
+ * fallback when discovery is unavailable.
  * Keys match InstanceProvider from instance.types.ts.
  */
 export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
@@ -299,18 +302,23 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },
   ],
   copilot: [
+    { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'powerful' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful' },
-    { id: COPILOT_MODELS.O3, name: 'OpenAI o3', tier: 'powerful' },
-    { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
-    { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
-    { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_46_FAST, name: 'Claude Opus 4.6 Fast', tier: 'powerful' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_45, name: 'Claude Opus 4.5', tier: 'powerful' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced' },
-    { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash', tier: 'fast' },
-    { id: COPILOT_MODELS.GEMINI_20_FLASH, name: 'Gemini 2.0 Flash', tier: 'fast' },
-    { id: COPILOT_MODELS.CLAUDE_HAIKU_46, name: 'Claude Haiku 4.6', tier: 'fast' },
+    { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced' },
+    { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'balanced' },
+    { id: COPILOT_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced' },
+    { id: COPILOT_MODELS.GPT51, name: 'GPT-5.1', tier: 'balanced' },
+    { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast' },
     { id: COPILOT_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast' },
-    { id: COPILOT_MODELS.GEMINI_20_FLASH_LITE, name: 'Gemini 2.0 Flash Lite', tier: 'fast' },
+    { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast' },
+    { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast' },
   ],
   ollama: [],
   cursor: [

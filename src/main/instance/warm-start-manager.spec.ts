@@ -159,6 +159,20 @@ describe('WarmStartManager', () => {
       expect(manager.hasWarm('claude')).toBe(false);
     });
 
+    it('matches Windows workingDirectory values across separator and case differences', async () => {
+      const fakeAdapter = { id: 'my-adapter' };
+      const deps = makeDeps({
+        spawnAdapter: vi.fn().mockResolvedValue(fakeAdapter),
+      });
+      const manager = new WarmStartManager(deps);
+      await manager.preWarm('claude', 'C:\\Users\\Alice\\Work\\My-App');
+
+      const result = manager.consume('claude', 'c:/users/alice/work/my-app/');
+
+      expect(result).toBe(fakeAdapter);
+      expect(manager.hasWarm('claude')).toBe(false);
+    });
+
     it('returns null when there is no warm process', () => {
       const deps = makeDeps();
       const manager = new WarmStartManager(deps);
@@ -218,6 +232,14 @@ describe('WarmStartManager', () => {
       await manager.preWarm('claude', '/project');
 
       expect(manager.hasWarm('claude', '/project')).toBe(true);
+    });
+
+    it('treats Windows workingDirectory filters as equivalent across separator and case differences', async () => {
+      const deps = makeDeps();
+      const manager = new WarmStartManager(deps);
+      await manager.preWarm('claude', 'C:\\Users\\Alice\\Work\\My-App');
+
+      expect(manager.hasWarm('claude', 'c:/users/alice/work/my-app/')).toBe(true);
     });
 
     it('returns false when provider matches but workingDirectory does not', async () => {

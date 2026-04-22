@@ -10,6 +10,7 @@ import {
   CommandCreatePayloadSchema,
   CommandDeletePayloadSchema,
   CommandExecutePayloadSchema,
+  CommandListPayloadSchema,
   CommandUpdatePayloadSchema,
   PlanModeApprovePayloadSchema,
   PlanModeEnterPayloadSchema,
@@ -33,9 +34,17 @@ export function registerCommandHandlers(
   // List all commands
   ipcMain.handle(
     IPC_CHANNELS.COMMAND_LIST,
-    async (): Promise<IpcResponse> => {
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
       try {
-        const allCommands = commands.getAllCommands();
+        const validated = validateIpcPayload(
+          CommandListPayloadSchema,
+          payload ?? {},
+          'COMMAND_LIST'
+        );
+        const allCommands = await commands.getAllCommands(validated.workingDirectory);
         return {
           success: true,
           data: allCommands
@@ -68,9 +77,11 @@ export function registerCommandHandlers(
         );
         const resolved = commands.executeCommand(
           validated.commandId,
-          validated.args || []
+          validated.args || [],
+          instanceManager.getInstance(validated.instanceId)?.workingDirectory,
         );
-        if (!resolved) {
+        const executed = await resolved;
+        if (!executed) {
           return {
             success: false,
             error: {
@@ -82,7 +93,7 @@ export function registerCommandHandlers(
         }
 
         // Special handling for /compact command — route to compaction coordinator
-        if (resolved.command.name === 'compact') {
+        if (executed.execution.type === 'compact') {
           const result = await getCompactionCoordinator().compactInstance(validated.instanceId);
           return {
             success: result.success,
@@ -95,15 +106,22 @@ export function registerCommandHandlers(
           };
         }
 
+        if (executed.execution.type === 'ui') {
+          return {
+            success: true,
+            data: executed
+          };
+        }
+
         // Send the resolved prompt to the instance
         await instanceManager.sendInput(
           validated.instanceId,
-          resolved.resolvedPrompt
+          executed.resolvedPrompt
         );
 
         return {
           success: true,
-          data: resolved
+          data: executed
         };
       } catch (error) {
         return {
