@@ -53,7 +53,7 @@ import { registerCrossModelReviewIpcHandlers } from './ipc/cross-model-review-ip
 import { getChannelManager, ChannelMessageRouter, ChannelPersistence, ChannelCredentialStore, ChannelAccessPolicyStore } from './channels';
 import { getRLMDatabase } from './persistence/rlm-database';
 // Bootstrap module registry (WS6) — replaces manual singleton wiring
-import { bootstrapAll } from './bootstrap';
+import { bootstrapAll, teardownAll } from './bootstrap';
 import { registerOrchestrationBootstrap } from './bootstrap/orchestration-bootstrap';
 import { registerLearningBootstrap } from './bootstrap/learning-bootstrap';
 import { registerMemoryBootstrap } from './bootstrap/memory-bootstrap';
@@ -1044,20 +1044,17 @@ class AIOrchestratorApp {
   async cleanup(): Promise<void> {
     try { setGlobalState({ shutdownRequested: true }); } catch { /* non-critical */ }
     logger.info('Cleaning up');
-    await runCleanupFunctions();
     try { getWorkerNodeHealth().stopAll(); } catch { /* best effort */ }
     try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
-    try { getResourceGovernor().stop(); } catch { /* best effort */ }
-    try { getHibernationManager().stop(); } catch { /* best effort */ }
-    try { getPoolManager().stop(); } catch { /* best effort */ }
-    try { getCrossModelReviewService().shutdown(); } catch { /* best effort */ }
-    try { getChannelManager().shutdown(); } catch { /* best effort */ }
-    // Session state already saved synchronously in cleanupSync()
-    try { await getChannelManager().shutdown(); } catch { /* best effort */ }
 
     // CRITICAL: await terminateAll so every instance is archived to history
     // before the process exits. Without this, conversations are lost on quit.
     await this.instanceManager.terminateAll();
+    // Run registered domain teardowns before the generic cleanup registry so
+    // teardown order remains explicit for bootstrap-managed services.
+    await teardownAll();
+    // Session state already saved synchronously in cleanupSync()
+    await runCleanupFunctions();
     // Kill any orphaned child processes that were not cleaned up by terminateAll.
     BaseCliAdapter.killAllActiveProcesses();
     logger.info('Cleanup complete — all instances archived');

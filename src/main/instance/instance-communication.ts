@@ -23,6 +23,10 @@ import type {
 import type { ErrorInfo } from '../../shared/types/ipc.types';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import { ToolOutputParser } from './tool-output-parser';
+import {
+  buildUnsupportedAttachmentWarnings,
+  isUnsupportedOrchestratorAttachmentError,
+} from './orchestrator-attachment-fallback';
 import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
@@ -349,6 +353,19 @@ export class InstanceCommunicationManager extends EventEmitter {
     logger.info('Queued continuity preamble for next user input', { instanceId });
   }
 
+  private emitAttachmentDropWarnings(
+    instanceId: string,
+    instance: Instance,
+    adapterName: string,
+    attachments: FileAttachment[],
+  ): void {
+    const warnings = buildUnsupportedAttachmentWarnings(adapterName, attachments);
+    for (const warning of warnings) {
+      this.addToOutputBuffer(instance, warning);
+      this.emit('output', { instanceId, message: warning });
+    }
+  }
+
   // ============================================
   // Message Sending
   // ============================================
@@ -562,7 +579,36 @@ export class InstanceCommunicationManager extends EventEmitter {
     try {
       await adapter.sendInput(finalMessage, attachments);
       logger.info('Message sent to adapter');
-    } catch (sendError) {
+    } catch (initialError) {
+      let sendError = initialError;
+
+      if (attachments?.length && isUnsupportedOrchestratorAttachmentError(sendError)) {
+        this.emitAttachmentDropWarnings(instanceId, instance, adapter.getName(), attachments);
+        attachments = undefined;
+        this.lastSentMessages.set(instanceId, { message, attachments, contextBlock });
+
+        if (!message.trim()) {
+          logger.info('Dropped unsupported attachments from empty user input; skipping adapter retry', {
+            instanceId,
+            adapter: adapter.getName(),
+          });
+          this.deps.onToolStateChange?.(instanceId, 'idle');
+          this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+          return;
+        }
+
+        try {
+          await adapter.sendInput(finalMessage, attachments);
+          logger.info('Message sent to adapter after dropping unsupported attachments', {
+            instanceId,
+            adapter: adapter.getName(),
+          });
+          return;
+        } catch (retryError) {
+          sendError = retryError;
+        }
+      }
+
       // Check if this is a context overflow error thrown from sendInput.
       // The adapter's on('error') handler won't fire for thrown errors,
       // so we must handle context overflow recovery inline.

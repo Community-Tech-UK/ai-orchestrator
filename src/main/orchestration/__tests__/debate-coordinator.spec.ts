@@ -143,6 +143,10 @@ function makeDistinctCritiqueHandler() {
   };
 }
 
+function waitForEvent<T>(coordinator: DebateCoordinator, event: string): Promise<T> {
+  return new Promise((resolve) => coordinator.once(event, resolve as (payload: T) => void));
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -231,16 +235,14 @@ describe('DebateCoordinator', () => {
     it('throws when no handler for debate:generate-response is registered', async () => {
       // No handlers registered — the debate runs in the background but should
       // emit debate:error. We capture the error event.
-      const errorPayloads: Array<{ debateId: string; error: string }> = [];
-      coordinator.on('debate:error', (payload) => errorPayloads.push(payload));
+      const errorPromise = waitForEvent<{ debateId: string; error: string }>(coordinator, 'debate:error');
 
       const id = await coordinator.startDebate('No handler query');
 
-      // Allow the async debate run to process
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      const errorPayload = await errorPromise;
 
-      expect(errorPayloads.some((e) => e.debateId === id)).toBe(true);
-      expect(errorPayloads[0].error).toMatch(/No handler registered/);
+      expect(errorPayload.debateId).toBe(id);
+      expect(errorPayload.error).toMatch(/No handler registered/);
     });
 
     it('merges provided config with defaults', async () => {
@@ -361,19 +363,17 @@ describe('DebateCoordinator', () => {
         // Deliberately do nothing (simulate timeout)
       });
 
-      const errorPayloads: Array<{ debateId: string; error: string }> = [];
-      coordinator.on('debate:error', (payload) => errorPayloads.push(payload));
+      const errorPromise = waitForEvent<{ debateId: string; error: string }>(coordinator, 'debate:error');
 
       const id = await coordinator.startDebate('Timeout test', undefined, {
         ...FAST_CONFIG,
         timeout: 50, // Very short timeout so the test is fast
       });
 
-      // Wait long enough for the timeout to fire
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const errorPayload = await errorPromise;
 
-      expect(errorPayloads.some((e) => e.debateId === id)).toBe(true);
-      expect(errorPayloads[0].error).toMatch(/timed out/i);
+      expect(errorPayload.debateId).toBe(id);
+      expect(errorPayload.error).toMatch(/timed out/i);
     });
   });
 
@@ -709,18 +709,17 @@ describe('DebateCoordinator', () => {
         // Deliberate no-op — callback never fired
       });
 
-      const errorPayloads: Array<{ debateId: string; error: string }> = [];
-      coordinator.on('debate:error', (payload) => errorPayloads.push(payload));
+      const errorPromise = waitForEvent<{ debateId: string; error: string }>(coordinator, 'debate:error');
 
       const id = await coordinator.startDebate('Timeout debate', undefined, {
         ...FAST_CONFIG,
         timeout: 30, // Extremely short to trigger quickly
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const errorPayload = await errorPromise;
 
       // Debate should have errored (due to the per-operation timeout)
-      expect(errorPayloads.some((e) => e.debateId === id)).toBe(true);
+      expect(errorPayload.debateId).toBe(id);
     });
 
     it('stores completed debate in getResult() after completion', async () => {
@@ -1012,14 +1011,12 @@ describe('DebateCoordinator', () => {
 
   describe('checkExtensibilityHandler (extensibility guard)', () => {
     it('emits debate:error when no handler is registered for generate-response', async () => {
-      const errors: Array<{ error: string }> = [];
-      coordinator.on('debate:error', (p) => errors.push(p));
+      const errorPromise = waitForEvent<{ error: string }>(coordinator, 'debate:error');
 
       await coordinator.startDebate('No handler', undefined, FAST_CONFIG);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      const errorPayload = await errorPromise;
 
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].error).toMatch(/No handler registered for debate:generate-response/);
+      expect(errorPayload.error).toMatch(/No handler registered for debate:generate-response/);
     });
   });
 

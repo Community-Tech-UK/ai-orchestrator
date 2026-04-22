@@ -87,6 +87,10 @@ import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
 import { warmCodememWithTimeout } from './warm-codemem';
+import {
+  buildUnsupportedAttachmentWarnings,
+  isUnsupportedOrchestratorAttachmentError,
+} from './orchestrator-attachment-fallback';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -709,6 +713,52 @@ export class InstanceLifecycleManager extends EventEmitter {
     };
   }
 
+  private emitAttachmentDropWarnings(
+    instanceId: string,
+    instance: Instance,
+    adapterName: string,
+    attachments: NonNullable<InstanceCreateConfig['attachments']>,
+  ): void {
+    const warnings = buildUnsupportedAttachmentWarnings(adapterName, attachments);
+    for (const warning of warnings) {
+      this.deps.addToOutputBuffer(instance, warning);
+      this.emit('output', { instanceId, message: warning });
+    }
+  }
+
+  private async sendInitialPromptWithAttachmentFallback(params: {
+    instance: Instance;
+    adapter: CliAdapter;
+    resolvedCliType: CliType;
+    message: string;
+    attachments?: InstanceCreateConfig['attachments'];
+  }): Promise<void> {
+    const { instance, adapter, resolvedCliType, message } = params;
+    let attachments = params.attachments;
+
+    try {
+      await adapter.sendInput(message, attachments);
+      return;
+    } catch (initialError) {
+      if (!attachments?.length || !isUnsupportedOrchestratorAttachmentError(initialError)) {
+        throw initialError;
+      }
+
+      this.emitAttachmentDropWarnings(instance.id, instance, adapter.getName(), attachments);
+
+      if (!message.trim()) {
+        logger.info('Dropped unsupported attachments from attachment-only initial prompt', {
+          instanceId: instance.id,
+          provider: resolvedCliType,
+        });
+        return;
+      }
+
+      attachments = undefined;
+      await adapter.sendInput(message, attachments);
+    }
+  }
+
   /**
    * Wait until the just-spawned CLI actually proves it accepted --resume,
    * not merely that its PID is alive.
@@ -1302,7 +1352,13 @@ export class InstanceLifecycleManager extends EventEmitter {
               this.emit('output', { instanceId: instance.id, message: initialUserMessage });
             }
             try {
-              await adapter.sendInput(initialUserMessage.content, config.attachments);
+              await this.sendInitialPromptWithAttachmentFallback({
+                instance,
+                adapter,
+                resolvedCliType,
+                message: initialUserMessage.content,
+                attachments: config.attachments,
+              });
             } catch (error) {
               this.transitionState(instance, 'failed');
               const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1385,7 +1441,13 @@ export class InstanceLifecycleManager extends EventEmitter {
                 this.deps.addToOutputBuffer(instance, initialUserMessage);
                 this.emit('output', { instanceId: instance.id, message: initialUserMessage });
               }
-              await adapter.sendInput(initialUserMessage.content, config.attachments);
+              await this.sendInitialPromptWithAttachmentFallback({
+                instance,
+                adapter,
+                resolvedCliType,
+                message: initialUserMessage.content,
+                attachments: config.attachments,
+              });
             }
           } catch (error) {
             this.transitionState(instance, 'failed');

@@ -427,6 +427,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
         }, request.config.timeout);
 
         this.emit('verification:invoke-agent', {
+          correlationId: `${request.id}:${agentConfig.agentId}`,
           requestId: request.id,
           instanceId: request.instanceId,
           agentId: agentConfig.agentId,

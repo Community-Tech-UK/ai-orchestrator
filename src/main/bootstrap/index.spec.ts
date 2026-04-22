@@ -73,6 +73,22 @@ describe('bootstrap registry', () => {
     await expect(bootstrapAll()).rejects.toThrow('hard-fail');
   });
 
+  it('rejects duplicate module names', () => {
+    registerBootstrapModule({
+      name: 'duplicate',
+      domain: 'test',
+      failureMode: 'degraded',
+      init: vi.fn(),
+    });
+
+    expect(() => registerBootstrapModule({
+      name: 'duplicate',
+      domain: 'test',
+      failureMode: 'degraded',
+      init: vi.fn(),
+    })).toThrow('Bootstrap module "duplicate" already registered');
+  });
+
   it('tears modules down in reverse dependency order', async () => {
     const order: string[] = [];
 
@@ -100,5 +116,56 @@ describe('bootstrap registry', () => {
     await teardownAll();
 
     expect(order).toEqual(['workers', 'database']);
+  });
+
+  it('tears down only initialized modules after a critical failure', async () => {
+    const order: string[] = [];
+
+    registerBootstrapModule({
+      name: 'database',
+      domain: 'test',
+      failureMode: 'degraded',
+      init: vi.fn(() => {
+        order.push('database:init');
+      }),
+      teardown: vi.fn(() => {
+        order.push('database:teardown');
+      }),
+    });
+    registerBootstrapModule({
+      name: 'workers',
+      domain: 'test',
+      failureMode: 'degraded',
+      dependencies: ['database'],
+      init: vi.fn(() => {
+        order.push('workers:init');
+      }),
+      teardown: vi.fn(() => {
+        order.push('workers:teardown');
+      }),
+    });
+    registerBootstrapModule({
+      name: 'failing-critical',
+      domain: 'test',
+      failureMode: 'critical',
+      dependencies: ['workers'],
+      init: vi.fn(() => {
+        order.push('failing-critical:init');
+        throw new Error('stop');
+      }),
+      teardown: vi.fn(() => {
+        order.push('failing-critical:teardown');
+      }),
+    });
+
+    await expect(bootstrapAll()).rejects.toThrow('stop');
+
+    expect(order).toEqual([
+      'database:init',
+      'workers:init',
+      'failing-critical:init',
+      'workers:teardown',
+      'database:teardown',
+    ]);
   });
 });

@@ -146,6 +146,7 @@ const mockAdapterSendInput = vi.fn().mockResolvedValue(undefined);
 const mockAdapterTerminate = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleMaybeGenerate = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleClearInstance = vi.fn();
+let mockAdapterName = 'claude-cli';
 
 // Build a per-test adapter factory so we can get fresh adapters
 function makeMockAdapter() {
@@ -153,10 +154,12 @@ function makeMockAdapter() {
     spawn: () => Promise<number>;
     sendInput: (msg: string, attachments?: unknown[]) => Promise<void>;
     terminate: (graceful: boolean) => Promise<void>;
+    getName: () => string;
   };
   adapter.spawn = mockAdapterSpawn;
   adapter.sendInput = mockAdapterSendInput;
   adapter.terminate = mockAdapterTerminate;
+  adapter.getName = () => mockAdapterName;
   return adapter;
 }
 
@@ -649,6 +652,7 @@ describe('InstanceManager', () => {
     mockAdapterTerminate.mockResolvedValue(undefined);
     mockAutoTitleMaybeGenerate.mockResolvedValue(undefined);
     mockAutoTitleClearInstance.mockReset();
+    mockAdapterName = 'claude-cli';
 
     mockResolveAgent.mockResolvedValue({
       id: 'build',
@@ -868,6 +872,38 @@ describe('InstanceManager', () => {
           undefined,
         );
       });
+    });
+
+    it('drops unsupported initial attachments and retries without failing the instance', async () => {
+      const attachments = [
+        { name: 'screenshot.png', type: 'image/png', size: 3, data: 'abc' },
+      ];
+      mockAdapterName = 'copilot-cli';
+      mockAdapterSendInput
+        .mockRejectedValueOnce(new Error('Copilot adapter does not currently support attachments in orchestrator mode.'))
+        .mockResolvedValueOnce(undefined);
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'Inspect this screenshot.',
+        attachments,
+      });
+
+      const readyPromise = instance.readyPromise;
+      expect(readyPromise).toBeDefined();
+      await expect(readyPromise).resolves.toBeUndefined();
+
+      expect(mockAdapterSendInput).toHaveBeenNthCalledWith(1, 'Inspect this screenshot.', attachments);
+      expect(mockAdapterSendInput).toHaveBeenNthCalledWith(2, 'Inspect this screenshot.', undefined);
+      expect(
+        instance.outputBuffer.some(
+          (message) =>
+            message.type === 'system'
+            && /copilot-cli does not support image attachments in orchestrator mode/i.test(message.content),
+        ),
+      ).toBe(true);
+      expect(instance.outputBuffer.some((message) => message.type === 'error')).toBe(false);
+      expect(instance.status).toBe('idle');
     });
   });
 

@@ -19,4 +19,11 @@ describe('registerBuiltInProviders', () => {
     expect(adapter.provider).toBe('claude');
     expect(adapter.events$).toBeDefined();
   });
+
+  it('can be called repeatedly without duplicate registration errors', () => {
+    registerBuiltInProviders(registry);
+
+    expect(() => registerBuiltInProviders(registry)).not.toThrow();
+    expect(registry.list().map(d => d.provider).sort()).toEqual(['claude', 'codex', 'copilot', 'cursor', 'gemini']);
+  });
 });

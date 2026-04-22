@@ -10,6 +10,21 @@ vi.mock('../claude-cli-auth', () => ({
 
 import { ProviderDoctor } from '../provider-doctor';
 
+async function withPlatform<T>(
+  platform: NodeJS.Platform,
+  run: () => Promise<T> | T,
+): Promise<T> {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: platform });
+  try {
+    return await run();
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(process, 'platform', originalDescriptor);
+    }
+  }
+}
+
 describe('ProviderDoctor', () => {
   beforeEach(() => {
     ProviderDoctor._resetForTesting();
@@ -34,6 +49,38 @@ describe('ProviderDoctor', () => {
     const doctor = ProviderDoctor.getInstance();
     const probes = doctor.getProbesForProvider('cursor');
     expect(probes.map((probe) => probe.name)).toEqual(['cli_installed']);
+  });
+
+  it('uses the Windows path resolver for CLI install checks', async () => {
+    const doctor = ProviderDoctor.getInstance();
+    const execFileAsync = vi
+      .spyOn(
+        doctor as unknown as {
+          execFileAsync: (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
+        },
+        'execFileAsync',
+      )
+      .mockResolvedValue({
+        stdout: 'C:\\Users\\User\\AppData\\Roaming\\npm\\claude.cmd\r\n',
+        stderr: '',
+      });
+
+    const cliProbe = doctor
+      .getProbesForProvider('claude-cli')
+      .find((probe) => probe.name === 'cli_installed');
+
+    expect(cliProbe).toBeDefined();
+
+    const result = await withPlatform('win32', () => cliProbe!.run('claude-cli'));
+
+    expect(execFileAsync).toHaveBeenCalledWith('where', ['claude']);
+    expect(result).toMatchObject({
+      name: 'cli_installed',
+      status: 'pass',
+      message: 'claude found in PATH',
+    });
+
+    execFileAsync.mockRestore();
   });
 
   it('should aggregate healthy results correctly', () => {

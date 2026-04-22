@@ -123,6 +123,31 @@ describe('CoordinatorEventBridge', () => {
     );
   });
 
+  it('emits debate.synthesized when the synthesis round completes', () => {
+    const coordinator = new EventEmitter();
+    bridge.wireDebateCoordinator(coordinator);
+
+    coordinator.emit('debate:round-complete', {
+      debateId: 'd-synth',
+      round: { type: 'synthesis', index: 3 },
+    });
+
+    expect(mockStore.append).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        type: 'debate.round_completed',
+        aggregateId: 'd-synth',
+      }),
+    );
+    expect(mockStore.append).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: 'debate.synthesized',
+        aggregateId: 'd-synth',
+      }),
+    );
+  });
+
   it('handles store errors gracefully', () => {
     mockStore.append.mockImplementation(() => { throw new Error('DB error'); });
     const coordinator = new EventEmitter();
@@ -185,5 +210,15 @@ describe('CoordinatorEventBridge', () => {
         type: 'branch.prepared',
       }),
     );
+  });
+
+  it('disposes registered listeners', () => {
+    const coordinator = new EventEmitter();
+    bridge.wireVerifyCoordinator(coordinator);
+    bridge.dispose();
+
+    coordinator.emit('verification:started', { id: 'v-disposed', instanceId: 'inst-1' });
+
+    expect(mockStore.append).not.toHaveBeenCalled();
   });
 });

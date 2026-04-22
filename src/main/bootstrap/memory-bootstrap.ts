@@ -34,6 +34,10 @@ export function registerMemoryBootstrap(): void {
     domain: 'memory',
     failureMode: 'degraded',
     dependencies: ['Memory agents'],
+    teardown: () => {
+      const { getSummarizationWorker } = require('../rlm/summarization-worker') as typeof import('../rlm/summarization-worker');
+      getSummarizationWorker().stop();
+    },
     init: () => {
       const { getRLMContextManager } = require('../rlm/context-manager') as typeof import('../rlm/context-manager');
       const { getEpisodicRLMStore } = require('../rlm/episodic-rlm-store') as typeof import('../rlm/episodic-rlm-store');

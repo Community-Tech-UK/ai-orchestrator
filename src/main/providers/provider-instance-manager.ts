@@ -15,16 +15,18 @@ import {
   type ProviderConfig,
   type ProviderStatus,
 } from '../../shared/types/provider.types';
+import type { ProviderName } from '@contracts/types/provider-runtime-events';
 import type { ProviderAdapterRegistry } from '@sdk/provider-adapter-registry';
 import { BaseProvider, ProviderFactory } from './provider-interface';
-import { ClaudeCliProvider, DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider';
-import { CodexCliProvider, DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
-import { GeminiCliProvider, DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider';
-import { CopilotCliProvider, DEFAULT_COPILOT_CONFIG } from './copilot-cli-provider';
-import { CursorCliProvider, DEFAULT_CURSOR_CONFIG } from './cursor-cli-provider';
+import { DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider';
+import { DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
+import { DEFAULT_GEMINI_CONFIG } from './gemini-cli-provider';
+import { DEFAULT_COPILOT_CONFIG } from './copilot-cli-provider';
+import { DEFAULT_CURSOR_CONFIG } from './cursor-cli-provider';
 import { AnthropicApiProvider } from './anthropic-api-provider';
 import { CliDetectionService, CliInfo } from '../cli/cli-detection';
 import { providerAdapterRegistry } from './provider-adapter-registry';
+import { registerBuiltInProviders } from './register-built-in-providers';
 
 /**
  * Default provider configurations.
@@ -72,6 +74,14 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   },
 };
 
+const REGISTRY_PROVIDER_BY_TYPE: Partial<Record<ProviderType, ProviderName>> = {
+  'claude-cli': 'claude',
+  'openai': 'codex',
+  'google': 'gemini',
+  'copilot': 'copilot',
+  'cursor': 'cursor',
+};
+
 /**
  * Provider Instance Manager - Singleton that manages provider configurations
  * and creation.
@@ -86,20 +96,12 @@ export class ProviderInstanceManager {
 
   constructor(adapterRegistry: ProviderAdapterRegistry = providerAdapterRegistry) {
     this.adapterRegistry = adapterRegistry;
+    registerBuiltInProviders(this.adapterRegistry);
     // Initialize with default configs
     for (const [type, config] of Object.entries(DEFAULT_PROVIDER_CONFIGS)) {
       this.configs.set(type, { ...config });
     }
-    this.registerBuiltinProviders();
-  }
-
-  private registerBuiltinProviders(): void {
-    this.factories.set('claude-cli', (config) => new ClaudeCliProvider(config));
     this.factories.set('anthropic-api', (config) => new AnthropicApiProvider(config));
-    this.factories.set('openai', (config) => new CodexCliProvider(config));
-    this.factories.set('google', (config) => new GeminiCliProvider(config));
-    this.factories.set('copilot', (config) => new CopilotCliProvider(config));
-    this.factories.set('cursor', (config) => new CursorCliProvider(config));
   }
 
   /**
@@ -140,7 +142,21 @@ export class ProviderInstanceManager {
    * Check if a provider type is supported (has a factory)
    */
   isSupported(type: string): boolean {
-    return this.factories.has(type);
+    if (this.factories.has(type)) {
+      return true;
+    }
+
+    const providerName = REGISTRY_PROVIDER_BY_TYPE[type as ProviderType];
+    if (!providerName) {
+      return false;
+    }
+
+    try {
+      this.adapterRegistry.get(providerName);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -185,18 +201,23 @@ export class ProviderInstanceManager {
    * surface becomes the single entry point for provider instantiation.
    */
   createProvider(type: ProviderType | string, configOverrides?: Partial<ProviderConfig>): BaseProvider {
-    const factory = this.factories.get(type);
-    if (!factory) {
-      throw new Error(`Provider type '${type}' is not yet implemented`);
-    }
-
     const baseConfig = this.configs.get(type);
     if (!baseConfig) {
       throw new Error(`No configuration found for provider '${type}'`);
     }
 
     const config = { ...baseConfig, ...configOverrides };
-    return factory(config);
+    const localFactory = this.factories.get(type);
+    if (localFactory) {
+      return localFactory(config);
+    }
+
+    const providerName = REGISTRY_PROVIDER_BY_TYPE[type as ProviderType];
+    if (providerName) {
+      return this.adapterRegistry.create(providerName, config) as BaseProvider;
+    }
+
+    throw new Error(`Provider type '${type}' is not yet implemented`);
   }
 
   /**

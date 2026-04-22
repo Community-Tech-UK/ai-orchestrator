@@ -177,6 +177,8 @@ export class ReviewCoordinator extends EventEmitter {
     const userPrompt = this.buildAgentUserPrompt(review, agent);
 
     const invoked = await this.invokeReviewAgent({
+      reviewId: review.id,
+      agentId: agent.id,
       instanceId: review.instanceId,
       model: options?.model,
       systemPrompt,
@@ -442,6 +444,8 @@ export class ReviewCoordinator extends EventEmitter {
   }
 
   private async invokeReviewAgent(params: {
+    reviewId: string;
+    agentId: string;
     instanceId?: string;
     model?: string;
     systemPrompt: string;
@@ -459,7 +463,10 @@ export class ReviewCoordinator extends EventEmitter {
       }, 5 * 60 * 1000);
 
       this.emit('review:invoke-agent', {
+        correlationId: `${params.reviewId}:${params.agentId}`,
+        reviewId: params.reviewId,
         instanceId: params.instanceId,
+        agentId: params.agentId,
         model: params.model || 'default',
         systemPrompt: params.systemPrompt,
         context: params.context,

@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+function makeDescriptor(provider: string, defaultConfig: Record<string, unknown>) {
+  return {
+    provider,
+    displayName: provider,
+    capabilities: {},
+    defaultConfig,
+  };
+}
+
 vi.mock('./claude-cli-provider', () => ({
   ClaudeCliProvider: vi.fn().mockImplementation(() => ({ type: 'claude-cli' })),
   DEFAULT_CLAUDE_CONFIG: {
@@ -8,6 +17,12 @@ vi.mock('./claude-cli-provider', () => ({
     enabled: true,
     defaultModel: 'claude-sonnet',
   },
+  CLAUDE_DESCRIPTOR: makeDescriptor('claude', {
+    type: 'claude-cli',
+    name: 'Claude Code CLI',
+    enabled: true,
+    defaultModel: 'claude-sonnet',
+  }),
 }));
 vi.mock('./codex-cli-provider', () => ({
   CodexCliProvider: vi.fn().mockImplementation(() => ({ type: 'openai' })),
@@ -16,6 +31,11 @@ vi.mock('./codex-cli-provider', () => ({
     name: 'OpenAI',
     enabled: false,
   },
+  CODEX_DESCRIPTOR: makeDescriptor('codex', {
+    type: 'openai',
+    name: 'OpenAI',
+    enabled: false,
+  }),
 }));
 vi.mock('./gemini-cli-provider', () => ({
   GeminiCliProvider: vi.fn().mockImplementation(() => ({ type: 'google' })),
@@ -24,6 +44,11 @@ vi.mock('./gemini-cli-provider', () => ({
     name: 'Google AI',
     enabled: false,
   },
+  GEMINI_DESCRIPTOR: makeDescriptor('gemini', {
+    type: 'google',
+    name: 'Google AI',
+    enabled: false,
+  }),
 }));
 vi.mock('./copilot-cli-provider', () => ({
   CopilotCliProvider: vi.fn().mockImplementation(() => ({ type: 'copilot' })),
@@ -32,6 +57,24 @@ vi.mock('./copilot-cli-provider', () => ({
     name: 'GitHub Copilot CLI',
     enabled: false,
   },
+  COPILOT_DESCRIPTOR: makeDescriptor('copilot', {
+    type: 'copilot',
+    name: 'GitHub Copilot CLI',
+    enabled: false,
+  }),
+}));
+vi.mock('./cursor-cli-provider', () => ({
+  CursorCliProvider: vi.fn().mockImplementation(() => ({ type: 'cursor' })),
+  DEFAULT_CURSOR_CONFIG: {
+    type: 'cursor',
+    name: 'Cursor',
+    enabled: false,
+  },
+  CURSOR_DESCRIPTOR: makeDescriptor('cursor', {
+    type: 'cursor',
+    name: 'Cursor',
+    enabled: false,
+  }),
 }));
 vi.mock('./anthropic-api-provider', () => ({
   AnthropicApiProvider: vi.fn().mockImplementation(() => ({ type: 'anthropic-api' })),
@@ -128,5 +171,10 @@ describe('ProviderInstanceManager runtime registration', () => {
     expect(registry.isSupported('anthropic-api')).toBe(true);
     expect(registry.isSupported('openai')).toBe(true);
     expect(registry.isSupported('google')).toBe(true);
+  });
+
+  it('creates built-in provider instances through the adapter registry', () => {
+    expect(registry.createProvider('openai')).toEqual({ type: 'openai' });
+    expect(registry.createProvider('cursor')).toEqual({ type: 'cursor' });
   });
 });

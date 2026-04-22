@@ -358,6 +358,7 @@ export class WorkflowManager extends EventEmitter {
       const agentId = `${execution.id}-${agentType}-${index}`;
 
       this.emit('workflow:invoke-agent', {
+        correlationId: `${execution.id}:${agentId}`,
         executionId: execution.id,
         agentId,
         agentType,

@@ -30,6 +30,11 @@ import { fork } from 'child_process';
 import type { ToolSafetyMetadata } from '../../shared/types/tool.types';
 import { isToolDefinition } from './define-tool';
 import type { ToolDefinition } from './define-tool';
+import {
+  normalizeToolResultPayload,
+  type ToolOutputMetadata,
+  type ToolResultTelemetry,
+} from './tool-result-normalizer';
 
 export type { ToolSafetyMetadata } from '../../shared/types/tool.types';
 
@@ -331,18 +336,32 @@ export class ToolRegistry extends EventEmitter {
     toolId: string;
     args?: unknown;
     ctx: ToolContext;
-  }): Promise<{ ok: boolean; output: unknown; tool?: { id: string; description: string; filePath: string } }> {
+  }): Promise<{
+    ok: boolean;
+    output: unknown;
+    outputMetadata: ToolOutputMetadata;
+    telemetry: ToolResultTelemetry;
+    tool?: { id: string; description: string; filePath: string };
+  }> {
     const tools = await this.getTools(params.ctx.workingDirectory);
     const tool = tools.get(params.toolId);
     if (!tool) {
-      return { ok: false, output: { error: `Tool not found: ${params.toolId}` } };
+      const normalized = normalizeToolResultPayload(
+        { error: `Tool not found: ${params.toolId}` },
+        'error',
+      );
+      return { ok: false, ...normalized };
     }
 
     const parsed = tool.schema.safeParse(params.args ?? {});
     if (!parsed.success) {
+      const normalized = normalizeToolResultPayload(
+        { error: 'Invalid tool arguments', issues: parsed.error.issues },
+        'error',
+      );
       return {
         ok: false,
-        output: { error: 'Invalid tool arguments', issues: parsed.error.issues },
+        ...normalized,
         tool: { id: tool.id, description: tool.description, filePath: tool.filePath },
       };
     }
@@ -356,16 +375,18 @@ export class ToolRegistry extends EventEmitter {
     });
 
     if (!result.ok) {
+      const normalized = normalizeToolResultPayload({ error: result.error }, 'error');
       return {
         ok: false,
-        output: { error: result.error },
+        ...normalized,
         tool: { id: tool.id, description: tool.description, filePath: tool.filePath },
       };
     }
 
+    const normalized = normalizeToolResultPayload(result.output, 'success');
     return {
       ok: true,
-      output: result.output,
+      ...normalized,
       tool: { id: tool.id, description: tool.description, filePath: tool.filePath },
     };
   }

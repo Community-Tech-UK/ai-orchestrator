@@ -13,6 +13,7 @@
 import { getLogger } from '../../logging/logger';
 import { isFeatureEnabled } from '../../../shared/constants/feature-flags';
 import type { OrchestrationEvent, OrchestrationEventType } from './orchestration-events';
+import type { OrchestrationCommandReceipt } from '../orchestration-command-receipts';
 
 const logger = getLogger('OrchestrationEventStore');
 
@@ -34,6 +35,17 @@ interface EventRow {
   metadata: string | null;
 }
 
+interface CommandReceiptRow {
+  command_id: string;
+  status: OrchestrationCommandReceipt['status'];
+  type: string;
+  aggregate_id: string;
+  timestamp: number;
+  event_id: string | null;
+  reason: string | null;
+  metadata: string | null;
+}
+
 function rowToEvent(row: EventRow): OrchestrationEvent {
   return {
     id: row.id,
@@ -43,6 +55,21 @@ function rowToEvent(row: EventRow): OrchestrationEvent {
     payload: JSON.parse(row.payload) as Record<string, unknown>,
     metadata: row.metadata
       ? (JSON.parse(row.metadata) as OrchestrationEvent['metadata'])
+      : undefined,
+  };
+}
+
+function rowToCommandReceipt(row: CommandReceiptRow): OrchestrationCommandReceipt {
+  return {
+    commandId: row.command_id,
+    status: row.status,
+    type: row.type as OrchestrationEventType,
+    aggregateId: row.aggregate_id,
+    timestamp: row.timestamp,
+    eventId: row.event_id ?? undefined,
+    reason: row.reason ?? undefined,
+    metadata: row.metadata
+      ? (JSON.parse(row.metadata) as OrchestrationCommandReceipt['metadata'])
       : undefined,
   };
 }
@@ -85,6 +112,22 @@ export class OrchestrationEventStore {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_orch_events_type ON orchestration_events(type)
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS orchestration_command_receipts (
+        command_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        event_id TEXT,
+        reason TEXT,
+        metadata TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      )
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_orch_receipts_aggregate ON orchestration_command_receipts(aggregate_id)
+    `);
 
     this.initialized = true;
     logger.info('Orchestration event store initialized');
@@ -126,5 +169,31 @@ export class OrchestrationEventStore {
       'SELECT * FROM orchestration_events ORDER BY timestamp DESC LIMIT ?',
     );
     return (stmt.all(limit) as EventRow[]).map(rowToEvent);
+  }
+
+  recordCommandReceipt(receipt: OrchestrationCommandReceipt): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO orchestration_command_receipts (
+        command_id, status, type, aggregate_id, timestamp, event_id, reason, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      receipt.commandId,
+      receipt.status,
+      receipt.type,
+      receipt.aggregateId,
+      receipt.timestamp,
+      receipt.eventId ?? null,
+      receipt.reason ?? null,
+      receipt.metadata ? JSON.stringify(receipt.metadata) : null,
+    );
+  }
+
+  getCommandReceipt(commandId: string): OrchestrationCommandReceipt | undefined {
+    const stmt = this.db.prepare(
+      'SELECT * FROM orchestration_command_receipts WHERE command_id = ?',
+    );
+    const row = stmt.get(commandId) as CommandReceiptRow | undefined;
+    return row ? rowToCommandReceipt(row) : undefined;
   }
 }

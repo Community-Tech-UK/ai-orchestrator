@@ -8,6 +8,7 @@
 import { execFile } from 'child_process';
 import { getLogger } from '../logging/logger';
 import type { HealthStatus } from '../core/system/health-checker';
+import { buildCliSpawnOptions } from '../cli/cli-environment';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 
 const logger = getLogger('ProviderDoctor');
@@ -66,7 +67,10 @@ export class ProviderDoctor {
     timeout = 5000
   ): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
-      execFile(file, args, { timeout }, (error, stdout, stderr) => {
+      execFile(file, args, {
+        timeout,
+        ...buildCliSpawnOptions(process.env),
+      }, (error, stdout, stderr) => {
         if (error) {
           reject(Object.assign(error, { stdout, stderr }));
           return;
@@ -103,8 +107,9 @@ export class ProviderDoctor {
           }
 
           const start = Date.now();
+          const pathResolver = process.platform === 'win32' ? 'where' : 'which';
           try {
-            await this.execFileAsync('which', [cmd]);
+            await this.execFileAsync(pathResolver, [cmd]);
             return {
               name: 'cli_installed',
               status: 'pass' as const,

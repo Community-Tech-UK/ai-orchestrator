@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { buildCliSpawnOptions } from '../cli/cli-environment';
 
 export interface ClaudeCliAuthStatus {
   loggedIn: boolean;
@@ -19,7 +20,10 @@ async function execFileAsync(
   timeout = 5000
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout }, (error, stdout, stderr) => {
+    execFile(file, args, {
+      timeout,
+      ...buildCliSpawnOptions(process.env),
+    }, (error, stdout, stderr) => {
       if (error) {
         reject(Object.assign(error, { stdout, stderr }));
         return;

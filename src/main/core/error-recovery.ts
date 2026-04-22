@@ -63,6 +63,24 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     retryAfterMs: 5000,
     userMessageTemplate: 'Network connection issue. Retrying...',
   },
+  // Permission and approval errors
+  {
+    name: 'permission_error',
+    messagePatterns: [
+      /approval required/i,
+      /permission required/i,
+      /sandbox denied/i,
+      /user rejected/i,
+      /denied by policy/i,
+      /EACCES/i,
+      /EPERM/i,
+    ],
+    codePatterns: ['permission_denied', 'approval_required', 'EACCES', 'EPERM'],
+    category: ErrorCategory.PERMISSION,
+    severity: ErrorSeverity.WARNING,
+    recoverable: false,
+    userMessageTemplate: 'This action requires permission or user approval.',
+  },
   // Authentication errors
   {
     name: 'auth_error',
@@ -72,7 +90,6 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       /invalid.?api.?key/i,
       /401/,
       /403/,
-      /permission denied/i,
     ],
     codePatterns: [401, 403, 'authentication_error', 'invalid_api_key'],
     category: ErrorCategory.AUTH,
@@ -190,6 +207,108 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     retryAfterMs: 2000,
     userMessageTemplate: 'CLI process ended unexpectedly. Restarting...',
   },
+  // Provider runtime failures
+  {
+    name: 'provider_runtime',
+    messagePatterns: [
+      /provider runtime/i,
+      /provider adapter/i,
+      /adapter.*failed/i,
+      /provider unavailable/i,
+      /runtime adapter/i,
+      /model provider failed/i,
+    ],
+    codePatterns: ['provider_runtime', 'adapter_error'],
+    category: ErrorCategory.PROVIDER_RUNTIME,
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    retryAfterMs: 2000,
+    userMessageTemplate: 'The provider runtime failed. Retrying or rerouting.',
+  },
+  // Prompt delivery / transport errors
+  {
+    name: 'prompt_delivery',
+    messagePatterns: [
+      /failed to deliver prompt/i,
+      /failed to send input/i,
+      /failed to send message/i,
+      /prompt delivery/i,
+      /broken pipe/i,
+      /EPIPE/i,
+    ],
+    codePatterns: ['prompt_delivery', 'EPIPE'],
+    category: ErrorCategory.PROMPT_DELIVERY,
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    retryAfterMs: 1500,
+    userMessageTemplate: 'Prompt delivery failed. Retrying the operation.',
+  },
+  // Tool runtime errors
+  {
+    name: 'tool_runtime',
+    messagePatterns: [
+      /tool runtime/i,
+      /tool execution failed/i,
+      /tool .* failed/i,
+      /command exited with code/i,
+      /subprocess failed/i,
+    ],
+    codePatterns: ['tool_runtime'],
+    category: ErrorCategory.TOOL_RUNTIME,
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    retryAfterMs: 1000,
+    userMessageTemplate: 'A tool failed while running. Retrying where safe.',
+  },
+  // Session replay/resume errors
+  {
+    name: 'session_resume',
+    messagePatterns: [
+      /resume failed/i,
+      /failed to resume/i,
+      /session replay/i,
+      /checkpoint restore failed/i,
+      /history recovery failed/i,
+    ],
+    codePatterns: ['session_resume'],
+    category: ErrorCategory.SESSION_RESUME,
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    retryAfterMs: 1000,
+    userMessageTemplate: 'Session resume failed. Restoring from a safe checkpoint.',
+  },
+  // Validation failures
+  {
+    name: 'validation_error',
+    messagePatterns: [
+      /validation failed/i,
+      /invalid payload/i,
+      /schema/i,
+      /zod/i,
+      /expected .* received/i,
+    ],
+    codePatterns: ['validation_error', 'invalid_payload'],
+    category: ErrorCategory.VALIDATION,
+    severity: ErrorSeverity.WARNING,
+    recoverable: false,
+    userMessageTemplate: 'The request payload was invalid.',
+  },
+  // Stale worktree / branch state
+  {
+    name: 'stale_worktree',
+    messagePatterns: [
+      /stale worktree/i,
+      /dirty worktree/i,
+      /merge conflict/i,
+      /needs rebase/i,
+      /branch .* behind/i,
+      /worktree .* locked/i,
+    ],
+    category: ErrorCategory.STALE_WORKTREE,
+    severity: ErrorSeverity.WARNING,
+    recoverable: false,
+    userMessageTemplate: 'The worktree or branch state needs attention before retrying.',
+  },
   // CLI not installed
   {
     name: 'cli_not_installed',
@@ -217,18 +336,6 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     severity: ErrorSeverity.WARNING,
     recoverable: false,
     userMessageTemplate: 'Failed to parse CLI output.',
-  },
-  // Permission denied
-  {
-    name: 'permission_denied',
-    messagePatterns: [
-      /EACCES/i,
-      /EPERM/i,
-    ],
-    category: ErrorCategory.PERMANENT,
-    severity: ErrorSeverity.ERROR,
-    recoverable: false,
-    userMessageTemplate: 'Permission denied. Please check file/CLI permissions.',
   },
   // Invalid input
   {
@@ -313,7 +420,11 @@ export class ErrorRecoveryManager extends EventEmitter {
   /**
    * Classify an error and determine recovery strategy
    */
-  classifyError(error: Error, source?: string): ClassifiedError {
+  classifyError(
+    error: Error,
+    source?: string,
+    metadata?: Record<string, unknown>,
+  ): ClassifiedError {
     const errorMessage = error.message || error.toString();
     const errorCode = (error as Error & { code?: string | number }).code;
 
@@ -351,6 +462,7 @@ export class ErrorRecoveryManager extends EventEmitter {
           technicalDetails: errorMessage,
           code: errorCode,
           source,
+          metadata,
           timestamp: Date.now(),
         };
 
@@ -370,6 +482,7 @@ export class ErrorRecoveryManager extends EventEmitter {
       technicalDetails: errorMessage,
       code: errorCode,
       source,
+      metadata,
       timestamp: Date.now(),
     };
 
@@ -433,6 +546,24 @@ export class ErrorRecoveryManager extends EventEmitter {
         });
         break;
 
+      case ErrorCategory.PROVIDER_RUNTIME:
+      case ErrorCategory.PROMPT_DELIVERY:
+      case ErrorCategory.TOOL_RUNTIME:
+        actions.push({
+          type: RecoveryActionType.RETRY,
+          description: 'Retry the failed operation',
+          priority: 1,
+          requiresConfirmation: false,
+          estimatedTimeMs: error.retryAfterMs || 2000,
+        });
+        actions.push({
+          type: RecoveryActionType.SWITCH_PROVIDER,
+          description: 'Reroute to another provider if available',
+          priority: 2,
+          requiresConfirmation: false,
+        });
+        break;
+
       case ErrorCategory.RESOURCE:
         if (error.technicalDetails?.includes('context')) {
           actions.push({
@@ -451,10 +582,28 @@ export class ErrorRecoveryManager extends EventEmitter {
         }
         break;
 
+      case ErrorCategory.SESSION_RESUME:
+        actions.push({
+          type: RecoveryActionType.RESTORE_CHECKPOINT,
+          description: 'Restore the latest checkpoint',
+          priority: 1,
+          requiresConfirmation: false,
+        });
+        actions.push({
+          type: RecoveryActionType.RESTART_SESSION,
+          description: 'Restart the session from the restored state',
+          priority: 2,
+          requiresConfirmation: false,
+        });
+        break;
+
+      case ErrorCategory.PERMISSION:
+      case ErrorCategory.VALIDATION:
+      case ErrorCategory.STALE_WORKTREE:
       case ErrorCategory.AUTH:
         actions.push({
           type: RecoveryActionType.NOTIFY_USER,
-          description: 'Notify user to check credentials',
+          description: 'Notify user for intervention',
           priority: 1,
           requiresConfirmation: false,
         });

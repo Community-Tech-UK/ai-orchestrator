@@ -6,6 +6,7 @@
  */
 
 import { registerBootstrapModule } from './index';
+import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 
 export function registerOrchestrationBootstrap(): void {
   registerBootstrapModule({
@@ -35,7 +36,18 @@ export function registerOrchestrationBootstrap(): void {
     domain: 'orchestration',
     failureMode: 'degraded',
     dependencies: ['Orchestration singletons'],
+    teardown: () => {
+      const globalState = globalThis as typeof globalThis & {
+        __orchestrationEventBridge?: import('../orchestration/event-store/coordinator-event-bridge').CoordinatorEventBridge;
+      };
+      globalState.__orchestrationEventBridge?.dispose();
+      delete globalState.__orchestrationEventBridge;
+    },
     init: () => {
+      if (!isFeatureEnabled('EVENT_SOURCING')) {
+        return;
+      }
+
       const { getRLMDatabase } = require('../persistence/rlm-database') as typeof import('../persistence/rlm-database');
       const { getDebateCoordinator } = require('../orchestration/debate-coordinator') as typeof import('../orchestration/debate-coordinator');
       const { getMultiVerifyCoordinator } = require('../orchestration/multi-verify-coordinator') as typeof import('../orchestration/multi-verify-coordinator');
@@ -47,6 +59,11 @@ export function registerOrchestrationBootstrap(): void {
       store.initialize();
 
       const bridge = new CoordinatorEventBridge(store);
+      const globalState = globalThis as typeof globalThis & {
+        __orchestrationEventBridge?: import('../orchestration/event-store/coordinator-event-bridge').CoordinatorEventBridge;
+      };
+      globalState.__orchestrationEventBridge?.dispose();
+      globalState.__orchestrationEventBridge = bridge;
       bridge.wireVerifyCoordinator(getMultiVerifyCoordinator());
       bridge.wireDebateCoordinator(getDebateCoordinator());
       bridge.wireParallelWorktreeCoordinator(getParallelWorktreeCoordinator());

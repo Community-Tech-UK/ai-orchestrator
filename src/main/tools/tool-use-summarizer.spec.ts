@@ -2,14 +2,24 @@ import { describe, it, expect, vi } from 'vitest';
 import { ToolUseSummarizer } from './tool-use-summarizer';
 import type { ToolExecutionResult } from './streaming-tool-executor';
 
+function makeTelemetry(status: 'success' | 'error', outputKind: 'text' | 'structured' | 'empty') {
+  return {
+    status,
+    outputKind,
+    truncated: false,
+    byteCount: 0,
+    lineCount: 0,
+  } as const;
+}
+
 describe('ToolUseSummarizer', () => {
   it('generates a summary from tool results', async () => {
     const mockLlm = vi.fn(async (_prompt: string) => 'Read 3 files and edited config.json');
     const summarizer = new ToolUseSummarizer(mockLlm);
 
     const results: ToolExecutionResult[] = [
-      { toolUseId: '1', toolId: 'read', ok: true, output: 'file contents...', durationMs: 100 },
-      { toolUseId: '2', toolId: 'edit', ok: true, output: 'edited', durationMs: 200 },
+      { toolUseId: '1', toolId: 'read', ok: true, output: 'file contents...', outputMetadata: { kind: 'text', truncated: false, byteCount: 0, lineCount: 1 }, telemetry: makeTelemetry('success', 'text'), durationMs: 100 },
+      { toolUseId: '2', toolId: 'edit', ok: true, output: 'edited', outputMetadata: { kind: 'text', truncated: false, byteCount: 0, lineCount: 1 }, telemetry: makeTelemetry('success', 'text'), durationMs: 200 },
     ];
 
     const summary = await summarizer.summarize(results);
@@ -22,7 +32,7 @@ describe('ToolUseSummarizer', () => {
     const summarizer = new ToolUseSummarizer(mockLlm);
 
     const results: ToolExecutionResult[] = [
-      { toolUseId: '1', toolId: 'bash', ok: true, output: 'ok', durationMs: 50 },
+      { toolUseId: '1', toolId: 'bash', ok: true, output: 'ok', outputMetadata: { kind: 'text', truncated: false, byteCount: 0, lineCount: 1 }, telemetry: makeTelemetry('success', 'text'), durationMs: 50 },
     ];
 
     const summary = await summarizer.summarize(results);
@@ -43,7 +53,7 @@ describe('ToolUseSummarizer', () => {
     const summarizer = new ToolUseSummarizer(mockLlm);
 
     const results: ToolExecutionResult[] = [
-      { toolUseId: '1', toolId: 'bash', ok: false, error: 'command not found', durationMs: 30 },
+      { toolUseId: '1', toolId: 'bash', ok: false, error: 'command not found', outputMetadata: { kind: 'empty', truncated: false, byteCount: 0, lineCount: 0 }, telemetry: makeTelemetry('error', 'empty'), durationMs: 30 },
     ];
 
     const summary = await summarizer.summarize(results);

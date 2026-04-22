@@ -19,8 +19,25 @@ import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
 import type { CliType } from '../cli/cli-detection';
+import {
+  DebateCritiqueInvocationPayloadSchema,
+  DebateDefenseInvocationPayloadSchema,
+  DebateResponseInvocationPayloadSchema,
+  DebateSynthesisInvocationPayloadSchema,
+  normalizeInvocationTextResult,
+  ReviewAgentInvocationPayloadSchema,
+  VerificationAgentInvocationPayloadSchema,
+  WorkflowAgentInvocationPayloadSchema,
+} from '../../shared/types/orchestration-invocation.types';
+import type { z } from 'zod';
 
 const logger = getLogger('DefaultInvokers');
+
+type DebateInvocationSchema =
+  | typeof DebateResponseInvocationPayloadSchema
+  | typeof DebateCritiqueInvocationPayloadSchema
+  | typeof DebateDefenseInvocationPayloadSchema
+  | typeof DebateSynthesisInvocationPayloadSchema;
 
 function resolveDefaultModel(cliType: CliType, payloadModel?: string): string | undefined {
   if (typeof payloadModel === 'string' && payloadModel !== 'default') return payloadModel;
@@ -36,133 +53,214 @@ function buildUserPrompt(userPrompt: string, context?: string): string {
   return `${context.trim()}\n\n---\n\n${userPrompt}`;
 }
 
+function parseInvocationPayload<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  invocationName: string,
+): T {
+  const result = schema.safeParse(payload);
+  if (!result.success) {
+    throw new Error(`${invocationName} payload validation failed: ${result.error.issues[0]?.message ?? result.error.message}`);
+  }
+  return result.data;
+}
+
+function getCallbackFromPayload<T extends (...args: any[]) => unknown>(
+  payload: unknown,
+): T | undefined {
+  const callback = (payload as { callback?: unknown } | null | undefined)?.callback;
+  return typeof callback === 'function' ? (callback as T) : undefined;
+}
+
+async function invokeCliTextResponse(params: {
+  instanceManager: InstanceManager;
+  instanceId?: string;
+  requestedProvider?: string;
+  payloadModel?: string;
+  systemPrompt?: string;
+  prompt: string;
+  context?: string;
+  breakerKey: string;
+  correlationId: string;
+}): Promise<ReturnType<typeof normalizeInvocationTextResult>> {
+  const instance = params.instanceId
+    ? params.instanceManager.getInstance(params.instanceId)
+    : undefined;
+  const workingDirectory = instance?.workingDirectory || process.cwd();
+  const fallbackProvider = instance?.provider as string | undefined;
+  const requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
+  const defaultCli = getSettingsManager().getAll().defaultCli;
+  const cliType = await resolveCliType(requestedProvider as any, defaultCli);
+  const model = resolveDefaultModel(cliType, params.payloadModel);
+
+  const spawnOptions: UnifiedSpawnOptions = {
+    workingDirectory,
+    model,
+    systemPrompt: params.systemPrompt,
+    yoloMode: false,
+    timeout: 300000,
+  };
+
+  const breaker = getCircuitBreakerRegistry().getBreaker(params.breakerKey, {
+    failureThreshold: 3,
+    resetTimeoutMs: 60000,
+  });
+
+  const prompt = buildUserPrompt(params.prompt, params.context);
+  const response = await breaker.execute(async () => {
+    const adapter = createCliAdapter(cliType, spawnOptions);
+    if (!isBaseCliAdapterLike(adapter)) {
+      throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+    }
+    return adapter.sendMessage({ role: 'user', content: prompt });
+  });
+
+  const normalized = normalizeInvocationTextResult({
+    response: response.content,
+    tokens: response.usage?.totalTokens ?? 0,
+    cost: 0,
+  });
+
+  logger.info('Orchestration invocation completed', {
+    correlationId: params.correlationId,
+    cliType,
+    breakerKey: params.breakerKey,
+    model,
+    tokens: normalized.tokens,
+  });
+
+  return normalized;
+}
+
+function logInvocationFailure(params: {
+  correlationId: string;
+  invocation: string;
+  error: unknown;
+  eventName?: string;
+  provider?: string;
+  model?: string;
+  instanceId?: string;
+}): string {
+  const failoverErr = coerceToFailoverError(params.error, {
+    provider: params.provider,
+    model: params.model,
+    instanceId: params.instanceId,
+  });
+  if (failoverErr) {
+    logger.warn(`${params.invocation} failed (classified)`, {
+      correlationId: params.correlationId,
+      eventName: params.eventName,
+      reason: failoverErr.reason,
+      retryable: failoverErr.retryable,
+    });
+  }
+
+  const message = params.error instanceof Error ? params.error.message : String(params.error);
+  logger.error(`${params.invocation} failed`, params.error instanceof Error ? params.error : undefined, {
+    correlationId: params.correlationId,
+    eventName: params.eventName,
+    provider: params.provider,
+    model: params.model,
+    instanceId: params.instanceId,
+  });
+  return message;
+}
+
 export function registerDefaultMultiVerifyInvoker(instanceManager: InstanceManager): void {
   const coordinator = getMultiVerifyCoordinator();
-  const settings = getSettingsManager();
 
   // Avoid double-registration if initialize() is called multiple times (macOS window lifecycle).
   const alreadyRegistered = coordinator.listenerCount('verification:invoke-agent') > 0;
   if (alreadyRegistered) return;
 
-  coordinator.on('verification:invoke-agent', async (payload: any) => {
-    const callback = payload?.callback as ((err: string | null, response?: string, tokens?: number, cost?: number) => void) | undefined;
-    if (!callback) return;
+  coordinator.on('verification:invoke-agent', async (payload: unknown) => {
+    const callback = getCallbackFromPayload<
+      z.infer<typeof VerificationAgentInvocationPayloadSchema>['callback']
+    >(payload);
+    let parsed: z.infer<typeof VerificationAgentInvocationPayloadSchema>;
+    try {
+      parsed = parseInvocationPayload(
+        VerificationAgentInvocationPayloadSchema,
+        payload,
+        'verification:invoke-agent',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Verification invocation payload rejected', error instanceof Error ? error : undefined);
+      callback?.(message);
+      return;
+    }
 
     try {
-      const instanceId = payload.instanceId as string | undefined;
-      const instance = instanceId ? instanceManager.getInstance(instanceId) : undefined;
-
-      const workingDirectory = instance?.workingDirectory || process.cwd();
-      const requestedProvider = (instance?.provider as any) || 'auto';
-      const defaultCli = settings.getAll().defaultCli;
-
-      const cliType = await resolveCliType(requestedProvider, defaultCli);
-
-      const model = resolveDefaultModel(cliType, payload.model);
-      const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : undefined;
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        workingDirectory,
-        model,
-        systemPrompt,
-        yoloMode: false,
-        timeout: 300000,
-      };
-
-      // Use circuit breaker to prevent cascading failures
-      const breaker = getCircuitBreakerRegistry().getBreaker(`verify-${cliType}`, {
-        failureThreshold: 3,
-        resetTimeoutMs: 60000,
+      const result = await invokeCliTextResponse({
+        instanceManager,
+        instanceId: parsed.instanceId,
+        payloadModel: parsed.model,
+        systemPrompt: parsed.systemPrompt,
+        prompt: parsed.userPrompt,
+        context: parsed.context,
+        breakerKey: 'verify-orchestration',
+        correlationId: parsed.correlationId,
       });
-
-      const response = await breaker.execute(async () => {
-        const adapter = createCliAdapter(cliType, spawnOptions);
-        if (!isBaseCliAdapterLike(adapter)) {
-          throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-        }
-
-        const prompt = buildUserPrompt(String(payload.userPrompt || ''), payload.context ? String(payload.context) : undefined);
-        return adapter.sendMessage({ role: 'user', content: prompt });
-      });
-
-      const tokens = response.usage?.totalTokens ?? 0;
-      const cost = 0;
-      callback(null, response.content, tokens, cost);
+      parsed.callback(null, result.response, result.tokens, result.cost);
     } catch (err) {
-      // Classify the error for better diagnostics
-      const failoverErr = coerceToFailoverError(err);
-      if (failoverErr) {
-        logger.warn('Verification agent invocation failed (classified)', {
-          reason: failoverErr.reason,
-          retryable: failoverErr.retryable,
-        });
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      callback(message);
+      const message = logInvocationFailure({
+        correlationId: parsed.correlationId,
+        invocation: 'Verification agent invocation',
+        error: err,
+        instanceId: parsed.instanceId,
+        model: parsed.model,
+      });
+      parsed.callback(message);
     }
   });
 }
 
 export function registerDefaultReviewInvoker(instanceManager: InstanceManager): void {
   const coordinator = getReviewCoordinator();
-  const settings = getSettingsManager();
 
   const alreadyRegistered = coordinator.listenerCount('review:invoke-agent') > 0;
   if (alreadyRegistered) return;
 
-  coordinator.on('review:invoke-agent', async (payload: any) => {
-    const callback = payload?.callback as ((err: string | null, response?: string, tokens?: number, cost?: number) => void) | undefined;
-    if (!callback) return;
+  coordinator.on('review:invoke-agent', async (payload: unknown) => {
+    const callback = getCallbackFromPayload<
+      z.infer<typeof ReviewAgentInvocationPayloadSchema>['callback']
+    >(payload);
+    let parsed: z.infer<typeof ReviewAgentInvocationPayloadSchema>;
+    try {
+      parsed = parseInvocationPayload(
+        ReviewAgentInvocationPayloadSchema,
+        payload,
+        'review:invoke-agent',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Review invocation payload rejected', error instanceof Error ? error : undefined);
+      callback?.(message);
+      return;
+    }
 
     try {
-      const instanceId = payload.instanceId as string | undefined;
-      const instance = instanceId ? instanceManager.getInstance(instanceId) : undefined;
-
-      const workingDirectory = instance?.workingDirectory || process.cwd();
-      const requestedProvider = (instance?.provider as any) || 'auto';
-      const defaultCli = settings.getAll().defaultCli;
-      const cliType = await resolveCliType(requestedProvider, defaultCli);
-
-      const model = resolveDefaultModel(cliType, payload.model);
-      const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : undefined;
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        workingDirectory,
-        model,
-        systemPrompt,
-        yoloMode: false,
-        timeout: 300000,
-      };
-
-      // Use circuit breaker to prevent cascading failures
-      const breaker = getCircuitBreakerRegistry().getBreaker(`review-${cliType}`, {
-        failureThreshold: 3,
-        resetTimeoutMs: 60000,
+      const result = await invokeCliTextResponse({
+        instanceManager,
+        instanceId: parsed.instanceId,
+        payloadModel: parsed.model,
+        systemPrompt: parsed.systemPrompt,
+        prompt: parsed.userPrompt,
+        context: parsed.context,
+        breakerKey: 'review-orchestration',
+        correlationId: parsed.correlationId,
       });
-
-      const response = await breaker.execute(async () => {
-        const adapter = createCliAdapter(cliType, spawnOptions);
-        if (!isBaseCliAdapterLike(adapter)) {
-          throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-        }
-
-        const prompt = buildUserPrompt(String(payload.userPrompt || ''), payload.context ? String(payload.context) : undefined);
-        return adapter.sendMessage({ role: 'user', content: prompt });
-      });
-
-      const tokens = response.usage?.totalTokens ?? 0;
-      const cost = 0;
-      callback(null, response.content, tokens, cost);
+      parsed.callback(null, result.response, result.tokens, result.cost);
     } catch (err) {
-      const failoverErr = coerceToFailoverError(err);
-      if (failoverErr) {
-        logger.warn('Review agent invocation failed (classified)', {
-          reason: failoverErr.reason,
-          retryable: failoverErr.retryable,
-        });
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      callback(message);
+      const message = logInvocationFailure({
+        correlationId: parsed.correlationId,
+        invocation: 'Review agent invocation',
+        error: err,
+        instanceId: parsed.instanceId,
+        model: parsed.model,
+      });
+      parsed.callback(message);
     }
   });
 }
@@ -173,80 +271,84 @@ const DEBATE_EVENTS = [
   'debate:generate-defense',
   'debate:generate-synthesis',
 ] as const;
+type DebateEventName = (typeof DEBATE_EVENTS)[number];
 
 export function registerDefaultDebateInvoker(instanceManager: InstanceManager): void {
   const coordinator = getDebateCoordinator();
-  const settings = getSettingsManager();
+  const schemasByEvent: Record<DebateEventName, DebateInvocationSchema> = {
+    'debate:generate-response': DebateResponseInvocationPayloadSchema,
+    'debate:generate-critiques': DebateCritiqueInvocationPayloadSchema,
+    'debate:generate-defense': DebateDefenseInvocationPayloadSchema,
+    'debate:generate-synthesis': DebateSynthesisInvocationPayloadSchema,
+  };
 
   for (const eventName of DEBATE_EVENTS) {
     const alreadyRegistered = coordinator.listenerCount(eventName) > 0;
     if (alreadyRegistered) continue;
 
-    coordinator.on(eventName, async (payload: any) => {
-      const callback = payload?.callback as ((...args: any[]) => void) | undefined;
-      if (!callback) return;
-
-      let adapter: CliAdapter | undefined;
+    coordinator.on(eventName, async (payload: unknown) => {
+      const callback = getCallbackFromPayload<
+        | z.infer<typeof DebateResponseInvocationPayloadSchema>['callback']
+        | z.infer<typeof DebateCritiqueInvocationPayloadSchema>['callback']
+        | z.infer<typeof DebateDefenseInvocationPayloadSchema>['callback']
+        | z.infer<typeof DebateSynthesisInvocationPayloadSchema>['callback']
+      >(payload);
+      let parsed:
+        | z.infer<typeof DebateResponseInvocationPayloadSchema>
+        | z.infer<typeof DebateCritiqueInvocationPayloadSchema>
+        | z.infer<typeof DebateDefenseInvocationPayloadSchema>
+        | z.infer<typeof DebateSynthesisInvocationPayloadSchema>;
       try {
-        const instanceId = payload.instanceId as string | undefined;
-        const instance = instanceId ? instanceManager.getInstance(instanceId) : undefined;
+        parsed = parseInvocationPayload(
+          schemasByEvent[eventName],
+          payload,
+          eventName,
+        );
+      } catch (error) {
+        logger.error(`${eventName} payload rejected`, error instanceof Error ? error : undefined);
+        if (callback) {
+          logger.warn('Rejected debate payload has no error callback channel', { eventName });
+        }
+        return;
+      }
 
-        const workingDirectory = instance?.workingDirectory || process.cwd();
-        const requestedProvider = (payload.provider as string | undefined) || (instance?.provider as any) || 'auto';
-        const defaultCli = settings.getAll().defaultCli;
-        const cliType = await resolveCliType(requestedProvider as any, defaultCli);
-
-        const model = resolveDefaultModel(cliType, payload.model);
-        const systemPrompt = typeof payload.systemPrompt === 'string' ? payload.systemPrompt : undefined;
-
-        const spawnOptions: UnifiedSpawnOptions = {
-          workingDirectory,
-          model,
-          systemPrompt,
-          yoloMode: false,
-          timeout: 300000,
-        };
-
-        // Use circuit breaker to prevent cascading failures
-        const breaker = getCircuitBreakerRegistry().getBreaker(`debate-${cliType}`, {
-          failureThreshold: 3,
-          resetTimeoutMs: 60000,
+      try {
+        const result = await invokeCliTextResponse({
+          instanceManager,
+          instanceId: parsed.instanceId,
+          requestedProvider: parsed.provider,
+          payloadModel: parsed.model,
+          systemPrompt: parsed.systemPrompt,
+          prompt: parsed.prompt,
+          context: parsed.context,
+          breakerKey: `debate-orchestration:${eventName}`,
+          correlationId: parsed.correlationId,
         });
-
-        const response = await breaker.execute(async () => {
-          adapter = createCliAdapter(cliType, spawnOptions);
-          if (!isBaseCliAdapterLike(adapter)) {
-            throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-          }
-
-          const prompt = buildUserPrompt(String(payload.prompt || ''), payload.context ? String(payload.context) : undefined);
-          return adapter.sendMessage({ role: 'user', content: prompt });
-        });
-
-        const tokens = response.usage?.totalTokens ?? 0;
-        // generate-response callback expects (response, tokens); others expect (response)
         if (eventName === 'debate:generate-response') {
-          callback(response.content, tokens);
+          (
+            parsed as z.infer<typeof DebateResponseInvocationPayloadSchema>
+          ).callback(result.response, result.tokens);
         } else {
-          callback(response.content);
+          (
+            parsed as
+              | z.infer<typeof DebateCritiqueInvocationPayloadSchema>
+              | z.infer<typeof DebateDefenseInvocationPayloadSchema>
+              | z.infer<typeof DebateSynthesisInvocationPayloadSchema>
+          ).callback(result.response);
         }
       } catch (err) {
-        // Classify the error for better diagnostics
-        const failoverErr = coerceToFailoverError(err);
-        if (failoverErr) {
-          logger.warn('Debate agent invocation failed (classified)', {
-            reason: failoverErr.reason,
-            retryable: failoverErr.retryable,
-            eventName,
-          });
-        }
+        logInvocationFailure({
+          correlationId: parsed.correlationId,
+          invocation: 'Debate agent invocation',
+          error: err,
+          eventName,
+          provider: parsed.provider,
+          model: parsed.model,
+          instanceId: parsed.instanceId,
+        });
         // Debate callbacks don't have an error parameter — the Promise will
         // time out on the coordinator side if no callback is invoked.
         logger.error('Error handling debate event', err instanceof Error ? err : undefined, { eventName });
-      } finally {
-        if (adapter && typeof (adapter as any).terminate === 'function') {
-          try { (adapter as any).terminate(); } catch { /* cleanup */ }
-        }
       }
     });
   }
@@ -254,81 +356,69 @@ export function registerDefaultDebateInvoker(instanceManager: InstanceManager): 
 
 export function registerDefaultWorkflowInvoker(instanceManager: InstanceManager): void {
   const manager = getWorkflowManager();
-  const settings = getSettingsManager();
 
   const alreadyRegistered = manager.listenerCount('workflow:invoke-agent') > 0;
   if (alreadyRegistered) return;
 
-  manager.on('workflow:invoke-agent', async (payload: any) => {
-    const callback = payload?.callback as ((response: string, tokens: number) => void) | undefined;
-    if (!callback) return;
+  manager.on('workflow:invoke-agent', async (payload: unknown) => {
+    const callback = getCallbackFromPayload<
+      z.infer<typeof WorkflowAgentInvocationPayloadSchema>['callback']
+    >(payload);
+    let parsed: z.infer<typeof WorkflowAgentInvocationPayloadSchema>;
+    try {
+      parsed = parseInvocationPayload(
+        WorkflowAgentInvocationPayloadSchema,
+        payload,
+        'workflow:invoke-agent',
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Workflow invocation payload rejected', error instanceof Error ? error : undefined);
+      callback?.(`[Error: ${message}]`, 0);
+      return;
+    }
 
-    let adapter: CliAdapter | undefined;
     try {
       // Find the instance associated with this workflow execution by scanning instanceExecutions
-      const executionId = payload.executionId as string | undefined;
       let instance: ReturnType<InstanceManager['getInstance']> | undefined;
-      if (executionId) {
+      if (parsed.executionId) {
         for (const inst of instanceManager.getAllInstances()) {
           const execution = manager.getExecutionByInstance(inst.id);
-          if (execution?.id === executionId) {
+          if (execution?.id === parsed.executionId) {
             instance = inst;
             break;
           }
         }
       }
 
-      const workingDirectory = instance?.workingDirectory || process.cwd();
-      const requestedProvider = (instance?.provider as any) || 'auto';
-      const defaultCli = settings.getAll().defaultCli;
-      const cliType = await resolveCliType(requestedProvider, defaultCli);
-
-      const model = resolveDefaultModel(cliType, payload.model);
-      const agentType = typeof payload.agentType === 'string' ? payload.agentType : undefined;
+      const agentType = parsed.agentType;
       const systemPrompt = agentType
         ? `You are a ${agentType} agent. Complete the task described below thoroughly and accurately.`
         : undefined;
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        workingDirectory,
-        model,
+      const result = await invokeCliTextResponse({
+        instanceManager,
+        instanceId: instance?.id,
+        payloadModel: parsed.model,
         systemPrompt,
-        yoloMode: false,
-        timeout: 300000,
-      };
-
-      const breaker = getCircuitBreakerRegistry().getBreaker(`workflow-${cliType}`, {
-        failureThreshold: 3,
-        resetTimeoutMs: 60000,
+        prompt: parsed.prompt,
+        breakerKey: 'workflow-orchestration',
+        correlationId: parsed.correlationId,
       });
-
-      const response = await breaker.execute(async () => {
-        adapter = createCliAdapter(cliType, spawnOptions);
-        if (!isBaseCliAdapterLike(adapter)) {
-          throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
-        }
-
-        return adapter.sendMessage({ role: 'user', content: String(payload.prompt || '') });
-      });
-
-      const tokens = response.usage?.totalTokens ?? 0;
-      callback(response.content, tokens);
+      parsed.callback(result.response, result.tokens);
     } catch (err) {
-      const failoverErr = coerceToFailoverError(err);
-      if (failoverErr) {
-        logger.warn('Workflow agent invocation failed (classified)', {
-          reason: failoverErr.reason,
-          retryable: failoverErr.retryable,
-        });
-      }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = logInvocationFailure({
+        correlationId: parsed.correlationId,
+        invocation: 'Workflow agent invocation',
+        error: err,
+        instanceId: instanceManager
+          .getAllInstances()
+          .find((inst) => manager.getExecutionByInstance(inst.id)?.id === parsed.executionId)
+          ?.id,
+        model: parsed.model,
+      });
       logger.error('Error handling workflow:invoke-agent', err instanceof Error ? err : undefined);
       // Workflow callbacks expect (response, tokens) — return error as response
-      callback(`[Error: ${message}]`, 0);
-    } finally {
-      if (adapter && typeof (adapter as any).terminate === 'function') {
-        try { (adapter as any).terminate(); } catch { /* cleanup */ }
-      }
+      parsed.callback(`[Error: ${message}]`, 0);
     }
   });
 }

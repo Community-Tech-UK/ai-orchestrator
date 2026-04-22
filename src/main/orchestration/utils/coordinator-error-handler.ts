@@ -40,12 +40,17 @@ export interface CoordinatorErrorContext {
   maxRetries?: number;
   /** Additional metadata for logging */
   metadata?: Record<string, unknown>;
+  /** Stable correlation ID for logs and telemetry */
+  correlationId?: string;
 }
 
 /** Error categories that should never be retried */
 const FAIL_FAST_CATEGORIES = new Set<ErrorCategory>([
   ErrorCategory.AUTH,
   ErrorCategory.PERMANENT,
+  ErrorCategory.PERMISSION,
+  ErrorCategory.VALIDATION,
+  ErrorCategory.STALE_WORKTREE,
 ]);
 
 /** Default maximum retries */
@@ -65,7 +70,11 @@ export function handleCoordinatorError(
   const logger = getLogger(context.coordinatorName);
   const recovery = getErrorRecoveryManager();
   const err = error instanceof Error ? error : new Error(String(error));
-  const classified = recovery.classifyError(err);
+  const classified = recovery.classifyError(err, context.coordinatorName, {
+    operationName: context.operationName,
+    correlationId: context.correlationId,
+    ...context.metadata,
+  });
 
   const maxRetries = context.maxRetries ?? DEFAULT_MAX_RETRIES;
   const attempt = context.attempt ?? 0;
@@ -82,6 +91,7 @@ export function handleCoordinatorError(
     recoverable: classified.recoverable,
     attempt,
     maxRetries,
+    correlationId: context.correlationId,
     shouldRetry,
     shouldFailFast,
     errorContext: truncateErrorForContext(error),

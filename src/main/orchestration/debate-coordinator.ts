@@ -464,6 +464,7 @@ export class DebateCoordinator extends EventEmitter {
       }, debate.config.timeout);
 
       this.emit('debate:generate-response', {
+        correlationId: `${debate.id}:response:${agentId}`,
         debateId: debate.id,
         instanceId: debate.instanceId,
         provider: debate.provider,
@@ -541,6 +542,7 @@ Brief summary of your reasoning approach and key considerations.`;
       }, debate.config.timeout);
 
       this.emit('debate:generate-critiques', {
+        correlationId: `${debate.id}:critique:${agentId}`,
         debateId: debate.id,
         instanceId: debate.instanceId,
         provider: debate.provider,
@@ -664,6 +666,7 @@ Provide your critiques:`;
       }, debate.config.timeout);
 
       this.emit('debate:generate-defense', {
+        correlationId: `${debate.id}:defense:${agentId}`,
         debateId: debate.id,
         instanceId: debate.instanceId,
         provider: debate.provider,
@@ -763,6 +766,7 @@ Brief summary of how you addressed the critiques.`;
       }, debate.config.timeout);
 
       this.emit('debate:generate-synthesis', {
+        correlationId: `${debate.id}:synthesis:moderator`,
         debateId: debate.id,
         instanceId: debate.instanceId,
         provider: debate.provider,

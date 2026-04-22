@@ -25,12 +25,27 @@ export type FailoverReason =
   | 'timeout'
   | 'process_exit'
   | 'context_overflow'
+  | 'provider_runtime'
+  | 'prompt_delivery'
+  | 'stale_worktree'
+  | 'tool_runtime'
+  | 'permission'
+  | 'session_resume'
+  | 'validation'
   | 'unknown';
 
 /**
  * Reasons that are safe to retry automatically.
  */
-const RETRYABLE_REASONS = new Set<FailoverReason>(['rate_limit', 'timeout', 'unknown']);
+const RETRYABLE_REASONS = new Set<FailoverReason>([
+  'rate_limit',
+  'timeout',
+  'provider_runtime',
+  'prompt_delivery',
+  'tool_runtime',
+  'session_resume',
+  'unknown',
+]);
 
 /**
  * Options for constructing a FailoverError.
@@ -96,6 +111,13 @@ const BILLING_PATTERN = /billing|payment|quota.?exceeded|insufficient.?funds/i;
 const TIMEOUT_PATTERN = /timeout|timed?.?out|deadline/i;
 const CONTEXT_OVERFLOW_PATTERN = /context.*(overflow|too.*long|exceed)|token.*limit/i;
 const PROCESS_EXIT_PATTERN = /exit.*(code|status)|process.*died|spawn.*error|ENOENT/i;
+const PROVIDER_RUNTIME_PATTERN = /provider runtime|provider adapter|adapter.*failed|provider unavailable/i;
+const PROMPT_DELIVERY_PATTERN = /failed to deliver prompt|failed to send (?:input|message)|broken pipe|EPIPE/i;
+const STALE_WORKTREE_PATTERN = /stale worktree|dirty worktree|merge conflict|needs rebase|branch .* behind/i;
+const TOOL_RUNTIME_PATTERN = /tool runtime|tool execution failed|tool .* failed|command exited with code/i;
+const PERMISSION_PATTERN = /approval required|permission required|sandbox denied|denied by policy|user rejected/i;
+const SESSION_RESUME_PATTERN = /resume failed|failed to resume|session replay|checkpoint restore failed/i;
+const VALIDATION_PATTERN = /validation failed|invalid payload|schema|zod|expected .* received/i;
 
 // ============ Node.js error codes ============
 
@@ -121,10 +143,17 @@ function reasonFromStatus(status: number): FailoverReason | null {
  * no pattern matches.
  */
 function reasonFromMessage(message: string): FailoverReason | null {
+  if (VALIDATION_PATTERN.test(message)) return 'validation';
+  if (PERMISSION_PATTERN.test(message)) return 'permission';
+  if (STALE_WORKTREE_PATTERN.test(message)) return 'stale_worktree';
   if (RATE_LIMIT_PATTERN.test(message)) return 'rate_limit';
   if (AUTH_PATTERN.test(message)) return 'auth';
   if (BILLING_PATTERN.test(message)) return 'billing';
   if (TIMEOUT_PATTERN.test(message)) return 'timeout';
+  if (PROMPT_DELIVERY_PATTERN.test(message)) return 'prompt_delivery';
+  if (SESSION_RESUME_PATTERN.test(message)) return 'session_resume';
+  if (TOOL_RUNTIME_PATTERN.test(message)) return 'tool_runtime';
+  if (PROVIDER_RUNTIME_PATTERN.test(message)) return 'provider_runtime';
   if (CONTEXT_OVERFLOW_PATTERN.test(message)) return 'context_overflow';
   if (PROCESS_EXIT_PATTERN.test(message)) return 'process_exit';
   return null;

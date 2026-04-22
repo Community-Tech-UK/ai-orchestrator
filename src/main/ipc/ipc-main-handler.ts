@@ -37,6 +37,7 @@ import { getConversationMiner } from '../memory/conversation-miner';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
+import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 
 // Import extracted handlers
 import {
@@ -176,16 +177,20 @@ export class IpcMainHandler {
       getIpcAuthToken: () => this.ipcAuthToken
     });
 
-    const getEventStore = () => {
-      const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
-      store.initialize();
-      return store;
-    };
-    registerEventStoreHandlers({
-      getByAggregateId: (aggregateId) => getEventStore().getByAggregateId(aggregateId),
-      getByType: (type, limit) => getEventStore().getByType(type as never, limit),
-      getRecentEvents: (limit) => getEventStore().getRecentEvents(limit),
-    });
+    if (isFeatureEnabled('EVENT_SOURCING')) {
+      const getEventStore = () => {
+        const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
+        store.initialize();
+        return store;
+      };
+      registerEventStoreHandlers({
+        getByAggregateId: (aggregateId) => getEventStore().getByAggregateId(aggregateId),
+        getByType: (type, limit) => getEventStore().getByType(type as never, limit),
+        getRecentEvents: (limit) => getEventStore().getRecentEvents(limit),
+      });
+    } else {
+      logger.info('Event store IPC handlers skipped because EVENT_SOURCING is disabled');
+    }
 
     // Settings, config, and remote config handlers
     registerSettingsHandlers({ windowManager: this.windowManager });

@@ -23,6 +23,20 @@ export enum ErrorCategory {
   RESOURCE = 'resource',
   /** Network connectivity errors */
   NETWORK = 'network',
+  /** Provider runtime or adapter failures */
+  PROVIDER_RUNTIME = 'provider_runtime',
+  /** Prompt delivery or transport failures */
+  PROMPT_DELIVERY = 'prompt_delivery',
+  /** Stale branch/worktree or merge-state issues */
+  STALE_WORKTREE = 'stale_worktree',
+  /** Tool execution/runtime failures */
+  TOOL_RUNTIME = 'tool_runtime',
+  /** User approval, sandbox, or permission failures */
+  PERMISSION = 'permission',
+  /** Session replay/resume failures */
+  SESSION_RESUME = 'session_resume',
+  /** Schema or payload validation failures */
+  VALIDATION = 'validation',
   /** Unknown/unclassified errors */
   UNKNOWN = 'unknown',
 }
@@ -65,6 +79,8 @@ export interface ClassifiedError {
   code?: string | number;
   /** Component that generated the error */
   source?: string;
+  /** Structured metadata for observability and deterministic recovery */
+  metadata?: Record<string, unknown>;
   /** Timestamp when error occurred */
   timestamp: number;
 }
@@ -335,6 +351,10 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
     ErrorCategory.TRANSIENT,
     ErrorCategory.RATE_LIMITED,
     ErrorCategory.NETWORK,
+    ErrorCategory.PROVIDER_RUNTIME,
+    ErrorCategory.PROMPT_DELIVERY,
+    ErrorCategory.TOOL_RUNTIME,
+    ErrorCategory.SESSION_RESUME,
   ],
   totalTimeoutMs: 120000, // 2 minutes
 };

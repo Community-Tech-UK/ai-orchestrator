@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => '/tmp'),
+  },
+}));
+
 import { StreamingToolExecutor, ToolStatus } from './streaming-tool-executor';
 
 describe('StreamingToolExecutor', () => {
@@ -34,6 +41,15 @@ describe('StreamingToolExecutor', () => {
     expect(results).toHaveLength(1);
     expect(results[0].toolUseId).toBe('tool-1');
     expect(results[0].output).toBe('hello');
+    expect(results[0].outputMetadata).toEqual(expect.objectContaining({
+      kind: 'text',
+      truncated: false,
+    }));
+    expect(results[0].telemetry).toEqual(expect.objectContaining({
+      status: 'success',
+      outputKind: 'text',
+      truncated: false,
+    }));
     expect(executeFn).toHaveBeenCalledOnce();
   });
 
@@ -160,5 +176,34 @@ describe('StreamingToolExecutor', () => {
     expect(results).toHaveLength(1);
     expect(results[0].ok).toBe(false);
     expect(results[0].error).toContain('discard');
+    expect(results[0].telemetry.status).toBe('error');
+    expect(results[0].outputMetadata?.kind).toBe('empty');
+  });
+
+  it('truncates oversized text outputs and exposes truncation metadata', async () => {
+    const largeOutput = Array.from({ length: 2_500 }, (_, index) => `line-${index}`).join('\n');
+
+    executor.addTool({
+      toolUseId: 'large',
+      toolId: 'bash',
+      args: {},
+      concurrencySafe: true,
+      executeFn: vi.fn(async () => ({ ok: true as const, output: largeOutput })),
+    });
+
+    const results: any[] = [];
+    for await (const r of executor.getRemainingResults()) results.push(r);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].outputMetadata).toEqual(expect.objectContaining({
+      kind: 'text',
+      truncated: true,
+    }));
+    expect(results[0].telemetry).toEqual(expect.objectContaining({
+      status: 'success',
+      outputKind: 'text',
+      truncated: true,
+    }));
+    expect(results[0].output).toContain('[Output truncated.');
   });
 });

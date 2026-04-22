@@ -32,15 +32,20 @@ export interface BootstrapModule {
 }
 
 const registry: BootstrapModule[] = [];
+let initializedModules: BootstrapModule[] = [];
 
 /** Register a bootstrap module. */
 export function registerBootstrapModule(module: BootstrapModule): void {
+  if (registry.some((registered) => registered.name === module.name)) {
+    throw new Error(`Bootstrap module "${module.name}" already registered`);
+  }
   registry.push(module);
 }
 
 /** Clear the registry between tests. */
 export function resetBootstrapRegistryForTesting(): void {
   registry.length = 0;
+  initializedModules = [];
 }
 
 /** Get all registered modules in dependency order. */
@@ -111,11 +116,13 @@ function resolveBootstrapModules(): BootstrapModule[] {
 export async function bootstrapAll(): Promise<{ failed: string[] }> {
   const failed: string[] = [];
   const modules = resolveBootstrapModules();
+  initializedModules = [];
 
   for (const mod of modules) {
     try {
       logger.info(`Bootstrapping: ${mod.name} [${mod.domain}]`);
       await mod.init();
+      initializedModules.push(mod);
       logger.info(`Bootstrapped: ${mod.name}`);
     } catch (error) {
       logger.error(
@@ -124,6 +131,7 @@ export async function bootstrapAll(): Promise<{ failed: string[] }> {
       );
 
       if (mod.failureMode === 'critical') {
+        await teardownInitializedModules();
         throw error;
       }
       failed.push(mod.name);
@@ -137,7 +145,11 @@ export async function bootstrapAll(): Promise<{ failed: string[] }> {
  * Tear down all modules in reverse order.
  */
 export async function teardownAll(): Promise<void> {
-  for (const mod of [...resolveBootstrapModules()].reverse()) {
+  await teardownInitializedModules();
+}
+
+async function teardownInitializedModules(): Promise<void> {
+  for (const mod of [...initializedModules].reverse()) {
     if (!mod.teardown) continue;
     try {
       logger.info(`Tearing down: ${mod.name}`);
@@ -148,4 +160,5 @@ export async function teardownAll(): Promise<void> {
       });
     }
   }
+  initializedModules = [];
 }

@@ -346,6 +346,32 @@ describe('InstanceCommunicationManager', () => {
     expect(instance.status).toBe('busy');
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'busy', instance.contextUsage);
   });
+
+  it('drops unsupported attachments and retries the message without them', async () => {
+    const adapter = new FakeAdapter('copilot-cli');
+    adapter.sendInput
+      .mockRejectedValueOnce(new Error('Copilot adapter does not currently support attachments in orchestrator mode.'))
+      .mockResolvedValueOnce(undefined);
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+
+    const attachments = [
+      { name: 'screenshot.png', type: 'image/png', size: 3, data: 'abc' },
+    ];
+
+    await expect(
+      manager.sendInput(instance.id, 'Inspect this screenshot', attachments),
+    ).resolves.toBeUndefined();
+
+    expect(adapter.sendInput).toHaveBeenNthCalledWith(1, 'Inspect this screenshot', attachments);
+    expect(adapter.sendInput).toHaveBeenNthCalledWith(2, 'Inspect this screenshot', undefined);
+    expect(
+      instance.outputBuffer.some(
+        (message) =>
+          message.type === 'system'
+          && /copilot-cli does not support image attachments in orchestrator mode/i.test(message.content),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('tool result deduplication', () => {

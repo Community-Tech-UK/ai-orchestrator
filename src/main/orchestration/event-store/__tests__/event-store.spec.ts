@@ -53,20 +53,45 @@ class InMemoryDb {
 
   prepare(sql: string) {
     const tables = this.tables;
+    const tableName = sql.includes('orchestration_command_receipts')
+      ? 'orchestration_command_receipts'
+      : 'orchestration_events';
     return {
       run(...args: unknown[]) {
-        const rows = tables.get('orchestration_events') ?? [];
-        rows.push(args);
-        tables.set('orchestration_events', rows);
+        const rows = tables.get(tableName) ?? [];
+        if (tableName === 'orchestration_command_receipts') {
+          const commandId = args[0];
+          const existingIndex = rows.findIndex((row) => Array.isArray(row) && row[0] === commandId);
+          if (existingIndex >= 0) {
+            rows.splice(existingIndex, 1, args);
+          } else {
+            rows.push(args);
+          }
+        } else {
+          rows.push(args);
+        }
+        tables.set(tableName, rows);
         return { changes: 1 };
       },
       all(...args: unknown[]) {
-        const rows = tables.get('orchestration_events') ?? [];
+        const rows = tables.get(tableName) ?? [];
 
         type RowObj = Record<string, unknown>;
 
         const mapped: RowObj[] = rows.map((r: unknown) => {
           const a = r as unknown[];
+          if (tableName === 'orchestration_command_receipts') {
+            return {
+              command_id: a[0],
+              status: a[1],
+              type: a[2],
+              aggregate_id: a[3],
+              timestamp: a[4],
+              event_id: a[5],
+              reason: a[6],
+              metadata: a[7],
+            };
+          }
           return {
             id: a[0],
             type: a[1],
@@ -78,6 +103,7 @@ class InMemoryDb {
         });
 
         const filtered = mapped.filter((row) => {
+          if (sql.includes('WHERE command_id')) return row['command_id'] === args[0];
           if (sql.includes('WHERE aggregate_id')) return row['aggregate_id'] === args[0];
           if (sql.includes('WHERE type')) return row['type'] === args[0];
           return true;
@@ -195,6 +221,28 @@ describe('OrchestrationEventStore', () => {
   it('initialize() is idempotent', () => {
     // Second call should not throw
     expect(() => store.initialize()).not.toThrow();
+  });
+
+  it('persists and retrieves command receipts', () => {
+    store.recordCommandReceipt({
+      commandId: 'cmd-1',
+      status: 'accepted',
+      type: 'verification.requested',
+      aggregateId: 'ver-1',
+      timestamp: 1234,
+      eventId: 'evt-1',
+      metadata: { source: 'test' },
+    });
+
+    expect(store.getCommandReceipt('cmd-1')).toEqual({
+      commandId: 'cmd-1',
+      status: 'accepted',
+      type: 'verification.requested',
+      aggregateId: 'ver-1',
+      timestamp: 1234,
+      eventId: 'evt-1',
+      metadata: { source: 'test' },
+    });
   });
 });
 

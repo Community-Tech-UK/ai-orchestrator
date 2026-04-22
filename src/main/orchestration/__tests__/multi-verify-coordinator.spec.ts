@@ -536,8 +536,7 @@ describe('MultiVerifyCoordinator', () => {
     it('emits verification:error when no handler is registered for invoke-agent', async () => {
       // Register the error listener before starting the verification so we
       // don't miss an event that fires in the same microtask batch.
-      const errors: Array<{ error: Error }> = [];
-      coordinator.on('verification:error', (p) => errors.push(p));
+      const errorPromise = waitForEvent<{ error: Error }>(coordinator, 'verification:error');
 
       // No invoke-agent handler registered — use maxRetries=0 and retryDelayMs=0
       // so the InsufficientAgentsError is thrown immediately without multi-second delays.
@@ -548,11 +547,9 @@ describe('MultiVerifyCoordinator', () => {
         healthConfig: { maxRetries: 0, retryDelayMs: 0, timeoutMs: 5000, minSuccessfulAgents: 2 },
       });
 
-      // Wait for the async verification + microtask queue to flush
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      const errorPayload = await errorPromise;
 
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].error.message).toMatch(/No handler registered|Insufficient agents/);
+      expect(errorPayload.error.message).toMatch(/No handler registered|Insufficient agents/);
     });
 
     it('InsufficientAgentsError is thrown when too few agents succeed', async () => {
@@ -561,8 +558,7 @@ describe('MultiVerifyCoordinator', () => {
         payload.callback('Agent failed');
       });
 
-      const errors: Array<{ error: Error }> = [];
-      coordinator.on('verification:error', (p) => errors.push(p));
+      const errorPromise = waitForEvent<{ error: Error }>(coordinator, 'verification:error');
 
       await coordinator.startVerification('instance-1', 'All fail', {
         agentCount: 3,
@@ -571,12 +567,10 @@ describe('MultiVerifyCoordinator', () => {
         healthConfig: { maxRetries: 0, retryDelayMs: 0, timeoutMs: 5000, minSuccessfulAgents: 2 },
       });
 
-      // Wait for error event
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const errorPayload = await errorPromise;
 
-      expect(errors.length).toBeGreaterThan(0);
-      expect(errors[0].error).toBeInstanceOf(InsufficientAgentsError);
-      const err = errors[0].error as InsufficientAgentsError;
+      expect(errorPayload.error).toBeInstanceOf(InsufficientAgentsError);
+      const err = errorPayload.error as InsufficientAgentsError;
       expect(err.successfulAgents).toBe(0);
       expect(err.minRequired).toBe(2);
     });
@@ -594,8 +588,7 @@ describe('MultiVerifyCoordinator', () => {
         }
       });
 
-      const errors: Array<{ error: Error }> = [];
-      coordinator.on('verification:error', (p) => errors.push(p));
+      const errorPromise = waitForEvent<{ error: Error }>(coordinator, 'verification:error');
 
       await coordinator.startVerification('instance-1', 'One success', {
         agentCount: 3,
@@ -604,10 +597,9 @@ describe('MultiVerifyCoordinator', () => {
         healthConfig: { maxRetries: 0, retryDelayMs: 0, timeoutMs: 5000, minSuccessfulAgents: 2 },
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const errorPayload = await errorPromise;
 
-      expect(errors.length).toBeGreaterThan(0);
-      const err = errors[0].error as InsufficientAgentsError;
+      const err = errorPayload.error as InsufficientAgentsError;
       expect(err.successfulAgents).toBe(1);
     });
 
@@ -615,8 +607,7 @@ describe('MultiVerifyCoordinator', () => {
       // Handler never calls callback — agent will time out
       coordinator.on('verification:invoke-agent', () => { /* deliberate no-op */ });
 
-      const errors: Array<{ error: Error }> = [];
-      coordinator.on('verification:error', (p) => errors.push(p));
+      const errorPromise = waitForEvent<{ error: Error }>(coordinator, 'verification:error');
 
       await coordinator.startVerification('instance-1', 'Timeout test', {
         agentCount: 3,
@@ -625,9 +616,9 @@ describe('MultiVerifyCoordinator', () => {
         healthConfig: { maxRetries: 0, retryDelayMs: 0, timeoutMs: 30, minSuccessfulAgents: 2 },
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      const errorPayload = await errorPromise;
 
-      expect(errors.length).toBeGreaterThan(0);
+      expect(errorPayload.error).toBeInstanceOf(Error);
     });
   });
 

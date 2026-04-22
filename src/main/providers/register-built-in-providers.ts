@@ -12,9 +12,20 @@ import { CopilotCliProvider, COPILOT_DESCRIPTOR } from './copilot-cli-provider';
 import { CursorCliProvider, CURSOR_DESCRIPTOR } from './cursor-cli-provider';
 
 export function registerBuiltInProviders(registry: ProviderAdapterRegistry): void {
-  registry.register(CLAUDE_DESCRIPTOR,  (config) => new ClaudeCliProvider(config));
-  registry.register(CODEX_DESCRIPTOR,   (config) => new CodexCliProvider(config));
-  registry.register(GEMINI_DESCRIPTOR,  (config) => new GeminiCliProvider(config));
-  registry.register(COPILOT_DESCRIPTOR, (config) => new CopilotCliProvider(config));
-  registry.register(CURSOR_DESCRIPTOR,  (config) => new CursorCliProvider(config));
+  const builtIns = [
+    [CLAUDE_DESCRIPTOR, (config: typeof CLAUDE_DESCRIPTOR.defaultConfig) => new ClaudeCliProvider(config)],
+    [CODEX_DESCRIPTOR, (config: typeof CODEX_DESCRIPTOR.defaultConfig) => new CodexCliProvider(config)],
+    [GEMINI_DESCRIPTOR, (config: typeof GEMINI_DESCRIPTOR.defaultConfig) => new GeminiCliProvider(config)],
+    [COPILOT_DESCRIPTOR, (config: typeof COPILOT_DESCRIPTOR.defaultConfig) => new CopilotCliProvider(config)],
+    [CURSOR_DESCRIPTOR, (config: typeof CURSOR_DESCRIPTOR.defaultConfig) => new CursorCliProvider(config)],
+  ] as const;
+
+  for (const [descriptor, factory] of builtIns) {
+    try {
+      registry.get(descriptor.provider);
+      continue;
+    } catch {
+      registry.register(descriptor, factory);
+    }
+  }
 }

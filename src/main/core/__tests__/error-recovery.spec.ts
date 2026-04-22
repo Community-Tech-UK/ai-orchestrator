@@ -16,7 +16,11 @@ import {
   ErrorRecoveryManager,
   retryWithBackoff,
 } from '../error-recovery';
-import { ErrorCategory, ErrorSeverity } from '../../../shared/types/error-recovery.types';
+import {
+  ErrorCategory,
+  ErrorSeverity,
+  RecoveryActionType,
+} from '../../../shared/types/error-recovery.types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -115,6 +119,83 @@ describe('ErrorRecoveryManager', () => {
       const result = manager.classifyError(makeError('some message', 429));
 
       expect(result.category).toBe(ErrorCategory.RATE_LIMITED);
+    });
+
+    it('classifies permission errors separately from auth', () => {
+      const result = manager.classifyError(makeError('approval required before running this command'));
+
+      expect(result.category).toBe(ErrorCategory.PERMISSION);
+      expect(result.recoverable).toBe(false);
+      expect(result.userMessage).toContain('permission');
+    });
+
+    it('classifies orchestration-specific runtime and validation errors', () => {
+      expect(manager.classifyError(makeError('provider runtime adapter failed')).category)
+        .toBe(ErrorCategory.PROVIDER_RUNTIME);
+      expect(manager.classifyError(makeError('failed to deliver prompt to worker')).category)
+        .toBe(ErrorCategory.PROMPT_DELIVERY);
+      expect(manager.classifyError(makeError('tool execution failed with exit code 1')).category)
+        .toBe(ErrorCategory.TOOL_RUNTIME);
+      expect(manager.classifyError(makeError('resume failed while restoring checkpoint')).category)
+        .toBe(ErrorCategory.SESSION_RESUME);
+      expect(manager.classifyError(makeError('invalid payload: schema mismatch')).category)
+        .toBe(ErrorCategory.VALIDATION);
+      expect(manager.classifyError(makeError('dirty worktree needs rebase')).category)
+        .toBe(ErrorCategory.STALE_WORKTREE);
+    });
+
+    it('attaches structured metadata when provided', () => {
+      const result = manager.classifyError(
+        makeError('provider runtime adapter failed'),
+        'debate-coordinator',
+        { correlationId: 'debate-1:agent-a', operationName: 'runRound' },
+      );
+
+      expect(result.source).toBe('debate-coordinator');
+      expect(result.metadata).toEqual({
+        correlationId: 'debate-1:agent-a',
+        operationName: 'runRound',
+      });
+    });
+  });
+
+  describe('createRecoveryPlan', () => {
+    it('retries and switches provider for provider runtime failures', () => {
+      const classified = manager.classifyError(makeError('provider runtime adapter failed'));
+
+      const plan = manager.createRecoveryPlan(classified);
+
+      expect(plan.actions.map((action) => action.type)).toEqual([
+        RecoveryActionType.RETRY,
+        RecoveryActionType.SWITCH_PROVIDER,
+        RecoveryActionType.RESTORE_CHECKPOINT,
+      ]);
+    });
+
+    it('restores checkpoints for session resume failures', () => {
+      const classified = manager.classifyError(makeError('resume failed restoring latest checkpoint'));
+
+      const plan = manager.createRecoveryPlan(classified);
+
+      expect(plan.actions.map((action) => action.type)).toEqual([
+        RecoveryActionType.RESTORE_CHECKPOINT,
+        RecoveryActionType.RESTART_SESSION,
+        RecoveryActionType.RESTORE_CHECKPOINT,
+      ]);
+    });
+
+    it('notifies the user for validation and stale worktree failures', () => {
+      const validationPlan = manager.createRecoveryPlan(
+        manager.classifyError(makeError('invalid payload: schema mismatch')),
+      );
+      const worktreePlan = manager.createRecoveryPlan(
+        manager.classifyError(makeError('stale worktree needs rebase')),
+      );
+
+      expect(validationPlan.actions[0]?.type).toBe(RecoveryActionType.NOTIFY_USER);
+      expect(validationPlan.actions[1]?.type).toBe(RecoveryActionType.RESTORE_CHECKPOINT);
+      expect(worktreePlan.actions[0]?.type).toBe(RecoveryActionType.NOTIFY_USER);
+      expect(worktreePlan.actions[1]?.type).toBe(RecoveryActionType.RESTORE_CHECKPOINT);
     });
   });
 

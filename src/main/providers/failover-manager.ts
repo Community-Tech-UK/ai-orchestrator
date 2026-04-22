@@ -24,6 +24,7 @@ import { getProviderInstanceManager } from './provider-instance-manager';
 export interface ProviderHealth {
   type: ProviderType;
   status: ProviderStatus;
+  capabilities?: ProviderCapabilities;
   circuitState: CircuitState;
   lastCheck: Date;
   failureCount: number;
@@ -52,6 +53,11 @@ export interface FailoverConfig {
   healthCheckIntervalMs: number;
 }
 
+export interface FailoverSelectionOptions {
+  requiredCapabilities?: Partial<ProviderCapabilities>;
+  correlationId?: string;
+}
+
 /**
  * Default failover configuration
  */
@@ -63,6 +69,10 @@ export const DEFAULT_FAILOVER_CONFIG: FailoverConfig = {
     ErrorCategory.NETWORK,
     ErrorCategory.TRANSIENT,
     ErrorCategory.RESOURCE,
+    ErrorCategory.PROVIDER_RUNTIME,
+    ErrorCategory.PROMPT_DELIVERY,
+    ErrorCategory.TOOL_RUNTIME,
+    ErrorCategory.SESSION_RESUME,
   ],
   maxProviderAttempts: 3,
   providerCooldownMs: 60000, // 1 minute
@@ -223,10 +233,12 @@ export class FailoverManager extends EventEmitter {
         const status = await registry.checkProviderStatus(providerType);
         const breaker = this.circuitRegistry.getBreaker(`provider-${providerType}`);
         const stats = breaker.getStats();
+        const capabilities = this.readProviderCapabilities(providerType, registry);
 
         const health: ProviderHealth = {
           type: providerType,
           status,
+          capabilities,
           circuitState: stats.state,
           lastCheck: new Date(),
           failureCount: stats.failureCount,
@@ -258,6 +270,7 @@ export class FailoverManager extends EventEmitter {
             authenticated: false,
             error: (error as Error).message,
           },
+          capabilities: this.readProviderCapabilities(providerType, registry),
           circuitState: CircuitState.OPEN,
           lastCheck: new Date(),
           failureCount: 0,
@@ -314,7 +327,11 @@ export class FailoverManager extends EventEmitter {
   /**
    * Trigger a failover to the next available provider
    */
-  async failover(fromProvider: ProviderType, reason: string): Promise<ProviderType | null> {
+  async failover(
+    fromProvider: ProviderType,
+    reason: string,
+    options?: FailoverSelectionOptions,
+  ): Promise<ProviderType | null> {
     if (this.state.inProgress) {
       return null; // Failover already in progress
     }
@@ -326,39 +343,9 @@ export class FailoverManager extends EventEmitter {
     let toProvider: ProviderType | null = null;
 
     try {
-      // Find next available provider
-      for (let i = 0; i < this.config.maxProviderAttempts; i++) {
-        const candidate = this.getNextProvider(attempted);
-        if (!candidate) {
-          break;
-        }
-
-        attempted.push(candidate);
-
-        // Check if this provider is available
-        const breaker = this.getProviderCircuit(candidate);
-        if (breaker.getState() === CircuitState.OPEN) {
-          continue;
-        }
-
-        // Check if in cooldown
-        const failedAt = this.state.failedProviders.get(candidate);
-        if (failedAt && Date.now() - failedAt.getTime() < this.config.providerCooldownMs) {
-          continue;
-        }
-
-        // Verify provider is available
-        const registry = getProviderInstanceManager();
-        const status = await registry.checkProviderStatus(candidate);
-        if (!status.available) {
-          breaker.recordFailure(new Error('Provider unavailable'), 0);
-          continue;
-        }
-
-        // Found a viable provider
-        toProvider = candidate;
-        break;
-      }
+      const rankedCandidates = await this.rankCandidates(attempted, options);
+      attempted.push(...rankedCandidates.map((candidate) => candidate.provider));
+      toProvider = rankedCandidates[0]?.provider ?? null;
 
       if (toProvider) {
         this.emitEvent({
@@ -450,15 +437,23 @@ export class FailoverManager extends EventEmitter {
     operation: (provider: ProviderType) => Promise<T>,
     options?: {
       onFailover?: (from: ProviderType, to: ProviderType) => void;
+      requiredCapabilities?: Partial<ProviderCapabilities>;
+      correlationId?: string;
     }
   ): Promise<T> {
     let lastError: Error | null = null;
     const attempted: ProviderType[] = [];
 
     for (let i = 0; i < this.config.maxProviderAttempts; i++) {
+      const rankedCandidates = i === 0
+        ? []
+        : await this.rankCandidates(attempted, {
+          requiredCapabilities: options?.requiredCapabilities,
+          correlationId: options?.correlationId,
+        });
       const provider = i === 0
         ? this.state.currentProvider
-        : this.getNextProvider(attempted) || this.state.currentProvider;
+        : rankedCandidates[0]?.provider || this.state.currentProvider;
 
       if (attempted.includes(provider)) {
         break; // No more providers to try
@@ -478,7 +473,12 @@ export class FailoverManager extends EventEmitter {
 
         // Check if we should failover
         if (this.config.autoFailover && this.config.failoverOn.includes(classifiedError.category)) {
-          const nextProvider = this.getNextProvider(attempted);
+          const nextProvider = (
+            await this.rankCandidates(attempted, {
+              requiredCapabilities: options?.requiredCapabilities,
+              correlationId: options?.correlationId,
+            })
+          )[0]?.provider ?? null;
           if (nextProvider && options?.onFailover) {
             options.onFailover(provider, nextProvider);
           }
@@ -516,6 +516,146 @@ export class FailoverManager extends EventEmitter {
   private emitEvent(event: FailoverEvent): void {
     this.emit(event.type, event);
     this.emit('failover_event', event);
+  }
+
+  private readProviderCapabilities(
+    provider: ProviderType,
+    registry: ReturnType<typeof getProviderInstanceManager>,
+  ): ProviderCapabilities | undefined {
+    try {
+      return registry.createProvider(provider).getCapabilities();
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async rankCandidates(
+    excluded: ProviderType[],
+    options?: FailoverSelectionOptions,
+  ): Promise<Array<{ provider: ProviderType; score: number; reasons: string[] }>> {
+    const registry = getProviderInstanceManager();
+    const ranked: Array<{ provider: ProviderType; score: number; reasons: string[] }> = [];
+    const healthSnapshot = this.providerHealth.size > 0
+      ? new Map(this.providerHealth)
+      : await this.checkAllProviderHealth();
+
+    for (const provider of this.config.providerPriority) {
+      if (excluded.includes(provider)) {
+        continue;
+      }
+
+      const health = healthSnapshot.get(provider);
+      if (!health) {
+        continue;
+      }
+
+      const capabilities = health.capabilities ?? this.readProviderCapabilities(provider, registry);
+      const scored = this.scoreCandidate(
+        provider,
+        { ...health, capabilities },
+        options?.requiredCapabilities,
+      );
+      if (!scored.eligible) {
+        logger.info('Failover candidate rejected', {
+          correlationId: options?.correlationId,
+          provider,
+          reasons: scored.reasons,
+        });
+        continue;
+      }
+
+      ranked.push({
+        provider,
+        score: scored.score,
+        reasons: scored.reasons,
+      });
+    }
+
+    ranked.sort((left, right) => right.score - left.score);
+    logger.info('Failover candidate ranking', {
+      correlationId: options?.correlationId,
+      requiredCapabilities: options?.requiredCapabilities,
+      candidates: ranked,
+    });
+    return ranked;
+  }
+
+  private scoreCandidate(
+    provider: ProviderType,
+    health: ProviderHealth,
+    requiredCapabilities?: Partial<ProviderCapabilities>,
+  ): { eligible: boolean; score: number; reasons: string[] } {
+    const reasons: string[] = [];
+    let score = 0;
+
+    if (!health.status.available || !health.status.authenticated) {
+      reasons.push('provider_unavailable');
+      return { eligible: false, score, reasons };
+    }
+
+    if (health.circuitState === CircuitState.OPEN) {
+      reasons.push('circuit_open');
+      return { eligible: false, score, reasons };
+    }
+
+    const failedAt = this.state.failedProviders.get(provider);
+    if (failedAt && Date.now() - failedAt.getTime() < this.config.providerCooldownMs) {
+      reasons.push('cooldown_active');
+      return { eligible: false, score, reasons };
+    }
+
+    if (requiredCapabilities && !this.matchesCapabilities(health.capabilities, requiredCapabilities)) {
+      reasons.push('capability_mismatch');
+      return { eligible: false, score, reasons };
+    }
+
+    score += 500;
+    reasons.push('provider_available');
+
+    if (health.circuitState === CircuitState.HALF_OPEN) {
+      score += 50;
+      reasons.push('circuit_half_open');
+    } else {
+      score += 150;
+      reasons.push('circuit_closed');
+    }
+
+    const priorityScore = Math.max(0, 100 - health.priority * 10);
+    score += priorityScore;
+    reasons.push(`priority_${health.priority}`);
+
+    const failureScore = Math.max(0, 150 - health.failureCount * 20);
+    score += failureScore;
+    reasons.push(`failure_count_${health.failureCount}`);
+
+    if (typeof health.latencyMs === 'number') {
+      score += Math.max(0, 100 - Math.min(100, Math.round(health.latencyMs / 10)));
+      reasons.push(`latency_${health.latencyMs}`);
+    }
+
+    if (requiredCapabilities) {
+      const requiredCount = Object.values(requiredCapabilities).filter(Boolean).length;
+      score += requiredCount * 25;
+      reasons.push(`capabilities_${requiredCount}`);
+    }
+
+    return { eligible: true, score, reasons };
+  }
+
+  private matchesCapabilities(
+    capabilities: ProviderCapabilities | undefined,
+    requiredCapabilities: Partial<ProviderCapabilities>,
+  ): boolean {
+    if (!capabilities) {
+      return false;
+    }
+
+    return Object.entries(requiredCapabilities).every(([key, required]) => {
+      if (!required) {
+        return true;
+      }
+      return capabilities[key as keyof ProviderCapabilities] === true;
+    });
   }
 
   /**

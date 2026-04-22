@@ -16,6 +16,7 @@ const logger = getLogger('CoordinatorEventBridge');
 
 export class CoordinatorEventBridge {
   private store: OrchestrationEventStore;
+  private readonly disposers: Array<() => void> = [];
 
   constructor(store: OrchestrationEventStore) {
     this.store = store;
@@ -25,19 +26,19 @@ export class CoordinatorEventBridge {
    * Wire a MultiVerifyCoordinator (EventEmitter) to the event store.
    */
   wireVerifyCoordinator(coordinator: EventEmitter): void {
-    coordinator.on('verification:started', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'verification:started', (payload: Record<string, unknown>) => {
       this.appendSafe('verification.requested', String(payload['id'] ?? ''), payload, {
         instanceId: String(payload['instanceId'] ?? ''),
       });
     });
 
-    coordinator.on('verification:completed', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'verification:completed', (payload: Record<string, unknown>) => {
       this.appendSafe('verification.completed', String(payload['id'] ?? ''), payload, {
         instanceId: String(payload['instanceId'] ?? ''),
       });
     });
 
-    coordinator.on('verification:error', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'verification:error', (payload: Record<string, unknown>) => {
       const request = (payload['request'] ?? {}) as Record<string, unknown>;
       this.appendSafe('verification.completed', String(request['id'] ?? ''), {
         error: String(payload['error'] ?? 'unknown'),
@@ -53,15 +54,19 @@ export class CoordinatorEventBridge {
    * Wire a DebateCoordinator (EventEmitter) to the event store.
    */
   wireDebateCoordinator(coordinator: EventEmitter): void {
-    coordinator.on('debate:started', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'debate:started', (payload: Record<string, unknown>) => {
       this.appendSafe('debate.started', String(payload['debateId'] ?? ''), payload);
     });
 
-    coordinator.on('debate:round-complete', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'debate:round-complete', (payload: Record<string, unknown>) => {
       this.appendSafe('debate.round_completed', String(payload['debateId'] ?? ''), payload);
+      const round = (payload['round'] ?? {}) as Record<string, unknown>;
+      if (round['type'] === 'synthesis') {
+        this.appendSafe('debate.synthesized', String(payload['debateId'] ?? ''), payload);
+      }
     });
 
-    coordinator.on('debate:completed', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'debate:completed', (payload: Record<string, unknown>) => {
       this.appendSafe('debate.completed', String(payload['debateId'] ?? ''), payload);
     });
 
@@ -69,86 +74,92 @@ export class CoordinatorEventBridge {
   }
 
   wireParallelWorktreeCoordinator(coordinator: EventEmitter): void {
-    coordinator.on('execution:created', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:created', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.created', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('execution:started', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:started', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.started', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('execution:conflict-warning', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:conflict-warning', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.conflict_warning', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('execution:merging', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:merging', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.merging', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('execution:completed', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:completed', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.completed', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('execution:partial-failure', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:partial-failure', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.failed', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('execution:cancelled', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:cancelled', (payload: Record<string, unknown>) => {
       this.appendSafe('lane.cancelled', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('worktree:created', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'worktree:created', (payload: Record<string, unknown>) => {
       const aggregateId = String(payload['executionId'] ?? '');
       const metadata = this.toLaneMetadata(payload);
       this.appendSafe('worktree.created', aggregateId, payload, metadata);
       this.appendSafe('branch.prepared', aggregateId, payload, metadata);
     });
 
-    coordinator.on('task:completed', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'task:completed', (payload: Record<string, unknown>) => {
       this.appendSafe('worktree.completed', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
-    coordinator.on('execution:conflicts-detected', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'execution:conflicts-detected', (payload: Record<string, unknown>) => {
       this.appendSafe('worktree.conflict_detected', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
-    coordinator.on('task:merged', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'task:merged', (payload: Record<string, unknown>) => {
       this.appendSafe('branch.merge_succeeded', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
-    coordinator.on('task:merge-failed', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'task:merge-failed', (payload: Record<string, unknown>) => {
       this.appendSafe('branch.merge_failed', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
-    coordinator.on('worktree:cleaned', (payload: Record<string, unknown>) => {
+    this.listen(coordinator, 'worktree:cleaned', (payload: Record<string, unknown>) => {
       this.appendSafe('worktree.cleaned', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
     logger.info('Wired parallel worktree coordinator to event store');
+  }
+
+  dispose(): void {
+    while (this.disposers.length > 0) {
+      this.disposers.pop()?.();
+    }
   }
 
   private appendSafe(
@@ -175,6 +186,17 @@ export class CoordinatorEventBridge {
     } catch (err) {
       logger.warn(`Failed to append event: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  private listen<T>(
+    emitter: EventEmitter,
+    eventName: string,
+    handler: (payload: T) => void,
+  ): void {
+    emitter.on(eventName, handler as (...args: any[]) => void);
+    this.disposers.push(() => {
+      emitter.off(eventName, handler as (...args: any[]) => void);
+    });
   }
 
   private toLaneMetadata(payload: Record<string, unknown>): LaneEventMetadata & {
