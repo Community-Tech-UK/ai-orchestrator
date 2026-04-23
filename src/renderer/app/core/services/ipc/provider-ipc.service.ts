@@ -50,6 +50,22 @@ export class ProviderIpcService {
     return this.api.testCliConnection(command);
   }
 
+  /**
+   * Scan every PATH location for every install of a given CLI.
+   */
+  async scanAllCliInstalls(type: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.scanAllCliInstalls(type);
+  }
+
+  /**
+   * Run the full CLI diagnostic sweep for every supported CLI.
+   */
+  async diagnoseAllClis(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.diagnoseAllClis();
+  }
+
   // ============================================
   // Copilot
   // ============================================

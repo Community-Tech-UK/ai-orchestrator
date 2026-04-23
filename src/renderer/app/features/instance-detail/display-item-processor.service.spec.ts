@@ -80,14 +80,30 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].repeatCount).toBeUndefined();
   });
 
-  it('should create thought-group for messages with thinking', () => {
+  it('should create thought-group for messages with thinking and no standalone content', () => {
     const msg = makeMsg({
       type: 'assistant',
+      content: '',
       thinking: [{ id: 'think1', content: 'Let me think...', format: 'structured' }],
     });
     const items = processor.process([msg]);
     expect(items.length).toBe(1);
     expect(items[0].type).toBe('thought-group');
+    expect(items[0].response?.id).toBe(msg.id);
+  });
+
+  it('should split thought-group from standalone assistant content', () => {
+    const msg = makeMsg({
+      type: 'assistant',
+      content: 'Hello',
+      thinking: [{ id: 'think1', content: 'Let me think...', format: 'structured' }],
+    });
+    const items = processor.process([msg]);
+    expect(items.length).toBe(2);
+    expect(items[0].type).toBe('thought-group');
+    expect(items[0].response).toBeUndefined();
+    expect(items[1].type).toBe('message');
+    expect(items[1].message?.id).toBe(msg.id);
   });
 
   it('should incrementally append new messages', () => {

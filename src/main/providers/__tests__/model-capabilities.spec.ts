@@ -81,9 +81,9 @@ describe('ModelCapabilitiesRegistry', () => {
   });
 
   describe('getCapabilities — known OpenAI models', () => {
-    it('returns 200K context window for gpt-5.4', () => {
+    it('returns 200K context window for gpt-5.5', () => {
       const registry = ModelCapabilitiesRegistry.getInstance();
-      const caps = registry.getCapabilities('openai', 'gpt-5.4');
+      const caps = registry.getCapabilities('openai', 'gpt-5.5');
       expect(caps.contextWindow).toBe(200_000);
     });
 

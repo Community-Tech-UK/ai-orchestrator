@@ -6,7 +6,8 @@
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { getLogger } from '../logging/logger';
 import { IpcResponse } from '../../shared/types/ipc.types';
-import { CliDetectionService, CliType } from '../cli/cli-detection';
+import { CliDetectionService, CliType, SUPPORTED_CLIS } from '../cli/cli-detection';
+import { getProviderDoctor } from '../providers/provider-doctor';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
 import type { WindowManager } from '../window-manager';
@@ -138,6 +139,82 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
         };
       }
     }
+  );
+
+  // Scan every install of every supported CLI (with shadow detection) and
+  // run the ProviderDoctor probes that apply.  Feeds the CLI Health tab.
+  ipcMain.handle(
+    'cli:diagnose-all',
+    async (): Promise<IpcResponse> => {
+      try {
+        const doctor = getProviderDoctor();
+        const providerMap: Record<CliType, string> = {
+          claude: 'claude-cli',
+          codex: 'codex-cli',
+          gemini: 'gemini-cli',
+          copilot: 'copilot',
+          cursor: 'cursor',
+          ollama: 'ollama',
+        };
+
+        const entries = await Promise.all(
+          SUPPORTED_CLIS.map(async (cliType) => {
+            const installs = await cliDetection.scanAllCliInstalls(cliType);
+            const providerKey = providerMap[cliType];
+            const diagnosis = providerKey
+              ? await doctor.diagnose(providerKey).catch(() => null)
+              : null;
+            return {
+              cli: cliType,
+              installs,
+              activePath: installs[0]?.path,
+              activeVersion: installs[0]?.version,
+              diagnosis,
+            };
+          }),
+        );
+
+        return { success: true, data: { entries, timestamp: Date.now() } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CLI_DIAGNOSE_ALL_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // Scan all installs of a single CLI (without running any probes).
+  ipcMain.handle(
+    'cli:scan-all-installs',
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse> => {
+      try {
+        const type = typeof payload === 'string'
+          ? payload
+          : (payload as { type?: string } | undefined)?.type;
+        if (!type || !SUPPORTED_CLIS.includes(type as CliType)) {
+          throw new Error(`Unknown CLI type: ${type}`);
+        }
+        const installs = await cliDetection.scanAllCliInstalls(type as CliType);
+        return { success: true, data: { cli: type, installs } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CLI_SCAN_ALL_INSTALLS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
   );
 
   // Check specific CLI (legacy handler for compatibility)

@@ -3,7 +3,14 @@
  */
 
 /**
- * Maps tool names to user-friendly activity descriptions
+ * Maps tool names to user-friendly activity descriptions.
+ *
+ * Keys cover both:
+ *  - Claude tool names (Read, Grep, Edit, Bash, …) — the original set.
+ *  - ACP tool kinds (read, edit, search, execute, fetch, think, move, delete, other)
+ *    emitted by the AcpCliAdapter for Copilot/Cursor sessions. Without these,
+ *    the "Searching the codebase" progress pill in the session view would only
+ *    appear for Claude.
  */
 export const TOOL_ACTIVITY_MAP: Record<string, string> = {
   // File reading tools
@@ -34,6 +41,18 @@ export const TOOL_ACTIVITY_MAP: Record<string, string> = {
 
   // Navigation & Exploration
   ListDirectory: 'Exploring files',
+
+  // ACP tool kinds (Copilot / Cursor via agent-client-protocol).
+  // See src/shared/types/cli.types.ts → AcpToolKind.
+  read: 'Gathering context',
+  edit: 'Making edits',
+  move: 'Making edits',
+  delete: 'Making edits',
+  search: 'Searching the codebase',
+  execute: 'Running commands',
+  fetch: 'Searching the web',
+  think: 'Thinking',
+  other: 'Working',
 
   // Default fallback
   default: 'Working',

@@ -17,6 +17,7 @@ import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.componen
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { ConnectionsSettingsTabComponent } from './connections-settings-tab.component';
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
+import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 
 type SettingsTab =
   | 'general'
@@ -29,7 +30,8 @@ type SettingsTab =
   | 'review'
   | 'advanced'
   | 'keyboard'
-  | 'remote-nodes';
+  | 'remote-nodes'
+  | 'cli-health';
 
 interface SettingsNavItem {
   id: SettingsTab;
@@ -46,6 +48,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'orchestration', label: 'Orchestration', group: 'Agents' },
   { id: 'review', label: 'Cross-Model Review', group: 'Agents' },
   { id: 'memory', label: 'Memory', group: 'Agents' },
+  { id: 'cli-health', label: 'CLI Health', group: 'Advanced' },
   { id: 'remote-nodes', label: 'Remote Nodes', group: 'Advanced' },
   { id: 'ecosystem', label: 'Ecosystem', group: 'Advanced' },
   { id: 'advanced', label: 'Advanced', group: 'Advanced' },
@@ -65,7 +68,8 @@ const NAV_ITEMS: SettingsNavItem[] = [
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent,
     ConnectionsSettingsTabComponent,
-    RemoteNodesSettingsTabComponent
+    RemoteNodesSettingsTabComponent,
+    CliHealthSettingsTabComponent
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -142,6 +146,9 @@ const NAV_ITEMS: SettingsNavItem[] = [
             }
             @case ('remote-nodes') {
               <app-remote-nodes-settings-tab />
+            }
+            @case ('cli-health') {
+              <app-cli-health-settings-tab />
             }
           }
         </div>

@@ -150,8 +150,8 @@ export const CLAUDE_MODELS = {
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
-  GPT54: 'gpt-5.4',
-  GPT54_MINI: 'gpt-5.4-mini',
+  GPT55: 'gpt-5.5',
+  GPT55_MINI: 'gpt-5.5-mini',
   GPT53_CODEX: 'gpt-5.3-codex',
   GPT53_CODEX_SPARK: 'gpt-5.3-codex-spark',
   GPT52: 'gpt-5.2',
@@ -183,12 +183,12 @@ export const COPILOT_MODELS = {
   CLAUDE_OPUS_46_FAST: 'claude-opus-4.6-fast',
   CLAUDE_OPUS_45: 'claude-opus-4.5',
   CLAUDE_SONNET_4: 'claude-sonnet-4',
-  GPT54: 'gpt-5.4',
+  GPT55: 'gpt-5.5',
   GPT53_CODEX: 'gpt-5.3-codex',
   GPT52_CODEX: 'gpt-5.2-codex',
   GPT52: 'gpt-5.2',
   GPT51: 'gpt-5.1',
-  GPT54_MINI: 'gpt-5.4-mini',
+  GPT55_MINI: 'gpt-5.5-mini',
   GPT5_MINI: 'gpt-5-mini',
   GPT41: 'gpt-4.1',
 } as const;
@@ -212,13 +212,13 @@ export const CURSOR_MODELS = {
 export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'claude-cli': CLAUDE_MODELS.SONNET,
   'anthropic-api': CLAUDE_MODELS.SONNET,
-  'openai': OPENAI_MODELS.GPT54,
-  'openai-compatible': OPENAI_MODELS.GPT54,
+  'openai': OPENAI_MODELS.GPT55,
+  'openai-compatible': OPENAI_MODELS.GPT55,
   'ollama': 'llama3',
   'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
   'copilot': COPILOT_MODELS.AUTO,
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
-  'azure': OPENAI_MODELS.GPT54,
+  'azure': OPENAI_MODELS.GPT55,
   cursor: CURSOR_MODELS.AUTO,
 };
 
@@ -252,8 +252,8 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'claude-3-5-sonnet-20241022': { input: 3.0, output: 15.0 },
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4.0 },
   // OpenAI / Codex models (GPT-5 family)
-  [OPENAI_MODELS.GPT54]: { input: 5.0, output: 20.0 },
-  [OPENAI_MODELS.GPT54_MINI]: { input: 1.5, output: 6.0 },
+  [OPENAI_MODELS.GPT55]: { input: 5.0, output: 20.0 },
+  [OPENAI_MODELS.GPT55_MINI]: { input: 1.5, output: 6.0 },
   [OPENAI_MODELS.GPT53_CODEX]: { input: 2.5, output: 10.0 },
   [OPENAI_MODELS.GPT53_CODEX_SPARK]: { input: 0.5, output: 2.0 },
   [OPENAI_MODELS.GPT52]: { input: 2.0, output: 8.0 },
@@ -290,9 +290,9 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: CLAUDE_MODELS.HAIKU, name: 'Haiku (latest)', tier: 'fast' },
   ],
   codex: [
-    { id: OPENAI_MODELS.GPT54, name: 'GPT-5.4', tier: 'powerful' },
-    { id: OPENAI_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced' },
-    { id: OPENAI_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast' },
+    { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful' },
+    { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced' },
+    { id: OPENAI_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
   ],
   gemini: [
     { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
@@ -310,13 +310,13 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced' },
-    { id: COPILOT_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced' },
+    { id: COPILOT_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT51, name: 'GPT-5.1', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast' },
-    { id: COPILOT_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast' },
+    { id: COPILOT_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
     { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast' },
     { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast' },
   ],

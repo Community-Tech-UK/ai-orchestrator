@@ -48,7 +48,7 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'openai-compatible',
     name: 'OpenAI Compatible',
     enabled: false,
-    defaultModel: OPENAI_MODELS.GPT54,
+    defaultModel: OPENAI_MODELS.GPT55,
   },
   'ollama': {
     type: 'ollama',
@@ -70,7 +70,7 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'azure',
     name: 'Azure OpenAI',
     enabled: false,
-    defaultModel: OPENAI_MODELS.GPT54,
+    defaultModel: OPENAI_MODELS.GPT55,
   },
 };
 

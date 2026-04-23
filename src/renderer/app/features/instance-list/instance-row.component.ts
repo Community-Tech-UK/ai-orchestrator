@@ -40,17 +40,15 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       }
 
       <span class="leading-indicator" [title]="needsAttention() ? activityLabel() : showActivitySpinner() ? activityLabel() : isHibernated() ? 'Hibernated — click to wake' : providerVisual().label">
-        @if (needsAttention()) {
-          <span class="attention-dot" [title]="activityLabel()"></span>
-        } @else if (isHibernated()) {
-          <span class="hibernated-indicator" title="Hibernated — click to wake">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" opacity="0.4"/>
-            </svg>
-          </span>
-        } @else {
-          <span class="provider-badge" [class.provider-busy]="showActivitySpinner()" [style.color]="providerVisual().color" [style.--provider-color]="providerVisual().color">
-            @switch (providerVisual().icon) {
+        <span
+          class="provider-badge"
+          [class.provider-busy]="showActivitySpinner()"
+          [class.provider-hibernated]="isHibernated()"
+          [class.provider-needs-attention]="needsAttention()"
+          [style.color]="providerVisual().color"
+          [style.--provider-color]="providerVisual().color"
+        >
+          @switch (providerVisual().icon) {
               @case ('anthropic') {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M12 1.75c.48 0 .87.39.87.87v4.04a.87.87 0 1 1-1.74 0V2.62c0-.48.39-.87.87-.87Z"/>
@@ -99,8 +97,12 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
                 </svg>
               }
             }
-          </span>
-        }
+          @if (needsAttention()) {
+            <span class="attention-overlay-dot" [title]="activityLabel()"></span>
+          } @else if (isHibernated()) {
+            <span class="hibernated-overlay-dot" title="Hibernated — click to wake"></span>
+          }
+        </span>
       </span>
 
       <div class="instance-info">
@@ -275,13 +277,41 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       opacity: 0.85;
     }
 
-    .attention-dot {
-      width: 10px;
-      height: 10px;
+    /* Dim the provider icon when the instance is hibernated so it reads as inactive
+       without hiding the provider identity. */
+    .provider-badge.provider-hibernated {
+      opacity: 0.4;
+    }
+
+    /* Small overlay dots that live on top of the provider-badge.
+       The provider icon (Anthropic / OpenAI / Google / GitHub / …) always stays
+       visible so the user can identify the provider at a glance; status is
+       conveyed by a secondary indicator in the corner. */
+    .attention-overlay-dot,
+    .hibernated-overlay-dot {
+      position: absolute;
+      bottom: -2px;
+      right: -2px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
+      border: 1.5px solid var(--bg-secondary, #0c0f0d);
+      pointer-events: none;
+    }
+
+    .attention-overlay-dot {
       background: #f59e0b;
-      box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+      box-shadow: 0 0 4px rgba(245, 158, 11, 0.7);
       animation: attention-pulse 2s ease-in-out infinite;
+    }
+
+    .hibernated-overlay-dot {
+      background: rgba(168, 176, 164, 0.55);
+    }
+
+    /* Ensure provider-badge is a positioning context for the overlay dots. */
+    .provider-badge {
+      position: relative;
     }
 
     .instance-row.needs-attention {
@@ -425,21 +455,6 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
     .provider-badge svg {
       width: 14px;
       height: 14px;
-    }
-
-    .hibernated-indicator {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-      color: rgba(168, 176, 164, 0.45);
-    }
-
-    .hibernated-indicator svg {
-      width: 12px;
-      height: 12px;
     }
 
     .instance-name {

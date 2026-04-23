@@ -4,11 +4,12 @@
  */
 
 import { spawn } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { isAbsolute } from 'path';
 import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
-import { buildCliSpawnOptions } from './cli-environment';
+import { buildCliSpawnOptions, getCliAdditionalPaths } from './cli-environment';
+import { resolveCopilotCliLaunch } from './copilot-cli-launch';
 
 const logger = getLogger('CliDetection');
 
@@ -35,6 +36,28 @@ export interface DetectionResult {
   available: CliInfo[];
   unavailable: CliInfo[];
   timestamp: Date;
+}
+
+/**
+ * One concrete installation of a CLI found on disk.
+ */
+export interface CliInstall {
+  path: string;
+  version?: string;
+  installed: boolean;
+  error?: string;
+}
+
+/**
+ * A shadow report — emitted when a CLI has more than one install on disk
+ * reporting different versions.  `installs` is ordered by PATH search
+ * priority (first = the one the app will actually use).
+ */
+export interface CliShadowReport {
+  cli: CliType;
+  installs: CliInstall[];
+  activePath?: string;
+  activeVersion?: string;
 }
 
 /**
@@ -336,6 +359,27 @@ export class CliDetectionService {
       };
     }
 
+    if (type === 'copilot') {
+      const launch = resolveCopilotCliLaunch();
+      if (!launch) {
+        return {
+          name: config.name,
+          command: 'gh copilot',
+          displayName: config.displayName,
+          installed: false,
+          capabilities: config.capabilities,
+          error: 'Neither `copilot` nor `gh copilot` was found',
+        };
+      }
+
+      return this.checkCommand(
+        launch.command,
+        config,
+        [...launch.argsPrefix, '--version'],
+        launch.displayCommand,
+      );
+    }
+
     // First try the main command
     let result = await this.checkCommand(config.command, config);
 
@@ -362,12 +406,14 @@ export class CliDetectionService {
    */
   private checkCommand(
     command: string,
-    config: CliRegistryEntry
+    config: CliRegistryEntry,
+    argsOverride?: string[],
+    reportedCommand?: string,
   ): Promise<CliInfo> {
     return new Promise((resolve) => {
       const result: CliInfo = {
         name: config.name,
-        command: config.command,
+        command: reportedCommand ?? config.command,
         displayName: config.displayName,
         installed: false,
         capabilities: config.capabilities
@@ -383,7 +429,7 @@ export class CliDetectionService {
       }
       try {
         // Build the version check arguments
-        const args = config.versionFlag.split(' ');
+        const args = argsOverride ?? config.versionFlag.split(' ');
 
         // Extend PATH to include common CLI installation directories
         // This is needed for packaged Electron apps where PATH may be limited
@@ -454,6 +500,80 @@ export class CliDetectionService {
         resolve(result);
       }
     });
+  }
+
+  /**
+   * Finds every copy of a CLI in all known search directories and reports
+   * their versions.  Used to detect "shadow" installs where e.g. a stale
+   * Homebrew-npm copy at `/opt/homebrew/bin/<cli>` sits alongside a newer
+   * nvm install and silently gets picked up because it appears first in
+   * PATH.
+   *
+   * Walks the same list of directories as `getCliAdditionalPaths()` plus
+   * the real `$PATH`, dedupes by realpath (symlinks resolving to the same
+   * file count as one install), and runs each copy with its version flag.
+   */
+  async scanAllCliInstalls(type: CliType): Promise<CliInstall[]> {
+    const config = CLI_REGISTRY[type];
+    if (!config) {
+      return [];
+    }
+
+    const cmd = config.command;
+    const searchDirs = [
+      ...getCliAdditionalPaths(process.env, process.platform),
+      ...(process.env['PATH'] || '').split(process.platform === 'win32' ? ';' : ':'),
+    ].filter(Boolean);
+
+    const seenReal = new Set<string>();
+    const candidates: string[] = [];
+    for (const dir of searchDirs) {
+      const candidate = `${dir}/${cmd}`;
+      if (!existsSync(candidate)) continue;
+      let real: string;
+      try {
+        real = realpathSync(candidate);
+      } catch {
+        real = candidate;
+      }
+      if (seenReal.has(real)) continue;
+      seenReal.add(real);
+      candidates.push(candidate);
+    }
+
+    const results = await Promise.all(
+      candidates.map(async (path): Promise<CliInstall> => {
+        const info = await this.checkCommand(path, config);
+        return {
+          path,
+          version: info.version,
+          installed: info.installed,
+          error: info.error,
+        };
+      }),
+    );
+
+    return results.filter((r) => r.installed);
+  }
+
+  /**
+   * Checks a CLI for shadow installs — multiple copies at different PATH
+   * locations, reporting different versions.  Returns null if there is no
+   * shadow (0 or 1 installs, or all installs report the same version).
+   */
+  async detectShadowInstalls(type: CliType): Promise<CliShadowReport | null> {
+    const installs = await this.scanAllCliInstalls(type);
+    if (installs.length < 2) return null;
+
+    const versions = new Set(installs.map((i) => i.version ?? 'unknown'));
+    if (versions.size < 2) return null;
+
+    return {
+      cli: type,
+      installs,
+      activePath: installs[0]?.path,
+      activeVersion: installs[0]?.version,
+    };
   }
 
   /**

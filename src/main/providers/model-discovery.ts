@@ -418,7 +418,7 @@ export class ModelDiscoveryService {
   private getOpenAIPricing(modelId: string): ModelPricing | undefined {
     const pricing: Record<string, ModelPricing> = {
       // GPT-5 family
-      'gpt-5.4': { inputPer1kTokens: 0.005, outputPer1kTokens: 0.02, currency: 'USD' },
+      'gpt-5.5': { inputPer1kTokens: 0.005, outputPer1kTokens: 0.02, currency: 'USD' },
       'gpt-5.3-codex': { inputPer1kTokens: 0.0025, outputPer1kTokens: 0.01, currency: 'USD' },
       'gpt-5.2-codex': { inputPer1kTokens: 0.0025, outputPer1kTokens: 0.01, currency: 'USD' },
       'gpt-5.2': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
@@ -427,7 +427,7 @@ export class ModelDiscoveryService {
       'gpt-5-codex': { inputPer1kTokens: 0.002, outputPer1kTokens: 0.008, currency: 'USD' },
       'gpt-5': { inputPer1kTokens: 0.003, outputPer1kTokens: 0.012, currency: 'USD' },
       // GPT-5 family (additional entries)
-      'gpt-5.4-mini': { inputPer1kTokens: 0.0015, outputPer1kTokens: 0.006, currency: 'USD' },
+      'gpt-5.5-mini': { inputPer1kTokens: 0.0015, outputPer1kTokens: 0.006, currency: 'USD' },
       'gpt-5.3-codex-spark': { inputPer1kTokens: 0.0005, outputPer1kTokens: 0.002, currency: 'USD' },
       'gpt-4': { inputPer1kTokens: 0.03, outputPer1kTokens: 0.06, currency: 'USD' },
       'gpt-3.5-turbo': { inputPer1kTokens: 0.0005, outputPer1kTokens: 0.0015, currency: 'USD' },

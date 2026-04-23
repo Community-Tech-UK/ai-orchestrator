@@ -92,6 +92,9 @@ export class SettingsManager extends EventEmitter {
       'claude-opus-4-20250514': 'opus',
       'claude-3-5-sonnet-20241022': 'sonnet',
       'claude-3-5-haiku-20241022': 'haiku',
+      // Previous OpenAI/Codex defaults
+      'gpt-5.4': 'gpt-5.5',
+      'gpt-5.4-mini': 'gpt-5.5-mini',
       // Legacy Codex alias
       'codex-mini-latest': 'gpt-5.3-codex',
     };

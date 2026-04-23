@@ -57,10 +57,12 @@ import type { AppServerClient } from './codex/app-server-client';
 import type {
   AppServerNotification,
   AppServerRequestParams,
+  AppServerResponseResult,
   CodexReasoningEffort,
   ThreadItem,
   TurnCaptureState,
   TurnPhase,
+  UserInput,
 } from './codex/app-server-types';
 import { SERVICE_NAME } from './codex/app-server-types';
 import { CodexSessionScanner } from './codex/session-scanner';
@@ -117,7 +119,7 @@ export interface CodexCliConfig {
   approvalMode?: CodexApprovalMode;
   /** Run without persisting session files to disk */
   ephemeral?: boolean;
-  /** Model to use (gpt-5.4, gpt-5.3-codex, etc.) */
+  /** Model to use (gpt-5.5, gpt-5.3-codex, etc.) */
   model?: string;
   /** JSON Schema object for structured output (app-server mode) */
   outputSchema?: Record<string, unknown>;
@@ -882,14 +884,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // receive a thread/tokenUsage/updated notification.
     this.hasTokenUsageNotification = false;
 
-    // Process attachments — prepend file references to the user message (not replace it)
-    let content = message;
-    if (attachments && attachments.length > 0) {
-      const processed = await this.prepareAttachmentsForAppServer(attachments);
-      if (processed) {
-        content = `${processed}\n\n${message}`;
-      }
-    }
+    // App-server turns accept multimodal inputs. Keep supported images as
+    // `localImage` items and only fall back to file references for everything
+    // else so vision-capable Codex models still receive the original pixels.
+    const preparedAttachments = attachments && attachments.length > 0
+      ? await this.prepareAttachmentsForAppServer(message, attachments)
+      : { input: [], text: message };
+    let content = preparedAttachments.text;
 
     // Include system prompt on the very first turn only.
     // Track via a dedicated flag — currentTurnId is cleared after every turn.
@@ -902,7 +903,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     // Start the turn and capture notifications
-    const turnState = await this.captureTurn(content);
+    const input: UserInput[] = [];
+    const text = content.trim();
+    if (text) {
+      input.push({ type: 'text', text, text_elements: [] });
+    }
+    input.push(...preparedAttachments.input);
+
+    if (input.length === 0) {
+      throw new Error('Cannot send empty app-server turn input');
+    }
+
+    const turnState = await this.captureTurn(input);
 
     // Check for failed turns (e.g., context overflow, API errors).
     // Codex reports these as turn/completed with status: "failed".
@@ -1054,7 +1066,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * `captureTurn()` pattern. Includes multi-turn notification routing:
    * notifications from other turns are forwarded to the previous handler.
    */
-  private async captureTurn(content: string): Promise<TurnCaptureState> {
+  private async captureTurn(input: UserInput[]): Promise<TurnCaptureState> {
     const client = this.appServerClient!;
     const threadId = this.appServerThreadId!;
 
@@ -1133,7 +1145,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.turnInProgress = true;
       const turnParams: Record<string, unknown> = {
         threadId,
-        input: [{ type: 'text', text: content, text_elements: [] }],
+        input,
       };
 
       // Add structured output schema if configured
@@ -1146,7 +1158,32 @@ export class CodexCliAdapter extends BaseCliAdapter {
         turnParams['reasoningEffort'] = this.cliConfig.reasoningEffort;
       }
 
-      const turnResult = await client.request('turn/start', turnParams as unknown as AppServerRequestParams<'turn/start'>);
+      // Arm the idle watchdog BEFORE sending turn/start.  `turn/start` has
+      // no per-RPC timeout (see app-server-client.ts#resolveDefaultTimeout —
+      // it's intentionally long-running because the server streams work via
+      // notifications).  If the app-server hangs without emitting any
+      // notifications (seen with codex 0.97.0 on cold start, and possible
+      // whenever auth/network/backend is wedged), the watchdog fires after
+      // NOTIFICATION_IDLE_MS and rejects state.completion — otherwise the
+      // caller would block forever and the UI would show "Processing..."
+      // indefinitely.
+      armIdleWatchdog();
+
+      // Race turn/start against the watchdog (via state.completion
+      // rejection) and process exit, so a hung turn/start surfaces as an
+      // error instead of blocking indefinitely.  state.completion.catch is
+      // used (not Promise.race directly on state.completion) so that a
+      // legitimate synchronous turn/completed arriving during turn/start
+      // doesn't short-circuit the race before we've captured the turn id.
+      const turnResult = await Promise.race<AppServerResponseResult<'turn/start'>>([
+        client.request('turn/start', turnParams as unknown as AppServerRequestParams<'turn/start'>),
+        new Promise<never>((_, reject) => {
+          state.completion.catch(reject);
+        }),
+        client.exitPromise.then(() => {
+          throw new Error('codex app-server exited unexpectedly during turn/start');
+        }) as Promise<never>,
+      ]);
       this.currentTurnId = turnResult.turn?.id || null;
 
       if (this.currentTurnId) {
@@ -1169,8 +1206,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
         this.completeTurn(state, turnResult.turn);
       }
 
-      // Start the idle watchdog now that the turn is in progress.
-      // Uses the short timeout because no item has started yet.
+      // Re-arm the watchdog to absorb any window consumed during turn/start.
+      // In normal flow notifications already reset it; this keeps behavior
+      // correct when turn/start returns before any notification arrives.
       armIdleWatchdog();
 
       // Wait for completion. Two termination conditions:
@@ -1742,35 +1780,37 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return this.cliConfig.sandboxMode || 'read-only';
   }
 
-  private async prepareAttachmentsForAppServer(attachments: FileAttachment[]): Promise<string | null> {
-    if (attachments.length === 0) return null;
-
-    // App-server protocol only supports text input — warn about dropped images
-    const inlineImageAttachments = attachments.filter(
-      (attachment) => attachment.type.startsWith('image/') && supportsCodexInlineImage(attachment.type)
-    );
-    if (inlineImageAttachments.length > 0) {
-      const names = inlineImageAttachments.map((attachment) => attachment.name).join(', ');
-      logger.warn('Image attachments not supported in app-server mode, dropped', {
-        count: inlineImageAttachments.length,
-        names,
-      });
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'system',
-        content: `⚠ ${inlineImageAttachments.length} image attachment(s) dropped — Codex app-server mode does not support images (${names})`,
-      });
+  private async prepareAttachmentsForAppServer(
+    message: string,
+    attachments: FileAttachment[]
+  ): Promise<{ input: UserInput[]; text: string }> {
+    if (attachments.length === 0) {
+      return { input: [], text: message };
     }
 
     const workingDirectory = this.cliConfig.workingDir || process.cwd();
-    const fileAttachments = attachments.filter(
-      (attachment) => !attachment.type.startsWith('image/') || !supportsCodexInlineImage(attachment.type)
+    const processed = await processAttachments(attachments, this.sessionId || generateId(), workingDirectory);
+    if (processed.length === 0) {
+      return { input: [], text: message };
+    }
+
+    const imageInputs: UserInput[] = processed
+      .filter((attachment) => attachment.isImage && supportsCodexInlineImage(attachment.mimeType))
+      .map((attachment) => ({
+        type: 'localImage',
+        path: attachment.filePath,
+      }));
+
+    const fileAttachments = processed.filter(
+      (attachment) => !attachment.isImage || !supportsCodexInlineImage(attachment.mimeType)
     );
-    if (fileAttachments.length === 0) return null;
-    const processed = await processAttachments(fileAttachments, this.sessionId || generateId(), workingDirectory);
-    if (processed.length === 0) return null;
-    return buildMessageWithFiles('', processed);
+
+    return {
+      input: imageInputs,
+      text: fileAttachments.length > 0
+        ? buildMessageWithFiles(message, fileAttachments)
+        : message,
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════

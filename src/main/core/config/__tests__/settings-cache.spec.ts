@@ -91,4 +91,11 @@ describe('SettingsManager settings cache', () => {
     const merged = mgr.getMerged();
     expect((merged as any).theme).toBe('dark');
   });
+
+  it('migrates persisted GPT-5.4 defaults to GPT-5.5', () => {
+    store['defaultModel'] = 'gpt-5.4-mini';
+    const mgr = new SettingsManager();
+
+    expect(mgr.get('defaultModel')).toBe('gpt-5.5-mini');
+  });
 });

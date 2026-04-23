@@ -1,6 +1,6 @@
 /**
  * Copilot CLI Adapter - Spawns and manages the GitHub Copilot CLI
- * (standalone `copilot` binary, aka `@github/copilot`, NOT the `gh copilot` gh extension).
+ * via the standalone `copilot` binary when available, or `gh copilot` as a fallback.
  *
  * Replaces the former `copilot-sdk-adapter` which wrapped `@github/copilot-sdk`.
  * That SDK proxied the same underlying CLI via JSON-RPC and had repeated
@@ -36,6 +36,7 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 
 const logger = getLogger('CopilotCliAdapter');
 
@@ -43,7 +44,7 @@ const logger = getLogger('CopilotCliAdapter');
  * Copilot CLI specific configuration
  */
 export interface CopilotCliConfig {
-  /** Model to use (e.g. 'claude-sonnet-4-6', 'gpt-5.4', 'gemini-2.5-pro'). */
+  /** Model to use (e.g. 'claude-sonnet-4-6', 'gpt-5.5', 'gemini-2.5-pro'). */
   model?: string;
   /** Working directory for the CLI process. */
   workingDir?: string;
@@ -219,12 +220,12 @@ export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
   'claude-opus-4.6-fast',
   'claude-opus-4.5',
   'claude-sonnet-4',
-  'gpt-5.4',
+  'gpt-5.5',
   'gpt-5.3-codex',
   'gpt-5.2-codex',
   'gpt-5.2',
   'gpt-5.1',
-  'gpt-5.4-mini',
+  'gpt-5.5-mini',
   'gpt-5-mini',
   'gpt-4.1',
 ].map(toCopilotModelInfo);
@@ -247,9 +248,10 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   private currentMessageReasoning: ThinkingContent[] = [];
 
   constructor(config: CopilotCliConfig = {}) {
+    const launch = getDefaultCopilotCliLaunch();
     const adapterConfig: CliAdapterConfig = {
-      command: 'copilot',
-      args: [],
+      command: launch.command,
+      args: [...launch.argsPrefix],
       cwd: config.workingDir,
       timeout: config.timeout ?? 300_000,
       sessionPersistence: true,
@@ -909,7 +911,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     if (!status.available) {
       throw new Error(
         `GitHub Copilot CLI not available: ${status.error ?? 'copilot command not found'}. ` +
-        `Install it from https://github.com/github/copilot-cli or run \`npm install -g @github/copilot\`.`,
+        'Install GitHub CLI and run `gh copilot`, or install `@github/copilot` globally.',
       );
     }
 

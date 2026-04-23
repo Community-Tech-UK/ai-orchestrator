@@ -685,7 +685,7 @@ Answer:`;
       throw new Error('OpenAI API key not configured');
     }
 
-    const model = this.config.model || OPENAI_MODELS.GPT54_MINI;
+    const model = this.config.model || OPENAI_MODELS.GPT55_MINI;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -840,7 +840,7 @@ Answer:`;
       throw new Error('OpenAI API key not configured');
     }
 
-    const model = this.config.model || OPENAI_MODELS.GPT54_MINI; // Use mini for speed
+    const model = this.config.model || OPENAI_MODELS.GPT55_MINI; // Use mini for speed
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

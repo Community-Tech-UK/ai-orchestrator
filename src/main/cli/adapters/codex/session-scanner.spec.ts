@@ -31,14 +31,14 @@ describe('CodexSessionScanner', () => {
 
   it('should find a session matching workspace path', async () => {
     createRolloutFile('2026/04/09', 'rollout-abc123.jsonl', [
-      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.4' },
+      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_abc123' },
     ]);
     const result = await scanner.findSessionForWorkspace('/projects/my-app');
     expect(result).not.toBeNull();
     expect(result!.threadId).toBe('thread_abc123');
     expect(result!.workspacePath).toBe('/projects/my-app');
-    expect(result!.model).toBe('gpt-5.4');
+    expect(result!.model).toBe('gpt-5.5');
   });
 
   it('should return null when no session matches', async () => {
@@ -55,7 +55,7 @@ describe('CodexSessionScanner', () => {
       { type: 'event_msg', threadId: 'thread_old' },
     ]);
     createRolloutFile('2026/04/09', 'rollout-new.jsonl', [
-      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.4' },
+      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_new' },
     ]);
     const result = await scanner.findSessionForWorkspace('/projects/my-app');
@@ -73,7 +73,7 @@ describe('CodexSessionScanner', () => {
 
   it('should extract token usage from event_msg entries', async () => {
     createRolloutFile('2026/04/09', 'rollout-tokens.jsonl', [
-      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.4' },
+      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_tok', subtype: 'token_count', input_tokens: 1500, output_tokens: 500, cached_tokens: 200, reasoning_tokens: 100 },
     ]);
     const result = await scanner.findSessionForWorkspace('/projects/my-app');
@@ -83,7 +83,7 @@ describe('CodexSessionScanner', () => {
 
   it('should cache results and return cached on second call', async () => {
     createRolloutFile('2026/04/09', 'rollout-cached.jsonl', [
-      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.4' },
+      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_cached' },
     ]);
     const result1 = await scanner.findSessionForWorkspace('/projects/my-app');
@@ -93,7 +93,7 @@ describe('CodexSessionScanner', () => {
 
   it('should return null after cache invalidation', async () => {
     createRolloutFile('2026/04/09', 'rollout-inv.jsonl', [
-      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.4' },
+      { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_inv' },
     ]);
     await scanner.findSessionForWorkspace('/projects/my-app');
@@ -105,7 +105,7 @@ describe('CodexSessionScanner', () => {
 
   it('matches Windows workspace paths across separator and case differences', async () => {
     createRolloutFile('2026/04/09', 'rollout-win.jsonl', [
-      { type: 'session_meta', cwd: 'C:\\Users\\Alice\\Work\\My-App', model: 'gpt-5.4' },
+      { type: 'session_meta', cwd: 'C:\\Users\\Alice\\Work\\My-App', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_windows' },
     ]);
 

@@ -91,6 +91,7 @@ function getUserDataPath(): string {
 
 /** Lazily-resolved tool-output directory; created on first use. */
 let toolOutputDir: string | undefined;
+let fallbackToolOutputDir: string | undefined;
 
 /**
  * Returns the tool-output directory, creating it if it does not exist yet.
@@ -101,6 +102,21 @@ function getToolOutputDir(): string {
     fs.mkdirSync(toolOutputDir, { recursive: true });
   }
   return toolOutputDir;
+}
+
+function getFallbackToolOutputDir(): string {
+  if (!fallbackToolOutputDir) {
+    fallbackToolOutputDir = path.join(os.tmpdir(), 'orchestrator-tool-output');
+    fs.mkdirSync(fallbackToolOutputDir, { recursive: true });
+  }
+  return fallbackToolOutputDir;
+}
+
+function writeToolOutputFile(dir: string, id: string, text: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, `${id}.txt`);
+  fs.writeFileSync(filePath, text, 'utf8');
+  return filePath;
 }
 
 /**
@@ -191,20 +207,30 @@ export function truncateToolOutput(
   let outputPath: string;
 
   try {
-    const dir = getToolOutputDir();
-    outputPath = path.join(dir, `${id}.txt`);
-    fs.writeFileSync(outputPath, text, 'utf8');
+    outputPath = writeToolOutputFile(getToolOutputDir(), id, text);
   } catch (err) {
-    // If we can't write the file, return the truncated preview without a path
-    // reference so the caller is not left with a useless error.
-    logger.error('Failed to write truncated tool output to disk', err instanceof Error ? err : undefined, {
-      id,
-      byteCount,
-      lineCount,
-    });
-    const preview = applyTruncation(text, opts);
-    const hint = `\n\n[Output truncated. Could not save full output to disk. Preview shows ${opts.direction === 'head' ? 'first' : 'last'} portion of ${byteCount} bytes.]`;
-    return { content: preview + hint, truncated: false };
+    try {
+      outputPath = writeToolOutputFile(getFallbackToolOutputDir(), id, text);
+      logger.warn('Primary tool-output directory unavailable, wrote truncated output to temp storage instead', {
+        id,
+        byteCount,
+        lineCount,
+        error: err instanceof Error ? err.message : String(err),
+        outputPath,
+      });
+    } catch (fallbackErr) {
+      // If we can't write the file anywhere, return the truncated preview without a path
+      // reference so the caller is not left with a useless error.
+      logger.error('Failed to write truncated tool output to disk', fallbackErr instanceof Error ? fallbackErr : undefined, {
+        id,
+        byteCount,
+        lineCount,
+        primaryError: err instanceof Error ? err.message : String(err),
+      });
+      const preview = applyTruncation(text, opts);
+      const hint = `\n\n[Output truncated. Could not save full output to disk. Preview shows ${opts.direction === 'head' ? 'first' : 'last'} portion of ${byteCount} bytes.]`;
+      return { content: preview + hint, truncated: false };
+    }
   }
 
   logger.debug('Tool output truncated and saved', {

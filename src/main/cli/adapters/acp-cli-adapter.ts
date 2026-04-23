@@ -55,7 +55,6 @@ import type {
   AcpSessionRequestPermissionParams,
   AcpSessionUpdate,
   AcpSessionUpdateNotificationParams,
-  AcpStopReason,
   AcpToolCallDeltaUpdate,
   AcpToolCallOutputItem,
   AcpToolCallStatus,
@@ -69,6 +68,7 @@ import {
 } from '../../../shared/types/cli.types';
 import type { PermissionRegistry } from '../../orchestration/permission-registry';
 import type { PermissionDecision, PermissionRequest } from '../../../shared/types/permission-registry.types';
+import { buildCliSpawnOptions } from '../cli-environment';
 
 const logger = getLogger('AcpCliAdapter');
 
@@ -114,6 +114,7 @@ interface AcpPendingPromptTurn {
   responseId: string;
   startedAt: number;
   chunks: string[];
+  messageChunksById: Map<string, string[]>;
 }
 
 interface AcpPendingPermissionRequest {
@@ -256,11 +257,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
       };
     }
 
-    if (command.includes('/') && existsSync(command)) {
+    if ((command.includes('/') || command.includes('\\')) && existsSync(command)) {
       return { available: true, path: command };
     }
 
-    const whichResult = spawnSync('which', [command], { encoding: 'utf8' });
+    const env = { ...process.env, ...this.getConfig().env };
+    const pathResolver = process.platform === 'win32' ? 'where' : 'which';
+    const whichResult = spawnSync(pathResolver, [command], {
+      encoding: 'utf8',
+      ...buildCliSpawnOptions(env),
+    });
     if (whichResult.status === 0) {
       return {
         available: true,
@@ -294,7 +300,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.agentCapabilities = initializeResult.agentCapabilities ?? null;
 
       if ((initializeResult.authMethods?.length ?? 0) > 0) {
-        throw new Error('ACP agent authentication negotiation is not implemented by this adapter yet.');
+        logger.debug('ACP agent advertised auth methods during initialize', {
+          adapter: this.getName(),
+          authMethodCount: initializeResult.authMethods?.length ?? 0,
+        });
       }
 
       if (initializeResult.protocolVersion !== ACP_PROTOCOL_VERSION) {
@@ -357,6 +366,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       responseId,
       startedAt: Date.now(),
       chunks: [],
+      messageChunksById: new Map<string, string[]>(),
     };
     this.emit('status', 'busy');
 
@@ -402,7 +412,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   // ACP agents are launched without a message-specific argv contract.
   // Prompt turns are delivered over JSON-RPC once the stdio transport is up.
-  protected buildArgs(_message: CliMessage): string[] {
+  protected buildArgs(message: CliMessage): string[] {
+    void message;
     return [];
   }
 
@@ -485,7 +496,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       const loadParams: AcpSessionLoadParams = {
         sessionId: this.acpConfig.sessionId,
         cwd: this.acpConfig.workingDirectory,
-        mcpServers: this.acpConfig.mcpServers,
+        mcpServers: this.acpConfig.mcpServers ?? [],
       };
       await this.sendRequest<null>('session/load', loadParams);
       return this.acpConfig.sessionId;
@@ -493,7 +504,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const newParams: AcpSessionNewParams = {
       cwd: this.acpConfig.workingDirectory,
-      mcpServers: this.acpConfig.mcpServers,
+      mcpServers: this.acpConfig.mcpServers ?? [],
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
     return result.sessionId;
@@ -685,19 +696,32 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return;
     }
 
-    if (update.sessionUpdate === 'agent_message_chunk' && this.currentPrompt) {
-      this.currentPrompt.chunks.push(content);
+    const messageType = update.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'user';
+    const turn = this.currentPrompt;
+    const messageId = update.messageId ?? turn?.responseId ?? generateId();
+    let accumulatedContent = content;
+
+    if (turn) {
+      const messageChunks = turn.messageChunksById.get(messageId) ?? [];
+      messageChunks.push(content);
+      turn.messageChunksById.set(messageId, messageChunks);
+      accumulatedContent = messageChunks.join('');
+
+      if (update.sessionUpdate === 'agent_message_chunk') {
+        turn.chunks.push(content);
+      }
     }
 
-    const messageType = update.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'user';
     this.emit('output', {
-      id: update.messageId ?? generateId(),
+      id: messageId,
       timestamp: Date.now(),
       type: messageType,
-      content,
+      content: accumulatedContent,
       metadata: {
         sessionUpdate: update.sessionUpdate,
         transport: 'acp',
+        streaming: true,
+        accumulatedContent,
       },
     } satisfies OutputMessage);
   }
@@ -729,6 +753,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
       metadata: {
         toolCallId: update.toolCallId,
         kind: observed.kind,
+        // Expose `name` so the renderer's ActivityDebouncer
+        // (instance.store.ts) picks up the tool and shows the "Searching the
+        // codebase", "Making edits", etc. progress indicator for ACP agents
+        // (Copilot, Cursor) the same way it does for Claude. We surface the
+        // ACP `kind` as the name because it's a stable enum that the
+        // TOOL_ACTIVITY_MAP can key on — `title` is a free-form human
+        // description that changes per call.
+        name: observed.kind,
+        title: observed.title,
         status: observed.status,
         transport: 'acp',
       },

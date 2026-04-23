@@ -42,13 +42,13 @@ export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
   { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6', tier: 'high', supportsVision: true, contextWindow: 1000000 },
   { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', tier: 'high', supportsVision: true, contextWindow: 200000 },
-  { id: 'gpt-5.4', name: 'GPT-5.4', tier: 'high', supportsVision: true, contextWindow: 200000 },
+  { id: 'gpt-5.5', name: 'GPT-5.5', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.2', name: 'GPT-5.2', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.1', name: 'GPT-5.1', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', tier: 'fast', supportsVision: true, contextWindow: 200000 },
-  { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
+  { id: 'gpt-5.5-mini', name: 'GPT-5.5 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5-mini', name: 'GPT-5 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-4.1', name: 'GPT-4.1', tier: 'fast', supportsVision: true, contextWindow: 200000 },
 ];
@@ -80,7 +80,7 @@ function inferTier(modelId: string, modelName: string): 'flagship' | 'high' | 'f
     return 'fast';
   }
 
-  // Everything else is high performance (sonnet, gpt-5.4, flash, etc.)
+  // Everything else is high performance (sonnet, GPT-5 family, flash, etc.)
   return 'high';
 }
 

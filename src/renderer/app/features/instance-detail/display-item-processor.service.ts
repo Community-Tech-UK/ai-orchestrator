@@ -205,16 +205,31 @@ export class DisplayItemProcessor {
           type: 'thought-group',
           thinking: msg.thinking,
           thoughts: msg.thinking.map(t => t.content),
-          response: msg,
+          response: this.hasStandaloneAssistantContent(msg) ? undefined : msg,
           timestamp: msg.timestamp,
           bufferIndex,
         });
+        if (this.hasStandaloneAssistantContent(msg)) {
+          items.push({
+            id: `msg-${msg.id}`,
+            type: 'message',
+            message: msg,
+            bufferIndex,
+          });
+        }
       } else {
         items.push({ id: `msg-${msg.id}`, type: 'message', message: msg, bufferIndex });
       }
     }
 
     return items;
+  }
+
+  private hasStandaloneAssistantContent(message: OutputMessage): boolean {
+    return Boolean(
+      message.content?.trim()
+      || (message.attachments && message.attachments.length > 0),
+    );
   }
 
   private mergeNewItems(newItems: DisplayItem[]): void {
@@ -331,7 +346,7 @@ export class DisplayItemProcessor {
 
   private getItemSenderType(item: DisplayItem): string | null {
     if (item.type === 'message' && item.message) return item.message.type;
-    if (item.type === 'thought-group') return 'assistant';
+    if (item.type === 'thought-group') return null;
     if (item.type === 'tool-group') return 'tool';
     if (item.type === 'system-event-group') return 'system';
     return null;

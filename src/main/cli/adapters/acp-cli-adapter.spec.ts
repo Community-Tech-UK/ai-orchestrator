@@ -313,6 +313,23 @@ describe('AcpCliAdapter', () => {
       }),
     );
 
+    // Regression: the tool_use output metadata MUST carry a `name` (ACP kind)
+    // and `title` so the renderer's ActivityDebouncer can light up the
+    // "Gathering context" / "Searching the codebase" progress pill for
+    // Copilot/Cursor sessions — not just for Claude.
+    expect(outputHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'tool_use',
+        content: 'Read config',
+        metadata: expect.objectContaining({
+          name: 'read',
+          title: 'Read config',
+          kind: 'read',
+          transport: 'acp',
+        }),
+      }),
+    );
+
     proc.exit();
   });
 

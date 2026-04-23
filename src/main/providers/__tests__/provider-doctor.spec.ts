@@ -45,10 +45,10 @@ describe('ProviderDoctor', () => {
     expect(probes.map(p => p.name)).toContain('authenticated');
   });
 
-  it('tracks cursor as a CLI-installed probe only', () => {
+  it('tracks cursor as CLI install and shadow-check probes', () => {
     const doctor = ProviderDoctor.getInstance();
     const probes = doctor.getProbesForProvider('cursor');
-    expect(probes.map((probe) => probe.name)).toEqual(['cli_installed']);
+    expect(probes.map((probe) => probe.name)).toEqual(['cli_installed', 'cli_shadow_check']);
   });
 
   it('uses the Windows path resolver for CLI install checks', async () => {

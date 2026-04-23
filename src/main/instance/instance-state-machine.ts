@@ -39,19 +39,19 @@ const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degr
  */
 const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>> = {
   initializing:       ['ready', 'idle', 'error'],
-  ready:              ['busy', 'idle', 'hibernating'],
-  idle:               ['ready', 'hibernating', 'waiting_for_input'],
-  busy:               ['idle', 'ready', 'waiting_for_input', 'waiting_for_permission', 'error', 'processing', 'thinking_deeply'],
-  processing:         ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'thinking_deeply'],
-  thinking_deeply:    ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'processing'],
-  waiting_for_input:  ['busy', 'idle', 'ready'],
-  waiting_for_permission: ['busy', 'idle', 'ready', 'waiting_for_input'],
-  respawning:         ['ready', 'idle', 'error'],
+  ready:              ['busy', 'idle', 'error', 'hibernating', 'respawning', 'initializing'],
+  idle:               ['ready', 'error', 'hibernating', 'waiting_for_input', 'respawning', 'initializing'],
+  busy:               ['idle', 'ready', 'waiting_for_input', 'waiting_for_permission', 'error', 'processing', 'thinking_deeply', 'respawning', 'initializing'],
+  processing:         ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'thinking_deeply', 'initializing'],
+  thinking_deeply:    ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'processing', 'initializing'],
+  waiting_for_input:  ['busy', 'idle', 'ready', 'error', 'initializing'],
+  waiting_for_permission: ['busy', 'idle', 'ready', 'waiting_for_input', 'error', 'initializing'],
+  respawning:         ['ready', 'idle', 'busy', 'error', 'initializing'],
   hibernating:        ['hibernated'],
   hibernated:         ['waking'],
   waking:             ['ready', 'error'],
-  error:              ['ready', 'idle', 'respawning'],
-  degraded:           ['ready', 'idle', 'error'],  // Reconnected → ready/idle, grace period expired → error
+  error:              ['ready', 'idle', 'respawning', 'initializing'],
+  degraded:           ['ready', 'idle', 'error', 'initializing'],  // Reconnected → ready/idle, grace period expired → error
   // Terminal states have no outgoing transitions.
   failed:             [],
   terminated:         [],

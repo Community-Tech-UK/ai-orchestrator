@@ -177,6 +177,8 @@ export class IpcFacadeService {
   detectOneCli = this.provider.detectOneCli.bind(this.provider);
   checkCli = this.provider.checkCli.bind(this.provider);
   testCliConnection = this.provider.testCliConnection.bind(this.provider);
+  scanAllCliInstalls = this.provider.scanAllCliInstalls.bind(this.provider);
+  diagnoseAllClis = this.provider.diagnoseAllClis.bind(this.provider);
   listCopilotModels = this.provider.listCopilotModels.bind(this.provider);
   listProviders = this.provider.listProviders.bind(this.provider);
   getProviderStatus = this.provider.getProviderStatus.bind(this.provider);

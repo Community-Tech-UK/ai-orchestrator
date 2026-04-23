@@ -36,7 +36,7 @@ describe('provider type helpers', () => {
   });
 
   it('returns 200k for non-Claude providers', () => {
-    expect(getProviderModelContextWindow('codex', 'gpt-5.4')).toBe(200000);
+    expect(getProviderModelContextWindow('codex', 'gpt-5.5')).toBe(200000);
   });
 });
 

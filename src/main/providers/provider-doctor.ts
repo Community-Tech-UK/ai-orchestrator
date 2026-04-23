@@ -9,9 +9,11 @@ import { execFile } from 'child_process';
 import { getLogger } from '../logging/logger';
 import type { HealthStatus } from '../core/system/health-checker';
 import { buildCliSpawnOptions } from '../cli/cli-environment';
+import { resolveCopilotCliLaunch } from '../cli/copilot-cli-launch';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import { checkCodexCliAuthentication } from './codex-cli-auth';
 import { checkGeminiCliAuthentication } from './gemini-cli-auth';
+import { CliDetectionService, type CliType, type CliShadowReport } from '../cli/cli-detection';
 
 const logger = getLogger('ProviderDoctor');
 
@@ -91,11 +93,23 @@ export class ProviderDoctor {
         critical: true,
         appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'cursor'],
         run: async (provider) => {
+          if (provider === 'copilot') {
+            const start = Date.now();
+            const launch = resolveCopilotCliLaunch();
+            return {
+              name: 'cli_installed',
+              status: launch ? 'pass' as const : 'fail' as const,
+              message: launch
+                ? `${launch.displayCommand} found in PATH`
+                : 'Neither `copilot` nor `gh copilot` was found in PATH',
+              latencyMs: Date.now() - start,
+            };
+          }
+
           const cliMap: Record<string, string> = {
             'claude-cli': 'claude',
             'codex-cli': 'codex',
             'gemini-cli': 'gemini',
-            'copilot': 'copilot',
             'cursor': 'cursor-agent',
           };
           const cmd = cliMap[provider];
@@ -126,6 +140,54 @@ export class ProviderDoctor {
               latencyMs: Date.now() - start,
             };
           }
+        },
+      },
+      {
+        name: 'cli_shadow_check',
+        description: 'Check for stale or shadow CLI installs at multiple PATH locations',
+        critical: false,
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'cursor'],
+        run: async (provider) => {
+          const cliTypeMap: Record<string, CliType | undefined> = {
+            'claude-cli': 'claude',
+            'codex-cli': 'codex',
+            'gemini-cli': 'gemini',
+            'copilot': 'copilot',
+            'cursor': 'cursor',
+          };
+          const cliType = cliTypeMap[provider];
+          if (!cliType) {
+            return {
+              name: 'cli_shadow_check',
+              status: 'skip' as const,
+              message: 'Not a scannable CLI provider',
+              latencyMs: 0,
+            };
+          }
+
+          const start = Date.now();
+          const report = await CliDetectionService.getInstance().detectShadowInstalls(cliType);
+          const latencyMs = Date.now() - start;
+
+          if (!report) {
+            return {
+              name: 'cli_shadow_check',
+              status: 'pass' as const,
+              message: 'Single active install (no shadows detected)',
+              latencyMs,
+            };
+          }
+
+          const versionList = report.installs
+            .map((i) => `${i.path} (v${i.version ?? '?'})`)
+            .join('\n  ');
+          return {
+            name: 'cli_shadow_check',
+            status: 'fail' as const,
+            message: `Multiple ${cliType} installs with different versions:\n  ${versionList}`,
+            latencyMs,
+            metadata: { report: report as unknown as Record<string, unknown> },
+          };
         },
       },
       {
@@ -286,10 +348,26 @@ export class ProviderDoctor {
             'claude-cli': 'npm install -g @anthropic-ai/claude-code',
             'codex-cli': 'npm install -g @openai/codex',
             'gemini-cli': 'npm install -g @google/gemini-cli',
-            'copilot': 'npm install -g @github/copilot',
+            'copilot': 'Install GitHub CLI and run `gh copilot`, or install `npm install -g @github/copilot`',
             'cursor': 'Install Cursor and ensure `cursor-agent` is on PATH',
           };
           recs.push(`CLI not found. To install: ${installCmds[provider] ?? 'Check docs'}`);
+          break;
+        }
+        case 'cli_shadow_check': {
+          const report = probe.metadata?.['report'] as CliShadowReport | undefined;
+          if (report && report.installs.length >= 2) {
+            const stale = report.installs.slice(1);
+            const lines = stale.map((i) => {
+              const uninstallHint = inferUninstallHint(i.path);
+              return `- ${i.path} (v${i.version ?? '?'})${uninstallHint ? ` — uninstall: ${uninstallHint}` : ''}`;
+            });
+            recs.push(
+              `Shadow install detected. Active: ${report.activePath} (v${report.activeVersion ?? '?'}). Remove the stale copies so the active install is the only one:\n${lines.join('\n')}`,
+            );
+          } else {
+            recs.push(`Shadow check failed: ${probe.message}`);
+          }
           break;
         }
         case 'authenticated':
@@ -328,4 +406,23 @@ export class ProviderDoctor {
 
 export function getProviderDoctor(): ProviderDoctor {
   return ProviderDoctor.getInstance();
+}
+
+/**
+ * Best-effort hint on how to remove a stale CLI copy based on its install
+ * path.  Returns null when we can't confidently suggest a command.
+ */
+function inferUninstallHint(installPath: string): string | null {
+  if (installPath.startsWith('/opt/homebrew/')) {
+    const binName = installPath.split('/').pop();
+    return `/opt/homebrew/bin/npm uninstall -g <package>  # ${binName} under Homebrew's node`;
+  }
+  if (installPath.startsWith('/usr/local/')) {
+    const binName = installPath.split('/').pop();
+    return `/usr/local/bin/npm uninstall -g <package>  # ${binName} under system npm`;
+  }
+  if (installPath.includes('/.nvm/versions/node/')) {
+    return 'nvm install handled — keep this one if it is the newest';
+  }
+  return null;
 }

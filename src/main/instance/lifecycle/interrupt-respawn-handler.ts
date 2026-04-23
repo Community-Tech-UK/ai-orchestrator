@@ -183,6 +183,8 @@ export class InterruptRespawnHandler {
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+    const triggeredByInterrupt = instance.status === 'respawning';
+    const replayReason = triggeredByInterrupt ? 'interrupt-respawn' : 'stuck-auto-respawn';
 
     const release = await getSessionMutex().acquire(instanceId, 'respawn-interrupt');
     try {
@@ -225,7 +227,7 @@ export class InterruptRespawnHandler {
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation),
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
       };
-      const adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
 
@@ -233,12 +235,15 @@ export class InterruptRespawnHandler {
         logger.debug('Spawning new process after interrupt', { instanceId });
         let pid: number;
         let actuallyResumed = shouldResume;
+        let recoveryInputSent = false;
         try {
           pid = await adapter.spawn();
           instance.processId = pid;
           if (shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
             throw new Error('Native resume did not stabilize after interrupt');
           }
+          instance.providerSessionId = newSessionId;
+          await this.deps.waitForAdapterWritable(instanceId, 3000);
         } catch (spawnError) {
           // Resume failed (e.g., corrupted session with empty messages).
           // Fall back to a fresh session with replay continuity message.
@@ -265,22 +270,27 @@ export class InterruptRespawnHandler {
               forkSession: false,
               sessionId: fallbackSessionId,
             };
-            const fallbackAdapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, fallbackAdapter);
-            this.deps.setAdapter(instanceId, fallbackAdapter);
+            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
+            this.deps.setupAdapterEvents(instanceId, adapter);
+            this.deps.setAdapter(instanceId, adapter);
 
-            pid = await fallbackAdapter.spawn();
+            pid = await adapter.spawn();
             actuallyResumed = false;
+            instance.processId = pid;
+            instance.providerSessionId = fallbackSessionId;
+            await this.deps.waitForAdapterWritable(instanceId, 3000);
 
             if (hasConversation) {
-              await fallbackAdapter.sendInput(
+              await adapter.sendInput(
                 await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback'),
               );
+              recoveryInputSent = true;
             }
           } else {
             throw spawnError;
           }
         }
+        instance.recoveryMethod = actuallyResumed ? 'native' : (hasConversation ? 'replay' : 'fresh');
         if (actuallyResumed) {
           // Clear any stale blacklist — resume just succeeded against this id.
           instance.sessionResumeBlacklisted = false;
@@ -289,43 +299,73 @@ export class InterruptRespawnHandler {
 
         instance.processId = pid;
 
-        // Verify the adapter is ready to accept input before declaring idle.
-        // After spawn, the CLI process needs a moment for its stdin pipe to
-        // become writable. Without this gate, sendInput() can race ahead and
-        // fail with "CLI not ready for input".
-        const currentAdapter = this.deps.getAdapter(instanceId);
-        if (currentAdapter && currentAdapter !== adapter) {
-          logger.warn('Adapter was replaced during respawn, skipping idle transition', { instanceId });
-        } else {
-          await this.deps.waitForAdapterWritable(instanceId, 3000);
-        }
-
-        this.deps.transitionState(instance, 'idle');
-        instance.lastActivity = Date.now();
-
         if (!actuallyResumed && shouldResume) {
           // Already sent continuity message in fallback path above
         } else if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.deps.buildReplayContinuityMessage(instance, 'interrupt-respawn'));
+          await adapter.sendInput(this.deps.buildReplayContinuityMessage(instance, replayReason));
+          recoveryInputSent = true;
         }
+
+        if (recoveryInputSent) {
+          if (instance.status === 'respawning') {
+            this.deps.transitionState(instance, 'busy');
+          }
+        } else {
+          this.deps.transitionState(instance, 'idle');
+        }
+        instance.lastActivity = Date.now();
 
         const message = {
           id: generateId(),
           type: 'system' as const,
-          content: actuallyResumed ? 'Interrupted — waiting for input' : 'Interrupted — session restarted (resume failed)',
+          content: triggeredByInterrupt
+            ? (actuallyResumed ? 'Interrupted — waiting for input' : 'Interrupted — session restarted (resume failed)')
+            : (actuallyResumed ? 'Session reconnected automatically' : 'Session restarted automatically (resume failed)'),
           timestamp: Date.now(),
+          metadata: triggeredByInterrupt ? undefined : { autoRespawn: true, recoveryCause: 'stuck' },
         };
         this.deps.addToOutputBuffer(instance, message);
         this.deps.emitOutput(instanceId, message);
 
         instance.lastRespawnAt = Date.now();
-        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+        this.deps.queueUpdate(
+          instanceId,
+          instance.status,
+          instance.contextUsage,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            providerSessionId: instance.providerSessionId,
+            restartEpoch: instance.restartEpoch,
+            recoveryMethod: instance.recoveryMethod,
+            archivedUpToMessageId: instance.archivedUpToMessageId,
+            historyThreadId: instance.historyThreadId,
+          }
+        );
         logger.info('Respawn after interrupt complete', { instanceId });
       } catch (error) {
         logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
         this.deps.transitionState(instance, 'error');
         instance.processId = null;
-        this.deps.queueUpdate(instanceId, 'error');
+        instance.recoveryMethod = 'failed';
+        this.deps.queueUpdate(
+          instanceId,
+          'error',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            providerSessionId: instance.providerSessionId,
+            restartEpoch: instance.restartEpoch,
+            recoveryMethod: instance.recoveryMethod,
+            archivedUpToMessageId: instance.archivedUpToMessageId,
+            historyThreadId: instance.historyThreadId,
+          }
+        );
         throw error;
       }
     } finally {
@@ -409,12 +449,15 @@ export class InterruptRespawnHandler {
       try {
         let pid: number;
         let actuallyResumed = shouldResume;
+        let recoveryInputSent = false;
         try {
           pid = await adapter.spawn();
           instance.processId = pid;
           if (shouldResume && !(await this.deps.waitForResumeHealth(instanceId))) {
             throw new Error('Native resume did not stabilize after unexpected exit');
           }
+          instance.providerSessionId = newSessionId;
+          await this.deps.waitForAdapterWritable(instanceId, 3000);
         } catch (spawnError) {
           if (shouldResume) {
             logger.warn('Resume failed during auto-respawn, falling back to fresh session', {
@@ -444,14 +487,19 @@ export class InterruptRespawnHandler {
 
             pid = await adapter.spawn();
             actuallyResumed = false;
+            instance.processId = pid;
+            instance.providerSessionId = fallbackSessionId;
+            await this.deps.waitForAdapterWritable(instanceId, 3000);
 
             if (hasConversation) {
               await adapter.sendInput(await this.deps.buildFallbackHistory(instance, 'auto-respawn-fallback'));
+              recoveryInputSent = true;
             }
           } else {
             throw spawnError;
           }
         }
+        instance.recoveryMethod = actuallyResumed ? 'native' : (hasConversation ? 'replay' : 'fresh');
         if (actuallyResumed) {
           // Clear any stale blacklist — resume just succeeded against this id.
           instance.sessionResumeBlacklisted = false;
@@ -459,14 +507,22 @@ export class InterruptRespawnHandler {
         logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
 
         instance.processId = pid;
-        this.deps.transitionState(instance, 'idle');
-        instance.lastActivity = Date.now();
 
         if (!actuallyResumed && shouldResume) {
           // Already sent continuity message in fallback path
         } else if (!shouldResume && hasConversation) {
           await adapter.sendInput(this.deps.buildReplayContinuityMessage(instance, 'auto-respawn'));
+          recoveryInputSent = true;
         }
+
+        if (recoveryInputSent) {
+          if (instance.status === 'respawning') {
+            this.deps.transitionState(instance, 'busy');
+          }
+        } else {
+          this.deps.transitionState(instance, 'idle');
+        }
+        instance.lastActivity = Date.now();
 
         const message = {
           id: generateId(),
@@ -481,12 +537,43 @@ export class InterruptRespawnHandler {
         this.deps.emitOutput(instanceId, message);
 
         instance.lastRespawnAt = Date.now();
-        this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+        this.deps.queueUpdate(
+          instanceId,
+          instance.status,
+          instance.contextUsage,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            providerSessionId: instance.providerSessionId,
+            restartEpoch: instance.restartEpoch,
+            recoveryMethod: instance.recoveryMethod,
+            archivedUpToMessageId: instance.archivedUpToMessageId,
+            historyThreadId: instance.historyThreadId,
+          }
+        );
       } catch (error) {
         logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
         this.deps.transitionState(instance, 'error');
         instance.processId = null;
-        this.deps.queueUpdate(instanceId, 'error');
+        instance.recoveryMethod = 'failed';
+        this.deps.queueUpdate(
+          instanceId,
+          'error',
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            providerSessionId: instance.providerSessionId,
+            restartEpoch: instance.restartEpoch,
+            recoveryMethod: instance.recoveryMethod,
+            archivedUpToMessageId: instance.archivedUpToMessageId,
+            historyThreadId: instance.historyThreadId,
+          }
+        );
         throw error;
       }
     } finally {

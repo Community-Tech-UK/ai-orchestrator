@@ -129,7 +129,7 @@ describe('TokenCounter', () => {
 
   describe('estimateCost', () => {
     it('should estimate cost for GPT models', () => {
-      const cost = tokenCounter.estimateCost(1000, 500, 'gpt-5.4-mini');
+      const cost = tokenCounter.estimateCost(1000, 500, 'gpt-5.5-mini');
       expect(cost).toBeGreaterThan(0);
       expect(cost).toBeLessThan(1); // Should be fractions of a dollar
     });

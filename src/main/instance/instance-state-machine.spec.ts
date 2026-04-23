@@ -79,6 +79,18 @@ describe('InstanceStateMachine – valid transitions', () => {
     expect(sm.current).toBe('idle');
   });
 
+  it('ready → error', () => {
+    const sm = new InstanceStateMachine('ready');
+    sm.transition('error');
+    expect(sm.current).toBe('error');
+  });
+
+  it('ready → initializing', () => {
+    const sm = new InstanceStateMachine('ready');
+    sm.transition('initializing');
+    expect(sm.current).toBe('initializing');
+  });
+
   it('ready → hibernating', () => {
     const sm = new InstanceStateMachine('ready');
     sm.transition('hibernating');
@@ -101,6 +113,12 @@ describe('InstanceStateMachine – valid transitions', () => {
     const sm = new InstanceStateMachine('busy');
     sm.transition('error');
     expect(sm.current).toBe('error');
+  });
+
+  it('busy → initializing', () => {
+    const sm = new InstanceStateMachine('busy');
+    sm.transition('initializing');
+    expect(sm.current).toBe('initializing');
   });
 
   it('waiting_for_input → busy', () => {
@@ -139,6 +157,12 @@ describe('InstanceStateMachine – valid transitions', () => {
     expect(sm.current).toBe('respawning');
   });
 
+  it('error → initializing', () => {
+    const sm = new InstanceStateMachine('error');
+    sm.transition('initializing');
+    expect(sm.current).toBe('initializing');
+  });
+
   it('respawning → ready', () => {
     const sm = new InstanceStateMachine('respawning');
     sm.transition('ready');
@@ -155,6 +179,12 @@ describe('InstanceStateMachine – valid transitions', () => {
     const sm = new InstanceStateMachine('respawning');
     sm.transition('error');
     expect(sm.current).toBe('error');
+  });
+
+  it('respawning → busy', () => {
+    const sm = new InstanceStateMachine('respawning');
+    sm.transition('busy');
+    expect(sm.current).toBe('busy');
   });
 
   it('full hibernation cycle: idle → hibernating → hibernated → waking → ready', () => {
@@ -179,6 +209,18 @@ describe('InstanceStateMachine – valid transitions', () => {
     const sm = new InstanceStateMachine('idle');
     sm.transition('waiting_for_input');
     expect(sm.current).toBe('waiting_for_input');
+  });
+
+  it('idle → error', () => {
+    const sm = new InstanceStateMachine('idle');
+    sm.transition('error');
+    expect(sm.current).toBe('error');
+  });
+
+  it('idle → initializing', () => {
+    const sm = new InstanceStateMachine('idle');
+    sm.transition('initializing');
+    expect(sm.current).toBe('initializing');
   });
 });
 
@@ -209,11 +251,6 @@ describe('InstanceStateMachine – invalid transitions', () => {
   it('initializing → busy is not allowed', () => {
     const sm = new InstanceStateMachine('initializing');
     expect(() => sm.transition('busy')).toThrow(InvalidTransitionError);
-  });
-
-  it('ready → error is not allowed', () => {
-    const sm = new InstanceStateMachine('ready');
-    expect(() => sm.transition('error')).toThrow(InvalidTransitionError);
   });
 
   it('waking → busy is not allowed', () => {

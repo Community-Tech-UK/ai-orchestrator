@@ -41,6 +41,22 @@ export function createProviderDomain(
       return ipcRenderer.invoke(ch.CLI_TEST_CONNECTION, { command });
     },
 
+    /**
+     * Scan all PATH locations for every install of a given CLI.
+     * Used by the CLI Health tab to surface shadow installs.
+     */
+    scanAllCliInstalls: (type: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CLI_SCAN_ALL_INSTALLS, { type });
+    },
+
+    /**
+     * Run the full CLI diagnostic sweep (scan + ProviderDoctor probes) for
+     * every supported CLI.  Used by the CLI Health tab.
+     */
+    diagnoseAllClis: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CLI_DIAGNOSE_ALL);
+    },
+
     // ============================================
     // Copilot
     // ============================================

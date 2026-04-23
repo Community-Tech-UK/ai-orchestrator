@@ -169,6 +169,28 @@ if (process.platform === 'darwin') {
 // Application instance
 let orchestratorApp: AIOrchestratorApp | null = null;
 
+// Enforce a single running instance.  Without this, macOS Launch Services
+// will cheerfully spawn a second full app (each ~4 GB of RAM) when the user
+// double-clicks the dock icon while the app is still starting up — you
+// end up with two entries in Force Quit and two sets of processes fighting
+// over the same session/SQLite files.  If we lose the lock, a prior
+// instance is already running — focus its window via 'second-instance' and
+// exit this process.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const windows = BrowserWindow.getAllWindows();
+    const mainWindow = windows[0];
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // App ready handler
 app.whenReady().then(async () => {
   // Set dock icon on macOS (only in development mode - packaged app uses icon from Info.plist)

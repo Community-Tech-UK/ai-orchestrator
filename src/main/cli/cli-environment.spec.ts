@@ -45,6 +45,29 @@ describe('cli-environment', () => {
     expect(buildCliPath(env, 'darwin')).toContain(':/usr/bin:/bin');
   });
 
+  it('prefers nvm and user-managed bin dirs over Homebrew on POSIX', () => {
+    // Regression: a forgotten Homebrew-npm copy of a CLI (e.g. codex 0.97.0
+    // at /opt/homebrew/bin) used to shadow the user's current nvm install
+    // because /opt/homebrew/bin came first in PATH. User-managed installs
+    // must win.
+    const env = {
+      HOME: '/Users/alice',
+      PATH: '/usr/bin:/bin',
+    } as NodeJS.ProcessEnv;
+
+    const paths = getCliAdditionalPaths(env, 'darwin');
+    const nvmCurrentIdx = paths.indexOf('/Users/alice/.nvm/versions/node/current/bin');
+    const npmGlobalIdx = paths.indexOf('/Users/alice/.npm-global/bin');
+    const localBinIdx = paths.indexOf('/Users/alice/.local/bin');
+    const homebrewIdx = paths.indexOf('/opt/homebrew/bin');
+
+    expect(nvmCurrentIdx).toBeGreaterThanOrEqual(0);
+    expect(homebrewIdx).toBeGreaterThanOrEqual(0);
+    expect(nvmCurrentIdx).toBeLessThan(homebrewIdx);
+    expect(npmGlobalIdx).toBeLessThan(homebrewIdx);
+    expect(localBinIdx).toBeLessThan(homebrewIdx);
+  });
+
   it('requires shell execution on Windows for npm-installed wrappers', () => {
     expect(shouldUseCliShell('win32')).toBe(true);
     expect(shouldUseCliShell('darwin')).toBe(false);

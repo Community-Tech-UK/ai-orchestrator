@@ -14,6 +14,7 @@ import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
+import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
@@ -212,13 +213,30 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
 }
 
 /**
- * Creates a Copilot CLI adapter (spawns the `copilot` binary directly).
+ * Creates a Copilot CLI adapter.
+ * Uses the standalone `copilot` binary when available, otherwise falls back
+ * to the GitHub CLI wrapper (`gh copilot`) which can bootstrap Copilot itself.
+ *
+ * NOTE: The ACP adapter layer holds `options.model` in its config but does not
+ * forward it to the subprocess. Copilot honors `--model` even in `--acp` mode,
+ * so we must inject the flag here at spawn time. Without this, the selected
+ * model silently falls back to the copilot binary's configured default
+ * (typically "auto"), so the orchestrator UI shows the chosen model but the
+ * Copilot session actually runs a different one.
  */
 export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  const launch = getDefaultCopilotCliLaunch();
+  const modelArgs: string[] = [];
+  const requestedModel = options.model?.trim();
+  if (requestedModel) {
+    const normalizedModel =
+      requestedModel.toLowerCase() === 'auto' ? 'auto' : requestedModel;
+    modelArgs.push('--model', normalizedModel);
+  }
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
-    command: 'copilot',
-    args: ['--acp', '--stdio'],
+    command: launch.command,
+    args: [...launch.argsPrefix, '--acp', '--stdio', ...modelArgs],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     model: options.model,
     systemPrompt: options.systemPrompt,

@@ -18,7 +18,7 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
-import type { Instance } from '../../shared/types/instance.types';
+import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
   ConversationHistoryEntry,
   ConversationData,
@@ -35,6 +35,7 @@ const logger = getLogger('HistoryManager');
 const HISTORY_INDEX_VERSION = 1;
 const MAX_PREVIEW_LENGTH = 150;
 const MAX_HISTORY_ENTRIES = 100; // Keep last 100 conversations
+const RESUME_FAILURE_MESSAGE = /no conversation found|session.*not.*found/i;
 
 export class HistoryManager {
   private storageDir: string;
@@ -130,6 +131,8 @@ export class HistoryManager {
       }
 
       // Create history entry
+      const nativeResumeFailedAt =
+        this.inferUnresolvedNativeResumeFailure(messages) ?? undefined;
       const entry: ConversationHistoryEntry = {
         id: entryId,
         displayName: instance.displayName,
@@ -145,6 +148,7 @@ export class HistoryManager {
         originalInstanceId: instance.id,
         parentId: instance.parentId,
         sessionId: instance.sessionId,
+        nativeResumeFailedAt,
         provider: instance.provider,
         currentModel: instance.currentModel,
         executionLocation,
@@ -604,6 +608,58 @@ export class HistoryManager {
 
   private getConversationPath(entryId: string): string {
     return path.join(this.storageDir, `${entryId}.json.gz`);
+  }
+
+  private inferUnresolvedNativeResumeFailure(messages: OutputMessage[]): number | null {
+    let failureIndex = -1;
+
+    for (let index = 0; index < messages.length; index += 1) {
+      if (this.isNativeResumeFailureMessage(messages[index])) {
+        failureIndex = index;
+      }
+    }
+
+    if (failureIndex === -1) {
+      return null;
+    }
+
+    const resumedAfterFailure = messages
+      .slice(failureIndex + 1)
+      .some((message) => this.isSuccessfulConversationOutput(message));
+
+    if (resumedAfterFailure) {
+      return null;
+    }
+
+    return messages[failureIndex]?.timestamp ?? Date.now();
+  }
+
+  private isNativeResumeFailureMessage(message: OutputMessage): boolean {
+    const content = message.content.trim();
+    if (!content) {
+      return false;
+    }
+
+    if (message.type === 'error' && RESUME_FAILURE_MESSAGE.test(content)) {
+      return true;
+    }
+
+    if (message.type !== 'system') {
+      return false;
+    }
+
+    return (
+      content === 'Session restarted automatically (resume failed)'
+      || content === 'Interrupted — session restarted (resume failed)'
+    );
+  }
+
+  private isSuccessfulConversationOutput(message: OutputMessage): boolean {
+    return (
+      message.type === 'assistant'
+      || message.type === 'tool_use'
+      || message.type === 'tool_result'
+    );
   }
 
   private getEntryThreadKey(

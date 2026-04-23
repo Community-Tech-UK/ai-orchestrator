@@ -138,11 +138,40 @@ export interface ThreadCompactStartResponse {
 
 // ─── Turn Management ────────────────────────────────────────────────────────
 
-export interface UserInput {
+export interface TextUserInput {
   type: 'text';
   text: string;
-  text_elements?: unknown[];
+  text_elements: unknown[];
 }
+
+export interface ImageUserInput {
+  type: 'image';
+  url: string;
+}
+
+export interface LocalImageUserInput {
+  type: 'localImage';
+  path: string;
+}
+
+export interface SkillUserInput {
+  type: 'skill';
+  name: string;
+  path: string;
+}
+
+export interface MentionUserInput {
+  type: 'mention';
+  name: string;
+  path: string;
+}
+
+export type UserInput =
+  | TextUserInput
+  | ImageUserInput
+  | LocalImageUserInput
+  | SkillUserInput
+  | MentionUserInput;
 
 export interface TurnStartParams {
   threadId: string;

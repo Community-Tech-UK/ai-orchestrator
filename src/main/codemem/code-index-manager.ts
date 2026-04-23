@@ -42,12 +42,16 @@ interface PendingWorkspaceChange {
   timer: NodeJS.Timeout;
 }
 
+interface WorkspaceWatcherHandle {
+  close(): Promise<void>;
+}
+
 export class CodeIndexManager extends EventEmitter {
   private readonly debounceMs: number;
   private readonly chunker: TreeSitterChunker;
   private readonly metadataExtractor = getMetadataExtractor();
   private readonly workspacePaths = new Map<WorkspaceHash, string>();
-  private readonly watchers = new Map<WorkspaceHash, FSWatcher>();
+  private readonly watchers = new Map<WorkspaceHash, WorkspaceWatcherHandle>();
   private readonly pending = new Map<WorkspaceHash, PendingWorkspaceChange>();
 
   constructor(protected readonly opts: CodeIndexManagerOptions) {
@@ -102,37 +106,23 @@ export class CodeIndexManager extends EventEmitter {
 
     await this.stop(workspaceHash);
 
-    await new Promise<void>((resolve, reject) => {
-      const watcher = watch(absoluteWorkspacePath, {
-        ignoreInitial: true,
-        persistent: true,
-        awaitWriteFinish: {
-          stabilityThreshold: Math.max(this.debounceMs, 30),
-          pollInterval: 25,
-        },
-        ignored: (candidatePath) => this.isDefaultIgnored(absoluteWorkspacePath, candidatePath),
+    try {
+      const watcher = await this.createChokidarWatcher(absoluteWorkspacePath, workspaceHash);
+      this.watchers.set(workspaceHash, watcher);
+    } catch (error) {
+      if (!this.isRecoverableWatchError(error)) {
+        throw error;
+      }
+
+      logger.warn('Falling back to polling code index watcher after native watcher failure', {
+        workspaceHash,
+        workspacePath: absoluteWorkspacePath,
+        error: error instanceof Error ? error.message : String(error),
       });
 
-      const handleReady = (): void => {
-        watcher.off('error', handleError);
-        resolve();
-      };
-      const handleError = (error: unknown): void => {
-        watcher.off('ready', handleReady);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-      const queuePath = (changedPath: string): void => {
-        this.queueWorkspacePath(workspaceHash, changedPath);
-      };
-
-      watcher.on('add', queuePath);
-      watcher.on('change', queuePath);
-      watcher.on('unlink', queuePath);
-      watcher.on('ready', handleReady);
-      watcher.on('error', handleError);
-
+      const watcher = await this.createPollingWatcher(absoluteWorkspacePath, workspaceHash);
       this.watchers.set(workspaceHash, watcher);
-    });
+    }
   }
 
   async stop(workspaceHash?: WorkspaceHash): Promise<void> {
@@ -584,6 +574,153 @@ export class CodeIndexManager extends EventEmitter {
       const normalizedPattern = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
       return relativePath === normalizedPattern || relativePath.startsWith(`${normalizedPattern}/`);
     });
+  }
+
+  private async createChokidarWatcher(
+    absoluteWorkspacePath: string,
+    workspaceHash: WorkspaceHash,
+  ): Promise<WorkspaceWatcherHandle> {
+    return await new Promise<WorkspaceWatcherHandle>((resolve, reject) => {
+      const watcher = watch(absoluteWorkspacePath, {
+        ignoreInitial: true,
+        persistent: true,
+        awaitWriteFinish: {
+          stabilityThreshold: Math.max(this.debounceMs, 30),
+          pollInterval: 25,
+        },
+        ignored: (candidatePath) => this.isDefaultIgnored(absoluteWorkspacePath, candidatePath),
+      });
+
+      const queuePath = (changedPath: string): void => {
+        this.queueWorkspacePath(workspaceHash, changedPath);
+      };
+      const runtimeErrorHandler = (error: unknown): void => {
+        logger.warn('Code index watcher reported a runtime error', {
+          workspaceHash,
+          workspacePath: absoluteWorkspacePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      };
+      const cleanupStartupListeners = (): void => {
+        watcher.off('ready', handleReady);
+        watcher.off('error', handleStartupError);
+      };
+      const handleReady = (): void => {
+        cleanupStartupListeners();
+        watcher.on('error', runtimeErrorHandler);
+        resolve({
+          close: async () => {
+            watcher.off('error', runtimeErrorHandler);
+            await watcher.close();
+          },
+        });
+      };
+      const handleStartupError = (error: unknown): void => {
+        cleanupStartupListeners();
+        void watcher.close().catch(() => undefined);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+
+      watcher.on('add', queuePath);
+      watcher.on('change', queuePath);
+      watcher.on('unlink', queuePath);
+      watcher.on('ready', handleReady);
+      watcher.on('error', handleStartupError);
+    });
+  }
+
+  private async createPollingWatcher(
+    absoluteWorkspacePath: string,
+    workspaceHash: WorkspaceHash,
+  ): Promise<WorkspaceWatcherHandle> {
+    let closed = false;
+    let scanning = false;
+    let snapshot = await this.captureWorkspaceSnapshot(absoluteWorkspacePath);
+    const intervalMs = Math.max(this.debounceMs, 50);
+
+    const timer = setInterval(() => {
+      if (closed || scanning) {
+        return;
+      }
+
+      scanning = true;
+      void this.scanWorkspaceSnapshot(absoluteWorkspacePath, workspaceHash, snapshot)
+        .then((nextSnapshot) => {
+          snapshot = nextSnapshot;
+        })
+        .catch((error) => {
+          logger.warn('Polling code index watcher scan failed', {
+            workspaceHash,
+            workspacePath: absoluteWorkspacePath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          scanning = false;
+        });
+    }, intervalMs);
+
+    if (timer.unref) {
+      timer.unref();
+    }
+
+    return {
+      close: async () => {
+        closed = true;
+        clearInterval(timer);
+      },
+    };
+  }
+
+  private async captureWorkspaceSnapshot(workspacePath: string): Promise<Map<string, string>> {
+    const ig = await this.loadIgnoreRules(workspacePath);
+    const files = await this.walkFiles(workspacePath, workspacePath, ig);
+    const snapshot = new Map<string, string>();
+
+    for (const absoluteFilePath of files) {
+      try {
+        const stat = await fs.stat(absoluteFilePath);
+        snapshot.set(absoluteFilePath, `${Math.floor(stat.mtimeMs)}:${stat.size}`);
+      } catch {
+        // Ignore files that disappear while the snapshot is being collected.
+      }
+    }
+
+    return snapshot;
+  }
+
+  private async scanWorkspaceSnapshot(
+    workspacePath: string,
+    workspaceHash: WorkspaceHash,
+    previousSnapshot: Map<string, string>,
+  ): Promise<Map<string, string>> {
+    const nextSnapshot = await this.captureWorkspaceSnapshot(workspacePath);
+    const changedPaths = new Set<string>();
+
+    for (const [absoluteFilePath, signature] of nextSnapshot) {
+      if (previousSnapshot.get(absoluteFilePath) !== signature) {
+        changedPaths.add(absoluteFilePath);
+      }
+    }
+
+    for (const absoluteFilePath of previousSnapshot.keys()) {
+      if (!nextSnapshot.has(absoluteFilePath)) {
+        changedPaths.add(absoluteFilePath);
+      }
+    }
+
+    for (const absoluteFilePath of [...changedPaths].sort()) {
+      this.queueWorkspacePath(workspaceHash, absoluteFilePath);
+    }
+
+    return nextSnapshot;
+  }
+
+  private isRecoverableWatchError(error: unknown): boolean {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+    return code === 'EMFILE' || code === 'ENOSPC' || code === 'EPERM';
   }
 
   private async stopWorkspace(workspaceHash: WorkspaceHash): Promise<void> {

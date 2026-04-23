@@ -63,19 +63,19 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsBatching: true,
     pricing: pricingFor(CLAUDE_MODELS.HAIKU),
   },
-  'openai:gpt-5.4': {
+  'openai:gpt-5.5': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
     supportsBatching: true,
-    pricing: pricingFor(OPENAI_MODELS.GPT54),
+    pricing: pricingFor(OPENAI_MODELS.GPT55),
   },
-  'openai:gpt-5.4-mini': {
+  'openai:gpt-5.5-mini': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
     supportsBatching: true,
-    pricing: pricingFor(OPENAI_MODELS.GPT54_MINI),
+    pricing: pricingFor(OPENAI_MODELS.GPT55_MINI),
   },
   'openai:o1': {
     contextWindow: CONTEXT_WINDOWS.O1,
@@ -104,12 +104,12 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsThinking: false,
     supportsBatching: false,
   },
-  'codex:gpt-5.4': {
+  'codex:gpt-5.5': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
     supportsBatching: false,
-    pricing: pricingFor(OPENAI_MODELS.GPT54),
+    pricing: pricingFor(OPENAI_MODELS.GPT55),
   },
   'codex:gpt-5.3-codex': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
@@ -118,12 +118,12 @@ const KNOWN_MODELS: Record<string, ModelCapabilities> = {
     supportsBatching: false,
     pricing: pricingFor(OPENAI_MODELS.GPT53_CODEX),
   },
-  'codex:gpt-5.4-mini': {
+  'codex:gpt-5.5-mini': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,
     supportsThinking: false,
     supportsBatching: false,
-    pricing: pricingFor(OPENAI_MODELS.GPT54_MINI),
+    pricing: pricingFor(OPENAI_MODELS.GPT55_MINI),
   },
   'codex:gpt-5.3-codex-spark': {
     contextWindow: CONTEXT_WINDOWS.CODEX_DEFAULT,

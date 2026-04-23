@@ -1,3 +1,57 @@
+import { existsSync, readdirSync } from 'fs';
+
+function parseNodeVersionParts(value: string): [number, number, number] | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  return [
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3]),
+  ];
+}
+
+function compareNodeVersionNamesDesc(left: string, right: string): number {
+  const leftParts = parseNodeVersionParts(left);
+  const rightParts = parseNodeVersionParts(right);
+
+  if (!leftParts || !rightParts) {
+    return right.localeCompare(left);
+  }
+
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] !== rightParts[index]) {
+      return rightParts[index] - leftParts[index];
+    }
+  }
+
+  return 0;
+}
+
+function getNvmVersionBinPaths(homeDir: string): string[] {
+  if (!homeDir) {
+    return [];
+  }
+
+  const nvmVersionsDir = `${homeDir}/.nvm/versions/node`;
+  if (!existsSync(nvmVersionsDir)) {
+    return [];
+  }
+
+  try {
+    return readdirSync(nvmVersionsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && parseNodeVersionParts(entry.name))
+      .map((entry) => entry.name)
+      .sort(compareNodeVersionNamesDesc)
+      .map((versionName) => `${nvmVersionsDir}/${versionName}/bin`)
+      .filter((binPath) => existsSync(binPath));
+  } catch {
+    return [];
+  }
+}
+
 function getPathDelimiter(platform: NodeJS.Platform): string {
   return platform === 'win32' ? ';' : ':';
 }
@@ -11,13 +65,22 @@ export function getCliAdditionalPaths(
   const localAppData = env['LOCALAPPDATA'] || '';
   const programFiles = env['ProgramFiles'] || '';
   const programFilesX86 = env['ProgramFiles(x86)'] || '';
+  const nvmVersionBinPaths = getNvmVersionBinPaths(homeDir);
 
+  // Order matters: the first directory containing a given CLI wins.
+  // User-managed installs (nvm, ~/.local/bin, ~/.npm-global/bin) come before
+  // system-wide ones (Homebrew, /usr/local/bin) because Homebrew's bundled
+  // npm global packages often go stale — users upgrade the same CLI under
+  // nvm without realizing a forgotten Homebrew-npm copy still shadows it at
+  // `/opt/homebrew/bin/<cli>`. When a user's shell has nvm active, that
+  // version is their authoritative install and should take precedence.
   const posixPaths = [
-    '/usr/local/bin',
-    '/opt/homebrew/bin',
+    `${homeDir}/.nvm/versions/node/current/bin`,
+    ...nvmVersionBinPaths,
     `${homeDir}/.local/bin`,
     `${homeDir}/.npm-global/bin`,
-    `${homeDir}/.nvm/versions/node/current/bin`,
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
     '/usr/bin',
     '/bin',
   ];

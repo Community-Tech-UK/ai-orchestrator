@@ -193,7 +193,9 @@ describe('HistoryManager', () => {
       },
       lastActivity: 200,
       processId: null,
+      providerSessionId: 'session-original',
       sessionId: 'session-original',
+      restartEpoch: 0,
       workingDirectory: '/tmp/central-auth',
       yoloMode: false,
       provider: 'claude',
@@ -260,6 +262,156 @@ describe('HistoryManager', () => {
       .readdirSync(path.join(userDataDir, 'conversation-history'))
       .filter((file) => file.endsWith('.json.gz'));
     expect(storageFiles).toHaveLength(1);
+  });
+
+  it('marks archived sessions as non-resumable when resume failures were never followed by assistant output', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const instance: Instance = {
+      id: 'instance-resume-failed',
+      displayName: 'Binsout',
+      createdAt: 100,
+      historyThreadId: 'thread-binsout',
+      parentId: null,
+      childrenIds: [],
+      supervisorNodeId: '',
+      workerNodeId: undefined,
+      depth: 0,
+      terminationPolicy: 'terminate-children',
+      contextInheritance: {} as Instance['contextInheritance'],
+      agentId: 'build',
+      agentMode: 'build',
+      planMode: {
+        enabled: false,
+        state: 'off',
+      },
+      status: 'error',
+      contextUsage: {
+        used: 0,
+        total: 200000,
+        percentage: 0,
+      },
+      lastActivity: 200,
+      processId: null,
+      providerSessionId: 'session-resume-failed',
+      sessionId: 'session-resume-failed',
+      restartEpoch: 0,
+      workingDirectory: '/tmp/binsout',
+      yoloMode: false,
+      provider: 'claude',
+      currentModel: 'opus',
+      outputBuffer: [
+        {
+          id: 'message-user-1',
+          timestamp: 101,
+          type: 'user',
+          content: 'continue',
+        },
+        {
+          id: 'message-system-1',
+          timestamp: 102,
+          type: 'system',
+          content: 'Session restarted automatically (resume failed)',
+        },
+        {
+          id: 'message-user-2',
+          timestamp: 103,
+          type: 'user',
+          content: 'continue',
+        },
+        {
+          id: 'message-error-1',
+          timestamp: 104,
+          type: 'error',
+          content: 'No conversation found with session ID: stale-session',
+        },
+      ],
+      outputBufferMaxSize: 1000,
+      communicationTokens: new Map(),
+      subscribedTo: [],
+      totalTokensUsed: 0,
+      requestCount: 0,
+      errorCount: 0,
+      restartCount: 1,
+    };
+
+    await manager.archiveInstance(instance, 'error');
+
+    const entry = manager.getEntries()[0];
+    expect(entry?.nativeResumeFailedAt).toBe(104);
+  });
+
+  it('keeps archived sessions resumable after assistant output lands post-recovery', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const instance: Instance = {
+      id: 'instance-resume-recovered',
+      displayName: 'Binsout',
+      createdAt: 100,
+      historyThreadId: 'thread-binsout-2',
+      parentId: null,
+      childrenIds: [],
+      supervisorNodeId: '',
+      workerNodeId: undefined,
+      depth: 0,
+      terminationPolicy: 'terminate-children',
+      contextInheritance: {} as Instance['contextInheritance'],
+      agentId: 'build',
+      agentMode: 'build',
+      planMode: {
+        enabled: false,
+        state: 'off',
+      },
+      status: 'idle',
+      contextUsage: {
+        used: 1234,
+        total: 200000,
+        percentage: 1,
+      },
+      lastActivity: 200,
+      processId: null,
+      providerSessionId: 'session-resume-recovered',
+      sessionId: 'session-resume-recovered',
+      restartEpoch: 0,
+      workingDirectory: '/tmp/binsout',
+      yoloMode: false,
+      provider: 'claude',
+      currentModel: 'opus',
+      outputBuffer: [
+        {
+          id: 'message-user-1',
+          timestamp: 101,
+          type: 'user',
+          content: 'continue',
+        },
+        {
+          id: 'message-system-1',
+          timestamp: 102,
+          type: 'system',
+          content: 'Session restarted automatically (resume failed)',
+        },
+        {
+          id: 'message-assistant-1',
+          timestamp: 103,
+          type: 'assistant',
+          content: 'Recovered and ready.',
+        },
+      ],
+      outputBufferMaxSize: 1000,
+      communicationTokens: new Map(),
+      subscribedTo: [],
+      totalTokensUsed: 0,
+      requestCount: 0,
+      errorCount: 0,
+      restartCount: 1,
+    };
+
+    await manager.archiveInstance(instance, 'completed');
+
+    const entry = manager.getEntries()[0];
+    expect(entry?.nativeResumeFailedAt).toBeUndefined();
   });
 
   it('deduplicates legacy history entries by session identity on load', async () => {
