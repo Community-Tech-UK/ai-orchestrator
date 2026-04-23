@@ -23,6 +23,9 @@
             "browser": "src/renderer/main.ts",
             "polyfills": [],
             "tsConfig": "tsconfig.json",
+            "allowedCommonJsDependencies": [
+              "qrcode"
+            ],
             "inlineStyleLanguage": "scss",
             "assets": [
               {

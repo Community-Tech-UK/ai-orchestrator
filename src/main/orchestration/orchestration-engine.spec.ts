@@ -16,9 +16,9 @@ describe('OrchestrationEngine', () => {
 
     const { event, receipt } = engine.dispatch({
       commandId: 'command-1',
-      type: 'verification.requested',
+      commandType: 'verification.request',
       aggregateId: 'verify-1',
-      payload: { instanceId: 'inst-1' },
+      payload: { id: 'verify-1', instanceId: 'inst-1' },
       metadata: { source: 'test' },
     });
 
@@ -45,15 +45,15 @@ describe('OrchestrationEngine', () => {
 
     const first = engine.dispatch({
       commandId: 'command-dup',
-      type: 'verification.requested',
+      commandType: 'verification.request',
       aggregateId: 'verify-1',
-      payload: { instanceId: 'inst-1' },
+      payload: { id: 'verify-1', instanceId: 'inst-1' },
     });
     const duplicate = engine.dispatch({
       commandId: 'command-dup',
-      type: 'verification.completed',
+      commandType: 'verification.complete',
       aggregateId: 'verify-2',
-      payload: { instanceId: 'inst-2' },
+      payload: { id: 'verify-2', instanceId: 'inst-2' },
     });
 
     expect(first.duplicate).toBe(false);
@@ -76,14 +76,37 @@ describe('OrchestrationEngine', () => {
 
     const result = engine.dispatch({
       commandId: 'command-invalid',
-      type: 'verification.requested',
+      commandType: 'verification.request',
       aggregateId: '',
-      payload: { instanceId: 'inst-1' },
+      payload: { id: 'verify-invalid', instanceId: 'inst-1' },
     });
 
     expect(result.receipt.status).toBe('rejected');
     expect(result.receipt.reason).toContain('Aggregate ID');
     expect(result.event).toBeUndefined();
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('rejects commands whose payload identity conflicts with the aggregate ID', () => {
+    const append = vi.fn();
+    const receipts = new Map<string, OrchestrationCommandReceipt>();
+    const engine = new OrchestrationEngine({
+      append,
+      recordCommandReceipt: vi.fn((receipt: OrchestrationCommandReceipt) => {
+        receipts.set(receipt.commandId, receipt);
+      }),
+      getCommandReceipt: vi.fn((commandId: string) => receipts.get(commandId)),
+    } as never);
+
+    const result = engine.dispatch({
+      commandId: 'command-mismatch',
+      commandType: 'debate.start',
+      aggregateId: 'debate-1',
+      payload: { debateId: 'debate-2', query: 'Mismatch' },
+    });
+
+    expect(result.receipt.status).toBe('rejected');
+    expect(result.receipt.reason).toContain('Aggregate ID mismatch');
     expect(append).not.toHaveBeenCalled();
   });
 });

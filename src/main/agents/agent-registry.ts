@@ -8,9 +8,13 @@
  * - `~/.orchestrator/agents/**.md`
  * - `~/.claude/agents/**.md`
  * - `~/.opencode/agent/**.md` and `~/.opencode/agents/**.md`
- * - `<cwd>/.orchestrator/agents/**.md`
- * - `<cwd>/.claude/agents/**.md`
- * - `<cwd>/.opencode/agent/**.md` and `<cwd>/.opencode/agents/**.md`
+ * - `<project-scan-root>/.orchestrator/agents/**.md`
+ * - `<project-scan-root>/.claude/agents/**.md`
+ * - `<project-scan-root>/.opencode/agent/**.md` and `<project-scan-root>/.opencode/agents/**.md`
+ *
+ * Project scan roots run from the repository root (when available) down to the
+ * active working directory, so nested worktrees inherit agent definitions from
+ * their containing project.
  */
 
 import * as fs from 'fs/promises';
@@ -20,6 +24,7 @@ import z from 'zod';
 import type { AgentMode, AgentProfile, AgentToolPermissions, ToolPermission } from '../../shared/types/agent.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../shared/types/agent.types';
 import { parseMarkdownFrontmatter } from '../../shared/utils/markdown-frontmatter';
+import { resolveProjectScanRoots } from '../util/project-scan-roots';
 
 const ToolPermissionSchema = z.enum(['allow', 'deny', 'ask'] satisfies ToolPermission[]);
 
@@ -102,10 +107,10 @@ export class AgentRegistry {
 
   private getScanRoots(workingDirectory: string): string[] {
     const home = this.getHomeDir();
-    const roots: string[] = [];
-    if (home) roots.push(home);
-    roots.push(workingDirectory);
-    return roots;
+    return [
+      ...(home ? [home] : []),
+      ...resolveProjectScanRoots(workingDirectory, home),
+    ];
   }
 
   private getAgentDirs(root: string): string[] {

@@ -4,15 +4,16 @@
  * Loads slash commands from markdown files with YAML frontmatter.
  * This is intentionally "in-repo" (no dependency on other project directories).
  *
- * Supported locations (global + per-working-directory):
+ * Supported locations (global + project ancestry):
  * - `~/.orchestrator/commands/**.md`
  * - `~/.claude/commands/**.md`
  * - `~/.opencode/command/**.md` and `~/.opencode/commands/**.md`
- * - `<cwd>/.orchestrator/commands/**.md`
- * - `<cwd>/.claude/commands/**.md`
- * - `<cwd>/.opencode/command/**.md` and `<cwd>/.opencode/commands/**.md`
+ * - `<project-scan-root>/.orchestrator/commands/**.md`
+ * - `<project-scan-root>/.claude/commands/**.md`
+ * - `<project-scan-root>/.opencode/command/**.md` and `<project-scan-root>/.opencode/commands/**.md`
  *
- * Later sources override earlier ones by command name.
+ * Project scan roots run from the repository root (when available) down to the
+ * active working directory. Later sources override earlier ones by command name.
  */
 
 import * as fs from 'fs/promises';
@@ -24,6 +25,7 @@ import {
   type CommandTemplate,
 } from '../../shared/types/command.types';
 import { parseMarkdownFrontmatter } from '../../shared/utils/markdown-frontmatter';
+import { resolveProjectScanRoots } from '../util/project-scan-roots';
 
 type CommandFrontmatter = {
   name?: string;
@@ -82,10 +84,10 @@ export class MarkdownCommandRegistry {
 
   private getScanRoots(workingDirectory: string): string[] {
     const home = this.getHomeDir();
-    const roots: string[] = [];
-    if (home) roots.push(home);
-    roots.push(workingDirectory);
-    return roots;
+    return [
+      ...(home ? [home] : []),
+      ...resolveProjectScanRoots(workingDirectory, home),
+    ];
   }
 
   private getCommandDirs(root: string): string[] {

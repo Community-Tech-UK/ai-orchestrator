@@ -25,7 +25,7 @@ import type {
 import type { ActivityState } from '../../../shared/types/activity.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { ErrorInfo } from '../../../shared/types/ipc.types';
-import type { DetectedFailure } from '../../../shared/types/recovery.types';
+import { createDetectedFailure, type DetectedFailure } from '../../../shared/types/error-recovery.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 
@@ -145,25 +145,23 @@ export class IdleMonitor {
           let failure: DetectedFailure | null = null;
 
           if (result.state === 'blocked' && !isRemote) {
-            failure = {
+            failure = createDetectedFailure({
               id: generateId(),
               category: 'agent_stuck_blocked',
               instanceId,
               detectedAt: Date.now(),
               context: {},
               activityState: result.state,
-              severity: 'recoverable',
-            };
+            });
           } else if (result.state === 'exited' && !isRemote && instance.status !== 'terminated') {
-            failure = {
+            failure = createDetectedFailure({
               id: generateId(),
               category: 'process_exited_unexpected',
               instanceId,
               detectedAt: Date.now(),
               context: {},
               activityState: result.state,
-              severity: 'recoverable',
-            };
+            });
           }
 
           if (failure) {

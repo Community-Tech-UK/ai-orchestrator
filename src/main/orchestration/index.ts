@@ -7,6 +7,7 @@
 export { OrchestrationHandler } from './orchestration-handler';
 export type { OrchestrationContext, OrchestrationEvents, ChildInfo, UserActionRequest } from './orchestration-handler';
 export { OrchestrationEngine } from './orchestration-engine';
+export type { OrchestrationCommand, OrchestrationCommandType } from './orchestration-commands';
 export { TaskManager, getTaskManager } from './task-manager';
 export { Supervisor, getSupervisor } from './supervisor';
 

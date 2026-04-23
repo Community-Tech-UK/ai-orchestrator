@@ -189,6 +189,11 @@ const SCENARIOS: readonly Scenario[] = [
     expectedEvent: { kind: 'status', status: 'busy' },
   },
   {
+    name: 'context',
+    fire: (a) => a.emit('context', { used: 10, total: 100, percentage: 10 }),
+    expectedEvent: { kind: 'context', used: 10, total: 100, percentage: 10 },
+  },
+  {
     name: 'error',
     fire: (a) => a.emit('error', new Error('boom')),
     expectedEvent: { kind: 'error', message: 'boom', recoverable: false },

@@ -18,16 +18,27 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { CoordinatorEventBridge } from '../coordinator-event-bridge';
+import { OrchestrationEngine } from '../../orchestration-engine';
 
 describe('CoordinatorEventBridge', () => {
-  let mockStore: { append: ReturnType<typeof vi.fn> };
+  let mockDispatcher: { dispatch: ReturnType<typeof vi.fn> };
   let bridge: CoordinatorEventBridge;
 
   beforeEach(() => {
-    mockStore = {
-      append: vi.fn(),
+    mockDispatcher = {
+      dispatch: vi.fn(() => ({
+        receipt: {
+          commandId: 'command-1',
+          status: 'accepted',
+          commandType: 'verification.request',
+          eventType: 'verification.requested',
+          aggregateId: 'aggregate-1',
+          timestamp: Date.now(),
+        },
+        duplicate: false,
+      })),
     };
-    bridge = new CoordinatorEventBridge(mockStore as unknown as import('../orchestration-event-store').OrchestrationEventStore);
+    bridge = new CoordinatorEventBridge(mockDispatcher as unknown as OrchestrationEngine);
   });
 
   it('wires verification:started to event store', () => {
@@ -35,10 +46,11 @@ describe('CoordinatorEventBridge', () => {
     bridge.wireVerifyCoordinator(coordinator);
 
     coordinator.emit('verification:started', { id: 'v-1', instanceId: 'inst-1' });
-    expect(mockStore.append).toHaveBeenCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'verification.requested',
+        commandType: 'verification.request',
         aggregateId: 'v-1',
+        payload: { id: 'v-1', instanceId: 'inst-1' },
       }),
     );
   });
@@ -48,9 +60,9 @@ describe('CoordinatorEventBridge', () => {
     bridge.wireVerifyCoordinator(coordinator);
 
     coordinator.emit('verification:completed', { id: 'v-1', instanceId: 'inst-1', result: 'safe' });
-    expect(mockStore.append).toHaveBeenCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'verification.completed',
+        commandType: 'verification.complete',
         aggregateId: 'v-1',
       }),
     );
@@ -64,11 +76,25 @@ describe('CoordinatorEventBridge', () => {
       request: { id: 'v-2', instanceId: 'inst-2' },
       error: 'timeout',
     });
-    expect(mockStore.append).toHaveBeenCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'verification.completed',
+        commandType: 'verification.complete',
         aggregateId: 'v-2',
         payload: { error: 'timeout' },
+      }),
+    );
+  });
+
+  it('wires verification:cancelled to orchestration engine', () => {
+    const coordinator = new EventEmitter();
+    bridge.wireVerifyCoordinator(coordinator);
+
+    coordinator.emit('verification:cancelled', { verificationId: 'v-cancelled' });
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commandType: 'verification.cancel',
+        aggregateId: 'v-cancelled',
+        payload: { verificationId: 'v-cancelled' },
       }),
     );
   });
@@ -81,7 +107,7 @@ describe('CoordinatorEventBridge', () => {
     coordinator.emit('debate:round-complete', { debateId: 'd-1', round: 1 });
     coordinator.emit('debate:completed', { debateId: 'd-1' });
 
-    expect(mockStore.append).toHaveBeenCalledTimes(3);
+    expect(mockDispatcher.dispatch).toHaveBeenCalledTimes(3);
   });
 
   it('maps debate:started to debate.started event type', () => {
@@ -89,10 +115,50 @@ describe('CoordinatorEventBridge', () => {
     bridge.wireDebateCoordinator(coordinator);
 
     coordinator.emit('debate:started', { debateId: 'd-1', topic: 'test' });
-    expect(mockStore.append).toHaveBeenCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'debate.started',
+        commandType: 'debate.start',
         aggregateId: 'd-1',
+      }),
+    );
+  });
+
+  it('hydrates debate lifecycle payloads from coordinator state when available', () => {
+    const statefulCoordinator = Object.assign(new EventEmitter(), {
+      getDebate: vi.fn((debateId: string) => ({
+        id: debateId,
+        query: 'Stateful debate',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5000,
+        },
+        instanceId: 'inst-stateful',
+        currentRound: 0,
+        rounds: [],
+        startTime: 1234,
+        status: 'in_progress',
+      })),
+    });
+
+    bridge.wireDebateCoordinator(statefulCoordinator);
+    statefulCoordinator.emit('debate:started', { debateId: 'd-stateful', query: 'Stateful debate' });
+
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commandType: 'debate.start',
+        aggregateId: 'd-stateful',
+        payload: expect.objectContaining({
+          id: 'd-stateful',
+          query: 'Stateful debate',
+          currentRound: 0,
+          status: 'in_progress',
+          instanceId: 'inst-stateful',
+        }),
+        metadata: { instanceId: 'inst-stateful' },
       }),
     );
   });
@@ -102,9 +168,9 @@ describe('CoordinatorEventBridge', () => {
     bridge.wireDebateCoordinator(coordinator);
 
     coordinator.emit('debate:round-complete', { debateId: 'd-1', round: 2 });
-    expect(mockStore.append).toHaveBeenCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'debate.round_completed',
+        commandType: 'debate.record-round',
         aggregateId: 'd-1',
       }),
     );
@@ -115,9 +181,9 @@ describe('CoordinatorEventBridge', () => {
     bridge.wireDebateCoordinator(coordinator);
 
     coordinator.emit('debate:completed', { debateId: 'd-2', status: 'completed' });
-    expect(mockStore.append).toHaveBeenCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'debate.completed',
+        commandType: 'debate.complete',
         aggregateId: 'd-2',
       }),
     );
@@ -132,24 +198,91 @@ describe('CoordinatorEventBridge', () => {
       round: { type: 'synthesis', index: 3 },
     });
 
-    expect(mockStore.append).toHaveBeenNthCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        type: 'debate.round_completed',
+        commandType: 'debate.record-round',
         aggregateId: 'd-synth',
       }),
     );
-    expect(mockStore.append).toHaveBeenNthCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        type: 'debate.synthesized',
+        commandType: 'debate.record-synthesis',
         aggregateId: 'd-synth',
       }),
     );
   });
 
+  it('maps debate pause and resume events into lifecycle entries', () => {
+    const statefulCoordinator = Object.assign(new EventEmitter(), {
+      getDebate: vi.fn((debateId: string) => ({
+        id: debateId,
+        query: 'Pause test',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5000,
+        },
+        instanceId: 'inst-pause',
+        currentRound: 1,
+        rounds: [],
+        startTime: 1234,
+        status: 'paused',
+      })),
+    });
+
+    bridge.wireDebateCoordinator(statefulCoordinator);
+    statefulCoordinator.emit('debate:paused', { debateId: 'd-pause' });
+    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        commandType: 'debate.pause',
+        aggregateId: 'd-pause',
+        payload: expect.objectContaining({
+          id: 'd-pause',
+          status: 'paused',
+        }),
+      }),
+    );
+
+    statefulCoordinator.getDebate.mockReturnValue({
+      id: 'd-pause',
+      query: 'Pause test',
+      config: {
+        agents: 2,
+        maxRounds: 3,
+        convergenceThreshold: 0.8,
+        synthesisModel: 'default',
+        temperatureRange: [0.3, 0.9],
+        timeout: 5000,
+      },
+      instanceId: 'inst-pause',
+      currentRound: 1,
+      rounds: [],
+      startTime: 1234,
+      status: 'in_progress',
+    });
+
+    statefulCoordinator.emit('debate:resumed', { debateId: 'd-pause' });
+    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        commandType: 'debate.resume',
+        aggregateId: 'd-pause',
+        payload: expect.objectContaining({
+          id: 'd-pause',
+          status: 'in_progress',
+        }),
+      }),
+    );
+  });
+
   it('handles store errors gracefully', () => {
-    mockStore.append.mockImplementation(() => { throw new Error('DB error'); });
+    mockDispatcher.dispatch.mockImplementation(() => { throw new Error('DB error'); });
     const coordinator = new EventEmitter();
     bridge.wireVerifyCoordinator(coordinator);
 
@@ -158,22 +291,20 @@ describe('CoordinatorEventBridge', () => {
   });
 
   it('handles store errors on debate events gracefully', () => {
-    mockStore.append.mockImplementation(() => { throw new Error('disk full'); });
+    mockDispatcher.dispatch.mockImplementation(() => { throw new Error('disk full'); });
     const coordinator = new EventEmitter();
     bridge.wireDebateCoordinator(coordinator);
 
     expect(() => coordinator.emit('debate:started', { debateId: 'd-1' })).not.toThrow();
   });
 
-  it('appends event with id, timestamp, and metadata', () => {
+  it('forwards metadata with verification commands', () => {
     const coordinator = new EventEmitter();
     bridge.wireVerifyCoordinator(coordinator);
 
     coordinator.emit('verification:started', { id: 'v-3', instanceId: 'inst-3' });
 
-    const call = mockStore.append.mock.calls[0][0] as Record<string, unknown>;
-    expect(typeof call['id']).toBe('string');
-    expect(typeof call['timestamp']).toBe('number');
+    const call = mockDispatcher.dispatch.mock.calls[0][0] as Record<string, unknown>;
     expect(call['metadata']).toEqual({ instanceId: 'inst-3' });
   });
 
@@ -191,10 +322,10 @@ describe('CoordinatorEventBridge', () => {
       },
     });
 
-    expect(mockStore.append).toHaveBeenNthCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        type: 'worktree.created',
+        commandType: 'worktree.create',
         aggregateId: 'exec-1',
         metadata: expect.objectContaining({
           executionId: 'exec-1',
@@ -204,10 +335,10 @@ describe('CoordinatorEventBridge', () => {
         }),
       }),
     );
-    expect(mockStore.append).toHaveBeenNthCalledWith(
+    expect(mockDispatcher.dispatch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        type: 'branch.prepared',
+        commandType: 'branch.prepare',
       }),
     );
   });
@@ -219,6 +350,29 @@ describe('CoordinatorEventBridge', () => {
 
     coordinator.emit('verification:started', { id: 'v-disposed', instanceId: 'inst-1' });
 
-    expect(mockStore.append).not.toHaveBeenCalled();
+    expect(mockDispatcher.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('routes coordinator events through the orchestration engine before append', async () => {
+    const append = vi.fn();
+    const engine = new OrchestrationEngine({
+      append,
+      recordCommandReceipt: vi.fn(),
+      getCommandReceipt: vi.fn(),
+    } as never);
+    const engineBridge = new CoordinatorEventBridge(engine);
+    const coordinator = new EventEmitter();
+    engineBridge.wireVerifyCoordinator(coordinator);
+
+    coordinator.emit('verification:started', { id: 'v-engine', instanceId: 'inst-engine' });
+    await engine.drain();
+
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'verification.requested',
+        aggregateId: 'v-engine',
+        payload: { id: 'v-engine', instanceId: 'inst-engine' },
+      }),
+    );
   });
 });

@@ -33,6 +33,39 @@ export function toProviderOutputEvent(message: OutputMessage): ProviderOutputEve
   return event;
 }
 
+export function toOutputMessageFromProviderOutputEvent(
+  event: ProviderOutputEvent,
+  defaults?: {
+    eventId?: string;
+    timestamp?: number;
+  },
+): OutputMessage {
+  const message: OutputMessage = {
+    id: event.messageId ?? defaults?.eventId ?? 'provider-output',
+    timestamp: event.timestamp ?? defaults?.timestamp ?? Date.now(),
+    type: toOutputMessageType(event.messageType),
+    content: event.content,
+  };
+
+  if (event.metadata !== undefined) {
+    message.metadata = { ...event.metadata };
+  }
+
+  if (event.attachments !== undefined) {
+    message.attachments = event.attachments.map((attachment) => ({ ...attachment }));
+  }
+
+  if (event.thinking !== undefined) {
+    message.thinking = event.thinking.map((block) => ({ ...block }));
+  }
+
+  if (event.thinkingExtracted !== undefined) {
+    message.thinkingExtracted = event.thinkingExtracted;
+  }
+
+  return message;
+}
+
 /** Convert a provider runtime output envelope back into the shared OutputMessage shape. */
 export function toOutputMessageFromProviderEnvelope(
   envelope: ProviderRuntimeEventEnvelope,
@@ -41,30 +74,10 @@ export function toOutputMessageFromProviderEnvelope(
     return null;
   }
 
-  const message: OutputMessage = {
-    id: envelope.event.messageId ?? envelope.eventId,
-    timestamp: envelope.event.timestamp ?? envelope.timestamp,
-    type: toOutputMessageType(envelope.event.messageType),
-    content: envelope.event.content,
-  };
-
-  if (envelope.event.metadata !== undefined) {
-    message.metadata = { ...envelope.event.metadata };
-  }
-
-  if (envelope.event.attachments !== undefined) {
-    message.attachments = envelope.event.attachments.map((attachment) => ({ ...attachment }));
-  }
-
-  if (envelope.event.thinking !== undefined) {
-    message.thinking = envelope.event.thinking.map((block) => ({ ...block }));
-  }
-
-  if (envelope.event.thinkingExtracted !== undefined) {
-    message.thinkingExtracted = envelope.event.thinkingExtracted;
-  }
-
-  return message;
+  return toOutputMessageFromProviderOutputEvent(envelope.event, {
+    eventId: envelope.eventId,
+    timestamp: envelope.timestamp,
+  });
 }
 
 function toOutputMessageType(

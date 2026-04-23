@@ -27,7 +27,7 @@ export const ORCHESTRATION_FEATURES = {
   LIFECYCLE_HOOKS: true,
 
   // Audit / observability
-  EVENT_SOURCING: false,
+  EVENT_SOURCING: true,
 } as const;
 
 export type FeatureFlag = keyof typeof ORCHESTRATION_FEATURES;

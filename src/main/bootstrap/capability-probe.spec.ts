@@ -144,4 +144,62 @@ describe('CapabilityProbe', () => {
       status: 'unavailable',
     });
   });
+
+  it('treats unconfigured browser automation as disabled instead of degraded', async () => {
+    mocks.browserDiagnose.mockResolvedValue({
+      status: 'partial',
+      checkedAt: Date.now(),
+      runtimeAvailable: true,
+      nodeAvailable: true,
+      inAppConfigured: false,
+      inAppConnected: false,
+      inAppToolCount: 0,
+      configDetected: false,
+      configSources: [],
+      browserToolNames: [],
+      warnings: ['No browser automation MCP configuration was found in Claude settings or the in-app MCP registry.'],
+      suggestions: ['Add the Chrome DevTools MCP server from the MCP page.'],
+    });
+
+    const probe = new CapabilityProbe();
+    const report = await probe.run();
+
+    expect(report.status).toBe('ready');
+    expect(report.checks.find((check) => check.id === 'subsystem.browser-automation')).toMatchObject({
+      status: 'disabled',
+      summary: 'Browser automation is not configured.',
+    });
+  });
+
+  it('keeps browser automation degraded when it is configured but not healthy', async () => {
+    mocks.browserDiagnose.mockResolvedValue({
+      status: 'partial',
+      checkedAt: Date.now(),
+      runtimeAvailable: true,
+      nodeAvailable: true,
+      inAppConfigured: true,
+      inAppConnected: false,
+      inAppToolCount: 0,
+      configDetected: true,
+      configSources: [
+        {
+          path: '/Users/test/.claude/settings.json',
+          detected: true,
+          serverNames: ['chrome-devtools'],
+        },
+      ],
+      browserToolNames: [],
+      warnings: ['A browser automation server is configured in-app but is not currently connected.'],
+      suggestions: ['Connect the browser MCP server from the MCP page and rerun the health check.'],
+    });
+
+    const probe = new CapabilityProbe();
+    const report = await probe.run();
+
+    expect(report.status).toBe('degraded');
+    expect(report.checks.find((check) => check.id === 'subsystem.browser-automation')).toMatchObject({
+      status: 'degraded',
+      summary: 'A browser automation server is configured in-app but is not currently connected.',
+    });
+  });
 });

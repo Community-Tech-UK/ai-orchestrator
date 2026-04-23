@@ -14,6 +14,13 @@ import { getLogger } from '../../logging/logger';
 import { isFeatureEnabled } from '../../../shared/constants/feature-flags';
 import type { OrchestrationEvent, OrchestrationEventType } from './orchestration-events';
 import type { OrchestrationCommandReceipt } from '../orchestration-command-receipts';
+import { OrchestrationProjector } from './orchestration-projector';
+import type { VerificationRequest, VerificationResult } from '../../../shared/types/verification.types';
+import type { ActiveDebate, DebateResult } from '../../../shared/types/debate.types';
+import {
+  normalizeOrchestrationCommandType,
+  toOrchestrationEventType,
+} from '../orchestration-commands';
 
 const logger = getLogger('OrchestrationEventStore');
 
@@ -60,10 +67,16 @@ function rowToEvent(row: EventRow): OrchestrationEvent {
 }
 
 function rowToCommandReceipt(row: CommandReceiptRow): OrchestrationCommandReceipt {
+  const commandType = normalizeOrchestrationCommandType(row.type);
+  if (!commandType) {
+    throw new Error(`Unknown orchestration command type stored in receipt: ${row.type}`);
+  }
+
   return {
     commandId: row.command_id,
     status: row.status,
-    type: row.type as OrchestrationEventType,
+    commandType,
+    eventType: row.event_id ? toOrchestrationEventType(commandType) : undefined,
     aggregateId: row.aggregate_id,
     timestamp: row.timestamp,
     eventId: row.event_id ?? undefined,
@@ -77,6 +90,7 @@ function rowToCommandReceipt(row: CommandReceiptRow): OrchestrationCommandReceip
 export class OrchestrationEventStore {
   private static instance: OrchestrationEventStore | null = null;
   private readonly db: EventStoreDb;
+  private readonly projector = new OrchestrationProjector();
   private initialized = false;
 
   constructor(db: EventStoreDb) {
@@ -171,6 +185,35 @@ export class OrchestrationEventStore {
     return (stmt.all(limit) as EventRow[]).map(rowToEvent);
   }
 
+  getAllEvents(): OrchestrationEvent[] {
+    const stmt = this.db.prepare(
+      'SELECT * FROM orchestration_events ORDER BY timestamp ASC',
+    );
+    return (stmt.all() as EventRow[]).map(rowToEvent);
+  }
+
+  getActiveVerificationRequests(): VerificationRequest[] {
+    return this.projectActiveAggregates(
+      ['verification.requested', 'verification.completed', 'verification.cancelled'],
+      (events) => this.projector.projectActiveVerificationRequest(events),
+    );
+  }
+
+  getActiveDebates(): ActiveDebate[] {
+    return this.projectActiveAggregates(
+      ['debate.started', 'debate.paused', 'debate.resumed', 'debate.round_completed', 'debate.completed'],
+      (events) => this.projector.projectActiveDebate(events),
+    );
+  }
+
+  getVerificationResult(verificationId: string): VerificationResult | undefined {
+    return this.projector.projectVerificationResult(this.getByAggregateId(verificationId)) ?? undefined;
+  }
+
+  getDebateResult(debateId: string): DebateResult | undefined {
+    return this.projector.projectDebateResult(this.getByAggregateId(debateId)) ?? undefined;
+  }
+
   recordCommandReceipt(receipt: OrchestrationCommandReceipt): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO orchestration_command_receipts (
@@ -180,7 +223,7 @@ export class OrchestrationEventStore {
     stmt.run(
       receipt.commandId,
       receipt.status,
-      receipt.type,
+      receipt.commandType,
       receipt.aggregateId,
       receipt.timestamp,
       receipt.eventId ?? null,
@@ -195,5 +238,33 @@ export class OrchestrationEventStore {
     );
     const row = stmt.get(commandId) as CommandReceiptRow | undefined;
     return row ? rowToCommandReceipt(row) : undefined;
+  }
+
+  private projectActiveAggregates<T>(
+    relevantTypes: OrchestrationEventType[],
+    projector: (events: OrchestrationEvent[]) => T | null,
+  ): T[] {
+    const relevant = new Set<OrchestrationEventType>(relevantTypes);
+    const aggregates = new Map<string, OrchestrationEvent[]>();
+
+    for (const event of this.getAllEvents()) {
+      if (!relevant.has(event.type)) {
+        continue;
+      }
+
+      const events = aggregates.get(event.aggregateId) ?? [];
+      events.push(event);
+      aggregates.set(event.aggregateId, events);
+    }
+
+    const active: T[] = [];
+    for (const events of aggregates.values()) {
+      const projected = projector(events);
+      if (projected) {
+        active.push(projected);
+      }
+    }
+
+    return active;
   }
 }

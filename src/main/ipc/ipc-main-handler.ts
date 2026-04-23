@@ -8,7 +8,6 @@ import * as crypto from 'crypto';
 import { getLogger } from '../logging/logger';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  UserActionRequestPayloadSchema,
   MemoryLoadHistoryPayloadSchema,
 } from '@contracts/schemas/instance';
 import { InstanceManager } from '../instance/instance-manager';
@@ -263,9 +262,6 @@ export class IpcMainHandler {
     // Ecosystem handlers (file-based commands/agents/tools/plugins)
     registerEcosystemHandlers(this.instanceManager);
 
-    // User action request handlers (orchestrator -> user communication)
-    this.registerUserActionHandlers();
-
     // Verification handlers (Worktree, Verification, Supervision)
     registerVerificationHandlers();
 
@@ -347,102 +343,6 @@ export class IpcMainHandler {
     this.setupKnowledgeEventForwarding();
 
     logger.info('IPC handlers registered');
-  }
-
-  /**
-   * Register user action request handlers
-   * These allow orchestrators to request user actions like approvals, confirmations, etc.
-   */
-  private registerUserActionHandlers(): void {
-    // Handle permission request from orchestrator
-    ipcMain.handle(
-      IPC_CHANNELS.USER_ACTION_REQUEST,
-      async (
-        _event: IpcMainInvokeEvent,
-        payload: unknown
-      ): Promise<IpcResponse> => {
-        try {
-          const validated = validateIpcPayload(UserActionRequestPayloadSchema, payload, 'USER_ACTION_REQUEST');
-          // Forward the permission request to the renderer
-          // The renderer will show a UI prompt and send back the response
-          const mainWindow = this.windowManager.getMainWindow();
-          if (!mainWindow) {
-            return {
-              success: false,
-              error: {
-                code: 'NO_WINDOW',
-                message: 'No main window available',
-                timestamp: Date.now()
-              }
-            };
-          }
-
-          // Send the permission request to renderer and wait for response
-          return new Promise((resolve) => {
-            const requestId = crypto.randomUUID();
-
-            // Set up one-time listener for the response
-            const responseChannel = `user-action-response:${requestId}`;
-            ipcMain.once(
-              responseChannel,
-              (_, response: { approved: boolean; reason?: string }) => {
-                resolve({
-                  success: true,
-                  data: response
-                });
-              }
-            );
-
-            // Send request to renderer
-            mainWindow.webContents.send(IPC_CHANNELS.USER_ACTION_REQUEST, {
-              requestId,
-              instanceId: validated.instanceId,
-              action: validated.action,
-              description: validated.description,
-              metadata: validated.metadata
-            });
-
-            // Timeout after 5 minutes
-            setTimeout(() => {
-              ipcMain.removeAllListeners(responseChannel);
-              resolve({
-                success: false,
-                error: {
-                  code: 'TIMEOUT',
-                  message: 'Permission request timed out',
-                  timestamp: Date.now()
-                }
-              });
-            }, 5 * 60 * 1000);
-          });
-        } catch (error) {
-          return {
-            success: false,
-            error: {
-              code: 'PERMISSION_REQUEST_FAILED',
-              message: (error as Error).message,
-              timestamp: Date.now()
-            }
-          };
-        }
-      }
-    );
-
-    // Handle sending user action response from renderer
-    ipcMain.on(
-      IPC_CHANNELS.USER_ACTION_RESPONSE,
-      (
-        event: IpcMainInvokeEvent,
-        payload: { requestId: string; approved: boolean; reason?: string }
-      ) => {
-        if (!payload?.requestId || typeof payload.requestId !== 'string') return;
-        // Forward the response to the waiting handler
-        event.sender.send(`user-action-response:${payload.requestId}`, {
-          approved: !!payload.approved,
-          reason: payload.reason
-        });
-      }
-    );
   }
 
   private registerMemoryStatsHandlers(): void {

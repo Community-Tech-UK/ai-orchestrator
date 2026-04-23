@@ -11,8 +11,7 @@
 import { ClaudeCliAdapter, ClaudeCliSpawnOptions } from './claude-cli-adapter';
 import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
-import { CopilotCliAdapter, CopilotCliConfig } from './copilot-cli-adapter';
-import { CursorCliAdapter, CursorCliConfig } from './cursor-cli-adapter';
+import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { CliDetectionService, CliType } from '../cli-detection';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
@@ -63,7 +62,7 @@ export interface UnifiedSpawnOptions {
 /**
  * Adapter type union - the concrete adapter types
  */
-export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | CopilotCliAdapter | CursorCliAdapter | RemoteCliAdapter;
+export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | AcpCliAdapter | RemoteCliAdapter;
 
 /**
  * Maps settings CliType to detection CliType
@@ -215,29 +214,31 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
 /**
  * Creates a Copilot CLI adapter (spawns the `copilot` binary directly).
  */
-export function createCopilotAdapter(options: UnifiedSpawnOptions): CopilotCliAdapter {
-  const copilotConfig: CopilotCliConfig = {
-    workingDir: options.workingDirectory,
+export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  return new AcpCliAdapter({
+    adapterName: 'copilot-acp',
+    command: 'copilot',
+    args: ['--acp', '--stdio'],
+    workingDirectory: options.workingDirectory ?? process.cwd(),
     model: options.model,
     systemPrompt: options.systemPrompt,
-    yoloMode: options.yoloMode,
     timeout: options.timeout,
-  };
-  return new CopilotCliAdapter(copilotConfig);
+  });
 }
 
 /**
  * Creates a Cursor CLI adapter (spawns the `cursor-agent` binary directly).
  */
-export function createCursorAdapter(options: UnifiedSpawnOptions): CursorCliAdapter {
-  const cursorConfig: CursorCliConfig = {
-    workingDir: options.workingDirectory,
+export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  return new AcpCliAdapter({
+    adapterName: 'cursor-acp',
+    command: 'cursor-agent',
+    args: ['acp'],
+    workingDirectory: options.workingDirectory ?? process.cwd(),
     model: options.model,
     systemPrompt: options.systemPrompt,
-    yoloMode: options.yoloMode,
     timeout: options.timeout,
-  };
-  return new CursorCliAdapter(cursorConfig);
+  });
 }
 
 /**

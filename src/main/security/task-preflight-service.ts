@@ -3,6 +3,7 @@ import * as path from 'path';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getBrowserAutomationHealthService } from '../browser-automation/browser-automation-health';
 import { BranchFreshness } from '../git/branch-freshness';
+import { getStaleBranchPolicy } from '../git/stale-branch-policy';
 import { getLogger } from '../logging/logger';
 import { getMcpManager } from '../mcp/mcp-manager';
 import { getFilesystemPolicy } from './filesystem-policy';
@@ -50,6 +51,12 @@ export class TaskPreflightService {
       getBrowserAutomationHealthService().diagnose(),
     ]);
     const branchFreshness = await new BranchFreshness().inspect(workingDirectory);
+    const branchPolicy = getStaleBranchPolicy().evaluate(branchFreshness, {
+      workingDirectory,
+      surface: request.surface,
+      taskType: request.taskType,
+      requiresWrite,
+    });
 
     const filesystem = getFilesystemPolicy();
     const filesystemConfig = filesystem.getConfig();
@@ -156,11 +163,11 @@ export class TaskPreflightService {
       warnings.add('A project permission file is present. Runtime permission matching may be narrower than the global preset.');
     }
 
-    if (branchFreshness.state === 'stale') {
-      warnings.add(branchFreshness.summary);
+    if (branchPolicy.action === 'warn') {
+      warnings.add(branchPolicy.summary);
       links.push({ label: 'Review branch status', route: '/vcs' });
-    } else if (branchFreshness.state === 'diverged') {
-      blockers.push(branchFreshness.summary);
+    } else if (branchPolicy.action === 'block') {
+      blockers.push(branchPolicy.summary);
       links.push({ label: 'Open git status', route: '/vcs' });
     }
 
@@ -176,6 +183,18 @@ export class TaskPreflightService {
           .map((source) => source.label),
         warnings: instructionSummary.warnings,
         sources: instructionSummary.sources,
+      },
+      branchPolicy: {
+        state: branchPolicy.state,
+        action: branchPolicy.action,
+        branch: branchPolicy.branch,
+        upstream: branchPolicy.upstream,
+        ahead: branchPolicy.ahead,
+        behind: branchPolicy.behind,
+        summary: branchPolicy.summary,
+        recommendedRemediation: branchPolicy.recommendedRemediation,
+        requiresManualResolution: branchPolicy.requiresManualResolution,
+        failureCategory: branchPolicy.failure?.category,
       },
       filesystem: {
         workingDirectory: filesystemConfig.workingDirectory,

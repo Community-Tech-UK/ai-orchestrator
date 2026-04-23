@@ -357,9 +357,17 @@ vi.mock('../../core/error-recovery', () => ({
   getErrorRecoveryManager: vi.fn(() => ({ handleError: vi.fn() })),
 }));
 
-vi.mock('../../../shared/types/error-recovery.types', () => ({
-  ErrorCategory: { NETWORK: 'network', PROCESS: 'process', TIMEOUT: 'timeout' },
-}));
+vi.mock('../../../shared/types/error-recovery.types', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../shared/types/error-recovery.types')>();
+  return {
+    ...actual,
+    ErrorCategory: {
+      ...actual.ErrorCategory,
+      PROCESS: 'process',
+      TIMEOUT: 'timeout',
+    },
+  };
+});
 
 vi.mock('../../../shared/types/provider.types', () => ({
   getModelsForProvider: vi.fn().mockReturnValue([]),

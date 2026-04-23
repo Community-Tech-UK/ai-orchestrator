@@ -97,6 +97,7 @@ interface CircuitBreakerState {
 
 const logger = getLogger('InstanceCommunication');
 const RESPONSE_PREVIEW_LENGTH = 120;
+const RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS = 1_000;
 
 const CIRCUIT_BREAKER_CONFIG = {
   maxConsecutiveEmpty: 3,          // Trip after 3 consecutive empty responses
@@ -192,9 +193,15 @@ export class InstanceCommunicationManager extends EventEmitter {
    * spawning Copilot children.
    */
   private isStatelessExecAdapter(adapter: CliAdapter): boolean {
-    // Adapters with native compaction support are stateful (e.g., Codex app-server mode).
-    // They accumulate context across turns and need warnings + exit handling.
-    if (adapter instanceof BaseCliAdapter && adapter.getRuntimeCapabilities().supportsNativeCompaction) {
+    const runtimeCapabilities = this.getAdapterRuntimeCapabilities(adapter);
+
+    // Adapters with native compaction support or native permission prompts are
+    // stateful session transports. ACP-backed providers fall into this bucket.
+    if (
+      runtimeCapabilities.supportsNativeCompaction
+      || runtimeCapabilities.supportsPermissionPrompts
+      || runtimeCapabilities.supportsDeferPermission
+    ) {
       return false;
     }
     const adapterName = adapter.getName().toLowerCase();
@@ -203,6 +210,34 @@ export class InstanceCommunicationManager extends EventEmitter {
       adapterName.includes('gemini') ||
       adapterName.includes('copilot')
     );
+  }
+
+  /**
+   * Stateless exec adapters spawn a fresh child per turn, so a single turn failure
+   * should not poison the long-lived orchestrator instance. Fatal cases like
+   * corrupted sessions, missing resume state, or real context overflow are handled
+   * separately and should still bubble through the normal error path.
+   */
+  private isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: Error): boolean {
+    if (!this.isStatelessExecAdapter(adapter)) {
+      return false;
+    }
+
+    const errorText = error instanceof Error ? error.message : String(error ?? '');
+    if (!errorText.trim()) {
+      return true;
+    }
+
+    if (this.isCorruptedSessionMessage(errorText)) {
+      return false;
+    }
+
+    if (/no conversation found/i.test(errorText) || /session.*not.*found/i.test(errorText)) {
+      return false;
+    }
+
+    const classified = getErrorRecoveryManager().classifyError(error);
+    return !(classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context'));
   }
 
   /**
@@ -1040,31 +1075,44 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('status')) {
         return;
       }
-      emitProviderRuntimeEvent({ kind: 'status', status });
+      const normalizedStatus = status === 'error' && this.isStatelessExecAdapter(adapter)
+        ? 'idle'
+        : status;
+
+      if (normalizedStatus !== status) {
+        logger.info('Downgrading stateless exec adapter error status to idle', {
+          instanceId,
+          adapter: adapter.getName(),
+          originalStatus: status,
+          normalizedStatus,
+        });
+      }
+
+      emitProviderRuntimeEvent({ kind: 'status', status: normalizedStatus });
 
       const instance = this.deps.getInstance(instanceId);
-      if (instance && instance.status !== status) {
+      if (instance && instance.status !== normalizedStatus) {
         // Guard: ignore stale watchdog/stream-idle events that arrive after
         // the instance has transitioned to idle. The remote worker's watchdog
         // and stream:idle handlers can emit 'processing' or 'thinking_deeply'
         // after the definitive 'idle' event, causing the spinner to reappear.
         const isIdleLike = instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input';
-        const isWatchdogStatus = status === 'processing' || status === 'thinking_deeply';
+        const isWatchdogStatus = normalizedStatus === 'processing' || normalizedStatus === 'thinking_deeply';
         if (isIdleLike && isWatchdogStatus) {
           return;
         }
 
-        const previousStatus = this.transitionAdapterStatus(instanceId, instance, status);
+        const previousStatus = this.transitionAdapterStatus(instanceId, instance, normalizedStatus);
         instance.lastActivity = Date.now();
 
-        if (status === 'idle' || status === 'ready' || status === 'waiting_for_input') {
+        if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
           this.deps.onToolStateChange?.(instanceId, 'idle');
         }
 
         // On busy→idle/ready transition, compute diff stats and include them in the update
         if (
           previousStatus === 'busy' &&
-          (status === 'idle' || status === 'ready') &&
+          (normalizedStatus === 'idle' || normalizedStatus === 'ready') &&
           this.deps.getDiffTracker
         ) {
           const tracker = this.deps.getDiffTracker(instanceId);
@@ -1072,16 +1120,16 @@ export class InstanceCommunicationManager extends EventEmitter {
             try {
               const diffStats = tracker.computeDiff();
               instance.diffStats = diffStats;
-              this.deps.queueUpdate(instanceId, status, instance.contextUsage, diffStats);
+              this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage, diffStats);
             } catch (err) {
               logger.debug('computeDiff failed', { instanceId, error: String(err) });
-              this.deps.queueUpdate(instanceId, status, instance.contextUsage);
+              this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage);
             }
             return;
           }
         }
 
-        this.deps.queueUpdate(instanceId, status, instance.contextUsage);
+        this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage);
       }
     });
 
@@ -1196,10 +1244,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('error')) {
         return;
       }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const recoverableStatelessExecError = this.isRecoverableStatelessExecTurnError(adapter, error);
       emitProviderRuntimeEvent({
         kind: 'error',
-        message: error instanceof Error ? error.message : String(error),
-        recoverable: false,
+        message: errorMessage,
+        recoverable: recoverableStatelessExecError,
       });
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
@@ -1219,7 +1269,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // Poison the session id on the telltale Claude CLI resume failure so
       // the next respawn (including auto-respawn from this adapter's exit)
       // cannot loop on it.
-      const errText = error instanceof Error ? error.message : String(error ?? '');
+      const errText = errorMessage;
       if (/no conversation found/i.test(errText) || /session.*not.*found/i.test(errText)) {
         instance.sessionResumeBlacklisted = true;
         logger.warn('Session id blacklisted due to resume failure', {
@@ -1340,14 +1390,37 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
 
       // Add error message to output buffer so user sees it in the UI
-      const errorMessage: OutputMessage = {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: error instanceof Error ? error.message : String(error)
-      };
-      this.addToOutputBuffer(instance, errorMessage);
-      this.emit('output', { instanceId, message: errorMessage });
+      const errorContent = error instanceof Error ? error.message : String(error);
+      if (this.hasRecentMatchingErrorOutput(instance, errorContent)) {
+        logger.debug('Skipping duplicate UI error message after adapter error event', {
+          instanceId,
+          content: errorContent,
+        });
+      } else {
+        const errorMessage: OutputMessage = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'error',
+          content: errorContent,
+        };
+        this.addToOutputBuffer(instance, errorMessage);
+        this.emit('output', { instanceId, message: errorMessage });
+      }
+
+      if (recoverableStatelessExecError) {
+        instance.errorCount++;
+        logger.info('Keeping stateless exec adapter instance recoverable after turn failure', {
+          instanceId,
+          adapter: adapter.getName(),
+          message: errText,
+        });
+        if (instance.status !== 'respawning') {
+          this.transitionInstanceStatus(instance, 'idle');
+          this.deps.onToolStateChange?.(instanceId, 'idle');
+          this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
+        }
+        return;
+      }
 
       instance.errorCount++;
 
@@ -1799,5 +1872,28 @@ export class InstanceCommunicationManager extends EventEmitter {
     } finally {
       this.deps.deleteAdapter(instanceId);
     }
+  }
+
+  private hasRecentMatchingErrorOutput(
+    instance: Instance,
+    content: string,
+    now = Date.now(),
+  ): boolean {
+    for (let index = instance.outputBuffer.length - 1; index >= 0; index--) {
+      const candidate = instance.outputBuffer[index];
+      if (!candidate) {
+        break;
+      }
+
+      if ((now - candidate.timestamp) > RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS) {
+        break;
+      }
+
+      if (candidate.type === 'error' && candidate.content === content) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

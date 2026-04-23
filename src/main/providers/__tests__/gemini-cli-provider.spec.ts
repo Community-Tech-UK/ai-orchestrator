@@ -52,7 +52,9 @@ describe('GeminiCliProvider inline translation', () => {
     const last = envelopes.at(-1)!;
     expect(last.provider).toBe('gemini');
     expect(last.instanceId).toBe('i-1');
-    expect(last.event).toEqual({ kind: 'output', content: 'hello from string', messageType: 'assistant' });
+    expect(last.event).toMatchObject({ kind: 'output', content: 'hello from string', messageType: 'assistant' });
+    expect(last.event).toHaveProperty('messageId');
+    expect(last.event).toHaveProperty('timestamp');
   });
 
   it('output with attachments and thinking emits even when text content is empty', () => {
@@ -85,6 +87,11 @@ describe('GeminiCliProvider inline translation', () => {
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'busy' });
   });
 
+  it('context usage becomes a context envelope', () => {
+    adapter.emit('context', { used: 10, total: 100, percentage: 10 });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'context', used: 10, total: 100, percentage: 10 });
+  });
+
   it('error with Error object becomes an error envelope', () => {
     adapter.emit('error', new Error('boom'));
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false });
@@ -96,7 +103,7 @@ describe('GeminiCliProvider inline translation', () => {
   });
 
   it('complete becomes a status idle envelope (behavior-preserving translation)', () => {
-    adapter.emit('complete');
+    adapter.emit('complete', { id: 'complete-1', content: '', role: 'assistant' });
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'idle' });
   });
 

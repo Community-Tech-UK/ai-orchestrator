@@ -5,8 +5,6 @@ export interface RemoteNodeConfig {
   serverPort: number;
   /** Bind address for the WebSocket server */
   serverHost: string;
-  /** Shared secret for node authentication (auto-generated if empty) */
-  authToken?: string;
   /** Auto-route browser tasks to nodes with browser capability */
   autoOffloadBrowser: boolean;
   /** Auto-route GPU tasks to nodes with GPU */
@@ -54,7 +52,6 @@ export function hydrateRemoteNodeConfig(settings: import('../../shared/types/set
     enabled: settings.remoteNodesEnabled,
     serverPort: settings.remoteNodesServerPort,
     serverHost: settings.remoteNodesServerHost,
-    authToken: settings.remoteNodesEnrollmentToken || undefined,
     autoOffloadBrowser: settings.remoteNodesAutoOffloadBrowser,
     autoOffloadGpu: settings.remoteNodesAutoOffloadGpu,
     namespace: settings.remoteNodesNamespace,

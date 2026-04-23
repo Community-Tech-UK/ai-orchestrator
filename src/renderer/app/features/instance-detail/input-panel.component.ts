@@ -28,6 +28,7 @@ import { CopilotModelSelectorComponent } from '../providers/copilot-model-select
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SettingsStore } from '../../core/state/settings.store';
+import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { CommandTemplate } from '../../../../shared/types/command.types';
 import type {
   InstanceProvider,
@@ -983,7 +984,22 @@ export class InputPanelComponent implements OnDestroy {
   );
   selectedModel = computed(() =>
     this.isDraftComposer()
-      ? (this.newSessionDraft.model() ?? this.providerState.selectedModel())
+      ? (
+          (() => {
+            const provider = this.selectedProvider();
+            const draftProvider = this.newSessionDraft.provider();
+            const fallbackModel =
+              draftProvider && draftProvider !== 'auto'
+                ? (getPrimaryModelForProvider(provider) ?? this.providerState.selectedModel())
+                : this.providerState.selectedModel();
+
+            return normalizeModelForProvider(
+              provider,
+              this.newSessionDraft.model(),
+              fallbackModel,
+            ) ?? fallbackModel;
+          })()
+        )
       : this.providerState.selectedModel()
   );
 
@@ -1502,6 +1518,7 @@ export class InputPanelComponent implements OnDestroy {
 
   onModelSelected(model: string): void {
     if (this.isDraftComposer()) {
+      this.newSessionDraft.setProvider(this.selectedProvider());
       this.newSessionDraft.setModel(model);
       return;
     }

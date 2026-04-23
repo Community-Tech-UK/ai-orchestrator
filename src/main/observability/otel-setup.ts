@@ -6,6 +6,7 @@
  */
 
 import { trace, type Tracer } from '@opentelemetry/api';
+import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
 import {
   BasicTracerProvider,
   ConsoleSpanExporter,
@@ -18,40 +19,52 @@ import {
   ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
 import { getLogger } from '../logging/logger';
+import { LocalTraceFileExporter } from './local-trace-exporter';
 
 const logger = getLogger('OtelSetup');
 
 let initialized = false;
+let provider: BasicTracerProvider | null = null;
 
 export interface TracerOptions {
   endpoint?: string;
   serviceName?: string;
   serviceVersion?: string;
+  traceFilePath?: string;
+  enableConsoleExporter?: boolean;
 }
 
 export function initTracer(options?: TracerOptions): Tracer {
   if (!initialized) {
+    const endpoint = options?.endpoint
+      ?? process.env['OTEL_EXPORTER_OTLP_ENDPOINT']
+      ?? process.env['ORCHESTRATOR_OTEL_ENDPOINT'];
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: options?.serviceName ?? 'ai-orchestrator',
       [ATTR_SERVICE_VERSION]: options?.serviceVersion ?? '1.0.0',
     });
 
-    const exporter = options?.endpoint
-      ? new OTLPTraceExporter({ url: options.endpoint })
-      : new ConsoleSpanExporter();
+    const exporters: SpanExporter[] = [
+      new LocalTraceFileExporter(options?.traceFilePath),
+    ];
+    if (endpoint) {
+      exporters.push(new OTLPTraceExporter({ url: endpoint }));
+    } else if (options?.enableConsoleExporter) {
+      exporters.push(new ConsoleSpanExporter());
+    }
 
-    const provider = new BasicTracerProvider({
+    provider = new BasicTracerProvider({
       resource,
-      spanProcessors: [new SimpleSpanProcessor(exporter)],
+      spanProcessors: exporters.map((exporter) => new SimpleSpanProcessor(exporter)),
     });
 
     trace.setGlobalTracerProvider(provider);
 
-    if (options?.endpoint) {
-      logger.info(`OpenTelemetry exporting to ${options.endpoint}`);
-    } else {
-      logger.info('OpenTelemetry using console exporter (no endpoint configured)');
-    }
+    logger.info('OpenTelemetry initialized', {
+      endpoint,
+      traceFilePath: options?.traceFilePath,
+      consoleExporter: Boolean(options?.enableConsoleExporter && !endpoint),
+    });
 
     initialized = true;
   }
@@ -63,6 +76,13 @@ export function getOrchestratorTracer(): Tracer {
   return trace.getTracer('ai-orchestrator');
 }
 
+export async function shutdownTracer(): Promise<void> {
+  await provider?.shutdown();
+  provider = null;
+  initialized = false;
+}
+
 export function _resetOtelForTesting(): void {
+  provider = null;
   initialized = false;
 }

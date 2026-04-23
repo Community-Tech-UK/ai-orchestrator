@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RecoveryRecipeEngine } from './recovery-recipe-engine';
-import type { DetectedFailure, RecoveryRecipe, RecoveryOutcome } from '../../shared/types/recovery.types';
+import {
+  CheckpointType,
+  createDetectedFailure,
+  type DetectedFailure,
+  type RecoveryRecipe,
+  type RecoveryOutcome,
+} from '../../shared/types/error-recovery.types';
 
 // Mock CheckpointManager
 const mockCheckpointManager = {
@@ -13,15 +19,14 @@ const mockSessionContinuity = {
 };
 
 function createFailure(overrides: Partial<DetectedFailure> = {}): DetectedFailure {
-  return {
+  return createDetectedFailure({
     id: `fail-${Date.now()}`,
     category: 'agent_stuck_blocked',
     instanceId: 'inst-1',
     detectedAt: Date.now(),
     context: {},
-    severity: 'recoverable',
     ...overrides,
-  };
+  });
 }
 
 function createRecipe(overrides: Partial<RecoveryRecipe> = {}): RecoveryRecipe {
@@ -65,9 +70,37 @@ describe('RecoveryRecipeEngine', () => {
     expect(mockCheckpointManager.createCheckpoint).toHaveBeenCalledOnce();
     expect(mockCheckpointManager.createCheckpoint).toHaveBeenCalledWith(
       'inst-1',
-      'RECOVERY_ACTION',
+      CheckpointType.ERROR_RECOVERY,
       expect.stringContaining('agent_stuck_blocked'),
     );
+  });
+
+  it('should normalize mismatched failure severity before executing recovery', async () => {
+    const recover = vi.fn().mockResolvedValue({ status: 'degraded', action: 'Requested approval' });
+    engine.registerRecipe({
+      category: 'agent_stuck_waiting',
+      severity: 'degraded',
+      maxAutoRetries: 1,
+      cooldownMs: 0,
+      recover,
+      description: 'Test waiting recipe',
+    });
+
+    const inconsistentFailure = {
+      id: 'fail-waiting',
+      category: 'agent_stuck_waiting',
+      instanceId: 'inst-1',
+      detectedAt: Date.now(),
+      context: {},
+      severity: 'recoverable',
+    } as unknown as DetectedFailure;
+
+    await engine.handleFailure(inconsistentFailure);
+
+    expect(recover).toHaveBeenCalledWith(expect.objectContaining({
+      category: 'agent_stuck_waiting',
+      severity: 'degraded',
+    }));
   });
 
   it('should escalate when no recipe is registered', async () => {

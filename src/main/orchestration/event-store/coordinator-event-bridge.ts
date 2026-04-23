@@ -1,123 +1,151 @@
 /**
  * Coordinator Event Bridge
  *
- * Wires MultiVerifyCoordinator and DebateCoordinator EventEmitter events
- * into the OrchestrationEventStore for audit trail and replay.
+ * Wires coordinator EventEmitter events into the orchestration command path,
+ * so persisted events are appended through OrchestrationEngine rather than
+ * bypassing it with direct store writes.
  */
 
 import { EventEmitter } from 'events';
-import { randomUUID } from 'crypto';
 import { getLogger } from '../../logging/logger';
-import type { OrchestrationEventStore } from './orchestration-event-store';
-import type { OrchestrationEventType } from './orchestration-events';
+import type { OrchestrationEngine } from '../orchestration-engine';
 import type { LaneEventMetadata } from '../../../shared/types/lane-events';
+import type { OrchestrationCommandType } from '../orchestration-commands';
 
 const logger = getLogger('CoordinatorEventBridge');
 
+type OrchestrationCommandDispatcher = Pick<OrchestrationEngine, 'dispatch'>;
+type DebateCoordinatorSource = EventEmitter & {
+  getDebate?: (debateId: string) => unknown;
+};
+
 export class CoordinatorEventBridge {
-  private store: OrchestrationEventStore;
   private readonly disposers: Array<() => void> = [];
 
-  constructor(store: OrchestrationEventStore) {
-    this.store = store;
-  }
+  constructor(private readonly dispatcher: OrchestrationCommandDispatcher) {}
 
   /**
-   * Wire a MultiVerifyCoordinator (EventEmitter) to the event store.
+   * Wire a MultiVerifyCoordinator (EventEmitter) to the orchestration command path.
    */
   wireVerifyCoordinator(coordinator: EventEmitter): void {
     this.listen(coordinator, 'verification:started', (payload: Record<string, unknown>) => {
-      this.appendSafe('verification.requested', String(payload['id'] ?? ''), payload, {
+      this.dispatchSafe('verification.request', String(payload['id'] ?? ''), payload, {
         instanceId: String(payload['instanceId'] ?? ''),
       });
     });
 
     this.listen(coordinator, 'verification:completed', (payload: Record<string, unknown>) => {
-      this.appendSafe('verification.completed', String(payload['id'] ?? ''), payload, {
+      this.dispatchSafe('verification.complete', String(payload['id'] ?? ''), payload, {
         instanceId: String(payload['instanceId'] ?? ''),
       });
     });
 
     this.listen(coordinator, 'verification:error', (payload: Record<string, unknown>) => {
       const request = (payload['request'] ?? {}) as Record<string, unknown>;
-      this.appendSafe('verification.completed', String(request['id'] ?? ''), {
+      this.dispatchSafe('verification.complete', String(request['id'] ?? ''), {
         error: String(payload['error'] ?? 'unknown'),
       }, {
         instanceId: String(request['instanceId'] ?? ''),
       });
     });
 
-    logger.info('Wired verify coordinator to event store');
+    this.listen(coordinator, 'verification:cancelled', (payload: Record<string, unknown>) => {
+      this.dispatchSafe('verification.cancel', String(payload['verificationId'] ?? ''), payload);
+    });
+
+    logger.info('Wired verify coordinator to orchestration engine');
   }
 
   /**
-   * Wire a DebateCoordinator (EventEmitter) to the event store.
+   * Wire a DebateCoordinator (EventEmitter) to the orchestration command path.
    */
   wireDebateCoordinator(coordinator: EventEmitter): void {
     this.listen(coordinator, 'debate:started', (payload: Record<string, unknown>) => {
-      this.appendSafe('debate.started', String(payload['debateId'] ?? ''), payload);
+      const debatePayload = this.resolveDebatePayload(coordinator, payload);
+      this.dispatchSafe('debate.start', String(payload['debateId'] ?? ''), debatePayload, {
+        instanceId: typeof debatePayload['instanceId'] === 'string' ? debatePayload['instanceId'] : undefined,
+      });
+    });
+
+    this.listen(coordinator, 'debate:paused', (payload: Record<string, unknown>) => {
+      const debatePayload = this.resolveDebatePayload(coordinator, payload);
+      this.dispatchSafe('debate.pause', String(payload['debateId'] ?? ''), debatePayload, {
+        instanceId: typeof debatePayload['instanceId'] === 'string' ? debatePayload['instanceId'] : undefined,
+      });
+    });
+
+    this.listen(coordinator, 'debate:resumed', (payload: Record<string, unknown>) => {
+      const debatePayload = this.resolveDebatePayload(coordinator, payload);
+      this.dispatchSafe('debate.resume', String(payload['debateId'] ?? ''), debatePayload, {
+        instanceId: typeof debatePayload['instanceId'] === 'string' ? debatePayload['instanceId'] : undefined,
+      });
     });
 
     this.listen(coordinator, 'debate:round-complete', (payload: Record<string, unknown>) => {
-      this.appendSafe('debate.round_completed', String(payload['debateId'] ?? ''), payload);
+      const debatePayload = this.resolveDebatePayload(coordinator, payload);
+      this.dispatchSafe('debate.record-round', String(payload['debateId'] ?? ''), debatePayload, {
+        instanceId: typeof debatePayload['instanceId'] === 'string' ? debatePayload['instanceId'] : undefined,
+      });
       const round = (payload['round'] ?? {}) as Record<string, unknown>;
       if (round['type'] === 'synthesis') {
-        this.appendSafe('debate.synthesized', String(payload['debateId'] ?? ''), payload);
+        this.dispatchSafe('debate.record-synthesis', String(payload['debateId'] ?? ''), debatePayload, {
+          instanceId: typeof debatePayload['instanceId'] === 'string' ? debatePayload['instanceId'] : undefined,
+        });
       }
     });
 
     this.listen(coordinator, 'debate:completed', (payload: Record<string, unknown>) => {
-      this.appendSafe('debate.completed', String(payload['debateId'] ?? ''), payload);
+      this.dispatchSafe('debate.complete', String(payload['debateId'] ?? ''), payload);
     });
 
-    logger.info('Wired debate coordinator to event store');
+    logger.info('Wired debate coordinator to orchestration engine');
   }
 
   wireParallelWorktreeCoordinator(coordinator: EventEmitter): void {
     this.listen(coordinator, 'execution:created', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.created', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.create', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'execution:started', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.started', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.start', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'execution:conflict-warning', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.conflict_warning', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.flag-conflict', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'execution:merging', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.merging', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.begin-merge', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'execution:completed', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.completed', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.complete', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'execution:partial-failure', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.failed', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.fail', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'execution:cancelled', (payload: Record<string, unknown>) => {
-      this.appendSafe('lane.cancelled', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('lane.cancel', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
@@ -126,34 +154,34 @@ export class CoordinatorEventBridge {
     this.listen(coordinator, 'worktree:created', (payload: Record<string, unknown>) => {
       const aggregateId = String(payload['executionId'] ?? '');
       const metadata = this.toLaneMetadata(payload);
-      this.appendSafe('worktree.created', aggregateId, payload, metadata);
-      this.appendSafe('branch.prepared', aggregateId, payload, metadata);
+      this.dispatchSafe('worktree.create', aggregateId, payload, metadata);
+      this.dispatchSafe('branch.prepare', aggregateId, payload, metadata);
     });
 
     this.listen(coordinator, 'task:completed', (payload: Record<string, unknown>) => {
-      this.appendSafe('worktree.completed', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
+      this.dispatchSafe('worktree.complete', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
     this.listen(coordinator, 'execution:conflicts-detected', (payload: Record<string, unknown>) => {
-      this.appendSafe('worktree.conflict_detected', String(payload['executionId'] ?? ''), payload, {
+      this.dispatchSafe('worktree.detect-conflict', String(payload['executionId'] ?? ''), payload, {
         laneId: String(payload['executionId'] ?? ''),
         source: 'parallel-worktree',
       });
     });
 
     this.listen(coordinator, 'task:merged', (payload: Record<string, unknown>) => {
-      this.appendSafe('branch.merge_succeeded', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
+      this.dispatchSafe('branch.mark-merge-succeeded', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
     this.listen(coordinator, 'task:merge-failed', (payload: Record<string, unknown>) => {
-      this.appendSafe('branch.merge_failed', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
+      this.dispatchSafe('branch.mark-merge-failed', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
     this.listen(coordinator, 'worktree:cleaned', (payload: Record<string, unknown>) => {
-      this.appendSafe('worktree.cleaned', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
+      this.dispatchSafe('worktree.cleanup', String(payload['executionId'] ?? ''), payload, this.toLaneMetadata(payload));
     });
 
-    logger.info('Wired parallel worktree coordinator to event store');
+    logger.info('Wired parallel worktree coordinator to orchestration engine');
   }
 
   dispose(): void {
@@ -162,8 +190,8 @@ export class CoordinatorEventBridge {
     }
   }
 
-  private appendSafe(
-    type: OrchestrationEventType,
+  private dispatchSafe(
+    commandType: OrchestrationCommandType,
     aggregateId: string,
     payload: Record<string, unknown>,
     metadata?: {
@@ -175,16 +203,22 @@ export class CoordinatorEventBridge {
     },
   ): void {
     try {
-      this.store.append({
-        id: randomUUID(),
-        type,
+      const result = this.dispatcher.dispatch({
+        commandType,
         aggregateId,
-        timestamp: Date.now(),
         payload,
         metadata,
       });
+
+      if (result.receipt.status === 'rejected') {
+        logger.warn('Rejected orchestration command', {
+          commandType,
+          aggregateId,
+          reason: result.receipt.reason,
+        });
+      }
     } catch (err) {
-      logger.warn(`Failed to append event: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`Failed to dispatch orchestration command: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -214,6 +248,31 @@ export class CoordinatorEventBridge {
       laneId: String(payload['executionId'] ?? ''),
       worktreeId: typeof session['id'] === 'string' ? session['id'] : undefined,
       source: 'parallel-worktree',
+    };
+  }
+
+  private resolveDebatePayload(
+    coordinator: EventEmitter,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const debateId = String(payload['debateId'] ?? payload['id'] ?? '');
+    if (!debateId) {
+      return payload;
+    }
+
+    const getter = (coordinator as DebateCoordinatorSource).getDebate;
+    if (typeof getter !== 'function') {
+      return payload;
+    }
+
+    const currentState = getter.call(coordinator, debateId);
+    if (!currentState || typeof currentState !== 'object' || Array.isArray(currentState)) {
+      return payload;
+    }
+
+    return {
+      ...(currentState as Record<string, unknown>),
+      ...payload,
     };
   }
 }

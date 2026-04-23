@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { EventEmitter } from 'events';
 import { BaseProvider } from '../provider-interface';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderConfig, ProviderStatus, ProviderSessionOptions, ProviderCapabilities } from '@shared/types/provider.types';
@@ -138,3 +139,51 @@ describe('BaseProvider lifecycle helpers', () => {
   });
 });
 
+describe('BaseProvider adapter bridge', () => {
+  it('forwards normalized adapter events through events$', async () => {
+    const provider = makeProvider();
+    const adapter = new EventEmitter();
+    const events: ProviderRuntimeEventEnvelope[] = [];
+
+    provider.events$.subscribe((event) => events.push(event));
+    (provider as unknown as { bindAdapterRuntimeEvents: (adapter: EventEmitter) => void })
+      .bindAdapterRuntimeEvents(adapter);
+
+    adapter.emit('status', 'busy');
+    await new Promise(r => setImmediate(r));
+
+    expect(events[0]?.event).toEqual({ kind: 'status', status: 'busy' });
+  });
+
+  it('allows providers to handle specific normalized events before dispatch', async () => {
+    const provider = makeProvider();
+    const adapter = new EventEmitter();
+    const events: ProviderRuntimeEventEnvelope[] = [];
+
+    provider.events$.subscribe((event) => events.push(event));
+    (
+      provider as unknown as {
+        bindAdapterRuntimeEvents: (
+          adapter: EventEmitter,
+          options: { handleEvent: (runtimeEvent: { kind: string }) => boolean | void },
+        ) => void;
+        pushStatus: (status: string) => void;
+      }
+    ).bindAdapterRuntimeEvents(adapter, {
+      handleEvent: (runtimeEvent) => {
+        if (runtimeEvent.kind === 'complete') {
+          (provider as unknown as { pushStatus: (status: string) => void }).pushStatus('idle');
+          return true;
+        }
+
+        return false;
+      },
+    });
+
+    adapter.emit('complete', { usage: { totalTokens: 12 } });
+    await new Promise(r => setImmediate(r));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event).toEqual({ kind: 'status', status: 'idle' });
+  });
+});

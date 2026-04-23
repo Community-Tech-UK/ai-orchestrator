@@ -14,6 +14,7 @@ function buildReport(slot: PluginLoadReport['slot']): PluginLoadReport {
 describe('PluginRegistry', () => {
   it('groups plugins by slot for a working directory', () => {
     const registry = new PluginRegistry();
+    const notifierRuntime = { notify: async () => undefined };
 
     registry.replacePlugins('/tmp/project', [
       {
@@ -28,6 +29,7 @@ describe('PluginRegistry', () => {
         filePath: '/tmp/project/.orchestrator/plugins/notifier.js',
         slot: 'notifier',
         hooks: {},
+        runtime: notifierRuntime,
         loadReport: buildReport('notifier'),
       },
     ]);
@@ -35,6 +37,7 @@ describe('PluginRegistry', () => {
     expect(registry.getSlots('/tmp/project')).toEqual(['hook', 'notifier']);
     expect(registry.getPlugins('/tmp/project', 'hook')).toHaveLength(1);
     expect(registry.getPlugins('/tmp/project', 'notifier')).toHaveLength(1);
+    expect(registry.getRuntimes('/tmp/project', 'notifier')).toEqual([notifierRuntime]);
   });
 
   it('clears a single working directory without affecting others', () => {

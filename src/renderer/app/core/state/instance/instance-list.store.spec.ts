@@ -18,6 +18,7 @@ describe('InstanceListStore', () => {
       restartFreshInstance: vi.fn().mockResolvedValue({ success: true }),
     };
 
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         InstanceListStore,

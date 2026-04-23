@@ -120,7 +120,7 @@ function formatCopilotModelDisplayName(modelId: string): string {
   }
 
   if (parts[0] === 'gpt' && parts[1]) {
-    const [_, version, ...rest] = parts;
+    const [, version, ...rest] = parts;
     return [`GPT-${version}`, ...rest.map(toTitleCase)].join(' ');
   }
 
@@ -270,10 +270,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     return {
       streaming: true,
       toolUse: true,
-      fileAccess: true,
+      // The standalone copilot CLI cannot accept orchestrator attachments yet.
+      fileAccess: false,
       shellExecution: true,
       multiTurn: true,
-      vision: true,
+      vision: false,
       codeExecution: true,
       contextWindow: DEFAULT_CONTEXT_WINDOW,
       outputFormats: ['text', 'json'],
@@ -386,11 +387,278 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       let streamingMessageId: string | null = null;
       let hasReceivedStreamingDeltas = false;
       let streamingContent = '';
+      const activeToolCalls = new Map<string, { name: string; input?: Record<string, unknown> }>();
 
       // Line-buffered JSON parsing (Copilot emits one JSON object per line
       // on stdout under `--output-format json`). We don't use NdjsonParser
       // directly because Copilot's event shape differs from CliStreamMessage.
       let lineBuffer = '';
+
+      const ensureStreamingMessageId = (preferredId?: string): string => {
+        if (!streamingMessageId) {
+          streamingMessageId = preferredId?.trim() || generateId();
+        }
+        return streamingMessageId;
+      };
+
+      const emitStreamingAssistantUpdate = (messageId: string, content: string): void => {
+        const extracted = extractThinkingContent(content);
+        const thinking = [...this.currentMessageReasoning, ...extracted.thinking];
+
+        this.emit('output', {
+          id: messageId,
+          timestamp: Date.now(),
+          type: 'assistant',
+          content,
+          metadata: { streaming: true, accumulatedContent: extracted.response },
+          thinking: thinking.length > 0 ? thinking : undefined,
+          thinkingExtracted: true,
+        } as OutputMessage);
+      };
+
+      const normalizeToolInput = (value: unknown): Record<string, unknown> | undefined => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          return value as Record<string, unknown>;
+        }
+        return undefined;
+      };
+
+      const handleCopilotEvent = (event: CopilotEvent): void => {
+        switch (event.type) {
+          case 'assistant.message_delta': {
+            const delta = event.data?.deltaContent ?? '';
+            if (!delta) break;
+            hasReceivedStreamingDeltas = true;
+            const messageId = ensureStreamingMessageId(event.data?.messageId);
+            streamingContent += delta;
+            emitStreamingAssistantUpdate(messageId, streamingContent);
+            break;
+          }
+
+          case 'assistant.message': {
+            const content = event.data?.content ?? '';
+            if (!content) break;
+
+            const messageId = ensureStreamingMessageId(event.data?.messageId);
+
+            if (hasReceivedStreamingDeltas) {
+              if (!streamingContent) {
+                streamingContent = content;
+                emitStreamingAssistantUpdate(messageId, streamingContent);
+                break;
+              }
+
+              if (content === streamingContent || streamingContent.startsWith(content)) {
+                emitStreamingAssistantUpdate(messageId, streamingContent);
+                break;
+              }
+
+              if (content.startsWith(streamingContent)) {
+                streamingContent = content;
+                emitStreamingAssistantUpdate(messageId, streamingContent);
+                break;
+              }
+
+              logger.warn('Copilot assistant final does not extend streamed content; replacing accumulated text', {
+                streamedLength: streamingContent.length,
+                finalLength: content.length,
+              });
+              streamingContent = content;
+              emitStreamingAssistantUpdate(messageId, streamingContent);
+              break;
+            }
+
+            streamingContent = content;
+            const extracted = extractThinkingContent(content);
+            const thinking: ThinkingContent[] = [
+              ...this.currentMessageReasoning,
+              ...extracted.thinking.map((t) => ({ ...t, timestamp: Date.now() })),
+            ];
+
+            this.emit('output', {
+              id: messageId,
+              timestamp: Date.now(),
+              type: 'assistant',
+              content: extracted.response,
+              thinking: thinking.length > 0 ? thinking : undefined,
+              thinkingExtracted: true,
+            } as OutputMessage);
+
+            // Per-turn token accounting: prefer outputTokens from the
+            // assistant.message event; we get full usage from `result`.
+            if (typeof event.data?.outputTokens === 'number') {
+              // Recorded but emitted as context on `result` to avoid double-emit.
+            }
+            break;
+          }
+
+          case 'assistant.reasoning': {
+            const reasoning = event.data?.content;
+            if (reasoning) {
+              this.currentMessageReasoning.push({
+                id: generateId(),
+                content: reasoning,
+                format: 'sdk',
+                timestamp: Date.now(),
+              });
+            }
+            break;
+          }
+
+          case 'tool.execution_start': {
+            const toolName = event.data?.toolName ?? 'unknown';
+            const toolCallId = event.data?.toolCallId;
+            const input = normalizeToolInput(event.data?.arguments);
+
+            if (toolCallId) {
+              activeToolCalls.set(toolCallId, { name: toolName, input });
+            }
+
+            this.emit('output', {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'tool_use',
+              content: `Using tool: ${toolName}`,
+              metadata: {
+                id: toolCallId,
+                name: toolName,
+                input,
+                tool_use_id: toolCallId,
+                toolName,
+                toolCallId,
+              },
+            } as OutputMessage);
+            break;
+          }
+
+          case 'tool.execution_complete': {
+            const toolCallId = event.data?.toolCallId;
+            const toolContext = toolCallId ? activeToolCalls.get(toolCallId) : undefined;
+            if (toolCallId) {
+              activeToolCalls.delete(toolCallId);
+            }
+
+            const toolName = toolContext?.name ?? event.data?.toolName ?? 'unknown';
+            const input = toolContext?.input;
+            const toolSucceeded = event.data?.success !== false;
+            const errorMessage = typeof event.data?.error?.message === 'string'
+              ? event.data.error.message
+              : undefined;
+
+            this.emit('output', {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'tool_result',
+              content: toolSucceeded
+                ? `Tool ${toolName} completed`
+                : `Tool ${toolName} failed${errorMessage ? `: ${errorMessage}` : ''}`,
+              metadata: {
+                name: toolName,
+                input,
+                tool_use_id: toolCallId,
+                is_error: !toolSucceeded,
+                toolName,
+                toolCallId,
+                success: toolSucceeded,
+                output: event.data?.result,
+                error: event.data?.error,
+              },
+            } as OutputMessage);
+            if (!toolSucceeded) {
+              this.emit('output', {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'error',
+                content: `Copilot tool call failed (${toolName}${toolCallId ? `, ${toolCallId}` : ''})${errorMessage ? `: ${errorMessage}` : ''}`,
+                metadata: {
+                  name: toolName,
+                  input,
+                  tool_use_id: toolCallId,
+                  toolName,
+                  toolCallId,
+                  error: event.data?.error,
+                  raw: event,
+                },
+              } as OutputMessage);
+            }
+            break;
+          }
+
+          case 'session.error': {
+            const sessionErrMsg = event.data?.message ?? 'Copilot session error';
+            // Also emit as an `error` OutputMessage so it lands in the
+            // instance's output buffer and becomes visible in the UI plus
+            // in the child-exit summary fallback.
+            this.emit('output', {
+              id: generateId(),
+              timestamp: Date.now(),
+              type: 'error',
+              content: sessionErrMsg,
+              metadata: { source: 'copilot-session-error' },
+            } as OutputMessage);
+            this.emit('error', new Error(sessionErrMsg));
+            break;
+          }
+
+          case 'result': {
+            // Terminal event. Captures sessionId (for --resume), exitCode,
+            // and per-session usage.
+            if (event.sessionId) {
+              this.copilotSessionId = event.sessionId;
+            }
+            if (event.usage) {
+              const usage = event.usage;
+              // Copilot's `result.usage` doesn't give input/output token
+              // split — it gives premiumRequests + durations + code changes.
+              // Use outputTokens from `assistant.message` if we saw one.
+              // Fall back to a rough estimate from accumulated content.
+              const outputTokens = this.estimateTokens(streamingContent || this.outputBuffer);
+              this.cumulativeTokensUsed += outputTokens;
+              const contextWindow = this.getCapabilities().contextWindow;
+              // Report occupancy as the running cumulative estimate
+              // (input + output across turns) rather than this-turn output
+              // only, which dramatically under-reported and kept the
+              // context bar near zero indefinitely. Flagged `isEstimated`
+              // because copilot's usage object doesn't expose real input
+              // token counts.
+              const used = Math.min(this.cumulativeTokensUsed, contextWindow);
+              const contextUsage: ContextUsage = {
+                used,
+                total: contextWindow,
+                percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
+                cumulativeTokens: this.cumulativeTokensUsed,
+                isEstimated: true,
+              };
+              this.emit('context', contextUsage);
+
+              // Also log cost signal for diagnostics.
+              logger.debug('Copilot turn complete', {
+                sessionId: event.sessionId,
+                premiumRequests: usage.premiumRequests,
+                totalApiDurationMs: usage.totalApiDurationMs,
+                sessionDurationMs: usage.sessionDurationMs,
+              });
+            }
+            break;
+          }
+
+          // Session setup events — ignored (they're noise for the orchestrator,
+          // but we keep them listed here to document what we're intentionally
+          // dropping):
+          case 'session.mcp_server_status_changed':
+          case 'session.mcp_servers_loaded':
+          case 'session.skills_loaded':
+          case 'session.tools_updated':
+          case 'session.idle':
+          case 'user.message':
+          case 'assistant.turn_start':
+          case 'assistant.turn_end':
+            break;
+
+          default:
+            logger.debug('Unhandled copilot event type', { type: (event as { type?: string }).type });
+        }
+      };
 
       this.process.stdout?.on('data', (data) => {
         const chunk = data.toString();
@@ -414,189 +682,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             continue;
           }
 
-          switch (event.type) {
-            case 'assistant.message_delta': {
-              const delta = event.data?.deltaContent ?? '';
-              if (!delta) break;
-              hasReceivedStreamingDeltas = true;
-              if (!streamingMessageId) {
-                streamingMessageId = generateId();
-              }
-              streamingContent += delta;
-
-              const extracted = extractThinkingContent(streamingContent);
-              const thinking = [...this.currentMessageReasoning, ...extracted.thinking];
-
-              this.emit('output', {
-                id: streamingMessageId,
-                timestamp: Date.now(),
-                type: 'assistant',
-                content: delta,
-                metadata: { streaming: true, accumulatedContent: extracted.response },
-                thinking: thinking.length > 0 ? thinking : undefined,
-                thinkingExtracted: true,
-              } as OutputMessage);
-              break;
-            }
-
-            case 'assistant.message': {
-              // Complete message. Skip re-emitting if we already streamed
-              // deltas — avoids doubled content in consumer UIs.
-              if (!hasReceivedStreamingDeltas) {
-                const content = event.data?.content ?? '';
-                const extracted = extractThinkingContent(content);
-                const thinking: ThinkingContent[] = [
-                  ...this.currentMessageReasoning,
-                  ...extracted.thinking.map((t) => ({ ...t, timestamp: Date.now() })),
-                ];
-
-                this.emit('output', {
-                  id: generateId(),
-                  timestamp: Date.now(),
-                  type: 'assistant',
-                  content: extracted.response,
-                  thinking: thinking.length > 0 ? thinking : undefined,
-                  thinkingExtracted: true,
-                } as OutputMessage);
-              }
-              // Per-turn token accounting: prefer outputTokens from the
-              // assistant.message event; we get full usage from `result`.
-              if (typeof event.data?.outputTokens === 'number') {
-                // Recorded but emitted as context on `result` to avoid double-emit.
-              }
-              break;
-            }
-
-            case 'assistant.reasoning': {
-              const reasoning = event.data?.content;
-              if (reasoning) {
-                this.currentMessageReasoning.push({
-                  id: generateId(),
-                  content: reasoning,
-                  format: 'sdk',
-                  timestamp: Date.now(),
-                });
-              }
-              break;
-            }
-
-            case 'tool.execution_start': {
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'tool_use',
-                content: `Using tool: ${event.data?.toolName ?? 'unknown'}`,
-                metadata: {
-                  toolName: event.data?.toolName,
-                  toolCallId: event.data?.toolCallId,
-                },
-              } as OutputMessage);
-              break;
-            }
-
-            case 'tool.execution_complete': {
-              const toolSucceeded = event.data?.success !== false;
-              // When a tool fails, also emit an `error` message so the failure
-              // is visible to parent instances and to the child-summary
-              // fallback path in handleChildExit. Without this, a Copilot
-              // child whose only output was a failed tool call shows up as
-              // "Child exited without producing any output."
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'tool_result',
-                content: toolSucceeded ? 'Tool completed successfully' : 'Tool failed',
-                metadata: {
-                  toolCallId: event.data?.toolCallId,
-                  success: event.data?.success,
-                },
-              } as OutputMessage);
-              if (!toolSucceeded) {
-                this.emit('output', {
-                  id: generateId(),
-                  timestamp: Date.now(),
-                  type: 'error',
-                  content: `Copilot tool call failed (toolCallId=${event.data?.toolCallId ?? 'unknown'})`,
-                  metadata: { toolCallId: event.data?.toolCallId, raw: event },
-                } as OutputMessage);
-              }
-              break;
-            }
-
-            case 'session.error': {
-              const sessionErrMsg = event.data?.message ?? 'Copilot session error';
-              // Also emit as an `error` OutputMessage so it lands in the
-              // instance's output buffer and becomes visible in the UI plus
-              // in the child-exit summary fallback.
-              this.emit('output', {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'error',
-                content: sessionErrMsg,
-                metadata: { source: 'copilot-session-error' },
-              } as OutputMessage);
-              this.emit('error', new Error(sessionErrMsg));
-              break;
-            }
-
-            case 'result': {
-              // Terminal event. Captures sessionId (for --resume), exitCode,
-              // and per-session usage.
-              if (event.sessionId) {
-                this.copilotSessionId = event.sessionId;
-              }
-              if (event.usage) {
-                const usage = event.usage;
-                // Copilot's `result.usage` doesn't give input/output token
-                // split — it gives premiumRequests + durations + code changes.
-                // Use outputTokens from `assistant.message` if we saw one.
-                // Fall back to a rough estimate from accumulated content.
-                const outputTokens = this.estimateTokens(streamingContent || this.outputBuffer);
-                this.cumulativeTokensUsed += outputTokens;
-                const contextWindow = this.getCapabilities().contextWindow;
-                // Report occupancy as the running cumulative estimate
-                // (input + output across turns) rather than this-turn output
-                // only, which dramatically under-reported and kept the
-                // context bar near zero indefinitely. Flagged `isEstimated`
-                // because copilot's usage object doesn't expose real input
-                // token counts.
-                const used = Math.min(this.cumulativeTokensUsed, contextWindow);
-                const contextUsage: ContextUsage = {
-                  used,
-                  total: contextWindow,
-                  percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
-                  cumulativeTokens: this.cumulativeTokensUsed,
-                  isEstimated: true,
-                };
-                this.emit('context', contextUsage);
-
-                // Also log cost signal for diagnostics.
-                logger.debug('Copilot turn complete', {
-                  sessionId: event.sessionId,
-                  premiumRequests: usage.premiumRequests,
-                  totalApiDurationMs: usage.totalApiDurationMs,
-                  sessionDurationMs: usage.sessionDurationMs,
-                });
-              }
-              break;
-            }
-
-            // Session setup events — ignored (they're noise for the orchestrator,
-            // but we keep them listed here to document what we're intentionally
-            // dropping):
-            case 'session.mcp_server_status_changed':
-            case 'session.mcp_servers_loaded':
-            case 'session.skills_loaded':
-            case 'session.tools_updated':
-            case 'session.idle':
-            case 'user.message':
-            case 'assistant.turn_start':
-            case 'assistant.turn_end':
-              break;
-
-            default:
-              logger.debug('Unhandled copilot event type', { type: (event as { type?: string }).type });
-          }
+          handleCopilotEvent(event);
         }
       });
 
@@ -614,7 +700,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         // --stream on because each event is newline-terminated, but be safe).
         if (lineBuffer.trim()) {
           try {
-            JSON.parse(lineBuffer.trim());
+            const trailingEvent = JSON.parse(lineBuffer.trim()) as CopilotEvent;
+            handleCopilotEvent(trailingEvent);
           } catch {
             /* drop incomplete trailing line */
           }
@@ -1002,11 +1089,28 @@ type CopilotEvent =
     }
   | {
       type: 'tool.execution_start';
-      data?: { toolName?: string; toolCallId?: string };
+      data?: {
+        toolName?: string;
+        toolCallId?: string;
+        arguments?: Record<string, unknown>;
+      };
     }
   | {
       type: 'tool.execution_complete';
-      data?: { toolCallId?: string; success?: boolean };
+      data?: {
+        toolCallId?: string;
+        toolName?: string;
+        success?: boolean;
+        result?: {
+          content?: string;
+          detailedContent?: string;
+          contents?: unknown[];
+        };
+        error?: {
+          message?: string;
+          code?: string;
+        };
+      };
     }
   | {
       type: 'session.error';

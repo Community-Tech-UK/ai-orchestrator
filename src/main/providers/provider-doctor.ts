@@ -10,6 +10,8 @@ import { getLogger } from '../logging/logger';
 import type { HealthStatus } from '../core/system/health-checker';
 import { buildCliSpawnOptions } from '../cli/cli-environment';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
+import { checkCodexCliAuthentication } from './codex-cli-auth';
+import { checkGeminiCliAuthentication } from './gemini-cli-auth';
 
 const logger = getLogger('ProviderDoctor');
 
@@ -144,26 +146,44 @@ export class ProviderDoctor {
             };
           }
 
-          const envMap: Record<string, string> = {
-            'anthropic-api': 'ANTHROPIC_API_KEY',
-            'codex-cli': 'OPENAI_API_KEY',
-            'gemini-cli': 'GOOGLE_API_KEY',
-          };
-          const envKey = envMap[provider];
-          if (!envKey) {
+          if (provider === 'codex-cli') {
+            const start = Date.now();
+            const authStatus = await checkCodexCliAuthentication();
             return {
               name: 'authenticated',
-              status: 'skip' as const,
-              message: 'No env key check',
+              status: authStatus.authenticated ? 'pass' as const : 'fail' as const,
+              message: authStatus.message,
+              latencyMs: Date.now() - start,
+              metadata: authStatus.metadata,
+            };
+          }
+
+          if (provider === 'gemini-cli') {
+            const start = Date.now();
+            const authStatus = await checkGeminiCliAuthentication();
+            return {
+              name: 'authenticated',
+              status: authStatus.authenticated ? 'pass' as const : 'fail' as const,
+              message: authStatus.message,
+              latencyMs: Date.now() - start,
+              metadata: authStatus.metadata,
+            };
+          }
+
+          if (provider === 'anthropic-api') {
+            const hasKey = !!process.env['ANTHROPIC_API_KEY'];
+            return {
+              name: 'authenticated',
+              status: hasKey ? 'pass' as const : 'fail' as const,
+              message: hasKey ? 'ANTHROPIC_API_KEY is set' : 'ANTHROPIC_API_KEY not found in environment',
               latencyMs: 0,
             };
           }
 
-          const hasKey = !!process.env[envKey];
           return {
             name: 'authenticated',
-            status: hasKey ? 'pass' as const : 'fail' as const,
-            message: hasKey ? `${envKey} is set` : `${envKey} not found in environment`,
+            status: 'skip' as const,
+            message: 'No auth probe for this provider',
             latencyMs: 0,
           };
         },
@@ -276,6 +296,14 @@ export class ProviderDoctor {
           if (provider === 'claude-cli') {
             recs.push(
               'Authentication missing. Run `claude auth login` to sign in, then retry diagnostics. If the CLI still looks unhealthy, run `claude doctor` in a trusted terminal.'
+            );
+          } else if (provider === 'codex-cli') {
+            recs.push(
+              'Authentication missing. Run `codex login` to sign in with ChatGPT or configure an API key, then retry diagnostics.'
+            );
+          } else if (provider === 'gemini-cli') {
+            recs.push(
+              'Authentication missing. Start `gemini` and choose an authentication method, or configure Gemini API / Vertex AI credentials, then retry diagnostics.'
             );
           } else {
             recs.push(

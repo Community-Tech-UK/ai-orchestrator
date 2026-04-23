@@ -84,6 +84,27 @@ describe('LocalInstanceManager', () => {
     expect(permissionHandler).toHaveBeenCalledWith('test-3', permission);
   });
 
+  it('forwards adapter output through normalized output messages', async () => {
+    const outputHandler = vi.fn();
+    manager.on('instance:output', outputHandler);
+
+    await manager.spawn({
+      instanceId: 'test-output',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+    });
+
+    mockAdapter.emit('output', 'hello from worker');
+
+    expect(outputHandler).toHaveBeenCalledWith(
+      'test-output',
+      expect.objectContaining({
+        type: 'assistant',
+        content: 'hello from worker',
+      }),
+    );
+  });
+
   it('hibernates an instance and wakes it with resume enabled', async () => {
     await manager.spawn({
       instanceId: 'test-4',

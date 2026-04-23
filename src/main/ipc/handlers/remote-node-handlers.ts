@@ -113,7 +113,7 @@ export function registerRemoteNodeHandlers(): void {
       try {
         const token = generateAuthToken();
         getSettingsManager().set('remoteNodesEnrollmentToken', token);
-        updateRemoteNodeConfig({ authToken: token });
+        getRemoteAuthService().setManualPairingCredential(token);
         return { success: true, data: { token } };
       } catch (error) {
         return {
@@ -134,7 +134,7 @@ export function registerRemoteNodeHandlers(): void {
       try {
         const validated = RemoteNodeSetTokenPayloadSchema.parse(payload);
         getSettingsManager().set('remoteNodesEnrollmentToken', validated.token);
-        updateRemoteNodeConfig({ authToken: validated.token });
+        getRemoteAuthService().setManualPairingCredential(validated.token);
         return { success: true };
       } catch (error) {
         return {

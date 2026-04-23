@@ -117,6 +117,16 @@ describe('CursorCliProvider inline translation', () => {
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str', recoverable: false });
   });
 
+  it('complete becomes a complete envelope', () => {
+    adapter.emit('complete', { usage: { totalTokens: 42, cost: 0.25, duration: 500 } });
+    expect(envelopes.at(-1)!.event).toEqual({
+      kind: 'complete',
+      tokensUsed: 42,
+      costUsd: 0.25,
+      durationMs: 500,
+    });
+  });
+
   it('exit → exit envelope + clears isActive', () => {
     adapter.emit('exit', 0, null);
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'exit', code: 0, signal: null });

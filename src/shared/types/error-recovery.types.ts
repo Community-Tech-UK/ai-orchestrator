@@ -7,6 +7,8 @@
  * - Session recovery and checkpointing
  */
 
+import type { ActivityState } from './activity.types';
+
 /**
  * Error classification for retry decisions
  */
@@ -83,6 +85,243 @@ export interface ClassifiedError {
   metadata?: Record<string, unknown>;
   /** Timestamp when error occurred */
   timestamp: number;
+}
+
+/**
+ * Recovery-layer severity used by detected failures and recovery recipes.
+ * This is distinct from ErrorSeverity, which models logging/impact levels.
+ */
+export type FailureSeverity = 'recoverable' | 'degraded' | 'fatal';
+
+type FailureCategoryDefinitionRecord = {
+  errorCategory: ErrorCategory;
+  errorSeverity: ErrorSeverity;
+  recoverySeverity: FailureSeverity;
+  recoverable: boolean;
+  defaultUserMessage: string;
+};
+
+/**
+ * Canonical mapping from recipe-level failure categories to the broader
+ * application-wide error recovery model.
+ */
+export const FAILURE_CATEGORY_DEFINITIONS = {
+  thread_resume_failed: {
+    errorCategory: ErrorCategory.SESSION_RESUME,
+    errorSeverity: ErrorSeverity.ERROR,
+    recoverySeverity: 'recoverable',
+    recoverable: true,
+    defaultUserMessage: 'Session resume failed and is falling back to another recovery path.',
+  },
+  process_exited_unexpected: {
+    errorCategory: ErrorCategory.TRANSIENT,
+    errorSeverity: ErrorSeverity.ERROR,
+    recoverySeverity: 'recoverable',
+    recoverable: true,
+    defaultUserMessage: 'The agent process exited unexpectedly.',
+  },
+  agent_stuck_blocked: {
+    errorCategory: ErrorCategory.TRANSIENT,
+    errorSeverity: ErrorSeverity.WARNING,
+    recoverySeverity: 'recoverable',
+    recoverable: true,
+    defaultUserMessage: 'The agent appears blocked and needs an interrupt or nudge.',
+  },
+  agent_stuck_waiting: {
+    errorCategory: ErrorCategory.PERMISSION,
+    errorSeverity: ErrorSeverity.WARNING,
+    recoverySeverity: 'degraded',
+    recoverable: false,
+    defaultUserMessage: 'The agent is waiting on approval or additional input.',
+  },
+  mcp_server_unreachable: {
+    errorCategory: ErrorCategory.NETWORK,
+    errorSeverity: ErrorSeverity.WARNING,
+    recoverySeverity: 'degraded',
+    recoverable: true,
+    defaultUserMessage: 'An MCP server could not be reached.',
+  },
+  provider_auth_expired: {
+    errorCategory: ErrorCategory.AUTH,
+    errorSeverity: ErrorSeverity.CRITICAL,
+    recoverySeverity: 'fatal',
+    recoverable: false,
+    defaultUserMessage: 'Provider authentication expired and requires manual refresh.',
+  },
+  context_window_exhausted: {
+    errorCategory: ErrorCategory.RESOURCE,
+    errorSeverity: ErrorSeverity.WARNING,
+    recoverySeverity: 'recoverable',
+    recoverable: true,
+    defaultUserMessage: 'The conversation exceeded the model context window.',
+  },
+  workspace_disappeared: {
+    errorCategory: ErrorCategory.STALE_WORKTREE,
+    errorSeverity: ErrorSeverity.ERROR,
+    recoverySeverity: 'recoverable',
+    recoverable: true,
+    defaultUserMessage: 'The working directory is no longer available.',
+  },
+  stale_branch: {
+    errorCategory: ErrorCategory.STALE_WORKTREE,
+    errorSeverity: ErrorSeverity.WARNING,
+    recoverySeverity: 'degraded',
+    recoverable: false,
+    defaultUserMessage: 'The branch or worktree is stale and needs manual attention.',
+  },
+  ci_feedback_loop: {
+    errorCategory: ErrorCategory.UNKNOWN,
+    errorSeverity: ErrorSeverity.ERROR,
+    recoverySeverity: 'degraded',
+    recoverable: false,
+    defaultUserMessage: 'The agent is stuck in a repeated CI failure loop.',
+  },
+} as const satisfies Record<string, FailureCategoryDefinitionRecord>;
+
+/** Every known failure mode gets a typed entry. */
+export type FailureCategory = keyof typeof FAILURE_CATEGORY_DEFINITIONS;
+
+export type FailureSeverityForCategory<C extends FailureCategory> =
+  (typeof FAILURE_CATEGORY_DEFINITIONS)[C]['recoverySeverity'];
+
+export type FailureCategoryDefinition<C extends FailureCategory = FailureCategory> = {
+  category: C;
+} & (typeof FAILURE_CATEGORY_DEFINITIONS)[C];
+
+/** A detected failure ready for recipe-driven recovery. */
+export interface DetectedFailure<C extends FailureCategory = FailureCategory> {
+  /** Unique failure ID */
+  id: string;
+  /** Which failure category this belongs to */
+  category: C;
+  /** Which instance experienced this failure */
+  instanceId: string;
+  /** When the failure was detected (epoch ms) */
+  detectedAt: number;
+  /** Category-specific details */
+  context: Record<string, unknown>;
+  /** Activity state at detection time */
+  activityState?: ActivityState;
+  /** How the recovery layer should treat this failure */
+  severity: FailureSeverityForCategory<C>;
+}
+
+/** A registered recovery recipe for a failure category. */
+export interface RecoveryRecipe<C extends FailureCategory = FailureCategory> {
+  /** Which failure category this recipe handles */
+  category: C;
+  /** Expected severity for this failure category */
+  severity: FailureSeverityForCategory<C>;
+  /** Maximum auto-recovery attempts before escalating */
+  maxAutoRetries: number;
+  /** Minimum time between auto-recovery attempts (ms) */
+  cooldownMs: number;
+  /** Execute the recovery action */
+  recover: (failure: DetectedFailure<C>) => Promise<RecoveryOutcome>;
+  /** Human-readable description */
+  description: string;
+}
+
+/** Result of a recovery attempt. */
+export type RecoveryOutcome =
+  | { status: 'recovered'; action: string }
+  | { status: 'degraded'; action: string }
+  | { status: 'escalated'; reason: string }
+  | { status: 'aborted'; reason: string };
+
+/** A logged recovery attempt. */
+export interface RecoveryAttempt<C extends FailureCategory = FailureCategory> {
+  /** ID of the failure that triggered this attempt */
+  failureId: string;
+  /** Category of the failure */
+  category: C;
+  /** Instance that was recovered */
+  instanceId: string;
+  /** When the attempt was made (epoch ms) */
+  attemptedAt: number;
+  /** Outcome of the recovery */
+  outcome: RecoveryOutcome;
+  /** Checkpoint created before recovery (rollback point) */
+  checkpointId: string;
+}
+
+/** Global circuit breaker constants for recipe-driven recovery. */
+export const RECOVERY_CONSTANTS = {
+  /** Max total recovery attempts per instance within the time window */
+  CIRCUIT_BREAKER_MAX_ATTEMPTS: 5,
+  /** Time window for circuit breaker (ms) */
+  CIRCUIT_BREAKER_WINDOW_MS: 600_000, // 10 minutes
+} as const;
+
+export function getFailureCategoryDefinition<C extends FailureCategory>(category: C): FailureCategoryDefinition<C> {
+  const definition = FAILURE_CATEGORY_DEFINITIONS[category];
+  return {
+    category,
+    ...definition,
+  };
+}
+
+export function createDetectedFailure<C extends FailureCategory>(
+  failure: Omit<DetectedFailure<C>, 'severity'> & {
+    severity?: FailureSeverityForCategory<C>;
+  },
+): DetectedFailure<C> {
+  const severity = failure.severity ?? FAILURE_CATEGORY_DEFINITIONS[failure.category].recoverySeverity;
+  return {
+    ...failure,
+    severity,
+  };
+}
+
+export function normalizeDetectedFailure<C extends FailureCategory>(failure: DetectedFailure<C>): DetectedFailure<C> {
+  const expectedSeverity = FAILURE_CATEGORY_DEFINITIONS[failure.category].recoverySeverity;
+  if (failure.severity === expectedSeverity) {
+    return failure;
+  }
+
+  return {
+    ...failure,
+    severity: expectedSeverity,
+  };
+}
+
+function extractFailureTechnicalDetails(context: Record<string, unknown>): string | undefined {
+  const detailKeys = ['message', 'reason', 'error', 'details', 'description'];
+  for (const key of detailKeys) {
+    const candidate = context[key];
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+export function classifyDetectedFailure<C extends FailureCategory>(
+  failure: DetectedFailure<C>,
+  source = 'detected_failure',
+  metadata?: Record<string, unknown>,
+): ClassifiedError {
+  const normalizedFailure = normalizeDetectedFailure(failure);
+  const definition = getFailureCategoryDefinition(normalizedFailure.category);
+
+  return {
+    original: new Error(definition.defaultUserMessage),
+    category: definition.errorCategory,
+    severity: definition.errorSeverity,
+    recoverable: definition.recoverable,
+    userMessage: definition.defaultUserMessage,
+    technicalDetails: extractFailureTechnicalDetails(normalizedFailure.context),
+    source,
+    metadata: {
+      failureCategory: normalizedFailure.category,
+      instanceId: normalizedFailure.instanceId,
+      detectedAt: normalizedFailure.detectedAt,
+      activityState: normalizedFailure.activityState,
+      failureContext: normalizedFailure.context,
+      ...metadata,
+    },
+    timestamp: normalizedFailure.detectedAt,
+  };
 }
 
 /**

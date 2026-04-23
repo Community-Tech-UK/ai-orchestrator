@@ -468,4 +468,121 @@ describe('AcpCliAdapter', () => {
 
     proc.exit();
   });
+
+  it('serializes image data URL attachments as ACP image blocks', async () => {
+    const proc = createInitializedAgentHarness();
+
+    let promptBlocks: unknown[] | undefined;
+    proc.onRequest('session/prompt', (message) => {
+      promptBlocks = (message.params as { prompt: unknown[] }).prompt;
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    await adapter.sendInput('Inspect this screenshot', [
+      {
+        name: 'screenshot.png',
+        type: 'image/png',
+        size: 3,
+        data: 'data:image/png;base64,QUJD',
+      },
+    ]);
+
+    expect(promptBlocks).toEqual([
+      { type: 'text', text: 'Inspect this screenshot' },
+      {
+        type: 'image',
+        data: 'QUJD',
+        mimeType: 'image/png',
+        uri: 'attachment://screenshot.png',
+      },
+    ]);
+
+    proc.exit();
+  });
+
+  it('serializes binary data URL attachments as ACP blob resources', async () => {
+    const proc = createInitializedAgentHarness();
+
+    let promptBlocks: unknown[] | undefined;
+    proc.onRequest('session/prompt', (message) => {
+      promptBlocks = (message.params as { prompt: unknown[] }).prompt;
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    await adapter.sendInput('Review the attachment', [
+      {
+        name: 'report.pdf',
+        type: 'application/pdf',
+        size: 8,
+        data: 'data:application/pdf;base64,JVBERi0x',
+      },
+    ]);
+
+    expect(promptBlocks).toEqual([
+      { type: 'text', text: 'Review the attachment' },
+      {
+        type: 'resource',
+        resource: {
+          uri: 'attachment://report.pdf',
+          mimeType: 'application/pdf',
+          blob: 'JVBERi0x',
+          title: 'report.pdf',
+        },
+      },
+    ]);
+
+    proc.exit();
+  });
+
+  it('injects the ACP system prompt only on the first prompt turn', async () => {
+    const proc = createInitializedAgentHarness();
+
+    const promptPayloads: Array<{ prompt: unknown[] }> = [];
+    proc.onRequest('session/prompt', (message) => {
+      promptPayloads.push(message.params as { prompt: unknown[] });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      systemPrompt: 'Follow the orchestration rubric.',
+    });
+    await adapter.spawn();
+
+    await adapter.sendMessage({ role: 'user', content: 'first turn' });
+    await adapter.sendMessage({ role: 'user', content: 'second turn' });
+
+    expect(promptPayloads).toHaveLength(2);
+    expect(promptPayloads[0]).toMatchObject({
+      sessionId: 'sess-acp-1',
+      prompt: [
+        {
+          type: 'text',
+          text: '[SYSTEM INSTRUCTIONS]\nFollow the orchestration rubric.\n[/SYSTEM INSTRUCTIONS]',
+        },
+        { type: 'text', text: 'first turn' },
+      ],
+    });
+    expect(promptPayloads[1]).toMatchObject({
+      sessionId: 'sess-acp-1',
+      prompt: [
+        { type: 'text', text: 'second turn' },
+      ],
+    });
+
+    proc.exit();
+  });
 });

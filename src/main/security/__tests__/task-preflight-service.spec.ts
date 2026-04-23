@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveInstructionStackMock = vi.fn();
 const diagnoseMock = vi.fn();
+const inspectBranchFreshnessMock = vi.fn();
 const getServersMock = vi.fn();
 const canReadMock = vi.fn();
 const canWriteMock = vi.fn();
@@ -21,6 +22,12 @@ vi.mock('../../browser-automation/browser-automation-health', () => ({
   getBrowserAutomationHealthService: () => ({
     diagnose: diagnoseMock,
   }),
+}));
+
+vi.mock('../../git/branch-freshness', () => ({
+  BranchFreshness: class {
+    inspect = inspectBranchFreshnessMock;
+  },
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -66,6 +73,7 @@ describe('TaskPreflightService', () => {
     vi.resetModules();
     resolveInstructionStackMock.mockReset();
     diagnoseMock.mockReset();
+    inspectBranchFreshnessMock.mockReset();
     getServersMock.mockReset();
     canReadMock.mockReset();
     canWriteMock.mockReset();
@@ -89,6 +97,14 @@ describe('TaskPreflightService', () => {
       status: 'ready',
       warnings: [],
       browserToolNames: ['playwright'],
+    });
+    inspectBranchFreshnessMock.mockResolvedValue({
+      state: 'fresh',
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 0,
+      behind: 0,
+      summary: 'Branch main is in sync with origin/main.',
     });
     getServersMock.mockReturnValue([
       { name: 'playwright', status: 'connected' },
@@ -171,6 +187,10 @@ describe('TaskPreflightService', () => {
         expect.objectContaining({ label: 'Browser evidence capture' }),
       ]),
     );
+    expect(report.branchPolicy).toEqual(expect.objectContaining({
+      state: 'fresh',
+      action: 'allow',
+    }));
   });
 
   it('surfaces project permission overrides and deny-by-default predictions', async () => {
@@ -203,5 +223,56 @@ describe('TaskPreflightService', () => {
       ]),
     );
     expect(report.instructionSummary.appliedLabels).toEqual(['AGENTS.md']);
+  });
+
+  it('surfaces branch-policy warnings and blockers from the typed policy layer', async () => {
+    const { getTaskPreflightService } = await import('../task-preflight-service');
+
+    inspectBranchFreshnessMock.mockResolvedValueOnce({
+      state: 'stale',
+      branch: 'feature/stale',
+      upstream: 'origin/main',
+      ahead: 0,
+      behind: 3,
+      summary: 'Branch feature/stale is behind origin/main by 3 commit(s).',
+    });
+
+    const staleReport = await getTaskPreflightService().getPreflight({
+      workingDirectory: os.tmpdir(),
+      surface: 'workflow',
+      requiresWrite: true,
+    });
+
+    expect(staleReport.blockers).toEqual([]);
+    expect(staleReport.warnings).toContain('Branch feature/stale is behind origin/main by 3 commit(s).');
+    expect(staleReport.branchPolicy).toEqual(expect.objectContaining({
+      action: 'warn',
+      recommendedRemediation: 'merge-forward',
+      failureCategory: 'stale_branch',
+    }));
+
+    inspectBranchFreshnessMock.mockResolvedValueOnce({
+      state: 'diverged',
+      branch: 'feature/diverged',
+      upstream: 'origin/main',
+      ahead: 2,
+      behind: 4,
+      summary: 'Branch feature/diverged has diverged from origin/main (2 ahead, 4 behind).',
+    });
+
+    const divergedReport = await getTaskPreflightService().getPreflight({
+      workingDirectory: os.tmpdir(),
+      surface: 'repo-job',
+      requiresWrite: true,
+    });
+
+    expect(divergedReport.blockers).toContain(
+      'Branch feature/diverged has diverged from origin/main (2 ahead, 4 behind).',
+    );
+    expect(divergedReport.branchPolicy).toEqual(expect.objectContaining({
+      action: 'block',
+      recommendedRemediation: 'rebase',
+      failureCategory: 'stale_branch',
+    }));
   });
 });

@@ -63,7 +63,7 @@ export class WindowManager {
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
-        devTools: true // Always enable devtools for debugging
+        devTools: this.isDev
       }
     });
 

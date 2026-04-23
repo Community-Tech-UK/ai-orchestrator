@@ -32,6 +32,8 @@ const CODEX_CAPABILITIES: ProviderAdapterCapabilities = {
   subAgents: false,
 };
 
+const DEFAULT_CODEX_TURN_TIMEOUT_MS = 900_000;
+
 export const DEFAULT_CODEX_CONFIG: ProviderConfig = {
   type: 'openai',
   name: 'OpenAI',
@@ -111,46 +113,27 @@ export class CodexCliProvider extends BaseProvider {
       sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
       workingDir: options.workingDirectory,
       systemPrompt: options.systemPrompt,
-      timeout: 300000,
+      timeout: DEFAULT_CODEX_TURN_TIMEOUT_MS,
     };
 
     this.adapter = new CodexCliAdapter(codexConfig);
 
-    // Forward adapter events to the normalized envelope stream.
-    // Note: Adapter emits OutputMessage objects during streaming, not plain strings
-    this.adapter.on('output', (outputData: OutputMessage | string) => {
-      if (typeof outputData === 'string') {
-        if (outputData) {
-          this.pushOutput(outputData, 'assistant');
+    this.bindAdapterRuntimeEvents(this.adapter, {
+      handleEvent: (runtimeEvent) => {
+        switch (runtimeEvent.kind) {
+          case 'complete':
+            this.pushStatus('idle');
+            return true;
+          case 'exit':
+            this.isActive = false;
+            return false;
+          case 'spawned':
+            this.isActive = true;
+            return false;
+          default:
+            return false;
         }
-        return;
-      }
-
-      if (outputData && typeof outputData === 'object') {
-        this.pushOutput(outputData);
-      }
-    });
-
-    this.adapter.on('status', (status: string) => {
-      this.pushStatus(status);
-    });
-
-    this.adapter.on('error', (error: Error | string) => {
-      this.pushError(error instanceof Error ? error.message : String(error), false);
-    });
-
-    this.adapter.on('complete', () => {
-      this.pushStatus('idle');
-    });
-
-    this.adapter.on('exit', (code: number | null, signal: string | null) => {
-      this.isActive = false;
-      this.pushExit(code, signal);
-    });
-
-    this.adapter.on('spawned', (pid: number) => {
-      this.isActive = true;
-      if (pid != null) this.pushSpawned(pid);
+      },
     });
 
     // Initialize the adapter

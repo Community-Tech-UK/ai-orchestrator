@@ -116,41 +116,22 @@ export class GeminiCliProvider extends BaseProvider {
 
     this.adapter = new GeminiCliAdapter(geminiConfig);
 
-    // Forward adapter events to the normalized envelope stream.
-    // Note: Adapter emits OutputMessage objects during streaming, not plain strings
-    this.adapter.on('output', (outputData: OutputMessage | string) => {
-      if (typeof outputData === 'string') {
-        if (outputData) {
-          this.pushOutput(outputData, 'assistant');
+    this.bindAdapterRuntimeEvents(this.adapter, {
+      handleEvent: (runtimeEvent) => {
+        switch (runtimeEvent.kind) {
+          case 'complete':
+            this.pushStatus('idle');
+            return true;
+          case 'exit':
+            this.isActive = false;
+            return false;
+          case 'spawned':
+            this.isActive = true;
+            return false;
+          default:
+            return false;
         }
-        return;
-      }
-
-      if (outputData && typeof outputData === 'object') {
-        this.pushOutput(outputData);
-      }
-    });
-
-    this.adapter.on('status', (status: string) => {
-      this.pushStatus(status);
-    });
-
-    this.adapter.on('error', (error: Error | string) => {
-      this.pushError(error instanceof Error ? error.message : String(error), false);
-    });
-
-    this.adapter.on('complete', () => {
-      this.pushStatus('idle');
-    });
-
-    this.adapter.on('exit', (code: number | null, signal: string | null) => {
-      this.isActive = false;
-      this.pushExit(code, signal);
-    });
-
-    this.adapter.on('spawned', (pid: number) => {
-      this.isActive = true;
-      if (pid != null) this.pushSpawned(pid);
+      },
     });
 
     // Initialize the adapter

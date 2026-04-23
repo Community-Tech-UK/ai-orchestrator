@@ -1,4 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
+import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { ProviderType } from './provider-state.service';
 
 @Injectable({ providedIn: 'root' })
@@ -69,7 +70,7 @@ export class NewSessionDraftService {
           ...nextDraft,
           prompt: currentDraft.prompt,
           provider: currentDraft.provider,
-          model: currentDraft.model,
+          model: this.normalizeDraftModel(currentDraft.provider, currentDraft.model),
           yoloMode: currentDraft.yoloMode,
           pendingFolders: [...currentDraft.pendingFolders],
           updatedAt: Date.now(),
@@ -115,19 +116,37 @@ export class NewSessionDraftService {
   }
 
   setProvider(provider: ProviderType | null): void {
-    this.updateActiveDraft((draft) => ({
-      ...draft,
-      provider,
-      updatedAt: Date.now(),
-    }));
+    this.updateActiveDraft((draft) => {
+      const nextModel = draft.provider === provider
+        ? this.normalizeDraftModel(provider, draft.model)
+        : this.normalizeDraftModel(provider, null);
+
+      if (draft.provider === provider && draft.model === nextModel) {
+        return draft;
+      }
+
+      return {
+        ...draft,
+        provider,
+        model: nextModel,
+        updatedAt: Date.now(),
+      };
+    });
   }
 
   setModel(model: string | null): void {
-    this.updateActiveDraft((draft) => ({
-      ...draft,
-      model,
-      updatedAt: Date.now(),
-    }));
+    this.updateActiveDraft((draft) => {
+      const nextModel = this.normalizeDraftModel(draft.provider, model);
+      if (draft.model === nextModel) {
+        return draft;
+      }
+
+      return {
+        ...draft,
+        model: nextModel,
+        updatedAt: Date.now(),
+      };
+    });
   }
 
   setNodeId(nodeId: string | null): void {
@@ -334,11 +353,15 @@ export class NewSessionDraftService {
   }
 
   private hydrateDraft(draft: PersistedNewSessionDraft | undefined): NewSessionDraftState {
+    const provider = this.isProviderType(draft?.provider) ? draft.provider : null;
     return {
       workingDirectory: this.normalizePath(draft?.workingDirectory),
       prompt: typeof draft?.prompt === 'string' ? draft.prompt : '',
-      provider: this.isProviderType(draft?.provider) ? draft.provider : null,
-      model: typeof draft?.model === 'string' && draft.model.trim().length > 0 ? draft.model : null,
+      provider,
+      model: this.normalizeDraftModel(
+        provider,
+        typeof draft?.model === 'string' && draft.model.trim().length > 0 ? draft.model : null,
+      ),
       nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
       pendingFolders: Array.isArray(draft?.pendingFolders)
@@ -416,6 +439,21 @@ export class NewSessionDraftService {
       pendingFolders: [],
       updatedAt: Date.now(),
     };
+  }
+
+  private normalizeDraftModel(
+    provider: ProviderType | null,
+    model?: string | null,
+  ): string | null {
+    if (!provider || provider === 'auto') {
+      return null;
+    }
+
+    return normalizeModelForProvider(
+      provider,
+      model,
+      getPrimaryModelForProvider(provider),
+    ) ?? null;
   }
 
   private draftHasContent(draft: NewSessionDraftState): boolean {

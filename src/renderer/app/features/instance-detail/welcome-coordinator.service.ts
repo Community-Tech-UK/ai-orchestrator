@@ -5,6 +5,7 @@ import { RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { FileAttachmentService } from './file-attachment.service';
+import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 
 export interface WelcomeProjectContext {
@@ -135,12 +136,16 @@ export class WelcomeCoordinatorService {
     onCreatingChange: (creating: boolean) => void,
   ): Promise<boolean> {
     const workingDir = this.workingDirectory() || '.';
-    const provider =
+    const selectedProvider =
       this.newSessionDraft.provider() ??
       this.providerState.getProviderForCreation();
-    const model =
+    const provider = selectedProvider === 'auto' ? undefined : selectedProvider;
+    const requestedModel =
       this.newSessionDraft.model() ??
       this.providerState.getModelForCreation();
+    const model = provider
+      ? normalizeModelForProvider(provider, requestedModel)
+      : undefined;
     const pendingFolders = this.pendingFolders();
     const finalMessage = this.fileAttachment.prependPendingFolders(
       message,

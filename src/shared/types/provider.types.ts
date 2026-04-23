@@ -334,6 +334,74 @@ export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
   return PROVIDER_MODEL_LIST[provider] ?? [];
 }
 
+function normalizeProviderModelNamespace(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+
+  switch (normalized) {
+    case 'claude-cli':
+    case 'anthropic-api':
+      return 'claude';
+    case 'openai':
+    case 'openai-compatible':
+      return 'codex';
+    case 'google':
+      return 'gemini';
+    default:
+      return normalized;
+  }
+}
+
+/**
+ * Return the preferred UI/default model for a provider.
+ * Prefers the first model in the static provider list, then falls back to the
+ * provider's configured CLI default when the list is empty.
+ */
+export function getPrimaryModelForProvider(provider: string): string | undefined {
+  const normalizedProvider = normalizeProviderModelNamespace(provider);
+  return getModelsForProvider(normalizedProvider)[0]?.id ?? getDefaultModelForCli(normalizedProvider);
+}
+
+/**
+ * Normalize a model selection so stale cross-provider values do not leak into
+ * a different CLI.
+ *
+ * Static providers (Claude, Gemini) only accept known model ids.
+ * Codex accepts any OpenAI/Codex-style model id because its list evolves
+ * faster than our static allowlist.
+ * Dynamic providers (Copilot, Cursor, Auto) preserve explicit non-empty ids.
+ */
+export function normalizeModelForProvider(
+  provider: string,
+  modelId?: string | null,
+  fallbackModel?: string
+): string | undefined {
+  const normalizedProvider = normalizeProviderModelNamespace(provider);
+  const normalizedModel = modelId?.trim();
+  const fallback = fallbackModel ?? getPrimaryModelForProvider(normalizedProvider);
+
+  if (!normalizedModel) {
+    return fallback;
+  }
+
+  if (isModelTier(normalizedModel)) {
+    return resolveModelForTier(normalizedModel, normalizedProvider) ?? fallback;
+  }
+
+  switch (normalizedProvider) {
+    case 'claude':
+    case 'gemini': {
+      const providerModels = getModelsForProvider(normalizedProvider);
+      return providerModels.some((model) => model.id === normalizedModel)
+        ? normalizedModel
+        : fallback;
+    }
+    case 'codex':
+      return looksLikeCodexModelId(normalizedModel) ? normalizedModel : fallback;
+    default:
+      return normalizedModel;
+  }
+}
+
 /**
  * Return the expected context window for a provider + model combination.
  *

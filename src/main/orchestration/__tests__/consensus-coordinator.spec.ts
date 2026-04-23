@@ -109,4 +109,36 @@ describe('ConsensusCoordinator', () => {
       }),
     );
   });
+
+  it('collects only assistant output when providers emit mixed message types', async () => {
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
+    createCliAdapterMock.mockImplementation(() => {
+      const adapter = new MockConsensusAdapter();
+      adapter.sendInput = vi.fn(async () => {
+        adapter.emit('output', {
+          id: 'system-1',
+          timestamp: Date.now(),
+          type: 'system',
+          content: 'system noise',
+        });
+        adapter.emit('output', {
+          id: 'assistant-1',
+          timestamp: Date.now(),
+          type: 'assistant',
+          content: 'Assistant answer',
+        });
+        adapter.emit('status', 'idle');
+      });
+      return adapter;
+    });
+
+    const coordinator = ConsensusCoordinator.getInstance();
+    const result = await coordinator.query('Mixed output query', undefined, {
+      providers: [{ provider: 'claude' }],
+      workingDirectory: '/tmp/project',
+      timeout: 1,
+    });
+
+    expect(result.responses[0]?.content).toBe('Assistant answer');
+  });
 });

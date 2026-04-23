@@ -59,6 +59,10 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
             <span class="summary-label">Preset</span>
             <strong>{{ report()!.permissions.preset }}</strong>
           </div>
+          <div class="summary-item">
+            <span class="summary-label">Branch</span>
+            <strong>{{ report()!.branchPolicy.action === 'allow' ? report()!.branchPolicy.state : report()!.branchPolicy.action }}</strong>
+          </div>
         </div>
 
         @if (report()!.instructionSummary.appliedLabels.length > 0) {
@@ -85,6 +89,22 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
               @for (warning of report()!.warnings; track warning) {
                 <li>{{ warning }}</li>
               }
+            </ul>
+          </div>
+        }
+
+        @if (report()!.branchPolicy.state !== 'not_repo') {
+          <div class="section">
+            <span class="section-label">Branch Policy</span>
+            <ul class="list">
+              <li>
+                <strong>{{ report()!.branchPolicy.summary }}</strong>
+                <span>
+                  {{ report()!.branchPolicy.recommendedRemediation === 'none'
+                    ? 'No remediation required.'
+                    : 'Recommended remediation: ' + report()!.branchPolicy.recommendedRemediation + '.' }}
+                </span>
+              </li>
             </ul>
           </div>
         }

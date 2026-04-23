@@ -127,7 +127,10 @@ interface AcpPendingPermissionRequest {
 }
 
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
+  adapterName?: string;
   command?: string;
+  model?: string;
+  systemPrompt?: string;
   workingDirectory: string;
   sessionId?: string;
   resume?: boolean;
@@ -153,7 +156,50 @@ function slug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function stripDataUrlPrefix(data: string): string {
+  if (!data.startsWith('data:')) {
+    return data;
+  }
+
+  const commaIndex = data.indexOf(',');
+  return commaIndex === -1 ? data : data.slice(commaIndex + 1);
+}
+
+function parseDataUrl(data: string): { mimeType?: string; base64Data: string } | null {
+  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,(.+)$/i.exec(data);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    mimeType: match[1] || undefined,
+    base64Data: match[2] || '',
+  };
+}
+
+function isTextLikeMimeType(mimeType: string | undefined): boolean {
+  if (!mimeType) {
+    return false;
+  }
+
+  const normalized = mimeType.trim().toLowerCase();
+  return (
+    normalized.startsWith('text/')
+    || normalized === 'application/json'
+    || normalized === 'application/xml'
+    || normalized.endsWith('+json')
+    || normalized.endsWith('+xml')
+  );
+}
+
+function buildAttachmentUri(name?: string): string {
+  const normalizedName = encodeURIComponent(name?.trim() || 'attachment');
+  return `attachment://${normalizedName}`;
+}
+
 export class AcpCliAdapter extends BaseCliAdapter {
+  private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
+
   private readonly acpConfig: AcpCliAdapterConfig;
   private readonly pendingRequests = new Map<string, AcpPendingRequest>();
   private readonly toolCalls = new Map<string, AcpObservedToolCall>();
@@ -164,6 +210,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private agentCapabilities: AcpAgentCapabilities | null = null;
   private currentPrompt: AcpPendingPromptTurn | null = null;
   private currentPromptRequestId: string | null = null;
+  private systemPromptSent = false;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -183,7 +230,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   getName(): string {
-    return 'ACP';
+    return this.acpConfig.adapterName?.trim() || 'ACP';
   }
 
   getCapabilities(): CliCapabilities {
@@ -271,8 +318,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
     const cliAttachments: AdapterCliAttachment[] | undefined = attachments?.map((attachment) => ({
       type: attachment.type.startsWith('image/') ? 'image' : 'file',
-      path: attachment.type.startsWith('image/') ? undefined : attachment.data,
-      content: attachment.type.startsWith('image/') ? attachment.data : undefined,
+      content: attachment.data,
       mimeType: attachment.type,
       name: attachment.name,
     }));
@@ -370,6 +416,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.initialized = false;
     this.currentPrompt = null;
     this.currentPromptRequestId = null;
+    this.systemPromptSent = false;
     this.toolCalls.clear();
     this.stdoutBuffer = '';
     await super.terminate(graceful);
@@ -868,6 +915,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return content.text;
     }
 
+    if (content.type === 'image') {
+      return content.uri ? `[Image attachment: ${content.uri}]` : '[Image attachment]';
+    }
+
     if (content.resource.text) {
       return content.resource.text;
     }
@@ -1000,6 +1051,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private toPromptBlocks(message: CliMessage): AcpContentBlock[] {
     const prompt: AcpContentBlock[] = [];
 
+    if (!this.acpConfig.resume && !this.systemPromptSent && this.acpConfig.systemPrompt?.trim()) {
+      const systemPrompt = this.acpConfig.systemPrompt.trim();
+      if (systemPrompt.length <= AcpCliAdapter.MAX_SYSTEM_PROMPT_CHARS) {
+        prompt.push({
+          type: 'text',
+          text: ['[SYSTEM INSTRUCTIONS]', systemPrompt, '[/SYSTEM INSTRUCTIONS]'].join('\n'),
+        });
+      }
+      this.systemPromptSent = true;
+    }
+
     if (message.content) {
       prompt.push({ type: 'text', text: message.content });
     }
@@ -1015,6 +1077,45 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private toPromptBlockFromAttachment(attachment: AdapterCliAttachment): AcpContentBlock | null {
+    const inlineContent = attachment.content
+      ?? (attachment.path?.startsWith('data:') ? attachment.path : undefined);
+    if (inlineContent) {
+      const parsedDataUrl = parseDataUrl(inlineContent);
+      const mimeType = attachment.mimeType?.trim() || parsedDataUrl?.mimeType;
+      const base64Data = parsedDataUrl?.base64Data ?? stripDataUrlPrefix(inlineContent);
+
+      if (mimeType?.startsWith('image/')) {
+        return {
+          type: 'image',
+          data: base64Data,
+          mimeType,
+          uri: buildAttachmentUri(attachment.name),
+        };
+      }
+
+      if (parsedDataUrl || !isTextLikeMimeType(mimeType)) {
+        return {
+          type: 'resource',
+          resource: {
+            uri: buildAttachmentUri(attachment.name),
+            mimeType,
+            blob: base64Data,
+            title: attachment.name,
+          },
+        };
+      }
+
+      return {
+        type: 'resource',
+        resource: {
+          uri: buildAttachmentUri(attachment.name),
+          mimeType,
+          text: inlineContent,
+          title: attachment.name,
+        },
+      };
+    }
+
     if (attachment.path) {
       const resourceUri = attachment.path.startsWith('file://')
         ? attachment.path
@@ -1027,13 +1128,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
           text: attachment.content,
           title: attachment.name,
         },
-      };
-    }
-
-    if (attachment.content) {
-      return {
-        type: 'text',
-        text: attachment.name ? `[Attachment: ${attachment.name}]\n${attachment.content}` : attachment.content,
       };
     }
 

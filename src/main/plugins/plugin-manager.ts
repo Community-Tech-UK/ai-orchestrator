@@ -7,18 +7,18 @@
  *
  * Plugin locations:
  * - `~/.orchestrator/plugins/**.js`
- * - `<cwd>/.orchestrator/plugins/**.js`
+ * - `<project-scan-root>/.orchestrator/plugins/**.js`
+ *
+ * Project scan roots run from the repository root (when available) down to the
+ * active working directory, so nested worktrees inherit plugin definitions from
+ * their containing project.
  *
  * Plugin module contract (CommonJS recommended):
- * - `module.exports = async (ctx) => ({ hooks... })` OR `module.exports = { hooks... }`
+ * - Hook plugins: `module.exports = async (ctx) => ({ hooks... })`
+ * - Slot plugins: `module.exports = { slot: 'notifier', create: async (ctx) => runtime }`
  *
- * Hooks are plain functions keyed by event name:
- * - `instance.created`
- * - `instance.removed`
- * - `instance.output`
- * - `verification.started`
- * - `verification.completed`
- * - `verification.error`
+ * Legacy hook-only modules remain supported. Non-hook slots must provide
+ * `create(ctx)` so the manager can validate and register a real runtime.
  */
 
 import * as fs from 'fs/promises';
@@ -31,16 +31,24 @@ import { getConsensusCoordinator } from '../orchestration/consensus-coordinator'
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { getReactionEngine } from '../reactions';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   PluginLoadPhase,
   PluginLoadReport,
+  PluginNotification,
   PluginPhaseResult,
   PluginHookEvent,
   PluginHookPayloads,
+  PluginRuntimeForSlot,
   PluginSlot,
+  PluginTelemetryRecord,
+  PluginTrackerEvent,
   PluginRecord,
+  NotifierPlugin,
+  TelemetryExporterPlugin,
+  TrackerPlugin,
   TypedOrchestratorHooks,
 } from '../../shared/types/plugin.types';
 import type { PluginManifest } from '@sdk/plugins';
@@ -48,6 +56,8 @@ import { PluginManifestSchema } from '@contracts/schemas/plugin';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { getPluginRegistry } from './plugin-registry';
+import { resolveProjectScanRoots } from '../util/project-scan-roots';
+import type { ReactionEvent } from '../reactions/reaction.types';
 
 const logger = getLogger('PluginManager');
 
@@ -85,6 +95,88 @@ function isOutputMessage(value: unknown): value is OutputMessage {
 
 function isStringRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isNotifierPlugin(value: unknown): value is NotifierPlugin {
+  return isRecord(value) && typeof value['notify'] === 'function';
+}
+
+function isTrackerPlugin(value: unknown): value is TrackerPlugin {
+  return isRecord(value) && typeof value['track'] === 'function';
+}
+
+function isTelemetryExporterPlugin(value: unknown): value is TelemetryExporterPlugin {
+  return isRecord(value) && typeof value['export'] === 'function';
+}
+
+function validateSlotRuntime(slot: PluginSlot, runtime: unknown): string | null {
+  if (runtime === null || runtime === undefined) {
+    return `${slot} plugins must return a runtime from create()`;
+  }
+
+  switch (slot) {
+    case 'notifier':
+      return isNotifierPlugin(runtime)
+        ? null
+        : 'notifier plugins must return an object with notify(notification)';
+    case 'tracker':
+      return isTrackerPlugin(runtime)
+        ? null
+        : 'tracker plugins must return an object with track(event)';
+    case 'telemetry_exporter':
+      return isTelemetryExporterPlugin(runtime)
+        ? null
+        : 'telemetry_exporter plugins must return an object with export(record)';
+    default:
+      return null;
+  }
+}
+
+function toTrackerEvent(event: ReactionEvent): PluginTrackerEvent {
+  return {
+    event: `reaction.${event.type}`,
+    timestamp: event.timestamp,
+    instanceId: event.instanceId,
+    data: {
+      priority: event.priority,
+      ...(event.message ? { message: event.message } : {}),
+      ...event.data,
+    },
+  };
+}
+
+function toNotificationPayload(
+  event: ReactionEvent,
+  priority: string | undefined,
+  channels: string[],
+): PluginNotification {
+  return {
+    event: `reaction.${event.type}`,
+    title: event.type,
+    message: event.message ?? `Reaction event: ${event.type}`,
+    timestamp: event.timestamp,
+    priority,
+    instanceId: event.instanceId,
+    channels,
+    data: {
+      reactionType: event.type,
+      ...event.data,
+    },
+  };
+}
+
+function toTelemetryRecord(envelope: ProviderRuntimeEventEnvelope): PluginTelemetryRecord {
+  return {
+    event: `provider.${envelope.event.kind}`,
+    timestamp: envelope.timestamp,
+    attributes: {
+      provider: envelope.provider,
+      instanceId: envelope.instanceId,
+      ...(envelope.sessionId ? { sessionId: envelope.sessionId } : {}),
+      seq: envelope.seq,
+    },
+    data: envelope.event as unknown as PluginRecord,
+  };
 }
 
 function toInstanceCreatedPayload(payload: unknown): PluginHookPayloads['instance.created'] | null {
@@ -309,12 +401,15 @@ export interface OrchestratorPluginContext {
 }
 
 export type OrchestratorHooks = TypedOrchestratorHooks;
-export interface PluginModuleDefinition {
+export interface PluginModuleDefinition<T = unknown> {
   hooks?: TypedOrchestratorHooks;
   detect?: (
     ctx: OrchestratorPluginContext,
   ) => boolean | Promise<boolean>;
   slot?: PluginSlot;
+  create?: (
+    ctx: OrchestratorPluginContext,
+  ) => T | Promise<T>;
 }
 
 export type OrchestratorPluginModule =
@@ -326,6 +421,7 @@ interface LoadedPlugin {
   filePath: string;
   hooks: TypedOrchestratorHooks;
   slot: PluginSlot;
+  runtime?: PluginRuntimeForSlot<PluginSlot>;
   loadReport: PluginLoadReport;
   manifest?: PluginManifest;
 }
@@ -334,6 +430,7 @@ interface CacheEntry {
   loadedAt: number;
   plugins: LoadedPlugin[];
   errors: { filePath: string; error: string }[];
+  scanDirs: string[];
 }
 
 const CACHE_TTL_MS = 10_000;
@@ -355,7 +452,8 @@ function isPluginModuleDefinition(value: unknown): value is PluginModuleDefiniti
   return isRecord(value) && (
     'hooks' in value ||
     'detect' in value ||
-    'slot' in value
+    'slot' in value ||
+    'create' in value
   );
 }
 
@@ -367,6 +465,7 @@ function normalizePluginModule(
       hooks: value.hooks ?? {},
       detect: value.detect,
       slot: value.slot,
+      create: value.create,
     };
   }
 
@@ -402,18 +501,26 @@ export class OrchestratorPluginManager {
     instance: OrchestratorPluginManager,
     workingDirectory: string,
     hooks: TypedOrchestratorHooks,
+    options?: {
+      filePath?: string;
+      slot?: PluginSlot;
+      runtime?: PluginRuntimeForSlot<PluginSlot>;
+    },
   ): void {
     const entry = instance.cacheByWorkingDir.get(workingDirectory) ?? {
       loadedAt: Date.now(),
       plugins: [],
       errors: [],
+      scanDirs: [],
     };
+    const slot = options?.slot ?? 'hook';
     entry.plugins.push({
-      filePath: 'test-plugin.js',
+      filePath: options?.filePath ?? 'test-plugin.js',
       hooks,
-      slot: 'hook',
+      slot,
+      runtime: options?.runtime,
       loadReport: {
-        slot: 'hook',
+        slot,
         detected: true,
         ready: true,
         phases: [],
@@ -431,10 +538,14 @@ export class OrchestratorPluginManager {
   }
 
   private getPluginDirs(workingDirectory: string): string[] {
-    const dirs: string[] = [];
     const home = this.getHomeDir();
-    if (home) dirs.push(path.join(home, '.orchestrator', 'plugins'));
-    dirs.push(path.join(workingDirectory, '.orchestrator', 'plugins'));
+    const dirs: string[] = [];
+    if (home) {
+      dirs.push(path.join(home, '.orchestrator', 'plugins'));
+    }
+    for (const root of resolveProjectScanRoots(workingDirectory, home)) {
+      dirs.push(path.join(root, '.orchestrator', 'plugins'));
+    }
     return dirs;
   }
 
@@ -528,26 +639,65 @@ export class OrchestratorPluginManager {
           const moduleDef = normalizePluginModule(resolved || {});
           const hooks = moduleDef.hooks ?? {};
           const slot = manifest?.slot ?? moduleDef.slot ?? 'hook';
+          let runtime: PluginRuntimeForSlot<PluginSlot> | undefined;
 
           if (moduleDef.detect) {
-            detected = await moduleDef.detect(ctx);
-            phases.push(buildPhase('detect', detected ? 'succeeded' : 'skipped', detected ? undefined : 'detect() returned false'));
+            try {
+              detected = await moduleDef.detect(ctx);
+              phases.push(buildPhase('detect', detected ? 'succeeded' : 'skipped', detected ? undefined : 'detect() returned false'));
+            } catch (error) {
+              detected = false;
+              const message = error instanceof Error ? error.message : String(error);
+              phases.push(buildPhase('detect', 'failed', message));
+              errors.push({ filePath, error: `detect() failed: ${message}` });
+            }
           } else {
             phases.push(buildPhase('detect', 'skipped', 'No detect() hook declared'));
           }
 
-          phases.push(buildPhase('hook_registration', slot === 'hook' ? 'succeeded' : 'skipped'));
+          if (!detected) {
+            phases.push(buildPhase('slot_registration', 'skipped', 'Plugin not detected in current environment'));
+          } else if (slot === 'hook') {
+            runtime = hooks;
+            phases.push(buildPhase('slot_registration', 'succeeded'));
+          } else if (!moduleDef.create) {
+            const message = `${slot} plugins must export create(ctx)`;
+            phases.push(buildPhase('slot_registration', 'failed', message));
+            errors.push({ filePath, error: message });
+          } else {
+            try {
+              const candidate = await moduleDef.create(ctx);
+              const validationError = validateSlotRuntime(slot, candidate);
+              if (validationError) {
+                phases.push(buildPhase('slot_registration', 'failed', validationError));
+                errors.push({ filePath, error: validationError });
+              } else {
+                runtime = candidate as PluginRuntimeForSlot<PluginSlot>;
+                phases.push(buildPhase('slot_registration', 'succeeded'));
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              phases.push(buildPhase('slot_registration', 'failed', message));
+              errors.push({ filePath, error: message });
+            }
+          }
+
+          const ready = detected && runtime !== undefined;
           const loadReport: PluginLoadReport = {
             slot,
             detected,
-            ready: detected,
+            ready,
             phases: [
               ...phases,
-              buildPhase('ready', detected ? 'succeeded' : 'skipped', detected ? undefined : 'Plugin not detected in current environment'),
+              buildPhase(
+                'ready',
+                ready ? 'succeeded' : detected ? 'failed' : 'skipped',
+                ready ? undefined : detected ? 'Plugin slot registration failed' : 'Plugin not detected in current environment',
+              ),
             ],
           };
 
-          plugins.push({ filePath, hooks, manifest, slot, loadReport });
+          plugins.push({ filePath, hooks, manifest, slot, runtime, loadReport });
         } catch (e) {
           phases.push(buildPhase('instantiation', 'failed', e instanceof Error ? e.message : String(e)));
           phases.push(buildPhase('ready', 'failed', e instanceof Error ? e.message : String(e)));
@@ -577,12 +727,18 @@ export class OrchestratorPluginManager {
     if (cached && now - cached.loadedAt < CACHE_TTL_MS) return cached.plugins;
 
     const { plugins, errors } = await this.loadPluginsForWorkingDirectory(workingDirectory, ctx);
-    this.cacheByWorkingDir.set(workingDirectory, { loadedAt: now, plugins, errors });
+    this.cacheByWorkingDir.set(workingDirectory, {
+      loadedAt: now,
+      plugins,
+      errors,
+      scanDirs: this.getPluginDirs(workingDirectory),
+    });
     getPluginRegistry().replacePlugins(workingDirectory, plugins.map((plugin) => ({
       workingDirectory,
       filePath: plugin.filePath,
       slot: plugin.slot,
       hooks: plugin.hooks,
+      runtime: plugin.runtime,
       manifest: plugin.manifest,
       loadReport: plugin.loadReport,
     })));
@@ -606,7 +762,11 @@ export class OrchestratorPluginManager {
         loadReport: p.loadReport,
       }))
       .sort((a, b) => a.filePath.localeCompare(b.filePath));
-    return { plugins: list, scanDirs: this.getPluginDirs(workingDirectory), errors: errors.slice() };
+    return {
+      plugins: list,
+      scanDirs: this.cacheByWorkingDir.get(workingDirectory)?.scanDirs.slice() || [],
+      errors: errors.slice(),
+    };
   }
 
   clearCache(workingDirectory?: string): void {
@@ -621,24 +781,21 @@ export class OrchestratorPluginManager {
     getPluginRegistry().clear(workingDirectory);
   }
 
-  private static readonly HOOK_TIMEOUT_MS = 5_000;
+  private static readonly PLUGIN_TIMEOUT_MS = 5_000;
 
-  private async invokeHook<K extends PluginHookEvent>(
+  private async runPluginOperation(
     plugin: LoadedPlugin,
-    event: K,
-    payload: PluginHookPayloads[K],
+    label: string,
+    operation: () => void | Promise<void>,
   ): Promise<void> {
-    const hook = plugin.hooks[event];
-    if (!hook) return;
-
     try {
-      const result = hook(payload);
+      const result = operation();
       if (result instanceof Promise) {
         let timeoutId: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(
-            () => reject(new Error(`Plugin hook timeout: ${plugin.filePath}:${String(event)}`)),
-            OrchestratorPluginManager.HOOK_TIMEOUT_MS,
+            () => reject(new Error(`Plugin ${label} timeout: ${plugin.filePath}`)),
+            OrchestratorPluginManager.PLUGIN_TIMEOUT_MS,
           );
         });
         try {
@@ -648,7 +805,66 @@ export class OrchestratorPluginManager {
         }
       }
     } catch (err) {
-      logger.warn(`Plugin hook error [${plugin.filePath}:${String(event)}]: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`Plugin ${label} error [${plugin.filePath}]: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async invokeHook<K extends PluginHookEvent>(
+    plugin: LoadedPlugin,
+    event: K,
+    payload: PluginHookPayloads[K],
+  ): Promise<void> {
+    const hook = plugin.hooks[event];
+    if (!hook) return;
+    await this.runPluginOperation(plugin, `hook ${String(event)}`, () => hook(payload));
+  }
+
+  private async notifyWithPlugins(
+    workingDirectory: string,
+    ctx: OrchestratorPluginContext,
+    notification: PluginNotification,
+  ): Promise<void> {
+    const plugins = await this.getPlugins(workingDirectory, ctx);
+    for (const plugin of plugins) {
+      const runtime = plugin.runtime;
+      if (plugin.slot !== 'notifier' || !plugin.loadReport.ready || !isNotifierPlugin(runtime)) {
+        continue;
+      }
+      await this.runPluginOperation(plugin, 'notifier', () => runtime.notify(notification));
+    }
+  }
+
+  private async trackWithPlugins(
+    workingDirectory: string,
+    ctx: OrchestratorPluginContext,
+    event: PluginTrackerEvent,
+  ): Promise<void> {
+    const plugins = await this.getPlugins(workingDirectory, ctx);
+    for (const plugin of plugins) {
+      const runtime = plugin.runtime;
+      if (plugin.slot !== 'tracker' || !plugin.loadReport.ready || !isTrackerPlugin(runtime)) {
+        continue;
+      }
+      await this.runPluginOperation(plugin, 'tracker', () => runtime.track(event));
+    }
+  }
+
+  private async exportTelemetryWithPlugins(
+    workingDirectory: string,
+    ctx: OrchestratorPluginContext,
+    record: PluginTelemetryRecord,
+  ): Promise<void> {
+    const plugins = await this.getPlugins(workingDirectory, ctx);
+    for (const plugin of plugins) {
+      const runtime = plugin.runtime;
+      if (
+        plugin.slot !== 'telemetry_exporter'
+        || !plugin.loadReport.ready
+        || !isTelemetryExporterPlugin(runtime)
+      ) {
+        continue;
+      }
+      await this.runPluginOperation(plugin, 'telemetry_exporter', () => runtime.export(record));
     }
   }
 
@@ -663,6 +879,9 @@ export class OrchestratorPluginManager {
     this.configLoadedByWorkingDir.add(workingDirectory);
     const config = getSettingsManager().getAll() as unknown as Record<string, unknown>;
     for (const plugin of plugins) {
+      if (plugin.slot !== 'hook' || !plugin.loadReport.ready) {
+        continue;
+      }
       await this.invokeHook(plugin, 'config.loaded', { config });
     }
   }
@@ -787,10 +1006,12 @@ export class OrchestratorPluginManager {
     });
 
     instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
+      const instance = instanceManager.getInstance(envelope.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.exportTelemetryWithPlugins(wd, ctx, toTelemetryRecord(envelope));
+
       const pluginPayload = toInstanceOutputPayloadFromEnvelope(envelope);
       if (!pluginPayload) return;
-      const instance = instanceManager.getInstance(pluginPayload.instanceId);
-      const wd = instance?.workingDirectory || process.cwd();
       void this.emitToPlugins(wd, ctx, 'instance.output', pluginPayload);
 
       if (pluginPayload.message.type === 'tool_use') {
@@ -946,6 +1167,45 @@ export class OrchestratorPluginManager {
         vote: payload['content'],
         confidence: payload['confidence'],
       });
+    });
+
+    const reactions = getReactionEngine();
+    reactions.on('reaction:event', (event: ReactionEvent) => {
+      const instance = instanceManager.getInstance(event.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.trackWithPlugins(wd, ctx, toTrackerEvent(event));
+    });
+    reactions.on('reaction:notify-channels', (payload: unknown) => {
+      if (!isRecord(payload) || !isRecord(payload['event'])) {
+        return;
+      }
+
+      const event = payload['event'];
+      if (
+        typeof event['type'] !== 'string'
+        || typeof event['timestamp'] !== 'number'
+        || typeof event['instanceId'] !== 'string'
+      ) {
+        return;
+      }
+
+      const channels = Array.isArray(payload['channels'])
+        ? payload['channels'].filter((value): value is string => typeof value === 'string')
+        : [];
+      const priority = typeof payload['priority'] === 'string' ? payload['priority'] : undefined;
+      const reactionEvent: ReactionEvent = {
+        id: typeof event['id'] === 'string' ? event['id'] : '',
+        type: event['type'] as ReactionEvent['type'],
+        priority: typeof event['priority'] === 'string' ? event['priority'] as ReactionEvent['priority'] : 'info',
+        instanceId: event['instanceId'],
+        timestamp: event['timestamp'],
+        data: isRecord(event['data']) ? event['data'] : {},
+        ...(typeof event['message'] === 'string' ? { message: event['message'] } : {}),
+        ...(typeof event['sessionId'] === 'string' ? { sessionId: event['sessionId'] } : {}),
+      };
+      const instance = instanceManager.getInstance(reactionEvent.instanceId);
+      const wd = instance?.workingDirectory || process.cwd();
+      void this.notifyWithPlugins(wd, ctx, toNotificationPayload(reactionEvent, priority, channels));
     });
   }
 }

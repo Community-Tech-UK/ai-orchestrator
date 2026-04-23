@@ -8,8 +8,9 @@ describe('adapter factory — cursor', () => {
   it('mapSettingsToDetectionType accepts cursor', () => {
     expect(mapSettingsToDetectionType('cursor')).toBe('cursor');
   });
-  it('createCliAdapter(cursor, ...) instantiates CursorCliAdapter', () => {
+  it('createCliAdapter(cursor, ...) instantiates AcpCliAdapter with a cursor provider name', () => {
     const adapter = createCliAdapter('cursor', { workingDirectory: '/tmp' });
-    expect(adapter.constructor.name).toBe('CursorCliAdapter');
+    expect(adapter.constructor.name).toBe('AcpCliAdapter');
+    expect(adapter.getName()).toBe('cursor-acp');
   });
 });

@@ -9,11 +9,18 @@ describe('auth-validator', () => {
   beforeEach(() => {
     registeredNodes = {};
     registeredNodes['node-1'] = {
+      sessionId: 'session-node-1',
       nodeId: 'node-1',
       nodeName: 'test-node',
+      transportToken: generateAuthToken(),
       token: generateAuthToken(),
+      issuedAt: Date.now(),
       createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+      authMethod: 'pairing_credential',
     };
+    registeredNodes['node-1'].token = registeredNodes['node-1'].transportToken;
+    registeredNodes['node-1'].createdAt = registeredNodes['node-1'].issuedAt;
   });
 
   it('rejects empty token', () => {
@@ -41,10 +48,15 @@ describe('auth-validator', () => {
 
   it('prioritizes node token over enrollment when they match', () => {
     registeredNodes['node-2'] = {
+      sessionId: 'session-node-2',
       nodeId: 'node-2',
       nodeName: 'same-token',
+      transportToken: enrollmentToken,
       token: enrollmentToken,
+      issuedAt: Date.now(),
       createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+      authMethod: 'pairing_credential',
     };
     expect(validateTokenTwoTier(enrollmentToken, enrollmentToken, registeredNodes).type).toBe('registered');
   });

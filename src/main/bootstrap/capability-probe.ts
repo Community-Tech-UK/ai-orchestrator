@@ -213,6 +213,26 @@ export class CapabilityProbe {
   private async probeBrowserAutomation(): Promise<StartupCapabilityCheck> {
     try {
       const health = await getBrowserAutomationHealthService().diagnose();
+      const browserAutomationConfigured = health.configDetected || health.inAppConfigured;
+
+      if (!browserAutomationConfigured) {
+        return {
+          id: 'subsystem.browser-automation',
+          label: 'Browser automation',
+          category: 'subsystem',
+          status: 'disabled',
+          critical: false,
+          summary: 'Browser automation is not configured.',
+          details: {
+            runtimeAvailable: health.runtimeAvailable,
+            inAppConfigured: health.inAppConfigured,
+            inAppConnected: health.inAppConnected,
+            browserToolNames: health.browserToolNames,
+            suggestions: health.suggestions,
+          },
+        };
+      }
+
       return {
         id: 'subsystem.browser-automation',
         label: 'Browser automation',
@@ -220,9 +240,7 @@ export class CapabilityProbe {
         status:
           health.status === 'ready'
             ? 'ready'
-            : health.status === 'partial'
-              ? 'degraded'
-              : 'unavailable',
+            : 'degraded',
         critical: false,
         summary:
           health.warnings[0]

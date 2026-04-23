@@ -34,6 +34,7 @@ vi.mock('../core/error-recovery', () => ({
 
 import { InstanceCommunicationManager } from './instance-communication';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
+import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 
 class FakeAdapter extends EventEmitter {
   sendInput = vi.fn().mockResolvedValue(undefined);
@@ -166,6 +167,22 @@ describe('InstanceCommunicationManager', () => {
 
     manager.setupAdapterEvents(instance.id, adapter);
     (adapter as unknown as EventEmitter).emit('exit', 0, null);
+
+    expect(instance.status).toBe('terminated');
+    expect(instance.processId).toBeNull();
+    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined, undefined);
+  });
+
+  it('treats ACP-backed adapters as persistent sessions on exit', () => {
+    const adapter = new AcpCliAdapter({
+      adapterName: 'copilot-acp',
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    adapter.emit('exit', 0, null);
 
     expect(instance.status).toBe('terminated');
     expect(instance.processId).toBeNull();
@@ -371,6 +388,69 @@ describe('InstanceCommunicationManager', () => {
           && /copilot-cli does not support image attachments in orchestrator mode/i.test(message.content),
       ),
     ).toBe(true);
+  });
+
+  it('suppresses duplicate UI errors while keeping transient stateless exec failures retryable', async () => {
+    const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
+    const forwarded: OutputMessage[] = [];
+    adapters.set(instance.id, adapter);
+
+    manager.on('output', ({ message }) => {
+      forwarded.push(message as OutputMessage);
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit(
+      'output',
+      createMessage('error', 'Copilot CLI timeout after 300000ms'),
+    );
+    await flushOutputHandlers();
+
+    (adapter as unknown as EventEmitter).emit(
+      'error',
+      new Error('Copilot CLI timeout after 300000ms'),
+    );
+    await flushOutputHandlers();
+
+    expect(
+      instance.outputBuffer.filter(
+        (message) => message.type === 'error' && message.content === 'Copilot CLI timeout after 300000ms',
+      ),
+    ).toHaveLength(1);
+    expect(
+      forwarded.filter(
+        (message) => message.type === 'error' && message.content === 'Copilot CLI timeout after 300000ms',
+      ),
+    ).toHaveLength(1);
+    expect(instance.status).toBe('idle');
+    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'idle', instance.contextUsage);
+  });
+
+  it('preserves same-content errors when they are separated beyond the duplicate window', async () => {
+    const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit(
+      'output',
+      {
+        ...createMessage('error', 'Copilot CLI timeout after 300000ms'),
+        timestamp: Date.now() - 1_001,
+      },
+    );
+    await flushOutputHandlers();
+
+    (adapter as unknown as EventEmitter).emit(
+      'error',
+      new Error('Copilot CLI timeout after 300000ms'),
+    );
+    await flushOutputHandlers();
+
+    expect(
+      instance.outputBuffer.filter(
+        (message) => message.type === 'error' && message.content === 'Copilot CLI timeout after 300000ms',
+      ),
+    ).toHaveLength(2);
   });
 });
 

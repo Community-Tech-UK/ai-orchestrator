@@ -4,12 +4,14 @@ import { z } from 'zod';
 import {
   BaseProvider,
   defineTool,
+  type NotifierPlugin,
   type OrchestratorHooks,
   type ProviderAttachment,
   type ProviderCapabilities,
   type ProviderConfig,
   type ProviderSessionOptions,
   type ProviderStatus,
+  type TrackerPlugin,
   type ToolContext,
   type ToolModule,
 } from '@sdk';
@@ -101,6 +103,30 @@ describe('SDK exports', () => {
     };
     // All 16 events should be valid keys
     expect(Object.keys(hooks)).toHaveLength(9); // We defined 9 of 16 in this test
+  });
+
+  it('exports slot runtime contracts for non-hook plugins', async () => {
+    const tracker: TrackerPlugin = {
+      track: async (event) => {
+        expect(event.event).toBe('reaction.ci.failing');
+      },
+    };
+    const notifier: NotifierPlugin = {
+      notify: async (notification) => {
+        expect(notification.message).toBe('CI is failing');
+      },
+    };
+
+    await tracker.track({
+      event: 'reaction.ci.failing',
+      timestamp: Date.now(),
+      instanceId: 'inst-1',
+    });
+    await notifier.notify({
+      event: 'reaction.ci.failing',
+      message: 'CI is failing',
+      timestamp: Date.now(),
+    });
   });
 
   it('exports provider extension points', async () => {

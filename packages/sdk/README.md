@@ -12,7 +12,10 @@ Workspace SDK for authoring AI Orchestrator extensions.
   - `ToolSafetyMetadata`
 - `plugins`
   - `OrchestratorHooks`
+  - `PluginModuleDefinition`
   - `PluginHookPayloads`
+  - `NotifierPlugin`
+  - `TrackerPlugin`
   - `SdkPluginContext`
   - `SdkPluginModule`
 - `providers`
@@ -47,6 +50,23 @@ const plugin: SdkPluginModule = (_ctx) => ({
     console.log('instance created', instanceId, workingDirectory);
   },
 });
+
+export = plugin;
+```
+
+## Notifier Plugin Example
+
+```ts
+import type { SdkPluginModule } from '@ai-orchestrator/sdk';
+
+const plugin: SdkPluginModule = {
+  slot: 'notifier',
+  create: () => ({
+    notify: async ({ message, channels }) => {
+      console.log('notify', channels, message);
+    },
+  }),
+};
 
 export = plugin;
 ```

@@ -21,6 +21,11 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
+import {
+  observeAdapterRuntimeEvents,
+  type AdapterRuntimeEventSource,
+  type NormalizedAdapterRuntimeEvent,
+} from './adapter-runtime-event-bridge';
 import { toProviderOutputEvent } from './provider-output-event';
 
 /**
@@ -125,6 +130,20 @@ export abstract class BaseProvider implements ProviderAdapter {
 
   protected completeEvents(): void {
     this._events$.complete();
+  }
+
+  protected bindAdapterRuntimeEvents(
+    adapter: AdapterRuntimeEventSource,
+    options: {
+      handleEvent?: (runtimeEvent: NormalizedAdapterRuntimeEvent) => boolean | void;
+    } = {},
+  ): () => void {
+    return observeAdapterRuntimeEvents(adapter, (runtimeEvent) => {
+      const handled = options.handleEvent?.(runtimeEvent) ?? false;
+      if (!handled) {
+        this.pushEvent(runtimeEvent.event);
+      }
+    });
   }
 
   /**

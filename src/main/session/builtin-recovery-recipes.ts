@@ -1,5 +1,5 @@
 import { getLogger } from '../logging/logger';
-import type { RecoveryRecipe, DetectedFailure, RecoveryOutcome } from '../../shared/types/recovery.types';
+import type { RecoveryRecipe, DetectedFailure, RecoveryOutcome } from '../../shared/types/error-recovery.types';
 
 const logger = getLogger('BuiltinRecoveryRecipes');
 

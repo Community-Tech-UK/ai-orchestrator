@@ -5,6 +5,7 @@
  */
 
 import { Injectable, signal, computed, inject, effect } from '@angular/core';
+import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
 
@@ -23,12 +24,13 @@ export class ProviderStateService {
   private settingsStore = inject(SettingsStore);
   private settingsIpc = inject(SettingsIpcService);
   private initialized = false;
+  private readonly defaultModel = getPrimaryModelForProvider('claude') ?? 'opus';
 
   /** Currently selected provider */
   readonly selectedProvider = signal<ProviderType>('claude');
 
   /** Currently selected model */
-  readonly selectedModel = signal<string>('opus');
+  readonly selectedModel = signal<string>(this.defaultModel);
 
   /** Whether Copilot is the selected provider */
   readonly isCopilot = computed(() => this.selectedProvider() === 'copilot');
@@ -38,12 +40,10 @@ export class ProviderStateService {
     effect(() => {
       const settings = this.settingsStore.settings();
       if (!this.initialized) {
-        if (settings.defaultCli) {
-          this.selectedProvider.set(normalizeProvider(settings.defaultCli));
-        }
-        if (settings.defaultModel) {
-          this.selectedModel.set(settings.defaultModel);
-        }
+        this.applySelection(
+          settings.defaultCli ? normalizeProvider(settings.defaultCli) : this.selectedProvider(),
+          settings.defaultModel,
+        );
         // Mark initialized once we've had a chance to read non-default settings
         // (settings are loaded asynchronously; the store starts with DEFAULT_SETTINGS)
         this.initialized = true;
@@ -70,17 +70,18 @@ export class ProviderStateService {
     this.settingsIpc.onSettingsChanged((data: unknown) => {
       const change = data as { key?: string; value?: unknown; settings?: Record<string, unknown> };
       if (change.key === 'defaultCli' && change.value) {
-        this.selectedProvider.set(normalizeProvider(change.value));
+        this.applySelection(normalizeProvider(change.value), this.selectedModel());
       } else if (change.key === 'defaultModel' && change.value) {
-        this.selectedModel.set(change.value as string);
+        this.applySelection(this.selectedProvider(), change.value as string);
       } else if (change.settings) {
-        // Bulk settings update
-        if (change.settings['defaultCli']) {
-          this.selectedProvider.set(normalizeProvider(change.settings['defaultCli']));
-        }
-        if (change.settings['defaultModel']) {
-          this.selectedModel.set(change.settings['defaultModel'] as string);
-        }
+        this.applySelection(
+          change.settings['defaultCli']
+            ? normalizeProvider(change.settings['defaultCli'])
+            : this.selectedProvider(),
+          typeof change.settings['defaultModel'] === 'string'
+            ? (change.settings['defaultModel'] as string)
+            : this.selectedModel(),
+        );
       }
     });
   }
@@ -89,14 +90,22 @@ export class ProviderStateService {
    * Set the selected provider
    */
   setProvider(provider: ProviderType): void {
-    this.selectedProvider.set(provider);
+    if (provider === this.selectedProvider()) {
+      this.applySelection(provider, this.selectedModel());
+      return;
+    }
+
+    this.applySelection(
+      provider,
+      provider === 'auto' ? this.selectedModel() : undefined,
+    );
   }
 
   /**
    * Set the selected model
    */
   setModel(model: string): void {
-    this.selectedModel.set(model);
+    this.selectedModel.set(this.resolveModel(this.selectedProvider(), model));
   }
 
   /**
@@ -111,6 +120,26 @@ export class ProviderStateService {
    * Get the model for instance creation (for all providers)
    */
   getModelForCreation(): string | undefined {
-    return this.selectedModel();
+    const provider = this.selectedProvider();
+    return provider === 'auto'
+      ? undefined
+      : this.resolveModel(provider, this.selectedModel());
+  }
+
+  private applySelection(provider: ProviderType, model?: string | null): void {
+    this.selectedProvider.set(provider);
+    this.selectedModel.set(this.resolveModel(provider, model));
+  }
+
+  private resolveModel(provider: ProviderType, model?: string | null): string {
+    if (provider === 'auto') {
+      return model?.trim() || this.selectedModel() || this.defaultModel;
+    }
+
+    return normalizeModelForProvider(
+      provider,
+      model,
+      getPrimaryModelForProvider(provider) ?? this.defaultModel,
+    ) ?? this.defaultModel;
   }
 }

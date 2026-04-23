@@ -15,7 +15,6 @@
 import { EventEmitter } from 'events';
 import { createCliAdapter, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import { CliDetectionService, type CliType } from '../cli/cli-detection';
-import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   ConsensusOptions,
   ConsensusProviderSpec,
@@ -27,6 +26,7 @@ import { getLogger } from '../logging/logger';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
+import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
 
 const logger = getLogger('ConsensusCoordinator');
 
@@ -344,51 +344,40 @@ export class ConsensusCoordinator extends EventEmitter {
         }
       }, 1000);
 
-      const onOutput = (message: OutputMessage | string) => {
-        const content = typeof message === 'string'
-          ? message
-          : (message as OutputMessage).type === 'assistant'
-            ? (message as OutputMessage).content
-            : '';
-        if (content) {
-          chunks.push(content);
+      const stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
+        switch (event.kind) {
+          case 'output':
+            if ((event.messageType === undefined || event.messageType === 'assistant') && event.content) {
+              chunks.push(event.content);
+            }
+            break;
+          case 'status':
+            if (event.status === 'idle' && chunks.length > 0) {
+              settle(chunks.join(''));
+            }
+            break;
+          case 'error':
+            settle(new Error(event.message));
+            break;
+          case 'exit':
+            // Safety net: adapters emit 'idle' for normal completion, but if the
+            // underlying process crashes/terminates we still need to settle.
+            if (chunks.length > 0) {
+              settle(chunks.join(''));
+            } else {
+              settle(new Error(`Provider process exited with code ${event.code} and no output`));
+            }
+            break;
+          default:
+            break;
         }
-      };
-
-      const onStatus = (status: string) => {
-        // When the adapter returns to idle, the response is complete
-        if (status === 'idle' && chunks.length > 0) {
-          settle(chunks.join(''));
-        }
-      };
-
-      const onError = (error: Error | string) => {
-        settle(error instanceof Error ? error : new Error(String(error)));
-      };
-
-      const onExit = (code: number | null) => {
-        // Safety net: adapters emit 'idle' for normal completion, but if the
-        // underlying process crashes/terminates we still need to settle.
-        if (chunks.length > 0) {
-          settle(chunks.join(''));
-        } else {
-          settle(new Error(`Provider process exited with code ${code} and no output`));
-        }
-      };
+      });
 
       const cleanup = () => {
         clearTimeout(timeout);
         clearInterval(abortCheck);
-        adapter.removeListener('output', onOutput);
-        adapter.removeListener('status', onStatus);
-        adapter.removeListener('error', onError);
-        adapter.removeListener('exit', onExit);
+        stopObserving();
       };
-
-      adapter.on('output', onOutput);
-      adapter.on('status', onStatus);
-      adapter.on('error', onError);
-      adapter.on('exit', onExit);
 
       // Send the prompt
       adapter.sendInput(prompt).catch((err: Error) => settle(err));

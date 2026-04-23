@@ -35,6 +35,22 @@ export interface TaskPreflightInstructionSummary {
   sources: ResolvedInstructionSource[];
 }
 
+export type TaskPreflightBranchPolicyAction = 'allow' | 'warn' | 'block';
+export type TaskPreflightBranchRemediation = 'none' | 'set-upstream' | 'merge-forward' | 'rebase';
+
+export interface TaskPreflightBranchPolicy {
+  state: 'fresh' | 'stale' | 'diverged' | 'no_upstream' | 'not_repo';
+  action: TaskPreflightBranchPolicyAction;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  summary: string;
+  recommendedRemediation: TaskPreflightBranchRemediation;
+  requiresManualResolution: boolean;
+  failureCategory?: 'stale_branch';
+}
+
 export interface TaskPreflightFilesystemSummary {
   workingDirectory: string;
   canReadWorkingDirectory: boolean;
@@ -75,6 +91,7 @@ export interface TaskPreflightReport {
   surface: TaskPreflightSurface;
   taskType?: string;
   instructionSummary: TaskPreflightInstructionSummary;
+  branchPolicy: TaskPreflightBranchPolicy;
   filesystem: TaskPreflightFilesystemSummary;
   network: TaskPreflightNetworkSummary;
   mcp: TaskPreflightMcpSummary;

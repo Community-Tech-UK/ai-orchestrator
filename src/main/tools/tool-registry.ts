@@ -5,13 +5,17 @@
  * This is a local implementation inspired by common agent/tool ecosystems, but
  * fully owned by this codebase.
  *
- * Tool locations (global + per-working-directory):
+ * Tool locations (global + project ancestry):
  * - `~/.orchestrator/tools/**.js`
  * - `~/.claude/tools/**.js`
  * - `~/.opencode/tools/**.js`
- * - `<cwd>/.orchestrator/tools/**.js`
- * - `<cwd>/.claude/tools/**.js`
- * - `<cwd>/.opencode/tools/**.js`
+ * - `<project-scan-root>/.orchestrator/tools/**.js`
+ * - `<project-scan-root>/.claude/tools/**.js`
+ * - `<project-scan-root>/.opencode/tools/**.js`
+ *
+ * Project scan roots run from the repository root (when available) down to the
+ * active working directory, so nested worktrees inherit definitions from their
+ * containing project.
  *
  * Tool module contract (CommonJS recommended):
  * - `module.exports = { description, args, execute }`
@@ -35,6 +39,7 @@ import {
   type ToolOutputMetadata,
   type ToolResultTelemetry,
 } from './tool-result-normalizer';
+import { resolveProjectScanRoots } from '../util/project-scan-roots';
 
 export type { ToolSafetyMetadata } from '../../shared/types/tool.types';
 
@@ -159,10 +164,10 @@ export class ToolRegistry extends EventEmitter {
 
   private getScanRoots(workingDirectory: string): string[] {
     const home = this.getHomeDir();
-    const roots: string[] = [];
-    if (home) roots.push(home);
-    roots.push(workingDirectory);
-    return roots;
+    return [
+      ...(home ? [home] : []),
+      ...resolveProjectScanRoots(workingDirectory, home),
+    ];
   }
 
   private getToolDirs(root: string): string[] {

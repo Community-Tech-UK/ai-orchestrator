@@ -32,7 +32,7 @@ export type PluginLoadPhase =
   | 'manifest_validation'
   | 'instantiation'
   | 'detect'
-  | 'hook_registration'
+  | 'slot_registration'
   | 'ready';
 
 export type PluginPhaseStatus = 'pending' | 'succeeded' | 'failed' | 'skipped';
@@ -50,6 +50,31 @@ export interface PluginLoadReport {
   ready: boolean;
   phases: PluginPhaseResult[];
   error?: string;
+}
+
+export interface PluginTrackerEvent {
+  event: string;
+  timestamp: number;
+  instanceId?: string;
+  data?: PluginRecord;
+}
+
+export interface PluginNotification {
+  event: string;
+  message: string;
+  timestamp: number;
+  title?: string;
+  priority?: string;
+  instanceId?: string;
+  channels?: string[];
+  data?: PluginRecord;
+}
+
+export interface PluginTelemetryRecord {
+  event: string;
+  timestamp: number;
+  attributes?: PluginRecord;
+  data?: PluginRecord;
 }
 
 export interface PluginHookPayloads {
@@ -150,14 +175,51 @@ export type OrchestratorHooks = {
   ) => void | Promise<void>;
 };
 
+export interface TrackerPlugin {
+  track(event: PluginTrackerEvent): void | Promise<void>;
+}
+
+export interface NotifierPlugin {
+  notify(notification: PluginNotification): void | Promise<void>;
+}
+
+export interface TelemetryExporterPlugin {
+  export(record: PluginTelemetryRecord): void | Promise<void>;
+}
+
+export interface PluginRuntimeBySlot {
+  provider: unknown;
+  channel: unknown;
+  mcp: unknown;
+  skill: unknown;
+  hook: OrchestratorHooks;
+  tracker: TrackerPlugin;
+  notifier: NotifierPlugin;
+  telemetry_exporter: TelemetryExporterPlugin;
+}
+
+export type PluginRuntimeForSlot<S extends PluginSlot> = PluginRuntimeBySlot[S];
+
 export interface SdkPluginContext {
   appPath: string;
   homeDir: string | null;
 }
 
+export interface PluginModuleDefinition<T = unknown> {
+  hooks?: OrchestratorHooks;
+  detect?: (
+    ctx: SdkPluginContext,
+  ) => boolean | Promise<boolean>;
+  slot?: PluginSlot;
+  create?: (
+    ctx: SdkPluginContext,
+  ) => T | Promise<T>;
+}
+
 export type SdkPluginModule =
   | OrchestratorHooks
-  | ((ctx: SdkPluginContext) => OrchestratorHooks | Promise<OrchestratorHooks>);
+  | PluginModuleDefinition
+  | ((ctx: SdkPluginContext) => OrchestratorHooks | PluginModuleDefinition | Promise<OrchestratorHooks | PluginModuleDefinition>);
 
 /** Manifest schema for plugin.json — validated on load */
 export interface PluginManifest {

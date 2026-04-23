@@ -25,7 +25,7 @@ export type PluginLoadPhase =
   | 'manifest_validation'
   | 'instantiation'
   | 'detect'
-  | 'hook_registration'
+  | 'slot_registration'
   | 'ready';
 
 export type PluginPhaseStatus = 'pending' | 'succeeded' | 'failed' | 'skipped';
@@ -43,6 +43,31 @@ export interface PluginLoadReport {
   ready: boolean;
   phases: PluginPhaseResult[];
   error?: string;
+}
+
+export interface PluginTrackerEvent {
+  event: string;
+  timestamp: number;
+  instanceId?: string;
+  data?: PluginRecord;
+}
+
+export interface PluginNotification {
+  event: string;
+  message: string;
+  timestamp: number;
+  title?: string;
+  priority?: string;
+  instanceId?: string;
+  channels?: string[];
+  data?: PluginRecord;
+}
+
+export interface PluginTelemetryRecord {
+  event: string;
+  timestamp: number;
+  attributes?: PluginRecord;
+  data?: PluginRecord;
 }
 
 export interface PluginHookPayloads {
@@ -142,3 +167,28 @@ export type TypedOrchestratorHooks = {
     payload: PluginHookPayloads[K],
   ) => void | Promise<void>;
 };
+
+export interface TrackerPlugin {
+  track(event: PluginTrackerEvent): void | Promise<void>;
+}
+
+export interface NotifierPlugin {
+  notify(notification: PluginNotification): void | Promise<void>;
+}
+
+export interface TelemetryExporterPlugin {
+  export(record: PluginTelemetryRecord): void | Promise<void>;
+}
+
+export interface PluginRuntimeBySlot {
+  provider: unknown;
+  channel: unknown;
+  mcp: unknown;
+  skill: unknown;
+  hook: TypedOrchestratorHooks;
+  tracker: TrackerPlugin;
+  notifier: NotifierPlugin;
+  telemetry_exporter: TelemetryExporterPlugin;
+}
+
+export type PluginRuntimeForSlot<S extends PluginSlot> = PluginRuntimeBySlot[S];

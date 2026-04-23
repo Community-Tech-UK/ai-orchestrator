@@ -17,10 +17,16 @@ import { RemoteNodeIpcService, RemoteNodeServerStatus } from '../../core/service
 import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 
 interface RegisteredNodeRecord {
+  sessionId?: string;
   nodeId?: string;
   nodeName?: string;
+  transportToken?: string;
   token?: string;
+  issuedAt?: number;
   createdAt?: number;
+  lastSeenAt?: number;
+  authMethod?: 'pairing_credential' | 'manual_pairing';
+  pairingLabel?: string;
 }
 
 interface NodeHealthEntry {
@@ -31,6 +37,8 @@ interface NodeHealthEntry {
   createdAt?: number;
   connectedAt?: number;
   lastHeartbeat?: number;
+  lastSeenAt?: number;
+  pairingLabel?: string;
   supportsBrowser: boolean;
   supportsGpu: boolean;
   supportedClis: string[];
@@ -373,8 +381,8 @@ interface NodeHealthEntry {
         <div class="connection-card">
           <div class="card-row">
             <div>
-              <span class="card-name">Legacy Enrollment Token</span>
-              <p class="field-hint section-inline-hint">Compatibility fallback for older workers that do not yet support one-time pairing.</p>
+              <span class="card-name">Manual Pairing Token</span>
+              <p class="field-hint section-inline-hint">Optional manually managed credential that is consumed on first successful registration.</p>
             </div>
           </div>
 
@@ -433,11 +441,11 @@ interface NodeHealthEntry {
                 (click)="copyLegacyConnectionConfig()"
                 [disabled]="!store.remoteNodesEnrollmentToken()"
               >
-                Copy Legacy Config
+                Copy Manual Config
               </button>
             </div>
           } @else {
-            <label class="field-label" for="rn-custom-token">Custom Token (min 16 characters)</label>
+            <label class="field-label" for="rn-custom-token">Manual Token (min 16 characters)</label>
             <input
               id="rn-custom-token"
               type="text"
@@ -475,7 +483,7 @@ interface NodeHealthEntry {
           </div>
 
           @if (nodeHealthEntries().length === 0) {
-            <p class="field-hint">No nodes have registered yet. Issue a one-time credential above, or share the legacy token with older workers.</p>
+            <p class="field-hint">No nodes have registered yet. Issue a one-time credential above, or generate a manual pairing token for scripted/manual onboarding.</p>
           } @else {
             @for (entry of nodeHealthEntries(); track entry.id) {
               <div class="node-health-card">
@@ -503,6 +511,12 @@ interface NodeHealthEntry {
 
                 <div class="node-meta">
                   <span>Registered {{ formatRelativeTime(entry.createdAt) }}</span>
+                  @if (entry.lastSeenAt) {
+                    <span>Last authenticated {{ formatRelativeTime(entry.lastSeenAt) }}</span>
+                  }
+                  @if (entry.pairingLabel) {
+                    <span>Credential {{ entry.pairingLabel }}</span>
+                  }
                   @if (entry.connectedAt) {
                     <span>Connected {{ formatRelativeTime(entry.connectedAt) }}</span>
                   }
@@ -1008,9 +1022,11 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
           name: live?.name ?? registered?.nodeName ?? id,
           status: live?.status ?? 'disconnected',
           address: live?.address,
-          createdAt: registered?.createdAt,
+          createdAt: registered?.issuedAt ?? registered?.createdAt,
           connectedAt: live?.connectedAt,
           lastHeartbeat: live?.lastHeartbeat,
+          lastSeenAt: registered?.lastSeenAt,
+          pairingLabel: registered?.pairingLabel,
           supportsBrowser: live?.capabilities.hasBrowserRuntime ?? false,
           supportsGpu: Boolean(live?.capabilities.gpuName),
           supportedClis: live?.capabilities.supportedClis ?? [],
@@ -1200,7 +1216,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   async regenerateToken(): Promise<void> {
-    if (!confirm('Regenerate the enrollment token? Existing unregistered nodes will need the new token to connect.')) {
+    if (!confirm('Generate a new manual pairing token? The previous manual token will no longer be offered for registration.')) {
       return;
     }
     this.regenerating.set(true);
@@ -1209,6 +1225,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       const newToken = await this.ipc.regenerateToken();
       if (newToken) {
         await this.store.set('remoteNodesEnrollmentToken', newToken);
+        await Promise.all([
+          this.refreshPairings(),
+          this.refreshStatus(),
+        ]);
       }
     } catch (err) {
       this.error.set((err as Error).message);
@@ -1226,6 +1246,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     try {
       await this.ipc.setToken(token);
       await this.store.set('remoteNodesEnrollmentToken', token);
+      await Promise.all([
+        this.refreshPairings(),
+        this.refreshStatus(),
+      ]);
       this.customTokenMode.set(false);
       this.customTokenValue.set('');
     } catch (err) {

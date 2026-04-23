@@ -5,9 +5,12 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
+import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { getMemoryManager } from '../memory/r1-memory-manager';
 import { getUnifiedMemory } from '../memory/unified-controller';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
+import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
+import { getRLMDatabase } from '../persistence/rlm-database';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   DebateCancelPayloadSchema,
@@ -53,6 +56,12 @@ import type {
 } from '../../shared/types/unified-memory.types';
 import type { DebateResult, ActiveDebate, DebateStats } from '../../shared/types/debate.types';
 // Training types moved to training-ipc-handler.ts
+
+function getOrchestrationEventStore(): OrchestrationEventStore {
+  const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
+  store.initialize();
+  return store;
+}
 
 /**
  * Register all memory-related IPC handlers
@@ -390,12 +399,18 @@ function registerDebateHandlers(): void {
         debateId,
         'DEBATE_GET_RESULT'
       );
+      if (isFeatureEnabled('EVENT_SOURCING')) {
+        return getOrchestrationEventStore().getDebateResult(validated);
+      }
       return debate.getResult(validated);
     }
   );
 
   // Get active debates
   ipcMain.handle(IPC_CHANNELS.DEBATE_GET_ACTIVE, (): ActiveDebate[] => {
+    if (isFeatureEnabled('EVENT_SOURCING')) {
+      return getOrchestrationEventStore().getActiveDebates();
+    }
     return debate.getActiveDebates();
   });
 

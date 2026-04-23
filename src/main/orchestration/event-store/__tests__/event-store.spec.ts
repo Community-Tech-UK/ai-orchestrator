@@ -199,6 +199,266 @@ describe('OrchestrationEventStore', () => {
     expect(recent[0].timestamp).toBeGreaterThanOrEqual(recent[1].timestamp);
   });
 
+  it('projects active verification requests from lifecycle events', () => {
+    store.append({
+      id: 'evt-v1-start',
+      type: 'verification.requested',
+      aggregateId: 'v-1',
+      timestamp: 1000,
+      payload: {
+        id: 'v-1',
+        instanceId: 'inst-1',
+        prompt: 'First verification',
+        config: { agentCount: 3, timeout: 60000, synthesisStrategy: 'merge' },
+      },
+    });
+    store.append({
+      id: 'evt-v2-start',
+      type: 'verification.requested',
+      aggregateId: 'v-2',
+      timestamp: 2000,
+      payload: {
+        id: 'v-2',
+        instanceId: 'inst-2',
+        prompt: 'Second verification',
+        config: { agentCount: 3, timeout: 60000, synthesisStrategy: 'merge' },
+      },
+    });
+    store.append({
+      id: 'evt-v1-cancel',
+      type: 'verification.cancelled',
+      aggregateId: 'v-1',
+      timestamp: 3000,
+      payload: { verificationId: 'v-1' },
+    });
+
+    expect(store.getActiveVerificationRequests()).toEqual([
+      expect.objectContaining({
+        id: 'v-2',
+        instanceId: 'inst-2',
+        prompt: 'Second verification',
+      }),
+    ]);
+  });
+
+  it('projects active debates from lifecycle events', () => {
+    const round = {
+      roundNumber: 1,
+      type: 'initial',
+      contributions: [],
+      consensusScore: 0.5,
+      timestamp: 1500,
+      durationMs: 250,
+    };
+
+    store.append({
+      id: 'evt-d1-start',
+      type: 'debate.started',
+      aggregateId: 'd-1',
+      timestamp: 1000,
+      payload: {
+        id: 'd-1',
+        query: 'Should we ship?',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5000,
+        },
+        instanceId: 'inst-1',
+        currentRound: 0,
+        rounds: [],
+        startTime: 1000,
+        status: 'in_progress',
+      },
+    });
+    store.append({
+      id: 'evt-d1-round',
+      type: 'debate.round_completed',
+      aggregateId: 'd-1',
+      timestamp: 2000,
+      payload: {
+        id: 'd-1',
+        query: 'Should we ship?',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5000,
+        },
+        instanceId: 'inst-1',
+        currentRound: 1,
+        rounds: [round],
+        startTime: 1000,
+        status: 'in_progress',
+        round,
+      },
+    });
+    store.append({
+      id: 'evt-d1-paused',
+      type: 'debate.paused',
+      aggregateId: 'd-1',
+      timestamp: 2500,
+      payload: {
+        id: 'd-1',
+        query: 'Should we ship?',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5000,
+        },
+        instanceId: 'inst-1',
+        currentRound: 1,
+        rounds: [round],
+        startTime: 1000,
+        status: 'paused',
+      },
+    });
+    store.append({
+      id: 'evt-d1-resumed',
+      type: 'debate.resumed',
+      aggregateId: 'd-1',
+      timestamp: 3000,
+      payload: {
+        id: 'd-1',
+        query: 'Should we ship?',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5000,
+        },
+        instanceId: 'inst-1',
+        currentRound: 1,
+        rounds: [round],
+        startTime: 1000,
+        status: 'in_progress',
+      },
+    });
+
+    expect(store.getActiveDebates()).toEqual([
+      expect.objectContaining({
+        id: 'd-1',
+        currentRound: 1,
+        status: 'in_progress',
+        rounds: [round],
+      }),
+    ]);
+
+    store.append({
+      id: 'evt-d1-complete',
+      type: 'debate.completed',
+      aggregateId: 'd-1',
+      timestamp: 4000,
+      payload: { id: 'd-1', status: 'completed' },
+    });
+
+    expect(store.getActiveDebates()).toEqual([]);
+  });
+
+  it('projects verification results from persisted completion events', () => {
+    const verificationResult = {
+      id: 'v-result',
+      request: {
+        id: 'v-result',
+        instanceId: 'inst-result',
+        prompt: 'Verify persisted result',
+        config: { agentCount: 3, timeout: 60_000, synthesisStrategy: 'merge' as const },
+      },
+      responses: [],
+      analysis: {
+        agreements: [],
+        disagreements: [],
+        uniqueInsights: [],
+        responseRankings: [],
+        overallConfidence: 0.91,
+        outlierAgents: [],
+        consensusStrength: 0.88,
+      },
+      synthesizedResponse: 'Persisted synthesis',
+      synthesisMethod: 'merge' as const,
+      synthesisConfidence: 0.91,
+      totalDuration: 1_200,
+      totalTokens: 512,
+      totalCost: 0.12,
+      completedAt: 2_000,
+    };
+
+    store.append({
+      id: 'evt-v-result-start',
+      type: 'verification.requested',
+      aggregateId: 'v-result',
+      timestamp: 1_000,
+      payload: verificationResult.request,
+    });
+    store.append({
+      id: 'evt-v-result-complete',
+      type: 'verification.completed',
+      aggregateId: 'v-result',
+      timestamp: 2_000,
+      payload: verificationResult,
+    });
+
+    expect(store.getVerificationResult('v-result')).toEqual(verificationResult);
+  });
+
+  it('projects debate results from persisted completion events', () => {
+    const debateResult = {
+      id: 'd-result',
+      query: 'Should we persist debate results?',
+      rounds: [],
+      synthesis: 'Yes',
+      consensusReached: true,
+      finalConsensusScore: 0.95,
+      keyAgreements: ['Persist the final result'],
+      unresolvedDisagreements: [],
+      tokensUsed: 256,
+      duration: 800,
+      status: 'completed' as const,
+    };
+
+    store.append({
+      id: 'evt-d-result-start',
+      type: 'debate.started',
+      aggregateId: 'd-result',
+      timestamp: 1_000,
+      payload: {
+        id: 'd-result',
+        query: 'Should we persist debate results?',
+        config: {
+          agents: 2,
+          maxRounds: 3,
+          convergenceThreshold: 0.8,
+          synthesisModel: 'default',
+          temperatureRange: [0.3, 0.9],
+          timeout: 5_000,
+        },
+        currentRound: 0,
+        rounds: [],
+        startTime: 1_000,
+        status: 'in_progress',
+      },
+    });
+    store.append({
+      id: 'evt-d-result-complete',
+      type: 'debate.completed',
+      aggregateId: 'd-result',
+      timestamp: 1_800,
+      payload: debateResult,
+    });
+
+    expect(store.getDebateResult('d-result')).toEqual(debateResult);
+  });
+
   it('preserves metadata when provided', () => {
     const event: OrchestrationEvent = {
       id: 'evt-meta',
@@ -227,7 +487,8 @@ describe('OrchestrationEventStore', () => {
     store.recordCommandReceipt({
       commandId: 'cmd-1',
       status: 'accepted',
-      type: 'verification.requested',
+      commandType: 'verification.request',
+      eventType: 'verification.requested',
       aggregateId: 'ver-1',
       timestamp: 1234,
       eventId: 'evt-1',
@@ -237,11 +498,45 @@ describe('OrchestrationEventStore', () => {
     expect(store.getCommandReceipt('cmd-1')).toEqual({
       commandId: 'cmd-1',
       status: 'accepted',
-      type: 'verification.requested',
+      commandType: 'verification.request',
+      eventType: 'verification.requested',
       aggregateId: 'ver-1',
       timestamp: 1234,
       eventId: 'evt-1',
       metadata: { source: 'test' },
+    });
+  });
+
+  it('normalizes legacy event-typed receipts when reading from storage', () => {
+    OrchestrationEventStore._resetForTesting();
+    const db = new InMemoryDb();
+    const legacyStore = OrchestrationEventStore.getInstance(db);
+    legacyStore.initialize();
+
+    db.prepare(`
+      INSERT OR REPLACE INTO orchestration_command_receipts (
+        command_id, status, type, aggregate_id, timestamp, event_id, reason, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'cmd-legacy',
+      'accepted',
+      'verification.requested',
+      'ver-legacy',
+      4321,
+      'evt-legacy',
+      null,
+      null,
+    );
+
+    expect(legacyStore.getCommandReceipt('cmd-legacy')).toEqual({
+      commandId: 'cmd-legacy',
+      status: 'accepted',
+      commandType: 'verification.request',
+      eventType: 'verification.requested',
+      aggregateId: 'ver-legacy',
+      timestamp: 4321,
+      eventId: 'evt-legacy',
+      metadata: undefined,
     });
   });
 });
@@ -321,5 +616,167 @@ describe('OrchestrationProjector', () => {
     const summary = projector.projectDebate(events);
     expect(summary?.status).toBe('in_progress');
     expect(summary?.roundsCompleted).toBe(1);
+  });
+
+  it('projects active verification lifecycle', () => {
+    const events: OrchestrationEvent[] = [
+      {
+        id: 'e1',
+        type: 'verification.requested',
+        aggregateId: 'v-10',
+        timestamp: 1000,
+        payload: {
+          id: 'v-10',
+          instanceId: 'inst-10',
+          prompt: 'Verify this',
+          config: { agentCount: 3, timeout: 60000, synthesisStrategy: 'merge' },
+        },
+      },
+    ];
+
+    const active = projector.projectActiveVerificationRequest(events);
+    expect(active).toEqual(expect.objectContaining({
+      id: 'v-10',
+      instanceId: 'inst-10',
+      prompt: 'Verify this',
+    }));
+  });
+
+  it('projects active debate lifecycle until completion', () => {
+    const round = {
+      roundNumber: 1,
+      type: 'initial',
+      contributions: [],
+      consensusScore: 0.5,
+      timestamp: 1200,
+      durationMs: 200,
+    };
+    const startedPayload = {
+      id: 'd-10',
+      query: 'Debate this',
+      config: {
+        agents: 2,
+        maxRounds: 3,
+        convergenceThreshold: 0.8,
+        synthesisModel: 'default',
+        temperatureRange: [0.3, 0.9],
+        timeout: 5000,
+      },
+      currentRound: 0,
+      rounds: [],
+      startTime: 1000,
+      status: 'in_progress',
+    };
+
+    const active = projector.projectActiveDebate([
+      { id: 'e1', type: 'debate.started', aggregateId: 'd-10', timestamp: 1000, payload: startedPayload },
+      {
+        id: 'e2',
+        type: 'debate.round_completed',
+        aggregateId: 'd-10',
+        timestamp: 1200,
+        payload: {
+          ...startedPayload,
+          currentRound: 1,
+          rounds: [round],
+          round,
+        },
+      },
+      {
+        id: 'e3',
+        type: 'debate.paused',
+        aggregateId: 'd-10',
+        timestamp: 1300,
+        payload: {
+          ...startedPayload,
+          currentRound: 1,
+          rounds: [round],
+          status: 'paused',
+        },
+      },
+    ]);
+    expect(active).toEqual(expect.objectContaining({
+      id: 'd-10',
+      currentRound: 1,
+      status: 'paused',
+      rounds: [round],
+    }));
+
+    const completed = projector.projectActiveDebate([
+      { id: 'e1', type: 'debate.started', aggregateId: 'd-10', timestamp: 1000, payload: startedPayload },
+      { id: 'e4', type: 'debate.completed', aggregateId: 'd-10', timestamp: 1400, payload: { id: 'd-10' } },
+    ]);
+    expect(completed).toBeNull();
+  });
+
+  it('projects completed verification results from event history', () => {
+    const result = projector.projectVerificationResult([
+      {
+        id: 'e1',
+        type: 'verification.completed',
+        aggregateId: 'v-history',
+        timestamp: 2_000,
+        payload: {
+          id: 'v-history',
+          request: {
+            id: 'v-history',
+            instanceId: 'inst-history',
+            prompt: 'Verify history projection',
+            config: { agentCount: 3, timeout: 60_000, synthesisStrategy: 'merge' },
+          },
+          responses: [],
+          analysis: {
+            agreements: [],
+            disagreements: [],
+            uniqueInsights: [],
+            responseRankings: [],
+            overallConfidence: 0.7,
+            outlierAgents: [],
+            consensusStrength: 0.8,
+          },
+          synthesizedResponse: 'Projected verification result',
+          synthesisMethod: 'merge',
+          synthesisConfidence: 0.7,
+          totalDuration: 1_000,
+          totalTokens: 300,
+          totalCost: 0.05,
+          completedAt: 2_000,
+        },
+      },
+    ]);
+
+    expect(result).toEqual(expect.objectContaining({
+      id: 'v-history',
+      synthesizedResponse: 'Projected verification result',
+    }));
+  });
+
+  it('projects completed debate results from event history', () => {
+    const result = projector.projectDebateResult([
+      {
+        id: 'e1',
+        type: 'debate.completed',
+        aggregateId: 'd-history',
+        timestamp: 2_000,
+        payload: {
+          id: 'd-history',
+          query: 'Debate history projection',
+          rounds: [],
+          synthesis: 'Projected debate result',
+          consensusReached: false,
+          finalConsensusScore: 0.4,
+          keyAgreements: [],
+          unresolvedDisagreements: ['Need more data'],
+          tokensUsed: 120,
+          duration: 900,
+          status: 'completed',
+        },
+      },
+    ]);
+
+    expect(result).toEqual(expect.objectContaining({
+      id: 'd-history',
+      synthesis: 'Projected debate result',
+    }));
   });
 });

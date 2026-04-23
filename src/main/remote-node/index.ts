@@ -3,9 +3,7 @@ export {
   getWorkerNodeRegistry
 } from './worker-node-registry';
 export {
-  generateAuthToken,
-  validateAuthToken,
-  ensureAuthToken
+  generateAuthToken
 } from './auth-validator';
 export { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 export {

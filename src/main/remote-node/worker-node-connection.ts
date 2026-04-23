@@ -398,6 +398,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       jsonrpc: '2.0',
       id: msg.id,
       result: {
+        sessionId: auth.session.sessionId,
         nodeId: auth.session.nodeId,
         token: auth.session.token,
       },

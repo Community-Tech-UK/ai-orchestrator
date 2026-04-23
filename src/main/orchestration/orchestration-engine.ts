@@ -1,17 +1,12 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import type { OrchestrationEventStore } from './event-store/orchestration-event-store';
-import type { OrchestrationEvent, OrchestrationEventType } from './event-store/orchestration-events';
+import type { OrchestrationEvent } from './event-store/orchestration-events';
 import { DrainableQueue } from '../testing/drainable-queue';
 import type { OrchestrationCommandReceipt } from './orchestration-command-receipts';
-
-export interface OrchestrationCommand {
-  commandId?: string;
-  type: OrchestrationEventType;
-  aggregateId: string;
-  payload: Record<string, unknown>;
-  metadata?: OrchestrationEvent['metadata'];
-}
+import type { OrchestrationCommand } from './orchestration-commands';
+import { decideOrchestrationCommand } from './orchestration-decider';
+import { isOrchestrationCommandType } from './orchestration-commands';
 
 export interface OrchestrationDispatchResult {
   event?: OrchestrationEvent;
@@ -51,7 +46,7 @@ export class OrchestrationEngine extends EventEmitter {
       const receipt: OrchestrationCommandReceipt = {
         commandId,
         status: 'rejected',
-        type: command.type,
+        commandType: command.commandType,
         aggregateId: command.aggregateId,
         reason: rejectedReason,
         timestamp: Date.now(),
@@ -62,9 +57,25 @@ export class OrchestrationEngine extends EventEmitter {
       return { receipt, duplicate: false };
     }
 
+    const decision = decideOrchestrationCommand(command);
+    if ('reason' in decision) {
+      const receipt: OrchestrationCommandReceipt = {
+        commandId,
+        status: 'rejected',
+        commandType: command.commandType,
+        aggregateId: command.aggregateId,
+        reason: decision.reason,
+        timestamp: Date.now(),
+        metadata: command.metadata,
+      };
+      this.recordReceipt(receipt);
+      this.emit('command:rejected', receipt);
+      return { receipt, duplicate: false };
+    }
+
     const event: OrchestrationEvent = {
       id: randomUUID(),
-      type: command.type,
+      type: decision.eventType,
       aggregateId: command.aggregateId,
       timestamp: Date.now(),
       payload: command.payload,
@@ -73,7 +84,8 @@ export class OrchestrationEngine extends EventEmitter {
     const receipt: OrchestrationCommandReceipt = {
       commandId,
       status: 'accepted',
-      type: command.type,
+      commandType: command.commandType,
+      eventType: event.type,
       aggregateId: command.aggregateId,
       eventId: event.id,
       timestamp: event.timestamp,
@@ -81,7 +93,7 @@ export class OrchestrationEngine extends EventEmitter {
     };
     this.recordReceipt(receipt);
     this.queue.enqueue(event);
-    this.emit('command:dispatched', { ...command, commandId });
+    this.emit('command:dispatched', { ...command, commandId, eventType: event.type });
     return { event, receipt, duplicate: false };
   }
 
@@ -99,8 +111,11 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   private validateCommand(command: OrchestrationCommand): string | null {
-    if (!command.type || typeof command.type !== 'string') {
+    if (!command.commandType || typeof command.commandType !== 'string') {
       return 'Command type is required';
+    }
+    if (!isOrchestrationCommandType(command.commandType)) {
+      return 'Command type is invalid';
     }
     if (!command.aggregateId || typeof command.aggregateId !== 'string') {
       return 'Aggregate ID is required';

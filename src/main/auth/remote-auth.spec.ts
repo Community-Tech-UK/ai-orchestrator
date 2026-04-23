@@ -20,9 +20,7 @@ vi.mock('../core/config/settings-manager', () => ({
 }));
 
 vi.mock('../remote-node/remote-node-config', () => ({
-  getRemoteNodeConfig: () => ({
-    authToken: 'legacy-pairing-token',
-  }),
+  getRemoteNodeConfig: () => ({}),
 }));
 
 import { NodeIdentityStore } from '../remote-node/node-identity-store';
@@ -31,6 +29,7 @@ import { _resetRemoteAuthServiceForTesting, RemoteAuthService } from './remote-a
 describe('RemoteAuthService', () => {
   beforeEach(() => {
     settings.clear();
+    settings.set('remoteNodesEnrollmentToken', 'legacy-pairing-token');
     _resetRemoteAuthServiceForTesting();
     NodeIdentityStore._resetForTesting();
   });
@@ -50,19 +49,21 @@ describe('RemoteAuthService', () => {
     expect(settings.get('remoteNodesRegisteredNodes')).toEqual(expect.any(String));
   });
 
-  it('accepts the legacy enrollment token for the initial pairing exchange', () => {
+  it('accepts a persisted manual pairing token as a one-time pairing credential', () => {
     const service = new RemoteAuthService();
 
     const result = service.authenticateRegistration({
       nodeId: 'node-2',
-      nodeName: 'Legacy Worker',
+      nodeName: 'Manual Worker',
       token: 'legacy-pairing-token',
     });
 
     expect(result.status).toBe('paired');
     if (result.status !== 'rejected') {
       expect(service.validateSessionToken(result.session.token, 'node-2')).toBe(true);
+      expect(result.session.pairingLabel).toBe('Manual pairing token');
     }
+    expect(settings.get('remoteNodesEnrollmentToken')).toBe('');
   });
 
   it('lists and revokes pending one-time pairing credentials', () => {

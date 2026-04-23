@@ -52,13 +52,15 @@ export function registerOrchestrationBootstrap(): void {
       const { getDebateCoordinator } = require('../orchestration/debate-coordinator') as typeof import('../orchestration/debate-coordinator');
       const { getMultiVerifyCoordinator } = require('../orchestration/multi-verify-coordinator') as typeof import('../orchestration/multi-verify-coordinator');
       const { getParallelWorktreeCoordinator } = require('../orchestration/parallel-worktree-coordinator') as typeof import('../orchestration/parallel-worktree-coordinator');
+      const { OrchestrationEngine } = require('../orchestration/orchestration-engine') as typeof import('../orchestration/orchestration-engine');
       const { OrchestrationEventStore } = require('../orchestration/event-store/orchestration-event-store') as typeof import('../orchestration/event-store/orchestration-event-store');
       const { CoordinatorEventBridge } = require('../orchestration/event-store/coordinator-event-bridge') as typeof import('../orchestration/event-store/coordinator-event-bridge');
 
       const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
       store.initialize();
+      const engine = new OrchestrationEngine(store);
 
-      const bridge = new CoordinatorEventBridge(store);
+      const bridge = new CoordinatorEventBridge(engine);
       const globalState = globalThis as typeof globalThis & {
         __orchestrationEventBridge?: import('../orchestration/event-store/coordinator-event-bridge').CoordinatorEventBridge;
       };

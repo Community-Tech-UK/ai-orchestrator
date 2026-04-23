@@ -11,10 +11,15 @@ describe('NodeIdentityStore', () => {
   });
 
   const makeIdentity = (id: string): NodeIdentity => ({
+    sessionId: `session-${id}`,
     nodeId: id,
     nodeName: `node-${id}`,
+    transportToken: 'a'.repeat(64),
     token: 'a'.repeat(64),
+    issuedAt: Date.now(),
     createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+    authMethod: 'pairing_credential',
   });
 
   it('stores and retrieves a node identity', () => {
@@ -49,9 +54,30 @@ describe('NodeIdentityStore', () => {
 
   it('finds node by token', () => {
     const id = makeIdentity('z');
+    id.transportToken = 'unique_token'.padEnd(64, '0');
     id.token = 'unique_token'.padEnd(64, '0');
     store.set(id);
     expect(store.findByToken(id.token)?.nodeId).toBe('z');
+  });
+
+  it('hydrates legacy identities into enriched session records', () => {
+    store.loadFromJson(JSON.stringify({
+      legacy: {
+        nodeId: 'legacy',
+        nodeName: 'legacy-node',
+        token: 'b'.repeat(64),
+        createdAt: 123,
+      },
+    }));
+
+    expect(store.get('legacy')).toEqual(expect.objectContaining({
+      sessionId: 'legacy-session:legacy',
+      transportToken: 'b'.repeat(64),
+      token: 'b'.repeat(64),
+      issuedAt: 123,
+      createdAt: 123,
+      lastSeenAt: 123,
+    }));
   });
 
   it('returns undefined when token not found', () => {

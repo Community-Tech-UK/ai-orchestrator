@@ -55,10 +55,20 @@ export function registerInfrastructureBootstrap(): void {
   });
 
   registerBootstrapModule({
+    name: 'Observability',
+    domain: 'infrastructure',
+    failureMode: 'degraded',
+    init: () => {
+      const { initTracer } = require('../observability/otel-setup') as typeof import('../observability/otel-setup');
+      initTracer();
+    },
+  });
+
+  registerBootstrapModule({
     name: 'Startup capability probe',
     domain: 'infrastructure',
     failureMode: 'degraded',
-    dependencies: ['CLI detection'],
+    dependencies: ['CLI detection', 'Observability'],
     init: async () => {
       const { getCapabilityProbe } = require('./capability-probe') as typeof import('./capability-probe');
       await getCapabilityProbe().run();

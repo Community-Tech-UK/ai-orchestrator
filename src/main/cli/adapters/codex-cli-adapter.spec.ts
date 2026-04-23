@@ -414,6 +414,60 @@ Hey! I'm here. What do you want to tackle?`;
     });
   });
 
+  describe('timeout configuration', () => {
+    it('uses the configured long-turn timeout for exec-mode follow-up turns', async () => {
+      const adapter = new CodexCliAdapter({ timeout: 900_000, workingDir: '/tmp/project' });
+      (adapter as unknown as { hasCompletedExecTurn: boolean }).hasCompletedExecTurn = true;
+
+      const executeSpy = vi.spyOn(
+        adapter as unknown as {
+          executePreparedMessage(
+            message: { content: string; role: 'user' },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' }
+          ): Promise<{
+            code: number | null;
+            diagnostics: { fatal: boolean }[];
+            raw: string;
+            response: { content: string; id: string; metadata: Record<string, unknown>; role: 'assistant' };
+          }>;
+        },
+        'executePreparedMessage'
+      ).mockResolvedValue({
+        code: 0,
+        diagnostics: [],
+        raw: '',
+        response: {
+          id: 'resp-long-turn',
+          role: 'assistant',
+          content: 'done',
+          metadata: {},
+        },
+      });
+
+      await adapter.sendMessage({ role: 'user', content: 'Investigate this deeply' });
+
+      expect(executeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'Investigate this deeply', role: 'user' }),
+        { timeoutMs: 900_000, phase: 'turn' }
+      );
+    });
+
+    it('extends app-server active-item idle watchdog to the configured turn timeout', () => {
+      const adapter = new CodexCliAdapter({ timeout: 900_000 });
+
+      expect((adapter as unknown as {
+        resolveNotificationIdleTimeoutMs(activeItems: number): number;
+        resolveTurnIdleTimeoutMs(): number;
+      }).resolveTurnIdleTimeoutMs()).toBe(900_000);
+      expect((adapter as unknown as {
+        resolveNotificationIdleTimeoutMs(activeItems: number): number;
+      }).resolveNotificationIdleTimeoutMs(0)).toBe(900_000);
+      expect((adapter as unknown as {
+        resolveNotificationIdleTimeoutMs(activeItems: number): number;
+      }).resolveNotificationIdleTimeoutMs(1)).toBe(900_000);
+    });
+  });
+
   describe('interrupt behavior', () => {
     it('returns false (falls back to SIGINT) when not in app-server mode', () => {
       const adapter = new CodexCliAdapter();

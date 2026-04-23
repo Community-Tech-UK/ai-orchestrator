@@ -6,9 +6,12 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
+import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
 import { getAllPersonalities, getPersonalityDescription } from '../orchestration/personalities';
+import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
+import { getRLMDatabase } from '../persistence/rlm-database';
 import type { MergeStrategy } from '../../shared/types/worktree.types';
 import type { VerificationConfig, PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -23,6 +26,12 @@ import {
   VerifyCancelPayloadSchema,
   VerifyConfigurePayloadSchema,
 } from '@contracts/schemas/orchestration';
+
+function getOrchestrationEventStore(): OrchestrationEventStore {
+  const store = OrchestrationEventStore.getInstance(getRLMDatabase().getRawDb());
+  store.initialize();
+  return store;
+}
 
 export function registerVerificationHandlers(): void {
   // ============================================
@@ -377,7 +386,9 @@ export function registerVerificationHandlers(): void {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(VerifyGetResultPayloadSchema, payload, 'VERIFY_GET_RESULT');
-        const result = getMultiVerifyCoordinator().getResult(validated.verificationId);
+        const result = isFeatureEnabled('EVENT_SOURCING')
+          ? getOrchestrationEventStore().getVerificationResult(validated.verificationId)
+          : getMultiVerifyCoordinator().getResult(validated.verificationId);
         if (!result) {
           return {
             success: false,
@@ -407,7 +418,9 @@ export function registerVerificationHandlers(): void {
     IPC_CHANNELS.VERIFY_GET_ACTIVE,
     async (): Promise<IpcResponse> => {
       try {
-        const active = getMultiVerifyCoordinator().getActiveVerifications();
+        const active = isFeatureEnabled('EVENT_SOURCING')
+          ? getOrchestrationEventStore().getActiveVerificationRequests()
+          : getMultiVerifyCoordinator().getActiveVerifications();
         return { success: true, data: active };
       } catch (error) {
         return {

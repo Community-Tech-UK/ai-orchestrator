@@ -357,18 +357,27 @@ export interface AcpTextContentBlock {
   text: string;
 }
 
+export interface AcpImageContentBlock {
+  type: 'image';
+  data: string;
+  mimeType: string;
+  uri?: string;
+}
+
 export interface AcpResourceContentBlock {
   type: 'resource';
   resource: {
     uri: string;
     mimeType?: string;
     text?: string;
+    blob?: string;
     title?: string;
   };
 }
 
 export type AcpContentBlock =
   | AcpTextContentBlock
+  | AcpImageContentBlock
   | AcpResourceContentBlock;
 
 export interface AcpSessionPromptParams {

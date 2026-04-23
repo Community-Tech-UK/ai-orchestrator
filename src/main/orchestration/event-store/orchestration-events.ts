@@ -9,9 +9,12 @@ import type { LaneEventType } from '../../../shared/types/lane-events';
 
 export type OrchestrationEventType =
   | 'verification.requested'
+  | 'verification.cancelled'
   | 'verification.agent_responded'
   | 'verification.completed'
   | 'debate.started'
+  | 'debate.paused'
+  | 'debate.resumed'
   | 'debate.round_completed'
   | 'debate.synthesized'
   | 'debate.completed'

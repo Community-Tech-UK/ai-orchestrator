@@ -1,10 +1,17 @@
-import type { OrchestratorHooks, PluginManifest, PluginLoadReport, PluginSlot } from '@sdk/plugins';
+import type {
+  OrchestratorHooks,
+  PluginManifest,
+  PluginLoadReport,
+  PluginRuntimeForSlot,
+  PluginSlot,
+} from '@sdk/plugins';
 
 export interface RegisteredPlugin {
   workingDirectory: string;
   filePath: string;
   slot: PluginSlot;
   hooks: OrchestratorHooks;
+  runtime?: unknown;
   manifest?: PluginManifest;
   loadReport: PluginLoadReport;
 }
@@ -33,6 +40,16 @@ export class PluginRegistry {
     }
 
     return Array.from(slots.values()).flatMap((plugins) => plugins);
+  }
+
+  getRuntimes<S extends PluginSlot>(workingDirectory: string, slot: S): PluginRuntimeForSlot<S>[] {
+    return this.getPlugins(workingDirectory, slot)
+      .flatMap((plugin) => {
+        if (!plugin.loadReport.ready || plugin.runtime === undefined) {
+          return [];
+        }
+        return [plugin.runtime as PluginRuntimeForSlot<S>];
+      });
   }
 
   getSlots(workingDirectory: string): PluginSlot[] {

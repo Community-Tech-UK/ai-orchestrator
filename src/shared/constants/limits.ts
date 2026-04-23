@@ -98,10 +98,10 @@ export const CODEX_TIMEOUTS = {
    * Notification idle watchdog — used when an item is in progress
    * (reasoning block, shell command, mcp tool call, etc.).
    * Codex's JSON-RPC transport emits no sub-item progress, so long
-   * silent stretches within a single item are normal. Matches Codex
-   * CLI's own 300s stream-idle default.
+   * silent stretches within a single item are normal. Long investigations
+   * can legitimately stay inside a single item for well beyond 5 minutes.
    */
-  NOTIFICATION_IDLE_ACTIVE_MS: 300_000,
+  NOTIFICATION_IDLE_ACTIVE_MS: 900_000,
 
   /** Graceful shutdown wait before force-kill. */
   GRACEFUL_SHUTDOWN_MS: 3_000,
@@ -123,11 +123,11 @@ export const CODEX_TIMEOUTS = {
   EXEC_STARTUP_MS: 60_000,
 
   /**
-   * Idle watchdog budget for subsequent exec-mode turns. Matches Codex CLI's
-   * own 300s stream-idle default so legitimately long silent stretches
-   * within a tool call don't cut the turn short.
+   * Idle watchdog budget for subsequent exec-mode turns. Long investigation
+   * tasks can spend many minutes inside a single reasoning/tool item with no
+   * stdout/stderr activity, so the default budget is intentionally generous.
    */
-  EXEC_TURN_MS: 300_000,
+  EXEC_TURN_MS: 900_000,
 
   /**
    * Synthetic liveness heartbeat cadence for exec-mode turns. Codex exec

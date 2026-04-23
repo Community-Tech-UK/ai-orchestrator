@@ -383,6 +383,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return caps.contextWindow;
   }
 
+  private resolveTurnIdleTimeoutMs(): number {
+    const configuredTimeout = this.cliConfig.timeout;
+    if (typeof configuredTimeout === 'number' && Number.isFinite(configuredTimeout) && configuredTimeout > 0) {
+      return configuredTimeout;
+    }
+    return CODEX_TIMEOUTS.EXEC_TURN_MS;
+  }
+
+  private resolveNotificationIdleTimeoutMs(activeItems: number): number {
+    if (activeItems > 0) {
+      return this.resolveTurnIdleTimeoutMs();
+    }
+    return Math.max(
+      CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS,
+      Math.min(this.resolveTurnIdleTimeoutMs(), CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS)
+    );
+  }
+
   /**
    * Returns runtime capabilities. Note: `supportsNativeCompaction` is dynamic —
    * it reflects the current mode (app-server vs exec) and will be `false` before
@@ -1062,9 +1080,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     let activeItems = 0;
     const armIdleWatchdog = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      const timeoutMs = activeItems > 0
-        ? CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS
-        : CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS;
+      const timeoutMs = this.resolveNotificationIdleTimeoutMs(activeItems);
       idleTimer = setTimeout(() => {
         if (!state.completed) {
           state.rejectCompletion(
@@ -1914,7 +1930,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const phase: CodexExecPhase = this.hasCompletedExecTurn ? 'turn' : 'startup';
     const timeoutMs = phase === 'startup'
       ? CODEX_TIMEOUTS.EXEC_STARTUP_MS
-      : CODEX_TIMEOUTS.EXEC_TURN_MS;
+      : this.resolveTurnIdleTimeoutMs();
 
     // Retry only on truly transient failures. A timeout means the process
     // either hung or is doing something that takes longer than our budget —

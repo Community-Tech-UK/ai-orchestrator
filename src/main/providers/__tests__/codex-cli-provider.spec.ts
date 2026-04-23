@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { CodexCliProvider } from '../codex-cli-provider';
+import { CodexCliAdapter } from '../../cli/adapters/codex-cli-adapter';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 class FakeAdapter extends EventEmitter {
@@ -23,6 +24,7 @@ describe('CodexCliProvider inline translation', () => {
   let envelopes: ProviderRuntimeEventEnvelope[];
 
   beforeEach(async () => {
+    vi.mocked(CodexCliAdapter).mockClear();
     provider = new CodexCliProvider({ type: 'openai', name: 'test', enabled: true });
     envelopes = [];
     provider.events$.subscribe(e => envelopes.push(e));
@@ -52,7 +54,9 @@ describe('CodexCliProvider inline translation', () => {
     const last = envelopes.at(-1)!;
     expect(last.provider).toBe('codex');
     expect(last.instanceId).toBe('i-1');
-    expect(last.event).toEqual({ kind: 'output', content: 'hello from string', messageType: 'assistant' });
+    expect(last.event).toMatchObject({ kind: 'output', content: 'hello from string', messageType: 'assistant' });
+    expect(last.event).toHaveProperty('messageId');
+    expect(last.event).toHaveProperty('timestamp');
   });
 
   it('output with attachments and thinking emits even when text content is empty', () => {
@@ -85,6 +89,17 @@ describe('CodexCliProvider inline translation', () => {
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'busy' });
   });
 
+  it('configures a longer timeout for long Codex investigations', () => {
+    expect(vi.mocked(CodexCliAdapter)).toHaveBeenCalledWith(expect.objectContaining({
+      timeout: 900_000,
+    }));
+  });
+
+  it('context usage becomes a context envelope', () => {
+    adapter.emit('context', { used: 10, total: 100, percentage: 10 });
+    expect(envelopes.at(-1)!.event).toEqual({ kind: 'context', used: 10, total: 100, percentage: 10 });
+  });
+
   it('error with Error object becomes an error envelope', () => {
     adapter.emit('error', new Error('boom'));
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false });
@@ -96,7 +111,7 @@ describe('CodexCliProvider inline translation', () => {
   });
 
   it('complete becomes a status idle envelope (behavior-preserving translation)', () => {
-    adapter.emit('complete');
+    adapter.emit('complete', { id: 'complete-1', content: '', role: 'assistant' });
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'idle' });
   });
 

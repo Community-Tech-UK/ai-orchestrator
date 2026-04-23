@@ -17,8 +17,8 @@ import type {
   ProviderSessionOptions,
   ProviderAttachment,
 } from '../../shared/types/provider.types';
-import { MODEL_PRICING, CLAUDE_MODELS } from '../../shared/types/provider.types';
-import type { ContextUsage, OutputMessage } from '../../shared/types/instance.types';
+import { MODEL_PRICING, CLAUDE_MODELS, normalizeModelForProvider } from '../../shared/types/provider.types';
+import type { ContextUsage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
@@ -54,7 +54,6 @@ export class ClaudeCliProvider extends BaseProvider {
 
   private adapter: ClaudeCliAdapter | null = null;
   private currentUsage: ProviderUsage | null = null;
-  private lastContextUsage: ContextUsage | null = null;
 
   constructor(config: ProviderConfig) {
     super(config);
@@ -111,33 +110,38 @@ export class ClaudeCliProvider extends BaseProvider {
     }
 
     this.instanceId = options.instanceId ?? '';
+    const model = normalizeModelForProvider(
+      'claude',
+      options.model,
+      this.config.defaultModel || CLAUDE_MODELS.SONNET,
+    ) || this.config.defaultModel || CLAUDE_MODELS.SONNET;
 
     this.adapter = new ClaudeCliAdapter({
       workingDirectory: options.workingDirectory,
       sessionId: options.sessionId,
       resume: options.resume,
-      model: options.model || this.config.defaultModel,
+      model,
       maxTokens: options.maxTokens,
       systemPrompt: options.systemPrompt,
       yoloMode: options.yoloMode,
     });
 
-    // Forward adapter events to the normalized envelope stream.
-    this.adapter.on('output', (message: OutputMessage) => this.pushOutput(message));
-    this.adapter.on('status', (status) => this.pushStatus(status));
-    this.adapter.on('context', (usage: ContextUsage) => {
-      this.lastContextUsage = usage;
-      this.updateUsageFromContext(usage);
-      this.pushContext(usage.used, usage.total, usage.percentage);
-    });
-    this.adapter.on('error', (error) => this.pushError(error instanceof Error ? error.message : String(error), false));
-    this.adapter.on('exit', (code, signal) => {
-      this.isActive = false;
-      this.pushExit(code, signal);
-    });
-    this.adapter.on('spawned', (pid) => {
-      this.isActive = true;
-      if (pid != null) this.pushSpawned(pid);
+    this.bindAdapterRuntimeEvents(this.adapter, {
+      handleEvent: (runtimeEvent) => {
+        switch (runtimeEvent.kind) {
+          case 'context':
+            this.updateUsageFromContext(runtimeEvent.rawPayload);
+            return false;
+          case 'exit':
+            this.isActive = false;
+            return false;
+          case 'spawned':
+            this.isActive = true;
+            return false;
+          default:
+            return false;
+        }
+      },
     });
 
     // Spawn the CLI process

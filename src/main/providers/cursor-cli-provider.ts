@@ -32,7 +32,7 @@ import type {
   ProviderAttachment,
 } from '../../shared/types/provider.types';
 import { MODEL_PRICING } from '../../shared/types/provider.types';
-import type { OutputMessage, ContextUsage, FileAttachment } from '../../shared/types/instance.types';
+import type { ContextUsage, FileAttachment } from '../../shared/types/instance.types';
 import type { ProviderName } from '@contracts/types/provider-runtime-events';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
@@ -134,33 +134,22 @@ export class CursorCliProvider extends BaseProvider {
 
     this.adapter = new CursorCliAdapter(cursorConfig);
 
-    // Forward adapter events directly to the normalized events$ stream via
-    // push* helpers (inline translation — no legacy this.emit relay).
-    this.adapter.on('output', (message: OutputMessage) => {
-      this.pushOutput(message);
-    });
-
-    this.adapter.on('status', (status: string) => {
-      this.pushStatus(status);
-    });
-
-    this.adapter.on('context', (usage: ContextUsage) => {
-      this.updateUsageFromContext(usage);
-      this.pushContext(usage.used, usage.total, usage.percentage);
-    });
-
-    this.adapter.on('error', (error: Error | string) => {
-      this.pushError(error instanceof Error ? error.message : String(error), false);
-    });
-
-    this.adapter.on('exit', (code: number | null, signal: string | null) => {
-      this.isActive = false;
-      this.pushExit(code, signal);
-    });
-
-    this.adapter.on('spawned', (pid: number) => {
-      this.isActive = true;
-      if (pid != null) this.pushSpawned(pid);
+    this.bindAdapterRuntimeEvents(this.adapter, {
+      handleEvent: (runtimeEvent) => {
+        switch (runtimeEvent.kind) {
+          case 'context':
+            this.updateUsageFromContext(runtimeEvent.rawPayload);
+            return false;
+          case 'exit':
+            this.isActive = false;
+            return false;
+          case 'spawned':
+            this.isActive = true;
+            return false;
+          default:
+            return false;
+        }
+      },
     });
 
     // spawn() validates the CLI is available and marks the adapter ready.

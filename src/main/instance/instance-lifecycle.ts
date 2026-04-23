@@ -63,7 +63,7 @@ import { getSessionMutex } from '../session/session-mutex';
 import { RecoveryRecipeEngine } from '../session/recovery-recipe-engine';
 import { createBuiltinRecipes } from '../session/builtin-recovery-recipes';
 import { getCheckpointManager } from '../session/checkpoint-manager';
-import type { DetectedFailure } from '../../shared/types/recovery.types';
+import type { DetectedFailure } from '../../shared/types/error-recovery.types';
 import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 import {
@@ -91,6 +91,7 @@ import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
+import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -801,23 +802,14 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     return new Promise<boolean>((resolve) => {
       let settled = false;
+      let stopObserving: () => void = () => undefined;
       const finish = (value: boolean): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         clearInterval(poll);
-        adapter.off('output', onOutput);
-        adapter.off('error', onError);
+        stopObserving();
         resolve(value);
-      };
-
-      const onOutput = (): void => finish(true);
-
-      const onError = (err: unknown): void => {
-        const text = err instanceof Error ? err.message : String(err ?? '');
-        if (/no conversation found/i.test(text) || /session.*not.*found/i.test(text)) {
-          finish(false);
-        }
       };
 
       const poll = setInterval(() => {
@@ -826,8 +818,20 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       const timer = setTimeout(() => finish(false), timeoutMs);
 
-      adapter.on('output', onOutput);
-      adapter.on('error', onError);
+      stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
+        switch (event.kind) {
+          case 'output':
+            finish(true);
+            break;
+          case 'error':
+            if (/no conversation found/i.test(event.message) || /session.*not.*found/i.test(event.message)) {
+              finish(false);
+            }
+            break;
+          default:
+            break;
+        }
+      });
     });
   }
 

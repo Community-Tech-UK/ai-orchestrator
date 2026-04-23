@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
 import type { FileAttachment } from '../shared/types/instance.types';
+import { observeAdapterRuntimeEvents } from '../main/providers/adapter-runtime-event-bridge';
+import { toOutputMessageFromProviderOutputEvent } from '../main/providers/provider-output-event';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 
@@ -32,6 +34,7 @@ export interface ManagedInstance {
   workingDirectory: string;
   spawnParams: SpawnParams;
   adapter: WorkerManagedAdapter;
+  runtimeObserverCleanup: () => void;
   createdAt: number;
   watchdogTimer: ReturnType<typeof setInterval> | null;
   /** Last known adapter status — used to suppress stale watchdog/stream:idle events */
@@ -132,34 +135,55 @@ export class LocalInstanceManager extends EventEmitter {
       mcpConfig: params.mcpConfig,
     });
 
-    // Wire adapter events to emit them on this manager
-    adapter.on('output', (msg: unknown) => {
-      const inst = this.instances.get(params.instanceId);
-      // Only reset watchdog if instance is busy — output can arrive after
-      // the idle event due to buffering, and resetting the watchdog would
-      // restart the 5s processing timer that overrides idle.
-      if (inst && inst.lastStatus !== 'idle' && inst.lastStatus !== 'ready' && inst.lastStatus !== 'waiting_for_input') {
-        this.resetWatchdog(params.instanceId);
+    let runtimeObserverCleanup: () => void = () => undefined;
+    runtimeObserverCleanup = observeAdapterRuntimeEvents(adapter, ({ event, eventId, timestamp }) => {
+      switch (event.kind) {
+        case 'output': {
+          const inst = this.instances.get(params.instanceId);
+          // Only reset watchdog if instance is busy — output can arrive after
+          // the idle event due to buffering, and resetting the watchdog would
+          // restart the 5s processing timer that overrides idle.
+          if (inst && inst.lastStatus !== 'idle' && inst.lastStatus !== 'ready' && inst.lastStatus !== 'waiting_for_input') {
+            this.resetWatchdog(params.instanceId);
+          }
+          this.emit(
+            'instance:output',
+            params.instanceId,
+            toOutputMessageFromProviderOutputEvent(event, { eventId, timestamp }),
+          );
+          break;
+        }
+        case 'exit':
+          runtimeObserverCleanup();
+          this.clearWatchdog(params.instanceId);
+          this.instances.delete(params.instanceId);
+          this.emit('instance:exit', params.instanceId, { code: event.code, signal: event.signal });
+          break;
+        case 'status': {
+          const inst = this.instances.get(params.instanceId);
+          if (inst) {
+            inst.lastStatus = event.status;
+          }
+          if (event.status === 'idle' || event.status === 'ready' || event.status === 'waiting_for_input') {
+            this.clearWatchdog(params.instanceId);
+          } else {
+            this.resetWatchdog(params.instanceId);
+          }
+          this.emit('instance:stateChange', params.instanceId, event.status);
+          break;
+        }
+        case 'context':
+          this.emit('instance:context', params.instanceId, {
+            used: event.used,
+            total: event.total,
+            percentage: event.percentage,
+          });
+          break;
+        default:
+          break;
       }
-      this.emit('instance:output', params.instanceId, msg);
     });
-    adapter.on('exit', (code: number | null, signal: string | null) => {
-      this.clearWatchdog(params.instanceId);
-      this.instances.delete(params.instanceId);
-      this.emit('instance:exit', params.instanceId, { code, signal });
-    });
-    adapter.on('status', (state: unknown) => {
-      const inst = this.instances.get(params.instanceId);
-      if (inst) {
-        inst.lastStatus = typeof state === 'string' ? state : 'unknown';
-      }
-      if (state === 'idle' || state === 'ready' || state === 'waiting_for_input') {
-        this.clearWatchdog(params.instanceId);
-      } else {
-        this.resetWatchdog(params.instanceId);
-      }
-      this.emit('instance:stateChange', params.instanceId, state);
-    });
+
     adapter.on('input_required', (permission: unknown) => {
       this.emit('instance:permissionRequest', params.instanceId, permission);
     });
@@ -173,12 +197,14 @@ export class LocalInstanceManager extends EventEmitter {
         this.emit('instance:stateChange', params.instanceId, 'thinking_deeply');
       }
     });
-    adapter.on('context', (usage: unknown) => {
-      this.emit('instance:context', params.instanceId, usage);
-    });
 
     // Spawn the process
-    await adapter.spawn();
+    try {
+      await adapter.spawn();
+    } catch (error) {
+      runtimeObserverCleanup();
+      throw error;
+    }
 
     this.instances.set(params.instanceId, {
       instanceId: params.instanceId,
@@ -186,6 +212,7 @@ export class LocalInstanceManager extends EventEmitter {
       workingDirectory: params.workingDirectory,
       spawnParams: { ...params },
       adapter,
+      runtimeObserverCleanup,
       createdAt: Date.now(),
       watchdogTimer: null,
       lastStatus: 'busy',
@@ -211,6 +238,7 @@ export class LocalInstanceManager extends EventEmitter {
     const inst = this.instances.get(instanceId);
     if (!inst) return;
     this.clearWatchdog(instanceId);
+    inst.runtimeObserverCleanup();
     await inst.adapter.terminate();
     this.instances.delete(instanceId);
   }
