@@ -135,6 +135,15 @@ export const CliTestConnectionPayloadSchema = z.object({
   command: z.string().min(1).max(200),
 });
 
+export const CliUpdateOnePayloadSchema = z.object({
+  type: z.string().min(1).max(50),
+  ipcAuthToken: z.string().optional(),
+});
+
+export const CliUpdateAllPayloadSchema = z.object({
+  ipcAuthToken: z.string().optional(),
+}).optional();
+
 export const ProviderListModelsPayloadSchema = z.object({
   provider: z.string().min(1).max(100),
 });

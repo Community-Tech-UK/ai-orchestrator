@@ -177,6 +177,82 @@ function supportsCodexInlineImage(mimeType: string | undefined): boolean {
   return CODEX_INLINE_IMAGE_MIME_TYPES.has(mimeType.trim().toLowerCase());
 }
 
+interface CodexAppServerErrorDetails {
+  additionalDetails?: string;
+  codexErrorInfo?: string;
+  message: string;
+  willRetry?: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readStringField(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function serializeCodexErrorInfo(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim() || undefined;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractCodexAppServerError(params: Record<string, unknown>): CodexAppServerErrorDetails {
+  const nestedError = isRecord(params['error']) ? params['error'] : undefined;
+  const message = readStringField(params, 'message')
+    ?? readStringField(nestedError, 'message')
+    ?? 'Unknown error from codex app-server';
+  const additionalDetails = readStringField(params, 'additionalDetails', 'additional_details')
+    ?? readStringField(nestedError, 'additionalDetails', 'additional_details');
+  const codexErrorInfo = serializeCodexErrorInfo(
+    params['codex_error_info']
+      ?? params['codexErrorInfo']
+      ?? nestedError?.['codex_error_info']
+      ?? nestedError?.['codexErrorInfo']
+  );
+  const willRetry = typeof params['willRetry'] === 'boolean' ? params['willRetry'] : undefined;
+
+  return {
+    additionalDetails,
+    codexErrorInfo,
+    message,
+    willRetry,
+  };
+}
+
+function formatCodexAppServerError(details: CodexAppServerErrorDetails): string {
+  const parts = [details.message];
+  if (details.additionalDetails && details.additionalDetails !== details.message) {
+    parts.push(details.additionalDetails);
+  }
+  if (details.codexErrorInfo) {
+    parts.push(`[codex_error_info: ${details.codexErrorInfo}]`);
+  }
+  return parts.join(' - ');
+}
+
 // ─── Reasoning Deduplication (ported from codex-plugin-cc) ─────────────────
 
 /** Normalize whitespace for dedup comparison. */
@@ -920,9 +996,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Codex reports these as turn/completed with status: "failed".
     const turnStatus = turnState.finalTurn?.status;
     if (turnStatus === 'failed' || turnState.error) {
-      const errorMsg = turnState.error instanceof Error
+      const finalTurnError = turnState.finalTurn?.error !== undefined && turnState.finalTurn.error !== null
+        ? formatCodexAppServerError(extractCodexAppServerError({ error: turnState.finalTurn.error }))
+        : undefined;
+      const capturedError = turnState.error instanceof Error
         ? turnState.error.message
-        : (typeof turnState.error === 'string' ? turnState.error : 'Codex turn failed');
+        : (typeof turnState.error === 'string' ? turnState.error : undefined);
+      const errorMsg = finalTurnError ?? capturedError ?? 'Codex turn failed';
       throw new Error(errorMsg);
     }
 
@@ -1614,15 +1694,17 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       case 'error': {
-        const errorMessage = params['message'] as string || 'Unknown error from codex app-server';
-        const codexErrorInfo = params['codex_error_info'] as string | undefined;
+        const errorDetails = extractCodexAppServerError(params);
         // Include codex_error_info in the error message so upstream overflow detection
         // can match it (e.g., "ContextWindowExceeded" matches /context.?window.?exceeded/i).
-        const fullMessage = codexErrorInfo
-          ? `${errorMessage} [codex_error_info: ${codexErrorInfo}]`
-          : errorMessage;
+        const fullMessage = formatCodexAppServerError(errorDetails);
         state.error = new Error(fullMessage);
-        logger.warn('Error notification from app-server', { error: errorMessage, codexErrorInfo });
+        logger.warn('Error notification from app-server', {
+          additionalDetails: errorDetails.additionalDetails,
+          codexErrorInfo: errorDetails.codexErrorInfo,
+          error: errorDetails.message,
+          willRetry: errorDetails.willRetry,
+        });
         break;
       }
 

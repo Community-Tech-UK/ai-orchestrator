@@ -266,7 +266,10 @@ export class IpcMainHandler {
     registerVerificationHandlers();
 
     // CLI Verification handlers (Multi-CLI detection and verification)
-    registerCliVerificationHandlers(this.windowManager);
+    registerCliVerificationHandlers({
+      windowManager: this.windowManager,
+      ensureAuthorized: this.ensureAuthorized.bind(this)
+    });
 
     // Learning handlers (RLM Context, Self-Improvement, Model Discovery)
     registerLearningHandlers();

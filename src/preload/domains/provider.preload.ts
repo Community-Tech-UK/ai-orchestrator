@@ -57,6 +57,21 @@ export function createProviderDomain(
       return ipcRenderer.invoke(ch.CLI_DIAGNOSE_ALL);
     },
 
+    /**
+     * Update one installed provider CLI using the main process' fixed update
+     * plan for that provider.
+     */
+    updateCli: (type: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CLI_UPDATE_ONE, withAuth({ type }));
+    },
+
+    /**
+     * Update every installed provider CLI that has a known safe updater.
+     */
+    updateAllClis: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CLI_UPDATE_ALL, withAuth({}));
+    },
+
     // ============================================
     // Copilot
     // ============================================

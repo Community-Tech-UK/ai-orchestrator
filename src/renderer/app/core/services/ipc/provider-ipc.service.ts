@@ -66,6 +66,22 @@ export class ProviderIpcService {
     return this.api.diagnoseAllClis();
   }
 
+  /**
+   * Update one installed provider CLI.
+   */
+  async updateCli(type: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.updateCli(type);
+  }
+
+  /**
+   * Update every installed provider CLI with a known updater.
+   */
+  async updateAllClis(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.updateAllClis();
+  }
+
   // ============================================
   // Copilot
   // ============================================

@@ -198,6 +198,7 @@ export interface TurnInterruptResponse {
 export interface Turn {
   id: string;
   status: 'inProgress' | 'completed' | 'interrupted' | 'failed';
+  error?: unknown;
   usage?: TurnUsage;
 }
 

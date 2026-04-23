@@ -9,6 +9,8 @@ describe('PROVIDER_CHANNELS', () => {
   it('has CLI detection channels', () => {
     expect(PROVIDER_CHANNELS.CLI_DETECT_ALL).toBe('cli:detect-all');
     expect(PROVIDER_CHANNELS.CLI_TEST_CONNECTION).toBe('cli:test-connection');
+    expect(PROVIDER_CHANNELS.CLI_UPDATE_ONE).toBe('cli:update-one');
+    expect(PROVIDER_CHANNELS.CLI_UPDATE_ALL).toBe('cli:update-all');
     expect(PROVIDER_CHANNELS.COPILOT_LIST_MODELS).toBe('copilot:list-models');
   });
 

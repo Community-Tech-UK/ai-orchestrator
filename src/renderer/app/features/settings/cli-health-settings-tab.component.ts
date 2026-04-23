@@ -44,9 +44,35 @@ interface CliDiagnosisEntry {
     overall: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
     recommendations: string[];
   } | null;
+  updatePlan?: CliUpdatePlan;
 }
 
 type Severity = 'healthy' | 'warning' | 'error' | 'missing';
+
+interface CliUpdatePlan {
+  cli: string;
+  displayName: string;
+  supported: boolean;
+  command?: string;
+  args?: string[];
+  displayCommand?: string;
+  activePath?: string;
+  currentVersion?: string;
+  reason?: string;
+}
+
+interface CliUpdateResult {
+  cli: string;
+  displayName: string;
+  status: 'updated' | 'failed' | 'skipped';
+  message: string;
+  command?: string;
+  beforeVersion?: string;
+  afterVersion?: string;
+  stdout?: string;
+  stderr?: string;
+  durationMs: number;
+}
 
 @Component({
   standalone: true,
@@ -62,18 +88,32 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
             any stale duplicate copies are hiding behind them on PATH.
           </p>
         </div>
-        <button
-          type="button"
-          class="btn btn-secondary"
-          (click)="refresh()"
-          [disabled]="loading()"
-        >
-          {{ loading() ? 'Scanning...' : 'Refresh' }}
-        </button>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            (click)="updateAll()"
+            [disabled]="loading() || anyUpdating()"
+          >
+            {{ anyUpdating() ? 'Updating...' : 'Update installed CLIs' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            (click)="refresh()"
+            [disabled]="loading() || anyUpdating()"
+          >
+            {{ loading() ? 'Scanning...' : 'Refresh' }}
+          </button>
+        </div>
       </div>
 
       @if (error()) {
         <div class="error-banner">{{ error() }}</div>
+      }
+
+      @if (updateSummary()) {
+        <div class="update-summary">{{ updateSummary() }}</div>
       }
 
       @if (entries().length === 0 && !loading()) {
@@ -89,16 +129,42 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
                 {{ severityLabel(severity(entry)) }}
               </span>
             </div>
-            @if (entry.installs.length > 0) {
-              <button
-                type="button"
-                class="btn-link"
-                (click)="toggle(entry.cli)"
-              >
-                {{ expanded().has(entry.cli) ? 'Hide details' : 'Show details' }}
-              </button>
-            }
+            <div class="card-actions">
+              @if (entry.updatePlan?.supported) {
+                <button
+                  type="button"
+                  class="btn-link"
+                  (click)="updateCli(entry.cli)"
+                  [disabled]="isUpdating(entry.cli) || loading()"
+                >
+                  {{ isUpdating(entry.cli) ? 'Updating...' : 'Update' }}
+                </button>
+              }
+              @if (entry.installs.length > 0) {
+                <button
+                  type="button"
+                  class="btn-link"
+                  (click)="toggle(entry.cli)"
+                >
+                  {{ expanded().has(entry.cli) ? 'Hide details' : 'Show details' }}
+                </button>
+              }
+            </div>
           </div>
+
+          @if (updateResultFor(entry.cli); as result) {
+            <div class="update-result" [attr.data-status]="result.status">
+              <strong>{{ updateStatusLabel(result.status) }}:</strong>
+              {{ result.message }}
+              @if (result.command) {
+                <span class="muted">({{ result.command }})</span>
+              }
+            </div>
+          }
+
+          @if (entry.updatePlan && !entry.updatePlan.supported && entry.installs.length > 0) {
+            <p class="muted update-reason">{{ entry.updatePlan.reason }}</p>
+          }
 
           @if (entry.installs.length === 0) {
             <p class="muted">Not installed on PATH.</p>
@@ -147,6 +213,11 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
                   </ul>
                 }
 
+                @if (entry.updatePlan?.displayCommand) {
+                  <h4 class="details-title">Updater</h4>
+                  <pre class="rec-text">{{ entry.updatePlan?.displayCommand }}</pre>
+                }
+
                 @if (entry.diagnosis) {
                   <h4 class="details-title">Probes</h4>
                   <table class="probe-table">
@@ -186,6 +257,14 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
       gap: 1rem;
     }
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
     .section-title {
       margin: 0 0 0.25rem 0;
       font-size: 1.1rem;
@@ -219,15 +298,27 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
       font-size: 0.8125rem;
       padding: 0;
     }
+    .btn-link:disabled { opacity: 0.6; cursor: default; }
     .btn-link:hover { text-decoration: underline; }
+    .btn-link:hover:disabled { text-decoration: none; }
 
-    .error-banner {
+    .error-banner,
+    .update-summary {
       padding: 0.625rem 0.875rem;
       border-radius: 6px;
+      font-size: 0.875rem;
+    }
+
+    .error-banner {
       background: rgba(255, 80, 80, 0.1);
       border: 1px solid rgba(255, 80, 80, 0.3);
       color: #ff8080;
-      font-size: 0.875rem;
+    }
+
+    .update-summary {
+      background: rgba(80, 160, 255, 0.1);
+      border: 1px solid rgba(80, 160, 255, 0.3);
+      color: var(--text-secondary, #d5e6ff);
     }
 
     .empty, .muted { color: var(--text-muted, #888); font-size: 0.875rem; }
@@ -253,13 +344,14 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
 
     .cli-name-block { display: flex; align-items: center; gap: 0.625rem; }
     .cli-name { font-weight: 600; font-size: 0.9375rem; }
+    .card-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 
     .cli-badge {
       font-size: 0.6875rem;
       padding: 0.125rem 0.5rem;
       border-radius: 999px;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0;
       font-weight: 600;
     }
     .cli-badge[data-severity="healthy"] { background: rgba(80, 200, 120, 0.15); color: #50c878; }
@@ -293,6 +385,18 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
       color: var(--text-secondary, #ccc);
     }
 
+    .update-reason { margin: 0; }
+
+    .update-result {
+      font-size: 0.8125rem;
+      padding: 0.5rem 0.625rem;
+      border-radius: 4px;
+      color: var(--text-secondary, #ccc);
+    }
+    .update-result[data-status="updated"] { background: rgba(80, 200, 120, 0.08); border-left: 3px solid #50c878; }
+    .update-result[data-status="failed"] { background: rgba(255, 80, 80, 0.08); border-left: 3px solid #ff8080; }
+    .update-result[data-status="skipped"] { background: rgba(150, 150, 150, 0.08); border-left: 3px solid #888; }
+
     .details {
       margin-top: 0.25rem;
       border-top: 1px solid var(--border-color, #2a2a2e);
@@ -307,7 +411,7 @@ type Severity = 'healthy' | 'warning' | 'error' | 'missing';
       font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0;
       color: var(--text-muted, #888);
     }
 
@@ -369,6 +473,9 @@ export class CliHealthSettingsTabComponent implements OnInit {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly expanded = signal<Set<string>>(new Set<string>());
+  readonly updating = signal<Set<string>>(new Set<string>());
+  readonly updateResults = signal<Record<string, CliUpdateResult>>({});
+  readonly updateSummary = signal<string | null>(null);
 
   private readonly displayNames: Record<string, string> = {
     claude: 'Claude Code',
@@ -401,6 +508,67 @@ export class CliHealthSettingsTabComponent implements OnInit {
     }
   }
 
+  async updateCli(cli: string): Promise<void> {
+    this.markUpdating(cli, true);
+    this.error.set(null);
+    this.updateSummary.set(null);
+    try {
+      const response = await this.ipc.updateCli(cli);
+      if (!response.success) {
+        this.error.set(response.error?.message || `Failed to update ${this.cliDisplayName(cli)}`);
+        return;
+      }
+
+      const result = response.data as CliUpdateResult;
+      this.updateResults.update((current) => ({ ...current, [cli]: result }));
+      this.updateSummary.set(`${result.displayName}: ${this.updateStatusLabel(result.status).toLowerCase()}.`);
+      await this.refresh();
+    } catch (err) {
+      this.error.set(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.markUpdating(cli, false);
+    }
+  }
+
+  async updateAll(): Promise<void> {
+    const updatable = this.entries()
+      .filter((entry) => entry.updatePlan?.supported)
+      .map((entry) => entry.cli);
+    if (updatable.length === 0) {
+      this.updateSummary.set('No installed CLIs have an automatic updater available.');
+      return;
+    }
+
+    this.updating.set(new Set(updatable));
+    this.error.set(null);
+    this.updateSummary.set(null);
+    try {
+      const response = await this.ipc.updateAllClis();
+      if (!response.success) {
+        this.error.set(response.error?.message || 'Failed to update CLIs');
+        return;
+      }
+
+      const data = response.data as { results?: CliUpdateResult[] } | undefined;
+      const results = data?.results ?? [];
+      const nextResults = { ...this.updateResults() };
+      for (const result of results) {
+        nextResults[result.cli] = result;
+      }
+      this.updateResults.set(nextResults);
+
+      const updated = results.filter((result) => result.status === 'updated').length;
+      const failed = results.filter((result) => result.status === 'failed').length;
+      const skipped = results.filter((result) => result.status === 'skipped').length;
+      this.updateSummary.set(`CLI updates complete: ${updated} updated, ${failed} failed, ${skipped} skipped.`);
+      await this.refresh();
+    } catch (err) {
+      this.error.set(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.updating.set(new Set<string>());
+    }
+  }
+
   toggle(cli: string): void {
     const current = new Set(this.expanded());
     if (current.has(cli)) {
@@ -413,6 +581,26 @@ export class CliHealthSettingsTabComponent implements OnInit {
 
   cliDisplayName(cli: string): string {
     return this.displayNames[cli] ?? cli;
+  }
+
+  anyUpdating(): boolean {
+    return this.updating().size > 0;
+  }
+
+  isUpdating(cli: string): boolean {
+    return this.updating().has(cli);
+  }
+
+  updateResultFor(cli: string): CliUpdateResult | undefined {
+    return this.updateResults()[cli];
+  }
+
+  updateStatusLabel(status: CliUpdateResult['status']): string {
+    switch (status) {
+      case 'updated': return 'Updated';
+      case 'failed': return 'Failed';
+      case 'skipped': return 'Skipped';
+    }
   }
 
   severity(entry: CliDiagnosisEntry): Severity {
@@ -437,5 +625,15 @@ export class CliHealthSettingsTabComponent implements OnInit {
     if (entry.installs.length < 2) return false;
     const versions = new Set(entry.installs.map((i) => i.version ?? 'unknown'));
     return versions.size > 1;
+  }
+
+  private markUpdating(cli: string, isUpdating: boolean): void {
+    const current = new Set(this.updating());
+    if (isUpdating) {
+      current.add(cli);
+    } else {
+      current.delete(cli);
+    }
+    this.updating.set(current);
   }
 }

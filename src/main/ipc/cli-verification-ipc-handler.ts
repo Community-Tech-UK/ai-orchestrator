@@ -7,6 +7,7 @@ import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { getLogger } from '../logging/logger';
 import { IpcResponse } from '../../shared/types/ipc.types';
 import { CliDetectionService, CliType, SUPPORTED_CLIS } from '../cli/cli-detection';
+import { getCliUpdateService } from '../cli/cli-update-service';
 import { getProviderDoctor } from '../providers/provider-doctor';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
@@ -18,6 +19,8 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   CliDetectAllPayloadSchema,
   CliDetectOnePayloadSchema,
+  CliUpdateAllPayloadSchema,
+  CliUpdateOnePayloadSchema,
   CliTestConnectionPayloadSchema,
   ProviderListModelsPayloadSchema,
   CliVerificationStartPayloadSchema,
@@ -26,6 +29,15 @@ import {
 
 
 const logger = getLogger('CliVerification');
+
+interface RegisterCliVerificationHandlersDeps {
+  windowManager: WindowManager;
+  ensureAuthorized: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+    payload: unknown
+  ) => IpcResponse | null;
+}
 
 // ============================================
 // Handler Registration
@@ -36,7 +48,10 @@ const logger = getLogger('CliVerification');
  * Accepts WindowManager to lazily get the main window when needed,
  * since handlers are registered before the window is created.
  */
-export function registerCliVerificationHandlers(windowManager: WindowManager): void {
+export function registerCliVerificationHandlers(
+  deps: RegisterCliVerificationHandlersDeps
+): void {
+  const { windowManager } = deps;
   const cliDetection = CliDetectionService.getInstance();
   const coordinator = getCliVerificationCoordinator();
 
@@ -160,6 +175,12 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
         const entries = await Promise.all(
           SUPPORTED_CLIS.map(async (cliType) => {
             const installs = await cliDetection.scanAllCliInstalls(cliType);
+            const updatePlan = await getCliUpdateService().getUpdatePlan(cliType).catch((error) => ({
+              cli: cliType,
+              displayName: cliType,
+              supported: false,
+              reason: error instanceof Error ? error.message : String(error),
+            }));
             const providerKey = providerMap[cliType];
             const diagnosis = providerKey
               ? await doctor.diagnose(providerKey).catch(() => null)
@@ -170,6 +191,7 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
               activePath: installs[0]?.path,
               activeVersion: installs[0]?.version,
               diagnosis,
+              updatePlan,
             };
           }),
         );
@@ -180,6 +202,65 @@ export function registerCliVerificationHandlers(windowManager: WindowManager): v
           success: false,
           error: {
             code: 'CLI_DIAGNOSE_ALL_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // Update one known CLI using fixed commands from CliUpdateService.
+  ipcMain.handle(
+    'cli:update-one',
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse> => {
+      try {
+        const authError = deps.ensureAuthorized(event, 'cli:update-one', payload);
+        if (authError) return authError;
+
+        const validated = validateIpcPayload(CliUpdateOnePayloadSchema, payload, 'cli:update-one');
+        if (!SUPPORTED_CLIS.includes(validated.type as CliType)) {
+          throw new Error(`Unknown CLI type: ${validated.type}`);
+        }
+
+        const result = await getCliUpdateService().updateOne(validated.type as CliType);
+        return { success: true, data: result };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CLI_UPDATE_ONE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // Update every installed known CLI sequentially. Sequential execution avoids
+  // package-manager lock contention and keeps output attributable per provider.
+  ipcMain.handle(
+    'cli:update-all',
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse> => {
+      try {
+        const authError = deps.ensureAuthorized(event, 'cli:update-all', payload);
+        if (authError) return authError;
+
+        validateIpcPayload(CliUpdateAllPayloadSchema, payload, 'cli:update-all');
+        const results = await getCliUpdateService().updateAllInstalled();
+        return { success: true, data: { results, timestamp: Date.now() } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CLI_UPDATE_ALL_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

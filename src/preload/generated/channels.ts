@@ -442,6 +442,8 @@ export const IPC_CHANNELS = {
   CLI_TEST_CONNECTION: 'cli:test-connection',
   CLI_SCAN_ALL_INSTALLS: 'cli:scan-all-installs',
   CLI_DIAGNOSE_ALL: 'cli:diagnose-all',
+  CLI_UPDATE_ONE: 'cli:update-one',
+  CLI_UPDATE_ALL: 'cli:update-all',
 
   // Copilot operations
   COPILOT_LIST_MODELS: 'copilot:list-models',
