@@ -40,7 +40,11 @@ describe('BranchFreshness', () => {
     runGit(repoDir, 'config', 'user.email', 'test@example.com');
     writeAndCommit(repoDir, 'README.md', 'hello\n', 'initial');
 
-    runGit(remoteDir, 'init', '--bare');
+    // Pass -b main so the bare remote's HEAD symbolic-ref targets refs/heads/main.
+    // Without this, on CI hosts where git's init.defaultBranch is still `master`
+    // (pre-2.28 defaults), cloning the bare remote leaves the contributor repo
+    // without a `main` branch and the subsequent `push origin main` fails.
+    runGit(remoteDir, 'init', '--bare', '-b', 'main');
     runGit(repoDir, 'remote', 'add', 'origin', remoteDir);
     runGit(repoDir, 'push', '-u', 'origin', 'main');
 

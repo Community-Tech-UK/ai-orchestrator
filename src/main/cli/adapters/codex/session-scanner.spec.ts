@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CodexSessionScanner } from './session-scanner';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -50,14 +50,20 @@ describe('CodexSessionScanner', () => {
   });
 
   it('should return the newest matching session when multiple exist', async () => {
-    createRolloutFile('2026/04/08', 'rollout-old.jsonl', [
+    const oldPath = createRolloutFile('2026/04/08', 'rollout-old.jsonl', [
       { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.3' },
       { type: 'event_msg', threadId: 'thread_old' },
     ]);
-    createRolloutFile('2026/04/09', 'rollout-new.jsonl', [
+    const newPath = createRolloutFile('2026/04/09', 'rollout-new.jsonl', [
       { type: 'session_meta', cwd: '/projects/my-app', model: 'gpt-5.5' },
       { type: 'event_msg', threadId: 'thread_new' },
     ]);
+    // Pin mtimes explicitly. Linux tmpfs / ext4 can give both files identical
+    // mtimeMs when they're written back-to-back, making the "newest" sort order
+    // nondeterministic. Give the files a guaranteed 60s gap.
+    const now = Date.now() / 1000;
+    utimesSync(oldPath, now - 60, now - 60);
+    utimesSync(newPath, now, now);
     const result = await scanner.findSessionForWorkspace('/projects/my-app');
     expect(result).not.toBeNull();
     expect(result!.threadId).toBe('thread_new');
