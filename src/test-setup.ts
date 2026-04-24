@@ -53,17 +53,34 @@ await initSqliteWasm();
 // would not fire in time) and where a throwing test skipped its own afterEach.
 // ============================================================================
 
-// Capture timer globals before any test file has a chance to spy/replace them.
-// `resetTimerGlobals()` uses these to restore the global references if a spy
-// leaked out of its test.
-const realTimers = {
+type TimerGlobals = {
+  setTimeout: typeof globalThis.setTimeout;
+  setInterval: typeof globalThis.setInterval;
+  clearTimeout: typeof globalThis.clearTimeout;
+  clearInterval: typeof globalThis.clearInterval;
+  setImmediate: typeof globalThis.setImmediate;
+  clearImmediate: typeof globalThis.clearImmediate;
+  queueMicrotask: typeof globalThis.queueMicrotask;
+};
+
+const timerGlobalsKey = Symbol.for('ai-orchestrator.test.realTimerGlobals');
+const timerGlobalState = globalThis as typeof globalThis & {
+  [timerGlobalsKey]?: TimerGlobals;
+};
+
+// setupFiles can be re-executed for later spec files inside the same Vitest
+// fork. Capture the baseline exactly once; otherwise a leaked fake timer from
+// an earlier file can be captured as the new "real" timer on CI.
+const realTimers = timerGlobalState[timerGlobalsKey] ?? {
   setTimeout: globalThis.setTimeout,
   setInterval: globalThis.setInterval,
   clearTimeout: globalThis.clearTimeout,
   clearInterval: globalThis.clearInterval,
   setImmediate: globalThis.setImmediate,
+  clearImmediate: globalThis.clearImmediate,
   queueMicrotask: globalThis.queueMicrotask,
 } as const;
+timerGlobalState[timerGlobalsKey] = realTimers;
 
 function resetTimerGlobals() {
   // vi.useRealTimers() handles sinon's fake clock, but if a test did
@@ -78,9 +95,6 @@ function resetTimerGlobals() {
     }
   }
 }
-
-beforeEach(resetTimerGlobals);
-afterEach(resetTimerGlobals);
 
 vi.mock('better-sqlite3', () => {
   class MockDatabase {
@@ -133,3 +147,21 @@ try {
     { teardown: { destroyAfterEach: true } }
   );
 }
+
+function resetAngularTestBed() {
+  try {
+    getTestBed().resetTestingModule();
+  } catch {
+    // TestBed may be unavailable if Angular setup failed before initialization.
+  }
+}
+
+beforeEach(() => {
+  resetTimerGlobals();
+  resetAngularTestBed();
+});
+
+afterEach(() => {
+  resetAngularTestBed();
+  resetTimerGlobals();
+});
