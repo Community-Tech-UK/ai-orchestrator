@@ -5,7 +5,7 @@ function parseMajor(v) {
   return m ? Number(m[1]) : 0;
 }
 
-const requiredMajor = 20;
+const requiredMajor = 22;
 const major = parseMajor(process.version);
 if (major < requiredMajor) {
   // Keep this short; npm may be running under an older node too.
