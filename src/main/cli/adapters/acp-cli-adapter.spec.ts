@@ -750,4 +750,139 @@ describe('AcpCliAdapter', () => {
 
     proc.exit();
   });
+
+  it('acquires a provider concurrency slot on spawn and releases on exit', async () => {
+    const proc = createInitializedAgentHarness();
+
+    const acquireCalls: string[] = [];
+    const releaseCalls: string[] = [];
+    const fakeRelease = vi.fn(() => {
+      releaseCalls.push('released');
+    });
+    const fakeLimiter = {
+      acquire: vi.fn(async (key: string) => {
+        acquireCalls.push(key);
+        return fakeRelease;
+      }),
+    };
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      concurrencyLimiter: fakeLimiter,
+      concurrencyKey: 'copilot',
+    });
+
+    await adapter.spawn();
+    expect(acquireCalls).toEqual(['copilot']);
+    expect(releaseCalls).toEqual([]);
+
+    proc.exit();
+    // Process-exit path must free the slot even without an explicit terminate().
+    expect(releaseCalls).toEqual(['released']);
+  });
+
+  it('releases the concurrency slot on terminate (and is idempotent)', async () => {
+    const proc = createInitializedAgentHarness();
+
+    const fakeRelease = vi.fn();
+    const fakeLimiter = {
+      acquire: vi.fn(async () => fakeRelease),
+    };
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      concurrencyLimiter: fakeLimiter,
+      concurrencyKey: 'copilot',
+    });
+
+    await adapter.spawn();
+    await adapter.terminate(false);
+    proc.exit();
+
+    // Release must have been called exactly once overall — terminate + the
+    // subsequent exit event should not double-release.
+    expect(fakeRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits a stall_warning when a prompt turn receives no session/update for too long', async () => {
+    const proc = createInitializedAgentHarness();
+
+    // The agent accepts the prompt but never emits a session/update and
+    // never settles the request. Simulates the "Making edits / Processing…"
+    // hang pattern.
+    proc.onRequest('session/prompt', () => {
+      /* deliberately silent */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      stallWarningMs: 40,
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const errorOutputs: { content: string; metadata: Record<string, unknown> }[] = [];
+    adapter.on('output', (message: { type: string; content: string; metadata: Record<string, unknown> }) => {
+      if (message.type === 'error') {
+        errorOutputs.push({ content: message.content, metadata: message.metadata });
+      }
+    });
+    const stallEvents: Array<Record<string, unknown>> = [];
+    adapter.on('stall_warning', (payload: Record<string, unknown>) => stallEvents.push(payload));
+
+    const pending = adapter.sendMessage({ role: 'user', content: 'hang please' });
+    // Wait past the stall threshold.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(stallEvents).toHaveLength(1);
+    expect(stallEvents[0]).toMatchObject({ adapter: expect.any(String) });
+    expect(errorOutputs.some((m) => m.metadata['source'] === 'acp-stall-warning')).toBe(true);
+
+    // Let the pending promise drain so the test doesn't hang; cancel will
+    // reject it locally now (fix #3).
+    adapter.interrupt();
+    await pending.catch(() => { /* expected */ });
+
+    proc.exit();
+  });
+
+  it('does not emit a stall_warning when the agent stays responsive', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      // Emit several updates well inside the stall threshold, then settle.
+      const nudge = (text: string) => proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text },
+        },
+      });
+      nudge('tick ');
+      setTimeout(() => nudge('tock '), 20);
+      setTimeout(() => {
+        nudge('done');
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 40);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      stallWarningMs: 100,
+    });
+    await adapter.spawn();
+
+    const stallEvents: Array<Record<string, unknown>> = [];
+    adapter.on('stall_warning', (payload: Record<string, unknown>) => stallEvents.push(payload));
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'responsive please' });
+    expect(response.content).toBe('tick tock done');
+    expect(stallEvents).toHaveLength(0);
+
+    proc.exit();
+  });
 });

@@ -5,7 +5,7 @@
 
 import 'zone.js';
 import 'zone.js/testing';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
@@ -40,18 +40,47 @@ await initSqliteWasm();
 // Global timer-state reset
 //
 // vitest.config.ts uses `singleFork: true` so all tests share one Node process.
-// If any test calls `vi.useFakeTimers()` and forgets `vi.useRealTimers()` at
-// the end, fake timers stay engaged for every subsequent test file. Any later
-// test that does `await new Promise(r => setTimeout(r, N))` then hangs until
-// the 5 s test timeout fires — which on Linux CI manifests as dozens of
-// test-timeout failures in unrelated files.
+// Any test that (a) calls `vi.useFakeTimers()` without `vi.useRealTimers()`,
+// (b) does `vi.spyOn(globalThis, 'setTimeout')` without `mockRestore()`, or
+// (c) fails mid-test before its own teardown runs, leaves fake/stubbed timers
+// engaged for every subsequent test file. Later tests using real `setTimeout`
+// then hang until the 5 s test timeout — manifesting on Linux CI as dozens of
+// unrelated failures (file-load order differs from macOS, so the leak lands
+// later on dev machines and is invisible).
 //
-// `vi.useRealTimers()` is idempotent when real timers are already active, so
-// this is safe to run after every test.
+// Reset timer globals both before AND after every test, covering the cases
+// where beforeAll / module-scope code installed the mock (afterEach alone
+// would not fire in time) and where a throwing test skipped its own afterEach.
 // ============================================================================
-afterEach(() => {
+
+// Capture timer globals before any test file has a chance to spy/replace them.
+// `resetTimerGlobals()` uses these to restore the global references if a spy
+// leaked out of its test.
+const realTimers = {
+  setTimeout: globalThis.setTimeout,
+  setInterval: globalThis.setInterval,
+  clearTimeout: globalThis.clearTimeout,
+  clearInterval: globalThis.clearInterval,
+  setImmediate: globalThis.setImmediate,
+  queueMicrotask: globalThis.queueMicrotask,
+} as const;
+
+function resetTimerGlobals() {
+  // vi.useRealTimers() handles sinon's fake clock, but if a test did
+  // `vi.spyOn(globalThis, 'setTimeout')` without restoring, the global is
+  // still wrapped. Force-restore the originals so the next test can use
+  // real timers even if the previous one forgot to call mockRestore().
   vi.useRealTimers();
-});
+  vi.unstubAllGlobals();
+  for (const [name, fn] of Object.entries(realTimers)) {
+    if (globalThis[name as keyof typeof realTimers] !== fn) {
+      (globalThis as unknown as Record<string, unknown>)[name] = fn;
+    }
+  }
+}
+
+beforeEach(resetTimerGlobals);
+afterEach(resetTimerGlobals);
 
 vi.mock('better-sqlite3', () => {
   class MockDatabase {

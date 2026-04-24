@@ -69,6 +69,7 @@ import {
 import type { PermissionRegistry } from '../../orchestration/permission-registry';
 import type { PermissionDecision, PermissionRequest } from '../../../shared/types/permission-registry.types';
 import { buildCliSpawnOptions } from '../cli-environment';
+import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 
 const logger = getLogger('AcpCliAdapter');
 
@@ -91,6 +92,18 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
  * instead of silently eating input forever.
  */
 const DEFAULT_PROMPT_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * How long a prompt turn can go without ANY `session/update` notification
+ * before we surface a stall warning (UI can offer "cancel this turn?").
+ * Distinct from the hard `promptTimeoutMs`: this is a gentler heuristic
+ * that fires earlier so the user gets an escalation affordance instead
+ * of watching a frozen "Making edits" spinner for 10 minutes.
+ *
+ * Only fires while a prompt is actually in flight — idle sessions don't
+ * emit spurious stall warnings.
+ */
+const DEFAULT_STALL_WARNING_MS = 3 * 60_000;
 
 const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
   name: 'ai-orchestrator',
@@ -170,6 +183,20 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
    *  this is intentionally looser than `requestTimeoutMs`. Defaults to
    *  {@link DEFAULT_PROMPT_TIMEOUT_MS}. */
   promptTimeoutMs?: number;
+  /** Provider concurrency gate. When set, `spawn()` will block until a
+   *  slot keyed on `concurrencyKey` is available. Prevents unbounded
+   *  ACP fan-out (observed: 5+ Copilot children spawned simultaneously,
+   *  amplifying the orphaned-tool-call hang). */
+  concurrencyLimiter?: Pick<ProviderConcurrencyLimiter, 'acquire'>;
+  /** Limiter key — typically the provider name (`'copilot'`, `'cursor'`). */
+  concurrencyKey?: string;
+  /** Emit a `stall_warning` event + error OutputMessage if a prompt turn
+   *  goes this long without any `session/update` notification. Gives the
+   *  UI an earlier signal than the hard `promptTimeoutMs` so users see
+   *  "looks stuck — cancel?" before their session has been frozen for
+   *  10 minutes. Defaults to {@link DEFAULT_STALL_WARNING_MS}.
+   *  Set to 0 to disable. */
+  stallWarningMs?: number;
 }
 
 function toError(value: unknown, fallback: string): Error {
@@ -238,6 +265,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private currentPrompt: AcpPendingPromptTurn | null = null;
   private currentPromptRequestId: string | null = null;
   private systemPromptSent = false;
+  /** Release function returned by `ProviderConcurrencyLimiter.acquire`.
+   *  Set in `spawn()` when concurrency gating is configured, invoked
+   *  exactly once on the first of {terminate, exit, spawn-failure}. */
+  private concurrencyRelease: (() => void) | null = null;
+  /** Stall watchdog timer — fires if a prompt turn receives no
+   *  `session/update` for longer than `stallWarningMs`. Rearmed on
+   *  every inbound update; cleared when the turn settles. */
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether a stall has already been reported for the current turn
+   *  (prevents re-emitting on every missed update after the threshold). */
+  private stallWarningEmitted = false;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -254,6 +292,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       permissionRequestTimeoutMs: 60_000,
       requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       promptTimeoutMs: DEFAULT_PROMPT_TIMEOUT_MS,
+      stallWarningMs: DEFAULT_STALL_WARNING_MS,
       ...config,
     };
   }
@@ -315,7 +354,29 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     await super.initialize();
 
-    this.process = this.spawnProcess([]);
+    // Acquire a provider concurrency slot BEFORE creating the subprocess.
+    // Blocks (FIFO) when the per-provider cap is saturated. On any spawn
+    // failure path below, release via releaseConcurrencySlot() so we don't
+    // leak slots and stall future spawns indefinitely.
+    if (this.acpConfig.concurrencyLimiter && this.acpConfig.concurrencyKey) {
+      const key = this.acpConfig.concurrencyKey;
+      try {
+        this.concurrencyRelease = await this.acpConfig.concurrencyLimiter.acquire(key);
+      } catch (error) {
+        logger.warn('ACP concurrency acquire failed; spawning without gate', {
+          adapter: this.getName(),
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    try {
+      this.process = this.spawnProcess([]);
+    } catch (error) {
+      this.releaseConcurrencySlot();
+      throw error;
+    }
     this.attachProcessListeners();
 
     try {
@@ -423,6 +484,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       messageChunksById: new Map<string, string[]>(),
     };
     this.emit('status', 'busy');
+    this.armStallWatchdog();
 
     try {
       const result = await this.sendRequest<AcpSessionPromptResult>('session/prompt', promptParams);
@@ -445,6 +507,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } finally {
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
+      this.clearStallWatchdog();
     }
   }
 
@@ -478,6 +541,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     await this.cancelPendingPermissionRequests();
     this.rejectPendingRequests(new Error('ACP adapter terminated before the request completed.'));
+    this.clearStallWatchdog();
     this.initialized = false;
     this.currentPrompt = null;
     this.currentPromptRequestId = null;
@@ -485,6 +549,113 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.toolCalls.clear();
     this.stdoutBuffer = '';
     await super.terminate(graceful);
+    // Release after super.terminate so ordering is: cancel → drain → kill →
+    // free slot for the next queued spawn. Safe to call even without a
+    // prior acquire (it's idempotent + null-guarded).
+    this.releaseConcurrencySlot();
+  }
+
+  /**
+   * Release the provider concurrency slot held by this adapter, if any.
+   * Idempotent — callable from any exit path without double-release risk.
+   */
+  private releaseConcurrencySlot(): void {
+    if (!this.concurrencyRelease) return;
+    try {
+      this.concurrencyRelease();
+    } catch (error) {
+      logger.warn('ACP concurrency release threw; ignoring', {
+        adapter: this.getName(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    this.concurrencyRelease = null;
+  }
+
+  // ============ Stall Watchdog ============
+
+  /**
+   * Start the stall watchdog for the current prompt turn. Does nothing
+   * when `stallWarningMs` is 0 (explicit opt-out) or when no prompt is
+   * currently in flight.
+   */
+  private armStallWatchdog(): void {
+    this.clearStallWatchdog();
+    this.stallWarningEmitted = false;
+    const timeoutMs = this.acpConfig.stallWarningMs ?? DEFAULT_STALL_WARNING_MS;
+    if (timeoutMs <= 0) return;
+
+    this.stallTimer = setTimeout(() => {
+      // Guard: if the turn already settled between timer fire and this tick,
+      // don't emit a spurious warning.
+      if (!this.currentPromptRequestId || this.stallWarningEmitted) return;
+      this.stallWarningEmitted = true;
+
+      const durationMs = this.currentPrompt
+        ? Date.now() - this.currentPrompt.startedAt
+        : timeoutMs;
+
+      logger.warn('ACP prompt turn appears stalled', {
+        adapter: this.getName(),
+        sessionId: this.sessionId,
+        promptRequestId: this.currentPromptRequestId,
+        timeoutMs,
+        durationMs,
+      });
+
+      // Emit a structured warning the UI can render as "This turn looks
+      // stuck — cancel?" without forcibly failing the prompt.
+      this.emit('stall_warning', {
+        adapter: this.getName(),
+        sessionId: this.sessionId,
+        promptRequestId: this.currentPromptRequestId,
+        timeoutMs,
+        durationMs,
+      });
+
+      // Also land it on the output buffer so chat history records the
+      // stall event and the child-exit summary picks it up.
+      this.emit('output', {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: `This turn hasn't produced any output for ${Math.round(timeoutMs / 1000)}s — it may be stuck. Cancel the turn to try again.`,
+        metadata: {
+          source: 'acp-stall-warning',
+          transport: 'acp',
+          adapter: this.getName(),
+          severity: 'warning',
+          timeoutMs,
+          durationMs,
+        },
+      } satisfies OutputMessage);
+    }, timeoutMs);
+
+    if (typeof this.stallTimer.unref === 'function') {
+      this.stallTimer.unref();
+    }
+  }
+
+  /**
+   * Reset the stall watchdog — called when we receive a `session/update`.
+   * Equivalent to rearming from scratch (so repeated activity keeps the
+   * watchdog silent) while preserving the "already emitted" flag so we
+   * don't re-fire immediately on a single update that barely beats the
+   * deadline.
+   */
+  private resetStallWatchdog(): void {
+    if (!this.currentPromptRequestId) return;
+    this.armStallWatchdog();
+  }
+
+  /**
+   * Clear the stall watchdog. Called at turn completion and on terminate.
+   */
+  private clearStallWatchdog(): void {
+    if (this.stallTimer) {
+      clearTimeout(this.stallTimer);
+      this.stallTimer = null;
+    }
   }
 
   override interrupt(): boolean {
@@ -535,6 +706,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.currentPrompt = null;
       this.rejectPendingRequests(new Error(`ACP agent exited (${code ?? 'null'}${signal ? `/${signal}` : ''}).`));
       this.pendingPermissionRequests.clear();
+      this.clearStallWatchdog();
+      // Free the concurrency slot so queued spawns can proceed even when the
+      // agent dies without us calling terminate() (crash, EXC_BAD_ACCESS,
+      // parent SIGKILL, etc.).
+      this.releaseConcurrencySlot();
       this.emit('exit', code, signal);
     });
   }
@@ -737,6 +913,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (!this.sessionId || params.sessionId !== this.sessionId) {
       return;
     }
+
+    // Any inbound session/update resets the stall watchdog — the agent is
+    // clearly still alive even if individual updates take a while. We do
+    // this up front so the reset applies even to updates we don't have a
+    // specific handler branch for below.
+    this.resetStallWatchdog();
 
     const update = params.update;
     switch (update.sessionUpdate) {

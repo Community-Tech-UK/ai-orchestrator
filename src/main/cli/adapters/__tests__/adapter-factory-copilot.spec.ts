@@ -90,4 +90,35 @@ describe('adapter factory — copilot', () => {
 
     PermissionRegistry._resetForTesting();
   });
+
+  it('injects --use-openssl-ca into NODE_OPTIONS to avoid the macOS keychain SIGSEGV', () => {
+    // Regression: Copilot children were crashing in
+    // node::crypto::ReadMacOSKeychainCertificates on macOS 26.
+    // The factory now always prepends the --use-openssl-ca flag.
+    const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
+    const env = adapter.getConfig().env ?? {};
+    expect(env['NODE_OPTIONS']).toMatch(/--use-openssl-ca/);
+  });
+
+  it('preserves pre-existing NODE_OPTIONS and does not duplicate the flag', () => {
+    const originalNodeOptions = process.env['NODE_OPTIONS'];
+    process.env['NODE_OPTIONS'] = '--max-old-space-size=4096';
+    try {
+      const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
+      const nodeOptions = adapter.getConfig().env?.['NODE_OPTIONS'] ?? '';
+      expect(nodeOptions).toContain('--max-old-space-size=4096');
+      expect(nodeOptions).toContain('--use-openssl-ca');
+      // No duplicate when re-spawned with the flag already present.
+      process.env['NODE_OPTIONS'] = nodeOptions;
+      const again = createCliAdapter('copilot', { workingDirectory: '/tmp' });
+      const againOptions = again.getConfig().env?.['NODE_OPTIONS'] ?? '';
+      expect(againOptions.match(/--use-openssl-ca/g)?.length ?? 0).toBe(1);
+    } finally {
+      if (originalNodeOptions === undefined) {
+        delete process.env['NODE_OPTIONS'];
+      } else {
+        process.env['NODE_OPTIONS'] = originalNodeOptions;
+      }
+    }
+  });
 });

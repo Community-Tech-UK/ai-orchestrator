@@ -114,6 +114,7 @@ export class DeferredPermissionHandler {
       // 3. Build spawn options with resume
       const cliType = await this.ops.resolveCliTypeForInstance(instance);
       const spawnOptions: UnifiedSpawnOptions = {
+        instanceId: instance.id,
         sessionId: deferred.sessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,

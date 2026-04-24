@@ -20,6 +20,7 @@ import type { ExecutionLocation } from '../../../shared/types/worker-node.types'
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
+import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 
 const logger = getLogger('AdapterFactory');
 
@@ -77,6 +78,37 @@ export interface UnifiedSpawnOptions {
  */
 function acpEphemeralInstanceId(kind: string): string {
   return `acp-ephemeral-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * macOS-only workaround for a Node.js SIGSEGV in
+ * `node::crypto::ReadMacOSKeychainCertificates` → `CFArrayGetCount`,
+ * observed crashing Copilot CLI children on macOS 26 (Tahoe-era) under
+ * ai-orchestrator. The flag tells the embedded Node runtime to use the
+ * OpenSSL-bundled CA store and skip the keychain read, sidestepping the bug.
+ *
+ * Safe on all platforms (no-op on non-macOS), so applied unconditionally
+ * to the Copilot spawn env. Preserves any pre-existing NODE_OPTIONS the
+ * user has set.
+ */
+function buildCopilotSpawnEnv(parent: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const existingNodeOptions = parent['NODE_OPTIONS']?.trim() ?? '';
+  const flag = '--use-openssl-ca';
+  const merged = existingNodeOptions.includes(flag)
+    ? existingNodeOptions
+    : [existingNodeOptions, flag].filter(Boolean).join(' ');
+
+  // Strip undefined values from ProcessEnv — `CliAdapterConfig.env` requires
+  // a strict `Record<string, string>`. Node's ProcessEnv allows `undefined`
+  // entries (uninitialized keys), which TypeScript rejects at the consumer.
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parent)) {
+    if (typeof value === 'string') {
+      env[key] = value;
+    }
+  }
+  env['NODE_OPTIONS'] = merged;
+  return env;
 }
 
 /**
@@ -257,6 +289,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     command: launch.command,
     args: [...launch.argsPrefix, '--acp', '--stdio', ...modelArgs],
     workingDirectory: options.workingDirectory ?? process.cwd(),
+    env: buildCopilotSpawnEnv(),
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,
@@ -269,6 +302,10 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       instanceId: options.instanceId ?? acpEphemeralInstanceId('copilot'),
       childId: options.childId,
     },
+    // Gate concurrent Copilot spawns behind the shared semaphore. Prevents
+    // the 5+ parallel-children fan-out pattern that amplified the hang.
+    concurrencyLimiter: getProviderConcurrencyLimiter(),
+    concurrencyKey: 'copilot',
   });
 }
 
@@ -292,6 +329,8 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
       instanceId: options.instanceId ?? acpEphemeralInstanceId('cursor'),
       childId: options.childId,
     },
+    concurrencyLimiter: getProviderConcurrencyLimiter(),
+    concurrencyKey: 'cursor',
   });
 }
 

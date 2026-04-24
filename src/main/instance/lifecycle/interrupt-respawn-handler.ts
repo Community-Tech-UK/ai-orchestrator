@@ -218,6 +218,7 @@ export class InterruptRespawnHandler {
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
 
       const spawnOptions: UnifiedSpawnOptions = {
+        instanceId: instance.id,
         sessionId: shouldResume ? sessionId : newSessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
@@ -433,6 +434,7 @@ export class InterruptRespawnHandler {
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
 
       const spawnOptions: UnifiedSpawnOptions = {
+        instanceId: instance.id,
         sessionId: shouldResume ? sessionId : newSessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,

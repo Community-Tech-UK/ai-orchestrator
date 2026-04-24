@@ -1116,6 +1116,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         // Create CLI adapter - use resolved model
         const modelOverride = resolvedModel;
         const spawnOptions: UnifiedSpawnOptions = {
+          instanceId: instance.id,
           sessionId: instance.sessionId,
           workingDirectory: instance.workingDirectory,
           systemPrompt: systemPrompt,
@@ -1525,6 +1526,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           ? nativeSessionId!
           : generateId();
         const spawnOptions: UnifiedSpawnOptions = {
+          instanceId: instance.id,
           sessionId: instance.sessionId,
           workingDirectory: instance.workingDirectory,
           yoloMode: instance.yoloMode,
@@ -1688,6 +1690,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     const adapter = createCliAdapter(
       cliType,
       {
+        instanceId: instance.id,
         sessionId: providerSessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
@@ -1753,6 +1756,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     const adapter = createCliAdapter(
       cliType,
       {
+        instanceId: instance.id,
         sessionId: newProviderSessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
@@ -1965,6 +1969,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       const adapter = createCliAdapter(
         cliType,
         {
+          instanceId: instance.id,
           sessionId: newProviderSessionId,
           workingDirectory: instance.workingDirectory,
           yoloMode: instance.yoloMode,
@@ -2111,6 +2116,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.sessionId = newSessionId;
 
       const spawnOptions: UnifiedSpawnOptions = {
+        instanceId: instance.id,
         sessionId: newSessionId,
         workingDirectory: instance.workingDirectory,
         systemPrompt: newAgent.systemPrompt,
@@ -2281,6 +2287,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       instance.sessionId = newSessionId;
 
       const spawnOptions: UnifiedSpawnOptions = {
+        instanceId: instance.id,
         sessionId: newSessionId,
         workingDirectory: instance.workingDirectory,
         systemPrompt: agent.systemPrompt,
@@ -2491,6 +2498,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       };
 
       const spawnOptions: UnifiedSpawnOptions = {
+        instanceId: instance.id,
         sessionId: newSessionId,
         workingDirectory: instance.workingDirectory,
         systemPrompt: agent.systemPrompt,
