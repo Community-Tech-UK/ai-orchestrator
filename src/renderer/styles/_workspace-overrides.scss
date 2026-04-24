@@ -1,0 +1,134 @@
+// ============================================
+// WORKSPACE OVERRIDES
+// Conversation-first shell refinements
+// ============================================
+
+app-instance-detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+app-instance-detail .instance-detail {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 8px 12px 24px;
+  gap: 18px;
+}
+
+app-instance-detail .context-section,
+app-instance-detail .output-section,
+app-instance-detail .inspector-toggles,
+app-instance-detail .inspector-panels,
+app-instance-detail app-user-action-request,
+app-instance-detail app-input-panel {
+  width: min(880px, 100%);
+  margin: 0 auto;
+}
+
+app-instance-detail .inspector-toggles {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+app-instance-detail .inspector-toggle {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: all var(--transition-fast);
+}
+
+app-instance-detail .inspector-toggle:hover,
+app-instance-detail .inspector-toggle.active {
+  background: rgba(var(--primary-rgb), 0.12);
+  border-color: rgba(var(--primary-rgb), 0.26);
+  color: var(--text-primary);
+}
+
+app-instance-detail .inspector-badge {
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+app-output-stream .output-stream {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  gap: 14px;
+}
+
+app-output-stream .message,
+app-output-stream .thought-group,
+app-output-stream app-tool-group {
+  width: min(760px, 100%);
+}
+
+app-output-stream .message {
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.16);
+}
+
+app-output-stream .message-user {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+app-output-stream .message-assistant {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+app-output-stream .thought-group {
+  margin-right: auto;
+}
+
+app-output-stream .message-header {
+  margin-bottom: 10px;
+}
+
+app-output-stream .message-type {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+app-output-stream .message-time {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+app-output-stream .empty-stream {
+  min-height: 280px;
+  width: min(760px, 100%);
+  margin: 0 auto;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+app-output-stream .scroll-to-bottom-btn {
+  background: rgba(15, 21, 19, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.24);
+}
+
+app-output-stream .scroll-to-bottom-btn:hover {
+  background: rgba(var(--primary-rgb), 0.16);
+  border-color: rgba(var(--primary-rgb), 0.28);
+  color: var(--text-primary);
+}

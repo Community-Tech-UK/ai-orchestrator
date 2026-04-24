@@ -34,6 +34,7 @@ describe('IpcEventBusService', () => {
   const originalElectronAPI = (window as unknown as { electronAPI?: unknown }).electronAPI;
 
   beforeEach(() => {
+    TestBed.resetTestingModule();
     capturedProviderRuntimeEvent = undefined;
 
     (window as unknown as { electronAPI: unknown }).electronAPI = {

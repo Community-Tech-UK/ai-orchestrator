@@ -1,0 +1,325 @@
+<div class="page">
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <button class="header-btn" type="button" (click)="goBack()">← Back</button>
+    <div class="header-title">
+      <span class="title">Git Operations</span>
+      <span class="subtitle">Repository status, branches, commits, and diffs</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">
+        {{ loading() ? 'Loading…' : 'Refresh' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Error / Info banners -->
+  @if (errorMessage()) {
+    <div class="error-banner">{{ errorMessage() }}</div>
+  }
+
+  <!-- Directory Input Bar -->
+  <div class="dir-bar">
+    <input
+      class="dir-input"
+      type="text"
+      placeholder="Working directory path…"
+      [value]="workingDir()"
+      (input)="onDirInput($event)"
+      (keydown.enter)="loadRepo()"
+    />
+    <button class="btn primary" type="button" [disabled]="loading() || !workingDir().trim()" (click)="loadRepo()">
+      Load
+    </button>
+  </div>
+
+  <!-- Branch Bar (shown once repo is loaded) -->
+  @if (isRepo()) {
+    <div class="branch-bar">
+      <span class="current-branch-badge">
+        <span class="branch-icon">&#9135;</span>
+        {{ status()?.branch || 'unknown' }}
+        @if ((status()?.ahead ?? 0) > 0) {
+          <span class="sync-badge ahead">↑{{ status()!.ahead }}</span>
+        }
+        @if ((status()?.behind ?? 0) > 0) {
+          <span class="sync-badge behind">↓{{ status()!.behind }}</span>
+        }
+      </span>
+      <div class="branch-chips">
+        @for (branch of branches(); track branch.name) {
+          <span class="branch-chip" [class.current]="branch.current">
+            {{ branch.name }}
+            @if (branch.remote) {
+              <span class="remote-hint">{{ branch.remote }}</span>
+            }
+          </span>
+        }
+      </div>
+    </div>
+
+    <div class="job-launch-bar">
+      <input
+        class="dir-input"
+        type="text"
+        [value]="jobUrl()"
+        (input)="onJobUrlInput($event)"
+        placeholder="Optional issue or PR URL to include with the background job"
+      />
+      <button class="btn primary" type="button" (click)="openRepoJob('pr-review')">
+        Run PR Review
+      </button>
+      <button class="btn" type="button" (click)="openRepoJob('repo-health-audit')">
+        Run Health Audit
+      </button>
+    </div>
+  }
+
+  <!-- 3-column layout (shown once repo is loaded) -->
+  @if (isRepo()) {
+    <div class="workspace">
+
+      <!-- Left: Status & Changes / Branches -->
+      <div class="panel left-panel">
+        <div class="tab-bar">
+          <button
+            class="tab-btn"
+            [class.active]="leftTab() === 'changes'"
+            type="button"
+            (click)="leftTab.set('changes')"
+          >
+            Changes
+            @if (totalChanges() > 0) {
+              <span class="count-badge">{{ totalChanges() }}</span>
+            }
+          </button>
+          <button
+            class="tab-btn"
+            [class.active]="leftTab() === 'branches'"
+            type="button"
+            (click)="leftTab.set('branches')"
+          >
+            Branches
+          </button>
+        </div>
+
+        <div class="panel-body">
+          @if (leftTab() === 'changes') {
+            <!-- Staged files -->
+            @if ((status()?.staged?.length ?? 0) > 0) {
+              <div class="file-section-label">Staged</div>
+              @for (file of status()!.staged; track file) {
+                <button
+                  class="file-row"
+                  [class.selected]="selectedFile() === file && selectedDiffType() === 'staged'"
+                  type="button"
+                  (click)="selectFile(file, 'staged')"
+                >
+                  <span class="file-icon staged">S</span>
+                  <span class="file-name">{{ file }}</span>
+                </button>
+              }
+            }
+
+            <!-- Modified files -->
+            @if ((status()?.modified?.length ?? 0) > 0) {
+              <div class="file-section-label">Modified</div>
+              @for (file of status()!.modified; track file) {
+                <button
+                  class="file-row"
+                  [class.selected]="selectedFile() === file && selectedDiffType() === 'unstaged'"
+                  type="button"
+                  (click)="selectFile(file, 'unstaged')"
+                >
+                  <span class="file-icon modified">M</span>
+                  <span class="file-name">{{ file }}</span>
+                </button>
+              }
+            }
+
+            <!-- Added files -->
+            @if ((status()?.added?.length ?? 0) > 0) {
+              <div class="file-section-label">Added</div>
+              @for (file of status()!.added; track file) {
+                <button
+                  class="file-row"
+                  [class.selected]="selectedFile() === file && selectedDiffType() === 'unstaged'"
+                  type="button"
+                  (click)="selectFile(file, 'unstaged')"
+                >
+                  <span class="file-icon added">A</span>
+                  <span class="file-name">{{ file }}</span>
+                </button>
+              }
+            }
+
+            <!-- Deleted files -->
+            @if ((status()?.deleted?.length ?? 0) > 0) {
+              <div class="file-section-label">Deleted</div>
+              @for (file of status()!.deleted; track file) {
+                <button
+                  class="file-row"
+                  [class.selected]="selectedFile() === file && selectedDiffType() === 'unstaged'"
+                  type="button"
+                  (click)="selectFile(file, 'unstaged')"
+                >
+                  <span class="file-icon deleted">D</span>
+                  <span class="file-name">{{ file }}</span>
+                </button>
+              }
+            }
+
+            <!-- Untracked files -->
+            @if ((status()?.untracked?.length ?? 0) > 0) {
+              <div class="file-section-label">Untracked</div>
+              @for (file of status()!.untracked; track file) {
+                <button
+                  class="file-row"
+                  [class.selected]="selectedFile() === file && selectedDiffType() === 'unstaged'"
+                  type="button"
+                  (click)="selectFile(file, 'unstaged')"
+                >
+                  <span class="file-icon untracked">?</span>
+                  <span class="file-name">{{ file }}</span>
+                </button>
+              }
+            }
+
+            @if (totalChanges() === 0) {
+              <div class="empty-hint">Working tree clean.</div>
+            }
+          }
+
+          @if (leftTab() === 'branches') {
+            @for (branch of branches(); track branch.name) {
+              <div class="branch-row" [class.current]="branch.current">
+                <span class="branch-row-icon">{{ branch.current ? '●' : '○' }}</span>
+                <span class="branch-row-name">{{ branch.name }}</span>
+                @if (branch.remote) {
+                  <span class="branch-row-remote">{{ branch.remote }}</span>
+                }
+              </div>
+            }
+            @if (branches().length === 0) {
+              <div class="empty-hint">No branches found.</div>
+            }
+          }
+        </div>
+      </div>
+
+      <!-- Center: Diff Viewer -->
+      <div class="panel center-panel">
+        @if (selectedFile()) {
+          <div class="diff-file-header">
+            <span class="diff-file-path">{{ selectedFile() }}</span>
+            <span class="diff-type-badge">{{ selectedDiffType() }}</span>
+            @if (diffLoading()) {
+              <span class="diff-loading">Loading diff…</span>
+            }
+          </div>
+          <div class="diff-scroll">
+            <app-diff-viewer
+              [oldContent]="diffOld()"
+              [newContent]="diffNew()"
+              [fileName]="diffFileName()"
+            />
+          </div>
+        } @else {
+          <div class="diff-empty">
+            <span class="diff-empty-icon">&#9997;</span>
+            <span>Select a file to view its diff.</span>
+          </div>
+        }
+      </div>
+
+      <!-- Right: Commit Log -->
+      <div class="panel right-panel">
+        <div class="panel-header-label">Commit Log</div>
+        <div class="commit-list">
+          @for (commit of commits(); track commit.hash) {
+            <button
+              class="commit-row"
+              [class.selected]="selectedCommit()?.hash === commit.hash"
+              type="button"
+              (click)="selectCommit(commit)"
+            >
+              <div class="commit-hash">{{ commit.shortHash }}</div>
+              <div class="commit-message">{{ commit.message }}</div>
+              <div class="commit-meta">{{ commit.author }} · {{ commit.date }}</div>
+            </button>
+          }
+          @if (commits().length === 0) {
+            <div class="empty-hint">No commits found.</div>
+          }
+        </div>
+
+        @if (selectedCommit()) {
+          <div class="commit-detail">
+            <div class="commit-detail-title">Commit Details</div>
+            <div class="commit-detail-hash">{{ selectedCommit()!.hash }}</div>
+            <div class="commit-detail-msg">{{ selectedCommit()!.message }}</div>
+            <div class="commit-detail-meta">
+              {{ selectedCommit()!.author }} · {{ selectedCommit()!.date }}
+            </div>
+          </div>
+        }
+      </div>
+
+    </div>
+  }
+
+  <!-- Bottom Drawer: File History -->
+  @if (isRepo()) {
+    <div class="bottom-drawer" [class.expanded]="historyDrawerOpen()">
+      <button
+        class="drawer-toggle"
+        type="button"
+        (click)="historyDrawerOpen.set(!historyDrawerOpen())"
+      >
+        <span class="drawer-toggle-label">File History</span>
+        <span class="drawer-toggle-icon">{{ historyDrawerOpen() ? '▼' : '▲' }}</span>
+      </button>
+
+      @if (historyDrawerOpen()) {
+        <div class="drawer-body">
+          <div class="history-input-row">
+            <input
+              class="dir-input"
+              type="text"
+              placeholder="File path relative to repo root…"
+              [value]="historyFilePath()"
+              (input)="onHistoryFileInput($event)"
+              (keydown.enter)="loadFileHistory()"
+            />
+            <button
+              class="btn"
+              type="button"
+              [disabled]="historyLoading() || !historyFilePath().trim()"
+              (click)="loadFileHistory()"
+            >
+              Load
+            </button>
+          </div>
+
+          <div class="history-list">
+            @for (entry of fileHistory(); track entry.hash) {
+              <div class="history-row">
+                <span class="history-hash">{{ entry.hash.slice(0, 7) }}</span>
+                <span class="history-message">{{ entry.message }}</span>
+                <span class="history-meta">{{ entry.author }} · {{ entry.date }}</span>
+              </div>
+            }
+            @if (fileHistory().length === 0 && !historyLoading()) {
+              <div class="empty-hint">Load a file path to see its commit history.</div>
+            }
+            @if (historyLoading()) {
+              <div class="empty-hint">Loading…</div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+</div>

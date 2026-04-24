@@ -1,0 +1,290 @@
+// ============================================
+// RESET & BASE STYLES
+// ============================================
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 14% 8%, rgba(var(--secondary-rgb), 0.14), transparent 24%),
+    radial-gradient(circle at 84% 100%, rgba(var(--primary-rgb), 0.1), transparent 26%),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.035), transparent 22%),
+    linear-gradient(135deg, #050907 0%, var(--bg-primary) 42%, #091411 100%);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings:
+    'kern' 1,
+    'liga' 1;
+}
+
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+body::before {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.025), transparent 26%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+  background-size: auto, 140px 140px;
+  opacity: 0.22;
+}
+
+body::after {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.24));
+}
+
+// ============================================
+// CUSTOM SCROLLBAR - Refined and minimal
+// ============================================
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-full);
+  transition: background var(--transition-fast);
+
+  &:hover {
+    background: var(--border-light);
+  }
+}
+
+// Thin scrollbar for nested containers
+.thin-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+// ============================================
+// FOCUS STYLES - Clear and accessible
+// ============================================
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+// ============================================
+// TEXT SELECTION - Warm amber highlight
+// ============================================
+::selection {
+  background: rgba(var(--primary-rgb), 0.24);
+  color: inherit;
+}
+
+::-moz-selection {
+  background: rgba(var(--primary-rgb), 0.24);
+  color: inherit;
+}
+
+// ============================================
+// TYPOGRAPHY
+// ============================================
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: var(--text-3xl);
+}
+h2 {
+  font-size: var(--text-2xl);
+}
+h3 {
+  font-size: var(--text-xl);
+}
+h4 {
+  font-size: var(--text-lg);
+}
+h5 {
+  font-size: var(--text-md);
+}
+h6 {
+  font-size: var(--text-base);
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+
+pre {
+  font-size: var(--text-sm);
+  background: var(--bg-tertiary);
+  padding: var(--spacing-lg);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+}
+
+// ============================================
+// LINKS
+// ============================================
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+
+  &:hover {
+    color: var(--primary-hover);
+  }
+}
+
+// ============================================
+// BUTTONS - Base reset
+// ============================================
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+// ============================================
+// FORM INPUTS - Refined styling
+// ============================================
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  transition: all var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    border-color: var(--border-light);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+  }
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+
+  &:disabled {
+    background: var(--bg-secondary);
+    color: var(--text-disabled);
+    cursor: not-allowed;
+  }
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: var(--leading-relaxed);
+}
+
+select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+// ============================================
+// UTILITY CLASSES
+// ============================================
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+// ============================================
+// STATUS COLORS
+// ============================================
+.status-idle {
+  color: var(--status-idle);
+}
+.status-busy {
+  color: var(--status-busy);
+}
+.status-waiting {
+  color: var(--status-waiting);
+}
+.status-error {
+  color: var(--status-error);
+}
+.status-initializing {
+  color: var(--status-initializing);
+}
+.status-terminated {
+  color: var(--text-muted);
+}

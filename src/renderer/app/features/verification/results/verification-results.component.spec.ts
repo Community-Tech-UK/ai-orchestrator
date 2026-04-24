@@ -15,7 +15,16 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
-import { Component, Input, signal, WritableSignal } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  Component,
+  Input,
+  signal,
+  ɵresolveComponentResources as resolveComponentResources,
+  WritableSignal
+} from '@angular/core';
 import {
   ComponentFixture,
   TestBed
@@ -44,6 +53,30 @@ class StreamingTextStubComponent {
   @Input() isStreaming = false;
   @Input() options: unknown;
 }
+
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const componentTemplate = readFileSync(
+  resolve(specDirectory, './verification-results.component.html'),
+  'utf8'
+);
+const componentStyles = readFileSync(
+  resolve(specDirectory, './verification-results.component.scss'),
+  'utf8'
+);
+
+// Vitest does not run Angular CLI's resource inliner, so resolve external
+// component resources before TestBed imports this standalone component.
+await resolveComponentResources((url) => {
+  if (url.endsWith('verification-results.component.html')) {
+    return Promise.resolve(componentTemplate);
+  }
+
+  if (url.endsWith('verification-results.component.scss')) {
+    return Promise.resolve(componentStyles);
+  }
+
+  return Promise.reject(new Error(`Unexpected component resource: ${url}`));
+});
 
 describe('VerificationResultsComponent', () => {
   let component: VerificationResultsComponent;
@@ -297,17 +330,23 @@ describe('VerificationResultsComponent', () => {
     global.URL.createObjectURL = vi.fn().mockReturnValue('blob:test-url');
     global.URL.revokeObjectURL = vi.fn();
 
+    TestBed.overrideComponent(VerificationResultsComponent, {
+      set: {
+        template: componentTemplate,
+        templateUrl: undefined,
+        styles: [componentStyles],
+        styleUrl: undefined,
+        styleUrls: [],
+        imports: [ConsensusHeatmapStubComponent, StreamingTextStubComponent],
+      }
+    });
+
     await TestBed.configureTestingModule({
       imports: [VerificationResultsComponent],
       providers: [
         { provide: VerificationStore, useValue: mockVerificationStore }
       ]
     })
-      .overrideComponent(VerificationResultsComponent, {
-        set: {
-          imports: [ConsensusHeatmapStubComponent, StreamingTextStubComponent],
-        }
-      })
       .compileComponents();
 
     fixture = TestBed.createComponent(VerificationResultsComponent);

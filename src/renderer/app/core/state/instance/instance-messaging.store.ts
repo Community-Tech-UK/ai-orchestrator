@@ -47,11 +47,9 @@ export class InstanceMessagingStore {
       }
 
       if (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input') {
-        console.log('InstanceMessagingStore: Watchdog draining stuck queue', { instanceId, status: instance.status });
         this.processMessageQueue(instanceId);
       } else if (instance.status === 'failed' || instance.status === 'error' || instance.status === 'terminated') {
         // Terminal state: messages can never be delivered — clear with notification
-        console.log('InstanceMessagingStore: Watchdog clearing queue for terminal instance', { instanceId, status: instance.status });
         this.clearQueueWithNotification(instanceId);
       }
     }
@@ -163,12 +161,6 @@ export class InstanceMessagingStore {
     message: string,
     files?: File[]
   ): Promise<void> {
-    console.log('InstanceMessagingStore: sendInput called', {
-      instanceId,
-      message,
-      filesCount: files?.length,
-    });
-
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
 
@@ -206,10 +198,6 @@ export class InstanceMessagingStore {
       instance.status === 'hibernating' ||
       instance.status === 'degraded'
     ) {
-      console.log('InstanceMessagingStore: Instance not ready, queuing message', {
-        instanceId,
-        status: instance.status,
-      });
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
         const queue = newMap.get(instanceId) || [];
@@ -237,7 +225,6 @@ export class InstanceMessagingStore {
 
     // Drop truly empty messages (no text AND no files)
     if (!message && (!files || files.length === 0)) {
-      console.log('InstanceMessagingStore: Dropping empty message (no text, no files)', { instanceId });
       return;
     }
 
@@ -276,7 +263,6 @@ export class InstanceMessagingStore {
     }
 
     const result = await this.ipc.sendInput(instanceId, message, attachments, retryCount > 0);
-    console.log('InstanceMessagingStore: sendInput result', result);
 
     // If send failed, decide whether to retry or drop
     if (!result.success) {
@@ -327,11 +313,6 @@ export class InstanceMessagingStore {
         });
       }
 
-      console.log('InstanceMessagingStore: Re-queuing failed message at front of queue', {
-        instanceId,
-        errorMessage,
-        retryCount: nextRetryCount,
-      });
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
         const existingQueue = newMap.get(instanceId) || [];
@@ -361,10 +342,6 @@ export class InstanceMessagingStore {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
     if (instance.status !== 'idle' && instance.status !== 'ready' && instance.status !== 'waiting_for_input') {
-      console.log('InstanceMessagingStore: Skipping queue processing, instance not ready', {
-        instanceId,
-        status: instance.status,
-      });
       return;
     }
 
@@ -388,11 +365,6 @@ export class InstanceMessagingStore {
     });
 
     if (nextMessage) {
-      console.log('InstanceMessagingStore: Processing queued message', {
-        instanceId,
-        queueRemaining: remainingQueue.length,
-        retryCount: nextMessage.retryCount ?? 0,
-      });
       // Use setTimeout to avoid state update conflicts
       const retryCount = nextMessage.retryCount ?? 0;
       setTimeout(() => {

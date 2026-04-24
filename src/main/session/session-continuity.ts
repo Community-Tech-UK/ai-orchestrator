@@ -28,6 +28,7 @@ import { getResumeHintManager } from './resume-hint';
 import { getSafeStorage } from './safe-storage-accessor';
 import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compaction-policy';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
+import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 
 const logger = getLogger('SessionContinuity');
 
@@ -257,9 +258,7 @@ export class SessionContinuityManager extends EventEmitter {
   private sessionStates = new Map<string, SessionState>();
   private dirty = new Set<string>();
   private readyPromise: Promise<void>;
-  private globalAutoSaveTimer: NodeJS.Timeout | null = null;
-  private pendingAutoSaveTimers = new Map<string, NodeJS.Timeout>();
-  private autoSaveDeferredUntil = 0;
+  private readonly autoSave: SessionAutoSaveCoordinator;
   private snapshotIndex: SnapshotIndex;
   /** Extracted termination gate orchestration. */
   readonly gateManager: TerminationGateManager;
@@ -300,6 +299,15 @@ export class SessionContinuityManager extends EventEmitter {
     );
     // Forward snapshot events
     this.snapshots.on('snapshot:created', (snapshot) => this.emit('snapshot:created', snapshot));
+    this.autoSave = new SessionAutoSaveCoordinator({
+      getDirtyIds: () => this.dirty,
+      hasDirty: (instanceId) => this.dirty.has(instanceId),
+      isLocked: (instanceId) => getSessionMutex().isLocked(instanceId),
+      saveState: (instanceId) => this.saveStateAsync(instanceId),
+      onSaveError: (instanceId, error) => {
+        logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
+      },
+    });
     this.readyPromise = this.initAsync();
     registerCleanup(() => this.shutdown());
   }
@@ -499,24 +507,7 @@ export class SessionContinuityManager extends EventEmitter {
    * Start the global auto-save timer
    */
   private startGlobalAutoSave(): void {
-    if (!this.config.autoSaveEnabled) return;
-
-    this.globalAutoSaveTimer = setInterval(() => {
-      if (this.getAutoSaveDeferralRemainingMs() > 0) {
-        return;
-      }
-
-      for (const instanceId of this.dirty) {
-        if (getSessionMutex().isLocked(instanceId)) continue;
-
-        // Add random jitter of 0-10s to spread writes
-        this.queueAutoSave(instanceId, Math.random() * 10000);
-      }
-    }, this.config.autoSaveIntervalMs);
-
-    if (this.globalAutoSaveTimer.unref) {
-      this.globalAutoSaveTimer.unref();
-    }
+    this.autoSave.start(this.config);
   }
 
   /**
@@ -565,7 +556,7 @@ export class SessionContinuityManager extends EventEmitter {
    */
   async stopTracking(instanceId: string, archive = false): Promise<void> {
     await this.readyPromise;
-    this.clearPendingAutoSaveTimer(instanceId);
+    this.autoSave.clearPendingAutoSaveTimer(instanceId);
 
     // Run termination gates before teardown
     const state = this.sessionStates.get(instanceId);
@@ -707,19 +698,19 @@ export class SessionContinuityManager extends EventEmitter {
   handleSystemSuspend(): void {
     logger.info('Session auto-save timer noted system suspend', {
       dirtyCount: this.dirty.size,
-      pendingTimers: this.pendingAutoSaveTimers.size,
+      pendingTimers: this.autoSave.pendingCount,
     });
   }
 
   handleSystemResume(graceMs = DEFAULT_RESUME_AUTOSAVE_GRACE_MS): void {
     const normalizedGraceMs = Math.max(0, graceMs);
-    this.autoSaveDeferredUntil = Date.now() + normalizedGraceMs;
+    const deferredUntil = this.autoSave.defer(normalizedGraceMs);
 
     logger.info('Session auto-save deferred after system resume', {
       graceMs: normalizedGraceMs,
-      deferredUntil: this.autoSaveDeferredUntil,
+      deferredUntil,
       dirtyCount: this.dirty.size,
-      pendingTimers: this.pendingAutoSaveTimers.size,
+      pendingTimers: this.autoSave.pendingCount,
     });
   }
 
@@ -1394,20 +1385,18 @@ export class SessionContinuityManager extends EventEmitter {
    */
   configure(config: Partial<ContinuityConfig>): void {
     this.config = { ...this.config, ...config };
+    this.snapshots.updateRetentionConfig({
+      maxSnapshots: this.config.maxSnapshots,
+      maxTotalSnapshots: this.config.maxTotalSnapshots,
+      snapshotRetentionDays: this.config.snapshotRetentionDays,
+    });
 
     // Update global auto-save timer if interval or enabled flag changed
     if (
       config.autoSaveIntervalMs !== undefined ||
       config.autoSaveEnabled !== undefined
     ) {
-      if (this.globalAutoSaveTimer !== null) {
-        clearInterval(this.globalAutoSaveTimer);
-        this.globalAutoSaveTimer = null;
-      }
-      this.clearPendingAutoSaveTimers();
-      if (this.config.autoSaveEnabled) {
-        this.startGlobalAutoSave();
-      }
+      this.autoSave.reconfigure(this.config);
     }
   }
 
@@ -1415,13 +1404,7 @@ export class SessionContinuityManager extends EventEmitter {
    * Cleanup and shutdown — synchronous best-effort save (Electron requirement)
    */
   shutdown(): void {
-    // Clear global autosave timer
-    if (this.globalAutoSaveTimer !== null) {
-      clearInterval(this.globalAutoSaveTimer);
-      this.globalAutoSaveTimer = null;
-    }
-
-    this.clearPendingAutoSaveTimers();
+    this.autoSave.stop();
 
     // Best-effort synchronous save of all dirty states
     for (const instanceId of this.dirty) {
@@ -1455,57 +1438,6 @@ export class SessionContinuityManager extends EventEmitter {
     } catch {
       // Best effort — never block shutdown
     }
-  }
-
-  private queueAutoSave(instanceId: string, delayMs: number): void {
-    if (this.pendingAutoSaveTimers.has(instanceId)) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      this.pendingAutoSaveTimers.delete(instanceId);
-
-      if (!this.dirty.has(instanceId)) {
-        return;
-      }
-
-      const remainingDeferralMs = this.getAutoSaveDeferralRemainingMs();
-      if (remainingDeferralMs > 0) {
-        this.queueAutoSave(instanceId, remainingDeferralMs);
-        return;
-      }
-
-      this.saveStateAsync(instanceId).catch((error) => {
-        logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
-      });
-    }, Math.max(0, Math.ceil(delayMs)));
-
-    if (timer.unref) {
-      timer.unref();
-    }
-
-    this.pendingAutoSaveTimers.set(instanceId, timer);
-  }
-
-  private getAutoSaveDeferralRemainingMs(now = Date.now()): number {
-    return Math.max(0, this.autoSaveDeferredUntil - now);
-  }
-
-  private clearPendingAutoSaveTimers(): void {
-    for (const timer of this.pendingAutoSaveTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.pendingAutoSaveTimers.clear();
-  }
-
-  private clearPendingAutoSaveTimer(instanceId: string): void {
-    const timer = this.pendingAutoSaveTimers.get(instanceId);
-    if (!timer) {
-      return;
-    }
-
-    clearTimeout(timer);
-    this.pendingAutoSaveTimers.delete(instanceId);
   }
 
   /**

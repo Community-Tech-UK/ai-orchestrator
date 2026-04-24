@@ -1,0 +1,267 @@
+    <div class="detail-header">
+      <div class="header-top">
+        <div class="instance-identity">
+          <div class="name-row">
+            <app-status-indicator [status]="instance().status" />
+            @if (isEditingName()) {
+              <input
+                type="text"
+                class="name-input"
+                (keydown.enter)="onSaveName($event)"
+                (keydown.escape)="cancelEditName.emit()"
+                (blur)="onSaveName($event)"
+                #nameInput
+              />
+            } @else {
+              <h2
+                class="instance-name editable"
+                [title]="displayTitle()"
+                role="button"
+                tabindex="0"
+                (dblclick)="startEditName.emit()"
+                (keydown.enter)="startEditName.emit()"
+                (keydown.space)="startEditName.emit()"
+              >
+                <span class="instance-name-text">{{ displayTitle() }}</span>
+                <span class="edit-icon">rename</span>
+              </h2>
+            }
+            @if (isRemote() && instance().status === 'initializing') {
+              <span class="remote-connecting">Connecting to {{ remoteNodeName() }}...</span>
+            }
+          </div>
+        </div>
+
+        <div class="header-actions">
+          @if (instance().status === 'busy') {
+            <button
+              class="btn-action btn-interrupt"
+              title="Interrupt Claude (Esc)"
+              (click)="interrupt.emit()"
+            >
+              ⏸ Interrupt
+            </button>
+          }
+          <div class="open-menu-shell">
+            <button
+              class="btn-action btn-open"
+              title="Open workspace"
+              [disabled]="!instance().workingDirectory"
+              (click)="onToggleOpenMenu($event)"
+            >
+              <span>Open</span>
+              <span class="open-caret">▾</span>
+            </button>
+            @if (showOpenMenu()) {
+              <div class="open-menu">
+                <button
+                  class="open-menu-item"
+                  (click)="openInPreferredEditor()"
+                  [disabled]="isLoadingEditors()"
+                >
+                  Open in {{ preferredEditorLabel() }}
+                </button>
+                <button
+                  class="open-menu-item"
+                  (click)="openInSystemFileManager()"
+                >
+                  Open in {{ systemFolderLabel() }}
+                </button>
+              </div>
+              <button
+                type="button"
+                class="open-menu-backdrop"
+                aria-label="Close open menu"
+                (click)="showOpenMenu.set(false)"
+              ></button>
+            }
+          </div>
+          <div class="restart-menu-shell">
+            <button
+              class="btn-action btn-restart-primary"
+              [title]="restartPrimaryTooltip()"
+              (click)="onRestartPrimary($event)"
+              [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+            >
+              {{ supportsResume() ? '↻ Restart' : '↻ Restart (fresh only)' }}
+            </button>
+            @if (supportsResume()) {
+              <button
+                type="button"
+                class="btn-action btn-restart-caret"
+                title="More restart options"
+                [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+                (click)="onToggleRestartMenu($event)"
+              >
+                ▾
+              </button>
+            }
+            @if (showRestartMenu()) {
+              <div class="restart-menu">
+                <button
+                  class="restart-menu-item"
+                  (click)="restart.emit(); showRestartMenu.set(false)"
+                >
+                  Restart (resume context)
+                </button>
+                <button
+                  class="restart-menu-item"
+                  (click)="restartFresh.emit(); showRestartMenu.set(false)"
+                >
+                  Restart (fresh context)
+                </button>
+              </div>
+              <button
+                type="button"
+                class="restart-menu-backdrop"
+                aria-label="Close restart menu"
+                (click)="showRestartMenu.set(false)"
+              ></button>
+            }
+          </div>
+          <button
+            class="btn-action btn-danger"
+            title="Terminate instance"
+            (click)="terminate.emit()"
+          >
+            × Terminate
+          </button>
+          <button
+            class="btn-action btn-primary"
+            title="Create child instance"
+            (click)="createChild.emit()"
+          >
+            + Child
+          </button>
+          @if (canShowFileExplorer()) {
+            <button
+              class="btn-action btn-icon"
+              [class.active]="isFileExplorerOpen()"
+              [title]="isFileExplorerOpen() ? 'Hide file browser' : 'Show file browser'"
+              (click)="toggleFileExplorer.emit()"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H10l2 2h7.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-10Z"/>
+              </svg>
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="header-bottom">
+        <div class="instance-meta">
+          <span
+            class="provider-badge"
+            [style.background-color]="providerColor()"
+            [title]="'Provider: ' + providerDisplayName()"
+          >
+            {{ providerDisplayName() }}
+          </span>
+          @if (isRemote()) {
+            <span
+              class="node-badge"
+              [class.node-badge-warning]="remoteNodeDisconnected()"
+              [title]="remoteNodeTooltip()"
+            >
+              {{ remoteNodeName() }}
+            </span>
+          }
+          @if (availableModels().length > 0) {
+            <div class="model-selector-inline">
+              <button
+                class="model-btn"
+                [style.border-color]="modelBtnBorderColor()"
+                [style.background]="modelBtnBgColor()"
+                [style.color]="providerColor()"
+                [disabled]="instance().status === 'busy' || instance().status === 'respawning'"
+                (click)="$event.stopPropagation(); toggleModelDropdown.emit()"
+                [title]="'Model: ' + currentModelId()"
+              >
+                {{ currentModelDisplayName() }}
+                <span class="dropdown-caret">▼</span>
+              </button>
+              @if (showModelDropdown()) {
+                <div class="model-dropdown">
+                  @for (model of availableModels(); track model.id) {
+                    <button
+                      class="model-option"
+                      [class.selected]="model.id === currentModelId()"
+                      (click)="selectModel.emit(model.id)"
+                    >
+                      <span class="model-name">{{ model.name }}</span>
+                      <span class="model-tier" [class]="'tier-' + model.tier">{{ model.tier }}</span>
+                      @if (model.id === currentModelId()) {
+                        <span class="check">✓</span>
+                      }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+            @if (showModelDropdown()) {
+              <button
+                type="button"
+                class="model-backdrop"
+                aria-label="Close model menu"
+                (click)="closeModelDropdown.emit()"
+              ></button>
+            }
+          }
+          <button
+            class="mode-badge"
+            [class.plan]="instance().agentId === 'plan'"
+            [class.review]="instance().agentId === 'review'"
+            [disabled]="isChangingMode() || instance().status === 'busy' || instance().status === 'respawning'"
+            [title]="
+              instance().status === 'busy' || instance().status === 'respawning'
+                ? 'Cannot change mode while instance is busy'
+                : 'Click to change mode'
+            "
+            (click)="cycleAgentMode.emit()"
+          >
+            {{ agentModeIcon() }}
+            {{ agentModeName() }}
+          </button>
+          <app-recent-directories-dropdown
+            [currentPath]="instance().workingDirectory || ''"
+            (folderSelected)="selectFolder.emit($event)"
+          />
+          <button
+            class="yolo-badge"
+            [class.active]="instance().yoloMode"
+            [disabled]="isTogglingYolo() || instance().status === 'busy' || instance().status === 'respawning'"
+            [title]="
+              instance().status === 'busy' || instance().status === 'respawning'
+                ? 'Cannot toggle YOLO mode while instance is busy'
+                : instance().yoloMode
+                  ? 'YOLO Mode: Auto-approve all tool calls without prompting. Click to disable'
+                  : 'YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve'
+            "
+            (click)="toggleYolo.emit()"
+          >
+            ⚡ YOLO {{ instance().yoloMode ? 'ON' : 'OFF' }}
+          </button>
+          @if (activeSkillCount() > 0) {
+            <span class="skills-badge" [title]="activeSkillsTooltip()">
+              🧩 {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
+            </span>
+          }
+          @if (enabledHookCount() > 0) {
+            <span class="hooks-badge" [title]="enabledHooksTooltip()">
+              🪝 {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
+            </span>
+          }
+          <app-cross-model-review-indicator
+            [instanceId]="instance().id"
+            (indicatorClicked)="reviewPanelToggle.emit()"
+          />
+        </div>
+
+        @if (contextUsage(); as usage) {
+          <div class="header-context">
+            <app-context-bar [usage]="usage" [showDetails]="true" [showCost]="false" />
+          </div>
+        }
+      </div>
+    </div>

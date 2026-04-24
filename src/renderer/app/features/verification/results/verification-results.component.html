@@ -1,0 +1,450 @@
+    <div class="results-container">
+      @if (result(); as r) {
+        <!-- Header -->
+        <div class="results-header">
+          <div class="header-info">
+            <h2 class="results-title">Verification Results</h2>
+            <div class="results-meta">
+              <span>Completed: {{ formatTime(r.completedAt) }}</span>
+              <span>Duration: {{ formatDuration(r.totalDuration) }}</span>
+              <span>Total Cost: {{ formatCost(r.totalCost) }}</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button class="action-btn secondary" (click)="exportResults()">
+              Export
+            </button>
+            <button class="action-btn primary" (click)="newVerification()">
+              New Verification
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+          <button
+            class="tab-btn"
+            [class.active]="selectedTab() === 'summary'"
+            (click)="selectTab('summary')"
+          >
+            Summary
+          </button>
+          <button
+            class="tab-btn"
+            [class.active]="selectedTab() === 'comparison'"
+            (click)="selectTab('comparison')"
+          >
+            Comparison
+          </button>
+          @if (r.debateRounds && r.debateRounds.length > 0) {
+            <button
+              class="tab-btn"
+              [class.active]="selectedTab() === 'debate'"
+              (click)="selectTab('debate')"
+            >
+              Debate Rounds
+            </button>
+          }
+          <button
+            class="tab-btn"
+            [class.active]="selectedTab() === 'raw'"
+            (click)="selectTab('raw')"
+          >
+            Raw Responses
+          </button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+          @switch (selectedTab()) {
+            @case ('summary') {
+              <!-- Synthesized Result -->
+              <section class="section">
+                <div class="section-header">
+                  <h3 class="section-title">Synthesized Result</h3>
+                  <div class="section-actions">
+                    <button
+                      class="copy-btn"
+                      [class.copied]="isCopied('summary')"
+                      [disabled]="!r.synthesizedResponse"
+                      title="Copy synthesized response"
+                      (click)="copyContent('summary', r.synthesizedResponse)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect
+                          x="9"
+                          y="9"
+                          width="13"
+                          height="13"
+                          rx="2"
+                          ry="2"
+                        ></rect>
+                        <path
+                          d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                        ></path>
+                      </svg>
+                      <span>{{
+                        isCopied('summary') ? 'Copied' : 'Copy Summary'
+                      }}</span>
+                    </button>
+                    <div
+                      class="confidence-badge"
+                      [class]="getConfidenceClass(r.synthesisConfidence)"
+                    >
+                      Confidence:
+                      {{ ((r.synthesisConfidence || 0) * 100).toFixed(0) }}%
+                    </div>
+                  </div>
+                </div>
+
+                <div class="synthesis-info">
+                  <span class="info-label">Method:</span>
+                  <span class="info-value">
+                    {{ r.synthesisMethod }}
+                    @if (r.debateRounds) {
+                      ({{ r.debateRounds.length }} rounds)
+                    }
+                  </span>
+                </div>
+
+                <div class="synthesis-content">
+                  <app-streaming-text
+                    [text]="r.synthesizedResponse || ''"
+                    [isStreaming]="false"
+                    [options]="{ enableMarkdown: true, showCursor: false, autoScroll: false }"
+                  />
+                </div>
+              </section>
+
+              <!-- Agreement Summary -->
+              @if (r.analysis) {
+                <section class="section">
+                  <div class="section-header">
+                    <h3 class="section-title">Agreement Summary</h3>
+                    <button
+                      class="copy-btn"
+                      [class.copied]="isCopied('agreements')"
+                      [disabled]="!r.analysis.agreements.length"
+                      title="Copy agreement summary"
+                      (click)="
+                        copyContent(
+                          'agreements',
+                          formatAgreementsText(r.analysis.agreements)
+                        )
+                      "
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect
+                          x="9"
+                          y="9"
+                          width="13"
+                          height="13"
+                          rx="2"
+                          ry="2"
+                        ></rect>
+                        <path
+                          d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                        ></path>
+                      </svg>
+                      <span>{{
+                        isCopied('agreements') ? 'Copied' : 'Copy Agreements'
+                      }}</span>
+                    </button>
+                  </div>
+
+                  @if (
+                    r.analysis.agreements && r.analysis.agreements.length > 0
+                  ) {
+                    <div class="agreement-list">
+                      @for (
+                        agreement of r.analysis.agreements;
+                        track agreement.point
+                      ) {
+                        <div class="agreement-item">
+                          <span class="agreement-icon">{{
+                            getAgreementIcon(agreement.strength)
+                          }}</span>
+                          <span class="agreement-text">{{
+                            agreement.point
+                          }}</span>
+                          <span class="agreement-count"
+                            >{{ agreement.agentIds.length }} agents</span
+                          >
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <p class="empty-text">No strong agreements identified.</p>
+                  }
+                </section>
+
+                <!-- Consensus Heatmap -->
+                <section class="section">
+                  <h3 class="section-title">Consensus Heatmap</h3>
+                  <app-consensus-heatmap
+                    [agents]="getAgentNames()"
+                    [matrix]="getConsensusMatrix()"
+                  />
+                </section>
+              }
+            }
+
+            @case ('comparison') {
+              <!-- Agent Comparison -->
+              <section class="section">
+                <h3 class="section-title">Agent Comparison</h3>
+
+                <div class="comparison-grid">
+                  @for (response of r.responses; track response.agentId) {
+                    <div class="comparison-card">
+                      <div class="card-header">
+                        <span class="agent-name">{{ response.model }}</span>
+                        <span class="agent-personality"
+                          >({{ formatPersonality(response.personality) }})</span
+                        >
+                        <button
+                          class="copy-btn compact"
+                          [class.copied]="
+                            isCopied('comparison-' + response.agentId)
+                          "
+                          [disabled]="!response.response"
+                          title="Copy full response"
+                          (click)="
+                            copyContent(
+                              'comparison-' + response.agentId,
+                              response.response
+                            )
+                          "
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <rect
+                              x="9"
+                              y="9"
+                              width="13"
+                              height="13"
+                              rx="2"
+                              ry="2"
+                            ></rect>
+                            <path
+                              d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            ></path>
+                          </svg>
+                          <span>{{
+                            isCopied('comparison-' + response.agentId)
+                              ? 'Copied'
+                              : 'Copy'
+                          }}</span>
+                        </button>
+                      </div>
+
+                      <div class="card-confidence">
+                        Confidence:
+                        {{ ((response.confidence || 0) * 100).toFixed(0) }}%
+                      </div>
+
+                      @if (
+                        response.keyPoints && response.keyPoints.length > 0
+                      ) {
+                        <div class="key-points">
+                          <h4>Key Points</h4>
+                          <ul>
+                            @for (point of response.keyPoints; track point.id) {
+                              <li>
+                                <span class="point-category"
+                                  >[{{ point.category }}]</span
+                                >
+                                {{ point.content }}
+                              </li>
+                            }
+                          </ul>
+                        </div>
+                      } @else if (response.response) {
+                        <div class="response-preview">
+                          <p>{{ truncateResponse(response.response) }}</p>
+                        </div>
+                      }
+
+                      <div class="card-meta">
+                        <span>{{ response.tokens || 0 }} tokens</span>
+                        <span>{{ formatCost(response.cost || 0) }}</span>
+                        <span>{{
+                          formatDuration(response.duration || 0)
+                        }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </section>
+            }
+
+            @case ('debate') {
+              <!-- Debate Rounds -->
+              @if (r.debateRounds) {
+                <section class="section">
+                  <div class="round-selector">
+                    @for (
+                      round of r.debateRounds;
+                      track round.roundNumber;
+                      let i = $index
+                    ) {
+                      <button
+                        class="round-btn"
+                        [class.active]="selectedRound() === i"
+                        (click)="selectRound(i)"
+                      >
+                        Round {{ round.roundNumber }}:
+                        {{ getRoundLabel(round.type) }}
+                      </button>
+                    }
+                  </div>
+
+                  @if (currentRound(); as round) {
+                    <div class="round-info">
+                      <div class="round-meta">
+                        <div class="round-meta-items">
+                          <span
+                            >Consensus:
+                            {{
+                              ((round.consensusScore || 0) * 100).toFixed(0)
+                            }}%</span
+                          >
+                          <span
+                            >Duration:
+                            {{ formatDuration(round.durationMs) }}</span
+                          >
+                        </div>
+                        <button
+                          class="copy-btn compact"
+                          [class.copied]="
+                            isCopied('round-' + round.roundNumber)
+                          "
+                          title="Copy round details"
+                          (click)="
+                            copyContent(
+                              'round-' + round.roundNumber,
+                              formatRoundText(round)
+                            )
+                          "
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <rect
+                              x="9"
+                              y="9"
+                              width="13"
+                              height="13"
+                              rx="2"
+                              ry="2"
+                            ></rect>
+                            <path
+                              d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                            ></path>
+                          </svg>
+                          <span>{{
+                            isCopied('round-' + round.roundNumber)
+                              ? 'Copied'
+                              : 'Copy Round'
+                          }}</span>
+                        </button>
+                      </div>
+
+                      <div class="contributions">
+                        @for (
+                          contrib of round.contributions;
+                          track contrib.agentId
+                        ) {
+                          <div class="contribution-card">
+                            <div class="contrib-header">
+                              <span class="agent-name">{{
+                                contrib.agentId
+                              }}</span>
+                            </div>
+                            <div class="contrib-content">
+                              {{ contrib.content }}
+                            </div>
+                            @if (
+                              contrib.critiques && contrib.critiques.length > 0
+                            ) {
+                              <div class="critiques">
+                                <h5>Critiques:</h5>
+                                @for (
+                                  critique of contrib.critiques;
+                                  track critique.targetAgentId
+                                ) {
+                                  <div class="critique-item">
+                                    <span class="critique-target"
+                                      >Re: {{ critique.targetAgentId }}</span
+                                    >
+                                    <p>{{ critique.issue }}</p>
+                                  </div>
+                                }
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                </section>
+              }
+            }
+
+            @case ('raw') {
+              <!-- Raw Responses -->
+              <section class="section">
+                <h3 class="section-title">Raw Agent Responses</h3>
+
+                @for (response of r.responses; track response.agentId) {
+                  <div class="raw-response">
+                    <div class="response-header">
+                      <span class="agent-name">{{ response.model }}</span>
+                      <span class="agent-personality"
+                        >({{ formatPersonality(response.personality) }})</span
+                      >
+                      <button
+                        class="copy-btn compact"
+                        [class.copied]="isCopied('raw-' + response.agentId)"
+                        [disabled]="!response.response"
+                        title="Copy raw response"
+                        (click)="
+                          copyContent(
+                            'raw-' + response.agentId,
+                            response.response
+                          )
+                        "
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <rect
+                            x="9"
+                            y="9"
+                            width="13"
+                            height="13"
+                            rx="2"
+                            ry="2"
+                          ></rect>
+                          <path
+                            d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                          ></path>
+                        </svg>
+                        <span>{{
+                          isCopied('raw-' + response.agentId)
+                            ? 'Copied'
+                            : 'Copy'
+                        }}</span>
+                      </button>
+                    </div>
+                    <pre class="response-content">{{ response.response }}</pre>
+                  </div>
+                }
+              </section>
+            }
+          }
+        </div>
+      } @else {
+        <div class="empty-state">
+          <p>No verification results available.</p>
+          <button class="action-btn primary" (click)="newVerification()">
+            Start New Verification
+          </button>
+        </div>
+      }
+    </div>

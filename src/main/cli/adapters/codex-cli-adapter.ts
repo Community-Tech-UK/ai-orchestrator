@@ -34,15 +34,11 @@ import {
   CliResponse,
   CliStatus,
   CliToolCall,
-  CliUsage,
 } from './base-cli-adapter';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
-import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+import { extractThinkingContent, type ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { buildMessageWithFiles, processAttachments, type ProcessedAttachment } from '../file-handler';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, lstatSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { getLogger } from '../../logging/logger';
 import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
 import { ActivityStateDetector } from '../../providers/activity-state-detector';
@@ -67,6 +63,12 @@ import type {
 import { SERVICE_NAME } from './codex/app-server-types';
 import { CodexSessionScanner } from './codex/session-scanner';
 import type { ResumeCursor } from '../../session/session-continuity';
+import { supportsCodexInlineImage } from './codex/attachments';
+import { extractCodexAppServerError, formatCodexAppServerError } from './codex/app-server-errors';
+import { CodexHomeManager } from './codex/codex-home-manager';
+import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
+import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
+import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -74,15 +76,6 @@ const logger = getLogger('CodexCliAdapter');
 
 type CodexApprovalMode = 'suggest' | 'auto-edit' | 'full-auto';
 type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
-
-interface CodexDiagnostic {
-  category: 'auth' | 'mcp' | 'models' | 'process' | 'sandbox' | 'session' | 'startup' | 'unknown';
-  fatal: boolean;
-  line: string;
-  level: 'error' | 'info' | 'warning';
-  /** True when already surfaced to the UI during stderr streaming; close-time emit skips these. */
-  streamed?: boolean;
-}
 
 interface CodexExecutionResult {
   code: number | null;
@@ -97,9 +90,7 @@ interface CodexExecutionState {
   partialStdout: string;
   rawStderr: string;
   rawStdout: string;
-  toolCalls: CliToolCall[];
   threadId?: string;
-  usage?: CliUsage;
   /** Keys (category:line) of diagnostics already surfaced in real-time, to avoid spamming the UI during retry loops. */
   emittedDiagnosticKeys: Set<string>;
 }
@@ -161,151 +152,6 @@ const INFERRED_COMPLETION_MS = 250;
 /** Regex to detect verification commands for progress phase reporting. */
 const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|check|verify|validate|pytest|jest|vitest|cargo test|npm test|pnpm test|yarn test|go test|mvn test|gradle test|tsc|eslint|ruff)\b/i;
 
-/** Codex inline image inputs only support a subset of image mime types. */
-const CODEX_INLINE_IMAGE_MIME_TYPES = new Set([
-  'image/gif',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-]);
-
-function supportsCodexInlineImage(mimeType: string | undefined): boolean {
-  if (!mimeType) {
-    return false;
-  }
-
-  return CODEX_INLINE_IMAGE_MIME_TYPES.has(mimeType.trim().toLowerCase());
-}
-
-interface CodexAppServerErrorDetails {
-  additionalDetails?: string;
-  codexErrorInfo?: string;
-  message: string;
-  willRetry?: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readStringField(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
-  if (!record) {
-    return undefined;
-  }
-
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return undefined;
-}
-
-function serializeCodexErrorInfo(value: unknown): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  if (typeof value === 'string') {
-    return value.trim() || undefined;
-  }
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function extractCodexAppServerError(params: Record<string, unknown>): CodexAppServerErrorDetails {
-  const nestedError = isRecord(params['error']) ? params['error'] : undefined;
-  const message = readStringField(params, 'message')
-    ?? readStringField(nestedError, 'message')
-    ?? 'Unknown error from codex app-server';
-  const additionalDetails = readStringField(params, 'additionalDetails', 'additional_details')
-    ?? readStringField(nestedError, 'additionalDetails', 'additional_details');
-  const codexErrorInfo = serializeCodexErrorInfo(
-    params['codex_error_info']
-      ?? params['codexErrorInfo']
-      ?? nestedError?.['codex_error_info']
-      ?? nestedError?.['codexErrorInfo']
-  );
-  const willRetry = typeof params['willRetry'] === 'boolean' ? params['willRetry'] : undefined;
-
-  return {
-    additionalDetails,
-    codexErrorInfo,
-    message,
-    willRetry,
-  };
-}
-
-function formatCodexAppServerError(details: CodexAppServerErrorDetails): string {
-  const parts = [details.message];
-  if (details.additionalDetails && details.additionalDetails !== details.message) {
-    parts.push(details.additionalDetails);
-  }
-  if (details.codexErrorInfo) {
-    parts.push(`[codex_error_info: ${details.codexErrorInfo}]`);
-  }
-  return parts.join(' - ');
-}
-
-// ─── Reasoning Deduplication (ported from codex-plugin-cc) ─────────────────
-
-/** Normalize whitespace for dedup comparison. */
-function normalizeReasoningText(text: unknown): string {
-  return String(text ?? '').replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Recursively extracts reasoning text from the heterogeneous `summary` field
- * that Codex sends on `reasoning` item completions. The value can be a plain
- * string, an array of strings/objects, or a nested object with `text`,
- * `summary`, `content`, or `parts` keys.
- */
-function extractReasoningSections(value: unknown): string[] {
-  if (!value) return [];
-
-  if (typeof value === 'string') {
-    const normalized = normalizeReasoningText(value);
-    return normalized ? [normalized] : [];
-  }
-
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => extractReasoningSections(entry));
-  }
-
-  if (typeof value === 'object' && value !== null) {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj['text'] === 'string') return extractReasoningSections(obj['text']);
-    if ('summary' in obj) return extractReasoningSections(obj['summary']);
-    if ('content' in obj) return extractReasoningSections(obj['content']);
-    if ('parts' in obj) return extractReasoningSections(obj['parts']);
-  }
-
-  return [];
-}
-
-/** Merge new reasoning sections into existing, skipping duplicates. */
-function mergeReasoningSections(existing: string[], next: string[]): string[] {
-  const merged: string[] = [];
-  for (const section of [...existing, ...next]) {
-    const normalized = normalizeReasoningText(section);
-    if (!normalized || merged.includes(normalized)) continue;
-    merged.push(normalized);
-  }
-  return merged;
-}
-
-/** Shorten a string to maxLen chars, appending ellipsis if truncated. */
-function shorten(text: string | undefined, maxLen: number): string {
-  if (!text) return '';
-  return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + '…';
-}
-
 // ─── Error types ────────────────────────────────────────────────────────────
 
 /**
@@ -363,8 +209,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private static readonly MAX_REPLAY_ENTRIES = 16;
 
   private cliConfig: CodexCliConfig;
-  /** Temp directory used as CODEX_HOME to bypass user MCP servers (exec mode) */
-  private codexHomeDir?: string;
+  private readonly codexHome = new CodexHomeManager();
   private isSpawned = false;
   /** Running total of tokens spent across all turns (for cost/spend tracking). */
   private cumulativeTokensUsed = 0;
@@ -2125,7 +1970,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
-    const parsed = this.parseTranscript(raw, []);
+    const parsed = parseCodexExecTranscript(raw, [], this.generateResponseId());
     return parsed.response;
   }
 
@@ -2186,93 +2031,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   // ─── Exec mode: internal methods ─────────────────────────────────────
 
-  private classifyDiagnostic(line: string): CodexDiagnostic {
-    const trimmed = line.trim();
-    const lower = trimmed.toLowerCase();
-    const hasErrorLevel = /\berror\b/i.test(trimmed);
-    const hasWarnLevel = /\bwarn\b/i.test(trimmed);
-
-    if (
-      lower.includes('failed to refresh available models')
-      || lower.includes('timeout waiting for child process to exit')
-    ) {
-      return { category: 'models', fatal: false, line: trimmed, level: 'warning' };
-    }
-
-    if (
-      lower.includes('failed to terminate mcp process group')
-      || lower.includes('failed to kill mcp process group')
-    ) {
-      return { category: 'mcp', fatal: false, line: trimmed, level: 'warning' };
-    }
-
-    if (lower.includes('failed to delete shell snapshot')) {
-      return { category: 'startup', fatal: false, line: trimmed, level: 'warning' };
-    }
-
-    // Internal Codex state-db housekeeping logs (e.g. "state db missing rollout path for thread ...")
-    // These are non-actionable Rust-level diagnostics that should not surface to the user.
-    if (lower.includes('state db missing rollout path') || lower.includes('codex_core::rollout')) {
-      return { category: 'unknown', fatal: false, line: trimmed, level: 'info' };
-    }
-
-    if (
-      lower.includes('unauthorized')
-      || lower.includes('authentication')
-      || lower.includes('forbidden')
-      || lower.includes('login required')
-    ) {
-      return { category: 'auth', fatal: true, line: trimmed, level: 'error' };
-    }
-
-    if (
-      lower.includes('unknown model')
-      || lower.includes('model not found')
-      || lower.includes('invalid model')
-    ) {
-      return { category: 'models', fatal: true, line: trimmed, level: 'error' };
-    }
-
-    if (
-      lower.includes('session not found')
-      || lower.includes('thread not found')
-      || lower.includes('no matching session')
-    ) {
-      return { category: 'session', fatal: true, line: trimmed, level: 'error' };
-    }
-
-    if (
-      lower.includes('permission denied')
-      || lower.includes('sandbox')
-      || lower.includes('dangerously-bypass-approvals-and-sandbox')
-    ) {
-      return { category: 'sandbox', fatal: hasErrorLevel, line: trimmed, level: hasErrorLevel ? 'error' : 'warning' };
-    }
-
-    if (hasWarnLevel) {
-      return { category: 'unknown', fatal: false, line: trimmed, level: 'warning' };
-    }
-
-    if (hasErrorLevel) {
-      return { category: 'process', fatal: false, line: trimmed, level: 'warning' };
-    }
-
-    return { category: 'unknown', fatal: false, line: trimmed, level: 'info' };
-  }
-
-  private cleanContent(raw: string): string {
-    const nonJsonContent = raw
-      .split('\n')
-      .map((line) => line.trimEnd())
-      .filter((line) => line.trim() && !line.trim().startsWith('{'))
-      .join('\n');
-    const { response } = extractThinkingContent(nonJsonContent);
-    return response
-      .replace(/\[TOOL:\s*\w+\][\s\S]*?\[\/TOOL\]/g, '')
-      .replace(/\[codex\].*$/gim, '')
-      .trim();
-  }
-
   private async executePreparedMessage(
     message: CliMessage,
     options: { timeoutMs: number; phase: CodexExecPhase }
@@ -2286,7 +2044,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
         partialStdout: '',
         rawStderr: '',
         rawStdout: '',
-        toolCalls: [],
         emittedDiagnosticKeys: new Set<string>(),
       };
 
@@ -2408,7 +2165,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const chunk = data.toString();
         state.rawStderr += chunk;
         state.partialStderr = this.consumeLines(chunk, state.partialStderr, (line) => {
-          const diagnostic = this.classifyDiagnostic(line);
+          const diagnostic = classifyCodexDiagnostic(line);
           state.diagnostics.push(diagnostic);
 
           // Surface non-noise diagnostics (warning + error levels, including
@@ -2457,10 +2214,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
           this.processStdoutLine(state.partialStdout, state);
         }
         if (state.partialStderr.trim()) {
-          state.diagnostics.push(this.classifyDiagnostic(state.partialStderr));
+          state.diagnostics.push(classifyCodexDiagnostic(state.partialStderr));
         }
 
-        const parsed = this.parseTranscript(state.rawStdout, state.diagnostics);
+        const parsed = parseCodexExecTranscript(
+          state.rawStdout,
+          state.diagnostics,
+          this.generateResponseId(),
+        );
         const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
 
         if (parsed.threadId && this.supportsNativeResume()) {
@@ -2616,193 +2377,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
   }
 
-  private extractTextFromItem(item: Record<string, unknown>): string | undefined {
-    if (typeof item['text'] === 'string') {
-      return item['text'];
-    }
-
-    const message = item['message'];
-    if (message && typeof message === 'object' && typeof (message as Record<string, unknown>)['content'] === 'string') {
-      return (message as Record<string, unknown>)['content'] as string;
-    }
-
-    const content = item['content'];
-    if (typeof content === 'string') {
-      return content;
-    }
-
-    return undefined;
-  }
-
-  private parseTranscript(
-    rawStdout: string,
-    diagnostics: CodexDiagnostic[]
-  ): {
-    hasMeaningfulOutput: boolean;
-    response: CliResponse & { metadata: Record<string, unknown>; thinking?: ThinkingBlock[] };
-    threadId?: string;
-  } {
-    const lines = rawStdout.split('\n').map((line) => line.trim()).filter(Boolean);
-    const contentParts: string[] = [];
-    const reasoningParts: string[] = [];
-    const toolCalls: CliToolCall[] = [];
-    let usage: CliUsage | undefined;
-    let threadId: string | undefined;
-
-    for (const line of lines) {
-      try {
-        const event = JSON.parse(line) as Record<string, unknown>;
-        const type = typeof event['type'] === 'string' ? event['type'] : '';
-
-        // Capture thread/session ID from various Codex event formats.
-        // Different Codex CLI versions use different event names.
-        if (!threadId) {
-          const id = event['thread_id'] ?? event['session_id'] ?? event['id'];
-          if (
-            typeof id === 'string'
-            && (type === 'thread.started'
-              || type === 'session.started'
-              || type === 'session.created'
-              || type === 'thread.created')
-          ) {
-            threadId = id;
-            continue;
-          }
-        }
-
-        if (type === 'turn.completed' && event['usage'] && typeof event['usage'] === 'object') {
-          const usageEvent = event['usage'] as Record<string, unknown>;
-          const inputTokens = typeof usageEvent['input_tokens'] === 'number' ? usageEvent['input_tokens'] : 0;
-          const outputTokens = typeof usageEvent['output_tokens'] === 'number' ? usageEvent['output_tokens'] : 0;
-          usage = {
-            inputTokens,
-            outputTokens,
-            totalTokens: inputTokens + outputTokens,
-          };
-          continue;
-        }
-
-        if (type === 'item.completed' && event['item'] && typeof event['item'] === 'object') {
-          const item = event['item'] as Record<string, unknown>;
-          const itemType = typeof item['type'] === 'string' ? item['type'] : '';
-
-          if (itemType === 'agent_message') {
-            const text = this.extractTextFromItem(item);
-            if (text) {
-              contentParts.push(text);
-            }
-            continue;
-          }
-
-          if (itemType === 'command_execution') {
-            toolCalls.push({
-              id: typeof item['id'] === 'string' ? item['id'] : `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              name: 'command_execution',
-              arguments: {
-                command: item['command'],
-                exitCode: item['exit_code'],
-                status: item['status'],
-              },
-              result: typeof item['aggregated_output'] === 'string' ? item['aggregated_output'] : undefined,
-            });
-            continue;
-          }
-
-          // Reasoning items are the model's chain-of-thought — capture
-          // separately so they don't leak into the visible response content.
-          if (itemType === 'reasoning') {
-            const sections = extractReasoningSections(item['summary'] ?? item['summaryText'] ?? item['text'] ?? item['content']);
-            reasoningParts.push(...sections);
-            continue;
-          }
-
-          // Skip other non-content item types that shouldn't appear in the
-          // response (file changes, tool calls, web searches, etc.).
-          if (itemType === 'file_change' || itemType === 'fileChange'
-            || itemType === 'mcpToolCall' || itemType === 'dynamicToolCall'
-            || itemType === 'webSearch' || itemType === 'exitedReviewMode'
-            || itemType === 'collaboration') {
-            continue;
-          }
-
-          // Only fall through for genuinely unrecognized content-bearing items
-          const fallbackText = this.extractTextFromItem(item);
-          if (fallbackText) {
-            contentParts.push(fallbackText);
-          }
-          continue;
-        }
-
-        if (type === 'message' && typeof event['content'] === 'string') {
-          contentParts.push(event['content']);
-          continue;
-        }
-
-        if (type === 'agent_message' && event['message'] && typeof event['message'] === 'object') {
-          const message = event['message'] as Record<string, unknown>;
-          if (typeof message['content'] === 'string') {
-            contentParts.push(message['content']);
-          }
-          continue;
-        }
-
-        if (type === 'text' && typeof event['text'] === 'string') {
-          contentParts.push(event['text']);
-          continue;
-        }
-      } catch {
-        if (!line.startsWith('{')) {
-          contentParts.push(line);
-        }
-      }
-    }
-
-    let content = contentParts.join('\n').trim();
-    if (!content) {
-      content = this.cleanContent(rawStdout);
-    }
-
-    if (toolCalls.length === 0) {
-      toolCalls.push(...this.extractToolCallsFromFallback(rawStdout));
-    }
-
-    const extracted = extractThinkingContent(content);
-
-    // Merge thinking from structured reasoning items + heuristic extraction
-    const allThinking: ThinkingBlock[] = [];
-
-    // Structured reasoning items (from item.completed type:reasoning events)
-    const dedupedReasoning = mergeReasoningSections([], reasoningParts);
-    if (dedupedReasoning.length > 0) {
-      allThinking.push({
-        id: generateId(),
-        content: dedupedReasoning.join('\n\n'),
-        format: 'structured',
-      });
-    }
-
-    // Heuristic-extracted thinking from agent message text
-    allThinking.push(...extracted.thinking);
-
-    return {
-      hasMeaningfulOutput: extracted.response.trim().length > 0 || toolCalls.length > 0,
-      response: {
-        id: this.generateResponseId(),
-        content: extracted.response,
-        role: 'assistant',
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        usage,
-        metadata: {
-          diagnostics,
-          threadId,
-        },
-        raw: rawStdout,
-        thinking: allThinking.length > 0 ? allThinking : undefined,
-      },
-      threadId,
-    };
-  }
-
   private processStdoutLine(line: string, state: CodexExecutionState): void {
     const trimmed = line.trim();
     if (!trimmed) {
@@ -2919,22 +2493,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return remainder;
   }
 
-  private extractToolCallsFromFallback(raw: string): CliToolCall[] {
-    const toolCalls: CliToolCall[] = [];
-    const toolPattern = /\[TOOL:\s*(\w+)\]([\s\S]*?)\[\/TOOL\]/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = toolPattern.exec(raw)) !== null) {
-      toolCalls.push({
-        id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: match[1],
-        arguments: { raw: match[2].trim() },
-      });
-    }
-
-    return toolCalls;
-  }
-
   private async delay(ms: number): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, ms));
   }
@@ -3009,114 +2567,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
   }
 
-  // ============ MCP-free CODEX_HOME (exec mode only) ============
-
-  /**
-   * Create a clean CODEX_HOME directory that mirrors ~/.codex/ but without
-   * MCP server definitions.  The `-c mcp_servers={}` CLI override is broken
-   * in the Codex CLI — it does NOT prevent MCP tool descriptions from being
-   * loaded into the system prompt (~87K tokens, 60-90s startup per server).
-   *
-   * Instead we create a temp directory, symlink everything from the real
-   * ~/.codex/ (auth, sessions, models cache, etc.), and write a stripped
-   * config.toml that omits all [mcp_servers.*] sections.
-   */
   private prepareCleanCodexHome(): void {
-    const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
-    const codexDir = join(homeDir, '.codex');
-
-    if (!existsSync(codexDir)) {
-      logger.debug('No ~/.codex directory found, skipping CODEX_HOME override');
-      return;
+    const codexHomeDir = this.codexHome.prepareMcpFreeHome();
+    if (codexHomeDir) {
+      this.config.env = { ...this.config.env, CODEX_HOME: codexHomeDir };
     }
-
-    const configPath = join(codexDir, 'config.toml');
-    if (!existsSync(configPath)) {
-      logger.debug('No ~/.codex/config.toml found, skipping CODEX_HOME override');
-      return;
-    }
-
-    // Check if the config even has MCP servers before creating the override
-    const configContent = readFileSync(configPath, 'utf-8');
-    if (!configContent.includes('[mcp_servers')) {
-      logger.debug('No MCP servers in config, skipping CODEX_HOME override');
-      return;
-    }
-
-    try {
-      const tempDir = mkdtempSync(join(tmpdir(), 'codex-nomcp-'));
-
-      // Symlink all files/dirs from ~/.codex/ except config.toml
-      const entries = readdirSync(codexDir);
-      for (const entry of entries) {
-        if (entry === 'config.toml') continue;
-        const source = join(codexDir, entry);
-        const target = join(tempDir, entry);
-        try {
-          // Use the same type of symlink as the source (file vs dir)
-          const stat = lstatSync(source);
-          symlinkSync(source, target, stat.isDirectory() ? 'dir' : 'file');
-        } catch {
-          // Skip entries that can't be symlinked (e.g., permission issues)
-          logger.debug('Could not symlink codex entry', { entry });
-        }
-      }
-
-      // Write config.toml with MCP servers stripped
-      const strippedConfig = this.stripMcpServers(configContent);
-      writeFileSync(join(tempDir, 'config.toml'), strippedConfig, 'utf-8');
-
-      this.codexHomeDir = tempDir;
-      this.config.env = { ...this.config.env, CODEX_HOME: tempDir };
-
-      logger.info('Created MCP-free CODEX_HOME', { path: tempDir });
-    } catch (err) {
-      logger.warn('Failed to create clean CODEX_HOME, MCP servers may cause latency', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  /**
-   * Strip all [mcp_servers.*] sections from a TOML config string.
-   * Uses line-by-line processing: when a [mcp_servers...] header is found,
-   * all subsequent lines are skipped until a non-mcp_servers header appears.
-   */
-  private stripMcpServers(config: string): string {
-    const lines = config.split('\n');
-    const result: string[] = [];
-    let inMcpSection = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // Detect TOML table headers: [section] or [section.subsection]
-      if (/^\[.+\]$/.test(trimmed)) {
-        if (trimmed.startsWith('[mcp_servers')) {
-          inMcpSection = true;
-          continue;
-        }
-        inMcpSection = false;
-      }
-
-      if (!inMcpSection) {
-        result.push(line);
-      }
-    }
-
-    return result.join('\n');
   }
 
   private cleanupCodexHome(): void {
-    if (this.codexHomeDir) {
-      try {
-        rmSync(this.codexHomeDir, { recursive: true, force: true });
-        logger.debug('Cleaned up CODEX_HOME', { path: this.codexHomeDir });
-      } catch {
-        // Best-effort cleanup; OS will reclaim temp dir eventually
-      }
-      this.codexHomeDir = undefined;
-    }
+    this.codexHome.cleanup();
   }
 
   /**

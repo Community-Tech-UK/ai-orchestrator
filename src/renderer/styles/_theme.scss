@@ -1,0 +1,322 @@
+/**
+ * Global Styles - Claude Orchestrator
+ * Design System: Operator Workspace + Control Plane
+ *
+ * Typography: JetBrains Mono (technical) + Plus Jakarta Sans (refined)
+ * Palette: Graphite, moss, parchment, and restrained bronze accents
+ * Character: Calm, editorial, premium
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  // ============================================
+  // COLORS - Dark theme (default)
+  // Graphite + moss workspace
+  // ============================================
+
+  // Background layers - subtle gradation for depth
+  --bg-primary: #07100e;
+  --bg-secondary: #0c1614;
+  --bg-tertiary: #121d1a;
+  --bg-elevated: #182420;
+  --bg-hover: #1d2925;
+  --bg-selected: #24332e;
+  --bg-active: #2d4039;
+
+  // Text hierarchy - warm whites (brightened for better readability)
+  --text-primary: #f3efe5;
+  --text-secondary: #c8c3b6;
+  --text-muted: #91988d;
+  --text-disabled: #697168;
+
+  // Borders - reduced density for calmer workspace
+  --border-subtle: #16221f;
+  --border-color: #223430;
+  --border-strong: #314a43;
+  --border-light: #426159;
+  --border-focus: #59786e;
+
+  --primary-color: #b89a66;
+  --primary-hover: #ccb27d;
+  --primary-muted: #8a7044;
+  --primary-rgb: 184, 154, 102;
+  --primary-glow: rgba(184, 154, 102, 0.12);
+
+  --secondary-color: #789482;
+  --secondary-hover: #8ca594;
+  --secondary-muted: #566c61;
+  --secondary-rgb: 120, 148, 130;
+
+  // Status colors - Refined, not harsh
+  --success-color: #22c55e;
+  --success-rgb: 34, 197, 94;
+  --success-bg: rgba(34, 197, 94, 0.1);
+  --success-border: rgba(34, 197, 94, 0.2);
+
+  --warning-color: #eab308;
+  --warning-rgb: 234, 179, 8;
+  --warning-bg: rgba(234, 179, 8, 0.1);
+  --warning-border: rgba(234, 179, 8, 0.2);
+
+  --error-color: #ef4444;
+  --error-rgb: 239, 68, 68;
+  --error-bg: rgba(239, 68, 68, 0.08);
+  --error-border: rgba(239, 68, 68, 0.2);
+
+  --info-color: #3b82f6;
+  --info-rgb: 59, 130, 246;
+  --info-bg: rgba(59, 130, 246, 0.1);
+  --info-border: rgba(59, 130, 246, 0.2);
+
+  // Instance status colors - distinct but cohesive
+  --status-idle: #22c55e;
+  --status-busy: #f59e0b;
+  --status-waiting: #06b6d4;
+  --status-error: #ef4444;
+  --status-initializing: #a855f7;
+
+  // Memory type indicators
+  --memory-episodic: #3b82f6;
+  --memory-procedural: #10b981;
+  --memory-semantic: #f59e0b;
+  --memory-short-term: #8b5cf6;
+  --memory-long-term: #ec4899;
+  --memory-unknown: #6b7280;
+  --memory-episodic-alpha: rgba(59, 130, 246, 0.15);
+  --memory-procedural-alpha: rgba(16, 185, 129, 0.15);
+  --memory-semantic-alpha: rgba(245, 158, 11, 0.15);
+  --memory-short-term-alpha: rgba(139, 92, 246, 0.15);
+  --memory-long-term-alpha: rgba(236, 72, 153, 0.15);
+  --memory-unknown-alpha: rgba(107, 114, 128, 0.15);
+
+  // Operation status colors
+  --operation-add: #10b981;
+  --operation-update: #3b82f6;
+  --operation-delete: #ef4444;
+  --operation-noop: #6b7280;
+
+  // Overlay variants
+  --overlay-dark-light: rgba(0, 0, 0, 0.2);
+  --overlay-dark-medium: rgba(0, 0, 0, 0.5);
+  --overlay-dark-strong: rgba(0, 0, 0, 0.8);
+
+  // Glass / frost overlays (white channel — dark theme)
+  --glass-subtle: rgba(255, 255, 255, 0.02);
+  --glass-light: rgba(255, 255, 255, 0.03);
+  --glass-medium: rgba(255, 255, 255, 0.05);
+  --glass-strong: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-border-hover: rgba(255, 255, 255, 0.1);
+
+  // ============================================
+  // SPACING - Refined 4px base grid
+  // ============================================
+  --spacing-2xs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
+
+  // ============================================
+  // TYPOGRAPHY
+  // ============================================
+  --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --font-family-mono: var(--font-mono);
+
+  // Font sizes - refined scale
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+
+  // Line heights
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  // ============================================
+  // BORDER RADIUS - Softer curves
+  // ============================================
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  // ============================================
+  // SHADOWS - Layered depth
+  // ============================================
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 20px var(--primary-glow);
+  --shadow-inner: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  // ============================================
+  // TRANSITIONS - Smooth and purposeful
+  // ============================================
+  --transition-fast: 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  // ============================================
+  // Z-INDEX SCALE
+  // ============================================
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  // Output font size (configurable via settings)
+  --output-font-size: 13px;
+}
+
+// ============================================
+// LIGHT THEME
+// ============================================
+:root[data-theme='light'] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #f5f5f4;
+  --bg-tertiary: #e7e5e4;
+  --bg-elevated: #ffffff;
+  --bg-hover: #d6d3d1;
+  --bg-selected: #c7c4c2;
+  --bg-active: #b8b5b3;
+
+  --text-primary: #0c0a09;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+  --text-disabled: #a8a29e;
+
+  --border-subtle: #e7e5e4;
+  --border-color: #d6d3d1;
+  --border-strong: #c7c4c2;
+  --border-light: #e7e5e4;
+  --border-focus: #a8a29e;
+
+  --primary-color: #d97706;
+  --primary-hover: #b45309;
+  --primary-muted: #f59e0b;
+  --primary-glow: rgba(217, 119, 6, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+
+  // Memory type indicators
+  --memory-episodic: #3b82f6;
+  --memory-procedural: #10b981;
+  --memory-semantic: #f59e0b;
+  --memory-short-term: #8b5cf6;
+  --memory-long-term: #ec4899;
+  --memory-unknown: #6b7280;
+  --memory-episodic-alpha: rgba(59, 130, 246, 0.12);
+  --memory-procedural-alpha: rgba(16, 185, 129, 0.12);
+  --memory-semantic-alpha: rgba(245, 158, 11, 0.12);
+  --memory-short-term-alpha: rgba(139, 92, 246, 0.12);
+  --memory-long-term-alpha: rgba(236, 72, 153, 0.12);
+  --memory-unknown-alpha: rgba(107, 114, 128, 0.12);
+
+  // Operation status colors
+  --operation-add: #16a34a;
+  --operation-update: #2563eb;
+  --operation-delete: #dc2626;
+  --operation-noop: #6b7280;
+
+  // Overlay variants
+  --overlay-dark-light: rgba(0, 0, 0, 0.1);
+  --overlay-dark-medium: rgba(0, 0, 0, 0.3);
+  --overlay-dark-strong: rgba(0, 0, 0, 0.6);
+
+  // Glass / frost overlays (dark channel — light theme)
+  --glass-subtle: rgba(0, 0, 0, 0.02);
+  --glass-light: rgba(0, 0, 0, 0.03);
+  --glass-medium: rgba(0, 0, 0, 0.05);
+  --glass-strong: rgba(0, 0, 0, 0.08);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-border-hover: rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f5f5f4;
+    --bg-tertiary: #e7e5e4;
+    --bg-elevated: #ffffff;
+    --bg-hover: #d6d3d1;
+    --bg-selected: #c7c4c2;
+    --bg-active: #b8b5b3;
+
+    --text-primary: #0c0a09;
+    --text-secondary: #57534e;
+    --text-muted: #78716c;
+    --text-disabled: #a8a29e;
+
+    --border-subtle: #e7e5e4;
+    --border-color: #d6d3d1;
+    --border-strong: #c7c4c2;
+    --border-light: #e7e5e4;
+    --border-focus: #a8a29e;
+
+    --primary-color: #d97706;
+    --primary-hover: #b45309;
+    --primary-muted: #f59e0b;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+    // Memory type indicators
+    --memory-episodic: #3b82f6;
+    --memory-procedural: #10b981;
+    --memory-semantic: #f59e0b;
+    --memory-short-term: #8b5cf6;
+    --memory-long-term: #ec4899;
+    --memory-unknown: #6b7280;
+    --memory-episodic-alpha: rgba(59, 130, 246, 0.12);
+    --memory-procedural-alpha: rgba(16, 185, 129, 0.12);
+    --memory-semantic-alpha: rgba(245, 158, 11, 0.12);
+    --memory-short-term-alpha: rgba(139, 92, 246, 0.12);
+    --memory-long-term-alpha: rgba(236, 72, 153, 0.12);
+    --memory-unknown-alpha: rgba(107, 114, 128, 0.12);
+
+    // Operation status colors
+    --operation-add: #16a34a;
+    --operation-update: #2563eb;
+    --operation-delete: #dc2626;
+    --operation-noop: #6b7280;
+
+    // Overlay variants
+    --overlay-dark-light: rgba(0, 0, 0, 0.1);
+    --overlay-dark-medium: rgba(0, 0, 0, 0.3);
+    --overlay-dark-strong: rgba(0, 0, 0, 0.6);
+
+    // Glass / frost overlays (dark channel — light theme)
+    --glass-subtle: rgba(0, 0, 0, 0.02);
+    --glass-light: rgba(0, 0, 0, 0.03);
+    --glass-medium: rgba(0, 0, 0, 0.05);
+    --glass-strong: rgba(0, 0, 0, 0.08);
+    --glass-border: rgba(0, 0, 0, 0.06);
+    --glass-border-hover: rgba(0, 0, 0, 0.12);
+  }
+}

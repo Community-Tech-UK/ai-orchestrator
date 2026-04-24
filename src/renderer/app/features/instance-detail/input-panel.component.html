@@ -1,0 +1,202 @@
+<div class="input-panel">
+  <!-- Pending files and folders preview -->
+  @if (pendingFilePreviews().length > 0 || pendingFolders().length > 0) {
+    <div class="pending-files">
+      <!-- Folder chips -->
+      @for (folder of pendingFolders(); track folder) {
+        <div class="file-chip folder-chip">
+          <span class="file-icon">📁</span>
+          <span class="file-name" [title]="folder">{{ getFolderDisplayName(folder) }}</span>
+          <button
+            class="file-remove"
+            (click)="onRemoveFolder(folder)"
+            title="Remove folder reference"
+          >
+            ×
+          </button>
+        </div>
+      }
+      <!-- File previews -->
+      @for (preview of pendingFilePreviews(); track preview.file.name) {
+        @if (preview.isImage) {
+          <div class="file-preview-card">
+            <div class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
+            </div>
+            <div class="preview-info">
+              <span class="file-name">{{ preview.file.name }}</span>
+              <span class="file-size">{{ preview.size }}</span>
+            </div>
+            <button
+              class="file-remove"
+              (click)="onRemoveFile(preview.file)"
+              title="Remove file"
+            >
+              ×
+            </button>
+          </div>
+        } @else {
+          <div class="file-chip">
+            <span class="file-icon">{{ preview.icon }}</span>
+            <span class="file-name">{{ preview.file.name }}</span>
+            <button
+              class="file-remove"
+              (click)="onRemoveFile(preview.file)"
+              title="Remove file"
+            >
+              ×
+            </button>
+          </div>
+        }
+      }
+    </div>
+  }
+
+  @if (isDraftComposer()) {
+    <div class="composer-toolbar draft-mode">
+      <div class="composer-defaults">
+        <div class="default-controls">
+          <app-provider-selector
+            [provider]="selectedProvider()"
+            (providerSelected)="onProviderSelected($event)"
+          />
+          @if (selectedProvider() === 'copilot') {
+            <app-copilot-model-selector
+              [model]="selectedModel()"
+              (modelSelected)="onModelSelected($event)"
+            />
+          }
+          <button
+            class="yolo-toggle"
+            [class.active]="effectiveYoloMode()"
+            (click)="onToggleYoloMode()"
+            [title]="effectiveYoloMode() ? 'YOLO mode ON — auto-approve all actions' : 'YOLO mode OFF — will prompt for approvals'"
+          >
+            <span class="yolo-icon">{{ effectiveYoloMode() ? '⚡' : '🛡️' }}</span>
+            <span class="yolo-label">YOLO {{ effectiveYoloMode() ? 'ON' : 'OFF' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Command suggestions dropdown -->
+  @if (showCommandSuggestions() && filteredCommands().length > 0) {
+    <div class="command-suggestions">
+      @for (cmd of filteredCommands(); track cmd.id; let i = $index) {
+        <button
+          class="suggestion-item"
+          [class.selected]="i === selectedCommandIndex()"
+          (click)="onSelectCommand(cmd)"
+          (mouseenter)="selectedCommandIndex.set(i)"
+        >
+          <span class="cmd-name">/{{ cmd.name }}</span>
+          <span class="cmd-desc">{{ cmd.description }}</span>
+        </button>
+      }
+    </div>
+  }
+
+  <!-- Edit mode indicator -->
+  @if (editMode()) {
+    <div class="edit-mode-bar">
+      <span>Editing last message · Enter to resend · Esc to cancel</span>
+    </div>
+  }
+
+  <!-- Input area -->
+  <div class="input-row">
+    <div class="textarea-wrapper" [class.has-ghost]="showGhostText()">
+      @if (showGhostText()) {
+        <div class="ghost-text" aria-hidden="true">
+          <span class="ghost-invisible">{{ message() }}</span><span class="ghost-visible">{{ ghostRemainder() }}</span>
+        </div>
+      }
+      <textarea
+        class="message-input"
+        [class.has-ghost]="showGhostText()"
+        [placeholder]="showGhostText() ? '' : placeholder()"
+        [disabled]="disabled()"
+        [value]="message()"
+        (input)="onInput($event)"
+        (keydown)="onKeyDown($event)"
+        (focus)="onFocus()"
+        (blur)="onBlur()"
+        rows="5"
+        #textareaRef
+      ></textarea>
+    </div>
+
+    <div class="composer-footer">
+      <div class="composer-actions-left">
+        <button
+          class="btn-attach"
+          [disabled]="disabled()"
+          (click)="onAddFiles()"
+          title="Add files"
+        >
+          <span class="attach-icon">+</span>
+        </button>
+      </div>
+
+      <div class="input-hints">
+        @if (showGhostText()) {
+          <span class="hint hint-ghost">Tab or → to accept suggestion</span>
+        } @else {
+          <span class="hint">Press Enter to send, Shift+Enter for new line</span>
+        }
+        @if (isInitializing()) {
+          <span class="hint hint-starting">Starting up...</span>
+        } @else if (isRespawning()) {
+          <span class="hint hint-respawning">Resuming session...</span>
+        } @else if (isBusy()) {
+          <span class="hint hint-interrupt">Press Esc to interrupt</span>
+        } @else if (isReplayFallback()) {
+          <span class="hint hint-recovery">Context not restored — re-summarize to continue</span>
+        } @else {
+          <span class="hint">Type / for commands, Cmd+K for palette</span>
+        }
+      </div>
+
+      <div class="composer-actions-right">
+        <button
+          class="btn-send"
+          [disabled]="disabled() || !canSend() || isInitializing()"
+          (click)="onSend()"
+          title="Send message (Enter)"
+        >
+          <span class="send-icon">↑</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  @if (queuedMessages().length > 0) {
+    <div class="queue-section">
+      <div class="queue-header">
+        <span class="queue-badge">{{ queuedMessages().length }}</span>
+        <span class="queue-text">message{{ queuedMessages().length > 1 ? 's' : '' }} queued</span>
+      </div>
+      <div class="queued-messages">
+        @for (queuedMsg of queuedMessages(); track $index; let i = $index) {
+          <div class="queued-message-item">
+            <span class="queued-message-text" [title]="queuedMsg.message">
+              {{ truncateMessage(queuedMsg.message) }}
+            </span>
+            @if (queuedMsg.files && queuedMsg.files.length > 0) {
+              <span class="queued-file-count" title="Attached files">
+                📎{{ queuedMsg.files.length }}
+              </span>
+            }
+            <button
+              class="queued-cancel-btn"
+              (click)="onCancelQueuedMessage(i)"
+              title="Cancel and restore to input"
+            >
+              ×
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

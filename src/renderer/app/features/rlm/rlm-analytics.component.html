@@ -1,0 +1,162 @@
+    <div class="analytics-dashboard">
+      <header class="dashboard-header">
+        <h2>RLM Analytics</h2>
+        <div class="header-actions">
+          <select class="time-select" [(ngModel)]="timeRange" (change)="loadData()">
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+          </select>
+          <button class="action-btn" (click)="loadData()" title="Refresh data">
+            ↻ Refresh
+          </button>
+          <div class="export-buttons">
+            <button class="action-btn export" (click)="exportCSV()" title="Export as CSV">
+              📄 CSV
+            </button>
+            <button class="action-btn export" (click)="exportJSON()" title="Export as JSON">
+              📦 JSON
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Token Savings Overview -->
+      <section class="metrics-grid">
+        <div class="metric-card highlight">
+          <div class="metric-value">{{ totalSavingsPercent().toFixed(1) }}%</div>
+          <div class="metric-label">Total Token Savings</div>
+          <div class="metric-detail">
+            {{ formatNumber(totalTokensSaved()) }} tokens saved
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-value">{{ totalQueries() }}</div>
+          <div class="metric-label">Total Queries</div>
+          <div class="metric-detail">
+            {{ avgQueryDuration().toFixed(0) }}ms avg duration
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-value">{{ storageStats()?.totalStores || 0 }}</div>
+          <div class="metric-label">Context Stores</div>
+          <div class="metric-detail">
+            {{ formatBytes(storageStats()?.totalSizeBytes || 0) }} total
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-value">{{ insights().length }}</div>
+          <div class="metric-label">Active Insights</div>
+          <div class="metric-detail">
+            {{ highConfidenceInsights() }} high confidence
+          </div>
+        </div>
+      </section>
+
+      <!-- Charts Row -->
+      <section class="charts-row">
+        <!-- Token Savings Comparison (Bar Chart) -->
+        <div class="chart-card">
+          <h3>Token Usage Comparison</h3>
+          <div #tokenBarChart class="chart-area"></div>
+          @if (tokenSavingsHistory().length === 0) {
+            <div class="chart-empty-overlay">
+              <span class="empty-icon">📊</span>
+              <span>No data for selected range</span>
+            </div>
+          }
+        </div>
+
+        <!-- Savings Trend (Line Chart) -->
+        <div class="chart-card">
+          <h3>Savings Trend Over Time</h3>
+          <div #savingsTrendChart class="chart-area"></div>
+          @if (tokenSavingsHistory().length === 0) {
+            <div class="chart-empty-overlay">
+              <span class="empty-icon">📈</span>
+              <span>No data for selected range</span>
+            </div>
+          }
+        </div>
+      </section>
+
+      <!-- Storage Chart and Query Stats Row -->
+      <section class="charts-row">
+        <!-- Storage Breakdown (Pie Chart) -->
+        <div class="chart-card narrow">
+          <h3>Storage by Section Type</h3>
+          <div #storagePieChart class="chart-area"></div>
+          @if ((storageStats()?.byType || []).length === 0) {
+            <div class="chart-empty-overlay">
+              <span class="empty-icon">🗂️</span>
+              <span>No storage data</span>
+            </div>
+          }
+        </div>
+
+        <!-- Query Statistics -->
+        <div class="chart-card wide">
+          <h3>Query Performance</h3>
+          @if (queryStats().length > 0) {
+            <div class="stats-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Query Type</th>
+                    <th>Count</th>
+                    <th>Avg Duration</th>
+                    <th>Avg Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (stat of queryStats(); track stat.type) {
+                    <tr>
+                      <td>
+                        <span class="query-type-badge">{{ getQueryTypeIcon(stat.type) }} {{ stat.type }}</span>
+                      </td>
+                      <td>{{ stat.count }}</td>
+                      <td>{{ stat.avgDuration.toFixed(0) }}ms</td>
+                      <td>{{ stat.avgTokens.toFixed(0) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="empty-state">No query statistics available</div>
+          }
+        </div>
+      </section>
+
+      <!-- Insights -->
+      <section class="insights-section">
+        <h3>Learning Insights</h3>
+        <div class="insights-list">
+          @for (insight of insights(); track insight.id) {
+            <div class="insight-card" [class.high-confidence]="insight.confidence >= 0.8">
+              <div class="insight-header">
+                <span class="insight-type">{{ insight.type }}</span>
+                <span class="insight-confidence">
+                  {{ (insight.confidence * 100).toFixed(0) }}% confidence
+                </span>
+              </div>
+              <div class="insight-title">{{ insight.title }}</div>
+              @if (insight.description) {
+                <div class="insight-description">{{ insight.description }}</div>
+              }
+              <div class="insight-time">
+                {{ formatTimestamp(insight.createdAt) }}
+              </div>
+            </div>
+          } @empty {
+            <div class="empty-state">
+              <span class="empty-icon">💡</span>
+              <span>No insights yet. Keep using RLM to generate patterns.</span>
+            </div>
+          }
+        </div>
+      </section>
+    </div>

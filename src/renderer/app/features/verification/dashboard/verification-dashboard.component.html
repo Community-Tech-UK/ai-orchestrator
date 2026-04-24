@@ -1,0 +1,354 @@
+    <div class="verification-container">
+      <!-- Header -->
+      <div class="verification-header">
+        <div class="header-left">
+          <button class="back-btn" type="button" (click)="navigateBack()" aria-label="Back to Dashboard">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5"></path>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+          </button>
+          <span class="verification-icon">🔍</span>
+          <h1 class="verification-title">Multi-Agent Verification</h1>
+        </div>
+        <div class="header-actions">
+          <button class="action-btn secondary" type="button" (click)="openSettings()">
+            Settings
+          </button>
+          <button class="action-btn secondary" type="button" (click)="showHelp()" aria-label="Help">
+            ?
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="tab-navigation">
+        <button
+          class="tab-btn"
+          type="button"
+          [class.active]="store.selectedTab() === 'dashboard'"
+          (click)="store.setSelectedTab('dashboard')"
+        >
+          Dashboard
+        </button>
+        <button
+          class="tab-btn"
+          type="button"
+          [class.active]="store.selectedTab() === 'monitor'"
+          [disabled]="!store.isRunning()"
+          (click)="store.setSelectedTab('monitor')"
+        >
+          Monitor
+          @if (store.isRunning()) {
+            <span class="running-indicator"></span>
+          }
+        </button>
+        <button
+          class="tab-btn"
+          type="button"
+          [class.active]="store.selectedTab() === 'results'"
+          [disabled]="!store.result()"
+          (click)="store.setSelectedTab('results')"
+        >
+          Results
+        </button>
+      </div>
+
+      <!-- Tab Content -->
+      <app-drop-zone
+        class="tab-content-drop-zone"
+        (filesDropped)="onFilesDropped($event)"
+        (imagesPasted)="onImagesPasted($event)"
+      >
+      <div class="tab-content">
+        @switch (store.selectedTab()) {
+          @case ('dashboard') {
+            <!-- Quick Start Section -->
+            <section class="section">
+              <div class="section-header">
+                <h2 class="section-title">Quick Start</h2>
+              </div>
+
+              <div class="quick-start-form">
+                <!-- Pending files preview -->
+                @if (pendingFilePreviews().length > 0) {
+                  <div class="pending-files">
+                    @for (preview of pendingFilePreviews(); track preview.file.name) {
+                      @if (preview.isImage) {
+                        <div class="file-preview-card">
+                          <div class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
+                          </div>
+                          <div class="preview-info">
+                            <span class="file-name">{{ preview.file.name }}</span>
+                            <span class="file-size">{{ preview.size }}</span>
+                          </div>
+                          <button class="file-remove" type="button" (click)="removeFile(preview.file)" [attr.aria-label]="'Remove ' + preview.file.name">×</button>
+                        </div>
+                      } @else {
+                        <div class="file-chip">
+                          <span class="file-icon">{{ preview.icon }}</span>
+                          <span class="file-name">{{ preview.file.name }}</span>
+                          <button class="file-remove" type="button" (click)="removeFile(preview.file)" [attr.aria-label]="'Remove ' + preview.file.name">×</button>
+                        </div>
+                      }
+                    }
+                  </div>
+                }
+
+                <!-- Working Directory Selector -->
+                <div class="form-group">
+                  <span class="form-label">Working Directory</span>
+                  <div class="directory-selector">
+                    <button
+                      class="directory-btn"
+                      type="button"
+                      (click)="selectWorkingDirectory()"
+                      [title]="workingDirectory() || 'Select a folder for agents to scan'"
+                    >
+                      <span class="directory-icon">📁</span>
+                      <span class="directory-path">
+                        {{ workingDirectory() || 'Select folder to scan...' }}
+                      </span>
+                    </button>
+                    @if (workingDirectory()) {
+                      <button
+                        class="directory-clear"
+                        type="button"
+                        (click)="clearWorkingDirectory()"
+                        aria-label="Clear working directory"
+                      >
+                        ×
+                      </button>
+                    }
+                  </div>
+                  <span class="form-hint">Agents will analyze code in this directory</span>
+                  <div class="preflight-wrapper">
+                    <app-task-preflight-card
+                      [report]="preflight()"
+                      [loading]="preflightLoading()"
+                      title="Verification Preflight"
+                      subtitle="Checks the selected workspace for instruction, permission, and network readiness."
+                      emptyMessage="Pick a working directory to inspect verification readiness."
+                    />
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="prompt-input">Prompt</label>
+                  <textarea
+                    #promptTextarea
+                    id="prompt-input"
+                    class="form-textarea auto-expand"
+                    [ngModel]="promptInput"
+                    (ngModelChange)="onPromptChange($event)"
+                    (input)="autoExpandTextarea()"
+                    (keydown.enter)="onEnterKey($event)"
+                    placeholder="Enter your verification prompt... (paste images or drop files here)
+
+You can write detailed, multi-line prompts here. The textarea will expand as needed."
+                    rows="4"
+                  ></textarea>
+                  <div class="prompt-actions">
+                    <span class="char-count">{{ promptInput.length }} characters</span>
+                    <button
+                      class="expand-btn"
+                      type="button"
+                      (click)="toggleExpandedPrompt()"
+                      [title]="isPromptExpanded() ? 'Collapse prompt area' : 'Expand prompt area'"
+                    >
+                      {{ isPromptExpanded() ? '↑ Collapse' : '↓ Expand' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <span class="form-label">Selected Agents</span>
+                    <div class="agent-chips">
+                      @for (agent of validSelectedAgents(); track agent) {
+                        <span class="agent-chip">
+                          {{ getAgentDisplayName(agent) }}
+                          <button
+                            class="chip-remove"
+                            type="button"
+                            (click)="store.removeSelectedAgent(agent)"
+                            [attr.aria-label]="'Remove ' + getAgentDisplayName(agent)"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      }
+                      @if (canAddMoreAgents()) {
+                        <button class="add-agent-btn" type="button" (click)="showAgentPicker()">
+                          + Add Agent
+                        </button>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <span class="form-label">Strategy</span>
+                    <div class="strategy-cards">
+                      @for (strategy of strategies; track strategy.value) {
+                        <label
+                          class="strategy-card"
+                          [class.selected]="selectedStrategy === strategy.value"
+                        >
+                          <input
+                            type="radio"
+                            name="strategy"
+                            [value]="strategy.value"
+                            [(ngModel)]="selectedStrategy"
+                            (ngModelChange)="onStrategyChange($event)"
+                            class="visually-hidden"
+                          />
+                          <span class="strategy-name">{{ strategy.label }}</span>
+                          <span class="strategy-desc">{{ strategy.description }}</span>
+                        </label>
+                      }
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button
+                    class="action-btn text"
+                    type="button"
+                    (click)="store.toggleConfigPanel()"
+                  >
+                    Advanced Options
+                  </button>
+                  <button
+                    class="action-btn primary"
+                    type="button"
+                    [disabled]="!canStartVerification()"
+                    (click)="startVerification()"
+                  >
+                    Start Verification
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Available Agents Section -->
+            <section class="section" [class.collapsed]="agentsCollapsed()">
+              <div class="section-header clickable" (click)="toggleAgentsCollapsed()" (keydown.enter)="toggleAgentsCollapsed()" (keydown.space)="toggleAgentsCollapsed()" tabindex="0" role="button" [attr.aria-expanded]="!agentsCollapsed()">
+                <div class="section-header-left">
+                  <button class="collapse-btn" [class.collapsed]="agentsCollapsed()" type="button" [attr.aria-label]="agentsCollapsed() ? 'Expand available agents' : 'Collapse available agents'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                  <h2 class="section-title">Available Agents</h2>
+                  <span class="agents-count-badge">{{ availableClis().length }}/{{ totalClis() }}</span>
+                </div>
+                <button
+                  class="action-btn text"
+                  type="button"
+                  [disabled]="isScanning()"
+                  (click)="rescanClis(); $event.stopPropagation()"
+                >
+                  @if (isScanning()) {
+                    Scanning...
+                  } @else {
+                    Rescan CLIs
+                  }
+                </button>
+              </div>
+
+              <div class="collapsible-content" [class.collapsed]="agentsCollapsed()">
+                <div class="agents-grid">
+                  @for (cli of availableClis(); track cli.name) {
+                    <app-agent-card
+                      [cli]="cli"
+                      [selected]="isAgentSelected(cli.name)"
+                      (agentSelect)="toggleAgentSelection(cli.name)"
+                      (configure)="openAgentConfig(cli.name)"
+                    />
+                  }
+                  @for (cli of unavailableClis(); track cli.name) {
+                    <app-agent-card
+                      [cli]="cli"
+                      [selected]="false"
+                      [unavailable]="true"
+                      (install)="openInstallGuide(cli.name)"
+                    />
+                  }
+                </div>
+
+                <div class="agents-summary">
+                  <span class="summary-text">
+                    {{ availableClis().length }} of {{ totalClis() }} agents available
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <!-- Recent Sessions Section -->
+            <section class="section">
+              <div class="section-header">
+                <h2 class="section-title">Recent Sessions</h2>
+              </div>
+
+              @if (store.recentSessions().length > 0) {
+                <div class="sessions-list">
+                  @for (session of store.recentSessions(); track session.id) {
+                    <div
+                      class="session-item"
+                      (click)="viewSession(session.id)"
+                      (keydown.enter)="viewSession(session.id)"
+                      (keydown.space)="viewSession(session.id)"
+                      tabindex="0"
+                      role="button"
+                    >
+                      <div class="session-info">
+                        <span class="session-icon">📋</span>
+                        <span class="session-prompt">{{ truncatePrompt(session.prompt) }}</span>
+                      </div>
+                      <div class="session-meta">
+                        <span class="session-agents">{{ session.config.agentCount }} agents</span>
+                        <span class="session-strategy">{{ session.config.synthesisStrategy }}</span>
+                        <span class="session-time">{{ formatTimeAgo(session.startedAt) }}</span>
+                        <span
+                          class="session-status"
+                          [class]="'status-' + session.status"
+                        >
+                          {{ session.status }}
+                        </span>
+                      </div>
+                      <button
+                        class="session-delete"
+                        type="button"
+                        aria-label="Delete session"
+                        (click)="deleteSession(session.id, $event)"
+                      >
+                        ×
+                      </button>
+                      <button class="session-arrow" type="button" aria-hidden="true" tabindex="-1">→</button>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="empty-state">
+                  <p>No verification sessions yet. Start your first verification above!</p>
+                </div>
+              }
+            </section>
+          }
+
+          @case ('monitor') {
+            <app-verification-monitor />
+          }
+
+          @case ('results') {
+            <app-verification-results />
+          }
+        }
+      </div>
+      </app-drop-zone>
+
+      <!-- Config Panel Overlay -->
+      @if (store.configPanelOpen()) {
+        <app-agent-config-panel (closePanel)="store.closeConfigPanel()" />
+      }
+    </div>

@@ -90,6 +90,14 @@ Located in `src/main/providers/`:
 - **ModelDiscovery** — detects available models across providers
 - Providers: Anthropic API (direct), Claude CLI, Codex CLI, Gemini CLI
 
+## CLI Adapters
+
+Located in `src/main/cli/adapters/`:
+
+- **Adapter entrypoints** (`*-cli-adapter.ts`) own provider lifecycle, process state, and event emission.
+- **Provider helper directories** keep protocol details out of adapter entrypoints. For Codex, `src/main/cli/adapters/codex/` owns app-server transport, exec transcript parsing, stderr diagnostics, attachment capability checks, reasoning dedupe, session scanning, and MCP-free `CODEX_HOME` setup.
+- Adapter entrypoints should stay orchestration-focused. Prefer extracting pure parsing/formatting helpers or direct-testable coordinators before adding new long private-method blocks.
+
 ## Process Management
 
 Located in `src/main/process/`:
@@ -108,6 +116,7 @@ All wired into `index.ts` at startup and cleaned up on shutdown.
 Located in `src/main/session/`:
 
 - **SessionContinuityManager** — auto-save on configurable intervals, snapshot management, resume
+- **SessionAutoSaveCoordinator** — isolated periodic dirty-state save scheduling, per-session timers, and post-resume deferral
 - **CheckpointManager** — bridges error recovery with session continuity, transaction logging
 - **FallbackHistory** — token-budget-aware fallback history for resume failures
 - **SessionRepair** — recovery mechanisms for corrupted/failed sessions
@@ -121,7 +130,8 @@ Session tracking is wired into instance lifecycle: `startTracking()` on create, 
 
 Located in `src/main/instance/`:
 
-- **InstanceLifecycleManager** (`instance-lifecycle.ts`, ~89K) — full creation-to-cleanup lifecycle
+- **InstanceLifecycleManager** (`instance-lifecycle.ts`) — high-level creation, restart, hibernation, and respawn orchestration
+- **Lifecycle coordinators** (`src/main/instance/lifecycle/`) — focused pieces for instance-record construction, spawning, session recovery, idle monitoring, interrupt respawn, runtime readiness, termination cleanup, and shared tool-permission spawn config
 - **InstanceManager** (`instance-manager.ts`) — public API for instance operations
 - **InstanceCommunication** — inter-instance messaging
 - **InstanceOrchestration** — orchestration coordination per instance

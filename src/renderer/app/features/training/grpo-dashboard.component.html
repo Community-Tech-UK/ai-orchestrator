@@ -1,0 +1,402 @@
+<div class="dashboard-container">
+  <!-- Header -->
+  <div class="dashboard-header">
+    <div class="header-left">
+      <span class="dashboard-icon">🎯</span>
+      <span class="dashboard-title">GRPO Training Dashboard</span>
+      <span class="training-badge" [class.active]="isTrainingActive()">
+        {{ isTrainingActive() ? 'Learning Active' : 'Inactive' }}
+      </span>
+    </div>
+    <div class="header-actions">
+      <button class="action-btn" (click)="refreshData.emit()">
+        🔄 Refresh
+      </button>
+      <button class="action-btn" (click)="exportData.emit()">
+        📥 Export
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats Overview -->
+  @if (stats(); as statsData) {
+    <div class="stats-overview">
+      <div class="stat-card">
+        <span class="stat-icon">📊</span>
+        <div class="stat-content">
+          <span class="stat-value">{{ statsData.totalOutcomes }}</span>
+          <span class="stat-label">Total Outcomes</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">✅</span>
+        <div class="stat-content">
+          <span class="stat-value">{{ (statsData.successRate * 100).toFixed(1) }}%</span>
+          <span class="stat-label">Success Rate</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">🧬</span>
+        <div class="stat-content">
+          <span class="stat-value">{{ statsData.patternCount }}</span>
+          <span class="stat-label">Patterns</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">💡</span>
+        <div class="stat-content">
+          <span class="stat-value">{{ statsData.insightCount }}</span>
+          <span class="stat-label">Insights</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-icon">📚</span>
+        <div class="stat-content">
+          <span class="stat-value">{{ statsData.experienceCount }}</span>
+          <span class="stat-label">Experiences</span>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Main Content -->
+  <div class="dashboard-content">
+    <!-- Left Panel: Patterns & Insights -->
+    <div class="left-panel">
+      <!-- Top Patterns -->
+      <div class="panel-section">
+        <div class="section-header">
+          <span class="section-title">Top Patterns</span>
+          <select
+            class="pattern-filter"
+            [value]="patternTypeFilter()"
+            (change)="onPatternFilterChange($event)"
+          >
+            <option value="">All Types</option>
+            @for (type of patternTypes; track type) {
+              <option [value]="type">{{ formatPatternType(type) }}</option>
+            }
+          </select>
+        </div>
+        <div class="patterns-list">
+          @for (pattern of filteredPatterns(); track pattern.value) {
+            <div class="pattern-card">
+              <div class="pattern-header">
+                <span class="pattern-type-badge" [class]="'type-' + pattern.type">
+                  {{ getPatternTypeIcon(pattern.type) }} {{ formatPatternType(pattern.type) }}
+                </span>
+                <span class="pattern-effectiveness" [class.high]="pattern.effectiveness >= 0.7" [class.low]="pattern.effectiveness < 0.3">
+                  {{ (pattern.effectiveness * 100).toFixed(0) }}%
+                </span>
+              </div>
+              <div class="pattern-value">{{ pattern.value }}</div>
+              <div class="pattern-meta">
+                <span class="meta-item">{{ pattern.sampleSize }} samples</span>
+                <span class="meta-item">{{ formatTimeAgo(pattern.lastUpdated) }}</span>
+              </div>
+              <div class="effectiveness-bar">
+                <div
+                  class="effectiveness-fill"
+                  [style.width.%]="pattern.effectiveness * 100"
+                  [class.high]="pattern.effectiveness >= 0.7"
+                  [class.medium]="pattern.effectiveness >= 0.3 && pattern.effectiveness < 0.7"
+                  [class.low]="pattern.effectiveness < 0.3"
+                ></div>
+              </div>
+            </div>
+          }
+
+          @if (filteredPatterns().length === 0) {
+            <div class="empty-state">
+              <span class="empty-icon">🧬</span>
+              <span class="empty-text">No patterns discovered yet</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Learning Insights -->
+      <div class="panel-section">
+        <div class="section-header">
+          <span class="section-title">Learning Insights</span>
+          <select
+            class="insight-filter"
+            [value]="insightTypeFilter()"
+            (change)="onInsightFilterChange($event)"
+          >
+            <option value="">All Types</option>
+            <option value="pattern">Patterns</option>
+            <option value="anti-pattern">Anti-Patterns</option>
+            <option value="optimization">Optimizations</option>
+            <option value="recommendation">Recommendations</option>
+          </select>
+        </div>
+        <div class="insights-list">
+          @for (insight of filteredInsights(); track insight.id) {
+            <div
+              class="insight-card"
+              [class]="'insight-' + insight.type"
+              [class.selected]="selectedInsight()?.id === insight.id"
+              (click)="selectInsight(insight)"
+              (keydown.enter)="selectInsight(insight)"
+              (keydown.space)="selectInsight(insight)"
+              tabindex="0"
+              role="button"
+            >
+              <div class="insight-header">
+                <span class="insight-type-badge" [class]="'type-' + insight.type">
+                  {{ getInsightTypeIcon(insight.type) }} {{ insight.type }}
+                </span>
+                <span class="insight-confidence">
+                  {{ (insight.confidence * 100).toFixed(0) }}% confidence
+                </span>
+              </div>
+              <div class="insight-description">{{ insight.description }}</div>
+              <div class="insight-meta">
+                <span class="meta-item">Applied {{ insight.appliedCount }}x</span>
+                <span class="meta-item">{{ (insight.successRate * 100).toFixed(0) }}% success</span>
+              </div>
+            </div>
+          }
+
+          @if (filteredInsights().length === 0) {
+            <div class="empty-state">
+              <span class="empty-icon">💡</span>
+              <span class="empty-text">No insights generated yet</span>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Outcomes & Detail -->
+    <div class="right-panel">
+      <!-- Recent Outcomes -->
+      <div class="panel-section">
+        <div class="section-header">
+          <span class="section-title">Recent Outcomes</span>
+          <div class="outcome-filters">
+            <button
+              class="filter-btn"
+              [class.active]="outcomeFilter() === ''"
+              (click)="setOutcomeFilter('')"
+              (keydown.enter)="setOutcomeFilter('')"
+              (keydown.space)="setOutcomeFilter('')"
+              tabindex="0"
+              role="button"
+            >
+              All
+            </button>
+            <button
+              class="filter-btn success"
+              [class.active]="outcomeFilter() === 'success'"
+              (click)="setOutcomeFilter('success')"
+              (keydown.enter)="setOutcomeFilter('success')"
+              (keydown.space)="setOutcomeFilter('success')"
+              tabindex="0"
+              role="button"
+            >
+              Success
+            </button>
+            <button
+              class="filter-btn failure"
+              [class.active]="outcomeFilter() === 'failure'"
+              (click)="setOutcomeFilter('failure')"
+              (keydown.enter)="setOutcomeFilter('failure')"
+              (keydown.space)="setOutcomeFilter('failure')"
+              tabindex="0"
+              role="button"
+            >
+              Failed
+            </button>
+          </div>
+        </div>
+        <div class="outcomes-list">
+          @for (outcome of filteredOutcomes(); track outcome.id) {
+            <div
+              class="outcome-card"
+              [class.success]="outcome.success"
+              [class.failure]="!outcome.success"
+              [class.selected]="selectedOutcome()?.id === outcome.id"
+              (click)="selectOutcome(outcome)"
+              (keydown.enter)="selectOutcome(outcome)"
+              (keydown.space)="selectOutcome(outcome)"
+              tabindex="0"
+              role="button"
+            >
+              <div class="outcome-header">
+                <span class="outcome-status">
+                  {{ outcome.success ? '✅' : '❌' }}
+                </span>
+                <span class="outcome-type">{{ outcome.taskType }}</span>
+                <span class="outcome-time">{{ formatTimeAgo(outcome.timestamp) }}</span>
+              </div>
+              <div class="outcome-description">
+                {{ truncate(outcome.taskDescription, 80) }}
+              </div>
+              <div class="outcome-meta">
+                <span class="meta-item">🤖 {{ outcome.agentUsed }}</span>
+                <span class="meta-item">🧠 {{ outcome.modelUsed }}</span>
+                <span class="meta-item">🔢 {{ outcome.tokensUsed }} tokens</span>
+              </div>
+            </div>
+          }
+
+          @if (filteredOutcomes().length === 0) {
+            <div class="empty-state">
+              <span class="empty-icon">📊</span>
+              <span class="empty-text">No outcomes recorded yet</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Selected Detail -->
+      @if (selectedOutcome(); as outcome) {
+        <div class="detail-panel">
+          <div class="detail-header">
+            <span class="detail-title">Outcome Detail</span>
+            <button class="close-btn" (click)="clearOutcomeSelection()">✕</button>
+          </div>
+          <div class="detail-body">
+            <div class="detail-section">
+              <span class="section-label">Task</span>
+              <span class="section-value">{{ outcome.taskDescription }}</span>
+            </div>
+            <div class="detail-section">
+              <span class="section-label">Prompt</span>
+              <pre class="prompt-content">{{ outcome.prompt }}</pre>
+            </div>
+            <div class="detail-section">
+              <span class="section-label">Configuration</span>
+              <div class="config-grid">
+                <div class="config-item">
+                  <span class="config-label">Agent</span>
+                  <span class="config-value">{{ outcome.agentUsed }}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Model</span>
+                  <span class="config-value">{{ outcome.modelUsed }}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Tokens</span>
+                  <span class="config-value">{{ outcome.tokensUsed }}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Duration</span>
+                  <span class="config-value">{{ formatDuration(outcome.duration) }}</span>
+                </div>
+                @if (outcome.completionScore !== undefined) {
+                  <div class="config-item">
+                    <span class="config-label">Completion</span>
+                    <span class="config-value">{{ (outcome.completionScore * 100).toFixed(0) }}%</span>
+                  </div>
+                }
+                @if (outcome.userSatisfaction !== undefined) {
+                  <div class="config-item">
+                    <span class="config-label">Satisfaction</span>
+                    <span class="config-value">{{ outcome.userSatisfaction }}/5</span>
+                  </div>
+                }
+              </div>
+            </div>
+            @if (outcome.toolsUsed.length > 0) {
+              <div class="detail-section">
+                <span class="section-label">Tools Used</span>
+                <div class="tools-list">
+                  @for (tool of outcome.toolsUsed; track tool.tool) {
+                    <div class="tool-item">
+                      <span class="tool-name">{{ tool.tool }}</span>
+                      <span class="tool-count">{{ tool.count }}x</span>
+                      @if (tool.errorCount > 0) {
+                        <span class="tool-errors">{{ tool.errorCount }} errors</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+            @if (!outcome.success && outcome.errorType) {
+              <div class="detail-section">
+                <span class="section-label">Error</span>
+                <div class="error-info">
+                  <span class="error-type">{{ outcome.errorType }}</span>
+                  @if (outcome.errorMessage) {
+                    <span class="error-message">{{ outcome.errorMessage }}</span>
+                  }
+                </div>
+              </div>
+            }
+            @if (outcome.patterns.length > 0) {
+              <div class="detail-section">
+                <span class="section-label">Extracted Patterns</span>
+                <div class="patterns-mini-list">
+                  @for (pattern of outcome.patterns; track pattern.value) {
+                    <div class="pattern-mini">
+                      <span class="pattern-mini-type">{{ getPatternTypeIcon(pattern.type) }}</span>
+                      <span class="pattern-mini-value">{{ pattern.value }}</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      } @else if (selectedInsight(); as insight) {
+        <div class="detail-panel">
+          <div class="detail-header">
+            <span class="detail-title">Insight Detail</span>
+            <button class="close-btn" (click)="clearInsightSelection()">✕</button>
+          </div>
+          <div class="detail-body">
+            <div class="detail-section">
+              <span class="section-label">Description</span>
+              <span class="section-value">{{ insight.description }}</span>
+            </div>
+            <div class="detail-section">
+              <span class="section-label">Metrics</span>
+              <div class="config-grid">
+                <div class="config-item">
+                  <span class="config-label">Confidence</span>
+                  <span class="config-value">{{ (insight.confidence * 100).toFixed(0) }}%</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Applied</span>
+                  <span class="config-value">{{ insight.appliedCount }} times</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Success Rate</span>
+                  <span class="config-value">{{ (insight.successRate * 100).toFixed(0) }}%</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Created</span>
+                  <span class="config-value">{{ formatTimeAgo(insight.createdAt) }}</span>
+                </div>
+              </div>
+            </div>
+            @if (insight.taskTypes.length > 0) {
+              <div class="detail-section">
+                <span class="section-label">Applicable Task Types</span>
+                <div class="task-types-list">
+                  @for (taskType of insight.taskTypes; track taskType) {
+                    <span class="task-type-badge">{{ taskType }}</span>
+                  }
+                </div>
+              </div>
+            }
+            @if (insight.evidence.length > 0) {
+              <div class="detail-section">
+                <span class="section-label">Evidence</span>
+                <ul class="evidence-list">
+                  @for (item of insight.evidence; track item) {
+                    <li class="evidence-item">{{ item }}</li>
+                  }
+                </ul>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

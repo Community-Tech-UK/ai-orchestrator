@@ -1,0 +1,278 @@
+    <div class="settings-panel">
+      <header class="panel-header">
+        <h1>CLI & Agent Settings</h1>
+        <button class="close-btn" (click)="close()">✕</button>
+      </header>
+
+      <!-- Tabs -->
+      <nav class="settings-tabs">
+        @for (tab of tabs; track tab.id) {
+          <button
+            [class.active]="activeTab() === tab.id"
+            (click)="activeTab.set(tab.id)"
+          >
+            {{ tab.label }}
+          </button>
+        }
+      </nav>
+
+      <div class="settings-content">
+        <!-- CLI Tools Tab -->
+        @if (activeTab() === 'cli') {
+          <div class="tab-content">
+            <div class="section-header">
+              <h2>Detected CLI Tools</h2>
+              <button class="btn-secondary" (click)="rescanClis()" [disabled]="isScanning()">
+                {{ isScanning() ? 'Scanning...' : '🔄 Rescan' }}
+              </button>
+            </div>
+
+            <div class="cli-list">
+              @for (cli of cliSettings(); track cli.command) {
+                <div class="cli-card" [class.unavailable]="!cli.installed">
+                  <div class="cli-header">
+                    <div class="cli-status">
+                      <span
+                        class="status-dot"
+                        [class.available]="cli.installed && cli.authenticated !== false"
+                        [class.auth-required]="cli.installed && cli.authenticated === false"
+                        [class.not-found]="!cli.installed"
+                      ></span>
+                      <h3>{{ cli.name }}</h3>
+                    </div>
+                    <span class="cli-status-text">
+                      @if (cli.installed && cli.authenticated !== false) {
+                        Installed & Authenticated
+                      } @else if (cli.installed && cli.authenticated === false) {
+                        Auth Required
+                      } @else {
+                        Not Found
+                      }
+                    </span>
+                  </div>
+
+                  @if (cli.installed) {
+                    <div class="cli-details">
+                      <div class="detail-row">
+                        <span class="detail-label">Version:</span>
+                        <span>{{ cli.version || 'Unknown' }}</span>
+                      </div>
+
+                      <div class="detail-row">
+                        <span class="detail-label">Path:</span>
+                        <div class="path-input">
+                          <input
+                            type="text"
+                            [value]="cli.path || ''"
+                            (change)="updateCliPath(cli.command, $event)"
+                            placeholder="Auto-detected"
+                          />
+                          <button class="btn-small" (click)="browsePath(cli.command)">
+                            Browse...
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="detail-row">
+                        <span class="detail-label">Default Model:</span>
+                        <select
+                          [value]="getSelectedModelValue(cli)"
+                          (change)="updateDefaultModel(cli.command, $event)"
+                        >
+                          <option [value]="getAutoModelValue(cli.command)">Auto</option>
+                          @for (model of cli.availableModels; track model) {
+                            <option [value]="model">{{ model }}</option>
+                          }
+                        </select>
+                      </div>
+
+                      <div class="detail-row">
+                        <span class="detail-label">Default Timeout:</span>
+                        <div class="timeout-input">
+                          <input
+                            type="number"
+                            [value]="cli.defaultTimeout"
+                            (change)="updateTimeout(cli.command, $event)"
+                            min="30"
+                            max="3600"
+                          />
+                          <span>seconds</span>
+                        </div>
+                      </div>
+
+                      <div class="detail-row">
+                        <span class="detail-label">Auto-approve:</span>
+                        <label class="checkbox-label">
+                          <input
+                            type="checkbox"
+                            [checked]="cli.autoApprove"
+                            (change)="updateAutoApprove(cli.command, $event)"
+                          />
+                          <span>{{ getAutoApproveFlag(cli.command) }}</span>
+                        </label>
+                      </div>
+
+                      <div class="cli-actions">
+                        <button
+                          class="btn-secondary"
+                          (click)="testConnection(cli.command)"
+                          [disabled]="cli.testStatus === 'testing'"
+                        >
+                          @if (cli.testStatus === 'testing') {
+                            Testing...
+                          } @else {
+                            Test Connection
+                          }
+                        </button>
+                        @if (cli.lastTested) {
+                          <span class="test-result" [class.success]="cli.testStatus === 'success'" [class.failed]="cli.testStatus === 'failed'">
+                            @if (cli.testStatus === 'success') {
+                              ✓ Last tested: {{ formatTime(cli.lastTested) }}
+                            } @else if (cli.testStatus === 'failed') {
+                              ✗ Failed: {{ cli.error }}
+                            }
+                          </span>
+                        }
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="cli-not-found">
+                      <p>The {{ cli.name }} CLI was not found on your system.</p>
+                      <div class="not-found-actions">
+                        <button class="btn-link" (click)="openInstallGuide(cli.command)">
+                          📖 Installation Guide
+                        </button>
+                        <button class="btn-link" (click)="useApiFallback(cli.command)">
+                          Use API Fallback Instead
+                        </button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+
+            <!-- Add Custom CLI -->
+            <div class="add-custom-cli">
+              <button class="btn-dashed" (click)="showAddCustomCli.set(true)">
+                + Add Custom CLI Tool
+              </button>
+              <p class="hint">Supports: Aider, Continue, Cursor, Cody, or any compatible CLI</p>
+            </div>
+
+            @if (showAddCustomCli()) {
+              <div class="custom-cli-form">
+                <h4>Add Custom CLI</h4>
+                <div class="form-row">
+                  <span class="form-label">Name:</span>
+                  <input type="text" [(ngModel)]="customCliName" placeholder="My Custom CLI" />
+                </div>
+                <div class="form-row">
+                  <span class="form-label">Command:</span>
+                  <input type="text" [(ngModel)]="customCliCommand" placeholder="mycli" />
+                </div>
+                <div class="form-row">
+                  <span class="form-label">Path (optional):</span>
+                  <input type="text" [(ngModel)]="customCliPath" placeholder="/usr/local/bin/mycli" />
+                </div>
+                <div class="form-actions">
+                  <button class="btn-secondary" (click)="showAddCustomCli.set(false)">Cancel</button>
+                  <button class="btn-primary" (click)="addCustomCli()">Add CLI</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- API Keys Tab -->
+        @if (activeTab() === 'api-keys') {
+          <app-api-key-manager />
+        }
+
+        <!-- Defaults Tab -->
+        @if (activeTab() === 'defaults') {
+          <app-verification-preferences />
+        }
+
+        <!-- Advanced Tab -->
+        @if (activeTab() === 'advanced') {
+          <div class="tab-content">
+            <h2>Advanced Settings</h2>
+
+            <div class="setting-group">
+              <h3>Performance</h3>
+              <div class="setting-row">
+                <label>
+                  <input type="checkbox" [(ngModel)]="parallelExecution" />
+                  Enable parallel agent execution
+                </label>
+                <p class="setting-hint">Run multiple agents simultaneously for faster results</p>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Max concurrent agents:</span>
+                <input type="number" [(ngModel)]="maxConcurrent" min="1" max="10" />
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Caching</h3>
+              <div class="setting-row">
+                <label>
+                  <input type="checkbox" [(ngModel)]="enableCaching" />
+                  Cache CLI detection results
+                </label>
+                <p class="setting-hint">Speeds up startup by caching detected CLIs</p>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Cache duration:</span>
+                <select [(ngModel)]="cacheDuration">
+                  <option value="300">5 minutes</option>
+                  <option value="3600">1 hour</option>
+                  <option value="86400">24 hours</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Logging</h3>
+              <div class="setting-row">
+                <label>
+                  <input type="checkbox" [(ngModel)]="verboseLogging" />
+                  Enable verbose logging
+                </label>
+                <p class="setting-hint">Log detailed CLI interactions for debugging</p>
+              </div>
+              <div class="setting-row">
+                <label>
+                  <input type="checkbox" [(ngModel)]="saveRawResponses" />
+                  Save raw responses to disk
+                </label>
+                <p class="setting-hint">Store complete agent responses for later analysis</p>
+              </div>
+            </div>
+
+            <div class="setting-group danger-zone">
+              <h3>Danger Zone</h3>
+              <div class="setting-row">
+                <button class="btn-danger" (click)="clearAllData()">
+                  Clear All Verification Data
+                </button>
+                <p class="setting-hint">Removes all session history and cached data</p>
+              </div>
+              <div class="setting-row">
+                <button class="btn-danger" (click)="resetToDefaults()">
+                  Reset All Settings
+                </button>
+                <p class="setting-hint">Restore all settings to factory defaults</p>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- Footer -->
+      <footer class="panel-footer">
+        <button class="btn-secondary" (click)="close()">Cancel</button>
+        <button class="btn-primary" (click)="saveSettings()">Save Settings</button>
+      </footer>
+    </div>

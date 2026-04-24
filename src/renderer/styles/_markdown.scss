@@ -1,0 +1,167 @@
+// ============================================
+// MARKDOWN CONTENT STYLES
+// ============================================
+.markdown-content {
+  font-family: var(--font-body);
+  font-size: var(--output-font-size);
+  line-height: var(--leading-relaxed);
+  color: var(--text-primary);
+  word-break: break-word;
+
+  // Headings
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: var(--leading-snug);
+    color: var(--text-primary);
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  h1 {
+    font-size: 1.5em;
+  }
+  h2 {
+    font-size: 1.35em;
+  }
+  h3 {
+    font-size: 1.2em;
+  }
+  h4 {
+    font-size: 1.1em;
+  }
+  h5 {
+    font-size: 1em;
+  }
+  h6 {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+  }
+
+  // Paragraphs
+  p {
+    margin: 0.75em 0;
+
+    &:first-child {
+      margin-top: 0;
+    }
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  // Lists
+  ul,
+  ol {
+    margin: 0.75em 0;
+    padding-left: 1.5em;
+  }
+
+  li {
+    margin: 0.35em 0;
+
+    &::marker {
+      color: var(--text-muted);
+    }
+  }
+
+  // Links
+  a {
+    color: var(--primary-color);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: all var(--transition-fast);
+
+    &:hover {
+      color: var(--primary-hover);
+      border-bottom-color: var(--primary-hover);
+    }
+  }
+
+  // Inline code
+  .inline-code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--bg-tertiary);
+    padding: 0.15em 0.45em;
+    border-radius: var(--radius-xs);
+    color: var(--primary-color);
+    border: 1px solid var(--border-color);
+  }
+
+  // Clickable file paths
+  .file-path {
+    cursor: pointer;
+    transition: all var(--transition-fast);
+
+    &:hover {
+      background: rgba(var(--primary-rgb), 0.2);
+      border-color: var(--primary-color);
+      text-decoration: underline;
+    }
+  }
+
+  // Blockquote
+  .md-blockquote {
+    margin: 1em 0;
+    padding: 0.75em 1em;
+    border-left: 3px solid var(--primary-color);
+    background: var(--bg-tertiary);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    color: var(--text-secondary);
+    font-style: italic;
+
+    p {
+      margin: 0;
+    }
+  }
+
+  // Horizontal rule
+  hr {
+    margin: 2em 0;
+    border: none;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--border-color) 20%,
+      var(--border-color) 80%,
+      transparent
+    );
+  }
+
+  // Strong and emphasis
+  strong,
+  b {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  em,
+  i {
+    font-style: italic;
+  }
+}
+
+// User message links - bright on dark bubble background
+.message-user .markdown-content a {
+  color: #7db8e0;
+  text-decoration: underline;
+  font-weight: 500;
+  border-bottom: none;
+
+  &:hover {
+    color: #a5d0f0;
+    background: rgba(125, 184, 224, 0.1);
+    border-radius: 2px;
+  }
+}

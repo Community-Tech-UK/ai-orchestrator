@@ -392,6 +392,7 @@ export class HistorySidebarComponent implements OnInit {
   confirmAction = signal('');
   confirmDanger = signal(false);
   private confirmCallback: (() => void) | null = null;
+  private restoreSelectionRequestId = 0;
 
   ngOnInit(): void {
     this.store.loadHistory();
@@ -424,6 +425,8 @@ export class HistorySidebarComponent implements OnInit {
       'Restore',
       false,
       async () => {
+        const selectedAtStart = this.instanceStore.selectedInstanceId();
+        const requestId = ++this.restoreSelectionRequestId;
         const result = await this.store.restoreEntry(entry.id);
         if (result.success && result.instanceId) {
           // Populate the restored messages into the new instance
@@ -437,7 +440,9 @@ export class HistorySidebarComponent implements OnInit {
           if (result.restoreMode) {
             this.instanceStore.setInstanceRestoreMode(result.instanceId, result.restoreMode);
           }
-          this.instanceStore.setSelectedInstance(result.instanceId);
+          if (this.shouldSelectRestoredInstance(requestId, selectedAtStart, result.instanceId)) {
+            this.instanceStore.setSelectedInstance(result.instanceId);
+          }
           this.closeHistory.emit();
         }
       }
@@ -490,5 +495,18 @@ export class HistorySidebarComponent implements OnInit {
     }
     this.showConfirmDialog.set(false);
     this.confirmCallback = null;
+  }
+
+  private shouldSelectRestoredInstance(
+    requestId: number,
+    selectedAtStart: string | null,
+    restoredInstanceId: string
+  ): boolean {
+    if (requestId !== this.restoreSelectionRequestId) {
+      return false;
+    }
+
+    const selectedNow = this.instanceStore.selectedInstanceId();
+    return selectedNow === selectedAtStart || selectedNow === restoredInstanceId;
   }
 }

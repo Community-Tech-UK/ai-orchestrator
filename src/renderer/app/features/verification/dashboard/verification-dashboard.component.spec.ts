@@ -15,12 +15,16 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   Component,
   EventEmitter,
   Input,
   Output,
   signal,
+  ɵresolveComponentResources as resolveComponentResources,
   WritableSignal,
 } from '@angular/core';
 import {
@@ -101,6 +105,46 @@ class TaskPreflightCardStubComponent {
   @Input() subtitle = '';
   @Input() emptyMessage = '';
 }
+
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const dashboardTemplate = readFileSync(
+  resolve(specDirectory, './verification-dashboard.component.html'),
+  'utf8'
+);
+const dashboardStyles = readFileSync(
+  resolve(specDirectory, './verification-dashboard.component.scss'),
+  'utf8'
+);
+const verificationResultsTemplate = readFileSync(
+  resolve(specDirectory, '../results/verification-results.component.html'),
+  'utf8'
+);
+const verificationResultsStyles = readFileSync(
+  resolve(specDirectory, '../results/verification-results.component.scss'),
+  'utf8'
+);
+
+// Vitest does not run Angular CLI's resource inliner, so resolve external
+// component resources before TestBed imports this standalone component.
+await resolveComponentResources((url) => {
+  if (url.endsWith('verification-dashboard.component.html')) {
+    return Promise.resolve(dashboardTemplate);
+  }
+
+  if (url.endsWith('verification-dashboard.component.scss')) {
+    return Promise.resolve(dashboardStyles);
+  }
+
+  if (url.endsWith('verification-results.component.html')) {
+    return Promise.resolve(verificationResultsTemplate);
+  }
+
+  if (url.endsWith('verification-results.component.scss')) {
+    return Promise.resolve(verificationResultsStyles);
+  }
+
+  return Promise.reject(new Error(`Unexpected component resource: ${url}`));
+});
 
 describe('VerificationDashboardComponent', () => {
   let component: VerificationDashboardComponent;
@@ -278,6 +322,25 @@ describe('VerificationDashboardComponent', () => {
   beforeEach(async () => {
     setupMocks();
 
+    TestBed.overrideComponent(VerificationDashboardComponent, {
+      set: {
+        template: dashboardTemplate,
+        templateUrl: undefined,
+        styles: [dashboardStyles],
+        styleUrl: undefined,
+        styleUrls: [],
+        imports: [
+          FormsModule,
+          AgentCardStubComponent,
+          AgentConfigPanelStubComponent,
+          VerificationMonitorStubComponent,
+          VerificationResultsStubComponent,
+          DropZoneStubComponent,
+          TaskPreflightCardStubComponent,
+        ],
+      }
+    });
+
     await TestBed.configureTestingModule({
       imports: [VerificationDashboardComponent],
       providers: [
@@ -286,21 +349,7 @@ describe('VerificationDashboardComponent', () => {
         { provide: DraftService, useValue: mockDraftService },
         { provide: Router, useValue: mockRouter }
       ]
-    })
-      .overrideComponent(VerificationDashboardComponent, {
-        set: {
-          imports: [
-            FormsModule,
-            AgentCardStubComponent,
-            AgentConfigPanelStubComponent,
-            VerificationMonitorStubComponent,
-            VerificationResultsStubComponent,
-            DropZoneStubComponent,
-            TaskPreflightCardStubComponent,
-          ],
-        }
-      })
-      .compileComponents();
+    }).compileComponents();
 
     fixture = TestBed.createComponent(VerificationDashboardComponent);
     component = fixture.componentInstance;

@@ -1,0 +1,292 @@
+    .analytics-dashboard {
+      padding: 1.5rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      color: var(--text-primary);
+    }
+
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+
+      h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+    }
+
+    .time-select {
+      padding: 0.5rem 1rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      cursor: pointer;
+
+      &:focus {
+        outline: none;
+        border-color: var(--primary-color);
+      }
+    }
+
+    .action-btn {
+      padding: 0.5rem 1rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+
+      &:hover {
+        background: var(--bg-hover);
+      }
+
+      &.export {
+        background: var(--bg-secondary);
+
+        &:hover {
+          background: var(--primary-color);
+          color: white;
+          border-color: var(--primary-color);
+        }
+      }
+    }
+
+    .export-buttons {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .metric-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      text-align: center;
+
+      &.highlight {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #5b21b6 100%);
+        color: white;
+        border: none;
+
+        .metric-detail {
+          opacity: 0.85;
+        }
+      }
+
+      .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .metric-label {
+        font-size: 0.875rem;
+        opacity: 0.8;
+        margin-top: 0.25rem;
+      }
+
+      .metric-detail {
+        font-size: 0.75rem;
+        opacity: 0.6;
+        margin-top: 0.5rem;
+      }
+    }
+
+    .charts-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+
+      @media (max-width: 900px) {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .chart-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      position: relative;
+      min-height: 300px;
+      display: flex;
+      flex-direction: column;
+
+      &.narrow {
+        @media (min-width: 900px) {
+          max-width: 350px;
+        }
+      }
+
+      &.wide {
+        flex: 1;
+      }
+
+      h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1rem;
+        font-weight: 600;
+      }
+
+      .chart-area {
+        flex: 1;
+        min-height: 220px;
+      }
+    }
+
+    .chart-empty-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      color: var(--text-muted);
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+
+      .empty-icon {
+        font-size: 2rem;
+        opacity: 0.5;
+      }
+    }
+
+    .stats-table {
+      overflow-x: auto;
+      flex: 1;
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+
+        th,
+        td {
+          padding: 0.75rem;
+          text-align: left;
+          border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+          font-weight: 500;
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          color: var(--text-muted);
+        }
+
+        td {
+          font-size: 0.875rem;
+        }
+      }
+    }
+
+    .query-type-badge {
+      padding: 0.25rem 0.5rem;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-sm);
+      font-size: 0.8125rem;
+    }
+
+    .insights-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+
+      h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1rem;
+        font-weight: 600;
+      }
+    }
+
+    .insights-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .insight-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 1rem;
+
+      &.high-confidence {
+        border-color: #10b981;
+        border-width: 2px;
+      }
+
+      .insight-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+
+        .insight-type {
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          font-weight: 500;
+        }
+
+        .insight-confidence {
+          font-size: 0.75rem;
+          color: #10b981;
+        }
+      }
+
+      .insight-title {
+        font-weight: 500;
+        margin-bottom: 0.25rem;
+      }
+
+      .insight-description {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+
+      .insight-time {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+      }
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 2rem;
+      color: var(--text-muted);
+      text-align: center;
+
+      .empty-icon {
+        font-size: 1.5rem;
+        opacity: 0.5;
+      }
+    }

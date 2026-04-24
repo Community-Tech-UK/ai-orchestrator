@@ -1,0 +1,360 @@
+<div class="page">
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <button class="header-btn" type="button" (click)="goBack()">← Back</button>
+    <div class="header-title">
+      <span class="title">Snapshots</span>
+      <span class="subtitle">File snapshots, diffs, and revert operations</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">
+        Refresh
+      </button>
+      <button class="btn danger" type="button" [disabled]="loading()" (click)="runCleanup()">
+        Cleanup
+      </button>
+    </div>
+  </div>
+
+  <!-- Error Banner -->
+  @if (errorMessage()) {
+    <div class="error-banner">{{ errorMessage() }}</div>
+  }
+
+  <!-- Info Banner -->
+  @if (infoMessage()) {
+    <div class="info-banner">{{ infoMessage() }}</div>
+  }
+
+  <!-- Stats Row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <span class="stat-label">Total Snapshots</span>
+      <span class="stat-value">{{ stats()?.totalSnapshots ?? '—' }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Total Sessions</span>
+      <span class="stat-value">{{ stats()?.totalSessions ?? '—' }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Storage Used</span>
+      <span class="stat-value">{{ formatBytes(stats()?.storageUsedBytes) }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Oldest Snapshot</span>
+      <span class="stat-value">{{ formatDate(stats()?.oldestSnapshot) }}</span>
+    </div>
+  </div>
+
+  <!-- Instance ID Input -->
+  <div class="instance-bar">
+    <label class="field">
+      <span class="field-label">Instance ID</span>
+      <input
+        class="input"
+        type="text"
+        placeholder="Enter instance ID to browse snapshots"
+        [value]="selectedInstanceId()"
+        (input)="onInstanceIdInput($event)"
+        (keydown.enter)="loadSessions(selectedInstanceId())"
+      />
+    </label>
+    <button
+      class="btn primary"
+      type="button"
+      [disabled]="!selectedInstanceId().trim() || loading()"
+      (click)="loadSessions(selectedInstanceId())"
+    >
+      Load Sessions
+    </button>
+    <button
+      class="btn"
+      type="button"
+      [disabled]="!selectedInstanceId().trim()"
+      (click)="openReplay()"
+    >
+      Open Replay & Share
+    </button>
+  </div>
+
+  <!-- 3-Column Layout -->
+  <div class="columns">
+
+    <!-- Left: Sessions List -->
+    <div class="panel panel-left">
+      <div class="panel-header">Sessions</div>
+      @if (sessions().length === 0) {
+        <div class="empty-hint">
+          @if (selectedInstanceId().trim()) {
+            No sessions found for this instance.
+          } @else {
+            Enter an instance ID above to load sessions.
+          }
+        </div>
+      } @else {
+        <ul class="item-list">
+          @for (session of sessions(); track session.id) {
+            <li
+              class="item-row"
+              [class.selected]="selectedSessionId() === session.id"
+              (click)="selectSession(session)"
+              (keydown.enter)="selectSession(session)"
+              tabindex="0"
+              role="button"
+            >
+              <div class="item-main">
+                <span class="item-name" title="{{ session.id }}">
+                  {{ session.description || session.id.slice(0, 12) + '…' }}
+                </span>
+                <span class="item-badge">{{ session.fileCount ?? 0 }} files</span>
+              </div>
+              <div class="item-meta">
+                <span>{{ session.instanceId }}</span>
+                <span>{{ formatDate(session.startedAt) }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <!-- Center: Snapshots / Files List -->
+    <div class="panel panel-center">
+      <div class="panel-header">
+        Files
+        @if (selectedSessionId()) {
+          <span class="panel-header-sub">— {{ snapshots().length }} snapshot(s)</span>
+        }
+      </div>
+      @if (!selectedSessionId()) {
+        <div class="empty-hint">Select a session to view its snapshots.</div>
+      } @else if (snapshots().length === 0) {
+        <div class="empty-hint">No snapshots in this session.</div>
+      } @else {
+        <ul class="item-list">
+          @for (snap of snapshots(); track snap.id) {
+            <li
+              class="item-row"
+              [class.selected]="selectedSnapshotId() === snap.id"
+              (click)="selectSnapshot(snap)"
+              (keydown.enter)="selectSnapshot(snap)"
+              tabindex="0"
+              role="button"
+            >
+              <div class="item-main">
+                <span class="action-icon" [class]="'action-' + snap.action" title="{{ snap.action }}">
+                  {{ actionIcon(snap.action) }}
+                </span>
+                <span class="item-name item-file" title="{{ snap.filePath }}">
+                  {{ shortPath(snap.filePath) }}
+                </span>
+              </div>
+              <div class="item-meta">
+                <span class="action-label">{{ snap.action }}</span>
+                <span>{{ formatDate(snap.createdAt) }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <!-- Right: Diff Viewer -->
+    <div class="panel panel-right">
+      <div class="panel-header">
+        Diff
+        @if (currentDiff()) {
+          <span class="panel-header-sub">— {{ shortPath(currentDiff()!.filePath) }}</span>
+        }
+      </div>
+      @if (!selectedSnapshotId()) {
+        <div class="empty-hint">Select a file snapshot to view its diff.</div>
+      } @else if (loadingDiff()) {
+        <div class="empty-hint">Loading diff…</div>
+      } @else if (currentDiff()) {
+        <app-diff-viewer
+          [oldContent]="currentDiff()!.oldContent"
+          [newContent]="currentDiff()!.newContent"
+          [fileName]="shortPath(currentDiff()!.filePath)"
+          [interactive]="true"
+        />
+      } @else {
+        <div class="empty-hint">No diff available for this snapshot.</div>
+      }
+    </div>
+
+  </div>
+
+  <div class="columns evidence-columns">
+    <div class="panel panel-left">
+      <div class="panel-header">
+        Evidence & Review Artifacts
+        <span class="panel-header-sub">— {{ evidenceBundle()?.artifacts?.length || 0 }}</span>
+      </div>
+
+      @if (loadingEvidence()) {
+        <div class="empty-hint">Loading evidence preview…</div>
+      } @else if (!selectedInstanceId().trim()) {
+        <div class="empty-hint">Enter an instance ID to inspect replay artifacts for that run.</div>
+      } @else if (!evidenceBundle()?.artifacts?.length) {
+        <div class="empty-hint">No structured review artifacts were recorded for this instance.</div>
+      } @else {
+        <ul class="item-list">
+          @for (artifact of evidenceBundle()!.artifacts; track artifact.id) {
+            <li class="item-row evidence-row">
+              <div class="item-main">
+                <span class="item-badge">{{ artifact.type }}</span>
+                <span class="item-name" title="{{ artifact.title }}">{{ artifact.title }}</span>
+              </div>
+              @if (artifact.fileLabel) {
+                <div class="item-meta">
+                  <span>{{ artifact.fileLabel }}</span>
+                  <span>{{ formatDate(artifact.timestamp) }}</span>
+                </div>
+              } @else {
+                <div class="item-meta">
+                  <span>{{ formatDate(artifact.timestamp) }}</span>
+                </div>
+              }
+              <pre class="evidence-preview">{{ artifact.content }}</pre>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="panel panel-center">
+      <div class="panel-header">
+        Embedded Attachments
+        <span class="panel-header-sub">— {{ evidenceBundle()?.attachments?.length || 0 }}</span>
+      </div>
+
+      @if (loadingEvidence()) {
+        <div class="empty-hint">Loading attachments…</div>
+      } @else if (!evidenceBundle()?.attachments?.length) {
+        <div class="empty-hint">No embedded evidence files were included in the share preview.</div>
+      } @else {
+        <ul class="item-list">
+          @for (attachment of evidenceBundle()!.attachments; track attachment.id) {
+            <li class="item-row evidence-row">
+              <div class="item-main">
+                <span class="item-badge">{{ attachment.kind }}</span>
+                <span class="item-name" title="{{ attachment.title }}">{{ attachment.title }}</span>
+              </div>
+              <div class="item-meta">
+                <span>{{ attachment.sourcePathLabel || attachment.fileName || 'Attachment' }}</span>
+                <span>{{ formatAttachmentMeta(attachment) }}</span>
+              </div>
+              @if (attachment.embeddedBase64 && attachment.mediaType?.startsWith('image/')) {
+                <img class="attachment-image" [src]="toDataUrl(attachment)" [alt]="attachment.title" />
+              } @else if (attachment.embeddedText) {
+                <pre class="evidence-preview">{{ attachment.embeddedText }}</pre>
+              }
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="panel panel-right">
+      <div class="panel-header">
+        Replay Summary
+        <span class="panel-header-sub">
+          — {{ evidenceBundle()?.summary?.continuitySnapshotCount || 0 }} continuity /
+          {{ evidenceBundle()?.summary?.fileSnapshotSessionCount || 0 }} file sessions
+        </span>
+      </div>
+
+      @if (!evidenceBundle()) {
+        <div class="empty-hint">Load an instance to inspect its replay summary and redaction warnings.</div>
+      } @else {
+        <div class="evidence-summary">
+          <div class="summary-card">
+            <span class="field-label">Messages</span>
+            <strong>{{ evidenceBundle()!.summary.totalMessages }}</strong>
+          </div>
+          <div class="summary-card">
+            <span class="field-label">Artifacts</span>
+            <strong>{{ evidenceBundle()!.summary.artifactCount }}</strong>
+          </div>
+          <div class="summary-card">
+            <span class="field-label">Attachments</span>
+            <strong>{{ evidenceBundle()!.summary.attachmentCount }}</strong>
+          </div>
+          <div class="summary-card">
+            <span class="field-label">Redactions</span>
+            <strong>{{ evidenceBundle()!.summary.redactedContentCount }}</strong>
+          </div>
+        </div>
+
+        @if (evidenceBundle()!.warnings.length) {
+          <ul class="warning-list">
+            @for (warning of evidenceBundle()!.warnings; track warning) {
+              <li>{{ warning }}</li>
+            }
+          </ul>
+        } @else {
+          <div class="empty-hint">No redaction or artifact warnings were reported for this replay preview.</div>
+        }
+      }
+    </div>
+  </div>
+
+  <!-- Confirmation Overlay -->
+  @if (confirmRevert()) {
+    <div class="confirm-overlay">
+      <div class="confirm-dialog">
+        <p class="confirm-title">Are you sure?</p>
+        @if (confirmRevert() === 'file') {
+          <p class="confirm-body">
+            This will revert <strong>{{ shortPath(selectedSnapshot()?.filePath ?? '') }}</strong>
+            to its snapshot state. This cannot be undone.
+          </p>
+        } @else {
+          <p class="confirm-body">
+            This will revert <strong>all files</strong> in the selected session
+            to their snapshot states. This cannot be undone.
+          </p>
+        }
+        <div class="confirm-actions">
+          <button class="btn danger" type="button" [disabled]="loading()" (click)="executeRevert()">
+            Confirm Revert
+          </button>
+          <button class="btn" type="button" (click)="confirmRevert.set(null)">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Bottom Action Bar -->
+  <div class="action-bar">
+    <button
+      class="btn primary"
+      type="button"
+      [disabled]="!canRevertFile() || loading()"
+      (click)="confirmRevert.set('file')"
+    >
+      Revert File
+    </button>
+    <button
+      class="btn"
+      type="button"
+      [disabled]="!canRevertSession() || loading()"
+      (click)="confirmRevert.set('session')"
+    >
+      Revert Session
+    </button>
+    <button
+      class="btn danger"
+      type="button"
+      [disabled]="!selectedSnapshotId() || loading()"
+      (click)="deleteSnapshot()"
+    >
+      Delete Snapshot
+    </button>
+  </div>
+
+</div>

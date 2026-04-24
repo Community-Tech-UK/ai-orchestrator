@@ -107,6 +107,7 @@ export class InstanceListComponent {
   selectedId = this.store.selectedInstanceId;
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
+  private restoreSelectionRequestId = 0;
 
   isDragDisabled = computed(() =>
     this.filterText().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all'
@@ -703,6 +704,8 @@ export class InstanceListComponent {
 
     this.closeProjectMenu({ restoreFocus: false });
     this.historyRail.restoringHistoryIds.update((current) => new Set(current).add(entryId));
+    const selectedAtStart = this.selectedId();
+    const requestId = ++this.restoreSelectionRequestId;
 
     try {
       const entry = this.historyStore.entries().find((item) => item.id === entryId);
@@ -726,7 +729,9 @@ export class InstanceListComponent {
         if (result.restoreMode) {
           this.store.setInstanceRestoreMode(result.instanceId, result.restoreMode);
         }
-        this.store.setSelectedInstance(result.instanceId);
+        if (this.shouldSelectRestoredHistory(requestId, selectedAtStart, result.instanceId)) {
+          this.store.setSelectedInstance(result.instanceId);
+        }
       } else if (result.error) {
         console.error('Failed to restore history entry:', result.error);
       }
@@ -737,6 +742,19 @@ export class InstanceListComponent {
         return next;
       });
     }
+  }
+
+  private shouldSelectRestoredHistory(
+    requestId: number,
+    selectedAtStart: string | null,
+    restoredInstanceId: string
+  ): boolean {
+    if (requestId !== this.restoreSelectionRequestId) {
+      return false;
+    }
+
+    const selectedNow = this.selectedId();
+    return selectedNow === selectedAtStart || selectedNow === restoredInstanceId;
   }
 
   async onArchiveHistory(entryId: string, event: Event): Promise<void> {

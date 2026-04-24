@@ -1,0 +1,19 @@
+<div class="app-container" [class.macos]="isMacOS">
+  <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
+
+  @if (startupCapabilities() && startupCapabilities()!.status !== 'ready') {
+    <div
+      class="startup-banner"
+      [class.failed]="startupCapabilities()!.status === 'failed'"
+    >
+      <span class="startup-banner-title">
+        Startup checks: {{ startupCapabilities()!.status }}
+      </span>
+      <span class="startup-banner-body">{{ startupCapabilitySummary() }}</span>
+    </div>
+  }
+
+  <main class="app-main">
+    <router-outlet />
+  </main>
+</div>

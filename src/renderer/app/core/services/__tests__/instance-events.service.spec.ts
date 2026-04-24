@@ -18,6 +18,7 @@ describe('InstanceEventsService', () => {
   const originalElectronAPI = (window as unknown as { electronAPI?: unknown }).electronAPI;
 
   beforeEach(() => {
+    TestBed.resetTestingModule();
     captured = undefined;
     (window as unknown as { electronAPI: unknown }).electronAPI = {
       onProviderRuntimeEvent: (cb: (e: ProviderRuntimeEventEnvelope) => void) => {

@@ -1,0 +1,298 @@
+    <div class="security-page">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <button class="header-btn" type="button" (click)="goBack()">← Back</button>
+        <div class="header-title">
+          <span class="title">Security &amp; Audit</span>
+          <span class="subtitle">Secret detection, audit logging, and environment security</span>
+        </div>
+        <button class="header-btn refresh-btn" type="button" (click)="refresh()" [disabled]="loading()">
+          {{ loading() ? 'Loading...' : 'Refresh' }}
+        </button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'audit'"
+          type="button"
+          (click)="switchTab('audit')"
+        >Audit Log</button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'scanner'"
+          type="button"
+          (click)="switchTab('scanner')"
+        >Secret Scanner</button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'environment'"
+          type="button"
+          (click)="switchTab('environment')"
+        >Environment</button>
+      </div>
+
+      <!-- Error banner -->
+      @if (errorMessage()) {
+        <div class="error-banner">{{ errorMessage() }}</div>
+      }
+
+      <!-- Tab content -->
+      <div class="tab-content">
+
+        <!-- ── Tab 1: Audit Log ───────────────────────────────────────────── -->
+        @if (activeTab() === 'audit') {
+          <div class="audit-tab">
+
+            <!-- Filters -->
+            <div class="filter-bar">
+              <label class="filter-label" for="severity-filter">Severity</label>
+              <select
+                id="severity-filter"
+                class="filter-select"
+                [value]="auditSeverityFilter()"
+                (change)="onSeverityFilterChange($event)"
+              >
+                <option value="all">All</option>
+                <option value="info">Info</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+              </select>
+
+              <label class="filter-label" for="limit-input">Limit</label>
+              <input
+                id="limit-input"
+                class="filter-input"
+                type="number"
+                min="1"
+                max="1000"
+                [value]="auditLimit()"
+                (change)="onLimitChange($event)"
+              />
+
+              <div class="filter-spacer"></div>
+
+              <button class="btn" type="button" (click)="exportAuditCsv()">Export CSV</button>
+              <button class="btn danger" type="button" (click)="clearAuditLog()">Clear Log</button>
+            </div>
+
+            <!-- Table -->
+            @if (filteredAuditEntries().length > 0) {
+              <div class="table-wrapper">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Action</th>
+                      <th>Agent / Instance</th>
+                      <th>Target</th>
+                      <th>Severity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (entry of filteredAuditEntries(); track entry.timestamp + entry.action) {
+                      <tr>
+                        <td class="mono">{{ formatTimestamp(entry.timestamp) }}</td>
+                        <td>{{ entry.action }}</td>
+                        <td class="muted">{{ entry.instanceId || '—' }}</td>
+                        <td class="muted">{{ entry.target || '—' }}</td>
+                        <td>
+                          <span class="badge" [class]="'badge-' + entry.severity">
+                            {{ entry.severity }}
+                          </span>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <div class="empty-state">No audit entries found.</div>
+            }
+          </div>
+        }
+
+        <!-- ── Tab 2: Secret Scanner ──────────────────────────────────────── -->
+        @if (activeTab() === 'scanner') {
+          <div class="scanner-tab">
+            <div class="scanner-controls">
+              <label class="field-label" for="scan-content">Content to scan</label>
+              <textarea
+                id="scan-content"
+                class="scan-textarea"
+                [value]="scanContent()"
+                placeholder="Paste content here to scan for secrets..."
+                (input)="onScanContentInput($event)"
+              ></textarea>
+
+              <div class="scanner-row">
+                <label class="field-label" for="content-type">Content type</label>
+                <select
+                  id="content-type"
+                  class="filter-select"
+                  [value]="scanContentType()"
+                  (change)="onContentTypeChange($event)"
+                >
+                  <option value="auto">Auto</option>
+                  <option value="env">Env file</option>
+                  <option value="text">Plain text</option>
+                </select>
+
+                <button
+                  class="btn primary"
+                  type="button"
+                  [disabled]="scanning() || scanContent().trim().length === 0"
+                  (click)="scanForSecrets()"
+                >
+                  {{ scanning() ? 'Scanning...' : 'Scan' }}
+                </button>
+
+                @if (scanResults().length > 0) {
+                  <button
+                    class="btn"
+                    type="button"
+                    [disabled]="scanning()"
+                    (click)="redactContent()"
+                  >
+                    Redact
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Scan results -->
+            @if (scanResults().length > 0) {
+              <div class="results-section">
+                <div class="results-title">
+                  Found {{ scanResults().length }} secret{{ scanResults().length === 1 ? '' : 's' }}
+                </div>
+                <div class="results-grid">
+                  @for (result of scanResults(); track result.type + (result.line ?? 0)) {
+                    <div class="result-card">
+                      <div class="result-header">
+                        <span class="result-type">{{ result.type }}</span>
+                        <span class="badge" [class]="getSeverityClass(result.severity)">
+                          {{ result.severity }}
+                        </span>
+                      </div>
+                      @if (result.line !== null && result.line !== undefined) {
+                        <div class="result-meta">Line {{ result.line }}</div>
+                      }
+                      @if (result.value) {
+                        <div class="result-value mono">{{ result.value }}</div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            } @else if (scanComplete()) {
+              <div class="empty-state success-state">No secrets detected.</div>
+            }
+
+            <!-- Redacted output -->
+            @if (redactedOutput()) {
+              <div class="redacted-section">
+                <div class="results-title">Redacted output</div>
+                <textarea class="scan-textarea redacted" readonly [value]="redactedOutput()"></textarea>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- ── Tab 3: Environment Security ───────────────────────────────── -->
+        @if (activeTab() === 'environment') {
+          <div class="env-tab">
+            <div class="env-top">
+
+              <!-- Safe env vars table -->
+              <div class="env-card">
+                <div class="env-card-header">
+                  <span class="env-card-title">Safe Environment Variables</span>
+                  <button class="btn" type="button" (click)="loadSafeEnv()">Reload</button>
+                </div>
+
+                @if (envVars().length > 0) {
+                  <div class="table-wrapper">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Variable</th>
+                          <th>Value</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (envVar of envVars(); track envVar.name) {
+                          <tr>
+                            <td class="mono">{{ envVar.name }}</td>
+                            <td class="mono muted">{{ maskValue(envVar.value) }}</td>
+                            <td>
+                              <span class="badge" [class]="envVar.allowed ? 'badge-info' : 'badge-error'">
+                                {{ envVar.allowed ? 'allowed' : 'blocked' }}
+                              </span>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                } @else {
+                  <div class="empty-state">No environment variables loaded.</div>
+                }
+              </div>
+
+              <!-- Test single var -->
+              <div class="env-card">
+                <div class="env-card-title">Test Variable</div>
+                <div class="test-row">
+                  <input
+                    class="filter-input flex-1"
+                    type="text"
+                    placeholder="VAR_NAME"
+                    [value]="testVarName()"
+                    (input)="onTestVarNameInput($event)"
+                  />
+                  <input
+                    class="filter-input flex-1"
+                    type="text"
+                    placeholder="value"
+                    [value]="testVarValue()"
+                    (input)="onTestVarValueInput($event)"
+                  />
+                  <button
+                    class="btn primary"
+                    type="button"
+                    [disabled]="testVarName().trim().length === 0"
+                    (click)="checkEnvVar()"
+                  >
+                    Check
+                  </button>
+                </div>
+
+                @if (testVarResult()) {
+                  <div class="test-result" [class.test-ok]="testVarAllowed()" [class.test-fail]="!testVarAllowed()">
+                    {{ testVarResult() }}
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- Filter config panel -->
+            <div class="env-card">
+              <div class="env-card-header">
+                <span class="env-card-title">Filter Configuration</span>
+                <button class="btn" type="button" (click)="loadFilterConfig()">Reload</button>
+              </div>
+              @if (filterConfig()) {
+                <pre class="json-panel">{{ filterConfig() }}</pre>
+              } @else {
+                <div class="empty-state">Filter config not loaded.</div>
+              }
+            </div>
+          </div>
+        }
+
+      </div>
+    </div>

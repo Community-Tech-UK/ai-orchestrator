@@ -40,8 +40,10 @@ export class InstanceListStore {
   addInstance(data: unknown): void {
     const instance = this.deserializeInstance(data);
 
-    // Only auto-select if it's a root instance (not a child)
-    const shouldAutoSelect = !instance.parentId;
+    // Passive backend events must not steal focus from a user's current session.
+    // Explicit create/restore flows select their returned instance themselves.
+    const shouldAutoSelect =
+      !instance.parentId && !this.stateService.state().selectedInstanceId;
 
     this.stateService.addInstance(instance, shouldAutoSelect);
   }
@@ -99,6 +101,11 @@ export class InstanceListStore {
       });
       console.log('InstanceListStore: createInstance result:', result);
       this.stateService.setLoading(false);
+      if (result.success) {
+        this.syncInstanceFromResponse(result.data, true);
+      } else {
+        this.stateService.setError(result.error?.message || 'Failed to create instance');
+      }
     } catch (error) {
       console.error('InstanceListStore: createInstance error:', error);
       this.stateService.setLoading(false);
@@ -157,6 +164,8 @@ export class InstanceListStore {
       this.stateService.setLoading(false);
       if (!result.success) {
         this.stateService.setError(result.error?.message || 'Failed to create instance');
+      } else {
+        this.syncInstanceFromResponse(result.data, true);
       }
       return result.success;
     } catch (error) {
@@ -373,6 +382,26 @@ export class InstanceListStore {
   // ============================================
   // Helpers
   // ============================================
+
+  private syncInstanceFromResponse(data: unknown, selectRoot: boolean): string | null {
+    if (!data || typeof data !== 'object') {
+      return null;
+    }
+
+    const id = (data as Record<string, unknown>)['id'];
+    if (typeof id !== 'string' || id.length === 0) {
+      return null;
+    }
+
+    const instance = this.deserializeInstance(data);
+    this.stateService.addInstance(instance, false);
+
+    if (selectRoot && !instance.parentId) {
+      this.stateService.setSelectedInstance(instance.id);
+    }
+
+    return instance.id;
+  }
 
   /**
    * Deserialize instance data from IPC

@@ -14,9 +14,7 @@ import {
   type CliAdapter
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
-import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import { CopilotCliAdapter } from '../cli/adapters/copilot-cli-adapter';
-import { RemoteCliAdapter } from '../cli/adapters/remote-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
   getDefaultModelForCli,
@@ -36,15 +34,7 @@ import { getSupervisorTree } from '../process';
 import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
 import { getAgentRegistry } from '../agents/agent-registry';
 import { getPermissionManager } from '../security/permission-manager';
-import { getDisallowedTools } from '../../shared/utils/permission-mapper';
-import { generateId, generateInstanceId, type InstanceProvider, INSTANCE_ID_PREFIXES } from '../../shared/utils/id-generator';
-import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
-import { LIMITS } from '../../shared/constants/limits';
-import {
-  createDefaultContextInheritance,
-  type ContextInheritanceConfig,
-  type TerminationPolicy,
-} from '../../shared/types/supervision.types';
+import { generateId } from '../../shared/utils/id-generator';
 import type {
   Instance,
   InstanceCreateConfig,
@@ -71,18 +61,19 @@ import {
   InstanceStateMachine,
 } from './instance-state-machine';
 import { getAutoTitleService } from './auto-title-service';
-import { ToolListFilter } from '../tools/tool-list-filter';
-import type { DenyRule } from '../tools/tool-list-filter';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
 import { ensureHookScript } from '../cli/hooks/hook-path-resolver';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
+import { buildInstanceRecord } from './lifecycle/instance-create-builder';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import { SessionRecoveryHandler, type RecoveryResult } from './lifecycle/session-recovery';
 import { IdleMonitor } from './lifecycle/idle-monitor';
 import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
+import { RuntimeReadinessCoordinator } from './lifecycle/runtime-readiness';
+import { InstanceTerminationCoordinator } from './lifecycle/instance-termination';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
@@ -91,15 +82,13 @@ import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
-import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
+import {
+  attachToolFilterMetadata,
+  buildToolPermissionConfig,
+} from './lifecycle/tool-permission-config';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
-
-// Tools that require Claude CLI's interactive terminal and auto-deny in --print mode.
-// Always disallow these so Claude doesn't attempt them and misinterpret the auto-denial
-// as user rejection. Claude will ask questions as regular text messages instead.
-const PRINT_MODE_INCOMPATIBLE_TOOLS = ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'];
 
 function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
   if (!value) {
@@ -269,6 +258,12 @@ export class InstanceLifecycleManager extends EventEmitter {
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
   private recoveryEngine: RecoveryRecipeEngine | null = null;
+
+  /** Extracted runtime readiness / native-resume health checks. */
+  private readonly runtimeReadiness: RuntimeReadinessCoordinator;
+
+  /** Extracted termination and cleanup coordinator. */
+  private readonly terminator: InstanceTerminationCoordinator;
 
   /** Extracted idle-monitoring loop (periodic activity poll + zombie cleanup). */
   private readonly idleMonitor: IdleMonitor;
@@ -456,6 +451,40 @@ export class InstanceLifecycleManager extends EventEmitter {
   constructor(deps: LifecycleDependencies) {
     super();
     this.deps = deps;
+    this.runtimeReadiness = new RuntimeReadinessCoordinator({
+      getInstance: (id) => deps.getInstance(id),
+      getAdapter: (id) => deps.getAdapter(id),
+    });
+    this.terminator = new InstanceTerminationCoordinator({
+      getAdapter: (id) => deps.getAdapter(id),
+      getInstance: (id) => deps.getInstance(id),
+      deleteAdapter: (id) => deps.deleteAdapter(id),
+      deleteInstance: (id) => deps.deleteInstance(id),
+      stopStuckTracking: deps.stopStuckTracking,
+      deleteDiffTracker: deps.deleteDiffTracker,
+      deleteStateMachine: deps.deleteStateMachine,
+      forceReleaseSessionMutex: (id) => getSessionMutex().forceRelease(id),
+      removeActivityDetector: (id) => {
+        this.activityDetectors.delete(id);
+      },
+      clearRecoveryHistory: (id) => {
+        this.recoveryEngine?.clearHistory(id);
+      },
+      transitionState: (instance, status) => this.transitionState(instance, status),
+      terminateChild: (id, graceful) => this.terminateInstance(id, graceful),
+      unregisterSupervisor: (id) => getSupervisorTree().unregisterInstance(id),
+      unregisterOrchestration: (id) => deps.unregisterOrchestration(id),
+      clearFirstMessageTracking: (id) => deps.clearFirstMessageTracking(id),
+      endRlmSession: (id) => deps.endRlmSession(id),
+      deleteOutputStorage: (id) => this.outputStorage.deleteInstance(id),
+      archiveInstance: (instance, status) => getHistoryManager().archiveInstance(instance, status),
+      importTranscript: (transcript, options) => {
+        getConversationMiner().importFromString(transcript, options);
+      },
+      emitRemoved: (id) => {
+        this.emit('removed', id);
+      },
+    });
     this.spawner = new InstanceSpawner({
       createAdapter: async (config) => {
         const adapter = createCliAdapter(config.provider as never, {
@@ -600,17 +629,8 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
   }
 
-  private getAdapterRuntimeCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {
-    if (adapter && 'getRuntimeCapabilities' in adapter && typeof adapter.getRuntimeCapabilities === 'function') {
-      return adapter.getRuntimeCapabilities();
-    }
-    return {
-      supportsResume: false,
-      supportsForkSession: false,
-      supportsNativeCompaction: false,
-      supportsPermissionPrompts: false,
-      supportsDeferPermission: false,
-    };
+  private getAdapterRuntimeCapabilities(adapter?: CliAdapter) {
+    return this.runtimeReadiness.getAdapterRuntimeCapabilities(adapter);
   }
 
   private async resolveCliTypeForInstance(instance: Instance): Promise<CliType> {
@@ -760,144 +780,27 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
   }
 
-  /**
-   * Wait until the just-spawned CLI actually proves it accepted --resume,
-   * not merely that its PID is alive.
-   *
-   * Positive signal: the first stream-json message from the CLI (its `init`
-   * system message carrying session_id). If anything flows out, the session
-   * was loaded successfully.
-   *
-   * Negative signal: stderr surfacing a session-not-found error (Claude CLI
-   * prints "No conversation found with session ID: …" and exits when
-   * --resume targets a missing/unflushed session file).
-   *
-   * Timeout → FAIL. The previous implementation returned true on timeout
-   * whenever the process happened to still be alive, which let a silently-
-   * broken CLI pass the check and triggered a cascade of failed respawns.
-   * Callers already handle `false` by falling back to a fresh session.
-   */
   private async waitForResumeHealth(
     instanceId: string,
     timeoutMs = 5000,
-    pollIntervalMs = 200
+    pollIntervalMs = 200,
   ): Promise<boolean> {
-    const instance = this.deps.getInstance(instanceId);
-    const adapter = this.deps.getAdapter(instanceId);
-    if (!instance || !adapter) return false;
-
-    const liveness = (): boolean => {
-      const inst = this.deps.getInstance(instanceId);
-      const ad = this.deps.getAdapter(instanceId);
-      if (!inst || !ad || ad !== adapter) return false;
-      return (
-        inst.processId !== null &&
-        inst.status !== 'error' &&
-        inst.status !== 'failed' &&
-        inst.status !== 'terminated'
-      );
-    };
-
-    if (!liveness()) return false;
-
-    return new Promise<boolean>((resolve) => {
-      let settled = false;
-      let stopObserving: () => void = () => undefined;
-      const finish = (value: boolean): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        clearInterval(poll);
-        stopObserving();
-        resolve(value);
-      };
-
-      const poll = setInterval(() => {
-        if (!liveness()) finish(false);
-      }, pollIntervalMs);
-
-      const timer = setTimeout(() => finish(false), timeoutMs);
-
-      stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
-        switch (event.kind) {
-          case 'output':
-            finish(true);
-            break;
-          case 'error':
-            if (/no conversation found/i.test(event.message) || /session.*not.*found/i.test(event.message)) {
-              finish(false);
-            }
-            break;
-          default:
-            break;
-        }
-      });
-    });
+    return this.runtimeReadiness.waitForResumeHealth(instanceId, timeoutMs, pollIntervalMs);
   }
 
-  /**
-   * Wait for the CLI adapter's stdin pipe to become writable after spawn/respawn.
-   * For Claude CLI adapters this polls the internal formatter; for exec-based
-   * adapters (Codex, Gemini, Copilot) the spawn() return is sufficient.
-   * Falls through on timeout (fail-open) so the caller can still proceed.
-   */
   private async waitForAdapterWritable(
     instanceId: string,
     timeoutMs = 3000,
-    pollIntervalMs = 100
+    pollIntervalMs = 100,
   ): Promise<boolean> {
-    const isWritable = (): boolean => {
-      const adapter = this.deps.getAdapter(instanceId);
-      if (!adapter) return false;
-
-      // Claude CLI uses a persistent process with a stdin formatter.
-      // After respawn, the new process's stdin may not be immediately writable.
-      // Access the private `formatter` field via duck-typing at runtime.
-      // (TS `private` compiles to a plain property — it's accessible at runtime.)
-      if (adapter.getName() === 'claude-cli') {
-        const formatter = (adapter as unknown as { formatter: { isWritable(): boolean } | null }).formatter;
-        return formatter !== null && formatter.isWritable();
-      }
-
-      // Exec-based adapters (Codex, Gemini, Copilot) are ready once spawn() returns.
-      return true;
-    };
-
-    if (isWritable()) return true;
-
-    return new Promise<boolean>((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        logger.debug('waitForAdapterWritable timed out, proceeding anyway', { instanceId });
-        resolve(isWritable());
-      }, timeoutMs);
-
-      const poll = setInterval(() => {
-        if (isWritable()) {
-          cleanup();
-          resolve(true);
-        }
-      }, pollIntervalMs);
-
-      const cleanup = (): void => {
-        clearTimeout(timeout);
-        clearInterval(poll);
-      };
-    });
+    return this.runtimeReadiness.waitForAdapterWritable(instanceId, timeoutMs, pollIntervalMs);
   }
 
   private async waitForInputReadinessBoundary(
     instanceId: string,
     adapter?: CliAdapter,
   ): Promise<void> {
-    const capabilities = this.getAdapterRuntimeCapabilities(
-      adapter ?? this.deps.getAdapter(instanceId),
-    );
-    if (!capabilities.supportsPermissionPrompts && !capabilities.supportsDeferPermission) {
-      return;
-    }
-
-    await this.waitForAdapterWritable(instanceId, 3_000);
+    await this.runtimeReadiness.waitForInputReadinessBoundary(instanceId, adapter);
   }
 
   // ============================================
@@ -948,8 +851,6 @@ export class InstanceLifecycleManager extends EventEmitter {
    */
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
     logger.info('Creating instance', summarizeCreateInstanceConfig(config));
-    const sessionId = config.sessionId || generateId();
-    const historyThreadId = config.historyThreadId || sessionId;
 
     // Resolve agent profile (built-in + optional markdown-defined).
     // This is async but lightweight (registry lookup); it is needed to
@@ -959,112 +860,22 @@ export class InstanceLifecycleManager extends EventEmitter {
       config.agentId || null
     );
 
-    // Resolve context inheritance (merge with defaults)
-    const defaultInheritance = createDefaultContextInheritance();
-    const contextInheritance: ContextInheritanceConfig = {
-      ...defaultInheritance,
-      ...config.contextInheritance,
-    };
-
-    // Calculate depth based on parent
-    let depth = 0;
-    let resolvedWorkingDir = config.workingDirectory;
-    let resolvedYoloMode = config.yoloMode ?? this.settings.getAll().defaultYoloMode;
-    let resolvedAgentId = resolvedAgent.id;
-
-    if (config.parentId) {
-      const parent = this.deps.getInstance(config.parentId);
-      if (parent) {
-        depth = parent.depth + 1;
-
-        // Apply context inheritance from parent
-        if (contextInheritance.inheritWorkingDirectory && !config.workingDirectory) {
-          resolvedWorkingDir = parent.workingDirectory;
-        }
-        if (contextInheritance.inheritYoloMode && config.yoloMode === undefined) {
-          resolvedYoloMode = parent.yoloMode;
-        }
-        if (contextInheritance.inheritAgentSettings && !config.agentId) {
-          resolvedAgentId = parent.agentId;
-        }
-      }
-    }
+    const instance = buildInstanceRecord(config, resolvedAgent, {
+      defaultYoloMode: this.settings.getAll().defaultYoloMode,
+      getParent: (id) => this.deps.getInstance(id),
+    });
+    const abortController = instance.abortController!;
 
     // Load project permission rules early so the first prompts can be auto-decided.
     try {
-      getPermissionManager().loadProjectRules(resolvedWorkingDir);
+      getPermissionManager().loadProjectRules(instance.workingDirectory);
     } catch {
       /* intentionally ignored: project rules are optional and failure should not block instance creation */
     }
 
-    // Resolve termination policy
-    const terminationPolicy: TerminationPolicy = config.terminationPolicy || 'terminate-children';
-
     // =========================================================================
     // Phase 1: build and register the instance object, then return immediately.
     // =========================================================================
-
-    const abortController = new AbortController();
-
-    // Create instance object — use provider-prefixed ID for debuggability
-    const providerKey = (config.provider && config.provider in INSTANCE_ID_PREFIXES)
-      ? config.provider as InstanceProvider
-      : 'generic';
-    const instance: Instance = {
-      id: generateInstanceId(providerKey),
-      displayName: config.displayName || crossPlatformBasename(resolvedWorkingDir) || `Instance ${Date.now()}`,
-      createdAt: Date.now(),
-      historyThreadId,
-
-      parentId: config.parentId || null,
-      childrenIds: [],
-      supervisorNodeId: '',
-      workerNodeId: undefined,
-      depth,
-
-      // Phase 2: Termination & Inheritance
-      terminationPolicy,
-      contextInheritance,
-
-      agentId: resolvedAgentId,
-      agentMode: resolvedAgent.mode,
-
-      planMode: {
-        enabled: false,
-        state: 'off'
-      },
-
-      status: 'initializing',
-      contextUsage: {
-        used: 0,
-        total: LIMITS.DEFAULT_MAX_CONTEXT_TOKENS,
-        percentage: 0
-      },
-      lastActivity: Date.now(),
-
-      processId: null,
-      providerSessionId: sessionId,
-      sessionId,
-      restartEpoch: 0,
-      workingDirectory: resolvedWorkingDir,
-      yoloMode: resolvedYoloMode,
-      provider: config.provider || 'auto',
-      executionLocation: { type: 'local' },
-      diffStats: undefined,
-
-      outputBuffer: config.initialOutputBuffer || [],
-      outputBufferMaxSize: LIMITS.OUTPUT_BUFFER_MAX_SIZE,
-
-      communicationTokens: new Map(),
-      subscribedTo: [],
-
-      abortController,
-
-      totalTokensUsed: 0,
-      requestCount: 0,
-      errorCount: 0,
-      restartCount: 0
-    };
 
     if (instance.yoloMode) {
       logger.warn('YOLO mode enabled for instance', {
@@ -1139,19 +950,10 @@ export class InstanceLifecycleManager extends EventEmitter {
           this.deps.ingestInitialOutputToRlm(instance, config.initialOutputBuffer);
         }
 
-        // Get disallowed tools based on agent permissions + print-mode-incompatible tools
-        const disallowedTools = [...getDisallowedTools(resolvedAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-
-        // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
-        const denyRules: DenyRule[] = disallowedTools.map(tool => ({
-          pattern: tool,
-          type: 'blanket' as const,
-        }));
-        const toolFilter = new ToolListFilter(denyRules);
-
-        // Store filter on instance for downstream consumers
-        if (!instance.metadata) instance.metadata = {};
-        instance.metadata['toolFilter'] = toolFilter;
+        const toolPermissions = buildToolPermissionConfig(resolvedAgent.permissions, {
+          allowedToolsPolicy: 'allow-all',
+        });
+        attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
         // Load instruction hierarchy (skip for child instances to reduce token overhead)
         const instructionPrompts = instance.depth === 0
@@ -1294,10 +1096,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           resolved: resolvedModel,
         });
 
-        // Allow all tools by default — don't pass --allowedTools unless explicitly configured.
-        // Tool restrictions are handled via --disallowedTools from agent permission profiles.
-        const defaultAllowedTools = undefined;
-
         // Create CLI adapter - use resolved model
         const modelOverride = resolvedModel;
         const spawnOptions: UnifiedSpawnOptions = {
@@ -1306,8 +1104,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           systemPrompt: systemPrompt,
           model: modelOverride,
           yoloMode: instance.yoloMode,
-          allowedTools: defaultAllowedTools,
-          disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+          allowedTools: toolPermissions.allowedTools,
+          disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,
           mcpConfig: this.getMcpConfig(instance.executionLocation),
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
@@ -1531,166 +1329,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     instanceId: string,
     graceful = true
   ): Promise<void> {
-    const adapter = this.deps.getAdapter(instanceId);
-    const instance = this.deps.getInstance(instanceId);
-
-    // Release any held mutex lock to prevent orphaned locks
-    getSessionMutex().forceRelease(instanceId);
-
-    // Stop stuck process tracking
-    this.deps.stopStuckTracking?.(instanceId);
-
-    // Always clean up diff tracker, even if adapter is null (e.g., spawn failed)
-    this.deps.deleteDiffTracker?.(instanceId);
-    this.deps.deleteStateMachine?.(instanceId);
-    this.activityDetectors.delete(instanceId);
-    this.recoveryEngine?.clearHistory(instanceId);
-
-    if (adapter) {
-      try {
-        await adapter.terminate(graceful);
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        // Remote adapters fail frequently when the node is disconnected — expected.
-        // Local failures are more concerning and should be logged as errors.
-        if (adapter instanceof RemoteCliAdapter) {
-          logger.warn('Remote adapter terminate failed, proceeding with cleanup', { instanceId, error: errorMsg });
-        } else {
-          logger.error('Local adapter terminate failed, proceeding with cleanup', error instanceof Error ? error : undefined, { instanceId });
-        }
-      }
-      // Force cleanup of remote adapter listeners to prevent memory leaks
-      if (adapter instanceof RemoteCliAdapter) {
-        adapter.forceCleanup();
-      }
-      this.deps.deleteAdapter(instanceId);
-    }
-
-    if (instance) {
-      // Archive to history before cleanup (only for root instances with messages)
-      if (!instance.parentId && instance.outputBuffer.length > 0) {
-        try {
-          const history = getHistoryManager();
-          const status = instance.status === 'error' ? 'error' : 'completed';
-          await history.archiveInstance(instance, status);
-        } catch (error) {
-          logger.error('Failed to archive instance to history', error instanceof Error ? error : undefined, { instanceId });
-        }
-      }
-
-      // Mine transcript into verbatim storage (async, non-blocking)
-      if (!instance.parentId && instance.outputBuffer.length >= 4) {
-        try {
-          const transcript = instance.outputBuffer
-            .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
-            .map((msg) => msg.type === 'user' ? `> ${msg.content}` : msg.content)
-            .join('\n\n');
-
-          if (transcript.length > 100) {
-            const wing = instance.workingDirectory || 'default';
-            const sourceFile = `session://${instance.id}/terminate`;
-            getConversationMiner().importFromString(transcript, {
-              wing,
-              sourceFile,
-            });
-            logger.info('Mined transcript into verbatim storage', {
-              instanceId,
-              messageCount: instance.outputBuffer.length,
-            });
-          }
-        } catch (error) {
-          logger.warn('Failed to mine transcript', {
-            instanceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      // Terminal states (`failed`, `terminated`) are absorbing in the state
-      // machine. If the instance is already terminal, skip the transition but
-      // still run the rest of the cleanup — the previous behavior threw an
-      // IllegalTransitionError whenever terminateInstance() was invoked on a
-      // spawn-failed instance (common path: spawn error → state=failed → user
-      // dismisses the entry → terminateInstance() → crash, leaving child
-      // list / adapter cleanup half-done). Making terminate idempotent on
-      // terminal instances is the correct behavior.
-      if (instance.status !== 'terminated' && instance.status !== 'failed') {
-        this.transitionState(instance, 'terminated');
-      }
-      instance.processId = null;
-
-      // Remove from parent's children list
-      if (instance.parentId) {
-        const parent = this.deps.getInstance(instance.parentId);
-        if (parent) {
-          parent.childrenIds = parent.childrenIds.filter(
-            (id) => id !== instanceId
-          );
-        }
-      }
-
-      // Handle children based on termination policy
-      const childrenToTerminate: string[] = [];
-      const childrenToOrphan: string[] = [];
-
-      switch (instance.terminationPolicy) {
-        case 'terminate-children':
-          // Terminate all children (default behavior)
-          childrenToTerminate.push(...instance.childrenIds);
-          break;
-
-        case 'orphan-children':
-          // Leave children running without parent
-          childrenToOrphan.push(...instance.childrenIds);
-          for (const childId of childrenToOrphan) {
-            const child = this.deps.getInstance(childId);
-            if (child) {
-              child.parentId = null;
-              logger.info('Orphaned child instance', { childId, parentId: instanceId });
-            }
-          }
-          break;
-
-        case 'reparent-to-root':
-          // Reparent children to root (no parent)
-          for (const childId of instance.childrenIds) {
-            const child = this.deps.getInstance(childId);
-            if (child) {
-              child.parentId = null;
-              child.depth = 0;
-              logger.info('Reparented child instance to root', { childId, formerParentId: instanceId });
-            }
-          }
-          break;
-      }
-
-      // Terminate children that need to be terminated
-      for (const childId of childrenToTerminate) {
-        await this.terminateInstance(childId, graceful);
-      }
-
-      // Clear the children list
-      instance.childrenIds = [];
-
-      // Unregister from supervisor tree
-      const supervisorTree = getSupervisorTree();
-      supervisorTree.unregisterInstance(instanceId);
-
-      // Unregister from orchestration
-      this.deps.unregisterOrchestration(instanceId);
-      this.deps.clearFirstMessageTracking(instanceId);
-
-      // End RLM session
-      this.deps.endRlmSession(instanceId);
-
-      // Clean up disk storage
-      this.outputStorage.deleteInstance(instanceId).catch((err) => {
-        logger.error('Failed to clean up storage', err instanceof Error ? err : undefined, { instanceId });
-      });
-
-      this.emit('removed', instanceId);
-      this.deps.deleteInstance(instanceId);
-    }
+    await this.terminator.terminateInstance(instanceId, graceful);
   }
 
   /**
@@ -1736,30 +1375,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       await continuity.startTracking(instance);
       await continuity.stopTracking(instanceId, true);
 
-      // Mine transcript before hibernation (non-blocking)
-      if (instance.outputBuffer.length >= 4) {
-        try {
-          const transcript = instance.outputBuffer
-            .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
-            .map((msg) => msg.type === 'user' ? `> ${msg.content}` : msg.content)
-            .join('\n\n');
-
-          if (transcript.length > 100) {
-            const wing = instance.workingDirectory || 'default';
-            const sourceFile = `session://${instanceId}/hibernate`;
-            getConversationMiner().importFromString(transcript, {
-              wing,
-              sourceFile,
-            });
-            logger.info('Mined transcript before hibernation', { instanceId });
-          }
-        } catch (error) {
-          logger.warn('Failed to mine transcript before hibernation', {
-            instanceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
+      this.terminator.mineTranscript(instanceId, instance, 'hibernate');
 
       // Kill the adapter process without removing the instance from the store.
       const adapter = this.deps.getAdapter(instanceId);
@@ -2462,24 +2078,11 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Auto-exited plan mode due to agent mode change', { instanceId, newAgentId });
       }
 
-      const disallowedTools = [...getDisallowedTools(newAgent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-
-      // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
-      const denyRules: DenyRule[] = disallowedTools.map(tool => ({
-        pattern: tool,
-        type: 'blanket' as const,
-      }));
-      const toolFilter = new ToolListFilter(denyRules);
-
-      // Store filter on instance for downstream consumers
-      if (!instance.metadata) instance.metadata = {};
-      instance.metadata['toolFilter'] = toolFilter;
-
-      const defaultAllowedTools = instance.yoloMode ? undefined : [
-        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-        'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-        'NotebookEdit', 'Skill'
-      ];
+      const toolPermissions = buildToolPermissionConfig(newAgent.permissions, {
+        allowedToolsPolicy: 'standard-unless-yolo',
+        yoloMode: instance.yoloMode,
+      });
+      attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
       const cliType = await this.resolveCliTypeForInstance(instance);
       const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
@@ -2496,8 +2099,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         systemPrompt: newAgent.systemPrompt,
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
-        allowedTools: defaultAllowedTools,
-        disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+        allowedTools: toolPermissions.allowedTools,
+        disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.getMcpConfig(instance.executionLocation),
@@ -2645,24 +2248,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }
 
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
-      const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-
-      // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
-      const denyRules: DenyRule[] = disallowedTools.map(tool => ({
-        pattern: tool,
-        type: 'blanket' as const,
-      }));
-      const toolFilter = new ToolListFilter(denyRules);
-
-      // Store filter on instance for downstream consumers
-      if (!instance.metadata) instance.metadata = {};
-      instance.metadata['toolFilter'] = toolFilter;
-
-      const allowedTools = newYoloMode ? undefined : [
-        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-        'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-        'NotebookEdit', 'Skill'
-      ];
+      const toolPermissions = buildToolPermissionConfig(agent.permissions, {
+        allowedToolsPolicy: 'standard-unless-yolo',
+        yoloMode: newYoloMode,
+      });
+      attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
       const cliType = await this.resolveCliTypeForInstance(instance);
       const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
@@ -2678,8 +2268,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         workingDirectory: instance.workingDirectory,
         systemPrompt: agent.systemPrompt,
         yoloMode: newYoloMode,
-        allowedTools,
-        disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+        allowedTools: toolPermissions.allowedTools,
+        disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.getMcpConfig(instance.executionLocation),
@@ -2830,24 +2420,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
       // Resolve agent and permissions (same as toggleYoloMode)
       const agent = getAgentById(instance.agentId) || getDefaultAgent();
-      const disallowedTools = [...getDisallowedTools(agent.permissions), ...PRINT_MODE_INCOMPATIBLE_TOOLS];
-
-      // Build proactive tool filter for pre-filtering tool definitions (defense-in-depth)
-      const denyRules: DenyRule[] = disallowedTools.map(tool => ({
-        pattern: tool,
-        type: 'blanket' as const,
-      }));
-      const toolFilter = new ToolListFilter(denyRules);
-
-      // Store filter on instance for downstream consumers
-      if (!instance.metadata) instance.metadata = {};
-      instance.metadata['toolFilter'] = toolFilter;
-
-      const allowedTools = instance.yoloMode ? undefined : [
-        'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-        'Task', 'TaskOutput', 'TodoWrite', 'WebFetch', 'WebSearch',
-        'NotebookEdit', 'Skill'
-      ];
+      const toolPermissions = buildToolPermissionConfig(agent.permissions, {
+        allowedToolsPolicy: 'standard-unless-yolo',
+        yoloMode: instance.yoloMode,
+      });
+      attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
       const cliType = await this.resolveCliTypeForInstance(instance);
       const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
@@ -2902,8 +2479,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         systemPrompt: agent.systemPrompt,
         model: validatedModel,
         yoloMode: instance.yoloMode,
-        allowedTools,
-        disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+        allowedTools: toolPermissions.allowedTools,
+        disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.getMcpConfig(instance.executionLocation),
