@@ -76,6 +76,22 @@ const ACP_PROTOCOL_VERSION = 1;
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INVALID_REQUEST = -32600;
 
+/**
+ * Default per-request timeout for ACP JSON-RPC calls. Without a timeout the
+ * `pendingRequests` Map entries accumulate forever when the agent stops
+ * responding (observed in the wild: Copilot ACP sessions hanging mid-turn
+ * after an orphaned `session/request_permission` round-trip).
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * Prompt turns can legitimately take many minutes (long agentic loops with
+ * sub-tool calls), so they get a generous ceiling separate from the default.
+ * Still bounded so a truly hung agent produces a visible timeout error
+ * instead of silently eating input forever.
+ */
+const DEFAULT_PROMPT_TIMEOUT_MS = 10 * 60_000;
+
 const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
   name: 'ai-orchestrator',
   title: 'AI Orchestrator',
@@ -100,6 +116,9 @@ interface AcpPendingRequest {
   method: string;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  /** Timer that rejects the pending promise if the agent never replies.
+   *  Cleared on any settle path (resolve, reject, cancel, terminate). */
+  timer: ReturnType<typeof setTimeout>;
 }
 
 interface AcpObservedToolCall {
@@ -144,6 +163,13 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
     instanceId: string;
     childId?: string;
   };
+  /** Per-method JSON-RPC timeout override for non-prompt requests.
+   *  Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
+  requestTimeoutMs?: number;
+  /** Timeout for `session/prompt` RPCs. Prompt turns are long-running so
+   *  this is intentionally looser than `requestTimeoutMs`. Defaults to
+   *  {@link DEFAULT_PROMPT_TIMEOUT_MS}. */
+  promptTimeoutMs?: number;
 }
 
 function toError(value: unknown, fallback: string): Error {
@@ -226,6 +252,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
     this.acpConfig = {
       permissionRequestTimeoutMs: 60_000,
+      requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+      promptTimeoutMs: DEFAULT_PROMPT_TIMEOUT_MS,
       ...config,
     };
   }
@@ -332,11 +360,34 @@ export class AcpCliAdapter extends BaseCliAdapter {
       name: attachment.name,
     }));
 
-    await this.sendMessage({
-      role: 'user',
-      content: message,
-      attachments: cliAttachments,
-    });
+    try {
+      await this.sendMessage({
+        role: 'user',
+        content: message,
+        attachments: cliAttachments,
+      });
+    } catch (error) {
+      // Surface failures as an `error` OutputMessage + `status: error` event
+      // (matching the CopilotCliAdapter contract). Without this, a thrown
+      // error from sendMessage — e.g. "already has a prompt turn in flight"
+      // when the user types while a turn is still running — was silently
+      // swallowed by the caller and the UI kept showing "Processing…".
+      const err = error instanceof Error ? error : new Error(String(error));
+      const errorMessage: OutputMessage = {
+        id: generateId(),
+        timestamp: Date.now(),
+        type: 'error',
+        content: err.message,
+        metadata: {
+          source: 'acp-send-input',
+          transport: 'acp',
+          adapter: this.getName(),
+        },
+      };
+      this.emit('output', errorMessage);
+      this.emit('status', 'error');
+      this.emit('error', err);
+    }
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
@@ -353,7 +404,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     if (this.currentPromptRequestId) {
-      throw new Error('ACP adapter already has a prompt turn in flight.');
+      throw new Error(
+        'Cannot send message: the previous turn is still running. ' +
+        'Wait for it to finish, or cancel/interrupt the current turn first.',
+      );
     }
 
     const promptParams: AcpSessionPromptParams = {
@@ -515,8 +569,34 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return;
     }
 
-    await this.sendNotification('session/cancel', { sessionId: this.sessionId });
+    const cancelledRequestId = this.currentPromptRequestId;
+
+    // Notify the agent so it can tear down cleanly if it's still alive.
+    // Best-effort: if stdin is already closed, we still want to reject the
+    // local promise below so the caller unblocks.
+    try {
+      await this.sendNotification('session/cancel', { sessionId: this.sessionId });
+    } catch (error) {
+      logger.debug('ACP session/cancel notification failed; continuing with local cleanup', {
+        adapter: this.getName(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     await this.cancelPendingPermissionRequests();
+
+    // Locally reject the in-flight session/prompt promise and purge it from
+    // pendingRequests. Previously cancel was a fire-and-forget notification —
+    // if the agent ignored it, `sendMessage` stayed pending forever.
+    const pending = this.pendingRequests.get(cancelledRequestId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(cancelledRequestId);
+      pending.reject(new Error('ACP prompt turn was cancelled by the client.'));
+    }
+    if (this.currentPromptRequestId === cancelledRequestId) {
+      this.currentPromptRequestId = null;
+    }
   }
 
   private async cancelPendingPermissionRequests(): Promise<void> {
@@ -538,6 +618,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   private rejectPendingRequests(error: Error): void {
     for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pendingRequests.clear();
@@ -604,6 +685,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return;
     }
 
+    clearTimeout(pending.timer);
     this.pendingRequests.delete(key);
     pending.resolve(response.result);
   }
@@ -616,6 +698,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     );
 
     if (pending && key) {
+      clearTimeout(pending.timer);
       this.pendingRequests.delete(key);
       pending.reject(error);
       return;
@@ -1194,11 +1277,46 @@ export class AcpCliAdapter extends BaseCliAdapter {
       ...(params !== undefined ? { params } : {}),
     };
 
+    // Per-method timeout: prompt turns get a loose ceiling; all other RPCs
+    // use the default. Without a timeout, a silently dead agent would leave
+    // this promise pending forever (root cause of the "Processing…" hang).
+    const timeoutMs = method === 'session/prompt'
+      ? this.acpConfig.promptTimeoutMs ?? DEFAULT_PROMPT_TIMEOUT_MS
+      : this.acpConfig.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+
     const responsePromise = new Promise<TResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Only act if this pending entry is still the live one; resolve()
+        // and reject() paths both clear the timer before settling.
+        const entry = this.pendingRequests.get(id);
+        if (!entry) return;
+        this.pendingRequests.delete(id);
+        if (this.currentPromptRequestId === id) {
+          this.currentPromptRequestId = null;
+        }
+        const error = new Error(
+          `ACP ${method} request timed out after ${timeoutMs}ms (id=${id}). ` +
+          'The agent may be stuck on an orphaned tool call or permission request.',
+        );
+        logger.warn('ACP request timeout', {
+          adapter: this.getName(),
+          method,
+          id,
+          timeoutMs,
+        });
+        reject(error);
+      }, timeoutMs);
+      // Let the event loop exit even if this timer is still armed (e.g.,
+      // during process shutdown); terminate() also explicitly clears it.
+      if (typeof timer.unref === 'function') {
+        timer.unref();
+      }
+
       this.pendingRequests.set(id, {
         method,
         resolve: (value) => resolve(value as TResult),
         reject,
+        timer,
       });
     });
 

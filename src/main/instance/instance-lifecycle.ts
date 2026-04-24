@@ -923,6 +923,23 @@ export class InstanceLifecycleManager extends EventEmitter {
       this.triggerAutoTitle(instance, config.initialPrompt);
     }
 
+    // Restored sessions (history-restore, etc.) arrive with a populated
+    // initialOutputBuffer and no initialPrompt. The first real message
+    // after restore is a continuation, not a genuine first message — so
+    // suppress auto-title re-firing (which would overwrite the restored
+    // displayName with a title derived from the follow-up message) and
+    // orchestration-prompt re-prepending (which was already applied to
+    // the original first message).
+    const hasRestoredConversation = config.initialOutputBuffer?.some(
+      (msg) => msg.type === 'user' || msg.type === 'assistant'
+    ) ?? false;
+    const hasInitialPrompt =
+      typeof config.initialPrompt === 'string'
+      && config.initialPrompt.trim().length > 0;
+    if (hasRestoredConversation && !hasInitialPrompt) {
+      this.deps.markFirstMessageReceived(instance.id);
+    }
+
     // =========================================================================
     // Phase 2: heavy async init runs in the background.
     // All callers that need the instance to be fully ready must await

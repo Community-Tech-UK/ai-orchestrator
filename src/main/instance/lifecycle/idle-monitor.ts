@@ -80,8 +80,22 @@ export class IdleMonitor {
   start(intervalMs: number = DEFAULT_INTERVAL_MS): void {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
-      this.check();
-      this.cleanupZombieProcesses();
+      // Defensive try/catch: vitest runs with `singleFork: true`, so this
+      // interval can fire across test-file boundaries. If a downstream test
+      // file has mocked (and subsequently reset) dependencies like
+      // ErrorRecoveryManager, getRecoveryEngine() throws synchronously.
+      // Swallowing the error here prevents an uncaught exception from
+      // poisoning whichever test happens to be running when the timer fires.
+      try {
+        this.check();
+      } catch (err) {
+        logger.warn('Idle check tick failed', { error: (err as Error)?.message ?? String(err) });
+      }
+      try {
+        this.cleanupZombieProcesses();
+      } catch (err) {
+        logger.warn('Zombie cleanup tick failed', { error: (err as Error)?.message ?? String(err) });
+      }
     }, intervalMs);
   }
 

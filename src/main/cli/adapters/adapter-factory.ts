@@ -19,6 +19,7 @@ import type { CliType as SettingsCliType } from '../../../shared/types/settings.
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
+import { getPermissionRegistry } from '../../orchestration/permission-registry';
 
 const logger = getLogger('AdapterFactory');
 
@@ -58,6 +59,24 @@ export interface UnifiedSpawnOptions {
    *  When set, the adapter injects hook configuration via --settings to intercept dangerous
    *  tools and return `defer`, pausing execution for user approval. */
   permissionHookPath?: string;
+  /** Instance ID, used by ACP-backed adapters (Copilot, Cursor) to tag
+   *  permission requests routed through `PermissionRegistry`. When omitted,
+   *  the factory generates a synthetic ephemeral ID so the registry's
+   *  auto-timeout still fires on unresponded `session/request_permission`
+   *  RPCs (otherwise the ACP turn would hang indefinitely). */
+  instanceId?: string;
+  /** Child ID for nested / subagent instances (ACP permission context). */
+  childId?: string;
+}
+
+/**
+ * Generates a synthetic ephemeral instance ID for ACP adapter permission
+ * routing when the caller didn't provide one. Keeps the registry-based
+ * timeout active for ad-hoc spawns (consensus, verification, auto-title,
+ * cross-model review, etc.).
+ */
+function acpEphemeralInstanceId(kind: string): string {
+  return `acp-ephemeral-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**
@@ -241,6 +260,15 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,
+    // Wire the permission registry so Copilot's `session/request_permission`
+    // RPCs can be auto-timed-out and surfaced to the UI. Without this,
+    // a permission prompt from Copilot would block the `session/prompt`
+    // promise forever (observed as a "Making edits / Processing…" stuck UI).
+    permissionRegistry: getPermissionRegistry(),
+    permissionContext: {
+      instanceId: options.instanceId ?? acpEphemeralInstanceId('copilot'),
+      childId: options.childId,
+    },
   });
 }
 
@@ -256,6 +284,14 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,
+    // Same rationale as createCopilotAdapter: keep the ACP permission
+    // auto-timeout active so `session/request_permission` hangs surface
+    // in the UI instead of silently blocking the prompt turn.
+    permissionRegistry: getPermissionRegistry(),
+    permissionContext: {
+      instanceId: options.instanceId ?? acpEphemeralInstanceId('cursor'),
+      childId: options.childId,
+    },
   });
 }
 

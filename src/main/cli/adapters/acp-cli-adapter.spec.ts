@@ -602,4 +602,152 @@ describe('AcpCliAdapter', () => {
 
     proc.exit();
   });
+
+  // ============ Regression: ACP request hang prevention ============
+  //
+  // These cover the "Making edits / Processing…" hang observed when the
+  // Copilot ACP agent stops responding mid-turn:
+  //   - sendRequest now has a per-method timeout so pendingRequests can't
+  //     accumulate forever,
+  //   - interrupt()/cancelCurrentPrompt() actually rejects the in-flight
+  //     session/prompt promise instead of fire-and-forgetting a notification,
+  //   - sendInput() surfaces errors as `error` OutputMessages (previously the
+  //     UI kept showing "Processing…" because thrown errors were swallowed).
+
+  it('rejects session/prompt after promptTimeoutMs when the agent never responds', async () => {
+    const proc = createInitializedAgentHarness();
+
+    // Intentionally never respond to session/prompt — simulates the hang.
+    proc.onRequest('session/prompt', () => {
+      /* no-op: agent is "hung" */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 50,
+    });
+    await adapter.spawn();
+
+    await expect(
+      adapter.sendMessage({ role: 'user', content: 'hello' }),
+    ).rejects.toThrow(/session\/prompt request timed out after 50ms/);
+
+    proc.exit();
+  });
+
+  it('rejects non-prompt ACP requests after requestTimeoutMs when the agent is silent', async () => {
+    const proc = new FakeAcpProcess();
+    // Respond to initialize but never to session/new — forces spawn() to hit
+    // the request timeout for the latter.
+    proc.onRequest('initialize', (message) => {
+      proc.respond(message.id, {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        authMethods: [],
+      });
+    });
+    proc.onRequest('session/new', () => {
+      /* no-op: agent stalls on session setup */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      requestTimeoutMs: 50,
+    });
+
+    await expect(adapter.spawn()).rejects.toThrow(/session\/new request timed out after 50ms/);
+  });
+
+  it('interrupt() cancels the in-flight prompt and rejects its promise locally', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      /* intentionally never settle server-side */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      // Give it a very generous prompt timeout so we're sure the rejection
+      // below comes from interrupt() and not the timeout watchdog.
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const pending = adapter.sendMessage({ role: 'user', content: 'work' });
+
+    // Wait for the session/prompt to actually land on the agent before cancelling.
+    await proc.waitForMessage((message) =>
+      'method' in message && message.method === 'session/prompt',
+    );
+
+    expect(adapter.interrupt()).toBe(true);
+
+    await expect(pending).rejects.toThrow(/cancelled by the client/);
+
+    // A session/cancel notification must have been sent to the agent.
+    const cancelSent = proc.receivedMessages.some((message) =>
+      'method' in message && message.method === 'session/cancel',
+    );
+    expect(cancelSent).toBe(true);
+
+    proc.exit();
+  });
+
+  it('sendInput surfaces "turn already in flight" errors as an error OutputMessage', async () => {
+    const proc = createInitializedAgentHarness();
+
+    // Hold the first prompt open; we don't want it to resolve before the
+    // second sendInput tries to run.
+    proc.onRequest('session/prompt', () => {
+      /* no-op: keep turn in flight */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const outputs: { type: string; content: string }[] = [];
+    adapter.on('output', (message: { type: string; content: string }) => {
+      outputs.push({ type: message.type, content: message.content });
+    });
+    const statusEvents: string[] = [];
+    adapter.on('status', (status: string) => statusEvents.push(status));
+    // Register an `error` listener so EventEmitter's default "unhandled
+    // error" behavior (rethrowing) doesn't kill the test. Real callers
+    // (instance manager) always register one.
+    const errorEvents: Error[] = [];
+    adapter.on('error', (err: Error) => errorEvents.push(err));
+
+    // Kick off the first turn without awaiting it (we don't want to block).
+    const firstTurn = adapter.sendInput('first message').catch(() => {
+      /* will eventually reject when we tear down */
+    });
+
+    // Wait until the agent sees the first prompt request before sending the second.
+    await proc.waitForMessage((message) =>
+      'method' in message && message.method === 'session/prompt',
+    );
+
+    await adapter.sendInput('second message while busy');
+
+    const errorOutputs = outputs.filter((m) => m.type === 'error');
+    expect(errorOutputs).toHaveLength(1);
+    expect(errorOutputs[0]?.content).toMatch(/previous turn is still running/i);
+    expect(statusEvents).toContain('error');
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0]?.message).toMatch(/previous turn is still running/i);
+
+    // Clean up the dangling first turn so the test process doesn't leak
+    // a pending promise.
+    adapter.interrupt();
+    await firstTurn;
+
+    proc.exit();
+  });
 });

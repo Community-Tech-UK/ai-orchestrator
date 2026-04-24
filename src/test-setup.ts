@@ -5,7 +5,7 @@
 
 import 'zone.js';
 import 'zone.js/testing';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
@@ -35,6 +35,23 @@ import {
 // ============================================================================
 
 await initSqliteWasm();
+
+// ============================================================================
+// Global timer-state reset
+//
+// vitest.config.ts uses `singleFork: true` so all tests share one Node process.
+// If any test calls `vi.useFakeTimers()` and forgets `vi.useRealTimers()` at
+// the end, fake timers stay engaged for every subsequent test file. Any later
+// test that does `await new Promise(r => setTimeout(r, N))` then hangs until
+// the 5 s test timeout fires — which on Linux CI manifests as dozens of
+// test-timeout failures in unrelated files.
+//
+// `vi.useRealTimers()` is idempotent when real timers are already active, so
+// this is safe to run after every test.
+// ============================================================================
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 vi.mock('better-sqlite3', () => {
   class MockDatabase {

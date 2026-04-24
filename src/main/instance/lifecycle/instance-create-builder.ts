@@ -38,6 +38,7 @@ export function buildInstanceRecord(
     displayName: config.displayName
       || crossPlatformBasename(parentContext.workingDirectory)
       || `Instance ${now}`,
+    isRenamed: config.isRenamed,
     createdAt: now,
     historyThreadId,
 

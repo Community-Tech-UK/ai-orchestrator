@@ -302,6 +302,12 @@ export interface Instance {
 
 export interface InstanceCreateConfig {
   displayName?: string;
+  /**
+   * True when the `displayName` was explicitly set by the user (e.g. carried
+   * over from a restored history entry). Prevents auto-title from overwriting
+   * a user-chosen name on the first message after restore.
+   */
+  isRenamed?: boolean;
   parentId?: string | null;
   historyThreadId?: string; // Stable app-level thread identity across restore/fallback
   sessionId?: string;

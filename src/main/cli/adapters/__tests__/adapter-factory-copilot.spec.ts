@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
+import { PermissionRegistry } from '../../../orchestration/permission-registry';
 
 describe('adapter factory — copilot', () => {
   it('getCliDisplayName returns GitHub Copilot', () => {
@@ -48,5 +49,45 @@ describe('adapter factory — copilot', () => {
     const modelIdx = args.indexOf('--model');
     expect(modelIdx).toBeGreaterThanOrEqual(0);
     expect(args[modelIdx + 1]).toBe('auto');
+  });
+
+  it('wires the PermissionRegistry singleton into the ACP adapter', () => {
+    // Regression: without this wiring the Copilot ACP agent's
+    // session/request_permission RPCs have no timeout and the prompt turn
+    // hangs forever if the UI doesn't surface the permission dialog.
+    PermissionRegistry._resetForTesting();
+    const registry = PermissionRegistry.getInstance();
+
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      instanceId: 'inst-wiring-test',
+    });
+
+    // The adapter stashes the registry and context in its private config; we
+    // exercise the observable contract: a permission request routed through
+    // the registry should be picked up by the adapter's handler. The shape is
+    // already covered exhaustively in acp-cli-adapter.spec.ts — here we only
+    // verify the factory plumbed it through at all.
+    expect((adapter as unknown as {
+      acpConfig: { permissionRegistry: unknown; permissionContext: { instanceId: string } };
+    }).acpConfig.permissionRegistry).toBe(registry);
+    expect((adapter as unknown as {
+      acpConfig: { permissionContext: { instanceId: string } };
+    }).acpConfig.permissionContext.instanceId).toBe('inst-wiring-test');
+
+    PermissionRegistry._resetForTesting();
+  });
+
+  it('falls back to an ephemeral instanceId when none is supplied', () => {
+    PermissionRegistry._resetForTesting();
+
+    const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
+    const instanceId = (adapter as unknown as {
+      acpConfig: { permissionContext: { instanceId: string } };
+    }).acpConfig.permissionContext.instanceId;
+
+    expect(instanceId).toMatch(/^acp-ephemeral-copilot-/);
+
+    PermissionRegistry._resetForTesting();
   });
 });

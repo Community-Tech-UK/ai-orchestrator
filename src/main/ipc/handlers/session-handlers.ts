@@ -973,6 +973,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             const instance = await instanceManager.createInstance({
               workingDirectory: workingDir,
               displayName,
+              isRenamed: data.entry.isRenamed,
               historyThreadId,
               sessionId: data.entry.sessionId,
               resume: true,
@@ -1218,6 +1219,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           const instance = await instanceManager.createInstance({
             workingDirectory: fallbackWorkingDir,
             displayName,
+            isRenamed: data.entry.isRenamed,
             historyThreadId,
             initialOutputBuffer: displayMessages,
             provider: restoreProvider,
