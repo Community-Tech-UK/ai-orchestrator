@@ -14,7 +14,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { AdapterRuntimeCapabilities } from './base-cli-adapter';
+import type { AdapterRuntimeCapabilities, InterruptResult } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 
 const logger = getLogger('RemoteCliAdapter');
@@ -173,11 +173,13 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   /**
-   * Interrupt the remote instance. Returns true if the RPC was initiated.
+   * Interrupt the remote instance. Returns accepted if the RPC was initiated.
    * Logs errors and emits an 'error' event on failure so callers are aware.
    */
-  interrupt(): boolean {
-    if (!this.remoteInstanceId) return false;
+  interrupt(): InterruptResult {
+    if (!this.remoteInstanceId) {
+      return { status: 'already-idle', reason: 'No remote instance is attached' };
+    }
 
     const instanceId = this.remoteInstanceId;
 
@@ -187,7 +189,7 @@ export class RemoteCliAdapter extends EventEmitter {
         nodeId: this.targetNodeId,
         instanceId,
       });
-      return false;
+      return { status: 'rejected', reason: 'Remote node is disconnected' };
     }
 
     this.nodeConnection.sendRpc(
@@ -203,7 +205,7 @@ export class RemoteCliAdapter extends EventEmitter {
       this.emit('error', new Error(`Remote interrupt failed: ${err.message}`));
     });
 
-    return true;
+    return { status: 'accepted' };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

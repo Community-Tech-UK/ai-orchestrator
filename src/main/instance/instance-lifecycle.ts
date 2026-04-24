@@ -7,7 +7,6 @@ import { app } from 'electron';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import {
-  createCliAdapter,
   resolveCliType,
   getCliDisplayName,
   type UnifiedSpawnOptions,
@@ -15,6 +14,7 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import { CopilotCliAdapter } from '../cli/adapters/copilot-cli-adapter';
+import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
   getDefaultModelForCli,
@@ -69,7 +69,11 @@ import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handl
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
-import { SessionRecoveryHandler, type RecoveryResult } from './lifecycle/session-recovery';
+import {
+  SessionRecoveryHandler,
+  planSessionRecovery,
+  type RecoveryResult,
+} from './lifecycle/session-recovery';
 import { IdleMonitor } from './lifecycle/idle-monitor';
 import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
 import { RuntimeReadinessCoordinator } from './lifecycle/runtime-readiness';
@@ -77,6 +81,7 @@ import { InstanceTerminationCoordinator } from './lifecycle/instance-termination
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
+import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
   buildUnsupportedAttachmentWarnings,
@@ -86,6 +91,7 @@ import {
   attachToolFilterMetadata,
   buildToolPermissionConfig,
 } from './lifecycle/tool-permission-config';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -205,6 +211,14 @@ export interface LifecycleDependencies {
     sessionState?: {
       providerSessionId?: string;
       restartEpoch?: number;
+      adapterGeneration?: number;
+      activeTurnId?: string;
+      interruptRequestId?: string;
+      interruptRequestedAt?: number;
+      interruptPhase?: Instance['interruptPhase'];
+      lastTurnOutcome?: Instance['lastTurnOutcome'];
+      supersededBy?: string;
+      cancelledForEdit?: boolean;
       recoveryMethod?: Instance['recoveryMethod'];
       archivedUpToMessageId?: string;
       historyThreadId?: string;
@@ -487,7 +501,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
     this.spawner = new InstanceSpawner({
       createAdapter: async (config) => {
-        const adapter = createCliAdapter(config.provider as never, {
+        const adapter = this.createRuntimeAdapter(config.provider as CliType, {
           sessionId: config.sessionId,
           workingDirectory: config.workingDirectory,
           model: config.model,
@@ -517,8 +531,16 @@ export class InstanceLifecycleManager extends EventEmitter {
         getMcpConfig: (loc) => this.getMcpConfig(loc),
         getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
         waitForResumeHealth: (id) => this.waitForResumeHealth(id),
-        createCliAdapter: (cliType, options, loc) => createCliAdapter(cliType as never, options, loc),
-        acquireSessionMutex: (id, label) => getSessionMutex().acquire(id, label),
+        createCliAdapter: (cliType, options, loc) => this.createRuntimeAdapter(cliType as CliType, options, loc),
+        acquireSessionMutex: (id, label) => {
+          const lockInstance = this.deps.getInstance(id);
+          return getSessionMutex().acquire(id, label, {
+            operation: label,
+            recoveryReason: 'deferred-permission',
+            turnId: lockInstance?.activeTurnId,
+            adapterGeneration: lockInstance?.adapterGeneration,
+          });
+        },
       },
       {
         writeDecision: (toolUseId, decision, reason) =>
@@ -621,6 +643,20 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     instance.status = sm.current;
+    recordLifecycleTrace({
+      instanceId: instance.id,
+      turnId: instance.activeTurnId,
+      adapterGeneration: instance.adapterGeneration,
+      provider: instance.provider,
+      eventType: 'status-transition',
+      previousStatus,
+      status: instance.status,
+      metadata: {
+        interruptRequestId: instance.interruptRequestId,
+        interruptPhase: instance.interruptPhase,
+        recoveryMethod: instance.recoveryMethod,
+      },
+    });
     this.emit('state-update', {
       instanceId: instance.id,
       status: instance.status,
@@ -636,6 +672,14 @@ export class InstanceLifecycleManager extends EventEmitter {
   private async resolveCliTypeForInstance(instance: Instance): Promise<CliType> {
     const settingsAll = this.settings.getAll();
     return resolveCliType(instance.provider, settingsAll.defaultCli);
+  }
+
+  private createRuntimeAdapter(
+    cliType: CliType,
+    options: UnifiedSpawnOptions,
+    executionLocation?: ExecutionLocation,
+  ): CliAdapter {
+    return getProviderRuntimeService().createAdapter({ cliType, options, executionLocation });
   }
 
   private isSessionBoundaryMessage(message: OutputMessage): boolean {
@@ -785,7 +829,37 @@ export class InstanceLifecycleManager extends EventEmitter {
     timeoutMs = 5000,
     pollIntervalMs = 200,
   ): Promise<boolean> {
-    return this.runtimeReadiness.waitForResumeHealth(instanceId, timeoutMs, pollIntervalMs);
+    const healthy = await this.runtimeReadiness.waitForResumeHealth(instanceId, timeoutMs, pollIntervalMs);
+    if (!healthy) {
+      return false;
+    }
+
+    const resumeResult = this.getAdapterResumeAttemptResult(instanceId);
+    if (!resumeResult || resumeResult.source === 'none') {
+      return true;
+    }
+
+    if (!resumeResult.confirmed) {
+      logger.warn('Adapter did not confirm native resume after readiness probe', {
+        instanceId,
+        source: resumeResult.source,
+        requestedSessionId: resumeResult.requestedSessionId,
+        actualSessionId: resumeResult.actualSessionId,
+        reason: resumeResult.reason,
+      });
+      return false;
+    }
+
+    return true;
+  }
+
+  private getAdapterResumeAttemptResult(instanceId: string): ResumeAttemptResult | null {
+    const adapter = this.deps.getAdapter(instanceId);
+    if (!adapter || typeof (adapter as { getResumeAttemptResult?: unknown }).getResumeAttemptResult !== 'function') {
+      return null;
+    }
+
+    return (adapter as { getResumeAttemptResult: () => ResumeAttemptResult | null }).getResumeAttemptResult();
   }
 
   private async waitForAdapterWritable(
@@ -1204,7 +1278,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           } else {
             await this.warmCodememWorkspace(instance.workingDirectory);
           }
-          adapter = createCliAdapter(resolvedCliType, spawnOptions, executionLocation);
+          adapter = this.createRuntimeAdapter(resolvedCliType, spawnOptions, executionLocation);
 
           // Set up adapter events
           this.deps.setupAdapterEvents(instance.id, adapter);
@@ -1508,17 +1582,39 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (signal.aborted) return;
 
         const nativeSessionId = sessionState?.sessionId?.trim();
+        const hasConversation = instance.outputBuffer.some(
+          (message) => message.type === 'user' || message.type === 'assistant'
+        );
+        const recoveryPlan = planSessionRecovery({
+          instanceId,
+          reason: 'wake',
+          previousProviderSessionId: nativeSessionId,
+          provider: instance.provider,
+          model: instance.currentModel,
+          agent: instance.agentId,
+          cwd: instance.workingDirectory,
+          yolo: instance.yoloMode,
+          executionLocation: instance.executionLocation.type,
+          resumeCursor: sessionState?.resumeCursor ?? null,
+          resumeCursorSource: sessionState?.resumeCursor?.scanSource,
+          capabilities: {
+            supportsResume: Boolean(nativeSessionId) && !sessionState?.nativeResumeFailedAt,
+            supportsForkSession: false,
+          },
+          activeTurnId: instance.activeTurnId,
+          adapterGeneration: instance.adapterGeneration ?? 0,
+          hasConversation,
+          sessionResumeBlacklisted: instance.sessionResumeBlacklisted === true,
+        });
         const canAttemptNativeResume =
-          Boolean(nativeSessionId)
+          (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork')
+          && Boolean(nativeSessionId)
           && !sessionState?.nativeResumeFailedAt;
         const fallbackReason = canAttemptNativeResume
           ? 'hibernate-wake-fallback'
           : sessionState?.nativeResumeFailedAt
             ? 'hibernate-wake-skip-failed-resume'
             : 'hibernate-wake-replay';
-        const hasConversation = instance.outputBuffer.some(
-          (message) => message.type === 'user' || message.type === 'assistant'
-        );
 
         // Determine CLI type and build spawn options (same pattern as createInstance Phase 2).
         const cliType = await this.resolveCliTypeForInstance(instance);
@@ -1536,7 +1632,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
         };
 
-        let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+        let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
         this.deps.setupAdapterEvents(instanceId, adapter);
         this.deps.setAdapter(instanceId, adapter);
         if (this.deps.setDiffTracker) {
@@ -1598,7 +1694,7 @@ export class InstanceLifecycleManager extends EventEmitter {
               resume: false,
               forkSession: false,
             };
-            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
             if (this.deps.setDiffTracker) {
@@ -1687,7 +1783,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     const cliType = await this.resolveCliTypeForInstance(instance);
-    const adapter = createCliAdapter(
+    const adapter = this.createRuntimeAdapter(
       cliType,
       {
         instanceId: instance.id,
@@ -1753,7 +1849,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     instance.sessionId = newProviderSessionId;
     instance.sessionResumeBlacklisted = false;
 
-    const adapter = createCliAdapter(
+    const adapter = this.createRuntimeAdapter(
       cliType,
       {
         instanceId: instance.id,
@@ -1802,7 +1898,13 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Restart an instance
    */
   async restartInstance(instanceId: string): Promise<void> {
-    const release = await getSessionMutex().acquire(instanceId, 'restart');
+    const pendingInstance = this.deps.getInstance(instanceId);
+    const release = await getSessionMutex().acquire(instanceId, 'restart', {
+      operation: 'restart',
+      recoveryReason: 'restart',
+      turnId: pendingInstance?.activeTurnId,
+      adapterGeneration: pendingInstance?.adapterGeneration,
+    });
     try {
       const instance = this.deps.getInstance(instanceId);
       if (!instance) {
@@ -1860,7 +1962,21 @@ export class InstanceLifecycleManager extends EventEmitter {
         replayFallback: (id, sessionId) => this.replayFallbackAfterRestart(id, sessionId),
       });
       const providerSessionId = instance.providerSessionId || instance.sessionId;
-      const result = await recovery.recover(instanceId, providerSessionId);
+      const result = await recovery.recover(instanceId, providerSessionId, {
+        reason: 'restart',
+        previousAdapterId: oldAdapter?.getName(),
+        provider: instance.provider,
+        model: instance.currentModel,
+        agent: instance.agentId,
+        cwd: instance.workingDirectory,
+        yolo: instance.yoloMode,
+        executionLocation: instance.executionLocation.type,
+        capabilities: this.getAdapterRuntimeCapabilities(oldAdapter),
+        activeTurnId: instance.activeTurnId,
+        adapterGeneration: instance.adapterGeneration ?? 0,
+        hasConversation: this.hasActiveConversation(instance),
+        sessionResumeBlacklisted: instance.sessionResumeBlacklisted === true,
+      });
 
       if (!result.success) {
         instance.recoveryMethod = 'failed';
@@ -1966,7 +2082,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resetFirstMessageTracking: true,
       });
 
-      const adapter = createCliAdapter(
+      const adapter = this.createRuntimeAdapter(
         cliType,
         {
           instanceId: instance.id,
@@ -2130,7 +2246,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
 
-      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
 
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
@@ -2151,7 +2267,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
@@ -2306,7 +2422,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         sessionId: spawnOptions.sessionId
       });
 
-      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
 
       logger.debug('Setting up adapter events', { instanceId });
       this.deps.setupAdapterEvents(instanceId, adapter);
@@ -2335,7 +2451,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             // Retry without resume
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
@@ -2512,7 +2628,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
 
-      let adapter = createCliAdapter(cliType, spawnOptions, instance.executionLocation);
+      let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
 
@@ -2532,7 +2648,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
             instance.sessionId = fallbackOptions.sessionId;
-            adapter = createCliAdapter(cliType, fallbackOptions, instance.executionLocation);
+            adapter = this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 

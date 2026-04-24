@@ -159,6 +159,31 @@ export interface CliStatus {
   metadata?: Record<string, unknown>;
 }
 
+export interface TurnInterruptCompletion {
+  status: 'accepted' | 'interrupted' | 'completed' | 'cancelled' | 'rejected' | 'unknown';
+  turnId?: string;
+  reason?: string;
+}
+
+export interface InterruptResult {
+  status: 'accepted' | 'rejected' | 'already-idle' | 'no-active-turn' | 'unsupported' | 'escalated';
+  turnId?: string;
+  reason?: string;
+  completion?: Promise<TurnInterruptCompletion>;
+}
+
+export interface ResumeAttemptResult {
+  source: 'native' | 'running-adopted' | 'jsonl-scan' | 'fresh-fallback' | 'replay' | 'none';
+  confirmed: boolean;
+  requestedSessionId?: string;
+  actualSessionId?: string;
+  requestedCursor?: unknown;
+  actualCursor?: unknown;
+  restoredTurnCount?: number;
+  restoredMessageIds?: string[];
+  reason?: string;
+}
+
 /**
  * Events emitted by CLI adapters
  */
@@ -228,8 +253,8 @@ export abstract class BaseCliAdapter extends EventEmitter {
    * with `detached: true` so it has its own process group.
    * Falls back to single-process kill if group kill fails.
    */
-  private static killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-    if (pid === undefined) return;
+  private static killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): boolean {
+    if (pid === undefined) return false;
     if (process.platform === 'win32') {
       try {
         const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
@@ -237,21 +262,38 @@ export abstract class BaseCliAdapter extends EventEmitter {
           windowsHide: true,
         });
         if (result.error && (result.error as NodeJS.ErrnoException).code === 'ENOENT') {
-          try { process.kill(pid, signal); } catch { /* already dead */ }
+          try {
+            process.kill(pid, signal);
+            return true;
+          } catch {
+            return false;
+          }
         }
+        return result.status === 0;
       } catch {
-        try { process.kill(pid, signal); } catch { /* already dead */ }
+        try {
+          process.kill(pid, signal);
+          return true;
+        } catch {
+          return false;
+        }
       }
-      return;
     }
     try {
       // Negative PID sends signal to the entire process group
       process.kill(-pid, signal);
+      return true;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
         // Group kill failed for non-ESRCH reason — try single process
-        try { process.kill(pid, signal); } catch { /* already dead */ }
+        try {
+          process.kill(pid, signal);
+          return true;
+        } catch {
+          return false;
+        }
       }
+      return false;
     }
   }
 
@@ -365,20 +407,26 @@ export abstract class BaseCliAdapter extends EventEmitter {
    * Sends SIGINT to the process to interrupt current operation
    * This pauses Claude's work without terminating the process
    */
-  interrupt(): boolean {
+  interrupt(): InterruptResult {
     if (!this.process || this.process.killed) {
-      return false;
+      return { status: 'already-idle', reason: 'No running process to interrupt' };
     }
 
     try {
       // Send SIGINT (equivalent to Ctrl+C in terminal)
-      this.process.kill('SIGINT');
+      const accepted = BaseCliAdapter.killProcessGroup(this.process.pid, 'SIGINT');
       // Note: Don't emit status here - the instance manager handles status updates
       // after interrupt. The CLI will emit 'waiting_for_input' when it's ready.
-      return true;
+      if (!accepted) {
+        return { status: 'rejected', reason: 'SIGINT was not delivered' };
+      }
+      return { status: 'accepted' };
     } catch (error) {
       logger.error('Failed to interrupt process', error instanceof Error ? error : new Error(String(error)));
-      return false;
+      return {
+        status: 'rejected',
+        reason: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 

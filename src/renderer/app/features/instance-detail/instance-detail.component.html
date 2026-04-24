@@ -244,7 +244,7 @@
             [queuedCount]="queuedMessageCount()"
             [queuedMessages]="queuedMessages()"
             [isBusy]="inst.status === 'busy'"
-            [isRespawning]="inst.status === 'respawning'"
+            [isRespawning]="inst.status === 'respawning' || inst.status === 'interrupting' || inst.status === 'cancelling' || inst.status === 'interrupt-escalating'"
             [outputMessages]="inst.outputBuffer"
             [instanceStatus]="inst.status"
             [provider]="inst.provider"

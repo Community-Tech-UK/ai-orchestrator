@@ -12,7 +12,8 @@ import { getMultiVerifyCoordinator } from './multi-verify-coordinator';
 import { getReviewCoordinator } from '../agents/review-coordinator';
 import { getDebateCoordinator } from './debate-coordinator';
 import { getWorkflowManager } from '../workflows/workflow-manager';
-import { createCliAdapter, resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import { resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
@@ -108,7 +109,7 @@ async function invokeCliTextResponse(params: {
 
   const prompt = buildUserPrompt(params.prompt, params.context);
   const response = await breaker.execute(async () => {
-    const adapter = createCliAdapter(cliType, spawnOptions);
+    const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
     if (!isBaseCliAdapterLike(adapter)) {
       throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
     }

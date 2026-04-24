@@ -448,6 +448,26 @@ export class InstanceListStore {
       sessionId: d['sessionId'] as string,
       restartEpoch:
         typeof d['restartEpoch'] === 'number' ? d['restartEpoch'] : 0,
+      adapterGeneration:
+        typeof d['adapterGeneration'] === 'number' ? d['adapterGeneration'] : 0,
+      activeTurnId:
+        typeof d['activeTurnId'] === 'string' ? d['activeTurnId'] : undefined,
+      interruptRequestId:
+        typeof d['interruptRequestId'] === 'string' ? d['interruptRequestId'] : undefined,
+      interruptRequestedAt:
+        typeof d['interruptRequestedAt'] === 'number' ? d['interruptRequestedAt'] : undefined,
+      interruptPhase:
+        typeof d['interruptPhase'] === 'string'
+          ? (d['interruptPhase'] as Instance['interruptPhase'])
+          : undefined,
+      lastTurnOutcome:
+        typeof d['lastTurnOutcome'] === 'string'
+          ? (d['lastTurnOutcome'] as Instance['lastTurnOutcome'])
+          : undefined,
+      supersededBy:
+        typeof d['supersededBy'] === 'string' ? d['supersededBy'] : undefined,
+      cancelledForEdit:
+        typeof d['cancelledForEdit'] === 'boolean' ? d['cancelledForEdit'] : undefined,
       recoveryMethod:
         typeof d['recoveryMethod'] === 'string'
           ? (d['recoveryMethod'] as Instance['recoveryMethod'])

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockCreateCliAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
+const { mockCreateAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
   const sendMessage = vi.fn();
 
   return {
     mockSendMessage: sendMessage,
-    mockCreateCliAdapter: vi.fn(() => ({
+    mockCreateAdapter: vi.fn(() => ({
       sendMessage,
     })),
     mockResolveCliType: vi.fn(),
@@ -14,8 +14,13 @@ const { mockCreateCliAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvai
 });
 
 vi.mock('../cli/adapters/adapter-factory', () => ({
-  createCliAdapter: mockCreateCliAdapter,
   resolveCliType: mockResolveCliType,
+}));
+
+vi.mock('../providers/provider-runtime-service', () => ({
+  getProviderRuntimeService: vi.fn(() => ({
+    createAdapter: mockCreateAdapter,
+  })),
 }));
 
 vi.mock('../cli/cli-detection', () => ({
@@ -57,9 +62,12 @@ describe('AutoTitleService', () => {
 
     // Should resolve to claude (first in preference order), not codex
     expect(mockResolveCliType).toHaveBeenCalledWith('claude');
-    expect(mockCreateCliAdapter).toHaveBeenCalledWith('claude', expect.objectContaining({
-      model: expect.any(String),
-    }));
+    expect(mockCreateAdapter).toHaveBeenCalledWith({
+      cliType: 'claude',
+      options: expect.objectContaining({
+        model: expect.any(String),
+      }),
+    });
     // Phase 1 instant title
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.');
     // Phase 2 AI title
@@ -82,9 +90,12 @@ describe('AutoTitleService', () => {
     );
 
     expect(mockResolveCliType).toHaveBeenCalledWith('gemini');
-    expect(mockCreateCliAdapter).toHaveBeenCalledWith('gemini', expect.objectContaining({
-      model: expect.any(String),
-    }));
+    expect(mockCreateAdapter).toHaveBeenCalledWith({
+      cliType: 'gemini',
+      options: expect.objectContaining({
+        model: expect.any(String),
+      }),
+    });
   });
 
   it('keeps instant title when no CLI is available', async () => {
@@ -102,7 +113,7 @@ describe('AutoTitleService', () => {
     // Phase 1 instant title should still apply
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.');
     // Phase 2 should not have been attempted
-    expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 
   it('does not accept requestedProvider parameter', async () => {

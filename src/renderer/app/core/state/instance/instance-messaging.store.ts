@@ -14,6 +14,25 @@ import type { InstanceStatus, OutputMessage } from './instance.types';
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
 
+function isTransientQueueStatus(status: InstanceStatus): boolean {
+  return status === 'busy'
+    || status === 'respawning'
+    || status === 'interrupting'
+    || status === 'cancelling'
+    || status === 'interrupt-escalating'
+    || status === 'initializing'
+    || status === 'waking'
+    || status === 'hibernating'
+    || status === 'degraded';
+}
+
+function isInterruptRecoveryStatus(status: InstanceStatus | undefined): boolean {
+  return status === 'respawning'
+    || status === 'interrupting'
+    || status === 'cancelling'
+    || status === 'interrupt-escalating';
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
   private stateService = inject(InstanceStateService);
@@ -48,7 +67,13 @@ export class InstanceMessagingStore {
 
       if (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input') {
         this.processMessageQueue(instanceId);
-      } else if (instance.status === 'failed' || instance.status === 'error' || instance.status === 'terminated') {
+      } else if (
+        instance.status === 'failed'
+        || instance.status === 'error'
+        || instance.status === 'terminated'
+        || instance.status === 'cancelled'
+        || instance.status === 'superseded'
+      ) {
         // Terminal state: messages can never be delivered — clear with notification
         this.clearQueueWithNotification(instanceId);
       }
@@ -175,6 +200,8 @@ export class InstanceMessagingStore {
       instance.status === 'failed' ||
       instance.status === 'error' ||
       instance.status === 'terminated'
+      || instance.status === 'cancelled'
+      || instance.status === 'superseded'
     ) {
       console.warn('InstanceMessagingStore: Cannot send to instance in terminal state', {
         instanceId,
@@ -191,12 +218,7 @@ export class InstanceMessagingStore {
     // 'degraded' means the remote node is temporarily disconnected — queue so the
     // message can be delivered if/when the node reconnects and the instance is restored.
     if (
-      instance.status === 'busy' ||
-      instance.status === 'respawning' ||
-      instance.status === 'initializing' ||
-      instance.status === 'waking' ||
-      instance.status === 'hibernating' ||
-      instance.status === 'degraded'
+      isTransientQueueStatus(instance.status)
     ) {
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
@@ -383,9 +405,17 @@ export class InstanceMessagingStore {
   ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
     const normalized = errorMessage.toLowerCase();
 
-    // Transient: instance is respawning after interrupt
-    if (status === 'respawning' || normalized.includes('respawning')) {
-      return { shouldRetry: true, nextStatus: 'respawning' };
+    // Transient: instance is recovering from interrupt/respawn.
+    if (
+      isInterruptRecoveryStatus(status)
+      || normalized.includes('respawning')
+      || normalized.includes('interrupt recovery')
+      || normalized.includes('recovering from interrupt')
+    ) {
+      return {
+        shouldRetry: true,
+        nextStatus: isInterruptRecoveryStatus(status) ? status : 'respawning',
+      };
     }
 
     // Transient: instance is still initializing or waking

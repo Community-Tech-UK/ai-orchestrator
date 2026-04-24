@@ -47,6 +47,7 @@ import type { ResumeOptions } from '../../session/session-continuity';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 import { isRemoteNodeReachable } from './remote-node-check';
+import { planSessionRecovery } from '../../instance/lifecycle/session-recovery';
 
 const logger = getLogger('SessionHandlers');
 
@@ -141,8 +142,17 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         const forkedInstance = await instanceManager.forkInstance({
           instanceId: validated.instanceId,
           atMessageIndex: validated.atMessageIndex,
+          atMessageId: validated.atMessageId,
+          sourceMessageId: validated.sourceMessageId,
+          forkAfterMessageId: validated.forkAfterMessageId,
           displayName: validated.displayName,
-          initialPrompt: validated.initialPrompt
+          initialPrompt: validated.initialPrompt,
+          attachments: validated.attachments?.map((attachment) => ({
+            ...attachment,
+            data: attachment.data ?? '',
+          })),
+          preserveRuntimeSettings: validated.preserveRuntimeSettings,
+          supersedeSource: validated.supersedeSource,
         });
         return {
           success: true,
@@ -970,10 +980,29 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           });
         }
 
+        const recoveryPlan = planSessionRecovery({
+          instanceId: validated.entryId,
+          reason: 'history-restore',
+          previousProviderSessionId: data.entry.sessionId?.trim() || undefined,
+          provider: restoreProvider,
+          model: restoreModel,
+          cwd: workingDir,
+          yolo: false,
+          executionLocation: restoreNodeId ? 'remote' : 'local',
+          capabilities: {
+            supportsResume: Boolean(data.entry.sessionId?.trim())
+              && !data.entry.nativeResumeFailedAt
+              && remoteNodeAvailable,
+            supportsForkSession: false,
+          },
+          adapterGeneration: 0,
+          hasConversation: data.messages.some(
+            (message) => message.type === 'user' || message.type === 'assistant',
+          ),
+          sessionResumeBlacklisted: Boolean(data.entry.nativeResumeFailedAt),
+        });
         const canAttemptNativeResume =
-          Boolean(data.entry.sessionId?.trim())
-          && !data.entry.nativeResumeFailedAt
-          && remoteNodeAvailable;
+          recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
         let resumeFailed = false;
 
         // Phase 1: Try to resume the CLI session
@@ -1138,7 +1167,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
                 data: {
                   instanceId: instance.id,
                   restoredMessages: instance.outputBuffer,
-                  restoreMode: 'native-resume'
+                  restoreMode: 'resume-unconfirmed'
                 }
               };
             }

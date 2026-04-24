@@ -56,6 +56,14 @@ export interface CommunicationDependencies {
     sessionState?: {
       providerSessionId?: string;
       restartEpoch?: number;
+      adapterGeneration?: number;
+      activeTurnId?: string;
+      interruptRequestId?: string;
+      interruptRequestedAt?: number;
+      interruptPhase?: Instance['interruptPhase'];
+      lastTurnOutcome?: Instance['lastTurnOutcome'];
+      supersededBy?: string;
+      cancelledForEdit?: boolean;
       recoveryMethod?: Instance['recoveryMethod'];
       archivedUpToMessageId?: string;
       historyThreadId?: string;
@@ -256,6 +264,35 @@ export class InstanceCommunicationManager extends EventEmitter {
     return state;
   }
 
+  private getMessageTurnId(message: OutputMessage): string | undefined {
+    const turnId = message.metadata?.['turnId'];
+    return typeof turnId === 'string' ? turnId : undefined;
+  }
+
+  private getAdapterCurrentTurnId(adapter: CliAdapter): string | undefined {
+    if (typeof (adapter as { getCurrentTurnId?: unknown }).getCurrentTurnId !== 'function') {
+      return undefined;
+    }
+
+    const turnId = (adapter as { getCurrentTurnId: () => string | null }).getCurrentTurnId();
+    return turnId ?? undefined;
+  }
+
+  private withRuntimeMetadata(
+    message: OutputMessage,
+    adapterGeneration: number,
+    turnId?: string,
+  ): OutputMessage {
+    return {
+      ...message,
+      metadata: {
+        ...message.metadata,
+        adapterGeneration,
+        ...(turnId ? { turnId } : {}),
+      },
+    };
+  }
+
   /**
    * Record a response and check circuit breaker state
    * @returns true if circuit is OK, false if tripped
@@ -442,28 +479,37 @@ export class InstanceCommunicationManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} has been terminated`);
     }
 
-    // If the instance is respawning after interrupt, wait for it to finish
+    const isInterruptRecoveryState =
+      instance.status === 'respawning'
+      || instance.status === 'interrupting'
+      || instance.status === 'cancelling'
+      || instance.status === 'interrupt-escalating';
+
+    // If the instance is interrupting or respawning, wait for it to finish
     // rather than rejecting. The renderer has queued the message and we should
     // deliver it once the new adapter is ready (inspired by t3code's pattern
     // of only accepting input when session status === "ready").
-    if (instance.status === 'respawning' && instance.respawnPromise) {
-      logger.info('sendInput: instance is respawning, waiting for respawn to complete', { instanceId });
+    if (isInterruptRecoveryState && instance.respawnPromise) {
+      logger.info('sendInput: instance is recovering from interrupt, waiting before send', {
+        instanceId,
+        status: instance.status,
+      });
       const respawnTimeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Instance respawn timed out after 30s')), 30_000)
+        setTimeout(() => reject(new Error('Instance interrupt recovery timed out after 30s')), 30_000)
       );
       await Promise.race([instance.respawnPromise, respawnTimeout]);
       // After respawn, re-check status — it may have gone to 'error'.
       // Cast via string to bypass TS narrowing (status was mutated during await).
       const postRespawnStatus = instance.status as string;
-      if (postRespawnStatus === 'error' || postRespawnStatus === 'failed') {
-        throw new Error(`Instance ${instanceId} failed to respawn after interrupt`);
+      if (postRespawnStatus === 'error' || postRespawnStatus === 'failed' || postRespawnStatus === 'cancelled') {
+        throw new Error(`Instance ${instanceId} failed to recover after interrupt`);
       }
       if (postRespawnStatus === 'terminated') {
-        throw new Error(`Instance ${instanceId} was terminated during respawn`);
+        throw new Error(`Instance ${instanceId} was terminated during interrupt recovery`);
       }
-      logger.info('sendInput: respawn complete, proceeding with send', { instanceId, status: postRespawnStatus });
-    } else if (instance.status === 'respawning') {
-      throw new Error(`Instance ${instanceId} is respawning after interrupt. Please wait for it to be ready.`);
+      logger.info('sendInput: interrupt recovery complete, proceeding with send', { instanceId, status: postRespawnStatus });
+    } else if (isInterruptRecoveryState) {
+      throw new Error(`Instance ${instanceId} is recovering from interrupt. Please wait for it to be ready.`);
     }
 
     // Now check adapter
@@ -758,8 +804,8 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     if (!adapter) {
       // Instance exists but adapter is missing
-      if (instance.status === 'respawning') {
-        throw new Error(`Instance ${instanceId} is respawning. Please wait for it to be ready.`);
+      if (instance.status === 'respawning' || instance.status === 'interrupting' || instance.status === 'cancelling') {
+        throw new Error(`Instance ${instanceId} is recovering. Please wait for it to be ready.`);
       }
       throw new Error(`Instance ${instanceId} is in an inconsistent state. Please restart the instance.`);
     }
@@ -798,7 +844,12 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (oldAdapter && oldAdapter !== adapter) {
       oldAdapter.removeAllListeners();
     }
-    const epochAtSubscribe = this.deps.getInstance(instanceId)?.restartEpoch ?? 0;
+    const instanceAtSubscribe = this.deps.getInstance(instanceId);
+    const epochAtSubscribe = instanceAtSubscribe?.restartEpoch ?? 0;
+    const adapterGenerationAtSubscribe = (instanceAtSubscribe?.adapterGeneration ?? 0) + 1;
+    if (instanceAtSubscribe) {
+      instanceAtSubscribe.adapterGeneration = adapterGenerationAtSubscribe;
+    }
     const isStaleAdapterEvent = (eventName: string): boolean => {
       const currentAdapter = this.deps.getAdapter(instanceId);
       if (currentAdapter !== adapter) {
@@ -814,6 +865,15 @@ export class InstanceCommunicationManager extends EventEmitter {
           eventName,
           eventEpoch: epochAtSubscribe,
           currentEpoch: instance.restartEpoch,
+        });
+        return true;
+      }
+      if (instance.adapterGeneration !== adapterGenerationAtSubscribe) {
+        logger.debug('Dropping stale adapter event from prior adapter generation', {
+          instanceId,
+          eventName,
+          eventGeneration: adapterGenerationAtSubscribe,
+          currentGeneration: instance.adapterGeneration,
         });
         return true;
       }
@@ -846,6 +906,12 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
+        const turnId = this.getMessageTurnId(message) ?? this.getAdapterCurrentTurnId(adapter);
+        if (turnId) {
+          instance.activeTurnId = turnId;
+        }
+        message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
+
         // Sync CLI-assigned session ID back to instance for accurate history archiving.
         // The adapter receives the real CLI session ID via system messages (session_id field),
         // which may differ from the orchestrator-generated UUID after forks/interrupts.
@@ -864,6 +930,8 @@ export class InstanceCommunicationManager extends EventEmitter {
             {
               providerSessionId: instance.providerSessionId,
               restartEpoch: instance.restartEpoch,
+              adapterGeneration: instance.adapterGeneration,
+              activeTurnId: instance.activeTurnId,
               recoveryMethod: instance.recoveryMethod,
               archivedUpToMessageId: instance.archivedUpToMessageId,
               historyThreadId: instance.historyThreadId,
@@ -1414,7 +1482,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           adapter: adapter.getName(),
           message: errText,
         });
-        if (instance.status !== 'respawning') {
+        if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
           this.transitionInstanceStatus(instance, 'idle');
           this.deps.onToolStateChange?.(instanceId, 'idle');
           this.deps.queueUpdate(instanceId, 'idle', instance.contextUsage);
@@ -1424,17 +1492,17 @@ export class InstanceCommunicationManager extends EventEmitter {
 
       instance.errorCount++;
 
-      // Don't mark as error if we're in the middle of respawning - let respawnAfterInterrupt handle it
-      if (instance.status !== 'respawning') {
+      // Don't mark as error if we're in the middle of interrupt recovery - let lifecycle handle it.
+      if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
         this.transitionInstanceStatus(instance, 'error');
         this.deps.queueUpdate(instanceId, 'error');
 
-        // Only force cleanup if not respawning - during respawn the lifecycle manager handles cleanup
+        // Only force cleanup if not recovering - during recovery the lifecycle manager handles cleanup.
         this.forceCleanupAdapter(instanceId).catch((cleanupErr) => {
           logger.error('Failed to cleanup adapter after error', cleanupErr instanceof Error ? cleanupErr : undefined, { instanceId });
         });
       } else {
-        logger.info('Instance error during respawning - skipping force cleanup, letting lifecycle handle it', { instanceId });
+        logger.info('Instance error during interrupt recovery - skipping force cleanup, letting lifecycle handle it', { instanceId });
       }
     });
 

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
+import type { InterruptResult } from '../main/cli/adapters/base-cli-adapter';
 import type { FileAttachment } from '../shared/types/instance.types';
 import { observeAdapterRuntimeEvents } from '../main/providers/adapter-runtime-event-bridge';
 import { toOutputMessageFromProviderOutputEvent } from '../main/providers/provider-output-event';
@@ -25,7 +26,7 @@ type WorkerManagedAdapter = EventEmitter & {
   spawn: () => Promise<number | void>;
   sendInput: (message: string, attachments?: FileAttachment[]) => Promise<void>;
   terminate: (graceful?: boolean) => Promise<void>;
-  interrupt: () => boolean | Promise<void>;
+  interrupt: () => InterruptResult | Promise<void>;
 };
 
 export interface ManagedInstance {

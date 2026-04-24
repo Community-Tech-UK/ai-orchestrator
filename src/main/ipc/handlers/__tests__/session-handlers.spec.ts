@@ -138,7 +138,7 @@ describe('session-handlers', () => {
   });
 
   describe('HISTORY_RESTORE', () => {
-    it('treats a live resumed instance without context usage as a successful native resume', async () => {
+    it('treats a live resumed instance without context usage as unconfirmed resume', async () => {
       vi.useFakeTimers();
       try {
         const resumeInstance = {
@@ -186,7 +186,7 @@ describe('session-handlers', () => {
         expect(result.success).toBe(true);
         expect(result.data).toMatchObject({
           instanceId: 'resume-1',
-          restoreMode: 'native-resume',
+          restoreMode: 'resume-unconfirmed',
           restoredMessages: resumeInstance.outputBuffer,
         });
         expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
@@ -395,7 +395,7 @@ describe('session-handlers', () => {
         expect(result.success).toBe(true);
         expect(result.data).toMatchObject({
           instanceId: 'remote-resume-1',
-          restoreMode: 'native-resume',
+          restoreMode: 'resume-unconfirmed',
         });
 
         // Verify forceNodeId was passed to createInstance

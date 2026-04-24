@@ -188,16 +188,21 @@ describe('Edit Mode Reset on Instance Switch', () => {
 });
 
 describe('Edit Mode Send (resendEdited)', () => {
-  it('emits correct messageIndex and text', () => {
+  it('emits correct messageIndex and preserves edited text exactly', () => {
     const editMessageIndex = signal<number | null>(3);
-    const message = signal('edited question');
+    const message = signal('  edited question  ');
 
     const emitted = {
       messageIndex: editMessageIndex()!,
-      text: message().trim(),
+      text: message(),
+      retryMode: 'transcript-only',
     };
 
-    expect(emitted).toEqual({ messageIndex: 3, text: 'edited question' });
+    expect(emitted).toEqual({
+      messageIndex: 3,
+      text: '  edited question  ',
+      retryMode: 'transcript-only',
+    });
   });
 
   it('blocks send when text is empty (canSend guard)', () => {

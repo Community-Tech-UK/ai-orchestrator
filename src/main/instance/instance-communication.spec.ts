@@ -38,6 +38,7 @@ import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 
 class FakeAdapter extends EventEmitter {
   sendInput = vi.fn().mockResolvedValue(undefined);
+  currentTurnId: string | null = null;
 
   constructor(private readonly adapterName: string) {
     super();
@@ -49,6 +50,10 @@ class FakeAdapter extends EventEmitter {
 
   getSessionId(): string | null {
     return null;
+  }
+
+  getCurrentTurnId(): string | null {
+    return this.currentTurnId;
   }
 
   removeAllListeners(): this {
@@ -300,6 +305,40 @@ describe('InstanceCommunicationManager', () => {
       countAsProcessOutput: true,
     });
     expect(onOutput).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('drops stale output listeners from an older adapter generation', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    manager.setupAdapterEvents(instance.id, adapter);
+
+    (adapter as unknown as EventEmitter).emit(
+      'output',
+      createMessage('assistant', 'only once'),
+    );
+    await flushOutputHandlers();
+
+    const matches = instance.outputBuffer.filter((message) => message.content === 'only once');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.metadata?.['adapterGeneration']).toBe(2);
+  });
+
+  it('tags output with adapter generation and active turn id when available', async () => {
+    const adapter = new FakeAdapter('codex-cli');
+    adapter.currentTurnId = 'turn-123';
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    adapter.emit('output', createMessage('tool_use', 'running'));
+    await flushOutputHandlers();
+
+    expect(instance.activeTurnId).toBe('turn-123');
+    expect(instance.outputBuffer[0]?.metadata).toMatchObject({
+      adapterGeneration: 1,
+      turnId: 'turn-123',
+    });
   });
 
   it('resets tool state to idle when adapter becomes ready for input', () => {

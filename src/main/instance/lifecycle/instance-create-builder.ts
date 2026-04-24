@@ -71,6 +71,7 @@ export function buildInstanceRecord(
     providerSessionId: sessionId,
     sessionId,
     restartEpoch: 0,
+    adapterGeneration: 0,
     workingDirectory: parentContext.workingDirectory,
     yoloMode: parentContext.yoloMode,
     provider: config.provider || 'auto',

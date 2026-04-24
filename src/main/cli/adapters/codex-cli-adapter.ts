@@ -30,10 +30,13 @@ import {
   CliAdapterConfig,
   CliAttachment,
   CliCapabilities,
+  InterruptResult,
   CliMessage,
   CliResponse,
   CliStatus,
   CliToolCall,
+  ResumeAttemptResult,
+  TurnInterruptCompletion,
 } from './base-cli-adapter';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
@@ -232,6 +235,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private appServerThreadId: string | null = null;
   /** Current turn ID (for interrupt support). */
   private currentTurnId: string | null = null;
+  /** Completion proof for the active app-server turn, used by interrupt lifecycle. */
+  private currentTurnCompletion: Promise<TurnInterruptCompletion> | null = null;
   /** Whether a turn is currently in progress. */
   private turnInProgress = false;
   /** Whether the system prompt has been sent (app-server mode, first turn only). */
@@ -253,6 +258,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ─── Resume cursor state ──────────────────────────────────────────
   private sessionScanner = new CodexSessionScanner();
   private resumeCursor: ResumeCursor | null = null;
+  private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   private activityDetector: ActivityStateDetector | null = null;
 
   constructor(config: CodexCliConfig = {}) {
@@ -511,23 +517,50 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * - App-server mode: sends `turn/interrupt` RPC (preserves thread state)
    * - Exec mode: SIGINT to the process
    */
-  override interrupt(): boolean {
+  override interrupt(): InterruptResult {
     if (this.useAppServer && this.appServerClient && this.turnInProgress) {
       // Graceful RPC interrupt — preserves the thread for future turns
       if (this.appServerThreadId && this.currentTurnId) {
-        this.appServerClient.request('turn/interrupt', {
-          threadId: this.appServerThreadId,
-          turnId: this.currentTurnId,
-        }).catch((err) => {
-          logger.warn('Failed to interrupt turn via RPC', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-        return true;
+        const threadId = this.appServerThreadId;
+        const turnId = this.currentTurnId;
+        const turnCompletion = this.currentTurnCompletion;
+        const completion = this.interruptActiveAppServerTurn(threadId, turnId, turnCompletion);
+        return { status: 'accepted', turnId, completion };
       }
+      return { status: 'no-active-turn', reason: 'Codex app-server turn has not reported a turn id yet' };
     }
     // Fall back to base class SIGINT behavior
     return super.interrupt();
+  }
+
+  private async interruptActiveAppServerTurn(
+    threadId: string,
+    turnId: string,
+    turnCompletion: Promise<TurnInterruptCompletion> | null,
+  ): Promise<TurnInterruptCompletion> {
+    if (!this.appServerClient) {
+      return { status: 'rejected', turnId, reason: 'Codex app-server client is not connected' };
+    }
+
+    try {
+      const result = await this.appServerClient.request('turn/interrupt', {
+        threadId,
+        turnId,
+      });
+      if (!result.success) {
+        return { status: 'rejected', turnId, reason: 'Codex did not accept turn/interrupt' };
+      }
+
+      if (!turnCompletion) {
+        return { status: 'accepted', turnId };
+      }
+
+      return await turnCompletion;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn('Failed to interrupt turn via RPC', { error: reason, turnId });
+      return { status: 'rejected', turnId, reason };
+    }
   }
 
   /**
@@ -593,12 +626,26 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // === 4-step resume fallback chain ===
       let threadId: string | null = null;
       let resumeSource: ResumeCursor['scanSource'] | null = null;
+      const resumeRequested = this.shouldResumeNextTurn;
+      this.lastResumeAttemptResult = resumeRequested
+        ? {
+            source: 'none',
+            confirmed: false,
+            requestedSessionId: this.sessionId ?? undefined,
+            reason: 'Native resume not attempted yet',
+          }
+        : {
+            source: 'none',
+            confirmed: true,
+            reason: 'Fresh thread requested',
+          };
 
       // Step 1: Resume from persisted cursor (if config.resume and cursor is fresh)
       if (this.shouldResumeNextTurn && this.sessionId) {
         try {
+          const requestedSessionId = this.sessionId;
           const resumeResult = await client.request('thread/resume', {
-            threadId: this.sessionId,
+            threadId: requestedSessionId,
             cwd,
             model: this.cliConfig.model || null,
             approvalPolicy,
@@ -606,10 +653,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
           });
           threadId = resumeResult.threadId || resumeResult.thread?.id || null;
           resumeSource = 'native';
+          this.lastResumeAttemptResult = {
+            source: 'native',
+            confirmed: Boolean(threadId),
+            requestedSessionId,
+            actualSessionId: threadId ?? undefined,
+          };
           logger.info('App-server thread resumed from persisted cursor', { threadId });
         } catch (error) {
           if (this.isRecoverableThreadResumeError(error)) {
             logger.warn('Persisted cursor resume failed (recoverable), trying JSONL scan', { error: String(error) });
+            this.lastResumeAttemptResult = {
+              source: 'native',
+              confirmed: false,
+              requestedSessionId: this.sessionId ?? undefined,
+              reason: error instanceof Error ? error.message : String(error),
+            };
           } else {
             throw error; // Non-recoverable: auth, network, rate limit
           }
@@ -621,8 +680,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const scanResult = await this.sessionScanner.findSessionForWorkspace(cwd);
         if (scanResult) {
           try {
+            const requestedSessionId = scanResult.threadId;
             const resumeResult = await client.request('thread/resume', {
-              threadId: scanResult.threadId,
+              threadId: requestedSessionId,
               cwd,
               model: this.cliConfig.model || null,
               approvalPolicy,
@@ -630,16 +690,34 @@ export class CodexCliAdapter extends BaseCliAdapter {
             });
             threadId = resumeResult.threadId || resumeResult.thread?.id || null;
             resumeSource = 'jsonl-scan';
+            this.lastResumeAttemptResult = {
+              source: 'jsonl-scan',
+              confirmed: Boolean(threadId),
+              requestedSessionId,
+              actualSessionId: threadId ?? undefined,
+            };
             logger.info('App-server thread resumed from JSONL scan', { threadId, scannedFile: scanResult.sessionFilePath });
           } catch (error) {
             if (this.isRecoverableThreadResumeError(error)) {
               logger.warn('JSONL scan resume failed (recoverable), falling back to fresh start', { error: String(error) });
+              this.lastResumeAttemptResult = {
+                source: 'jsonl-scan',
+                confirmed: false,
+                requestedSessionId: scanResult.threadId,
+                reason: error instanceof Error ? error.message : String(error),
+              };
             } else {
               throw error;
             }
           }
         } else {
           logger.info('No matching Codex session found on filesystem for workspace', { cwd });
+          this.lastResumeAttemptResult = {
+            source: 'jsonl-scan',
+            confirmed: false,
+            requestedSessionId: this.sessionId ?? undefined,
+            reason: 'No matching Codex session found on filesystem for workspace',
+          };
         }
       }
 
@@ -656,6 +734,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
         threadId = startResult.threadId || startResult.thread?.id || null;
         resumeSource = null;
+        this.lastResumeAttemptResult = resumeRequested
+          ? {
+              source: 'fresh-fallback',
+              confirmed: false,
+              requestedSessionId: this.sessionId ?? undefined,
+              actualSessionId: threadId ?? undefined,
+              reason: 'Started a fresh Codex thread after native resume was unavailable',
+            }
+          : {
+              source: 'none',
+              confirmed: true,
+              actualSessionId: threadId ?? undefined,
+              reason: 'Started a fresh Codex thread',
+            };
         logger.info('App-server thread started fresh', { threadId });
       }
 
@@ -889,6 +981,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         timestamp: Date.now(),
         type: 'assistant',
         content: extracted.response,
+        metadata: turnState.turnId ? { turnId: turnState.turnId } : undefined,
         thinking: allThinking.length > 0 ? allThinking : undefined,
       });
     }
@@ -997,6 +1090,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     // Build turn capture state
     const state = this.createTurnCaptureState(threadId);
+    const turnCompletion = state.completion
+      .then((completedState) => this.toTurnInterruptCompletion(completedState))
+      .catch((err) => ({
+        status: 'rejected' as const,
+        turnId: state.turnId ?? undefined,
+        reason: err instanceof Error ? err.message : String(err),
+      }));
+    this.currentTurnCompletion = turnCompletion;
 
     // Install notification handler for real-time event routing.
     // thread/started and thread/name/updated always apply to this turn.
@@ -1160,6 +1261,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
     } finally {
       this.turnInProgress = false;
       this.currentTurnId = null;
+      if (this.currentTurnCompletion === turnCompletion) {
+        this.currentTurnCompletion = null;
+      }
       // Clear all timers to prevent leaks
       if (idleTimer) clearTimeout(idleTimer);
       if (state.completionTimer) {
@@ -1167,6 +1271,35 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
       client.setNotificationHandler(previousHandler);
     }
+  }
+
+  private toTurnInterruptCompletion(state: TurnCaptureState): TurnInterruptCompletion {
+    const finalStatus = state.finalTurn?.status;
+    const reason = state.error instanceof Error
+      ? state.error.message
+      : typeof state.error === 'string'
+        ? state.error
+        : state.finalTurn?.error !== undefined && state.finalTurn.error !== null
+          ? formatCodexAppServerError(extractCodexAppServerError({ error: state.finalTurn.error }))
+          : undefined;
+
+    if (finalStatus === 'interrupted') {
+      return { status: 'interrupted', turnId: state.turnId ?? undefined, reason };
+    }
+
+    if (finalStatus === 'completed') {
+      return { status: 'completed', turnId: state.turnId ?? undefined, reason };
+    }
+
+    if (finalStatus === 'failed') {
+      return { status: 'rejected', turnId: state.turnId ?? undefined, reason: reason ?? 'Codex turn failed' };
+    }
+
+    return {
+      status: state.completed ? 'completed' : 'unknown',
+      turnId: state.turnId ?? undefined,
+      reason,
+    };
   }
 
   /**
@@ -2593,5 +2726,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   getResumeCursor(): ResumeCursor | null {
     return this.resumeCursor;
+  }
+
+  getResumeAttemptResult(): ResumeAttemptResult | null {
+    return this.lastResumeAttemptResult;
+  }
+
+  getCurrentTurnId(): string | null {
+    return this.currentTurnId;
   }
 }

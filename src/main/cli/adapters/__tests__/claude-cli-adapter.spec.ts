@@ -483,16 +483,24 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       return { adapter, proc };
     }
 
-    it('sends SIGINT to the running process and returns true', () => {
+    it('sends SIGINT to the running process group and returns accepted', () => {
       const { adapter, proc } = adapterWithRunningProcess();
-      const ok = adapter.interrupt();
-      expect(ok).toBe(true);
-      expect(proc.kill).toHaveBeenCalledWith('SIGINT');
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(
+        ((pid: number | string, signal?: NodeJS.Signals | number) => {
+          expect(pid).toBe(-proc.pid);
+          expect(signal).toBe('SIGINT');
+          return true;
+        }) as typeof process.kill,
+      );
+
+      const result = adapter.interrupt();
+      expect(result).toEqual({ status: 'accepted' });
+      expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGINT');
     });
 
-    it('returns false when no process is running', () => {
+    it('returns already-idle when no process is running', () => {
       const adapter = new ClaudeCliAdapter({});
-      expect(adapter.interrupt()).toBe(false);
+      expect(adapter.interrupt().status).toBe('already-idle');
     });
   });
 });

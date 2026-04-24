@@ -8,9 +8,9 @@
 import { EventEmitter } from 'events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { detectAllMock, createCliAdapterMock } = vi.hoisted(() => ({
+const { detectAllMock, createAdapterMock } = vi.hoisted(() => ({
   detectAllMock: vi.fn(),
-  createCliAdapterMock: vi.fn(),
+  createAdapterMock: vi.fn(),
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -30,8 +30,10 @@ vi.mock('../../cli/cli-detection', () => ({
   },
 }));
 
-vi.mock('../../cli/adapters/adapter-factory', () => ({
-  createCliAdapter: createCliAdapterMock,
+vi.mock('../../providers/provider-runtime-service', () => ({
+  getProviderRuntimeService: vi.fn(() => ({
+    createAdapter: createAdapterMock,
+  })),
 }));
 
 vi.mock('../utils/coordinator-error-handler', () => ({
@@ -71,7 +73,7 @@ describe('ConsensusCoordinator', () => {
 
   it('uses ephemeral Codex sessions for consensus fan-out', async () => {
     detectAllMock.mockResolvedValue({ available: [{ name: 'codex' }] });
-    createCliAdapterMock.mockImplementation(() => new MockConsensusAdapter());
+    createAdapterMock.mockImplementation(() => new MockConsensusAdapter());
 
     const coordinator = ConsensusCoordinator.getInstance();
     const result = await coordinator.query('Should this stay hidden?', undefined, {
@@ -80,20 +82,20 @@ describe('ConsensusCoordinator', () => {
       timeout: 1,
     });
 
-    expect(createCliAdapterMock).toHaveBeenCalledWith(
-      'codex',
-      expect.objectContaining({
+    expect(createAdapterMock).toHaveBeenCalledWith({
+      cliType: 'codex',
+      options: expect.objectContaining({
         workingDirectory: '/tmp/project',
         ephemeral: true,
       }),
-    );
+    });
     expect(result.successCount).toBe(1);
     expect(result.responses[0]?.success).toBe(true);
   });
 
   it('does not force ephemeral mode for non-Codex providers', async () => {
     detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
-    createCliAdapterMock.mockImplementation(() => new MockConsensusAdapter());
+    createAdapterMock.mockImplementation(() => new MockConsensusAdapter());
 
     const coordinator = ConsensusCoordinator.getInstance();
     await coordinator.query('Normal provider query', undefined, {
@@ -102,17 +104,17 @@ describe('ConsensusCoordinator', () => {
       timeout: 1,
     });
 
-    expect(createCliAdapterMock).toHaveBeenCalledWith(
-      'claude',
-      expect.not.objectContaining({
+    expect(createAdapterMock).toHaveBeenCalledWith({
+      cliType: 'claude',
+      options: expect.not.objectContaining({
         ephemeral: true,
       }),
-    );
+    });
   });
 
   it('collects only assistant output when providers emit mixed message types', async () => {
     detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
-    createCliAdapterMock.mockImplementation(() => {
+    createAdapterMock.mockImplementation(() => {
       const adapter = new MockConsensusAdapter();
       adapter.sendInput = vi.fn(async () => {
         adapter.emit('output', {

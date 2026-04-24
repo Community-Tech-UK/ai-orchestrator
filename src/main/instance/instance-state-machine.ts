@@ -30,7 +30,7 @@ const TERMINAL_STATES = new Set<InstanceStatus>(['terminated', 'failed']);
 /**
  * Universal target states — reachable from any non-terminal state.
  */
-const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degraded']);
+const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degraded', 'superseded']);
 
 /**
  * Explicit allowed transitions (excluding universal targets).
@@ -39,18 +39,23 @@ const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degr
  */
 const TRANSITION_MAP: Readonly<Record<InstanceStatus, readonly InstanceStatus[]>> = {
   initializing:       ['ready', 'idle', 'error'],
-  ready:              ['busy', 'idle', 'error', 'hibernating', 'respawning', 'initializing'],
-  idle:               ['ready', 'error', 'hibernating', 'waiting_for_input', 'respawning', 'initializing'],
-  busy:               ['idle', 'ready', 'waiting_for_input', 'waiting_for_permission', 'error', 'processing', 'thinking_deeply', 'respawning', 'initializing'],
-  processing:         ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'thinking_deeply', 'initializing'],
-  thinking_deeply:    ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'processing', 'initializing'],
-  waiting_for_input:  ['busy', 'idle', 'ready', 'error', 'initializing'],
-  waiting_for_permission: ['busy', 'idle', 'ready', 'waiting_for_input', 'error', 'initializing'],
-  respawning:         ['ready', 'idle', 'busy', 'error', 'initializing'],
+  ready:              ['busy', 'idle', 'error', 'hibernating', 'respawning', 'interrupting', 'cancelled', 'initializing'],
+  idle:               ['ready', 'error', 'hibernating', 'waiting_for_input', 'respawning', 'interrupting', 'cancelled', 'initializing'],
+  busy:               ['idle', 'ready', 'waiting_for_input', 'waiting_for_permission', 'error', 'processing', 'thinking_deeply', 'interrupting', 'cancelling', 'respawning', 'cancelled', 'initializing'],
+  processing:         ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'thinking_deeply', 'interrupting', 'cancelling', 'cancelled', 'initializing'],
+  thinking_deeply:    ['idle', 'ready', 'busy', 'waiting_for_input', 'error', 'processing', 'interrupting', 'cancelling', 'cancelled', 'initializing'],
+  waiting_for_input:  ['busy', 'idle', 'ready', 'error', 'interrupting', 'cancelled', 'initializing'],
+  waiting_for_permission: ['busy', 'idle', 'ready', 'waiting_for_input', 'error', 'interrupting', 'cancelling', 'cancelled', 'initializing'],
+  interrupting:       ['cancelling', 'interrupt-escalating', 'respawning', 'idle', 'ready', 'cancelled', 'error'],
+  cancelling:         ['idle', 'ready', 'cancelled', 'interrupt-escalating', 'error'],
+  'interrupt-escalating': ['cancelled', 'respawning', 'error', 'terminated'],
+  cancelled:          ['idle', 'ready', 'respawning', 'initializing', 'error', 'superseded'],
+  superseded:         ['terminated'],
+  respawning:         ['ready', 'idle', 'busy', 'error', 'initializing', 'interrupt-escalating', 'cancelled'],
   hibernating:        ['hibernated'],
   hibernated:         ['waking'],
   waking:             ['ready', 'error'],
-  error:              ['ready', 'idle', 'respawning', 'initializing'],
+  error:              ['ready', 'idle', 'respawning', 'initializing', 'cancelled'],
   degraded:           ['ready', 'idle', 'error', 'initializing'],  // Reconnected → ready/idle, grace period expired → error
   // Terminal states have no outgoing transitions.
   failed:             [],

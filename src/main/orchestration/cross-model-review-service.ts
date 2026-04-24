@@ -3,7 +3,8 @@ import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
-import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
+import { resolveCliType } from '../cli/adapters/adapter-factory';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
@@ -275,10 +276,13 @@ export class CrossModelReviewService extends EventEmitter {
         if (signal.aborted) throw new Error('Review cancelled');
 
         const resolvedCli = await resolveCliType(cliType as SettingsCliType);
-        const adapter = createCliAdapter(resolvedCli, {
+        const adapter = getProviderRuntimeService().createAdapter({
+          cliType: resolvedCli,
+          options: {
           workingDirectory: request.workingDirectory,
           timeout: timeoutSeconds * 1000,
           yoloMode: false,
+          },
         });
 
         if (!isCliAdapterLike(adapter)) {

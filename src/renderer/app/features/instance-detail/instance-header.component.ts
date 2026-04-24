@@ -82,6 +82,20 @@ export class InstanceHeaderComponent implements OnInit {
     this.instance().provider === 'claude' || this.instance().provider === 'codex'
   );
 
+  readonly isStartingOrRecovering = computed(() => {
+    const status = this.instance().status;
+    return status === 'initializing'
+      || status === 'respawning'
+      || status === 'interrupting'
+      || status === 'cancelling'
+      || status === 'interrupt-escalating';
+  });
+
+  readonly isRuntimeLocked = computed(() => {
+    const status = this.instance().status;
+    return status === 'busy' || this.isStartingOrRecovering();
+  });
+
   // Tooltips for badges
   activeSkillsTooltip = computed(() => {
     const skills = this.skillStore.getActiveSkillBundles();

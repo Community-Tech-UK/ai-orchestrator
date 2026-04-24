@@ -231,7 +231,10 @@ export class ChildInstancesPanelComponent {
   private readonly runningStatuses = new Set<Instance['status']>([
     'busy',
     'initializing',
-    'respawning'
+    'respawning',
+    'interrupting',
+    'cancelling',
+    'interrupt-escalating',
   ]);
 
   /** IDs of child instances */
@@ -295,6 +298,10 @@ export class ChildInstancesPanelComponent {
         return 'waiting';
       case 'respawning':
         return 'recovering';
+      case 'interrupting':
+      case 'cancelling':
+      case 'interrupt-escalating':
+        return 'interrupting';
       case 'error':
         return 'error';
       case 'terminated':

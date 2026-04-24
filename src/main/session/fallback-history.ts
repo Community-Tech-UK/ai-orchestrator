@@ -5,6 +5,25 @@ const RECENT_TURNS_THRESHOLD = 5;
 const MIN_TURNS = 3;
 const TOOL_TRUNCATE_LIMIT = 200;
 
+export interface RecoveryPacket {
+  version: 1;
+  reason: string;
+  generatedAt: number;
+  messageCount: number;
+  recentMessages: Array<{
+    id: string;
+    type: OutputMessage['type'];
+    content: string;
+    timestamp: number;
+    attachmentCount: number;
+    toolName?: string;
+    toolCallId?: string;
+  }>;
+  pendingToolCallIds: string[];
+  completedToolCallIds: string[];
+  whyNativeResumeFailed: string;
+}
+
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleTimeString();
 }
@@ -51,6 +70,54 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
+export function buildRecoveryPacket(messages: OutputMessage[], reason: string): RecoveryPacket {
+  const pendingToolCallIds = new Set<string>();
+  const completedToolCallIds = new Set<string>();
+  const recentMessages = messages
+    .filter(m => m.type === 'user' || m.type === 'assistant' || m.type === 'tool_use' || m.type === 'tool_result')
+    .slice(-40)
+    .map((message) => {
+      const toolCallId = (
+        message.metadata?.['tool_use_id']
+        ?? message.metadata?.['toolCallId']
+        ?? message.metadata?.['id']
+      ) as string | undefined;
+      if (toolCallId && message.type === 'tool_use') pendingToolCallIds.add(toolCallId);
+      if (toolCallId && message.type === 'tool_result') {
+        pendingToolCallIds.delete(toolCallId);
+        completedToolCallIds.add(toolCallId);
+      }
+      return {
+        id: message.id,
+        type: message.type,
+        content: message.content,
+        timestamp: message.timestamp,
+        attachmentCount: message.attachments?.length ?? 0,
+        toolName: message.metadata?.['name'] as string | undefined,
+        toolCallId,
+      };
+    });
+
+  return {
+    version: 1,
+    reason,
+    generatedAt: Date.now(),
+    messageCount: messages.length,
+    recentMessages,
+    pendingToolCallIds: Array.from(pendingToolCallIds),
+    completedToolCallIds: Array.from(completedToolCallIds),
+    whyNativeResumeFailed: reason,
+  };
+}
+
+export function renderRecoveryPacket(packet: RecoveryPacket): string {
+  return [
+    '[STRUCTURED RECOVERY PACKET]',
+    JSON.stringify(packet),
+    '[END STRUCTURED RECOVERY PACKET]',
+  ].join('\n');
+}
+
 function buildMetadataHeader(messages: OutputMessage[], totalTurns: number): string {
   const firstUser = messages.find(m => m.type === 'user');
   const toolNames = new Set<string>();
@@ -80,6 +147,7 @@ export function buildFallbackHistoryMessage(
   budgetFraction = 0.3,
 ): string | null {
   if (messages.length === 0) return null;
+  const packet = buildRecoveryPacket(messages, reason);
 
   const budgetTokens = Math.floor(contextWindowTokens * budgetFraction);
   const conversational = messages.filter(
@@ -109,6 +177,7 @@ export function buildFallbackHistoryMessage(
     `[SESSION RECOVERY — original session lost (${reason})]`,
     'The following is your conversation history for context continuity.',
     'Continue from where you left off. Do not repeat tool calls that already executed.',
+    renderRecoveryPacket(packet),
     '',
   ].join('\n');
 

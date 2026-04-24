@@ -212,10 +212,12 @@ export class InstanceDetailComponent {
   private lastRecoveryBannerKey: string | null = null;
   private lastRestartToastKey: string | null = null;
 
-  // Replay-fallback detection: instance was restored but CLI context is lost
+  // Recovery detection: instance was restored but provider context is missing or unproven.
   isReplayFallback = computed(() => {
     const inst = this.instance();
-    return inst?.restoreMode === 'replay-fallback' || inst?.recoveryMethod === 'replay';
+    return inst?.restoreMode === 'replay-fallback'
+      || inst?.restoreMode === 'resume-unconfirmed'
+      || inst?.recoveryMethod === 'replay';
   });
 
   // Merge manual-trigger state with store-tracked auto-compact state
@@ -290,8 +292,12 @@ export class InstanceDetailComponent {
 
     const providerName = this.getProviderDisplayName(inst.provider);
 
-    // Recovery-aware placeholder for replay-fallback restores
-    if (inst.restoreMode === 'replay-fallback' || inst.recoveryMethod === 'replay') {
+    // Recovery-aware placeholder for restores without confirmed provider context.
+    if (
+      inst.restoreMode === 'replay-fallback'
+      || inst.restoreMode === 'resume-unconfirmed'
+      || inst.recoveryMethod === 'replay'
+    ) {
       return `Summarize what you were working on for ${providerName}...`;
     }
 
@@ -340,7 +346,13 @@ export class InstanceDetailComponent {
       if (!inst || !inst.recoveryMethod || inst.restartEpoch <= 0) {
         return;
       }
-      if (inst.status === 'initializing' || inst.status === 'respawning') {
+      if (
+        inst.status === 'initializing'
+        || inst.status === 'respawning'
+        || inst.status === 'interrupting'
+        || inst.status === 'cancelling'
+        || inst.status === 'interrupt-escalating'
+      ) {
         return;
       }
 
@@ -350,7 +362,7 @@ export class InstanceDetailComponent {
       }
 
       const message = {
-        native: 'Resumed via native session.',
+        native: 'Confirmed native session resume.',
         replay: 'Resumed by replaying the transcript.',
         fresh: 'Started a fresh session. Previous conversation is archived.',
         failed: "Couldn't resume the session. Start a fresh session to continue.",
@@ -382,7 +394,13 @@ export class InstanceDetailComponent {
     // Escape - interrupt busy or respawning instance
     if (event.key === 'Escape') {
       const inst = this.instance();
-      if (inst && (inst.status === 'busy' || inst.status === 'respawning')) {
+      if (inst && (
+        inst.status === 'busy'
+        || inst.status === 'respawning'
+        || inst.status === 'interrupting'
+        || inst.status === 'cancelling'
+        || inst.status === 'interrupt-escalating'
+      )) {
         event.preventDefault();
         this.onInterrupt();
       }
@@ -542,7 +560,13 @@ export class InstanceDetailComponent {
     this.draftService.clearPendingFolders(inst.id);
   }
 
-  async onResendEdited(event: { messageIndex: number; text: string }): Promise<void> {
+  async onResendEdited(event: {
+    messageIndex: number;
+    messageId?: string;
+    text: string;
+    attachments?: { name: string; type: string; size: number; data?: string }[];
+    retryMode?: 'transcript-only';
+  }): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
 
@@ -554,8 +578,15 @@ export class InstanceDetailComponent {
     const result = await this.ipc.forkSession(
       inst.id,
       event.messageIndex,
-      `Edit resend at message ${event.messageIndex}`,
+      `Edit resend at message ${event.messageId ?? event.messageIndex}`,
       event.text,
+      {
+        atMessageId: event.messageId,
+        sourceMessageId: event.messageId,
+        attachments: event.attachments,
+        preserveRuntimeSettings: true,
+        supersedeSource: true,
+      },
     );
 
     if (!result?.success || !result.data) return;
@@ -567,10 +598,6 @@ export class InstanceDetailComponent {
     // arrive before the 'instance:created' event registers the instance.
     this.store.addInstanceFromData(result.data);
     this.store.setSelectedInstance(data.id);
-    // Force-terminate (graceful=false): the old instance may be busy mid-response;
-    // SIGTERM-with-grace would let it linger and emit confusing output. The new
-    // forked instance has the prior conversation, so the old CLI is disposable.
-    await this.store.terminateInstance(inst.id, false);
   }
 
   onEditLastMessage(): void {
@@ -753,7 +780,13 @@ export class InstanceDetailComponent {
     const inst = this.instance();
     if (!inst) return;
 
-    if (inst.status === 'busy' || inst.status === 'respawning') {
+    if (
+      inst.status === 'busy'
+      || inst.status === 'respawning'
+      || inst.status === 'interrupting'
+      || inst.status === 'cancelling'
+      || inst.status === 'interrupt-escalating'
+    ) {
       const interrupted = await this.store.interruptInstance(inst.id);
       if (!interrupted) {
         // Interrupt was rejected (e.g., status desync between frontend and backend).

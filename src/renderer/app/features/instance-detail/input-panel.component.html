@@ -99,7 +99,7 @@
   <!-- Edit mode indicator -->
   @if (editMode()) {
     <div class="edit-mode-bar">
-      <span>Editing last message · Enter to resend · Esc to cancel</span>
+      <span>Editing last message · Transcript-only retry</span>
     </div>
   }
 
@@ -147,7 +147,7 @@
         @if (isInitializing()) {
           <span class="hint hint-starting">Starting up...</span>
         } @else if (isRespawning()) {
-          <span class="hint hint-respawning">Resuming session...</span>
+          <span class="hint hint-respawning">Recovering session...</span>
         } @else if (isBusy()) {
           <span class="hint hint-interrupt">Press Esc to interrupt</span>
         } @else if (isReplayFallback()) {

@@ -7,7 +7,20 @@ const LONG_HOLD_WARNING_MS = 30_000;
 interface LockInfo {
   source: string;
   acquiredAt: number;
+  owner?: {
+    operation?: string;
+    recoveryReason?: string;
+    turnId?: string;
+    adapterGeneration?: number;
+  };
   warningTimer?: NodeJS.Timeout;
+}
+
+export interface SessionLockOwnerMetadata {
+  operation?: string;
+  recoveryReason?: string;
+  turnId?: string;
+  adapterGeneration?: number;
 }
 
 export class SessionMutex {
@@ -15,7 +28,11 @@ export class SessionMutex {
   private holders = new Map<string, LockInfo>();
   private forceResolvers = new Map<string, () => void>();
 
-  async acquire(instanceId: string, source: string): Promise<() => void> {
+  async acquire(
+    instanceId: string,
+    source: string,
+    owner?: SessionLockOwnerMetadata,
+  ): Promise<() => void> {
     const prev = this.chains.get(instanceId) ?? Promise.resolve();
 
     let releaseFn!: () => void;
@@ -28,12 +45,14 @@ export class SessionMutex {
       const info: LockInfo = {
         source,
         acquiredAt: Date.now(),
+        owner,
       };
 
       info.warningTimer = setTimeout(() => {
         logger.warn('Lock held for >30s', {
           instanceId,
           source,
+          owner,
           durationMs: Date.now() - info.acquiredAt,
         });
       }, LONG_HOLD_WARNING_MS);
@@ -71,7 +90,7 @@ export class SessionMutex {
     const resolver = this.forceResolvers.get(instanceId);
     if (resolver) {
       this.forceResolvers.delete(instanceId);
-      logger.warn('Force-released lock', { instanceId, source: info?.source });
+      logger.warn('Force-released lock', { instanceId, source: info?.source, owner: info?.owner });
       resolver();
     }
   }
@@ -80,13 +99,19 @@ export class SessionMutex {
     return this.holders.has(instanceId);
   }
 
-  getLockInfo(instanceId: string): { source: string; acquiredAt: number; durationMs: number } | null {
+  getLockInfo(instanceId: string): {
+    source: string;
+    acquiredAt: number;
+    durationMs: number;
+    owner?: SessionLockOwnerMetadata;
+  } | null {
     const info = this.holders.get(instanceId);
     if (!info) return null;
     return {
       source: info.source,
       acquiredAt: info.acquiredAt,
       durationMs: Date.now() - info.acquiredAt,
+      owner: info.owner,
     };
   }
 }

@@ -49,6 +49,14 @@ describe('DeferredPermissionHandler', () => {
   it('writes the decision, respawns with --resume, and restores the instance to idle', async () => {
     const instance = makeInstance();
     const oldAdapter = {
+      getName: vi.fn().mockReturnValue('claude-cli'),
+      getRuntimeCapabilities: vi.fn().mockReturnValue({
+        supportsResume: true,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: true,
+        supportsDeferPermission: true,
+      }),
       terminate: vi.fn().mockResolvedValue(undefined),
       getDeferredToolUse: vi.fn().mockReturnValue({
         toolName: 'bash',

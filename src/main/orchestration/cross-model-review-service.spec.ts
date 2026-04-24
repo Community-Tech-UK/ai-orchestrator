@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CrossModelReviewService } from './cross-model-review-service';
-import { createCliAdapter, resolveCliType } from '../cli/adapters/adapter-factory';
+import { resolveCliType } from '../cli/adapters/adapter-factory';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import type { ReviewDispatchRequest } from './cross-model-review.types';
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import type { ReviewerPool } from './reviewer-pool';
@@ -23,8 +24,11 @@ vi.mock('../logging/logger', () => ({
 }));
 
 vi.mock('../cli/adapters/adapter-factory', () => ({
-  createCliAdapter: vi.fn(),
   resolveCliType: vi.fn().mockResolvedValue('gemini'),
+}));
+
+vi.mock('../providers/provider-runtime-service', () => ({
+  getProviderRuntimeService: vi.fn(),
 }));
 
 vi.mock('../cli/cli-detection', () => ({
@@ -75,7 +79,12 @@ describe('CrossModelReviewService', () => {
       if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
       return cli as CliType;
     });
-    vi.mocked(createCliAdapter).mockReset();
+    vi.mocked(getProviderRuntimeService).mockReturnValue({
+      createAdapter: vi.fn(),
+      getCapabilities: vi.fn(),
+      interruptTurn: vi.fn(),
+      getResumeProof: vi.fn(),
+    });
   });
 
   it('creates singleton instance', () => {
@@ -130,7 +139,7 @@ describe('CrossModelReviewService', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     service.reviewerPool.setAvailable(['gemini', 'codex', 'copilot']);
 
-    vi.mocked(createCliAdapter).mockImplementation((cliType, options) => ({
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ cliType, options }) => ({
       sendMessage: async ({ content }: { content: string }) => {
         expect(options.workingDirectory).toBe('/tmp/review-context');
         expect(content).toContain('Implement the review service carefully.');
@@ -173,7 +182,7 @@ describe('CrossModelReviewService', () => {
     service.on('review:all-unavailable', allUnavailable);
     service.on('review:result', result);
 
-    vi.mocked(createCliAdapter).mockImplementation(() => ({
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
       sendMessage: async () => ({ content: 'not valid json' }),
     }));
 

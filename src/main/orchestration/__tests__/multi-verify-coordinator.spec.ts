@@ -60,14 +60,19 @@ vi.mock('../../core/config/settings-manager', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// CLI adapter mock (used by synthesizeMerge)
+// Provider runtime mock (used by synthesizeMerge)
 // ---------------------------------------------------------------------------
 vi.mock('../../cli/adapters/adapter-factory', () => ({
-  createCliAdapter: vi.fn(() => ({
-    sendMessage: vi.fn().mockResolvedValue({ content: 'Synthesized response from CLI adapter' }),
-    terminate: vi.fn(),
-  })),
   resolveCliType: vi.fn().mockResolvedValue('claude'),
+}));
+
+vi.mock('../../providers/provider-runtime-service', () => ({
+  getProviderRuntimeService: vi.fn(() => ({
+    createAdapter: vi.fn(() => ({
+      sendMessage: vi.fn().mockResolvedValue({ content: 'Synthesized response from CLI adapter' }),
+      terminate: vi.fn(),
+    })),
+  })),
 }));
 
 // ---------------------------------------------------------------------------

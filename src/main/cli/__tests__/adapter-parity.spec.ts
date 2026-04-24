@@ -157,16 +157,22 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
     await expect(sendPromise).rejects.toThrow(/137/);
   });
 
-  it('returns true from interrupt() when a process is running', () => {
+  it('returns accepted from interrupt() when a process is running', () => {
     const proc = harness.createProcess();
-    const killSpy = vi.spyOn(proc, 'kill');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(
+      ((pid: number | string, signal?: NodeJS.Signals | number) => {
+        expect(pid).toBe(-proc.pid);
+        expect(signal).toBe('SIGINT');
+        return true;
+      }) as typeof process.kill,
+    );
     setRunningProcess(adapter, proc);
 
-    expect(adapter.interrupt()).toBe(true);
-    expect(killSpy).toHaveBeenCalledWith('SIGINT');
+    expect(adapter.interrupt()).toEqual({ status: 'accepted' });
+    expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGINT');
   });
 
-  it('returns false from interrupt() when no process is running', () => {
-    expect(adapter.interrupt()).toBe(false);
+  it('returns already-idle from interrupt() when no process is running', () => {
+    expect(adapter.interrupt().status).toBe('already-idle');
   });
 });

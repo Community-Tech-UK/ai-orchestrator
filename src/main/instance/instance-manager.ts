@@ -31,7 +31,6 @@ import type {
 } from '../../shared/types/instance.types';
 import { generateId, generateInstanceId } from '../../shared/utils/id-generator';
 import {
-  createCliAdapter,
   resolveCliType,
   type CliAdapter,
 } from '../cli/adapters/adapter-factory';
@@ -64,6 +63,7 @@ import type {
   ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -140,8 +140,11 @@ export class InstanceManager extends EventEmitter {
           provider as Parameters<typeof resolveCliType>[0],
           settingsAll.defaultCli
         );
-        const adapter: CliAdapter = createCliAdapter(resolvedCliType, {
-          workingDirectory: options.workingDirectory,
+        const adapter: CliAdapter = getProviderRuntimeService().createAdapter({
+          cliType: resolvedCliType,
+          options: {
+            workingDirectory: options.workingDirectory,
+          },
         });
         await adapter.spawn();
         return adapter;
@@ -849,10 +852,23 @@ export class InstanceManager extends EventEmitter {
       provider,
       instanceId,
       sessionId: options?.sessionId ?? instance?.providerSessionId ?? instance?.sessionId,
+      adapterGeneration: instance?.adapterGeneration,
+      turnId: this.resolveRuntimeEventTurnId(event, instance),
       event,
     };
 
     this.emit('provider:normalized-event', envelope);
+  }
+
+  private resolveRuntimeEventTurnId(
+    event: ProviderRuntimeEvent,
+    instance?: Instance,
+  ): string | undefined {
+    if (event.kind === 'output' && typeof event.metadata?.['turnId'] === 'string') {
+      return event.metadata['turnId'];
+    }
+
+    return instance?.activeTurnId;
   }
 
   private nextProviderRuntimeSeq(instanceId: string): number {
@@ -1403,7 +1419,56 @@ export class InstanceManager extends EventEmitter {
   // ============================================
 
   async forkInstance(config: ForkConfig): Promise<Instance> {
-    return this.persistence.forkInstance(config);
+    const forked = await this.persistence.forkInstance(config);
+    const source = this.state.getInstance(config.instanceId);
+    if (source && config.supersedeSource === true) {
+      await this.supersedeSourceAfterEditFork(source, forked.id);
+    }
+    return forked;
+  }
+
+  private async supersedeSourceAfterEditFork(source: Instance, forkedInstanceId: string): Promise<void> {
+    source.supersededBy = forkedInstanceId;
+    source.cancelledForEdit = true;
+    source.lastTurnOutcome = 'cancelled';
+    source.lastActivity = Date.now();
+
+    if (source.status !== 'superseded' && source.status !== 'terminated' && source.status !== 'failed') {
+      this.lifecycle.transitionStatePublic(source, 'superseded');
+    }
+
+    const sourceAdapter = this.state.getAdapter(source.id);
+    if (sourceAdapter) {
+      this.state.deleteAdapter(source.id);
+      sourceAdapter.removeAllListeners();
+      try {
+        await sourceAdapter.terminate(false);
+      } catch (error) {
+        logger.warn('Failed to terminate superseded source adapter after edit fork', {
+          instanceId: source.id,
+          forkedInstanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      source.processId = null;
+    }
+
+    this.state.queueUpdate(
+      source.id,
+      source.status,
+      source.contextUsage,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        supersededBy: source.supersededBy,
+        cancelledForEdit: source.cancelledForEdit,
+        adapterGeneration: source.adapterGeneration,
+        activeTurnId: source.activeTurnId,
+        lastTurnOutcome: source.lastTurnOutcome,
+      }
+    );
   }
 
   exportSession(instanceId: string): ExportedSession {

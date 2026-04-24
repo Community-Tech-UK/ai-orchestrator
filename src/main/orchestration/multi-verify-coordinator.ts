@@ -29,10 +29,11 @@ import { getEmbeddingService as getOrchestrationEmbeddingService, type Embedding
 import { getLogger } from '../logging/logger';
 import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { getConfidenceFilter } from './confidence-filter';
-import { createCliAdapter, resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import { resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 
 const logger = getLogger('MultiVerifyCoordinator');
 
@@ -1002,7 +1003,7 @@ Provide your synthesized response:`;
       timeout: 300000,
     };
 
-    const adapter = createCliAdapter(cliType, spawnOptions);
+    const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
     try {
       const sendMessage = (adapter as any).sendMessage?.bind(adapter) as ((m: CliMessage) => Promise<CliResponse>) | undefined;
       if (!sendMessage) {

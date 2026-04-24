@@ -7,6 +7,7 @@ import {
   StoreIdSchema,
   WorkingDirectorySchema,
   DisplayNameSchema,
+  FileAttachmentSchema,
 } from './common.schemas';
 
 // ============ Helper schemas ============
@@ -322,8 +323,14 @@ export const SnapshotCleanupPayloadSchema = z.object({
 export const SessionForkPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   atMessageIndex: z.number().int().min(0).optional(),
+  atMessageId: z.string().min(1).max(200).optional(),
+  sourceMessageId: z.string().min(1).max(200).optional(),
+  forkAfterMessageId: z.string().min(1).max(200).optional(),
   displayName: DisplayNameSchema.optional(),
   initialPrompt: z.string().optional(),
+  attachments: z.array(FileAttachmentSchema).max(10).optional(),
+  preserveRuntimeSettings: z.boolean().optional(),
+  supersedeSource: z.boolean().optional(),
 });
 
 export const SessionExportPayloadSchema = z.object({

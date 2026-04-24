@@ -17,6 +17,21 @@ describe('adapter factory — copilot', () => {
     expect(adapter.getName()).toBe('copilot-acp');
   });
 
+  it('passes resume session options through to the ACP adapter', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      resume: true,
+      sessionId: 'copilot-session-1',
+    });
+
+    expect((adapter as unknown as {
+      acpConfig: { resume?: boolean; sessionId?: string };
+    }).acpConfig).toMatchObject({
+      resume: true,
+      sessionId: 'copilot-session-1',
+    });
+  });
+
   it('passes --model <id> to the copilot subprocess when a model is specified', () => {
     // Regression: AcpCliAdapter silently dropped options.model, leaving the
     // copilot subprocess on its own default model while the orchestrator UI

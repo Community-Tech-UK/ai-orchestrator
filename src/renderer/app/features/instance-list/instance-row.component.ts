@@ -692,6 +692,9 @@ export class InstanceRowComponent {
     this.instance().status === 'thinking_deeply' ||
     this.instance().status === 'initializing' ||
     this.instance().status === 'respawning' ||
+    this.instance().status === 'interrupting' ||
+    this.instance().status === 'cancelling' ||
+    this.instance().status === 'interrupt-escalating' ||
     this.instance().status === 'waking' ||
     this.instance().status === 'hibernating'
   );
@@ -741,7 +744,13 @@ export class InstanceRowComponent {
       case 'waiting_for_permission':
         return 'Needs approval';
       case 'respawning':
-        return 'Resuming session';
+        return 'Recovering session';
+      case 'interrupting':
+        return 'Interrupting';
+      case 'cancelling':
+        return 'Cancelling';
+      case 'interrupt-escalating':
+        return 'Escalating interrupt';
       case 'waking':
         return 'Waking up';
       case 'hibernating':

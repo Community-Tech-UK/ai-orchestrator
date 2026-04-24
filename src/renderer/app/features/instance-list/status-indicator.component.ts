@@ -14,6 +14,11 @@ const STATUS_COLORS: Record<InstanceStatus, string> = {
   thinking_deeply: '#8b5cf6', // Purple - extended thinking (90s+ no stdout)
   waiting_for_input: '#f59e0b', // Amber
   waiting_for_permission: '#f59e0b', // Amber - needs approval
+  interrupting: '#a855f7', // Purple - interrupt requested
+  cancelling: '#a855f7',   // Purple - cancellation finalizing
+  'interrupt-escalating': '#ef4444', // Red - forced escalation
+  cancelled: '#6b7280',    // Gray - cancelled, recoverable
+  superseded: '#6b7280',   // Gray - replaced by edit/fork
   respawning: '#8b5cf6',   // Purple - recovering from interrupt
   hibernating: '#6b7280',  // Gray - transitioning
   hibernated: '#4b5563',   // Darker gray - resting
@@ -33,7 +38,12 @@ const STATUS_LABELS: Record<InstanceStatus, string> = {
   thinking_deeply: 'Thinking deeply...',
   waiting_for_input: 'Waiting for input',
   waiting_for_permission: 'Needs approval',
-  respawning: 'Resuming session...',
+  interrupting: 'Interrupting...',
+  cancelling: 'Cancelling...',
+  'interrupt-escalating': 'Escalating interrupt...',
+  cancelled: 'Cancelled',
+  superseded: 'Superseded',
+  respawning: 'Recovering session...',
   hibernating: 'Hibernating...',
   hibernated: 'Hibernated',
   waking: 'Waking up...',
@@ -137,6 +147,9 @@ export class StatusIndicatorComponent {
     this.status() === 'processing' ||
     this.status() === 'thinking_deeply' ||
     this.status() === 'initializing' ||
+    this.status() === 'interrupting' ||
+    this.status() === 'cancelling' ||
+    this.status() === 'interrupt-escalating' ||
     this.status() === 'respawning' ||
     this.status() === 'hibernating' ||
     this.status() === 'waking' ||
@@ -146,6 +159,9 @@ export class StatusIndicatorComponent {
   showSpinnerIndicator = computed(() =>
     this.status() === 'busy' ||
     this.status() === 'processing' ||
-    this.status() === 'thinking_deeply'
+    this.status() === 'thinking_deeply' ||
+    this.status() === 'interrupting' ||
+    this.status() === 'cancelling' ||
+    this.status() === 'interrupt-escalating'
   );
 }

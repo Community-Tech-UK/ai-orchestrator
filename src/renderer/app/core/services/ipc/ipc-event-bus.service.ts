@@ -42,6 +42,14 @@ function toInstanceOutputEventFromEnvelope(
     message.metadata = { ...envelope.event.metadata };
   }
 
+  if (envelope.adapterGeneration !== undefined || envelope.turnId !== undefined) {
+    message.metadata = {
+      ...message.metadata,
+      ...(envelope.adapterGeneration !== undefined ? { adapterGeneration: envelope.adapterGeneration } : {}),
+      ...(envelope.turnId !== undefined ? { turnId: envelope.turnId } : {}),
+    };
+  }
+
   if (envelope.event.attachments !== undefined) {
     message.attachments = envelope.event.attachments.map((attachment) => ({ ...attachment }));
   }

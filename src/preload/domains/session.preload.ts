@@ -14,8 +14,14 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     forkSession: (payload: {
       instanceId: string;
       atMessageIndex?: number;
+      atMessageId?: string;
+      sourceMessageId?: string;
+      forkAfterMessageId?: string;
       displayName?: string;
       initialPrompt?: string;
+      attachments?: Array<{ name: string; type: string; size: number; data?: string }>;
+      preserveRuntimeSettings?: boolean;
+      supersedeSource?: boolean;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SESSION_FORK, payload);
     },

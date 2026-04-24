@@ -174,6 +174,17 @@ describe('AcpCliAdapter', () => {
     PermissionRegistry._resetForTesting();
   });
 
+  it('does not advertise resume until the ACP agent proves loadSession support', () => {
+    const proc = new FakeAcpProcess();
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      args: [],
+      requestTimeoutMs: 100,
+    });
+
+    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(false);
+  });
+
   it('initializes the ACP transport and opens a new session', async () => {
     const proc = createInitializedAgentHarness();
 
@@ -205,7 +216,72 @@ describe('AcpCliAdapter', () => {
       cwd: '/tmp',
     });
     expect(adapter.getSessionId()).toBe('sess-acp-1');
+    expect(adapter.getRuntimeCapabilities().supportsResume).toBe(true);
     expect(statusHandler).toHaveBeenCalledWith('ready');
+
+    proc.exit();
+  });
+
+  it('records confirmed native resume proof when session/load succeeds', async () => {
+    const proc = createInitializedAgentHarness();
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      resume: true,
+      sessionId: 'sess-existing',
+    });
+
+    await adapter.spawn();
+
+    const loadRequest = proc.receivedMessages.find((message) =>
+      'method' in message && message.method === 'session/load',
+    ) as AcpJsonRpcRequest | undefined;
+
+    expect(loadRequest?.params).toMatchObject({
+      sessionId: 'sess-existing',
+      cwd: '/tmp',
+    });
+    expect(adapter.getSessionId()).toBe('sess-existing');
+    expect(adapter.getResumeAttemptResult()).toMatchObject({
+      source: 'native',
+      confirmed: true,
+      requestedSessionId: 'sess-existing',
+      actualSessionId: 'sess-existing',
+      requestedCursor: expect.objectContaining({
+        transport: 'acp',
+        sessionId: 'sess-existing',
+        workspacePath: '/tmp',
+      }),
+    });
+
+    proc.exit();
+  });
+
+  it('records unconfirmed native resume proof when the agent lacks loadSession support', async () => {
+    const proc = new FakeAcpProcess();
+    proc.onRequest('initialize', (message) => {
+      proc.respond(message.id, {
+        protocolVersion: 1,
+        agentCapabilities: {},
+        authMethods: [],
+      });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      resume: true,
+      sessionId: 'sess-existing',
+    });
+
+    await expect(adapter.spawn()).rejects.toThrow(/does not advertise loadSession support/);
+    expect(adapter.getResumeAttemptResult()).toMatchObject({
+      source: 'native',
+      confirmed: false,
+      requestedSessionId: 'sess-existing',
+      reason: 'ACP agent does not advertise loadSession support.',
+    });
 
     proc.exit();
   });
@@ -683,7 +759,10 @@ describe('AcpCliAdapter', () => {
       'method' in message && message.method === 'session/prompt',
     );
 
-    expect(adapter.interrupt()).toBe(true);
+    expect(adapter.interrupt()).toEqual({
+      status: 'accepted',
+      turnId: expect.any(String),
+    });
 
     await expect(pending).rejects.toThrow(/cancelled by the client/);
 

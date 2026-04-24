@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildFallbackHistoryMessage } from './fallback-history';
+import { buildFallbackHistoryMessage, buildRecoveryPacket } from './fallback-history';
 import type { OutputMessage } from '../../shared/types/instance.types';
 
 function msg(type: OutputMessage['type'], content: string, overrides: Partial<OutputMessage> = {}): OutputMessage {
@@ -21,7 +21,27 @@ describe('buildFallbackHistoryMessage', () => {
     const messages = [msg('user', 'hello'), msg('assistant', 'hi')];
     const result = buildFallbackHistoryMessage(messages, 'resume-failed', 200_000);
     expect(result).toContain('[SESSION RECOVERY');
+    expect(result).toContain('[STRUCTURED RECOVERY PACKET]');
     expect(result).toContain('resume-failed');
+  });
+
+  it('builds a structured recovery packet with stable message and tool metadata', () => {
+    const messages = [
+      msg('user', 'inspect this', { id: 'user-1' }),
+      msg('tool_use', 'Read file', { id: 'tool-1', metadata: { id: 'call-1', name: 'Read' } }),
+      msg('tool_result', 'File contents', { id: 'result-1', metadata: { tool_use_id: 'call-1', name: 'Read' } }),
+    ];
+
+    const packet = buildRecoveryPacket(messages, 'resume-failed');
+
+    expect(packet).toMatchObject({
+      version: 1,
+      reason: 'resume-failed',
+      messageCount: 3,
+      completedToolCallIds: ['call-1'],
+      pendingToolCallIds: [],
+    });
+    expect(packet.recentMessages.map((message) => message.id)).toEqual(['user-1', 'tool-1', 'result-1']);
   });
 
   it('includes all messages for short conversations within budget', () => {

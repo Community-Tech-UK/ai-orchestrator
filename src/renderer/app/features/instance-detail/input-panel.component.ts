@@ -96,7 +96,13 @@ export class InputPanelComponent implements OnDestroy {
   removeFolder = output<string>();
   addFiles = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
-  resendEdited = output<{ messageIndex: number; text: string }>();
+  resendEdited = output<{
+    messageIndex: number;
+    messageId?: string;
+    text: string;
+    attachments?: OutputMessage['attachments'];
+    retryMode: 'transcript-only';
+  }>();
 
   editMode = signal(false);
   private stashedDraft = signal<string | null>(null);
@@ -106,7 +112,12 @@ export class InputPanelComponent implements OnDestroy {
     const msgs = this.outputMessages();
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].type === 'user') {
-        return { text: msgs[i].content, bufferIndex: i };
+        return {
+          text: msgs[i].content,
+          bufferIndex: i,
+          messageId: msgs[i].id,
+          attachments: msgs[i].attachments,
+        };
       }
     }
     return null;
@@ -265,7 +276,16 @@ export class InputPanelComponent implements OnDestroy {
       const currentText = this.message();
 
       // Don't generate while busy, starting up, or when user has typed something
-      if (status === 'busy' || status === 'initializing' || status === 'waking' || currentText) {
+      if (
+        status === 'busy'
+        || status === 'initializing'
+        || status === 'waking'
+        || status === 'respawning'
+        || status === 'interrupting'
+        || status === 'cancelling'
+        || status === 'interrupt-escalating'
+        || currentText
+      ) {
         this.ghostSuggestion.set(null);
         return;
       }
@@ -537,9 +557,17 @@ export class InputPanelComponent implements OnDestroy {
     const idx = this.editMessageIndex();
     if (idx === null) return;
 
+    const confirmed = window.confirm(
+      'This retry will fork the transcript only. Filesystem checkpoint restore is not available for this edit. Continue?',
+    );
+    if (!confirmed) return;
+
     this.resendEdited.emit({
       messageIndex: idx,
-      text: this.message().trim(),
+      messageId: this.lastUserMessage()?.messageId,
+      text: this.message(),
+      attachments: this.lastUserMessage()?.attachments,
+      retryMode: 'transcript-only',
     });
 
     this.message.set('');

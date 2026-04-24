@@ -71,11 +71,22 @@ describe('SessionMutex', () => {
   });
 
   it('getLockInfo returns holder info', async () => {
-    const release = await mutex.acquire('inst-1', 'test-source');
+    const release = await mutex.acquire('inst-1', 'test-source', {
+      operation: 'restart',
+      recoveryReason: 'restart',
+      turnId: 'turn-1',
+      adapterGeneration: 4,
+    });
     const info = mutex.getLockInfo('inst-1');
 
     expect(info).not.toBeNull();
     expect(info!.source).toBe('test-source');
+    expect(info!.owner).toMatchObject({
+      operation: 'restart',
+      recoveryReason: 'restart',
+      turnId: 'turn-1',
+      adapterGeneration: 4,
+    });
     expect(info!.durationMs).toBeGreaterThanOrEqual(0);
 
     release();

@@ -81,9 +81,23 @@ export class HistoryIpcService {
     atMessageIndex?: number,
     displayName?: string,
     initialPrompt?: string,
+    options?: {
+      atMessageId?: string;
+      sourceMessageId?: string;
+      forkAfterMessageId?: string;
+      attachments?: { name: string; type: string; size: number; data?: string }[];
+      preserveRuntimeSettings?: boolean;
+      supersedeSource?: boolean;
+    },
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.forkSession({ instanceId, atMessageIndex, displayName, initialPrompt });
+    return this.api.forkSession({
+      instanceId,
+      atMessageIndex,
+      displayName,
+      initialPrompt,
+      ...options,
+    });
   }
 
   /**

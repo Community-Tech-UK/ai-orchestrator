@@ -912,6 +912,65 @@ describe('InstanceManager', () => {
   });
 
   // =========================================================================
+  // forkInstance
+  // =========================================================================
+
+  describe('forkInstance', () => {
+    it('keeps the source alive for prompted forks unless supersession is explicit', async () => {
+      const source = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+      });
+      await source.readyPromise;
+      source.outputBuffer.push({
+        id: 'user-1',
+        timestamp: Date.now(),
+        type: 'user',
+        content: 'original question',
+      });
+
+      const forked = await manager.forkInstance({
+        instanceId: source.id,
+        atMessageIndex: 1,
+        initialPrompt: 'follow-up prompt',
+      });
+      await forked.readyPromise;
+
+      expect(source.status).toBe('idle');
+      expect(source.supersededBy).toBeUndefined();
+      expect(source.cancelledForEdit).not.toBe(true);
+      expect(mockAdapterTerminate).not.toHaveBeenCalled();
+    });
+
+    it('supersedes and terminates the source when an edit-resend fork requests it', async () => {
+      const source = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+      });
+      await source.readyPromise;
+      source.outputBuffer.push({
+        id: 'user-1',
+        timestamp: Date.now(),
+        type: 'user',
+        content: 'original question',
+      });
+
+      const forked = await manager.forkInstance({
+        instanceId: source.id,
+        atMessageIndex: 0,
+        sourceMessageId: 'user-1',
+        initialPrompt: 'edited question',
+        supersedeSource: true,
+      });
+      await forked.readyPromise;
+
+      expect(source.status).toBe('superseded');
+      expect(source.supersededBy).toBe(forked.id);
+      expect(source.cancelledForEdit).toBe(true);
+      expect(source.lastTurnOutcome).toBe('cancelled');
+      expect(mockAdapterTerminate).toHaveBeenCalledWith(false);
+    });
+  });
+
+  // =========================================================================
   // terminateInstance
   // =========================================================================
 

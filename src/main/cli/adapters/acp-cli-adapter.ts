@@ -17,10 +17,12 @@ import {
   type CliAdapterConfig,
   type CliAttachment as AdapterCliAttachment,
   type CliCapabilities,
+  type InterruptResult,
   type CliMessage,
   type CliResponse,
   type CliStatus,
   type CliToolCall,
+  type ResumeAttemptResult,
   ndjsonSafeStringify,
 } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
@@ -264,6 +266,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private agentCapabilities: AcpAgentCapabilities | null = null;
   private currentPrompt: AcpPendingPromptTurn | null = null;
   private currentPromptRequestId: string | null = null;
+  private lastResumeAttemptResult: ResumeAttemptResult | undefined;
   private systemPromptSent = false;
   /** Release function returned by `ProviderConcurrencyLimiter.acquire`.
    *  Set in `spawn()` when concurrency gating is configured, invoked
@@ -307,12 +310,16 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   override getRuntimeCapabilities(): AdapterRuntimeCapabilities {
     return {
-      supportsResume: true,
+      supportsResume: this.agentCapabilities?.loadSession === true,
       supportsForkSession: false,
       supportsNativeCompaction: false,
       supportsPermissionPrompts: true,
       supportsDeferPermission: false,
     };
+  }
+
+  getResumeAttemptResult(): ResumeAttemptResult | undefined {
+    return this.lastResumeAttemptResult;
   }
 
   async checkStatus(): Promise<CliStatus> {
@@ -658,13 +665,13 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
   }
 
-  override interrupt(): boolean {
+  override interrupt(): InterruptResult {
     if (!this.sessionId || !this.currentPromptRequestId) {
-      return false;
+      return { status: 'no-active-turn', reason: 'No ACP prompt is in flight' };
     }
 
     void this.cancelCurrentPrompt();
-    return true;
+    return { status: 'accepted', turnId: String(this.currentPromptRequestId) };
   }
 
   async sendRaw(response: string, permissionKey?: string): Promise<void> {
@@ -718,9 +725,21 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private async openSession(): Promise<string> {
     if (this.acpConfig.resume) {
       if (!this.acpConfig.sessionId) {
+        this.lastResumeAttemptResult = {
+          source: 'native',
+          confirmed: false,
+          reason: 'ACP resume requires a sessionId.',
+        };
         throw new Error('ACP resume requires a sessionId.');
       }
       if (!this.agentCapabilities?.loadSession) {
+        this.lastResumeAttemptResult = {
+          source: 'native',
+          confirmed: false,
+          requestedSessionId: this.acpConfig.sessionId,
+          requestedCursor: this.buildResumeCursor(this.acpConfig.sessionId),
+          reason: 'ACP agent does not advertise loadSession support.',
+        };
         throw new Error('ACP agent does not advertise loadSession support.');
       }
       const loadParams: AcpSessionLoadParams = {
@@ -728,7 +747,26 @@ export class AcpCliAdapter extends BaseCliAdapter {
         cwd: this.acpConfig.workingDirectory,
         mcpServers: this.acpConfig.mcpServers ?? [],
       };
-      await this.sendRequest<null>('session/load', loadParams);
+      try {
+        await this.sendRequest<null>('session/load', loadParams);
+      } catch (error) {
+        this.lastResumeAttemptResult = {
+          source: 'native',
+          confirmed: false,
+          requestedSessionId: this.acpConfig.sessionId,
+          requestedCursor: this.buildResumeCursor(this.acpConfig.sessionId),
+          reason: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      }
+      this.lastResumeAttemptResult = {
+        source: 'native',
+        confirmed: true,
+        requestedSessionId: this.acpConfig.sessionId,
+        actualSessionId: this.acpConfig.sessionId,
+        requestedCursor: this.buildResumeCursor(this.acpConfig.sessionId),
+        actualCursor: this.buildResumeCursor(this.acpConfig.sessionId),
+      };
       return this.acpConfig.sessionId;
     }
 
@@ -737,7 +775,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
       mcpServers: this.acpConfig.mcpServers ?? [],
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
+    this.lastResumeAttemptResult = undefined;
     return result.sessionId;
+  }
+
+  private buildResumeCursor(sessionId: string): Record<string, unknown> {
+    return {
+      transport: 'acp',
+      provider: this.getName(),
+      sessionId,
+      workspacePath: this.acpConfig.workingDirectory,
+    };
   }
 
   private async cancelCurrentPrompt(): Promise<void> {

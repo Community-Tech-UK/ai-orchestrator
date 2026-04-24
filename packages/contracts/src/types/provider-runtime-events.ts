@@ -208,5 +208,9 @@ export interface ProviderRuntimeEventEnvelope {
   readonly provider: ProviderName;
   readonly instanceId: string;
   readonly sessionId?: string;
+  /** Monotonic adapter-listener generation for stale-event suppression. */
+  readonly adapterGeneration?: number;
+  /** Provider-native turn ID associated with this event, when known. */
+  readonly turnId?: string;
   readonly event: ProviderRuntimeEvent;
 }

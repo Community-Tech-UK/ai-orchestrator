@@ -469,11 +469,36 @@ Hey! I'm here. What do you want to tackle?`;
   });
 
   describe('interrupt behavior', () => {
-    it('returns false (falls back to SIGINT) when not in app-server mode', () => {
+    it('returns already-idle (falls back to SIGINT) when not in app-server mode', () => {
       const adapter = new CodexCliAdapter();
-      // No process running, so interrupt returns false
+      // No process running, so interrupt reports no active process.
       const result = adapter.interrupt();
-      expect(result).toBe(false);
+      expect(result.status).toBe('already-idle');
+    });
+
+    it('waits for app-server interrupt acceptance and turn completion proof', async () => {
+      const adapter = new CodexCliAdapter();
+      const request = vi.fn().mockResolvedValue({ success: true });
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
+      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
+      (adapter as unknown as { currentTurnCompletion: Promise<unknown> }).currentTurnCompletion =
+        Promise.resolve({ status: 'interrupted', turnId: 'turn-1' });
+
+      const result = adapter.interrupt();
+
+      expect(result.status).toBe('accepted');
+      expect(result.turnId).toBe('turn-1');
+      await expect(result.completion).resolves.toEqual({
+        status: 'interrupted',
+        turnId: 'turn-1',
+      });
+      expect(request).toHaveBeenCalledWith('turn/interrupt', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+      });
     });
   });
 
@@ -905,6 +930,43 @@ Hey! I'm here. What do you want to tackle?`;
         expect((adapter as unknown as { sessionId: string }).sessionId).toBe('thread-fresh');
         // The new thread has no prior context — system prompt must re-send.
         expect((adapter as unknown as { systemPromptSent: boolean }).systemPromptSent).toBe(false);
+      });
+
+      it('records fresh fallback as an unconfirmed resume attempt', async () => {
+        const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';
+        (adapter as unknown as { sessionScanner: { findSessionForWorkspace: () => Promise<null> } }).sessionScanner = {
+          findSessionForWorkspace: vi.fn().mockResolvedValue(null),
+        };
+
+        const request = vi.fn().mockImplementation((method: string) => {
+          if (method === 'thread/resume') {
+            throw new Error('thread not found: thread-old');
+          }
+          if (method === 'thread/start') {
+            return Promise.resolve({ threadId: 'thread-fresh' });
+          }
+          return Promise.resolve({});
+        });
+        const neverExits = new Promise<void>(() => {});
+        vi.spyOn(
+          adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+          'connectAppServer',
+        ).mockResolvedValue({
+          request,
+          exitPromise: neverExits,
+          getExitError: () => null,
+        });
+
+        await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
+
+        expect(adapter.getResumeAttemptResult()).toMatchObject({
+          source: 'fresh-fallback',
+          confirmed: false,
+          requestedSessionId: 'thread-old',
+          actualSessionId: 'thread-fresh',
+        });
       });
     });
 

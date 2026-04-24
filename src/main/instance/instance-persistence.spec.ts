@@ -147,4 +147,77 @@ describe('InstancePersistenceManager', () => {
       }),
     );
   });
+
+  it('forks by stable source message id and preserves runtime settings plus attachments', async () => {
+    const attachment = {
+      name: 'diagram.png',
+      type: 'image/png',
+      size: 12,
+      data: 'data:image/png;base64,abc',
+    };
+    sourceInstance.provider = 'codex';
+    sourceInstance.currentModel = 'gpt-5.3-codex';
+    sourceInstance.yoloMode = true;
+    sourceInstance.outputBuffer = [
+      message('assistant-1'),
+      { ...message('user-2'), type: 'user', attachments: [attachment] },
+      message('assistant-3'),
+    ];
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      sourceMessageId: 'user-2',
+      initialPrompt: ' revised with leading space',
+      preserveRuntimeSettings: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'codex',
+        modelOverride: 'gpt-5.3-codex',
+        yoloMode: true,
+        initialPrompt: ' revised with leading space',
+        attachments: [attachment],
+        initialOutputBuffer: [
+          expect.objectContaining({ id: 'assistant-1' }),
+        ],
+      }),
+    );
+  });
+
+  it('uses forkAfterMessageId for the transcript cut while preserving source message attachments', async () => {
+    const attachment = {
+      name: 'sketch.png',
+      type: 'image/png',
+      size: 9,
+      data: 'data:image/png;base64,xyz',
+    };
+    sourceInstance.outputBuffer = [
+      { ...message('user-1'), type: 'user' },
+      message('assistant-2'),
+      { ...message('user-3'), type: 'user', attachments: [attachment] },
+      message('assistant-4'),
+    ];
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      sourceMessageId: 'user-3',
+      forkAfterMessageId: 'assistant-2',
+      initialPrompt: 'edited follow-up',
+      preserveRuntimeSettings: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialOutputBuffer: [
+          expect.objectContaining({ id: 'user-1' }),
+          expect.objectContaining({ id: 'assistant-2' }),
+        ],
+        initialPrompt: 'edited follow-up',
+        attachments: [attachment],
+      }),
+    );
+  });
 });

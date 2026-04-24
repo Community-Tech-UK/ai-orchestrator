@@ -38,6 +38,8 @@ export function toOutputMessageFromProviderOutputEvent(
   defaults?: {
     eventId?: string;
     timestamp?: number;
+    adapterGeneration?: number;
+    turnId?: string;
   },
 ): OutputMessage {
   const message: OutputMessage = {
@@ -49,6 +51,14 @@ export function toOutputMessageFromProviderOutputEvent(
 
   if (event.metadata !== undefined) {
     message.metadata = { ...event.metadata };
+  }
+
+  if (defaults?.adapterGeneration !== undefined || defaults?.turnId !== undefined) {
+    message.metadata = {
+      ...message.metadata,
+      ...(defaults.adapterGeneration !== undefined ? { adapterGeneration: defaults.adapterGeneration } : {}),
+      ...(defaults.turnId !== undefined ? { turnId: defaults.turnId } : {}),
+    };
   }
 
   if (event.attachments !== undefined) {
@@ -77,6 +87,8 @@ export function toOutputMessageFromProviderEnvelope(
   return toOutputMessageFromProviderOutputEvent(envelope.event, {
     eventId: envelope.eventId,
     timestamp: envelope.timestamp,
+    adapterGeneration: envelope.adapterGeneration,
+    turnId: envelope.turnId,
   });
 }
 

@@ -44,6 +44,14 @@ type QueueUpdate = (
   sessionState?: {
     providerSessionId?: string;
     restartEpoch?: number;
+    adapterGeneration?: number;
+    activeTurnId?: string;
+    interruptRequestId?: string;
+    interruptRequestedAt?: number;
+    interruptPhase?: Instance['interruptPhase'];
+    lastTurnOutcome?: Instance['lastTurnOutcome'];
+    supersededBy?: string;
+    cancelledForEdit?: boolean;
     recoveryMethod?: Instance['recoveryMethod'];
     archivedUpToMessageId?: string;
     historyThreadId?: string;

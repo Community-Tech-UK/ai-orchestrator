@@ -207,6 +207,14 @@ export class InstanceStateManager extends EventEmitter {
     sessionState?: {
       providerSessionId?: string;
       restartEpoch?: number;
+      adapterGeneration?: number;
+      activeTurnId?: string;
+      interruptRequestId?: string;
+      interruptRequestedAt?: number;
+      interruptPhase?: Instance['interruptPhase'];
+      lastTurnOutcome?: Instance['lastTurnOutcome'];
+      supersededBy?: string;
+      cancelledForEdit?: boolean;
       recoveryMethod?: Instance['recoveryMethod'];
       archivedUpToMessageId?: string;
       historyThreadId?: string;
@@ -225,6 +233,14 @@ export class InstanceStateManager extends EventEmitter {
       executionLocation: executionLocation ?? existing?.executionLocation,
       providerSessionId: sessionState?.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: sessionState?.restartEpoch ?? existing?.restartEpoch,
+      adapterGeneration: sessionState?.adapterGeneration ?? existing?.adapterGeneration,
+      activeTurnId: sessionState?.activeTurnId ?? existing?.activeTurnId,
+      interruptRequestId: sessionState?.interruptRequestId ?? existing?.interruptRequestId,
+      interruptRequestedAt: sessionState?.interruptRequestedAt ?? existing?.interruptRequestedAt,
+      interruptPhase: sessionState?.interruptPhase ?? existing?.interruptPhase,
+      lastTurnOutcome: sessionState?.lastTurnOutcome ?? existing?.lastTurnOutcome,
+      supersededBy: sessionState?.supersededBy ?? existing?.supersededBy,
+      cancelledForEdit: sessionState?.cancelledForEdit ?? existing?.cancelledForEdit,
       recoveryMethod: sessionState?.recoveryMethod ?? existing?.recoveryMethod,
       archivedUpToMessageId:
         sessionState?.archivedUpToMessageId ?? existing?.archivedUpToMessageId,

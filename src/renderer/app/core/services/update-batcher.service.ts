@@ -24,6 +24,14 @@ export interface StateUpdate {
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;
+  adapterGeneration?: number;
+  activeTurnId?: string;
+  interruptRequestId?: string;
+  interruptRequestedAt?: number;
+  interruptPhase?: 'requested' | 'accepted' | 'completed' | 'timed-out' | 'escalated';
+  lastTurnOutcome?: 'completed' | 'interrupted' | 'cancelled' | 'failed';
+  supersededBy?: string;
+  cancelledForEdit?: boolean;
   recoveryMethod?: 'native' | 'replay' | 'fresh' | 'failed';
   archivedUpToMessageId?: string;
   historyThreadId?: string;

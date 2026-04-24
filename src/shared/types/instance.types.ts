@@ -46,6 +46,9 @@ export interface ExportedSession {
 export interface ForkConfig {
   instanceId: string;
   atMessageIndex?: number; // Fork at specific message, defaults to latest
+  atMessageId?: string; // Stable message id compatibility path
+  sourceMessageId?: string; // User message being edited/retried
+  forkAfterMessageId?: string; // Include messages through this id before forking
   displayName?: string;
   /**
    * If set, the new fork's CLI is sent this message as soon as it spawns.
@@ -54,6 +57,9 @@ export interface ForkConfig {
    * Avoids the race where the queue drains before the new instance reaches 'idle'.
    */
   initialPrompt?: string;
+  attachments?: FileAttachment[];
+  preserveRuntimeSettings?: boolean;
+  supersedeSource?: boolean;
 }
 
 /**
@@ -84,6 +90,11 @@ export type InstanceStatus =
   | 'thinking_deeply' // CLI process alive, no stdout for 90s+ (extended thinking)
   | 'waiting_for_input'
   | 'waiting_for_permission' // CLI paused on deferred tool use, awaiting user approval
+  | 'interrupting'    // Interrupt requested, waiting for provider/process acknowledgement
+  | 'cancelling'      // Turn cancellation is being finalized without process respawn
+  | 'interrupt-escalating' // Second interrupt escalated to process termination
+  | 'cancelled'       // Turn/session was cancelled and can be restarted or superseded
+  | 'superseded'      // Instance was replaced by an edit/fork retry
   | 'respawning'      // Instance is recovering from interrupt, cannot be interrupted again
   | 'hibernating'     // Saving state to disk before suspend
   | 'hibernated'      // State saved, process killed, can wake
@@ -240,6 +251,22 @@ export interface Instance {
   sessionId: string;
   /** Monotonic restart counter used to reject stale adapter events. */
   restartEpoch: number;
+  /** Monotonic adapter-listener generation used to reject stale adapter events. */
+  adapterGeneration?: number;
+  /** Provider-native turn ID currently producing output, when available. */
+  activeTurnId?: string;
+  /** Current interrupt request id, if an interrupt/cancel is in progress. */
+  interruptRequestId?: string;
+  /** Epoch ms when the current interrupt was requested. */
+  interruptRequestedAt?: number;
+  /** Current interrupt lifecycle phase. */
+  interruptPhase?: 'requested' | 'accepted' | 'completed' | 'timed-out' | 'escalated';
+  /** Last turn outcome observed by lifecycle/runtime. */
+  lastTurnOutcome?: 'completed' | 'interrupted' | 'cancelled' | 'failed';
+  /** Replacement instance id when this instance has been superseded by edit/fork. */
+  supersededBy?: string;
+  /** True when this instance was cancelled specifically for prompt edit retry. */
+  cancelledForEdit?: boolean;
   /** How the active session was recovered after the last restart attempt. */
   recoveryMethod?: InstanceRecoveryMethod;
   /**

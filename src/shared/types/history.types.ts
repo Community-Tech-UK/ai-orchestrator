@@ -9,7 +9,7 @@ import type { ExecutionLocation } from './worker-node.types';
  * Status when the conversation ended
  */
 export type ConversationEndStatus = 'completed' | 'error' | 'terminated';
-export type HistoryRestoreMode = 'native-resume' | 'replay-fallback';
+export type HistoryRestoreMode = 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
 
 /**
  * A single entry in the conversation history

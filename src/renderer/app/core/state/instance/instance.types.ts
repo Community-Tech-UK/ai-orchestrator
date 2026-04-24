@@ -26,6 +26,11 @@ export type InstanceStatus =
   | 'thinking_deeply' // CLI process alive, no stdout for 90s+ (extended thinking)
   | 'waiting_for_input'
   | 'waiting_for_permission' // CLI paused on deferred tool use, awaiting user approval
+  | 'interrupting'    // Interrupt requested, waiting for provider/process acknowledgement
+  | 'cancelling'      // Turn cancellation is being finalized without process respawn
+  | 'interrupt-escalating' // Second interrupt escalated to process termination
+  | 'cancelled'       // Turn/session was cancelled and can be restarted or superseded
+  | 'superseded'      // Instance was replaced by an edit/fork retry
   | 'respawning'    // Instance is recovering from interrupt, cannot be interrupted again
   | 'hibernating'   // Instance is in the process of hibernating (transitional)
   | 'hibernated'    // Instance is hibernated (resting, clickable to wake)
@@ -93,6 +98,14 @@ export interface Instance {
   providerSessionId: string;
   sessionId: string;
   restartEpoch: number;
+  adapterGeneration?: number;
+  activeTurnId?: string;
+  interruptRequestId?: string;
+  interruptRequestedAt?: number;
+  interruptPhase?: 'requested' | 'accepted' | 'completed' | 'timed-out' | 'escalated';
+  lastTurnOutcome?: 'completed' | 'interrupted' | 'cancelled' | 'failed';
+  supersededBy?: string;
+  cancelledForEdit?: boolean;
   recoveryMethod?: InstanceRecoveryMethod;
   archivedUpToMessageId?: string;
   workingDirectory: string;

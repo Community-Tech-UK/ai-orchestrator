@@ -120,7 +120,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.keybindingService.setEligibilityState({
         instanceSelected: !!selectedInstance,
         multipleInstances: this.store.instances().length > 1,
-        instanceRunning: selectedInstance?.status === 'busy' || selectedInstance?.status === 'respawning',
+        instanceRunning:
+          selectedInstance?.status === 'busy'
+          || selectedInstance?.status === 'respawning'
+          || selectedInstance?.status === 'interrupting'
+          || selectedInstance?.status === 'cancelling'
+          || selectedInstance?.status === 'interrupt-escalating',
         commandPaletteOpen: this.showCommandPalette(),
         historyOpen: this.showHistory(),
         sidebarVisible: this.showSidebar(),
@@ -269,7 +274,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
           }
 
           const instance = this.store.selectedInstance();
-          if (instance && (instance.status === 'busy' || instance.status === 'respawning')) {
+          if (instance && (
+            instance.status === 'busy'
+            || instance.status === 'respawning'
+            || instance.status === 'interrupting'
+            || instance.status === 'cancelling'
+            || instance.status === 'interrupt-escalating'
+          )) {
             void this.store.interruptInstance(instance.id);
           }
         },

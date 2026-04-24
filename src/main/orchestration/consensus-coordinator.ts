@@ -13,7 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { createCliAdapter, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
+import type { CliAdapter, UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import { CliDetectionService, type CliType } from '../cli/cli-detection';
 import type {
   ConsensusOptions,
@@ -27,6 +27,7 @@ import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { observeAdapterRuntimeEvents } from '../providers/adapter-runtime-event-bridge';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 
 const logger = getLogger('ConsensusCoordinator');
 
@@ -234,7 +235,7 @@ export class ConsensusCoordinator extends EventEmitter {
         yoloMode: true, // No permission prompts for read-only consensus queries
       };
 
-      adapter = createCliAdapter(cliType, spawnOptions);
+      adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
 
       // Spawn the process
       await adapter.spawn();

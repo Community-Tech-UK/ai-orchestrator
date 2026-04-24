@@ -138,7 +138,13 @@ export class ProjectGroupComputationService {
     if (statuses.has('busy')) {
       return { projectStateLabel: 'Working', projectStateTone: 'working' };
     }
-    if (statuses.has('initializing') || statuses.has('respawning')) {
+    if (
+      statuses.has('initializing')
+      || statuses.has('respawning')
+      || statuses.has('interrupting')
+      || statuses.has('cancelling')
+      || statuses.has('interrupt-escalating')
+    ) {
       return { projectStateLabel: 'Connecting', projectStateTone: 'connecting' };
     }
     if (liveItems.length > 0) {

@@ -6,11 +6,12 @@
  * CLI adapter infrastructure (no separate API key required).
  */
 
-import { createCliAdapter, resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
+import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMessage } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
+import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 
 const logger = getLogger('AutoTitle');
 
@@ -150,12 +151,15 @@ export class AutoTitleService {
 
       const model = resolveModelForTier('fast', cliType);
 
-      const adapter = createCliAdapter(cliType, {
-        workingDirectory: process.cwd(),
-        model,
-        systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.',
-        yoloMode: false,
-        timeout: AI_TITLE_TIMEOUT,
+      const adapter = getProviderRuntimeService().createAdapter({
+        cliType,
+        options: {
+          workingDirectory: process.cwd(),
+          model,
+          systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.',
+          yoloMode: false,
+          timeout: AI_TITLE_TIMEOUT,
+        },
       });
 
       if (!hasSendMessage(adapter)) {

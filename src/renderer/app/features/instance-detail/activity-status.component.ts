@@ -86,7 +86,13 @@ export class ActivityStatusComponent implements OnDestroy {
   /** Whether to show the activity status */
   isActive = computed(() => {
     const s = this.status();
-    return s === 'busy' || s === 'processing' || s === 'thinking_deeply' || s === 'initializing';
+    return s === 'busy'
+      || s === 'processing'
+      || s === 'thinking_deeply'
+      || s === 'initializing'
+      || s === 'interrupting'
+      || s === 'cancelling'
+      || s === 'interrupt-escalating';
   });
 
   /** Text to display */
@@ -103,6 +109,12 @@ export class ActivityStatusComponent implements OnDestroy {
         return 'Initializing...';
       case 'busy':
         return 'Processing...';
+      case 'interrupting':
+        return 'Interrupting...';
+      case 'cancelling':
+        return 'Cancelling...';
+      case 'interrupt-escalating':
+        return 'Escalating interrupt...';
       default:
         return '';
     }

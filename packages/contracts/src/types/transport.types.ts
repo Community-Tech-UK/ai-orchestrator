@@ -72,6 +72,14 @@ export interface InstanceStateUpdatePayload {
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;
+  adapterGeneration?: number;
+  activeTurnId?: string;
+  interruptRequestId?: string;
+  interruptRequestedAt?: number;
+  interruptPhase?: 'requested' | 'accepted' | 'completed' | 'timed-out' | 'escalated';
+  lastTurnOutcome?: 'completed' | 'interrupted' | 'cancelled' | 'failed';
+  supersededBy?: string;
+  cancelledForEdit?: boolean;
   recoveryMethod?: InstanceRecoveryMethod;
   archivedUpToMessageId?: string;
   historyThreadId?: string;
@@ -298,8 +306,14 @@ export interface ProviderUpdateConfigPayload {
 export interface SessionForkPayload {
   instanceId: string;
   atMessageIndex?: number; // Fork at specific message, defaults to latest
+  atMessageId?: string;
+  sourceMessageId?: string;
+  forkAfterMessageId?: string;
   displayName?: string;
   initialPrompt?: string; // If set, sent to the new fork's CLI as its first user message
+  attachments?: FileAttachment[];
+  preserveRuntimeSettings?: boolean;
+  supersedeSource?: boolean;
 }
 
 export interface SessionExportPayload {

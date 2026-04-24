@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 /**
- * Unit tests for the onResendEdited fork+swap+terminate flow.
+ * Unit tests for the onResendEdited fork+swap flow.
  *
  * The edited text rides along on the fork via initialPrompt — the main
  * process delivers it inside the new instance's background init, so the
@@ -14,15 +14,13 @@ describe('onResendEdited flow', () => {
   function createMocks() {
     const forkSession = vi.fn();
     const setSelectedInstance = vi.fn();
-    const terminateInstance = vi.fn();
     const addInstanceFromData = vi.fn();
 
     return {
       ipc: { forkSession },
-      store: { setSelectedInstance, terminateInstance, addInstanceFromData },
+      store: { setSelectedInstance, addInstanceFromData },
       forkSession,
       setSelectedInstance,
-      terminateInstance,
       addInstanceFromData,
     };
   }
@@ -31,15 +29,22 @@ describe('onResendEdited flow', () => {
   async function onResendEdited(
     mocks: ReturnType<typeof createMocks>,
     instanceId: string | null,
-    event: { messageIndex: number; text: string },
+    event: { messageIndex: number; messageId?: string; text: string },
   ) {
     if (!instanceId) return;
 
     const result = await mocks.ipc.forkSession(
       instanceId,
       event.messageIndex,
-      `Edit resend at message ${event.messageIndex}`,
+      `Edit resend at message ${event.messageId ?? event.messageIndex}`,
       event.text,
+      {
+        atMessageId: event.messageId,
+        sourceMessageId: event.messageId,
+        attachments: undefined,
+        preserveRuntimeSettings: true,
+        supersedeSource: true,
+      },
     );
 
     if (!result?.success || !result.data) return;
@@ -48,25 +53,29 @@ describe('onResendEdited flow', () => {
 
     mocks.store.addInstanceFromData(result.data);
     mocks.store.setSelectedInstance(data.id);
-    await mocks.store.terminateInstance(instanceId, false);
   }
 
-  it('forks with initialPrompt, swaps selection, terminates old', async () => {
+  it('forks with initialPrompt and swaps selection', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: true, data: { id: 'new-123' } });
-    mocks.terminateInstance.mockResolvedValue(undefined);
 
-    await onResendEdited(mocks, 'old-456', { messageIndex: 3, text: 'edited question' });
+    await onResendEdited(mocks, 'old-456', { messageIndex: 3, messageId: 'user-3', text: 'edited question' });
 
     expect(mocks.forkSession).toHaveBeenCalledWith(
       'old-456',
       3,
-      'Edit resend at message 3',
+      'Edit resend at message user-3',
       'edited question',
+      {
+        atMessageId: 'user-3',
+        sourceMessageId: 'user-3',
+        attachments: undefined,
+        preserveRuntimeSettings: true,
+        supersedeSource: true,
+      },
     );
     expect(mocks.addInstanceFromData).toHaveBeenCalledWith({ id: 'new-123' });
     expect(mocks.setSelectedInstance).toHaveBeenCalledWith('new-123');
-    expect(mocks.terminateInstance).toHaveBeenCalledWith('old-456', false);
   });
 
   it('does nothing when instanceId is null', async () => {
@@ -77,7 +86,7 @@ describe('onResendEdited flow', () => {
     expect(mocks.forkSession).not.toHaveBeenCalled();
   });
 
-  it('does not swap or terminate when fork fails', async () => {
+  it('does not swap when fork fails', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: false, error: 'Fork failed' });
 
@@ -86,10 +95,9 @@ describe('onResendEdited flow', () => {
     expect(mocks.forkSession).toHaveBeenCalled();
     expect(mocks.addInstanceFromData).not.toHaveBeenCalled();
     expect(mocks.setSelectedInstance).not.toHaveBeenCalled();
-    expect(mocks.terminateInstance).not.toHaveBeenCalled();
   });
 
-  it('does not swap or terminate when fork returns no id', async () => {
+  it('does not swap when fork returns no id', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: true, data: {} });
 
@@ -97,13 +105,11 @@ describe('onResendEdited flow', () => {
 
     expect(mocks.addInstanceFromData).not.toHaveBeenCalled();
     expect(mocks.setSelectedInstance).not.toHaveBeenCalled();
-    expect(mocks.terminateInstance).not.toHaveBeenCalled();
   });
 
   it('handles fork at messageIndex 0 (first-ever user message)', async () => {
     const mocks = createMocks();
     mocks.forkSession.mockResolvedValue({ success: true, data: { id: 'new-789' } });
-    mocks.terminateInstance.mockResolvedValue(undefined);
 
     await onResendEdited(mocks, 'old-456', { messageIndex: 0, text: 'revised first message' });
 
@@ -113,19 +119,23 @@ describe('onResendEdited flow', () => {
       0,
       'Edit resend at message 0',
       'revised first message',
+      {
+        atMessageId: undefined,
+        sourceMessageId: undefined,
+        attachments: undefined,
+        preserveRuntimeSettings: true,
+        supersedeSource: true,
+      },
     );
     expect(mocks.addInstanceFromData).toHaveBeenCalledWith({ id: 'new-789' });
     expect(mocks.setSelectedInstance).toHaveBeenCalledWith('new-789');
-    expect(mocks.terminateInstance).toHaveBeenCalledWith('old-456', false);
   });
 });
 
 /**
- * Note: There is no busy-guard on edit resend. The flow forks to a new
- * instance and force-terminates the old one (graceful=false), so a busy
- * old CLI is killed cleanly without going through the SIGINT → --resume
- * cycle that previously surfaced "Interrupted — session restarted (resume
- * failed)" toasts.
+ * Note: There is no busy-guard on edit resend. The main process forks to a new
+ * instance, marks the source as superseded, and terminates the source adapter
+ * without the renderer issuing a second terminate call.
  *
  * The edited text is passed as `initialPrompt` to the fork rather than
  * via a separate sendInput call. The main process delivers it inside the

@@ -81,7 +81,7 @@
               class="btn-action btn-restart-primary"
               [title]="restartPrimaryTooltip()"
               (click)="onRestartPrimary($event)"
-              [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+              [disabled]="isStartingOrRecovering()"
             >
               {{ supportsResume() ? '↻ Restart' : '↻ Restart (fresh only)' }}
             </button>
@@ -90,7 +90,7 @@
                 type="button"
                 class="btn-action btn-restart-caret"
                 title="More restart options"
-                [disabled]="instance().status === 'initializing' || instance().status === 'respawning'"
+                [disabled]="isStartingOrRecovering()"
                 (click)="onToggleRestartMenu($event)"
               >
                 ▾
@@ -174,7 +174,7 @@
                 [style.border-color]="modelBtnBorderColor()"
                 [style.background]="modelBtnBgColor()"
                 [style.color]="providerColor()"
-                [disabled]="instance().status === 'busy' || instance().status === 'respawning'"
+                [disabled]="isRuntimeLocked()"
                 (click)="$event.stopPropagation(); toggleModelDropdown.emit()"
                 [title]="'Model: ' + currentModelId()"
               >
@@ -212,10 +212,10 @@
             class="mode-badge"
             [class.plan]="instance().agentId === 'plan'"
             [class.review]="instance().agentId === 'review'"
-            [disabled]="isChangingMode() || instance().status === 'busy' || instance().status === 'respawning'"
+            [disabled]="isChangingMode() || isRuntimeLocked()"
             [title]="
-              instance().status === 'busy' || instance().status === 'respawning'
-                ? 'Cannot change mode while instance is busy'
+              isRuntimeLocked()
+                ? 'Cannot change mode while instance is running or recovering'
                 : 'Click to change mode'
             "
             (click)="cycleAgentMode.emit()"
@@ -230,10 +230,10 @@
           <button
             class="yolo-badge"
             [class.active]="instance().yoloMode"
-            [disabled]="isTogglingYolo() || instance().status === 'busy' || instance().status === 'respawning'"
+            [disabled]="isTogglingYolo() || isRuntimeLocked()"
             [title]="
-              instance().status === 'busy' || instance().status === 'respawning'
-                ? 'Cannot toggle YOLO mode while instance is busy'
+              isRuntimeLocked()
+                ? 'Cannot toggle YOLO mode while instance is running or recovering'
                 : instance().yoloMode
                   ? 'YOLO Mode: Auto-approve all tool calls without prompting. Click to disable'
                   : 'YOLO Mode: Requires manual approval for tool calls. Click to enable auto-approve'

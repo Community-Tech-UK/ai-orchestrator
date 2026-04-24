@@ -267,6 +267,14 @@ export class InstanceStore implements OnDestroy {
             update.diffStats !== undefined ? update.diffStats ?? undefined : inst.diffStats,
           providerSessionId: update.providerSessionId ?? inst.providerSessionId,
           restartEpoch: update.restartEpoch ?? inst.restartEpoch,
+          adapterGeneration: update.adapterGeneration ?? inst.adapterGeneration,
+          activeTurnId: update.activeTurnId ?? inst.activeTurnId,
+          interruptRequestId: update.interruptRequestId ?? inst.interruptRequestId,
+          interruptRequestedAt: update.interruptRequestedAt ?? inst.interruptRequestedAt,
+          interruptPhase: update.interruptPhase ?? inst.interruptPhase,
+          lastTurnOutcome: update.lastTurnOutcome ?? inst.lastTurnOutcome,
+          supersededBy: update.supersededBy ?? inst.supersededBy,
+          cancelledForEdit: update.cancelledForEdit ?? inst.cancelledForEdit,
           recoveryMethod: update.recoveryMethod ?? inst.recoveryMethod,
           archivedUpToMessageId:
             update.archivedUpToMessageId ?? inst.archivedUpToMessageId,
@@ -294,7 +302,7 @@ export class InstanceStore implements OnDestroy {
     }
 
     // Clear stuck queued messages when instance enters a terminal/fatal state
-    if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated') {
+    if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated' || newStatus === 'cancelled' || newStatus === 'superseded') {
       this.messagingStore.clearQueueWithNotification(update.instanceId);
     }
   }
@@ -339,6 +347,14 @@ export class InstanceStore implements OnDestroy {
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
             providerSessionId: update.providerSessionId ?? instance.providerSessionId,
             restartEpoch: update.restartEpoch ?? instance.restartEpoch,
+            adapterGeneration: update.adapterGeneration ?? instance.adapterGeneration,
+            activeTurnId: update.activeTurnId ?? instance.activeTurnId,
+            interruptRequestId: update.interruptRequestId ?? instance.interruptRequestId,
+            interruptRequestedAt: update.interruptRequestedAt ?? instance.interruptRequestedAt,
+            interruptPhase: update.interruptPhase ?? instance.interruptPhase,
+            lastTurnOutcome: update.lastTurnOutcome ?? instance.lastTurnOutcome,
+            supersededBy: update.supersededBy ?? instance.supersededBy,
+            cancelledForEdit: update.cancelledForEdit ?? instance.cancelledForEdit,
             recoveryMethod: update.recoveryMethod ?? instance.recoveryMethod,
             archivedUpToMessageId:
               update.archivedUpToMessageId ?? instance.archivedUpToMessageId,
@@ -373,7 +389,7 @@ export class InstanceStore implements OnDestroy {
       }
 
       // Clear stuck queued messages when instance enters a terminal/fatal state
-      if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated') {
+      if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated' || newStatus === 'cancelled' || newStatus === 'superseded') {
         this.messagingStore.clearQueueWithNotification(update.instanceId);
       }
     }
@@ -410,8 +426,8 @@ export class InstanceStore implements OnDestroy {
   // ============================================
 
   /**
-   * Start or clear the respawn timeout when status changes.
-   * If an instance stays in 'respawning' for longer than RESPAWN_TIMEOUT_MS,
+   * Start or clear the recovery timeout when status changes.
+   * If an instance stays in an interrupt/respawn state for longer than RESPAWN_TIMEOUT_MS,
    * force-terminate it so the user isn't stuck with an unresponsive session.
    */
   private updateRespawnWatchdog(instanceId: string, newStatus: InstanceStatus): void {
@@ -422,17 +438,27 @@ export class InstanceStore implements OnDestroy {
       this.respawnTimers.delete(instanceId);
     }
 
-    // Start a new timer if entering 'respawning'
-    if (newStatus === 'respawning') {
+    const isInterruptRecoveryState =
+      newStatus === 'respawning'
+      || newStatus === 'interrupting'
+      || newStatus === 'cancelling'
+      || newStatus === 'interrupt-escalating';
+
+    if (isInterruptRecoveryState) {
       const timer = setTimeout(() => {
         this.respawnTimers.delete(instanceId);
         const inst = this.stateService.getInstance(instanceId);
-        if (inst && inst.status === 'respawning') {
-          console.error('Respawn timeout: force-terminating stuck instance', { instanceId });
+        const stillRecovering = inst
+          && (inst.status === 'respawning'
+            || inst.status === 'interrupting'
+            || inst.status === 'cancelling'
+            || inst.status === 'interrupt-escalating');
+        if (stillRecovering) {
+          console.error('Interrupt recovery timeout: force-terminating stuck instance', { instanceId });
           this.listStore.terminateInstance(instanceId).then(() =>
             this.listStore.restartInstance(instanceId)
           ).catch((err) => {
-            console.error('Respawn timeout recovery failed', err);
+            console.error('Interrupt recovery timeout recovery failed', err);
           });
         }
       }, InstanceStore.RESPAWN_TIMEOUT_MS);

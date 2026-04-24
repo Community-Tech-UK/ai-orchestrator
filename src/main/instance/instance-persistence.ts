@@ -73,11 +73,7 @@ export class InstancePersistenceManager {
 
     const forkSourceMessages = await this.buildForkSourceMessages(config.instanceId, sourceInstance.outputBuffer);
 
-    // Determine the message index to fork at
-    const forkIndex =
-      config.atMessageIndex !== undefined
-        ? Math.min(config.atMessageIndex, forkSourceMessages.length)
-        : forkSourceMessages.length;
+    const { forkIndex, sourceMessage } = this.resolveForkPoint(config, forkSourceMessages);
 
     // Copy messages up to the fork point
     const forkedMessages = forkSourceMessages.slice(0, forkIndex);
@@ -90,15 +86,69 @@ export class InstancePersistenceManager {
       workingDirectory: sourceInstance.workingDirectory,
       displayName:
         config.displayName || `Fork of ${sourceInstance.displayName}`,
-      yoloMode: sourceInstance.yoloMode,
-      agentId: sourceInstance.agentId,
+      yoloMode: config.preserveRuntimeSettings === false ? undefined : sourceInstance.yoloMode,
+      agentId: config.preserveRuntimeSettings === false ? undefined : sourceInstance.agentId,
+      modelOverride: config.preserveRuntimeSettings === false ? undefined : sourceInstance.currentModel,
+      provider: config.preserveRuntimeSettings === false ? undefined : sourceInstance.provider,
+      forceNodeId: config.preserveRuntimeSettings === false || sourceInstance.executionLocation?.type !== 'remote'
+        ? undefined
+        : sourceInstance.executionLocation.nodeId,
       initialOutputBuffer: forkedMessages,
-      initialPrompt: config.initialPrompt
+      initialPrompt: config.initialPrompt,
+      attachments: config.attachments ?? sourceMessage?.attachments,
     });
 
-    logger.info('Instance forked', { sourceId: sourceInstance.id, forkIndex, forkedId: forkedInstance.id });
+    logger.info('Instance forked', {
+      sourceId: sourceInstance.id,
+      forkIndex,
+      forkedId: forkedInstance.id,
+      sourceMessageId: config.sourceMessageId,
+      forkAfterMessageId: config.forkAfterMessageId,
+      atMessageId: config.atMessageId,
+      preservedRuntimeSettings: config.preserveRuntimeSettings !== false,
+    });
 
     return forkedInstance;
+  }
+
+  private resolveForkPoint(
+    config: ForkConfig,
+    messages: OutputMessage[],
+  ): { forkIndex: number; sourceMessage?: OutputMessage } {
+    const sourceMessageId = config.sourceMessageId ?? config.atMessageId;
+    const sourceMessage = sourceMessageId
+      ? messages.find((message) => message.id === sourceMessageId)
+      : undefined;
+
+    if (config.forkAfterMessageId) {
+      const index = messages.findIndex((message) => message.id === config.forkAfterMessageId);
+      if (index >= 0) {
+        return {
+          forkIndex: Math.min(index + 1, messages.length),
+          sourceMessage,
+        };
+      }
+    }
+
+    if (sourceMessageId) {
+      const index = messages.findIndex((message) => message.id === sourceMessageId);
+      if (index >= 0) {
+        return {
+          forkIndex: Math.max(0, index),
+          sourceMessage: messages[index],
+        };
+      }
+    }
+
+    if (config.atMessageIndex !== undefined) {
+      const forkIndex = Math.min(config.atMessageIndex, messages.length);
+      return {
+        forkIndex,
+        sourceMessage: messages[forkIndex],
+      };
+    }
+
+    return { forkIndex: messages.length };
   }
 
   private async buildForkSourceMessages(

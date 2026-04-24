@@ -14,6 +14,7 @@ import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { ClaudeCliAdapter } from '../../cli/adapters/claude-cli-adapter';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import { getLogger } from '../../logging/logger';
+import { planSessionRecovery } from './session-recovery';
 
 const logger = getLogger('DeferredPermissionHandler');
 
@@ -98,6 +99,34 @@ export class DeferredPermissionHandler {
         sessionId: deferred.sessionId,
       });
 
+      const capabilities = oldAdapter.getRuntimeCapabilities();
+      const recoveryPlan = planSessionRecovery({
+        instanceId,
+        reason: 'deferred-permission',
+        previousAdapterId: oldAdapter.getName(),
+        previousProviderSessionId: deferred.sessionId,
+        provider: instance.provider,
+        model: instance.currentModel,
+        agent: instance.agentId,
+        cwd: instance.workingDirectory,
+        yolo: instance.yoloMode,
+        executionLocation: instance.executionLocation.type,
+        capabilities,
+        activeTurnId: instance.activeTurnId,
+        adapterGeneration: instance.adapterGeneration ?? 0,
+        hasConversation: instance.outputBuffer.some(
+          (message) => message.type === 'user' || message.type === 'assistant',
+        ),
+        sessionResumeBlacklisted: instance.sessionResumeBlacklisted === true,
+        allowFreshWithoutConversation: false,
+        replayUnsafeReason: capabilities.supportsResume
+          ? undefined
+          : 'deferred permission recovery requires a provider-native resumed turn',
+      });
+      if (recoveryPlan.kind !== 'native-resume' && recoveryPlan.kind !== 'provider-fork') {
+        throw new Error(`Deferred permission recovery cannot continue: ${recoveryPlan.kind === 'failed' ? recoveryPlan.reason : recoveryPlan.reason}`);
+      }
+
       // 1. Write decision file for the hook to read on resume
       this.services.writeDecision(
         deferred.toolUseId,
@@ -149,8 +178,7 @@ export class DeferredPermissionHandler {
 
         const resumeHealthy = await this.ops.waitForResumeHealth(instanceId);
         if (!resumeHealthy) {
-          logger.warn('Resume health check failed after deferred permission', { instanceId });
-          // Still transition to idle — the CLI may recover on its own
+          throw new Error('Native resume did not stabilize after deferred permission');
         }
 
         this.ops.transitionState(instance, 'idle');
