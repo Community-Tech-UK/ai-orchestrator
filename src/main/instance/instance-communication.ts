@@ -912,6 +912,14 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
 
+        if (message.type === 'error' && this.isSessionNotFoundMessage(message.content)) {
+          instance.sessionResumeBlacklisted = true;
+          logger.warn('Session id blacklisted due to resume failure output', {
+            instanceId,
+            sessionId: instance.sessionId,
+          });
+        }
+
         // Sync CLI-assigned session ID back to instance for accurate history archiving.
         // The adapter receives the real CLI session ID via system messages (session_id field),
         // which may differ from the orchestrator-generated UUID after forks/interrupts.
@@ -1338,7 +1346,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // the next respawn (including auto-respawn from this adapter's exit)
       // cannot loop on it.
       const errText = errorMessage;
-      if (/no conversation found/i.test(errText) || /session.*not.*found/i.test(errText)) {
+      if (this.isSessionNotFoundMessage(errText)) {
         instance.sessionResumeBlacklisted = true;
         logger.warn('Session id blacklisted due to resume failure', {
           instanceId,
@@ -1597,12 +1605,15 @@ export class InstanceCommunicationManager extends EventEmitter {
         const lastRespawn = instance.lastRespawnAt ?? 0;
         const withinRecentRespawnWindow =
           lastRespawn > 0 && Date.now() - lastRespawn < RECENT_RESPAWN_SUPPRESS_MS;
+        const autoRespawnSuppressed =
+          (instance.autoRespawnSuppressedUntil ?? 0) > Date.now();
 
         const canAutoRespawn =
           this.deps.onUnexpectedExit &&
           !instance.parentId &&                        // Only root instances
           instance.restartCount < 5 &&                 // Don't loop forever
           !withinRecentRespawnWindow &&                // Don't pile on a fresh respawn
+          !autoRespawnSuppressed &&                    // Owner flow is probing resume/fallback
           (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'busy') &&
           instance.outputBuffer.some(m => m.type === 'user'); // Has conversation worth preserving
 
@@ -1610,6 +1621,12 @@ export class InstanceCommunicationManager extends EventEmitter {
           logger.info('Suppressing auto-respawn: another respawn completed very recently', {
             instanceId,
             msSinceLastRespawn: Date.now() - lastRespawn,
+          });
+        }
+        if (autoRespawnSuppressed) {
+          logger.info('Suppressing auto-respawn: owner flow is probing native resume', {
+            instanceId,
+            suppressedUntil: instance.autoRespawnSuppressedUntil,
           });
         }
 
@@ -1863,6 +1880,11 @@ export class InstanceCommunicationManager extends EventEmitter {
       lower.includes('messages must have non-empty') ||
       lower.includes('invalid_request_error') && lower.includes('non-empty')
     );
+  }
+
+  private isSessionNotFoundMessage(content: string): boolean {
+    if (!content) return false;
+    return /no conversation found/i.test(content) || /session.*not.*found/i.test(content);
   }
 
   /**

@@ -18,6 +18,7 @@ import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { ConnectionsSettingsTabComponent } from './connections-settings-tab.component';
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
+import { ProviderQuotaSettingsTabComponent } from './provider-quota-settings-tab.component';
 
 type SettingsTab =
   | 'general'
@@ -31,7 +32,8 @@ type SettingsTab =
   | 'advanced'
   | 'keyboard'
   | 'remote-nodes'
-  | 'cli-health';
+  | 'cli-health'
+  | 'provider-quota';
 
 interface SettingsNavItem {
   id: SettingsTab;
@@ -49,6 +51,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'review', label: 'Cross-Model Review', group: 'Agents' },
   { id: 'memory', label: 'Memory', group: 'Agents' },
   { id: 'cli-health', label: 'CLI Health', group: 'Advanced' },
+  { id: 'provider-quota', label: 'Provider Quota', group: 'Advanced' },
   { id: 'remote-nodes', label: 'Remote Nodes', group: 'Advanced' },
   { id: 'ecosystem', label: 'Ecosystem', group: 'Advanced' },
   { id: 'advanced', label: 'Advanced', group: 'Advanced' },
@@ -69,7 +72,8 @@ const NAV_ITEMS: SettingsNavItem[] = [
     PermissionsSettingsTabComponent,
     ConnectionsSettingsTabComponent,
     RemoteNodesSettingsTabComponent,
-    CliHealthSettingsTabComponent
+    CliHealthSettingsTabComponent,
+    ProviderQuotaSettingsTabComponent
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -149,6 +153,9 @@ const NAV_ITEMS: SettingsNavItem[] = [
             }
             @case ('cli-health') {
               <app-cli-health-settings-tab />
+            }
+            @case ('provider-quota') {
+              <app-provider-quota-settings-tab />
             }
           }
         </div>

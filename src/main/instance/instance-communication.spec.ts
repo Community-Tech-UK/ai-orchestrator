@@ -465,6 +465,20 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'idle', instance.contextUsage);
   });
 
+  it('blacklists resume session ids when missing conversations arrive as output errors', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit(
+      'output',
+      createMessage('error', 'No conversation found with session ID: session-1'),
+    );
+    await flushOutputHandlers();
+
+    expect(instance.sessionResumeBlacklisted).toBe(true);
+  });
+
   it('preserves same-content errors when they are separated beyond the duplicate window', async () => {
     const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

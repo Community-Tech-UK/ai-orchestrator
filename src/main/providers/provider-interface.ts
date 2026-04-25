@@ -27,6 +27,10 @@ import {
   type NormalizedAdapterRuntimeEvent,
 } from './adapter-runtime-event-bridge';
 import { toProviderOutputEvent } from './provider-output-event';
+import {
+  attachQuotaAutoRefresh,
+  mapProviderTypeToQuotaId,
+} from '../core/system/provider-quota/quota-auto-refresh';
 
 /**
  * Base provider interface that all providers must implement.
@@ -138,12 +142,26 @@ export abstract class BaseProvider implements ProviderAdapter {
       handleEvent?: (runtimeEvent: NormalizedAdapterRuntimeEvent) => boolean | void;
     } = {},
   ): () => void {
-    return observeAdapterRuntimeEvents(adapter, (runtimeEvent) => {
+    const stopObserving = observeAdapterRuntimeEvents(adapter, (runtimeEvent) => {
       const handled = options.handleEvent?.(runtimeEvent) ?? false;
       if (!handled) {
         this.pushEvent(runtimeEvent.event);
       }
     });
+
+    // Wire quota auto-refresh: when this adapter spawns or completes a turn,
+    // debounce-trigger a fresh probe for this provider so the quota chip
+    // stays in sync with actual usage. No-op for providers that don't have a
+    // quota probe (e.g. ollama, bedrock).
+    const stopAutoRefresh = attachQuotaAutoRefresh(
+      adapter,
+      mapProviderTypeToQuotaId(this.getType()),
+    );
+
+    return () => {
+      stopObserving();
+      stopAutoRefresh();
+    };
   }
 
   /**

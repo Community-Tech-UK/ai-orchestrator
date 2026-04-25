@@ -877,6 +877,17 @@ export class InstanceLifecycleManager extends EventEmitter {
     await this.runtimeReadiness.waitForInputReadinessBoundary(instanceId, adapter);
   }
 
+  private prepareStatusForAdapterInput(instance: Instance): void {
+    if (instance.status === 'initializing') {
+      this.transitionState(instance, 'idle');
+      return;
+    }
+
+    if (instance.status === 'waking') {
+      this.transitionState(instance, 'ready');
+    }
+  }
+
   // ============================================
   // Instruction Prompt Loading
   // ============================================
@@ -1705,6 +1716,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
+              this.prepareStatusForAdapterInput(instance);
               await adapter.sendInput(
                 this.buildReplayContinuityMessage(instance, fallbackReason)
               );
@@ -1724,6 +1736,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             this.emit('output', { instanceId, message: fallbackNotice });
           }
         } else if (hasConversation) {
+          this.prepareStatusForAdapterInput(instance);
           await adapter.sendInput(this.buildReplayContinuityMessage(instance, fallbackReason));
         }
 
@@ -1873,6 +1886,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.processId = pid;
       await this.waitForAdapterWritable(instanceId, 3_000);
       if (fallbackHistory) {
+        this.prepareStatusForAdapterInput(instance);
         await adapter.sendInput(fallbackHistory);
       }
       instance.recoveryMethod = 'replay';
@@ -2275,6 +2289,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
+              this.prepareStatusForAdapterInput(instance);
               await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {
@@ -2459,6 +2474,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
+              this.prepareStatusForAdapterInput(instance);
               await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {
@@ -2656,6 +2672,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
+              this.prepareStatusForAdapterInput(instance);
               await adapter.sendInput(await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
             }
           } else {

@@ -328,6 +328,79 @@ export function createInfrastructureDomain(
     },
 
     // ============================================
+    // Provider Quota (remaining usage per CLI provider)
+    // ============================================
+
+    /**
+     * Get the latest snapshot for every provider.
+     */
+    quotaGetAll: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.QUOTA_GET_ALL, _withAuth({}));
+    },
+
+    /**
+     * Get the latest snapshot for one provider.
+     */
+    quotaGetProvider: (provider: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.QUOTA_GET_PROVIDER, _withAuth({ provider }));
+    },
+
+    /**
+     * Force a fresh probe for one provider.
+     */
+    quotaRefresh: (provider: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.QUOTA_REFRESH, _withAuth({ provider }));
+    },
+
+    /**
+     * Force a fresh probe for every provider with a registered probe.
+     */
+    quotaRefreshAll: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.QUOTA_REFRESH_ALL, _withAuth({}));
+    },
+
+    /**
+     * Configure how often a provider's quota is auto-refreshed.
+     * `intervalMs = 0` disables polling for that provider.
+     */
+    quotaSetPollInterval: (
+      provider: string,
+      intervalMs: number,
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(
+        ch.QUOTA_SET_POLL_INTERVAL,
+        _withAuth({ provider, intervalMs }),
+      );
+    },
+
+    /**
+     * Listen for quota snapshot updates.
+     */
+    onQuotaUpdated: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.QUOTA_UPDATED, handler);
+      return () => ipcRenderer.removeListener(ch.QUOTA_UPDATED, handler);
+    },
+
+    /**
+     * Listen for quota threshold warnings (50/75/90 %).
+     */
+    onQuotaWarning: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.QUOTA_WARNING, handler);
+      return () => ipcRenderer.removeListener(ch.QUOTA_WARNING, handler);
+    },
+
+    /**
+     * Listen for quota exhaustion (>= 100 %).
+     */
+    onQuotaExhausted: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.QUOTA_EXHAUSTED, handler);
+      return () => ipcRenderer.removeListener(ch.QUOTA_EXHAUSTED, handler);
+    },
+
+    // ============================================
     // Remote Config (6.2)
     // ============================================
 

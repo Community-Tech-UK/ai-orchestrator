@@ -565,6 +565,17 @@ export const IPC_CHANNELS = {
   COST_BUDGET_ALERT: 'cost:budget-alert',
   COST_USAGE_RECORDED: 'cost:usage-recorded',
 
+  // Provider Quota — remaining usage from each CLI provider
+  // (Claude 5h/weekly windows, Copilot monthly premium, etc.)
+  QUOTA_GET_ALL: 'quota:get-all',
+  QUOTA_GET_PROVIDER: 'quota:get-provider',
+  QUOTA_REFRESH: 'quota:refresh',
+  QUOTA_REFRESH_ALL: 'quota:refresh-all',
+  QUOTA_SET_POLL_INTERVAL: 'quota:set-poll-interval',
+  QUOTA_UPDATED: 'quota:updated',
+  QUOTA_WARNING: 'quota:warning',
+  QUOTA_EXHAUSTED: 'quota:exhausted',
+
   // Usage Statistics
   STATS_GET: 'stats:get',
   STATS_GET_STATS: 'stats:get-stats',

@@ -24,6 +24,27 @@
   height: 40px;
 }
 
+/* Floating overlay above the drag area for non-draggable widgets like the
+ * provider-quota chip. Clicks pass through to the chip; the chip itself
+ * is small and right-aligned so it doesn't block the title-bar drag region.
+ */
+.title-bar-overlay {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 1100;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+
+.title-bar-overlay.macos {
+  /* Leave room for the macOS traffic-light buttons on the left,
+   * but our overlay is right-aligned so just push down a few px to
+   * vertically centre with the traffic lights.
+   */
+  top: 14px;
+}
+
 .startup-banner {
   display: flex;
   gap: 0.75rem;

@@ -290,6 +290,13 @@ export interface Instance {
    * "Interrupted — waiting for input".
    */
   lastRespawnAt?: number;
+  /**
+   * Transient guard used by flows that are intentionally probing native resume.
+   * While this timestamp is in the future, the generic unexpected-exit handler
+   * should not auto-respawn; the owner flow will observe the exit and choose
+   * the correct fallback path.
+   */
+  autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
   provider: InstanceProvider; // Which CLI provider is being used

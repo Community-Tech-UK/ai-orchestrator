@@ -85,10 +85,17 @@ export class RuntimeReadinessCoordinator {
       stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
         switch (event.kind) {
           case 'output':
+            if (
+              event.messageType === 'error'
+              && this.isSessionNotFoundMessage(event.content)
+            ) {
+              finish(false);
+              break;
+            }
             finish(true);
             break;
           case 'error':
-            if (/no conversation found/i.test(event.message) || /session.*not.*found/i.test(event.message)) {
+            if (this.isSessionNotFoundMessage(event.message)) {
               finish(false);
             }
             break;
@@ -182,5 +189,9 @@ export class RuntimeReadinessCoordinator {
       instance.status !== 'failed' &&
       instance.status !== 'terminated'
     );
+  }
+
+  private isSessionNotFoundMessage(message: string): boolean {
+    return /no conversation found/i.test(message) || /session.*not.*found/i.test(message);
   }
 }

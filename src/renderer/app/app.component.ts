@@ -8,6 +8,7 @@ import { ElectronIpcService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService, type WorkspaceBenchmarkHarness, type BenchmarkPresetName } from './core/services/workspace-bench.service';
+import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
 
 declare global {
@@ -21,7 +22,7 @@ declare global {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, ProviderQuotaChipComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',

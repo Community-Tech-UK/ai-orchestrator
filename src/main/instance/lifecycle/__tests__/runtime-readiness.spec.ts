@@ -84,6 +84,29 @@ describe('RuntimeReadinessCoordinator', () => {
     await expect(result).resolves.toBe(false);
   });
 
+  it('treats session-not-found output errors as failed native resume health', async () => {
+    const adapter = makeAdapter();
+    const instance = {
+      processId: 123,
+      status: 'initializing',
+    } as Pick<Instance, 'processId' | 'status'>;
+    const coordinator = new RuntimeReadinessCoordinator({
+      getInstance: () => instance,
+      getAdapter: () => adapter,
+    });
+
+    const result = coordinator.waitForResumeHealth('instance-1', 500);
+
+    adapter.emit('output', {
+      id: 'message-1',
+      type: 'error',
+      content: 'No conversation found with session ID: missing',
+      timestamp: Date.now(),
+    });
+
+    await expect(result).resolves.toBe(false);
+  });
+
   it('waits for Claude formatter writability', async () => {
     vi.useFakeTimers();
     let writable = false;

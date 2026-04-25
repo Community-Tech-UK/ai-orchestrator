@@ -16,6 +16,7 @@ export { registerTodoHandlers } from './todo-handlers';
 export { registerSecurityHandlers } from './security-handlers';
 export { registerDebugHandlers } from './debug-handlers';
 export { registerCostHandlers } from './cost-handlers';
+export { registerQuotaHandlers } from './quota-handlers';
 export { registerTaskHandlers } from './task-handlers';
 export { registerRepoJobHandlers } from './repo-job-handlers';
 export { registerSearchHandlers } from './search-handlers';

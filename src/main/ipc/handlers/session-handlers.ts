@@ -1009,6 +1009,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         if (canAttemptNativeResume) {
           let resumeInstanceId: string | undefined;
           try {
+            const POST_SPAWN_TIMEOUT_MS = restoreNodeId ? 15_000 : 5_000;
+            const POLL_INTERVAL_MS = 200;
             const instance = await instanceManager.createInstance({
               workingDirectory: workingDir,
               displayName,
@@ -1022,6 +1024,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               forceNodeId: restoreNodeId,
             });
             resumeInstanceId = instance.id;
+            instance.autoRespawnSuppressedUntil = Date.now() + POST_SPAWN_TIMEOUT_MS + 2_000;
 
             // Wait for Phase 2 (background init) to complete before checking resume.
             // Phase 2 spawns the CLI process — without this, the poll races against
@@ -1044,8 +1047,6 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             // is treated as success — if the session ID was invalid, the CLI exits fast.
             // Remote sessions need more time due to network latency and remote CLI
             // startup. Scale the timeout based on whether this is a remote resume.
-            const POST_SPAWN_TIMEOUT_MS = restoreNodeId ? 15_000 : 5_000;
-            const POLL_INTERVAL_MS = 200;
 
             // Track whether resume was confirmed via context usage or merely assumed
             // from a live process. Unconfirmed resumes need a replay continuity
@@ -1058,7 +1059,8 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
                 const inst = instanceManager.getInstance(instance.id);
                 const alive = inst != null
                   && inst.status !== 'error'
-                  && inst.status !== 'terminated';
+                  && inst.status !== 'terminated'
+                  && inst.status !== 'respawning';
                 const hasContext = inst?.contextUsage != null && inst.contextUsage.used > 0;
 
                 if (alive) {
@@ -1100,7 +1102,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
                 }
 
                 // Definitive failure: process exited
-                if (inst.status === 'error' || inst.status === 'terminated') {
+                if (inst.status === 'error' || inst.status === 'terminated' || inst.status === 'respawning') {
                   cleanup();
                   resolve(false);
                   return;
@@ -1126,6 +1128,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             });
 
             if (resumeAlive) {
+              instance.autoRespawnSuppressedUntil = undefined;
               if (resumeConfirmed) {
                 // Resume confirmed — context usage observed, session truly restored
                 logger.info('History restore: CLI session resumed successfully (confirmed)', {
@@ -1175,6 +1178,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             // Process died — fall through to fallback
             resumeFailed = true;
             const currentInstance = instanceManager.getInstance(instance.id);
+            instance.autoRespawnSuppressedUntil = undefined;
             logger.warn('History restore: CLI session resume failed, falling back to fresh instance', {
               instanceId: instance.id,
               sessionId: data.entry.sessionId,
@@ -1205,6 +1209,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               const staleInstance = instanceManager.getInstance(resumeInstanceId);
               if (staleInstance) {
                 staleInstance.outputBuffer = [];
+                staleInstance.autoRespawnSuppressedUntil = undefined;
               }
               try {
                 await instanceManager.terminateInstance(resumeInstanceId, false);

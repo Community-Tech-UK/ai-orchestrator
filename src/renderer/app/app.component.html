@@ -1,6 +1,10 @@
 <div class="app-container" [class.macos]="isMacOS">
   <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
 
+  <div class="title-bar-overlay" [class.macos]="isMacOS">
+    <app-provider-quota-chip />
+  </div>
+
   @if (startupCapabilities() && startupCapabilities()!.status !== 'ready') {
     <div
       class="startup-banner"

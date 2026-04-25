@@ -52,6 +52,7 @@ export default defineConfig({
       '@contracts/schemas/remote-node':     resolve(__dirname, './packages/contracts/src/schemas/remote-node.schemas'),
       '@contracts/schemas/plugin':          resolve(__dirname, './packages/contracts/src/schemas/plugin.schemas'),
       '@contracts/schemas/image':           resolve(__dirname, './packages/contracts/src/schemas/image.schemas'),
+      '@contracts/schemas/quota':           resolve(__dirname, './packages/contracts/src/schemas/quota.schemas'),
       '@contracts/schemas/provider-runtime-events': resolve(__dirname, './packages/contracts/src/schemas/provider-runtime-events.schemas'),
       '@contracts/types/provider-runtime-events': resolve(__dirname, './packages/contracts/src/types/provider-runtime-events'),
       '@contracts/types/transport':         resolve(__dirname, './packages/contracts/src/types/transport.types'),

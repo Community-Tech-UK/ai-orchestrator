@@ -28,6 +28,14 @@ describe('INFRASTRUCTURE_CHANNELS', () => {
     expect(INFRASTRUCTURE_CHANNELS.COST_BUDGET_ALERT).toBe('cost:budget-alert');
   });
 
+  it('has provider quota channels', () => {
+    expect(INFRASTRUCTURE_CHANNELS.QUOTA_GET_ALL).toBe('quota:get-all');
+    expect(INFRASTRUCTURE_CHANNELS.QUOTA_REFRESH).toBe('quota:refresh');
+    expect(INFRASTRUCTURE_CHANNELS.QUOTA_UPDATED).toBe('quota:updated');
+    expect(INFRASTRUCTURE_CHANNELS.QUOTA_WARNING).toBe('quota:warning');
+    expect(INFRASTRUCTURE_CHANNELS.QUOTA_EXHAUSTED).toBe('quota:exhausted');
+  });
+
   it('has stats channels', () => {
     expect(INFRASTRUCTURE_CHANNELS.STATS_GET).toBe('stats:get');
     expect(INFRASTRUCTURE_CHANNELS.STATS_CLEAR).toBe('stats:clear');

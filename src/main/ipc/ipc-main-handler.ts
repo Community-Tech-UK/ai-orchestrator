@@ -37,6 +37,7 @@ import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
+import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
 
 // Import extracted handlers
 import {
@@ -53,6 +54,7 @@ import {
   registerSecurityHandlers,
   registerDebugHandlers,
   registerCostHandlers,
+  registerQuotaHandlers,
   registerTaskHandlers,
   registerRepoJobHandlers,
   registerSearchHandlers,
@@ -243,6 +245,12 @@ export class IpcMainHandler {
 
     // Cost tracking handlers
     registerCostHandlers({ windowManager: this.windowManager });
+
+    // Provider quota handlers (remaining usage budgets per CLI provider).
+    // Probes must be registered BEFORE the handlers so that the first
+    // QUOTA_REFRESH IPC call has them available.
+    registerDefaultQuotaProbes();
+    registerQuotaHandlers({ windowManager: this.windowManager });
 
     // Debug command handlers
     registerDebugHandlers();

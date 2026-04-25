@@ -29,6 +29,7 @@ export { LspIpcService } from './lsp-ipc.service';
 export { TaskIpcService } from './task-ipc.service';
 export { SecurityIpcService } from './security-ipc.service';
 export { CostIpcService } from './cost-ipc.service';
+export { QuotaIpcService } from './quota-ipc.service';
 export { LoggingIpcService } from './logging-ipc.service';
 export { StatsIpcService } from './stats-ipc.service';
 export { SearchIpcService } from './search-ipc.service';
