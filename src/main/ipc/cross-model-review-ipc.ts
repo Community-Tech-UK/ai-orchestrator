@@ -12,6 +12,7 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getLogger } from '../logging/logger';
+import { getReviewResultConcernItems } from '../../shared/utils/cross-model-review-concerns';
 
 const logger = getLogger('CrossModelReviewIPC');
 
@@ -32,7 +33,7 @@ export function registerCrossModelReviewIpcHandlers(): void {
         const review = history.find(r => r.id === validated.reviewId);
         if (review) {
           const concerns = review.reviews
-            .flatMap(r => Object.values(r.scores).flatMap(s => s?.issues ?? []))
+            .flatMap(getReviewResultConcernItems)
             .filter(Boolean);
           return { action: 'ask-primary', concerns };
         }
@@ -49,7 +50,7 @@ export function registerCrossModelReviewIpcHandlers(): void {
         }
 
         const issues = review.reviews
-          .flatMap(result => Object.values(result.scores).flatMap(score => score?.issues ?? []))
+          .flatMap(getReviewResultConcernItems)
           .filter(Boolean);
 
         const summaries = review.reviews.map(result => `${result.reviewerId}: ${result.summary}`);

@@ -225,6 +225,8 @@ Children are auto-routed by complexity. Specify \`model\` to override.
 - **Simple** (lookups, status checks) → fast model tier
 - **Moderate** (standard dev) → balanced model tier
 - **Complex** (architecture, security) → powerful model tier
+- When the user names both a provider and a model (for example, "Copilot running Gemini 3.1 Pro"), set both \`provider\` and \`model\` on \`spawn_child\`.
+- Use canonical model IDs when known. For Copilot Gemini 3.1 Pro, use \`"gemini-3.1-pro-preview"\`.
 
 ### Commands
 
@@ -303,6 +305,7 @@ The orchestrator has native CLI adapters with streaming, session management, and
 **Examples:**
 \`\`\`json
 {"action": "spawn_child", "task": "Review this code for security issues", "provider": "copilot", "name": "copilot-review"}
+{"action": "spawn_child", "task": "Check this plan and report risks", "provider": "copilot", "model": "gemini-3.1-pro-preview", "name": "copilot-gemini-review"}
 {"action": "spawn_child", "task": "Analyze this architecture", "provider": "gemini", "name": "gemini-analysis"}
 {"action": "consensus_query", "question": "Is this migration safe?", "providers": ["claude", "gemini", "copilot"]}
 \`\`\`

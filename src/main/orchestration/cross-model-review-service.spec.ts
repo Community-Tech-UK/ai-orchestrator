@@ -12,7 +12,27 @@ type TestReviewService = CrossModelReviewService & {
   parseReviewResponse: (reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number) => ReviewResult | null;
   collectSuccessfulReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult[]>;
   executeReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number) => Promise<void>;
+  detectDisagreement: (reviews: ReviewResult[]) => boolean;
 };
+
+function makeReview(overrides: Partial<ReviewResult> = {}): ReviewResult {
+  return {
+    reviewerId: 'gemini',
+    reviewType: 'structured',
+    scores: {
+      correctness: { reasoning: 'ok', score: 4, issues: [] },
+      completeness: { reasoning: 'ok', score: 4, issues: [] },
+      security: { reasoning: 'ok', score: 4, issues: [] },
+      consistency: { reasoning: 'ok', score: 4, issues: [] },
+    },
+    overallVerdict: 'APPROVE',
+    summary: 'Looks good',
+    timestamp: Date.now(),
+    durationMs: 42,
+    parseSuccess: true,
+    ...overrides,
+  };
+}
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
@@ -133,6 +153,26 @@ describe('CrossModelReviewService', () => {
   it('skips unparsable reviewer responses instead of surfacing concerns', () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
     expect(service.parseReviewResponse('gemini', 'not valid json', 'structured', 42)).toBeNull();
+  });
+
+  it('treats low scores with an approve verdict as review concerns', () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const review = makeReview({
+      overallVerdict: 'APPROVE',
+      scores: {
+        correctness: { reasoning: 'This misses the requested edge case', score: 2, issues: [] },
+        completeness: { reasoning: 'ok', score: 4, issues: [] },
+        security: { reasoning: 'ok', score: 4, issues: [] },
+        consistency: { reasoning: 'ok', score: 4, issues: [] },
+      },
+    });
+
+    expect(service.detectDisagreement([review])).toBe(true);
+  });
+
+  it('does not treat clean approvals as review concerns', () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    expect(service.detectDisagreement([makeReview()])).toBe(false);
   });
 
   it('uses failover reviewers when an initially selected reviewer fails', async () => {

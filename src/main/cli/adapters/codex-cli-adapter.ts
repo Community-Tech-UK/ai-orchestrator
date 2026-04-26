@@ -1324,7 +1324,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
           state: 'active',
           source: 'native',
           provider: 'openai',
-        }).catch(() => {});
+        }).catch((error: unknown) => {
+          logger.debug('Failed to record Codex native activity', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
     }
 
@@ -2117,7 +2121,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     args.push('--json');
 
-    if (this.cliConfig.ephemeral) {
+    if (this.cliConfig.ephemeral && !useResume) {
       args.push('--ephemeral');
     }
 
@@ -2277,7 +2281,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
         state.rawStdout += chunk;
         // Record activity from streaming output
         if (this.activityDetector && chunk) {
-          this.activityDetector.recordTerminalActivity(chunk).catch(() => {});
+          this.activityDetector.recordTerminalActivity(chunk).catch((error: unknown) => {
+            logger.debug('Failed to record Codex terminal activity', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
         }
         state.partialStdout = this.consumeLines(chunk, state.partialStdout, (line) => {
           this.processStdoutLine(line, state);

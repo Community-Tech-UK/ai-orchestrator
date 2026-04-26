@@ -7,6 +7,14 @@ export interface ScrollState {
   showScrollToBottom: WritableSignal<boolean>;
   scrollPositions: Map<string, number>;
   userScrolledUp: { value: boolean };
+  /**
+   * Boxed flag set true by the parent component while it is restoring scroll
+   * after an instance switch. The listener must skip its writes during this
+   * window — otherwise the auto-clamp scroll event (fired before our rAF
+   * restore) overwrites scrollPositions[currentInstanceId] with the previous
+   * instance's leftover scrollTop, corrupting the saved position.
+   */
+  isRestoring: { value: boolean };
 }
 
 export interface ScrollListenerBinding {
@@ -34,6 +42,15 @@ export class OutputScrollService {
     let lastScrollTime = 0;
 
     const listener: EventListener = () => {
+      // While the parent is restoring scroll for an instance switch, skip ALL
+      // listener side effects. Browser auto-clamp scroll events that fire after
+      // a switch (when the new instance's content is shorter than the previous
+      // scrollTop) would otherwise corrupt scrollPositions[currentInstance]
+      // with the leftover post-clamp value, before the rAF restore runs. The
+      // restore path itself updates userScrolledUp / button visibility, so we
+      // don't lose anything by short-circuiting here.
+      if (state.isRestoring.value) return;
+
       // Measure scroll frame timing for perf budget
       const now = performance.now();
       if (lastScrollTime > 0) {

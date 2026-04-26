@@ -10,22 +10,26 @@ import { z } from 'zod';
 // ============ IPC Payload Schemas ============
 
 export const ReviewDismissPayloadSchema = z.object({
-  reviewId: z.string().min(1).max(100),
-  instanceId: z.string().min(1).max(100),
+  reviewId: z.string().trim().min(1).max(100),
+  instanceId: z.string().trim().min(1).max(100),
 });
 
 export const ReviewActionPayloadSchema = z.object({
-  reviewId: z.string().min(1).max(100),
-  instanceId: z.string().min(1).max(100),
+  reviewId: z.string().trim().min(1).max(100),
+  instanceId: z.string().trim().min(1).max(100),
   action: z.enum(['dismiss', 'ask-primary', 'show-full', 'start-debate']),
 });
 
 // ============ Review Result JSON Schemas ============
 
+const ReasoningSchema = z.string().trim().min(1).max(4000);
+const SummarySchema = z.string().trim().min(1).max(1000);
+const IssueSchema = z.string().trim().min(1).max(1000);
+
 const DimensionScoreSchema = z.object({
-  reasoning: z.string(),
+  reasoning: ReasoningSchema,
   score: z.number().int().min(1).max(4),
-  issues: z.array(z.string()),
+  issues: z.array(IssueSchema).max(25),
 });
 
 export const ReviewResultJsonSchema = z.object({
@@ -34,21 +38,21 @@ export const ReviewResultJsonSchema = z.object({
   security: DimensionScoreSchema,
   consistency: DimensionScoreSchema,
   overall_verdict: z.enum(['APPROVE', 'CONCERNS', 'REJECT']),
-  summary: z.string(),
+  summary: SummarySchema,
 });
 
 export const TieredReviewResultJsonSchema = z.object({
   traces: z.array(z.object({
-    scenario: z.string(),
+    scenario: z.string().trim().min(1).max(500),
     result: z.enum(['pass', 'fail']),
-    detail: z.string(),
-  })).optional(),
-  boundaries_checked: z.array(z.string()).optional(),
+    detail: z.string().trim().min(1).max(1000),
+  })).max(10).optional(),
+  boundaries_checked: z.array(IssueSchema).max(30).optional(),
   assumptions: z.array(z.object({
-    assumption: z.string(),
+    assumption: z.string().trim().min(1).max(1000),
     severity: z.enum(['high', 'medium', 'low']),
-  })).optional(),
-  integration_risks: z.array(z.string()).optional(),
+  })).max(20).optional(),
+  integration_risks: z.array(IssueSchema).max(20).optional(),
   scores: z.object({
     correctness: DimensionScoreSchema,
     completeness: DimensionScoreSchema,
@@ -57,8 +61,8 @@ export const TieredReviewResultJsonSchema = z.object({
     feasibility: DimensionScoreSchema.optional(),
   }),
   overall_verdict: z.enum(['APPROVE', 'CONCERNS', 'REJECT']),
-  summary: z.string(),
-  critical_issues: z.array(z.string()).optional(),
+  summary: SummarySchema,
+  critical_issues: z.array(IssueSchema).max(20).optional(),
 });
 
 export type ReviewDismissPayload = z.infer<typeof ReviewDismissPayloadSchema>;

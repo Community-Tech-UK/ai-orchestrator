@@ -15,46 +15,71 @@
           [value]="filterText()"
           (input)="onFilterChange($event)"
         />
-        <div class="filter-controls">
-          <label class="filter-select-group">
-            <span class="filter-select-label">Sort</span>
-            <select
-              class="sort-filter"
-              [value]="historySortMode()"
-              (change)="onSortModeChange($event)"
-              title="Sort project threads"
-            >
-              <option value="last-interacted">Last interacted</option>
-              <option value="created">Created</option>
-            </select>
-          </label>
-          <label class="filter-select-group">
-            <span class="filter-select-label">State</span>
-            <select
-              class="status-filter"
-              [value]="statusFilter()"
-              (change)="onStatusFilterChange($event)"
-            >
-              <option value="all">All</option>
-              <option value="idle">Idle</option>
-              <option value="busy">Busy</option>
-              <option value="waiting_for_input">Waiting</option>
-              <option value="error">Error</option>
-            </select>
-          </label>
-          @if (remoteNodeStore.hasNodes()) {
-            <label class="filter-select-group">
-              <span class="filter-select-label">Location</span>
-              <select
-                class="status-filter"
-                [value]="locationFilter()"
-                (change)="onLocationFilterChange($event)"
-              >
-                <option value="all">All</option>
-                <option value="local">Local</option>
-                <option value="remote">Remote</option>
-              </select>
-            </label>
+        <div class="filters-anchor">
+          <button
+            type="button"
+            class="filters-toggle"
+            [class.active]="filtersOpen()"
+            [class.has-active-filters]="hasActiveFilters()"
+            [attr.aria-expanded]="filtersOpen()"
+            aria-haspopup="dialog"
+            aria-label="Filter and sort options"
+            title="Filter and sort"
+            (click)="toggleFiltersPopover($event)"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2 3h12v1.5L9.5 9.5v3.5l-3-1V9.5L2 4.5V3Z"
+                fill="none" stroke="currentColor" stroke-width="1.4"
+                stroke-linejoin="round" />
+            </svg>
+            @if (hasActiveFilters()) {
+              <span class="filters-toggle-dot" aria-hidden="true"></span>
+            }
+          </button>
+
+          @if (filtersOpen()) {
+            <div class="filters-popover" role="dialog" aria-label="Filter and sort options">
+              <label class="filter-select-group">
+                <span class="filter-select-label">Sort</span>
+                <select
+                  class="sort-filter"
+                  [value]="historySortMode()"
+                  (change)="onSortModeChange($event)"
+                  title="Sort project threads"
+                >
+                  <option value="last-interacted">Last interacted</option>
+                  <option value="created">Created</option>
+                </select>
+              </label>
+              <label class="filter-select-group">
+                <span class="filter-select-label">State</span>
+                <select
+                  class="status-filter"
+                  [value]="statusFilter()"
+                  (change)="onStatusFilterChange($event)"
+                >
+                  <option value="all">All</option>
+                  <option value="idle">Idle</option>
+                  <option value="busy">Busy</option>
+                  <option value="waiting_for_input">Waiting</option>
+                  <option value="error">Error</option>
+                </select>
+              </label>
+              @if (remoteNodeStore.hasNodes()) {
+                <label class="filter-select-group">
+                  <span class="filter-select-label">Location</span>
+                  <select
+                    class="status-filter"
+                    [value]="locationFilter()"
+                    (change)="onLocationFilterChange($event)"
+                  >
+                    <option value="all">All</option>
+                    <option value="local">Local</option>
+                    <option value="remote">Remote</option>
+                  </select>
+                </label>
+              }
+            </div>
           }
         </div>
       </div>

@@ -15,7 +15,11 @@ import { getUnifiedMemory } from '../memory';
 import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
-import { isModelTier, resolveModelForTier } from '../../shared/types/provider.types';
+import {
+  isModelTier,
+  normalizeModelAliasForProvider,
+  resolveModelForTier,
+} from '../../shared/types/provider.types';
 import type {
   SpawnChildCommand,
   MessageChildCommand,
@@ -75,6 +79,13 @@ export class InstanceOrchestrationManager {
    */
   getOrchestrationHandler(): OrchestrationHandler {
     return this.orchestration;
+  }
+
+  /**
+   * Whether orchestration is currently doing work on behalf of an instance.
+   */
+  hasActiveWork(instanceId: string): boolean {
+    return this.orchestration.hasActiveWork(instanceId);
   }
 
   /**
@@ -559,13 +570,28 @@ export class InstanceOrchestrationManager {
     provider?: string
   ): RoutingDecision {
     const router = getModelRouter();
-    const decision = this.computeRoutingDecision(router, task, explicitModel, agentId);
+    const providerForModel = provider && provider !== 'auto' ? provider : undefined;
+    const normalizedExplicitModel = providerForModel
+      ? normalizeModelAliasForProvider(providerForModel, explicitModel)
+      : explicitModel;
+    const decision = this.computeRoutingDecision(router, task, normalizedExplicitModel, agentId);
+    const hasExplicitConcreteModel = Boolean(
+      normalizedExplicitModel && !isModelTier(normalizedExplicitModel)
+    );
 
     // If the target is a non-Claude provider, resolve the decision's tier
     // to that provider's concrete model ID. This handles:
     //   - Explicit tier names (e.g., model: "powerful", provider: "gemini")
     //   - Auto-routed Claude model IDs that need cross-provider mapping
     if (provider && provider !== 'auto' && provider !== 'claude') {
+      if (hasExplicitConcreteModel) {
+        return {
+          ...decision,
+          model: normalizedExplicitModel!,
+          reason: `${decision.reason} for ${provider}`,
+        };
+      }
+
       const resolvedId = resolveModelForTier(decision.tier, provider);
       if (resolvedId) {
         logger.info('Resolved model for target provider', {
@@ -1127,15 +1153,36 @@ export class InstanceOrchestrationManager {
         return `**Progress update** from child \`${data.childId}\`: ${data.progress?.percentage || 0}% - ${data.progress?.currentStep || 'Working...'}`;
       case 'task_error':
         return `**Error** from child \`${data.childId}\`:\n\n${data.error?.message || data.message || 'Unknown error'}`;
-      case 'get_children':
+      case 'get_children': {
+        const activeConsensusQueries = typeof data.activeConsensusQueries === 'number'
+          ? data.activeConsensusQueries
+          : 0;
+        const completedChildIds = Array.isArray(data.completedChildIds)
+          ? data.completedChildIds as string[]
+          : [];
         if (data.children && data.children.length > 0) {
           const childList = data.children
             .map((c: any) => `- **${c.name}** (\`${c.id}\`) - ${c.status}`)
             .join('\n');
-          return `**Active children:**\n\n${childList}`;
-        } else {
-          return `**No active children**`;
+          const consensusLine = activeConsensusQueries > 0
+            ? `\n\n**Consensus queries running:** ${activeConsensusQueries}`
+            : '';
+          return `**Active children:**\n\n${childList}${consensusLine}`;
         }
+        if (activeConsensusQueries > 0) {
+          const queryLabel = activeConsensusQueries === 1 ? 'query is' : 'queries are';
+          return `**Consensus query in progress**\n\nNo child instances are active. ${activeConsensusQueries} internal consensus ${queryLabel} still running.`;
+        }
+        if (completedChildIds.length > 0) {
+          const shown = completedChildIds.slice(-5);
+          const childList = shown.map((id) => `- \`${id}\``).join('\n');
+          const extra = completedChildIds.length > shown.length
+            ? `\n- ... and ${completedChildIds.length - shown.length} more`
+            : '';
+          return `**No active children**\n\n${completedChildIds.length} child instance${completedChildIds.length === 1 ? '' : 's'} completed recently:\n${childList}${extra}`;
+        }
+        return `**No active children**`;
+      }
       case 'get_child_output':
         if (status !== 'SUCCESS') {
           const errChildId = data.childId ? ` \`${data.childId}\`` : '';
@@ -1162,6 +1209,8 @@ export class InstanceOrchestrationManager {
           return `**Tool ran:** \`${toolId}\`\n\n\`\`\`\n${trimmed}\n\`\`\``;
         }
         return `**Tool failed:** \`${data.toolId || data.tool?.id || 'tool'}\`\n\n${data.error || 'Unknown error'}`;
+      case 'consensus_query':
+        return this.formatConsensusQueryMessage(status, data);
       // New structured result messages
       case 'child_result':
         return this.formatChildResultMessage(data);
@@ -1184,6 +1233,55 @@ export class InstanceOrchestrationManager {
       default:
         return `**Orchestration:** ${action} - ${status}`;
     }
+  }
+
+  private formatConsensusQueryMessage(status: string, data: any): string {
+    if (data.status === 'dispatching') {
+      const requestedProviders = Array.isArray(data.providersRequested) && data.providersRequested.length > 0
+        ? data.providersRequested.join(', ')
+        : 'available providers';
+      return `**Consensus query started**\n\nConsulting ${requestedProviders}.`;
+    }
+
+    if (status === 'SUCCESS') {
+      const parts: string[] = [];
+      parts.push('**Consensus complete**');
+
+      if (typeof data.successCount === 'number' || typeof data.failureCount === 'number') {
+        const successCount = typeof data.successCount === 'number' ? data.successCount : 0;
+        const failureCount = typeof data.failureCount === 'number' ? data.failureCount : 0;
+        parts.push(`${successCount} provider${successCount === 1 ? '' : 's'} responded, ${failureCount} failed.`);
+      }
+
+      if (typeof data.totalDurationMs === 'number') {
+        parts.push(`Duration: ${Math.round(data.totalDurationMs / 1000)}s.`);
+      }
+
+      parts.push('');
+      parts.push('_Result injected to parent CLI._');
+      return parts.join('\n');
+    }
+
+    const parts = ['**Consensus query failed**'];
+    if (data.message || data.error) {
+      parts.push('');
+      parts.push(String(data.message || data.error));
+    }
+
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+      parts.push('');
+      parts.push('**Provider errors:**');
+      for (const err of data.errors.slice(0, 3)) {
+        const provider = typeof err.provider === 'string' ? err.provider : 'provider';
+        const message = typeof err.error === 'string' ? err.error : 'unknown error';
+        parts.push(`- ${provider}: ${message}`);
+      }
+      if (data.errors.length > 3) {
+        parts.push(`- ... and ${data.errors.length - 3} more`);
+      }
+    }
+
+    return parts.join('\n');
   }
 
   private formatRequestUserActionMessage(data: any): string {

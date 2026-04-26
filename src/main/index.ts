@@ -34,6 +34,16 @@ import { shutdownTracer } from './observability/otel-setup';
 // manager (and future consumers) can look them up by ProviderName.
 registerBuiltInProviders(providerAdapterRegistry);
 
+// Give the dev build its own identity so it can run alongside the installed
+// production app: separate macOS Mach port namespace, separate single-instance
+// lock, and a separate userData directory (so the two don't fight over the
+// same SQLite session/history files). Must run before requestSingleInstanceLock
+// and before any path lookups.
+if (!app.isPackaged) {
+  app.setName('AI Orchestrator (Dev)');
+  app.setPath('userData', path.join(app.getPath('appData'), 'AI Orchestrator (Dev)'));
+}
+
 const logger = getLogger('App');
 
 class AIOrchestratorApp {

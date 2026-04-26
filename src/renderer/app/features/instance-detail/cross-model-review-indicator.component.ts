@@ -7,6 +7,7 @@
 
 import { Component, input, output, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
+import { countReviewResultsWithConcerns } from '../../../../shared/utils/cross-model-review-concerns';
 
 @Component({
   selector: 'app-cross-model-review-indicator',
@@ -112,12 +113,12 @@ export class CrossModelReviewIndicatorComponent {
 
   isVerified = computed(() => {
     const r = this.review();
-    return r != null && !r.hasDisagreement;
+    return r != null && !this.hasConcerns();
   });
 
   hasConcerns = computed(() => {
     const r = this.review();
-    return r != null && r.hasDisagreement;
+    return r != null && (r.hasDisagreement || countReviewResultsWithConcerns(r.reviews) > 0);
   });
 
   hasVisibleState = computed(() =>
@@ -127,7 +128,7 @@ export class CrossModelReviewIndicatorComponent {
   concernCount = computed(() => {
     const r = this.review();
     if (!r) return 0;
-    return r.reviews.filter(rev => rev.overallVerdict !== 'APPROVE').length;
+    return countReviewResultsWithConcerns(r.reviews);
   });
 
   tooltip = computed(() => {

@@ -67,6 +67,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
+const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 
 function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
   if (!value) {
@@ -157,11 +158,20 @@ export class InstanceManager extends EventEmitter {
     // Initialize sub-managers with dependencies
     this.state = new InstanceStateManager();
     this.context = new InstanceContextManager();
+    this.orchestrationMgr = new InstanceOrchestrationManager({
+      getInstance: (id) => this.state.getInstance(id),
+      getInstanceCount: () => this.state.getInstanceCount(),
+      createChildInstance: (parentId, cmd, routing) => this.createChildInstance(parentId, cmd, routing),
+      sendInput: (id, msg) => this.sendInput(id, msg),
+      terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
+      getAdapter: (id) => this.state.getAdapter(id)
+    });
     this.stuckDetector = new StuckProcessDetector({
       isProcessAlive: (id) => {
         const adapter = this.state.getAdapter(id);
         return adapter?.isRunning() ?? false;
       },
+      hasExternalActivity: (id) => this.orchestrationMgr.hasActiveWork(id),
     });
 
     // Communication manager needs dependencies
@@ -235,16 +245,6 @@ export class InstanceManager extends EventEmitter {
       },
       emitProviderRuntimeEvent: (instanceId, event, options) =>
         this.emitProviderRuntimeEvent(instanceId, event, options),
-    });
-
-    // Orchestration manager needs dependencies
-    this.orchestrationMgr = new InstanceOrchestrationManager({
-      getInstance: (id) => this.state.getInstance(id),
-      getInstanceCount: () => this.state.getInstanceCount(),
-      createChildInstance: (parentId, cmd, routing) => this.createChildInstance(parentId, cmd, routing),
-      sendInput: (id, msg) => this.sendInput(id, msg),
-      terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
-      getAdapter: (id) => this.state.getAdapter(id)
     });
 
     // Lifecycle manager needs dependencies
@@ -1290,7 +1290,12 @@ export class InstanceManager extends EventEmitter {
     };
 
     const childAgentId = this.orchestrationMgr.resolveChildAgentId(spawnCommand);
-    const routingDecision = this.orchestrationMgr.routeChildModel(task, spawnCommand.model, childAgentId);
+    const routingDecision = this.orchestrationMgr.routeChildModel(
+      task,
+      spawnCommand.model,
+      childAgentId,
+      spawnCommand.provider,
+    );
 
     // Best-effort notify the user in the UI that we spawned a subtask.
     const systemNote = {
@@ -1322,7 +1327,7 @@ export class InstanceManager extends EventEmitter {
       metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
     }));
 
-    await this.createInstance({
+    const child = await this.createInstance({
       workingDirectory: parent.workingDirectory,
       displayName: spawnCommand.name || `Child of ${parent.displayName}`,
       parentId,
@@ -1333,6 +1338,7 @@ export class InstanceManager extends EventEmitter {
       provider: resolvedProvider,
       initialOutputBuffer: seededOutputBuffer,
     });
+    this.armChildStartupWatchdog(parentId, child.id, CHILD_STARTUP_TIMEOUT_MS);
   }
 
   async sendInputResponse(instanceId: string, response: string, permissionKey?: string): Promise<void> {
@@ -1604,8 +1610,91 @@ export class InstanceManager extends EventEmitter {
 
     // Mark this child as already having received its first message
     this.hasReceivedFirstMessage.add(child.id);
+    this.armChildStartupWatchdog(parentId, child.id, CHILD_STARTUP_TIMEOUT_MS);
 
     return child;
+  }
+
+  private armChildStartupWatchdog(parentId: string, childId: string, timeoutMs: number): void {
+    const timer = setTimeout(() => {
+      void this.failInitializingChild(parentId, childId, timeoutMs);
+    }, timeoutMs);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    const child = this.state.getInstance(childId);
+    child?.readyPromise?.catch(() => {
+      clearTimeout(timer);
+      void this.notifyFailedChildStartup(parentId, childId);
+    });
+  }
+
+  private async failInitializingChild(
+    parentId: string,
+    childId: string,
+    timeoutMs: number,
+  ): Promise<void> {
+    const child = this.state.getInstance(childId);
+    if (!child || child.parentId !== parentId) {
+      return;
+    }
+
+    if (child.status === 'failed' || child.status === 'error') {
+      await this.handleChildExit(childId, child, 1);
+      return;
+    }
+
+    if (child.status !== 'initializing') {
+      return;
+    }
+
+    child.abortController?.abort();
+
+    const provider = child.provider && child.provider !== 'auto'
+      ? child.provider
+      : 'selected provider';
+    const seconds = Math.round(timeoutMs / 1000);
+    const message: OutputMessage = {
+      id: `child-startup-timeout-${Date.now()}-${childId.slice(-6)}`,
+      timestamp: Date.now(),
+      type: 'error',
+      content: `Child startup timed out after ${seconds}s while starting ${provider}. The provider CLI did not finish session initialization.`,
+      metadata: {
+        source: 'child-startup-watchdog',
+        parentId,
+        timeoutMs,
+      },
+    };
+
+    this.communication.addToOutputBuffer(child, message);
+    this.publishOutput(childId, message);
+
+    try {
+      this.lifecycle.transitionStatePublic(child, 'failed');
+      this.state.queueUpdate(childId, 'failed', child.contextUsage);
+    } catch (error) {
+      logger.warn('Failed to mark child startup timeout as failed', {
+        childId,
+        parentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    await this.handleChildExit(childId, child, 1);
+  }
+
+  private async notifyFailedChildStartup(parentId: string, childId: string): Promise<void> {
+    const child = this.state.getInstance(childId);
+    if (
+      !child
+      || child.parentId !== parentId
+      || (child.status !== 'failed' && child.status !== 'error')
+    ) {
+      return;
+    }
+
+    await this.handleChildExit(childId, child, 1);
   }
 
   // ============================================

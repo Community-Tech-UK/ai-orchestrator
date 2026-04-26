@@ -25,13 +25,14 @@
           (createClicked)="createInstance()"
         />
 
+        <app-sidebar-actions
+          [moreOpen]="showControlPlane()"
+          (moreClicked)="toggleControlPlane()"
+        />
+
         <app-instance-list />
 
-        <app-sidebar-footer
-          [controlPlaneOpen]="showControlPlane()"
-          (closeAllClicked)="closeAllInstances()"
-          (controlPlaneClicked)="toggleControlPlane()"
-        />
+        <app-sidebar-footer (closeAllClicked)="closeAllInstances()" />
       </aside>
 
       <!-- Resize handle -->

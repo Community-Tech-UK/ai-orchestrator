@@ -13,6 +13,10 @@ import type {
   ReviewResult,
   ReviewActionType,
 } from '../../../../shared/types/cross-model-review.types';
+import {
+  countReviewResultsWithConcerns,
+  getReviewResultConcernItems,
+} from '../../../../shared/utils/cross-model-review-concerns';
 
 @Component({
   selector: 'app-cross-model-review-panel',
@@ -163,10 +167,13 @@ export class CrossModelReviewPanelComponent {
   concernCount = computed(() => {
     const r = this.review();
     if (!r) return 0;
-    return r.reviews.filter(rev => rev.overallVerdict !== 'APPROVE').length;
+    return countReviewResultsWithConcerns(r.reviews);
   });
 
-  hasConcerns = computed(() => this.concernCount() > 0);
+  hasConcerns = computed(() => {
+    const r = this.review();
+    return r != null && (r.hasDisagreement || this.concernCount() > 0);
+  });
 
   fullReviewJson = computed(() => {
     const r = this.review();
@@ -175,13 +182,7 @@ export class CrossModelReviewPanelComponent {
   });
 
   allIssues(result: ReviewResult): string[] {
-    return [
-      ...result.scores.correctness.issues,
-      ...result.scores.completeness.issues,
-      ...result.scores.security.issues,
-      ...result.scores.consistency.issues,
-      ...(result.scores.feasibility?.issues ?? []),
-    ];
+    return getReviewResultConcernItems(result);
   }
 
   async onAction(action: ReviewActionType): Promise<void> {

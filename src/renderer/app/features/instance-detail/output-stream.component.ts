@@ -17,8 +17,7 @@ import {
   ChangeDetectionStrategy,
   afterNextRender,
   DestroyRef,
-  ElementRef,
-  untracked
+  ElementRef
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
@@ -94,8 +93,23 @@ export class OutputStreamComponent {
   protected showScrollToBottom = signal(false);
   /** Boxed boolean so OutputScrollService can mutate it by reference */
   private userScrolledUpRef = { value: false };
+  /**
+   * Boxed boolean that tells OutputScrollService's listener to short-circuit
+   * while we are mid-switch. Without this, the auto-clamp scroll event the
+   * browser fires when switching to a session with shorter content overwrites
+   * scrollPositions[currentInstanceId] before our rAF restore can read it.
+   */
+  private isRestoringRef = { value: false };
   private scrollPositions = new Map<string, number>(); // instanceId -> scrollOffset
   private previousInstanceId: string | null = null;
+  /**
+   * If a switch fires while the new instance's outputBuffer is empty, the
+   * `#container` div doesn't exist yet (the template renders an empty-stream
+   * placeholder instead) and the rAF restore is a no-op. We park the intended
+   * restore here; a watcher effect on `container()` completes it once the
+   * container materialises.
+   */
+  private pendingRestore: { instanceId: string; targetPosition: number | undefined } | null = null;
   private lastAutoScrollInstanceId: string | null = null;
   private lastAutoScrollSignature = '';
 
@@ -207,56 +221,129 @@ export class OutputStreamComponent {
   });
 
   constructor() {
-    // Handle instance changes - save/restore scroll position
+    // Handle instance changes - restore scroll position for the new instance.
+    //
+    // We do NOT save the previous instance's scrollTop here. The scroll
+    // listener (OutputScrollService) already keeps scrollPositions up to date
+    // on every real user scroll, so previousInstanceId's value is already
+    // correctly cached by the time a switch fires. Saving it again here would
+    // read viewport.scrollTop AFTER Angular has rendered the new instance's
+    // (potentially shorter) content — at that point the browser has
+    // auto-clamped scrollTop, so we'd overwrite the correct saved value with a
+    // clamped one. That was bug #1 of the cross-session scroll issue.
     effect(() => {
       const currentInstanceId = this.instanceId();
-      const viewport = untracked(() => this.getViewportElement());
-
-      if (this.previousInstanceId && this.previousInstanceId !== currentInstanceId && viewport) {
-        // Save scroll position for the previous instance
-        this.scrollPositions.set(this.previousInstanceId, viewport.scrollTop);
+      if (currentInstanceId === this.previousInstanceId) {
+        return;
       }
 
-      if (currentInstanceId !== this.previousInstanceId) {
-        // Instance changed - reset scroll state
-        this.userScrolledUpRef.value = false;
-        this.showScrollToTop.set(false);
-        this.showScrollToBottom.set(false);
-        this.hasOlderMessages.set(false);
-        this.isLoadingOlder.set(false);
-        this.olderMessagesHiddenCount.set(0);
-        this.lastAutoScrollInstanceId = currentInstanceId;
-        this.lastAutoScrollSignature = this.getMessageSignature(this.messages());
+      // Snapshot the saved scroll for the new instance SYNCHRONOUSLY, before
+      // any scroll events get a chance to corrupt it. Per the HTML rendering
+      // pipeline, scroll-step events fire BEFORE rAF callbacks in the same
+      // frame, so reading scrollPositions inside rAF would otherwise see a
+      // value that the listener overwrote with the auto-clamped scrollTop.
+      // (We also raise isRestoringRef below so the listener short-circuits
+      // anyway — this snapshot is the second line of defense.)
+      const targetPosition = this.scrollPositions.get(currentInstanceId);
 
-        // Perf: measure thread switch time and transcript paint
-        const stopSwitch = this.perf.markThreadSwitch(this.previousInstanceId, currentInstanceId);
-        const stopPaint = this.perf.markTranscriptPaint(currentInstanceId, this.messages().length);
+      // Reset per-instance scroll state
+      this.userScrolledUpRef.value = false;
+      this.showScrollToTop.set(false);
+      this.showScrollToBottom.set(false);
+      this.hasOlderMessages.set(false);
+      this.isLoadingOlder.set(false);
+      this.olderMessagesHiddenCount.set(0);
+      this.lastAutoScrollInstanceId = currentInstanceId;
+      this.lastAutoScrollSignature = this.getMessageSignature(this.messages());
+      // Drop any deferred restore from a prior switch — it's stale now.
+      this.pendingRestore = null;
 
-        // Restore scroll position for the new instance using rAF for frame alignment
-        requestAnimationFrame(() => {
-          const savedPosition = this.scrollPositions.get(currentInstanceId);
-          const nextViewport = this.getViewportElement();
-          if (nextViewport) {
-            if (savedPosition !== undefined) {
-              nextViewport.scrollTop = savedPosition;
-              const distanceFromBottom =
-                nextViewport.scrollHeight - nextViewport.scrollTop - nextViewport.clientHeight;
-              this.userScrolledUpRef.value = distanceFromBottom > 100;
-              this.showScrollToTop.set(savedPosition > 50);
-              this.showScrollToBottom.set(distanceFromBottom > 50);
-            } else {
-              nextViewport.scrollTop = nextViewport.scrollHeight;
-            }
-          }
+      // Suppress listener writes until the rAF restore completes, so that
+      // browser auto-clamp scroll events cannot corrupt scrollPositions
+      // for currentInstanceId before we set scrollTop ourselves.
+      this.isRestoringRef.value = true;
+
+      // Perf: measure thread switch time and transcript paint
+      const stopSwitch = this.perf.markThreadSwitch(this.previousInstanceId, currentInstanceId);
+      const stopPaint = this.perf.markTranscriptPaint(currentInstanceId, this.messages().length);
+
+      // Restore scroll position for the new instance using rAF for frame alignment
+      requestAnimationFrame(() => {
+        // If the user has switched away again before this frame landed, abort.
+        if (this.instanceId() !== currentInstanceId) {
+          this.isRestoringRef.value = false;
           stopPaint();
           stopSwitch();
-        });
+          return;
+        }
+        const nextViewport = this.getViewportElement();
+        if (nextViewport) {
+          this.applyScrollRestore(nextViewport, targetPosition);
+        } else {
+          // Container isn't in the DOM yet — most likely the new instance's
+          // outputBuffer is empty and Angular is rendering the empty-stream
+          // placeholder via `@if (displayItems().length === 0)`. Park the
+          // intended restore; the watcher effect below will complete it once
+          // the container appears (e.g. when history hydrates).
+          this.pendingRestore = { instanceId: currentInstanceId, targetPosition };
+        }
+        // Clear the guard last. Programmatically setting scrollTop above
+        // queues a scroll event for the NEXT frame; by then the listener is
+        // un-gated, so it'll naturally re-record scrollPositions for the new
+        // instance with the restored value. (If we deferred, the watcher
+        // effect re-raises this guard before its own rAF.)
+        this.isRestoringRef.value = false;
+        stopPaint();
+        stopSwitch();
+      });
 
-        this.previousInstanceId = currentInstanceId;
+      this.previousInstanceId = currentInstanceId;
 
-        // Probe backend to check if stored transcript exists for this instance
-        this.probeForOlderMessages(currentInstanceId);
+      // Probe backend to check if stored transcript exists for this instance
+      this.probeForOlderMessages(currentInstanceId);
+    });
+
+    // Deferred-restore watcher.
+    //
+    // Runs whenever the `container` viewChild signal or the current
+    // instanceId changes. If we have a parked restore for the current
+    // instance and the container has now materialised, complete the restore.
+    // This covers the case where the user switches to a session whose
+    // outputBuffer hadn't hydrated yet — without this, scroll would land at
+    // 0 once messages arrived.
+    effect(() => {
+      const containerRef = this.container();
+      const currentId = this.instanceId();
+      const pending = this.pendingRestore;
+      if (!containerRef || !pending || pending.instanceId !== currentId) {
+        return;
       }
+
+      const targetPosition = pending.targetPosition;
+      this.pendingRestore = null;
+
+      // If we're restoring to a non-bottom position, mark the user as
+      // scrolled-up *before* the auto-scroll effect's rAF runs, so it skips
+      // its scroll-to-bottom and we don't briefly bounce to the bottom
+      // before our restore overrides.
+      if (targetPosition !== undefined) {
+        this.userScrolledUpRef.value = true;
+      }
+
+      this.isRestoringRef.value = true;
+
+      requestAnimationFrame(() => {
+        // Bail out if a later instance switch has invalidated this restore.
+        if (this.instanceId() !== currentId) {
+          this.isRestoringRef.value = false;
+          return;
+        }
+        const viewport = this.getViewportElement();
+        if (viewport) {
+          this.applyScrollRestore(viewport, targetPosition);
+        }
+        this.isRestoringRef.value = false;
+      });
     });
 
     // Auto-scroll to bottom when new messages arrive (only if user hasn't scrolled up)
@@ -316,6 +403,25 @@ export class OutputStreamComponent {
   }
 
   /**
+   * Apply a captured scroll-restore to a viewport. Either snaps to
+   * `targetPosition` (when we have a saved scroll for this instance) or
+   * scrolls to the bottom (the default for never-visited instances).
+   * Also updates the scroll-button visibility signals to match.
+   */
+  private applyScrollRestore(viewport: HTMLElement, targetPosition: number | undefined): void {
+    if (targetPosition !== undefined) {
+      viewport.scrollTop = targetPosition;
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      this.userScrolledUpRef.value = distanceFromBottom > 100;
+      this.showScrollToTop.set(targetPosition > 50);
+      this.showScrollToBottom.set(distanceFromBottom > 50);
+    } else {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+  }
+
+  /**
    * Setup scroll event listener to detect user scrolling.
    * Returns the element and bound listener so the caller can remove it on destroy.
    * Delegates to OutputScrollService.
@@ -330,6 +436,7 @@ export class OutputStreamComponent {
         showScrollToBottom: this.showScrollToBottom,
         scrollPositions: this.scrollPositions,
         userScrolledUp: this.userScrolledUpRef,
+        isRestoring: this.isRestoringRef,
       },
       () => this.instanceId(),
       () => this.messages(),

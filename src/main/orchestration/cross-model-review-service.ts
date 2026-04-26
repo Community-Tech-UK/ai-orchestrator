@@ -27,6 +27,7 @@ import type {
   ReviewVerdict,
   CrossModelReviewStatus,
 } from '../../shared/types/cross-model-review.types';
+import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-concerns';
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
 
 const logger = getLogger('CrossModelReviewService');
@@ -489,20 +490,7 @@ export class CrossModelReviewService extends EventEmitter {
 
   private detectDisagreement(reviews: ReviewResult[]): boolean {
     if (reviews.length === 0) return false;
-    if (reviews.some(r => r.overallVerdict !== 'APPROVE')) return true;
-    for (const review of reviews) {
-      const allScores = [
-        review.scores.correctness?.score,
-        review.scores.completeness?.score,
-        review.scores.security?.score,
-        review.scores.consistency?.score,
-        review.scores.feasibility?.score,
-      ].filter((s): s is number => s !== undefined);
-      if (allScores.some(s => s === 1)) return true;
-    }
-    const verdicts = new Set(reviews.map(r => r.overallVerdict));
-    if (verdicts.has('APPROVE') && verdicts.has('REJECT')) return true;
-    return false;
+    return reviews.some(reviewResultHasConcerns);
   }
 
   // === Review History ===

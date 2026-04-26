@@ -32,6 +32,7 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import { SidebarHeaderComponent } from './sidebar-header.component';
 import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
+import { SidebarActionsComponent } from './sidebar-actions.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
 
 @Component({
@@ -45,6 +46,7 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
     CommandPaletteComponent,
     FileExplorerComponent,
     SidebarHeaderComponent,
+    SidebarActionsComponent,
     SidebarNavComponent,
     SidebarFooterComponent,
     BrowserPreviewNoticeComponent

@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const consensusMocks = vi.hoisted(() => ({
+  query: vi.fn(),
+}));
 
 // Mock the logger before any imports that transitively pull in Electron's app.getPath
 vi.mock('../logging/logger', () => ({
@@ -10,9 +14,35 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
+vi.mock('./consensus-coordinator', () => ({
+  getConsensusCoordinator: () => ({
+    query: consensusMocks.query,
+  }),
+}));
+
 import { OrchestrationHandler } from './orchestration-handler';
 
+function commandBlock(command: Record<string, unknown>): string {
+  return [
+    ':::ORCHESTRATOR_COMMAND:::',
+    JSON.stringify(command),
+    ':::END_COMMAND:::',
+  ].join('\n');
+}
+
+function responseData(response: string): Record<string, unknown> {
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`No JSON payload found in response: ${response}`);
+  }
+  return JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+}
+
 describe('OrchestrationHandler.processOutput (streaming markers)', () => {
+  beforeEach(() => {
+    consensusMocks.query.mockReset();
+  });
+
   it('emits a user-action request when the marker block is split across chunks', () => {
     const orchestration = new OrchestrationHandler();
     orchestration.registerInstance('i-1', '/tmp', null);
@@ -108,5 +138,75 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       'Which panel first?',
       'Do you prefer tabs or sections?',
     ]);
+  });
+
+  it('reports in-flight consensus queries through active work and get_children', async () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-5', '/tmp', null);
+
+    const injectedResponses: string[] = [];
+    orchestration.on('inject-response', (_instanceId, response) => {
+      injectedResponses.push(response);
+    });
+    orchestration.on('get-children', (_parentId, callback) => {
+      callback([]);
+    });
+
+    let resolveQuery!: (value: unknown) => void;
+    const queryPromise = new Promise((resolve) => {
+      resolveQuery = resolve;
+    });
+    consensusMocks.query.mockReturnValueOnce(queryPromise);
+
+    orchestration.processOutput('i-5', commandBlock({
+      action: 'consensus_query',
+      question: 'Should we use this implementation?',
+      providers: ['gemini', 'copilot'],
+    }));
+
+    expect(orchestration.hasActiveWork('i-5')).toBe(true);
+
+    orchestration.processOutput('i-5', commandBlock({ action: 'get_children' }));
+
+    const getChildrenResponse = injectedResponses.find((response) =>
+      response.includes('Action: get_children')
+    );
+    expect(getChildrenResponse).toBeDefined();
+    expect(responseData(getChildrenResponse!)).toMatchObject({
+      children: [],
+      completedChildIds: [],
+      activeConsensusQueries: 1,
+    });
+
+    resolveQuery({
+      consensus: 'Use the implementation with the noted safeguards.',
+      agreement: 1,
+      responses: [
+        {
+          provider: 'gemini',
+          content: 'Use it.',
+          success: true,
+          durationMs: 10,
+        },
+      ],
+      dissent: [],
+      edgeCases: [],
+      totalDurationMs: 10,
+      totalEstimatedCost: 0,
+      successCount: 1,
+      failureCount: 0,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(orchestration.hasActiveWork('i-5')).toBe(false);
+    const consensusResponses = injectedResponses.filter((response) =>
+      response.includes('Action: consensus_query')
+    );
+    expect(responseData(consensusResponses.at(-1)!)).toMatchObject({
+      status: 'complete',
+      activeConsensusQueries: 0,
+      successCount: 1,
+      failureCount: 0,
+    });
   });
 });

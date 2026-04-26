@@ -3,7 +3,7 @@
  * Modeled after the Claude desktop app settings layout.
  */
 
-import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { SettingsStore } from '../../core/state/settings.store';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
@@ -19,6 +19,13 @@ import { ConnectionsSettingsTabComponent } from './connections-settings-tab.comp
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 import { ProviderQuotaSettingsTabComponent } from './provider-quota-settings-tab.component';
+import { McpPageComponent } from '../mcp/mcp-page.component';
+import { HooksPageComponent } from '../hooks/hooks-page.component';
+import { WorktreePageComponent } from '../worktree/worktree-page.component';
+import { SnapshotPageComponent } from '../snapshots/snapshot-page.component';
+import { ArchivePageComponent } from '../archive/archive-page.component';
+import { RemoteConfigPageComponent } from '../remote-config/remote-config-page.component';
+import { ModelsPageComponent } from '../models/models-page.component';
 
 type SettingsTab =
   | 'general'
@@ -33,7 +40,25 @@ type SettingsTab =
   | 'keyboard'
   | 'remote-nodes'
   | 'cli-health'
-  | 'provider-quota';
+  | 'provider-quota'
+  | 'models'
+  | 'mcp'
+  | 'hooks'
+  | 'worktrees'
+  | 'snapshots'
+  | 'archive'
+  | 'remote-config';
+
+/** Tabs whose content is an embedded full-width feature page (no 680px cap). */
+const WIDE_TABS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
+  'models',
+  'mcp',
+  'hooks',
+  'worktrees',
+  'snapshots',
+  'archive',
+  'remote-config',
+]);
 
 interface SettingsNavItem {
   id: SettingsTab;
@@ -50,6 +75,13 @@ const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'orchestration', label: 'Orchestration', group: 'Agents' },
   { id: 'review', label: 'Cross-Model Review', group: 'Agents' },
   { id: 'memory', label: 'Memory', group: 'Agents' },
+  { id: 'models', label: 'Models', group: 'Configuration' },
+  { id: 'mcp', label: 'MCP Servers', group: 'Configuration' },
+  { id: 'hooks', label: 'Hooks', group: 'Configuration' },
+  { id: 'worktrees', label: 'Worktrees', group: 'Configuration' },
+  { id: 'snapshots', label: 'Snapshots', group: 'Configuration' },
+  { id: 'archive', label: 'Archive', group: 'Configuration' },
+  { id: 'remote-config', label: 'Remote Config', group: 'Configuration' },
   { id: 'cli-health', label: 'CLI Health', group: 'Advanced' },
   { id: 'provider-quota', label: 'Provider Quota', group: 'Advanced' },
   { id: 'remote-nodes', label: 'Remote Nodes', group: 'Advanced' },
@@ -73,7 +105,14 @@ const NAV_ITEMS: SettingsNavItem[] = [
     ConnectionsSettingsTabComponent,
     RemoteNodesSettingsTabComponent,
     CliHealthSettingsTabComponent,
-    ProviderQuotaSettingsTabComponent
+    ProviderQuotaSettingsTabComponent,
+    McpPageComponent,
+    HooksPageComponent,
+    WorktreePageComponent,
+    SnapshotPageComponent,
+    ArchivePageComponent,
+    RemoteConfigPageComponent,
+    ModelsPageComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -115,8 +154,8 @@ const NAV_ITEMS: SettingsNavItem[] = [
       </aside>
 
       <!-- Main content area -->
-      <main class="settings-content">
-        <div class="settings-body">
+      <main class="settings-content" [class.wide]="isWideTab()">
+        <div class="settings-body" [class.wide]="isWideTab()">
           @switch (activeTab()) {
             @case ('general') {
               <app-general-settings-tab />
@@ -156,6 +195,27 @@ const NAV_ITEMS: SettingsNavItem[] = [
             }
             @case ('provider-quota') {
               <app-provider-quota-settings-tab />
+            }
+            @case ('models') {
+              <app-models-page />
+            }
+            @case ('mcp') {
+              <app-mcp-page />
+            }
+            @case ('hooks') {
+              <app-hooks-page />
+            }
+            @case ('worktrees') {
+              <app-worktree-page />
+            }
+            @case ('snapshots') {
+              <app-snapshot-page />
+            }
+            @case ('archive') {
+              <app-archive-page />
+            }
+            @case ('remote-config') {
+              <app-remote-config-page />
             }
           }
         </div>
@@ -258,8 +318,17 @@ const NAV_ITEMS: SettingsNavItem[] = [
       padding: 2rem 2.5rem;
     }
 
+    .settings-content.wide {
+      padding: 0;
+    }
+
     .settings-body {
       max-width: 680px;
+    }
+
+    .settings-body.wide {
+      max-width: none;
+      height: 100%;
     }
   `]
 })
@@ -271,6 +340,7 @@ export class SettingsComponent {
   closeDialog = output<void>();
 
   activeTab = signal<SettingsTab>('general');
+  readonly isWideTab = computed(() => WIDE_TABS.has(this.activeTab()));
 
   readonly navItems = NAV_ITEMS;
   readonly ungroupedItems = NAV_ITEMS.filter(i => !i.group);

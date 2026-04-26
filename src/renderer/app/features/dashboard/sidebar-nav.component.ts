@@ -177,59 +177,14 @@ const NAV_GROUPS: NavGroup[] = [
         icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>'
       },
       {
-        label: 'Security',
-        route: '/security',
-        icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
-      }
-    ]
-  },
-  {
-    label: 'Configuration',
-    items: [
-      {
-        label: 'Models',
-        route: '/models',
-        icon: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05"/><path d="M12 22.08V12"/>'
-      },
-      {
-        label: 'MCP Servers',
-        route: '/mcp',
-        icon: '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>'
-      },
-      {
-        label: 'Plugins',
-        route: '/plugins',
-        icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>'
-      },
-      {
-        label: 'Hooks',
-        route: '/hooks',
-        icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'
-      },
-      {
-        label: 'Worktrees',
-        route: '/worktrees',
-        icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
-      },
-      {
-        label: 'Remote Config',
-        route: '/remote-config',
-        icon: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>'
-      },
-      {
-        label: 'Snapshots',
-        route: '/snapshots',
-        icon: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>'
-      },
-      {
         label: 'Replay',
         route: '/replay',
         icon: '<path d="M4 4v16"/><path d="M20 4v16"/><path d="M8 8l8 4-8 4z"/>'
       },
       {
-        label: 'Archive',
-        route: '/archive',
-        icon: '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>'
+        label: 'Security',
+        route: '/security',
+        icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
       }
     ]
   }

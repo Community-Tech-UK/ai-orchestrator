@@ -55,6 +55,13 @@ export interface StuckDetectorOptions {
    * running Agent subagents, long bash commands).
    */
   isProcessAlive?: (instanceId: string) => boolean;
+  /**
+   * Callback to check whether work outside the provider process is still
+   * actively handling this instance's turn. Examples include orchestration
+   * children and consensus queries. While true, silence from the parent
+   * provider process is expected and should not produce stuck warnings.
+   */
+  hasExternalActivity?: (instanceId: string) => boolean;
 }
 
 interface ProcessTracker {
@@ -73,11 +80,13 @@ export class StuckProcessDetector extends EventEmitter {
   private trackers = new Map<string, ProcessTracker>();
   private checkInterval: NodeJS.Timeout | null = null;
   private isProcessAlive: ((instanceId: string) => boolean) | undefined;
+  private hasExternalActivity: ((instanceId: string) => boolean) | undefined;
   private lastCheckTime = Date.now();
 
   constructor(options?: StuckDetectorOptions) {
     super();
     this.isProcessAlive = options?.isProcessAlive;
+    this.hasExternalActivity = options?.hasExternalActivity;
     this.checkInterval = setInterval(() => this.checkAll(), CHECK_INTERVAL_MS);
     if (this.checkInterval.unref) this.checkInterval.unref();
     registerCleanup(() => this.shutdown());
@@ -165,6 +174,14 @@ export class StuckProcessDetector extends EventEmitter {
 
       const config = TIMEOUTS[tracker.instanceState];
       if (!config) continue;
+
+      if (this.hasExternalActivity?.(instanceId)) {
+        tracker.lastOutputAt = now;
+        tracker.softWarningEmitted = false;
+        tracker.interactivePromptWarningEmitted = false;
+        tracker.aliveDeferrals = 0;
+        continue;
+      }
 
       const elapsed = now - tracker.lastOutputAt;
 

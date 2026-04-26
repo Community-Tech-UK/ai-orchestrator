@@ -96,6 +96,7 @@ export class InstanceListComponent {
   filterText = signal('');
   statusFilter = signal<string>('all');
   locationFilter = signal<'all' | 'local' | 'remote'>('all');
+  filtersOpen = signal(false);
   collapsedIds = signal<Set<string>>(new Set());
   collapsedProjectKeys = signal<Set<string>>(new Set());
   rootInstanceOrder = signal<string[]>(this.loadOrder());
@@ -105,6 +106,11 @@ export class InstanceListComponent {
   preferredEditorLabel = signal('Editor');
   lastVisitedHistoryThreadId = signal<string | null>(null);
   selectedId = this.store.selectedInstanceId;
+  hasActiveFilters = computed(() =>
+    this.statusFilter() !== 'all'
+      || this.locationFilter() !== 'all'
+      || this.historySortMode() !== 'last-interacted'
+  );
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
   private restoreSelectionRequestId = 0;
@@ -766,24 +772,39 @@ export class InstanceListComponent {
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
-    if (!this.openProjectMenuKey()) {
-      return;
+    const target = event.target;
+    const targetEl = target instanceof Element ? target : null;
+
+    if (this.filtersOpen() && (!targetEl || !targetEl.closest('.filters-anchor'))) {
+      this.filtersOpen.set(false);
     }
 
-    const target = event.target;
-    if (!(target instanceof Element) || !target.closest('.project-menu-anchor')) {
+    if (this.openProjectMenuKey() && (!targetEl || !targetEl.closest('.project-menu-anchor'))) {
       this.closeProjectMenu({ restoreFocus: false });
     }
   }
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || !this.openProjectMenuKey()) {
+    if (event.key !== 'Escape') {
       return;
     }
 
-    event.preventDefault();
-    this.closeProjectMenu();
+    if (this.filtersOpen()) {
+      event.preventDefault();
+      this.filtersOpen.set(false);
+      return;
+    }
+
+    if (this.openProjectMenuKey()) {
+      event.preventDefault();
+      this.closeProjectMenu();
+    }
+  }
+
+  toggleFiltersPopover(event: MouseEvent): void {
+    event.stopPropagation();
+    this.filtersOpen.update((open) => !open);
   }
 
   onProjectMenuKeyDown(event: KeyboardEvent): void {

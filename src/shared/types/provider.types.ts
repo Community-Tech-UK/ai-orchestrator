@@ -191,6 +191,11 @@ export const COPILOT_MODELS = {
   GPT55_MINI: 'gpt-5.5-mini',
   GPT5_MINI: 'gpt-5-mini',
   GPT41: 'gpt-4.1',
+  GEMINI_3_1_PRO: GOOGLE_MODELS.GEMINI_3_1_PRO,
+  GEMINI_3_PRO: GOOGLE_MODELS.GEMINI_3_PRO,
+  GEMINI_3_FLASH: GOOGLE_MODELS.GEMINI_3_FLASH,
+  GEMINI_25_PRO: GOOGLE_MODELS.GEMINI_25_PRO,
+  GEMINI_25_FLASH: GOOGLE_MODELS.GEMINI_25_FLASH,
 } as const;
 
 /**
@@ -310,6 +315,11 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced' },
+    { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
+    { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
+    { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced' },
+    { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
+    { id: COPILOT_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },
     { id: COPILOT_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced' },
     { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'balanced' },
@@ -351,6 +361,48 @@ function normalizeProviderModelNamespace(provider: string): string {
   }
 }
 
+function modelAliasKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\bpreview\b/g, '')
+    .replace(/\blatest\b/g, '')
+    .replace(/\blet\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Normalize a human-readable model name to the provider's canonical model ID.
+ *
+ * Unknown dynamic model IDs intentionally pass through unchanged, which keeps
+ * fast-moving providers like Copilot and Cursor usable before the static list is
+ * updated.
+ */
+export function normalizeModelAliasForProvider(
+  provider: string,
+  modelId?: string | null
+): string | undefined {
+  const trimmed = modelId?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const normalizedProvider = normalizeProviderModelNamespace(provider);
+  const providerModels = getModelsForProvider(normalizedProvider);
+  const exact = providerModels.find((model) => model.id === trimmed);
+  if (exact) {
+    return exact.id;
+  }
+
+  const requestedKey = modelAliasKey(trimmed);
+  const matched = providerModels.find((model) => {
+    const idKey = modelAliasKey(model.id);
+    const nameKey = modelAliasKey(model.name);
+    return requestedKey === idKey || requestedKey === nameKey;
+  });
+
+  return matched?.id ?? trimmed;
+}
+
 /**
  * Return the preferred UI/default model for a provider.
  * Prefers the first model in the static provider list, then falls back to the
@@ -376,7 +428,7 @@ export function normalizeModelForProvider(
   fallbackModel?: string
 ): string | undefined {
   const normalizedProvider = normalizeProviderModelNamespace(provider);
-  const normalizedModel = modelId?.trim();
+  const normalizedModel = normalizeModelAliasForProvider(normalizedProvider, modelId);
   const fallback = fallbackModel ?? getPrimaryModelForProvider(normalizedProvider);
 
   if (!normalizedModel) {

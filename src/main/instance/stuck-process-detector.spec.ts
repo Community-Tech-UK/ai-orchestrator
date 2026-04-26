@@ -220,6 +220,45 @@ describe('StuckProcessDetector', () => {
     });
   });
 
+  describe('external activity suppression', () => {
+    let externalDetector: StuckProcessDetector;
+    const activeSet = new Set<string>();
+
+    beforeEach(() => {
+      externalDetector = new StuckProcessDetector({
+        hasExternalActivity: (id) => activeSet.has(id),
+      });
+    });
+
+    afterEach(() => {
+      externalDetector.shutdown();
+      activeSet.clear();
+    });
+
+    it('does not emit stuck events while external orchestration work is active', () => {
+      const softHandler = vi.fn();
+      const hardHandler = vi.fn();
+      externalDetector.on('process:suspect-stuck', softHandler);
+      externalDetector.on('process:stuck', hardHandler);
+      externalDetector.startTracking('inst-1');
+      externalDetector.updateState('inst-1', 'generating');
+      activeSet.add('inst-1');
+
+      vi.advanceTimersByTime(250_000);
+
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).not.toHaveBeenCalled();
+
+      activeSet.delete('inst-1');
+      vi.advanceTimersByTime(130_000);
+
+      expect(softHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
+      );
+      expect(hardHandler).not.toHaveBeenCalled();
+    });
+  });
+
   describe('sleep/wake detection', () => {
     // Sleep detection requires a large wall-clock gap between checkAll() calls.
     // Fake timers fire intervals incrementally (no gap), so we invoke checkAll()

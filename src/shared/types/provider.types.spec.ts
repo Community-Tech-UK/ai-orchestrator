@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CLAUDE_MODELS,
+  COPILOT_MODELS,
   PROVIDER_MODEL_LIST,
   getProviderModelContextWindow,
+  normalizeModelAliasForProvider,
+  normalizeModelForProvider,
 } from './provider.types';
 
 describe('provider type helpers', () => {
@@ -46,5 +49,27 @@ describe('provider model lists', () => {
 
     expect(claudeModels).toContain(CLAUDE_MODELS.SONNET_1M);
     expect(claudeModels).toContain(CLAUDE_MODELS.OPUS_1M);
+  });
+
+  it('exposes Gemini models through the Copilot fallback model list', () => {
+    const copilotModels = PROVIDER_MODEL_LIST['copilot'].map((model) => model.id);
+
+    expect(copilotModels).toContain(COPILOT_MODELS.GEMINI_3_1_PRO);
+    expect(copilotModels).toContain(COPILOT_MODELS.GEMINI_25_PRO);
+  });
+});
+
+describe('model alias normalization', () => {
+  it('normalizes human-readable Copilot model names to canonical IDs', () => {
+    expect(normalizeModelAliasForProvider('copilot', 'Gemini 3.1 Pro')).toBe(
+      COPILOT_MODELS.GEMINI_3_1_PRO
+    );
+    expect(normalizeModelForProvider('copilot', 'gemini 3.1 pro')).toBe(
+      COPILOT_MODELS.GEMINI_3_1_PRO
+    );
+  });
+
+  it('preserves unknown dynamic Copilot model IDs', () => {
+    expect(normalizeModelForProvider('copilot', 'grok-4-next')).toBe('grok-4-next');
   });
 });

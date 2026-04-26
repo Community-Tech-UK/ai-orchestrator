@@ -29,6 +29,28 @@ export const routes: Routes = [
       ),
   },
 
+  // Chat Search
+  {
+    path: 'chat-search',
+    loadComponent: () =>
+      import('./features/chat-search/chat-search-page.component').then(
+        (m) => m.ChatSearchPageComponent
+      ),
+  },
+
+  // Automations (placeholder — feature under construction)
+  {
+    path: 'automations',
+    loadComponent: () =>
+      import('./features/coming-soon/coming-soon-page.component').then(
+        (m) => m.ComingSoonPageComponent
+      ),
+    data: {
+      title: 'Automations',
+      subtitle: 'Schedule and trigger recurring agent runs.',
+    },
+  },
+
   // Phase 6: Workflows
   {
     path: 'workflows',

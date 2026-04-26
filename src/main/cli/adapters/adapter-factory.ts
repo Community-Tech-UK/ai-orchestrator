@@ -232,7 +232,10 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
  */
 export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapter {
   const codexConfig: CodexCliConfig = {
-    ephemeral: options.ephemeral,
+    // AI Orchestrator owns its own session/history surface. Codex threads
+    // created here should not leak into the standalone Codex desktop app
+    // unless a caller explicitly opts out.
+    ephemeral: options.ephemeral ?? true,
     sessionId: options.sessionId,
     resume: options.resume,
     workingDir: options.workingDirectory,
@@ -287,7 +290,18 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     command: launch.command,
-    args: [...launch.argsPrefix, '--acp', '--stdio', ...modelArgs],
+    args: [
+      ...launch.argsPrefix,
+      '--acp',
+      '--stdio',
+      '--no-auto-update',
+      '--log-level',
+      'none',
+      '--allow-all-tools',
+      '--allow-all-paths',
+      '--allow-all-urls',
+      ...modelArgs,
+    ],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
@@ -295,6 +309,9 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,
+    requestTimeoutMs: 20_000,
+    concurrencyAcquireTimeoutMs: 30_000,
+    stallWarningMs: options.childId ? 90_000 : undefined,
     // Wire the permission registry so Copilot's `session/request_permission`
     // RPCs can be auto-timed-out and surfaced to the UI. Without this,
     // a permission prompt from Copilot would block the `session/prompt`

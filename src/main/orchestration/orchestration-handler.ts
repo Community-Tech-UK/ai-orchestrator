@@ -150,6 +150,8 @@ export class OrchestrationHandler extends EventEmitter {
   private userActionWaiters = new Map<string, (approved: boolean, selectedOption?: string) => void>();
   /** Tracks completed children per parent: parentId → Set<childId> */
   private completedChildrenIds = new Map<string, Set<string>>();
+  /** Tracks active in-process consensus queries per instance. */
+  private activeConsensusQueries = new Map<string, number>();
   /** Tracks consecutive failed children per parent for spawn-failure backoff */
   private consecutiveFailures = new Map<string, number>();
   private static readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -196,6 +198,7 @@ export class OrchestrationHandler extends EventEmitter {
     this.recentCommands.delete(instanceId);
     this.consecutiveFailures.delete(instanceId);
     this.completedChildrenIds.delete(instanceId);
+    this.activeConsensusQueries.delete(instanceId);
 
     // Best-effort cleanup: drop any pending user actions for this instance.
     // Otherwise they can linger if an instance is terminated while awaiting input.
@@ -238,6 +241,40 @@ export class OrchestrationHandler extends EventEmitter {
   getCompletedChildIds(parentId: string): string[] {
     const completed = this.completedChildrenIds.get(parentId);
     return completed ? Array.from(completed) : [];
+  }
+
+  /**
+   * Get active consensus query count for an instance.
+   */
+  getActiveConsensusQueryCount(instanceId: string): number {
+    return this.activeConsensusQueries.get(instanceId) ?? 0;
+  }
+
+  /**
+   * Whether orchestration is currently performing work for this instance.
+   */
+  hasActiveWork(instanceId: string): boolean {
+    const ctx = this.contexts.get(instanceId);
+    return Boolean(
+      (ctx && ctx.childrenIds.length > 0) ||
+      this.getActiveConsensusQueryCount(instanceId) > 0
+    );
+  }
+
+  private beginConsensusQuery(instanceId: string): number {
+    const next = this.getActiveConsensusQueryCount(instanceId) + 1;
+    this.activeConsensusQueries.set(instanceId, next);
+    return next;
+  }
+
+  private endConsensusQuery(instanceId: string): number {
+    const next = Math.max(0, this.getActiveConsensusQueryCount(instanceId) - 1);
+    if (next === 0) {
+      this.activeConsensusQueries.delete(instanceId);
+    } else {
+      this.activeConsensusQueries.set(instanceId, next);
+    }
+    return next;
   }
 
   /**
@@ -417,7 +454,7 @@ export class OrchestrationHandler extends EventEmitter {
   private computeCommandSignature(command: OrchestratorCommand): string {
     switch (command.action) {
       case 'spawn_child':
-        return `spawn_child:${command.task.slice(0, 100)}:${command.name || ''}:${command.provider || ''}`;
+        return `spawn_child:${command.task.slice(0, 100)}:${command.name || ''}:${command.provider || ''}:${command.model || ''}`;
       case 'message_child':
         return `message_child:${command.childId}:${command.message.slice(0, 80)}`;
       case 'terminate_child':
@@ -518,7 +555,11 @@ export class OrchestrationHandler extends EventEmitter {
 
   private handleGetChildren(parentId: string): void {
     this.emit('get-children', parentId, (children: ChildInfo[]) => {
-      this.injectResponse(parentId, 'get_children', true, { children });
+      this.injectResponse(parentId, 'get_children', true, {
+        children,
+        completedChildIds: this.getCompletedChildIds(parentId),
+        activeConsensusQueries: this.getActiveConsensusQueryCount(parentId),
+      });
     });
   }
 
@@ -1111,9 +1152,19 @@ export class OrchestrationHandler extends EventEmitter {
     const ctx = this.contexts.get(instanceId);
     if (!ctx) return;
 
+    let consensusQueryActive = true;
+    const finishConsensusQuery = (): void => {
+      if (!consensusQueryActive) return;
+      consensusQueryActive = false;
+      this.endConsensusQuery(instanceId);
+    };
+
     // Acknowledge the query immediately
+    const activeConsensusQueries = this.beginConsensusQuery(instanceId);
     this.injectResponse(instanceId, 'consensus_query', true, {
       status: 'dispatching',
+      activeConsensusQueries,
+      providersRequested: command.providers ?? [],
       message: `Consensus query started. Consulting ${command.providers?.length || 'all available'} providers...`
     });
 
@@ -1151,13 +1202,16 @@ export class OrchestrationHandler extends EventEmitter {
         ? result.consensus
         : `Consensus query failed: all ${result.failureCount} provider(s) errored. ${providerSummary}`;
 
+      finishConsensusQuery();
       this.injectResponse(instanceId, 'consensus_query', anyProviderSucceeded, {
+        status: anyProviderSucceeded ? 'complete' : 'failed',
         message,
         agreement: result.agreement,
         providers: providerSummary,
         successCount: result.successCount,
         failureCount: result.failureCount,
         totalDurationMs: result.totalDurationMs,
+        activeConsensusQueries: this.getActiveConsensusQueryCount(instanceId),
         dissent: result.dissent.length > 0 ? result.dissent : undefined,
         edgeCases: result.edgeCases.length > 0 ? result.edgeCases : undefined,
         // Surface per-provider error reasons so the parent can see WHY each
@@ -1174,10 +1228,15 @@ export class OrchestrationHandler extends EventEmitter {
               })),
       });
     } catch (error) {
+      finishConsensusQuery();
       this.injectResponse(instanceId, 'consensus_query', false, {
+        status: 'failed',
+        activeConsensusQueries: this.getActiveConsensusQueryCount(instanceId),
         error: error instanceof Error ? error.message : String(error),
         message: `Consensus query failed: ${error instanceof Error ? error.message : String(error)}`
       });
+    } finally {
+      finishConsensusQuery();
     }
   }
 

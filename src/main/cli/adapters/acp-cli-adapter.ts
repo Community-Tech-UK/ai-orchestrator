@@ -181,6 +181,10 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   /** Per-method JSON-RPC timeout override for non-prompt requests.
    *  Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. */
   requestTimeoutMs?: number;
+  /** Maximum time to wait for a provider concurrency slot during startup.
+   *  Without this, a stale held slot can leave a child permanently
+   *  `initializing` before the ACP process is even spawned. */
+  concurrencyAcquireTimeoutMs?: number;
   /** Timeout for `session/prompt` RPCs. Prompt turns are long-running so
    *  this is intentionally looser than `requestTimeoutMs`. Defaults to
    *  {@link DEFAULT_PROMPT_TIMEOUT_MS}. */
@@ -368,7 +372,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (this.acpConfig.concurrencyLimiter && this.acpConfig.concurrencyKey) {
       const key = this.acpConfig.concurrencyKey;
       try {
-        this.concurrencyRelease = await this.acpConfig.concurrencyLimiter.acquire(key);
+        this.concurrencyRelease = await this.acpConfig.concurrencyLimiter.acquire(key, {
+          timeoutMs: this.acpConfig.concurrencyAcquireTimeoutMs,
+        });
       } catch (error) {
         logger.warn('ACP concurrency acquire failed; spawning without gate', {
           adapter: this.getName(),
@@ -1554,7 +1560,21 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.currentPromptRequestId = id;
     }
 
-    await this.safeStdinWrite(`${ndjsonSafeStringify(request)}\n`);
+    try {
+      await this.writeAcpLine(`${ndjsonSafeStringify(request)}\n`, method);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      const pending = this.pendingRequests.get(id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(id);
+        pending.reject(err);
+      }
+      if (this.currentPromptRequestId === id) {
+        this.currentPromptRequestId = null;
+      }
+      throw err;
+    }
     return responsePromise;
   }
 
@@ -1564,7 +1584,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       method,
       ...(params !== undefined ? { params } : {}),
     };
-    await this.safeStdinWrite(`${ndjsonSafeStringify(notification)}\n`);
+    await this.writeAcpLine(`${ndjsonSafeStringify(notification)}\n`, method);
   }
 
   private async sendResponse(id: AcpJsonRpcId, result: unknown): Promise<void> {
@@ -1573,7 +1593,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       id,
       result,
     };
-    await this.safeStdinWrite(`${ndjsonSafeStringify(response)}\n`);
+    await this.writeAcpLine(`${ndjsonSafeStringify(response)}\n`, `response:${String(id)}`);
   }
 
   private async sendErrorResponse(id: AcpJsonRpcId | null, code: number, message: string): Promise<void> {
@@ -1582,6 +1602,13 @@ export class AcpCliAdapter extends BaseCliAdapter {
       id,
       error: { code, message },
     };
-    await this.safeStdinWrite(`${ndjsonSafeStringify(response)}\n`);
+    await this.writeAcpLine(`${ndjsonSafeStringify(response)}\n`, `error-response:${String(id)}`);
+  }
+
+  private async writeAcpLine(line: string, label: string): Promise<void> {
+    if (!this.isRealPipe()) {
+      throw new Error(`ACP agent stdin closed before '${label}' could be sent.`);
+    }
+    await this.safeStdinWrite(line);
   }
 }

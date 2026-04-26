@@ -1000,6 +1000,11 @@ export class InstanceLifecycleManager extends EventEmitter {
     // Emit creation event immediately with 'initializing' status so the UI
     // can render the instance card without waiting for the heavy init below.
     logger.debug('Emitting instance:created event (initializing)', { instanceId: instance.id });
+    this.deps.registerOrchestration(
+      instance.id,
+      instance.workingDirectory,
+      instance.parentId
+    );
     this.emit('created', this.deps.serializeForIpc(instance));
 
     // Initial prompts never flow through InstanceManager.sendInput(), so kick
@@ -1391,12 +1396,6 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
 
-        // Register with orchestration handler
-        this.deps.registerOrchestration(
-          instance.id,
-          instance.workingDirectory,
-          instance.parentId
-        );
       } catch (error) {
         if (!signal.aborted) {
           if (instance.status !== 'failed') {

@@ -321,6 +321,7 @@ export class ConsensusCoordinator extends EventEmitter {
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: string[] = [];
+      let latestAccumulatedContent = '';
       let settled = false;
 
       const settle = (result: string | Error) => {
@@ -345,16 +346,36 @@ export class ConsensusCoordinator extends EventEmitter {
         }
       }, 1000);
 
-      const stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
+      const stopObserving = observeAdapterRuntimeEvents(adapter, (runtimeEvent) => {
+        const { event } = runtimeEvent;
         switch (event.kind) {
           case 'output':
             if ((event.messageType === undefined || event.messageType === 'assistant') && event.content) {
-              chunks.push(event.content);
+              const accumulatedContent = event.metadata?.['accumulatedContent'];
+              if (typeof accumulatedContent === 'string') {
+                latestAccumulatedContent = accumulatedContent;
+              } else {
+                chunks.push(event.content);
+              }
             }
             break;
           case 'status':
-            if (event.status === 'idle' && chunks.length > 0) {
-              settle(chunks.join(''));
+            if (event.status === 'idle' && (latestAccumulatedContent || chunks.length > 0)) {
+              settle(latestAccumulatedContent || chunks.join(''));
+            }
+            break;
+          case 'complete':
+            {
+              const rawPayload = runtimeEvent.rawPayload;
+              const responseContent =
+                rawPayload &&
+                typeof rawPayload === 'object' &&
+                'content' in rawPayload &&
+                typeof rawPayload.content === 'string'
+                  ? rawPayload.content
+                  : '';
+              const content = responseContent || latestAccumulatedContent || chunks.join('');
+              settle(content || new Error('Provider completed with no output'));
             }
             break;
           case 'error':
@@ -363,8 +384,8 @@ export class ConsensusCoordinator extends EventEmitter {
           case 'exit':
             // Safety net: adapters emit 'idle' for normal completion, but if the
             // underlying process crashes/terminates we still need to settle.
-            if (chunks.length > 0) {
-              settle(chunks.join(''));
+            if (latestAccumulatedContent || chunks.length > 0) {
+              settle(latestAccumulatedContent || chunks.join(''));
             } else {
               settle(new Error(`Provider process exited with code ${event.code} and no output`));
             }
@@ -423,7 +444,17 @@ export class ConsensusCoordinator extends EventEmitter {
     const failed = responses.filter(r => !r.success);
 
     if (successful.length === 0) {
-      return this.emptyResult(startTime, 'All providers failed');
+      return {
+        consensus: 'Consensus query failed: All providers failed',
+        agreement: 0,
+        responses,
+        dissent: [],
+        edgeCases: [],
+        totalDurationMs: Date.now() - startTime,
+        totalEstimatedCost: responses.reduce((sum, r) => sum + (r.estimatedCost || 0), 0),
+        successCount: 0,
+        failureCount: failed.length,
+      };
     }
 
     // For 'all' strategy, just return raw responses without synthesis

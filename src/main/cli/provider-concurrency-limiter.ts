@@ -116,7 +116,7 @@ export class ProviderConcurrencyLimiter {
    * Idempotent release: calling the returned function twice is a no-op the
    * second time (defensive — the real invariant is "exactly once").
    */
-  async acquire(key: string): Promise<() => void> {
+  async acquire(key: string, options?: { timeoutMs?: number }): Promise<() => void> {
     const slot = this.getOrCreateSlot(key);
 
     if (slot.active < slot.limit) {
@@ -138,8 +138,38 @@ export class ProviderConcurrencyLimiter {
 
     // The releaser will bump `slot.active` before calling our resolver, so
     // we inherit an already-counted slot when the promise settles.
-    await new Promise<void>((resolve) => {
-      slot.waiters.push(resolve);
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+
+      const waiter = (): void => {
+        if (settled) return;
+        settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        resolve();
+      };
+
+      slot.waiters.push(waiter);
+
+      const timeoutMs = options?.timeoutMs;
+      if (typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const index = slot.waiters.indexOf(waiter);
+          if (index >= 0) {
+            slot.waiters.splice(index, 1);
+          }
+          reject(new Error(
+            `Timed out waiting ${timeoutMs}ms for '${key}' provider concurrency slot`
+          ));
+        }, timeoutMs);
+        if (typeof timeout.unref === 'function') {
+          timeout.unref();
+        }
+      }
     });
 
     logger.debug('Acquired provider slot after waiting', {
