@@ -532,7 +532,7 @@ Each croner callback compares `expectedFireTime` against `now()`. If skew exceed
 
 ### Responsibilities
 
-Take `fire(automationId, { trigger })` calls; decide whether to run, queue, or skip; dispatch via `InstanceLifecycleManager` or `WorkflowManager`; record the run; subscribe to completion events; promote queued runs.
+Take `fire(automationId, { trigger })` calls; decide whether to run, queue, or skip; dispatch via `InstanceManager.createInstance()` or via `InstanceManager.createInstance()` + `WorkflowManager.startWorkflow()`; record the run; subscribe to completion events; promote queued runs.
 
 ### Public API
 
@@ -582,7 +582,7 @@ The partial unique indexes from Section 5 catch any race that slips past the rea
 
 ### Action dispatch
 
-The runner runs in the main process and calls `InstanceLifecycleManager` and `WorkflowManager` directly — it does *not* go through the renderer-side IPC schemas. Constraints are on `InstanceCreateConfig` (the type the lifecycle manager accepts), not on `InstanceCreateWithMessagePayloadSchema` (which is only for the renderer's create flow).
+The runner runs in the main process and calls `InstanceManager` (public wrappers `createInstance`/`terminateInstance`) and `WorkflowManager` directly — it does *not* go through the renderer-side IPC schemas. Constraints are on `InstanceCreateConfig` (the type the underlying lifecycle accepts), not on `InstanceCreateWithMessagePayloadSchema` (which is only for the renderer's create flow).
 
 **Pre-flight check** (Section 11.3 #16): if the automation has a `forceNodeId`, the runner verifies the node is reachable *before* calling the lifecycle. The lifecycle's existing behavior is to log a warning and silently fall through to local execution if a forced node is offline (`src/main/instance/instance-lifecycle.ts:424-433`); for unattended automations this is dangerous (creds/paths may only exist on the remote), so the runner short-circuits with a `failed` run instead.
 
@@ -626,11 +626,23 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
       // already-existing instance. Spawn the instance first WITHOUT initialPrompt
       // (the workflow's phase agents drive the conversation), then start the workflow.
       const instance = await this.instanceManager.createInstance(createConfig);
+
+      // CRITICAL: register the run-tracking mapping by instanceId BEFORE calling
+      // startWorkflow(). startWorkflow() emits 'workflow:started' SYNCHRONOUSLY
+      // (workflow-manager.ts:141) before returning, so listeners that key by
+      // executionId would miss the event because we don't have execution.id yet.
+      // Our event handlers look up by execution.instanceId — see below.
+      this.runByInstance.set(instance.id, run.id);
+
       try {
         const exec = this.workflowManager.startWorkflow(instance.id, automation.workflowTemplateId!);
+        // Now that we have execution.id, also register the executionId mapping for
+        // workflow:completed (which only carries the WorkflowExecution, not the instanceId of origin).
+        this.runByExecution.set(exec.id, run.id);
         return { kind: 'workflow', executionId: exec.id, instanceId: instance.id };
       } catch (err) {
-        // Workflow start failed — terminate the orphaned instance so it doesn't linger.
+        // Workflow start failed — clean up tracking + terminate the orphaned instance.
+        this.runByInstance.delete(instance.id);
         await this.instanceManager.terminateInstance(instance.id, true).catch(() => undefined);
         throw err;
       }
@@ -657,52 +669,86 @@ There is no `createInstanceWithMessage` anywhere in the lifecycle hierarchy. The
 | **No agents, gateType='none'** | `workflow:started` (or `workflow:phase-changed`) → **nothing else fires; phase stalls** | `workflow:started` / `workflow:phase-changed` |
 | Any phase with gateType ≠ 'none' | Gate stalls phase indefinitely | **Not allowed in MVP** — form filters templates with any gated phase |
 
-If we only listened to `workflow:agents-completed`, no-agent phases (which the project's built-in templates routinely use as setup/checkpoint phases) would stall the automation immediately. So the runner subscribes to **three** workflow events and uses the same advancement helper for all of them:
+If we only listened to `workflow:agents-completed`, no-agent phases would stall the automation immediately. So the runner subscribes to **three** workflow events and dispatches through a single helper:
 
 ```ts
-const advanceIfPossible = async (execution: WorkflowExecution, phase: WorkflowPhase) => {
-  if (!this.workflowExecutionToRunId.has(execution.id)) return;     // not one of our automations
+// Tracking maps (initialized in initialize()):
+//   runByInstance:  Map<instanceId,    runId>  — set BEFORE startWorkflow()
+//   runByExecution: Map<executionId,   runId>  — set AFTER  startWorkflow() returns
+//   advancingExecutions: Set<executionId>      — reentrancy guard for completePhase()
+
+const findRunIdForEvent = (execution: WorkflowExecution): string | undefined => {
+  // Prefer executionId lookup (set after startWorkflow returns), fall back to
+  // instanceId lookup (set before startWorkflow). The fallback is what makes
+  // the synchronous workflow:started fire reachable.
+  return this.runByExecution.get(execution.id) ?? this.runByInstance.get(execution.instanceId);
+};
+
+const advanceIfPossible = (execution: WorkflowExecution, phase: WorkflowPhase) => {
+  const runId = findRunIdForEvent(execution);
+  if (!runId) return;                                          // not one of our automations
+
   if (phase.gateType !== 'none') {
     // Should not reach here if the form filtered correctly; defensive bailout.
     this.handleWorkflowTerminal(execution.id, 'failed',
       `Workflow phase '${phase.id}' has gate type '${phase.gateType}' which can't run unattended`);
     return;
   }
-  // Skip auto-advance if the phase has agents but they haven't completed yet.
-  // workflow:started/phase-changed fire BEFORE agents run; we let the agents
-  // finish and rely on workflow:agents-completed to advance.
-  if (phase.agents && phase.agents.length > 0) return;
-  try {
-    await deps.workflowManager.completePhase(execution.id);
-  } catch (err) {
-    this.handleWorkflowTerminal(execution.id, 'failed',
-      err instanceof Error ? err.message : String(err));
-  }
+
+  // Skip auto-advance if the phase has agents (we'll wait for workflow:agents-completed).
+  // WorkflowPhase.agents is an OBJECT (`{ count, agentType, prompts, parallel }`), not an array
+  // (workflow.types.ts:36-41); a truthy presence check is the correct guard.
+  if (phase.agents) return;
+
+  // Reentrancy guard: workflow:phase-changed/agents-completed are emitted from inside
+  // completePhase()'s synchronous emit path. Calling completePhase() again synchronously
+  // would re-enter before the previous call has persisted state. Defer with queueMicrotask
+  // and use a per-execution flag so we don't double-fire.
+  if (this.advancingExecutions.has(execution.id)) return;
+  this.advancingExecutions.add(execution.id);
+
+  queueMicrotask(async () => {
+    try {
+      await deps.workflowManager.completePhase(execution.id);
+    } catch (err) {
+      this.handleWorkflowTerminal(execution.id, 'failed',
+        err instanceof Error ? err.message : String(err));
+    } finally {
+      this.advancingExecutions.delete(execution.id);
+    }
+  });
 };
 
 deps.workflowManager.on('workflow:started', ({ execution, template }) => {
-  void advanceIfPossible(execution, template.phases[0]);
+  advanceIfPossible(execution, template.phases[0]);
 });
 
 deps.workflowManager.on('workflow:phase-changed', ({ execution, phase }) => {
-  void advanceIfPossible(execution, phase);
+  advanceIfPossible(execution, phase);
 });
 
 deps.workflowManager.on('workflow:agents-completed', ({ execution, phase }) => {
   // Always advance after agents finish for no-gate phases. Idempotent vs.
-  // workflow:started because that path bails when agents.length > 0.
-  void advanceIfPossible(execution, phase);
+  // workflow:started because that path bails when phase.agents is truthy.
+  advanceIfPossible(execution, phase);
 });
 ```
 
 This lets the runner drive a workflow through any mix of agent / no-agent phases as long as none of them have gates. `workflow:completed` fires from the final `completePhase()` call and terminalizes the run.
+
+**MVP template availability — IMPORTANT**: every existing built-in workflow template (`feature-development`, `issue-implementation`, `pr-review`, `repo-health-audit`) contains at least one non-`none` gate (`completion`/`user_confirmation`/`user_selection`/`user_approval`). The MVP automation form filter therefore lists **zero usable built-in templates** by default. Two consequences:
+
+1. The form's workflow-template dropdown shows **only user-defined templates** that are entirely gate-free. Built-in templates appear in the list disabled, with a tooltip: *"This workflow has '\<gateType\>' phases (e.g. \<phaseId\>) and can't run unattended yet — gated workflow support is planned for Phase 2."*
+2. If the user has no custom no-gate templates, the dropdown shows an empty state with a "Create a custom workflow" link to the workflows page. The workflow action remains in MVP scope but is effectively opt-in via custom templates until Phase 2.
+
+This is honest about the current state without dropping the action type entirely. (Designing a new built-in "automation-friendly" template was considered and deferred — it's a workflow product decision, not an automations one.)
 
 Two consequent Phase-1.10 implementation notes:
 
 - **Form filtering** must inspect *every* phase's `gateType`, not just the first; rejection tooltip lists the offending phase ids.
 - **Template-deletion guard** (Section 11.3 #12) treats automations referencing a template as references regardless of which phase shape is involved.
 
-A future Phase-2 item ("Gated workflow support in automations") would design how user-action-required gates interact with unattended scheduling — likely by surfacing a notification and pausing the run until the user resolves the gate. Out of MVP.
+A future Phase-2 item ("Gated workflow support in automations") would design how user-action-required gates interact with unattended scheduling — likely by surfacing a notification and pausing the run until the user resolves the gate. That work would also unlock the existing built-in templates for automation use.
 
 ### Completion detection
 
@@ -741,6 +787,13 @@ interface RunTrackingState {
 }
 
 private trackingByInstance = new Map<string, RunTrackingState>();
+
+// Workflow run tracking (used by Workflow auto-advance below).
+// runByInstance is set BEFORE startWorkflow() so the synchronous workflow:started
+// fire is reachable; runByExecution is set AFTER startWorkflow() returns.
+private runByInstance = new Map<string, string>();         // instanceId    → runId
+private runByExecution = new Map<string, string>();        // executionId   → runId
+private advancingExecutions = new Set<string>();           // reentrancy guard for completePhase()
 
 initialize(deps: ...): Promise<void> {
   // (1) State changes for terminal failures + the post-output-idle confirmation
@@ -1299,7 +1352,7 @@ User creates a one-time scheduled 5 min from now, closes the app, opens it the n
 |---|---|---|
 | `AutomationStore` | better-sqlite3 (`:memory:`) | — |
 | `AutomationScheduler` | croner, store | runner, powerMonitor, injected `now` |
-| `AutomationRunner` | store, croner | instanceManager (fake EventEmitter), instanceLifecycle, workflowManager, attachmentService |
+| `AutomationRunner` | store, croner | instanceManager (fake EventEmitter exposing `provider:normalized-event`, `instance:event`, `instance:removed` + `createInstance`/`terminateInstance` stubs), workflowManager (fake EventEmitter), attachmentService |
 | `CatchUpCoordinator` | store, croner | runner, settings, injected `now` |
 | IPC handlers | Zod schemas, `validatedHandler` | domain singletons |
 | Renderer store | Angular signals | IPC service |
@@ -1318,7 +1371,7 @@ The clock is injected (`now: () => number`) wherever timing matters. No direct `
 
 ### Integration tests
 
-End-to-end-within-main-process tests wiring real store + croner + fake `instanceLifecycle` + fake `InstanceManager` (real EventEmitter) + fake `WorkflowManager` (real EventEmitter):
+End-to-end-within-main-process tests wiring real store + croner + fake `InstanceManager` (real EventEmitter exposing `createInstance`/`terminateInstance` stubs) + fake `WorkflowManager` (real EventEmitter):
 
 - Create automation, advance mock clock, run inserted, dispatch called
 - Two rapid scheduled fires → first runs, second queues, third skips
@@ -1377,7 +1430,7 @@ npm run test                                   # full suite pre-merge
 | 1.7 | Detail page + run-now + run history |
 | 1.8 | Create/edit form + schedule picker + cron preview |
 | 1.9 | Session-list clock-icon adornment + mark-seen wiring |
-| 1.10 | Workflow action dispatch — **`createInstance` then `WorkflowManager.startWorkflow(instance.id, templateId)`** with rollback on failure + **runner subscription to `workflow:agents-completed` calling `completePhase()` for no-gate phases** + **form filters template dropdown to no-gate templates only (gated templates disabled with tooltip)** + `registerReferenceProbe` wired into `WorkflowManager.removeTemplate()` for the deletion guard |
+| 1.10 | Workflow action dispatch — **`InstanceManager.createInstance` then `WorkflowManager.startWorkflow(instance.id, templateId)`** with rollback on failure + **runner subscriptions to `workflow:started`, `workflow:phase-changed`, and `workflow:agents-completed` driving auto-advance through `completePhase()` for no-gate phases (with reentrancy guard via `queueMicrotask` + per-execution advancing flag)** + `runByInstance` mapping registered BEFORE `startWorkflow()` so the synchronous `workflow:started` event is reachable + **form filters template dropdown to templates with gateType='none' on every phase only (built-in templates all have gates and will appear disabled with a tooltip)** + `registerReferenceProbe` wired into `WorkflowManager.removeTemplate()` for the deletion guard |
 | 1.11 | Manual smoke + accessibility pass + perf check on long lists |
 
 Workflow action is intentionally last because it requires extending `WorkflowManager.removeTemplate()` with the reference-probe pattern (a public-API change that adds risk). The spawn-then-start adapter itself is straightforward; the deletion guard is the bigger touch.
@@ -1473,6 +1526,18 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v5 — 2026-04-26 (post fourth code-review)
+
+User did a fourth deep review against the v4 spec and identified two P1 + two P2 + one P3 issue; all verified and addressed:
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | `workflow:started` is emitted **synchronously** inside `startWorkflow()` (`workflow-manager.ts:141`), so any tracking mapping registered after the call returns misses it; for no-agent first phases nothing else fires and the run stalls | Workflow dispatch now registers `runByInstance.set(instance.id, run.id)` **before** calling `startWorkflow()`. Auto-advance handlers look up by `execution.instanceId` first, falling back to `execution.id` for events that fire after we have the executionId mapping. |
+| P1.B | `phase.agents.length > 0` is a type error — `WorkflowPhase.agents` is `{ count, agentType, prompts, parallel }`, an object not an array (`workflow.types.ts:36-41`) | Auto-advance helper now uses `if (phase.agents) return` (truthy presence check). Comment in spec cites the type definition. |
+| P2.A | The form filter excludes any template with any gated phase, but every existing built-in template (`feature-development`, `issue-implementation`, `pr-review`, `repo-health-audit`) contains at least one non-`none` gate — workflow action would have an empty/disabled dropdown out of the box | Spec now explicit: built-in templates appear in the dropdown disabled with a tooltip explaining the gated phase ids; user-defined gate-free templates are the path. Empty-state with "Create a custom workflow" link. Phase 2 ("Gated workflow support in automations") would unlock the built-ins. |
+| P2.B | Auto-advance can re-enter `completePhase()` synchronously: `workflow:phase-changed` listener can call `completePhase()` while the original `completePhase()` is still inside its emit path, before persistence | `advanceIfPossible()` now uses `queueMicrotask()` to defer the call AND a `Set<executionId>` advancing-guard flag to prevent duplicate scheduling. The flag clears in a `finally` block. |
+| P3 | Stale doc lines: responsibilities (line 535), action dispatch text (line 585), test seams (line 1321), Phase 1.10 row (line 1433) still mentioned `InstanceLifecycleManager` directly or only `workflow:agents-completed` | All four lines updated to reflect v4+v5 reality. |
 
 ### v4 — 2026-04-26 (post third code-review)
 
