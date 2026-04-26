@@ -50,9 +50,13 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
           }
         </span>
         <span class="agent-name">{{ selectedAgent().name }}</span>
-        <span class="dropdown-arrow">{{
-          isOpen() ? '&#9650;' : '&#9660;'
-        }}</span>
+        <span class="dropdown-arrow" aria-hidden="true">
+          @if (isOpen()) {
+            &#9650;
+          } @else {
+            &#9660;
+          }
+        </span>
       </button>
 
       @if (isOpen()) {

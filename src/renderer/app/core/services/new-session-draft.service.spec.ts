@@ -15,6 +15,7 @@ describe('NewSessionDraftService', () => {
     service.setPrompt('Investigate the sidebar state');
     service.setProvider('gemini');
     service.setModel('gemini-2.5-pro');
+    service.setAgentId('plan');
     service.addPendingFolder('/Users/suas/work/orchestrat0r');
     service.addPendingFiles([file]);
 
@@ -24,8 +25,13 @@ describe('NewSessionDraftService', () => {
     expect(service.prompt()).toBe('Investigate the sidebar state');
     expect(service.provider()).toBe('gemini');
     expect(service.model()).toBe('gemini-2.5-pro');
+    expect(service.agentId()).toBe('plan');
     expect(service.pendingFolders()).toEqual(['/Users/suas/work/orchestrat0r']);
     expect(service.pendingFiles()).toEqual([file]);
+
+    service.open(null);
+    expect(service.prompt()).toBe('');
+    expect(service.agentId()).toBe('build');
   });
 
   it('clears the active composer without discarding scoped provider or model choices', () => {

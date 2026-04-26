@@ -74,6 +74,7 @@ export class NewSessionDraftService {
           provider: currentDraft.provider,
           model: this.normalizeDraftModel(currentDraft.provider, currentDraft.model),
           yoloMode: currentDraft.yoloMode,
+          agentId: currentDraft.agentId,
           pendingFolders: [...currentDraft.pendingFolders],
           updatedAt: Date.now(),
         };
@@ -83,6 +84,7 @@ export class NewSessionDraftService {
           provider: null,
           model: null,
           yoloMode: null,
+          agentId: getDefaultAgent().id,
           pendingFolders: [],
         };
         this.pendingFilesByKey.update((filesByKey) => {
