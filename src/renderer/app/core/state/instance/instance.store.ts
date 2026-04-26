@@ -25,6 +25,7 @@ import { InstanceMessagingStore } from './instance-messaging.store';
 
 // Types
 import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
+import type { CreateInstanceWithMessageOptions } from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 
 @Injectable({ providedIn: 'root' })
@@ -493,21 +494,9 @@ export class InstanceStore implements OnDestroy {
 
   /** Create instance and immediately send a message */
   async createInstanceWithMessage(
-    message: string,
-    files?: File[],
-    workingDirectory?: string,
-    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto',
-    model?: string,
-    forceNodeId?: string
+    options: CreateInstanceWithMessageOptions,
   ): Promise<boolean> {
-    return this.listStore.createInstanceWithMessage(
-      message,
-      files,
-      workingDirectory,
-      provider,
-      model,
-      forceNodeId
-    );
+    return this.listStore.createInstanceWithMessage(options);
   }
 
   /** Set an error message */

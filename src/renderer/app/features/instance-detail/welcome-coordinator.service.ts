@@ -184,14 +184,14 @@ export class WelcomeCoordinatorService {
     }
 
     onCreatingChange(true);
-    const launched = await this.store.createInstanceWithMessage(
-      finalMessage,
-      this.pendingFiles(),
-      effectiveWorkingDir,
+    const launched = await this.store.createInstanceWithMessage({
+      message: finalMessage,
+      files: this.pendingFiles(),
+      workingDirectory: effectiveWorkingDir,
       provider,
       model,
       forceNodeId,
-    );
+    });
 
     if (!launched) {
       onCreatingChange(false);

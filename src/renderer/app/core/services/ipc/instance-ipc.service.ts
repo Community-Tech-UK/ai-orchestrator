@@ -22,6 +22,7 @@ export interface CreateInstanceWithMessageConfig {
   workingDirectory: string;
   message: string;
   attachments?: FileAttachment[];
+  agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   forceNodeId?: string;

@@ -16,6 +16,16 @@ import type {
 } from './instance.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 
+export interface CreateInstanceWithMessageOptions {
+  message: string;
+  files?: File[];
+  workingDirectory?: string;
+  agentId?: string;
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
+  model?: string;
+  forceNodeId?: string;
+}
+
 function supportsResumeRestart(provider: Instance['provider']): boolean {
   return provider === 'claude' || provider === 'codex';
 }
@@ -117,22 +127,19 @@ export class InstanceListStore {
    * Create instance and immediately send a message
    */
   async createInstanceWithMessage(
-    message: string,
-    files?: File[],
-    workingDirectory?: string,
-    provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto',
-    model?: string,
-    forceNodeId?: string
+    options: CreateInstanceWithMessageOptions,
   ): Promise<boolean> {
+    const { message, files, workingDirectory, agentId, provider, model, forceNodeId } = options;
+
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
       filesCount: files?.length,
       workingDirectory,
+      agentId,
       provider,
       model,
     });
 
-    // Validate files first
     if (files && files.length > 0) {
       const validationErrors = this.validateFiles(files);
       if (validationErrors.length > 0) {
@@ -146,7 +153,6 @@ export class InstanceListStore {
     this.stateService.setLoading(true);
 
     try {
-      // Convert files to base64 for IPC (images may tile into multiple attachments)
       const attachments =
         files && files.length > 0
           ? (await Promise.all(files.map((f) => this.fileToAttachments(f)))).flat()
@@ -156,6 +162,7 @@ export class InstanceListStore {
         workingDirectory: workingDirectory || '.',
         message,
         attachments,
+        agentId,
         provider: provider === 'auto' ? undefined : provider,
         model,
         forceNodeId,
