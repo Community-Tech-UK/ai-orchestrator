@@ -65,6 +65,10 @@
               (modelSelected)="onModelSelected($event)"
             />
           }
+          <app-agent-selector
+            [selectedAgentId]="selectedAgentId()"
+            (agentSelected)="onAgentSelected($event)"
+          />
           <button
             class="yolo-toggle"
             [class.active]="effectiveYoloMode()"

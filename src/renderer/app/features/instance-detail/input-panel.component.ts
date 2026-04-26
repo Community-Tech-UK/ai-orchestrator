@@ -25,10 +25,12 @@ import {
   ProviderType
 } from '../providers/provider-selector.component';
 import { CopilotModelSelectorComponent } from '../providers/copilot-model-selector.component';
+import { AgentSelectorComponent } from '../agents/agent-selector.component';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SettingsStore } from '../../core/state/settings.store';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import type { AgentProfile } from '../../../../shared/types/agent.types';
 import type { CommandTemplate } from '../../../../shared/types/command.types';
 import type {
   InstanceProvider,
@@ -39,7 +41,7 @@ import type {
 @Component({
   selector: 'app-input-panel',
   standalone: true,
-  imports: [ProviderSelectorComponent, CopilotModelSelectorComponent],
+  imports: [ProviderSelectorComponent, CopilotModelSelectorComponent, AgentSelectorComponent],
   templateUrl: './input-panel.component.html',
   styleUrl: './input-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -173,6 +175,12 @@ export class InputPanelComponent implements OnDestroy {
         )
       : this.providerState.selectedModel()
   );
+
+  readonly selectedAgentId = computed(() => this.newSessionDraft.agentId());
+
+  onAgentSelected(agent: AgentProfile): void {
+    this.newSessionDraft.setAgentId(agent.id);
+  }
 
   /** Effective YOLO mode: draft override ?? settings default */
   effectiveYoloMode = computed(() => {
