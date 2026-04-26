@@ -500,10 +500,12 @@ export class NewSessionDraftService {
 
     if (this.persistHandle !== null) {
       window.clearTimeout(this.persistHandle);
-      this.persistHandle = null;
     }
 
-    this.persistState(state);
+    this.persistHandle = window.setTimeout(() => {
+      this.persistHandle = null;
+      this.persistState(state);
+    }, 200);
   }
 
   private persistNow(): void {

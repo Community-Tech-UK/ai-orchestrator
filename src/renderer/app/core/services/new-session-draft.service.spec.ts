@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NewSessionDraftService } from './new-session-draft.service';
 
 describe('NewSessionDraftService', () => {
@@ -67,12 +67,18 @@ describe('NewSessionDraftService', () => {
   });
 
   it('persists agentId across reload', () => {
-    service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
-    service.setAgentId('review');
+    vi.useFakeTimers();
+    try {
+      service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      service.setAgentId('review');
+      vi.advanceTimersByTime(250);
 
-    const reloaded = new NewSessionDraftService();
-    reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
-    expect(reloaded.agentId()).toBe('review');
+      const reloaded = new NewSessionDraftService();
+      reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      expect(reloaded.agentId()).toBe('review');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('hydrates legacy persisted records (no agentId field) to "build"', () => {
