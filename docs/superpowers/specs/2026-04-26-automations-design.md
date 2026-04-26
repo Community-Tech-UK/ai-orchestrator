@@ -1,0 +1,1091 @@
+# Automations — Design Spec
+
+**Date:** 2026-04-26
+**Status:** Spec — pending implementation
+**Owner:** james@shutupandshave.com
+
+## 1. Overview
+
+Automations are saved, scheduled prompts (or saved Workflow runs) that fire at user-configured times and spawn fresh AI instances to do the work. The user-facing model mirrors ChatGPT's "Tasks" feature: a named prompt + a recurrence + a target — the system does the rest.
+
+The route `/automations` already exists in the renderer as a "coming-soon" placeholder (`src/renderer/app/app.routes.ts:46`) and the sidebar already links to it (`src/renderer/app/features/dashboard/sidebar-actions.component.ts:25-37`). This spec defines the implementation that replaces the placeholder.
+
+### Problem this solves
+
+Users have recurring agent work (server-log reviews, daily summaries, dependency audits, scheduled refactor passes). Today every run requires manually opening the app, typing the prompt, picking the project. Automations remove that friction and let runs happen on schedule.
+
+### Single-line definition
+
+> An automation is a saved `(prompt | workflow)` + `(schedule)` + `(provider/model/agent/yolo config)` + `(working directory)` that fires by itself, spawns a fresh instance per fire, and surfaces results in the normal session list.
+
+## 2. Goals & non-goals
+
+### Goals (MVP)
+
+- Schedule a prompt or saved workflow on a recurrence (preset or cron)
+- Fire on schedule, even after suspend/resume cycles, with explicit per-automation policy for runs missed while the app was off
+- Produce one normal session per fire, in the working directory configured for the automation
+- Distinguish automation-spawned sessions visually with a clock icon (blue when unread, gray when seen)
+- Pause / resume / edit / delete / Run-now controls on each automation
+- Per-automation history of past runs with status, error messages, and links to spawned sessions
+
+### Non-goals (deliberately out of MVP)
+
+- **Always-on background daemon** that runs while the app is closed (Phase 2)
+- **Desktop OS notifications** on completion (Phase 2 — for MVP, in-app sidebar badge only)
+- **Auto-retry on failure** (Phase 2)
+- **Event triggers** (file changed, branch updated, message received) — schedule-only for MVP
+- **Webhook / inbound HTTP triggers** (Phase 3+)
+- **Cross-automation dependencies** ("fire X only after Y succeeds")
+- **First-class Project entity** — "project" in this feature means "working directory"
+- **Action-handler registry** — using a fixed `switch (actionType)` for two action kinds (`prompt`, `workflow`); refactor to registry only when a third kind appears
+
+## 3. Decision log
+
+These are the decisions taken during brainstorming, recorded so the spec can stand alone.
+
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Trigger model — ChatGPT-style only, or include workflow chaining, or full event engine? | **Mirror ChatGPT shape, with `actionType` of either `prompt` or `workflow`** (saved templates from `WorkflowManager`) |
+| Q2 | Schedule semantics — preset only, preset + cron, or full RRULE? | **Preset picker + advanced cron mode**, backed by `croner` |
+| Q3 | What to do when the app was off at fire time? | **Per-automation `missed_run_policy`** with global default — values: `runOnce` / `skip` / `notify` |
+| Q4 | What is "Project" in the screenshot? | **Working directory only** — no new entity. Spawned instances become normal sessions in that folder, marked with a clock icon |
+| Q5 | Per-automation execution config | **Full new-session-composer parity** — provider, model, agent, yolo, plus provider-specific reasoning effort |
+| Q6a | Overlap when previous run still running | **Queue with max 1 pending** — running + at most one queued; further fires `skipped` |
+| Q6b | Failure handling | **Mark `failed` in history, no auto-retry** |
+| Q6c | Completion notification | **In-app sidebar badge + blue clock icon** for unread automation-spawned sessions; no desktop OS notifications in MVP |
+| Architecture | One-shot domain or extensible registry? | **Approach 1**: new `src/main/automations/` domain with a fixed action `switch`. Registry deferred. |
+
+### External review (Codex)
+
+Codex reviewed the initial schema and identified seven issues, all accepted into the spec:
+
+1. `Instance.metadata` is not durable (verified: `buildInstanceRecord` never reads `config.metadata`; `instanceToState` doesn't persist `instance.metadata`). Use `automation_runs.instance_id` as the only canonical FK; metadata is dropped from the design.
+2. Add partial unique indexes on `automation_runs` to enforce overlap policy at the DB level.
+3. Drop denormalized `unseen_run_count`; compute from runs (cheap with retention).
+4. Make `cron_expression` nullable for `oneTime` schedules.
+5. Add `completed` parent status for one-time automations after fire.
+6. Move attachments out of inline JSON into a separate `automation_attachments` table backed by the existing content store.
+7. Startup reconciliation for stale `pending`/`running` rows after crash.
+
+Two additional adjustments from Section 7 review:
+
+- **Workflow-template deletion guard** — block deletion when an automation references it; require the user to edit those automations first.
+- **Clock-backward dedupe** — refuse to fire when `scheduledAt <= last_fired_at`; insert a `skipped` row with `skip_reason='duplicate'`.
+
+(Copilot was asked to review in parallel and was unavailable both times — its CLI hung during initialization. Decision was made to proceed on Codex's review alone.)
+
+## 4. Architecture
+
+### Domain layout
+
+```
+src/main/automations/
+├── automation-store.ts          # SQLite CRUD, retention, transactional overlap-decision
+├── automation-scheduler.ts      # croner schedules, in-memory map, persistence sync, suspend/resume
+├── automation-runner.ts         # fire path, action dispatch, run-state lifecycle
+├── catch-up-coordinator.ts      # startup + resume sweeps, missed-run policy engine
+├── automation-events.ts         # EventEmitter for IPC fan-out
+└── index.ts                     # singleton wiring
+```
+
+### Domain boundaries
+
+| Module | Owns | Doesn't own |
+|---|---|---|
+| Store | Persistence, partial-index enforcement, retention | Time, business decisions |
+| Scheduler | Translation of payload → cron → live timer | Spawning, overlap policy |
+| Runner | Spawn flow, overlap decision, queue promotion, completion detection | Schedule arming, missed-run logic |
+| Catch-up | Reconciliation of stale rows, missed-fire computation, policy application | In-memory state, fresh schedules |
+
+This narrow per-module ownership is what keeps the test surface small (Section 12).
+
+### Dependencies
+
+- **`croner`** (~10 KB, no deps, DST-correct, computes next-fire without polling) — added to `package.json`
+- **`better-sqlite3`** (already in project) — for the new tables
+- **Existing modules** — `InstanceLifecycleManager`, `WorkflowManager`, `InstanceEventAggregator`, `OutputStorageManager` (content store), `SettingsStore`
+
+`automation-events.ts` is the domain's internal `EventEmitter`. It's wired both internally (e.g., scheduler listens for `automation:run-terminal` to handle `oneTime` completion) and externally — the IPC layer subscribes and fans the events out to the renderer per Section 9.
+
+### Startup wiring (in `src/main/index.ts`)
+
+```
+RLM database opens
+  └─ AutomationStore.init()                  (schema migration runs here)
+  └─ AutomationRunner.init(deps)             (subscribes to instance/workflow events)
+  └─ CatchUpCoordinator.runStartupSweep()    (Steps A/B/C)
+  └─ AutomationScheduler.initialize(deps)    (loads active rows, arms schedules)
+  └─ IPC handlers register
+```
+
+Catch-up runs **before** the scheduler activates so missed-run policy is applied with deterministic state.
+
+## 5. Data model
+
+Two new SQLite tables in the existing RLM database (added via a new migration in `src/main/persistence/rlm/rlm-schema.ts`). One additional table for attachments. No ALTERs to existing tables.
+
+### `automations`
+
+```sql
+CREATE TABLE IF NOT EXISTS automations (
+  id                    TEXT PRIMARY KEY,
+  name                  TEXT NOT NULL,
+  description           TEXT,
+
+  -- WHAT to do
+  action_type           TEXT NOT NULL CHECK (action_type IN ('prompt','workflow')),
+  prompt                TEXT,                       -- non-null when action_type='prompt'
+  workflow_template_id  TEXT,                       -- non-null when action_type='workflow'
+
+  -- WHERE (the "project" = working directory)
+  working_directory     TEXT NOT NULL,
+  force_node_id         TEXT,                       -- null = local; future-proof for remote nodes
+
+  -- HOW (mirrors new-session toolbar)
+  agent_id              TEXT NOT NULL DEFAULT 'build',
+  provider              TEXT NOT NULL DEFAULT 'auto',
+  model                 TEXT,
+  reasoning_effort      TEXT,
+  yolo_mode             INTEGER NOT NULL DEFAULT 0,
+
+  -- WHEN (cron_expression null only for oneTime)
+  schedule_kind         TEXT NOT NULL CHECK (schedule_kind IN ('preset','cron','oneTime')),
+  schedule_payload_json TEXT NOT NULL,
+  cron_expression       TEXT,
+  timezone              TEXT NOT NULL,
+
+  -- POLICY
+  status                TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','paused','completed')),
+  missed_run_policy     TEXT CHECK (missed_run_policy IN ('runOnce','skip','notify')),  -- NULL = use global default
+
+  -- DERIVED STATE
+  next_fire_at          INTEGER,
+  last_fired_at         INTEGER,
+  last_run_id           TEXT,
+
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+
+  CHECK (
+    (action_type = 'prompt'   AND prompt IS NOT NULL) OR
+    (action_type = 'workflow' AND workflow_template_id IS NOT NULL)
+  ),
+  CHECK (
+    (schedule_kind = 'oneTime' AND cron_expression IS NULL) OR
+    (schedule_kind IN ('preset','cron') AND cron_expression IS NOT NULL)
+  ),
+  CHECK (json_valid(schedule_payload_json))
+);
+CREATE INDEX IF NOT EXISTS idx_automations_active_next_fire
+  ON automations(next_fire_at) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_automations_working_dir
+  ON automations(working_directory);
+```
+
+### `automation_runs`
+
+```sql
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id                    TEXT PRIMARY KEY,
+  automation_id         TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+
+  scheduled_at          INTEGER NOT NULL,
+  queued_at             INTEGER,
+  started_at            INTEGER,
+  completed_at          INTEGER,
+
+  trigger               TEXT NOT NULL CHECK (trigger IN ('scheduled','manual','catchUp')),
+
+  instance_id           TEXT,
+  workflow_execution_id TEXT,
+
+  status                TEXT NOT NULL CHECK (
+                          status IN ('pending','running','succeeded','failed','skipped','canceled')),
+  skip_reason           TEXT,
+  error_message         TEXT,
+
+  seen                  INTEGER NOT NULL DEFAULT 0 CHECK (seen IN (0,1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_by_automation
+  ON automation_runs(automation_id, scheduled_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_unseen
+  ON automation_runs(seen) WHERE seen = 0;
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_instance
+  ON automation_runs(instance_id) WHERE instance_id IS NOT NULL;
+
+-- Overlap policy enforcement
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_one_running
+  ON automation_runs(automation_id) WHERE status = 'running';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_one_pending
+  ON automation_runs(automation_id) WHERE status = 'pending';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_unique_scheduled
+  ON automation_runs(automation_id, scheduled_at)
+  WHERE trigger IN ('scheduled', 'catchUp');
+```
+
+`skip_reason` enum (string, not enforced by CHECK because of the open-ended set): `queueFull` / `paused` / `pausedDuringFire` / `deleted` / `appShutdown` / `missedWhileOff` / `missedNeedsAttention` / `duplicate`.
+
+### `automation_attachments`
+
+```sql
+CREATE TABLE IF NOT EXISTS automation_attachments (
+  id            TEXT PRIMARY KEY,
+  automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+  position      INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  mime_type     TEXT NOT NULL,
+  size_bytes    INTEGER NOT NULL,
+  storage_ref   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_automation_attachments_by_automation
+  ON automation_attachments(automation_id, position);
+```
+
+On create/edit, the renderer's `data:` URLs are uploaded into the existing `OutputStorageManager`, which returns a stable `storage_ref`. On fire, the runner re-materializes a `FileAttachment[]` from those refs.
+
+### Schedule payload (JSON in `schedule_payload_json`)
+
+```ts
+type SchedulePayload =
+  | { kind: 'preset'; preset: 'hourly';  minute: number /* 0-59 */ }
+  | { kind: 'preset'; preset: 'daily';   time: string /* 'HH:mm' */ }
+  | { kind: 'preset'; preset: 'weekly';  daysOfWeek: number[] /* 0=Sun..6=Sat */; time: string }
+  | { kind: 'preset'; preset: 'monthly'; dayOfMonth: number /* 1-31 */; time: string }
+  | { kind: 'cron'; expression: string }
+  | { kind: 'oneTime'; runAt: number /* ms epoch UTC */ };
+```
+
+For `preset` and `cron`, `cron_expression` is computed and stored. For `oneTime`, it's `NULL` and `runAt` is the source of truth.
+
+### Run-state machine
+
+```
+       (scheduled fire)              (instance spawned)
+pending ────────────────► running ─────────────────────► succeeded
+   │                          │
+   │ (overlap, queue full)    │ (spawn fails / instance errors)
+   ▼                          ▼
+skipped                     failed
+   ▲
+   │ (deleted while pending, paused, app shutting down)
+canceled
+```
+
+### Instance ↔ automation linkage
+
+The runner sets `automation_runs.instance_id` after the spawn returns. The renderer queries `getSpawnedSessionMap({ instanceIds })` to drive the clock-icon UI. **No `Instance.metadata` involvement** — that path was rejected because:
+
+- `buildInstanceRecord` (`src/main/instance/lifecycle/instance-create-builder.ts`) doesn't read `config.metadata`
+- `instanceToState` (`src/main/session/session-continuity.ts:1034`) doesn't persist `instance.metadata`
+
+The FK is the durable answer.
+
+### Retention
+
+`automation-store.ts` prunes runs older than the most recent 50 per automation, run on startup and after each run completes. Configurable via a future per-automation setting; default 50.
+
+## 6. Scheduler (`AutomationScheduler`)
+
+### Responsibilities
+
+Translate active automation rows into live cron schedules; fire the runner when each schedule trips; keep `next_fire_at` persisted; survive OS suspend/resume.
+
+### Engine
+
+`croner`. DST-correct, IANA-timezone-aware, no polling, ~10 KB.
+
+### Public API
+
+```ts
+class AutomationScheduler {
+  static getInstance(): AutomationScheduler;
+  static _resetForTesting(): void;
+
+  initialize(deps: {
+    store: AutomationStore;
+    runner: AutomationRunner;
+    catchUp: CatchUpCoordinator;
+    now?: () => number;
+  }): Promise<void>;
+
+  activate(automation: Automation): void;
+  deactivate(automationId: string): void;
+  reschedule(automation: Automation): void;
+  fireNow(automationId: string, opts?: { ignoreOverlap?: boolean }): Promise<{ runId: string }>;
+
+  describeNextFire(automationId: string): {
+    nextFireAt: number | null;
+    previousFireAt: number | null;
+    cron: string | null;
+  };
+
+  shutdown(): Promise<void>;
+}
+```
+
+### Internal state
+
+```ts
+private schedules = new Map<string, Cron>();
+```
+
+The map is the runtime truth; the DB is the durable truth. They reconcile on `initialize()` and after every CRUD operation.
+
+### Payload-to-cron translation
+
+```ts
+function payloadToCron(payload: SchedulePayload): { cron: string | null; oneTimeAt: number | null } {
+  switch (payload.kind) {
+    case 'preset':
+      switch (payload.preset) {
+        case 'hourly':  return { cron: `${payload.minute} * * * *`, oneTimeAt: null };
+        case 'daily':   return { cron: `${minutes(payload.time)} ${hours(payload.time)} * * *`, oneTimeAt: null };
+        case 'weekly':  return { cron: `${minutes(payload.time)} ${hours(payload.time)} * * ${payload.daysOfWeek.join(',')}`, oneTimeAt: null };
+        case 'monthly': return { cron: `${minutes(payload.time)} ${hours(payload.time)} ${payload.dayOfMonth} * *`, oneTimeAt: null };
+      }
+    case 'cron':    return { cron: payload.expression, oneTimeAt: null };
+    case 'oneTime': return { cron: null, oneTimeAt: payload.runAt };
+  }
+}
+```
+
+`oneTime` doesn't go through croner — it uses a single `setTimeout`, fires once, then transitions the parent row to `status='completed'`.
+
+### Suspend / resume
+
+```ts
+powerMonitor.on('resume', () => this.handleResume());
+
+private async handleResume(): Promise<void> {
+  // Croner pauses while OS sleeps. Hand control to catch-up coordinator,
+  // which applies per-automation missed_run_policy. Then re-arm schedules.
+  await this.catchUp.runResumeSweep(this.now());
+}
+```
+
+Each croner schedule is then re-armed from the current moment forward by re-calling `activate()` for active automations.
+
+### `nextFireAt` persistence policy
+
+Persist on `activate()`, after every fire, on `reschedule()`, on `deactivate()`, and after `handleResume()`. Never poll.
+
+### One-time terminal
+
+When a `oneTime` succeeds, the runner emits `automation:run-terminal` and the scheduler:
+
+```ts
+this.store.transitionToCompleted(automationId);  // status='completed', next_fire_at=NULL
+this.deactivate(automationId);
+```
+
+If a `oneTime` fails, the parent stays `active` with `next_fire_at=NULL` — the user can manually re-fire.
+
+### Late-fire guard
+
+Each croner callback compares `expectedFireTime` against `now()`. If skew exceeds 60s (e.g., after a missed wake-up), the runner re-labels the call as `trigger='catchUp'` so the run shows up correctly in history. The fire itself still proceeds — this guard does *not* re-apply missed-run policy; the catch-up coordinator handles that separately on startup/resume sweeps for fires we never received.
+
+## 7. Runner & action dispatch (`AutomationRunner`)
+
+### Responsibilities
+
+Take `fire(automationId, { trigger })` calls; decide whether to run, queue, or skip; dispatch via `InstanceLifecycleManager` or `WorkflowManager`; record the run; subscribe to completion events; promote queued runs.
+
+### Public API
+
+```ts
+class AutomationRunner {
+  static getInstance(): AutomationRunner;
+  static _resetForTesting(): void;
+
+  initialize(deps: {
+    store: AutomationStore;
+    instanceLifecycle: InstanceLifecycleManager;
+    workflowManager: WorkflowManager;
+    instanceEvents: InstanceEventAggregator;
+    contentStore: ContentStore;
+    now?: () => number;
+  }): Promise<void>;
+
+  fire(
+    automationId: string,
+    opts: { trigger: 'scheduled' | 'manual' | 'catchUp'; scheduledAt?: number }
+  ): Promise<{ runId: string; outcome: 'started' | 'queued' | 'skipped' }>;
+
+  cancelPending(automationId: string, reason: 'paused' | 'deleted' | 'appShutdown'): Promise<void>;
+
+  shutdown(): Promise<void>;
+}
+```
+
+### Fire flow
+
+1. Load automation; if `status='paused'` or `'completed'`, insert `skipped` and return.
+2. **Clock-backward dedupe** (only for `trigger='scheduled'` or `'catchUp'`; manual fires are exempt because the user is intentionally firing now): if `scheduledAt <= last_fired_at`, insert `skipped` with `skip_reason='duplicate'`, return.
+3. **Late-fire guard**: if `trigger='scheduled'` and `now() - scheduledAt > 60s`, re-label the call as `trigger='catchUp'` so it appears correctly in history. The fire still proceeds — this guard is about *labeling*, not about re-applying missed-run policy. (Policy is applied separately by the catch-up coordinator on startup/resume sweeps for fires we never received.)
+4. **Overlap decision** (single transaction):
+   - No in-flight → `start`
+   - `running` only → `queue` (insert `pending`)
+   - `running` + `pending` → `skip` (insert with `skip_reason='queueFull'`)
+5. If `start`, dispatch via action handler.
+6. Record `instance_id` (or `workflow_execution_id`) on the run row.
+7. Subscribe to completion events for this run.
+
+The partial unique indexes from Section 5 catch any race that slips past the read-then-insert pattern; constraint errors are treated as `skip`.
+
+### Action dispatch
+
+```ts
+private async dispatch(automation: Automation, run: AutomationRun): Promise<DispatchResult> {
+  const baseConfig = {
+    workingDirectory: automation.workingDirectory,
+    agentId: automation.agentId,
+    provider: automation.provider,
+    model: automation.model ?? undefined,
+    yoloMode: automation.yoloMode,
+    forceNodeId: automation.forceNodeId ?? undefined,
+    reasoningEffort: automation.reasoningEffort ?? undefined,
+  };
+
+  switch (automation.actionType) {
+    case 'prompt': {
+      const attachments = await this.contentStore.materializeAttachments(automation.id);
+      const result = await this.instanceLifecycle.createInstanceWithMessage({
+        ...baseConfig,
+        message: automation.prompt!,
+        attachments,
+      });
+      return { kind: 'instance', instanceId: result.instance.id };
+    }
+    case 'workflow': {
+      const exec = await this.workflowManager.start({
+        templateId: automation.workflowTemplateId!,
+        ...baseConfig,
+      });
+      return { kind: 'workflow', executionId: exec.id, instanceId: exec.instanceId };
+    }
+  }
+}
+```
+
+`InstanceCreateConfig` is extended with `reasoningEffort` (provider-specific; Codex/GPT-5.x translate to their reasoning knob; Claude/Gemini ignore).
+
+### Completion detection
+
+Passive — subscribe, don't poll:
+
+```ts
+this.instanceEvents.on('instance:idle-after-output', ({ instanceId }) => {
+  this.handleInstanceTerminal(instanceId, 'succeeded');
+});
+this.instanceEvents.on('instance:terminated', ({ instanceId, reason }) => {
+  this.handleInstanceTerminal(
+    instanceId,
+    reason === 'error' ? 'failed' : 'succeeded',
+    reason === 'error' ? 'Instance terminated abnormally' : undefined,
+  );
+});
+this.workflowManager.on('execution:completed', ({ executionId, status }) => {
+  this.handleWorkflowTerminal(executionId, status === 'failed' ? 'failed' : 'succeeded');
+});
+```
+
+A run is `succeeded` when the instance reaches `idle` after producing at least one assistant message. Subsequent user interaction with that session is treated as normal session activity, not part of the automation run — this is what allows the queue to advance without waiting for the user to close the window.
+
+### Queue promotion
+
+When a `running` run terminates, the runner finds any `pending` row for the same automation and promotes it transactionally (`UPDATE ... SET status='running'` — the partial unique index protects against double-promotion).
+
+### Run-now
+
+Calls `runner.fire(id, { trigger: 'manual' })` — exact same code path, including overlap policy. Manual fires queue (or skip on queue-full) just like scheduled ones.
+
+### Cancellation matrix
+
+| Event | Pending runs | Running runs |
+|---|---|---|
+| Pause | `canceled`, `skip_reason='paused'` | leave running; no new fires after completion |
+| Delete | `canceled`, `skip_reason='deleted'` (then CASCADE) | leave running; CASCADE removes run row |
+| App shutdown | `canceled`, `skip_reason='appShutdown'` | left as `running` — startup sweep reconciles to `failed` |
+| Instance killed by user mid-run | n/a | `failed`, `error_message='User terminated session'` |
+
+## 8. Catch-up coordinator (`CatchUpCoordinator`)
+
+### Responsibilities
+
+Single owner of "what to do about runs we should have fired but didn't." Three triggers (startup, resume, future manual-catchup), one policy engine.
+
+### Public API
+
+```ts
+class CatchUpCoordinator {
+  static getInstance(): CatchUpCoordinator;
+  static _resetForTesting(): void;
+
+  initialize(deps: {
+    store: AutomationStore;
+    runner: AutomationRunner;
+    settings: SettingsStore;
+    now?: () => number;
+  }): Promise<void>;
+
+  runStartupSweep(): Promise<StartupSweepResult>;
+  runResumeSweep(resumedAt: number): Promise<ResumeSweepResult>;
+}
+```
+
+### Startup sweep — Step A: stale running rows
+
+```sql
+UPDATE automation_runs
+SET status='failed', error_message='App terminated mid-run', completed_at=?
+WHERE status='running';
+```
+
+### Startup sweep — Step B: stale pending rows
+
+```sql
+UPDATE automation_runs
+SET status='canceled', skip_reason='appShutdown'
+WHERE status='pending';
+```
+
+### Step C: missed-fire policy application
+
+For each automation with `status='active'`:
+
+```ts
+const policy = automation.missedRunPolicy ?? settings.get('automations.defaultMissedRunPolicy');
+const baseline = automation.lastFiredAt ?? automation.createdAt;
+const referencePoint = Math.max(baseline, since);
+const missed = computeMissedFireTimes(automation, referencePoint, until);
+
+if (missed.length === 0) return;
+
+switch (policy) {
+  case 'runOnce':
+    await runner.fire(automation.id, { trigger: 'catchUp', scheduledAt: missed[missed.length - 1] });
+    break;
+  case 'skip':
+    store.insertSkippedRun(automation.id, missed[missed.length - 1], 'missedWhileOff');
+    break;
+  case 'notify':
+    store.insertSkippedRun(automation.id, missed[missed.length - 1], 'missedNeedsAttention');
+    break;
+}
+```
+
+### Computing missed fires
+
+```ts
+function computeMissedFireTimes(automation: Automation, since: number, until: number): number[] {
+  if (automation.scheduleKind === 'oneTime') {
+    const runAt = parsePayload(automation).runAt;
+    return runAt > since && runAt <= until ? [runAt] : [];
+  }
+  const cron = new Cron(automation.cronExpression!, { timezone: automation.timezone });
+  const missed: number[] = [];
+  let cursor = until;
+  while (true) {
+    const prev = cron.previousRun(new Date(cursor))?.getTime();
+    if (!prev || prev <= since) break;
+    missed.push(prev);
+    cursor = prev - 1;
+    if (missed.length > 100) break;  // sanity cap
+  }
+  return missed.reverse();
+}
+```
+
+`runOnce` only fires the most recent missed time — matches "I want today's daily, not last week's" intuition.
+
+### Resume sweep
+
+Same as Step C, with `since` = suspend timestamp (captured by `powerMonitor.on('suspend')`, fallback "10 minutes before resume" if missed) and `until` = the resume timestamp. Steps A/B are not re-run on resume.
+
+### Global default policy
+
+```ts
+'automations.defaultMissedRunPolicy': 'runOnce' | 'skip' | 'notify'  // default 'runOnce'
+```
+
+NULL on a row means "follow global default" — changing the global propagates without rewriting rows.
+
+## 9. IPC contract
+
+### Channels
+
+| Channel | Payload | Returns |
+|---|---|---|
+| `automation:list` | — | `Automation[]` |
+| `automation:get` | `{ id }` | `Automation \| null` |
+| `automation:create` | `CreateAutomationInput` | `{ id }` |
+| `automation:update` | `{ id, patch: UpdateAutomationInput }` | `void` |
+| `automation:delete` | `{ id }` | `void` |
+| `automation:pause` | `{ id }` | `void` |
+| `automation:resume` | `{ id }` | `void` |
+| `automation:runNow` | `{ id }` | `{ runId, outcome: 'started'\|'queued'\|'skipped' }` |
+| `automation:cancelPending` | `{ id }` | `void` |
+| `automation:listRuns` | `{ automationId, limit?: number }` | `AutomationRun[]` (newest-first; default 50) |
+| `automation:markRunsSeen` | `{ runIds: string[] } \| { automationId }` | `void` |
+| `automation:getSpawnedSessionMap` | `{ instanceIds: string[] }` | `Record<instanceId, SpawnedSessionLink>` |
+| `automation:validateCron` | `{ expression, timezone? }` | `{ valid: boolean, nextFires?: number[], error?: string }` |
+
+### Events (main → renderer)
+
+- `automation:created` — `{ automation }`
+- `automation:updated` — `{ automation }`
+- `automation:deleted` — `{ id }`
+- `automation:run-created` — `{ run }`
+- `automation:run-updated` — `{ run }`
+- `automation:next-fire-changed` — `{ id, nextFireAt }`
+- `automation:unseen-count-changed` — `{ count }`
+
+### Zod schemas (in `src/shared/validation/ipc-schemas.ts`)
+
+```ts
+const timeStringSchema = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'HH:mm');
+
+export const schedulePayloadSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('preset'), preset: z.literal('hourly'),  minute: z.number().int().min(0).max(59) }),
+  z.object({ kind: z.literal('preset'), preset: z.literal('daily'),   time: timeStringSchema }),
+  z.object({ kind: z.literal('preset'), preset: z.literal('weekly'),  daysOfWeek: z.array(z.number().int().min(0).max(6)).min(1), time: timeStringSchema }),
+  z.object({ kind: z.literal('preset'), preset: z.literal('monthly'), dayOfMonth: z.number().int().min(1).max(31), time: timeStringSchema }),
+  z.object({ kind: z.literal('cron'),    expression: z.string().min(1).max(120) }),
+  z.object({ kind: z.literal('oneTime'), runAt: z.number().int().positive() }),
+]);
+
+export const automationActionSchema = z.discriminatedUnion('actionType', [
+  z.object({
+    actionType: z.literal('prompt'),
+    prompt:     z.string().min(1).max(50_000),
+    attachments: z.array(fileAttachmentSchema).max(20).optional(),
+  }),
+  z.object({
+    actionType:         z.literal('workflow'),
+    workflowTemplateId: z.string().min(1),
+  }),
+]);
+
+export const createAutomationInputSchema = z.object({
+  name:               z.string().min(1).max(120),
+  description:        z.string().max(500).optional(),
+  workingDirectory:   z.string().min(1),
+  forceNodeId:        z.string().optional(),
+  agentId:            z.string().default('build'),
+  provider:           z.enum(['claude','codex','gemini','copilot','cursor','auto']).default('auto'),
+  model:              z.string().optional(),
+  reasoningEffort:    z.enum(['low','medium','high']).optional(),
+  yoloMode:           z.boolean().default(false),
+  schedule:           schedulePayloadSchema,
+  timezone:           z.string().min(1),
+  missedRunPolicy:    z.enum(['runOnce','skip','notify']).nullable().default(null),
+  action:             automationActionSchema,
+});
+
+export const updateAutomationInputSchema = createAutomationInputSchema.partial();
+```
+
+### `validateCron` handler
+
+```ts
+ipcMain.handle('automation:validateCron',
+  validatedHandler(validateCronSchema, async ({ expression, timezone }) => {
+    try {
+      const cron = new Cron(expression, { timezone: timezone ?? 'UTC' });
+      const fires: number[] = [];
+      let cursor = new Date();
+      for (let i = 0; i < 5; i++) {
+        const next = cron.nextRun(cursor);
+        if (!next) break;
+        fires.push(next.getTime());
+        cursor = new Date(next.getTime() + 1000);
+      }
+      return { valid: true, nextFires: fires };
+    } catch (err) {
+      return { valid: false, error: err instanceof Error ? err.message : 'Invalid cron expression' };
+    }
+  }),
+);
+```
+
+## 10. Renderer (UI)
+
+### Routes
+
+```
+/automations              → AutomationsPageComponent     (list)
+/automations/new          → AutomationFormComponent      (create)
+/automations/:id          → AutomationDetailComponent    (matches screenshot)
+/automations/:id/edit     → AutomationFormComponent      (edit)
+```
+
+### File layout
+
+```
+src/renderer/app/features/automations/
+├── automations.routes.ts
+├── automations-page.component.ts
+├── automation-detail.component.ts
+├── automation-form.component.ts
+└── components/
+    ├── automation-list-item.component.ts
+    ├── automation-status-panel.component.ts
+    ├── automation-details-panel.component.ts
+    ├── automation-runs-list.component.ts
+    ├── schedule-picker.component.ts
+    └── automation-action-picker.component.ts
+
+src/renderer/app/core/state/automation/automation.store.ts
+src/renderer/app/core/services/ipc/automation-ipc.service.ts
+src/preload/domains/automation.preload.ts
+```
+
+### `AutomationStore`
+
+```ts
+@Injectable({ providedIn: 'root' })
+export class AutomationStore {
+  private ipc = inject(AutomationIpcService);
+
+  readonly automations = signal<Automation[]>([]);
+  readonly selectedId  = signal<string | null>(null);
+  readonly selected    = computed(() =>
+    this.automations().find(a => a.id === this.selectedId()) ?? null);
+  readonly unseenCount = signal<number>(0);
+
+  readonly spawnedMap  = signal<Map<string, SpawnedSessionLink>>(new Map());
+
+  async load(): Promise<void> { /* IPC + event subscriptions */ }
+  async create(input: CreateAutomationInput): Promise<void> { /* ... */ }
+  async update(id: string, patch: UpdateAutomationInput): Promise<void> { /* ... */ }
+  async delete(id: string): Promise<void> { /* ... */ }
+  async pause(id: string): Promise<void> { /* ... */ }
+  async resume(id: string): Promise<void> { /* ... */ }
+  async runNow(id: string): Promise<RunNowOutcome> { /* ... */ }
+
+  getSessionAutomation(sessionId: string): SpawnedSessionLink | undefined;
+  isUnreadAutomationSession(sessionId: string): boolean;
+}
+```
+
+### List page
+
+Header: title + "+ New automation" button. Body: list of automation cards (name, schedule summary, next-fire badge, status pill, unread count). Click → routes to detail.
+
+Empty state: "No automations yet — create your first scheduled task" with CTA.
+
+### Detail page
+
+Layout matches the screenshot:
+
+- Header: back link, title, [Pause/Resume], [Delete], [Run now] buttons
+- Body: prompt body / description (or workflow template summary)
+- Right panel:
+  - **Status**: status pill, Next run, Last ran
+  - **Details**: Runs in (Local/remote node), Project (working dir), Repeats (schedule summary), Model, Reasoning — each with quick-edit dropdown
+  - **Previous runs**: last 50 with status icons; click to navigate to spawned session
+
+Quick-edit popovers commit via `update(id, patch)`. Bigger edits go through the form mode.
+
+### Form
+
+Six sections:
+1. Name & description
+2. **What to do** — prompt or workflow toggle. Prompt mode: large textarea + attachment dropzone. Workflow mode: dropdown of templates.
+3. **Where to run** — working-directory picker (re-uses recent-directories), forceNodeId picker if remote configured.
+4. **How to run** — embedded compact composer toolbar (agent, provider, model, reasoning, yolo).
+5. **When to run** — `<schedule-picker>`.
+6. **Missed-run policy** — radio with "Use global default" as the unselected option.
+
+### `<schedule-picker>`
+
+Top-level radio: Preset / One-time / Advanced (cron). Each switches the body:
+
+- **Preset**: Hourly / Daily / Weekly / Monthly + matching sub-controls (time picker, day picker, etc.)
+- **One-time**: native datetime-local picker
+- **Advanced (cron)**: monospace input with debounced (300ms) call to `validateCron`; shows "Will fire at: ..." preview or red error message.
+
+Preview always uses `validateCron` for both presets (after client-side payload-to-cron) and explicit cron — single source of truth.
+
+### Sidebar badge
+
+Add to existing `sidebar-actions.component.ts`:
+
+```html
+<a class="action" routerLink="/automations" routerLinkActive="active" ...>
+  <svg class="action-icon">...</svg>
+  <span class="action-label">Automations</span>
+  @if (unseenCount() > 0) {
+    <span class="badge">{{ unseenCount() }}</span>
+  }
+</a>
+```
+
+`unseenCount` from `AutomationStore`, driven by `automation:unseen-count-changed` events. Cleared on opening Automations page (mass-mark) or on opening a specific spawned session.
+
+### Session-list clock-icon adornment
+
+Renderer queries `getSpawnedSessionMap({ instanceIds })` once on dashboard load, refreshes on `automation:run-updated`. The session list component reads:
+
+```ts
+link = computed(() => this.automationStore.spawnedMap().get(this.session().id));
+showClock = computed(() => !!this.link());
+clockClass = computed(() => this.link()?.seen === false ? 'clock-blue' : 'clock-gray');
+```
+
+```html
+@if (showClock()) {
+  <svg class="session-clock" [class.unread]="!link()!.seen">
+    <circle cx="12" cy="12" r="10"/>
+    <polyline points="12 6 12 12 16 14"/>
+  </svg>
+}
+```
+
+Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if currently unread.
+
+## 11. Edge cases & failure modes
+
+### 11.1 Clock / time
+
+| Scenario | Behavior |
+|---|---|
+| DST spring forward — daily at 2:30am on transition day | Fires day before & after; on transition day no fire (no 2:30 exists). Tooltip on time picker. |
+| DST fall back — daily at 1:30am | Fires once (second 1:30 silently skipped). |
+| User changes system timezone | Each automation stores its own IANA tz. Schedule keeps firing in its configured tz. Detail panel shows tz. |
+| System clock jumped forward (NTP / manual) | Croner re-arms for new "now". Missed fires handled by catch-up on next sweep. |
+| System clock jumped backward | Clock-backward dedupe (`scheduledAt <= last_fired_at`) prevents double-fire. |
+
+### 11.2 Schedule pathologies
+
+| Scenario | Behavior |
+|---|---|
+| Cron that can never fire (`0 0 31 2 *`) | Form blocks save with "This schedule will never fire." |
+| `oneTime` already in the past at create | Confirm warning. If proceeded: per `missed_run_policy` on next sweep. |
+| Weekly with zero days selected | Zod `min(1)` blocks save. |
+| Monthly day-of-month=31 | Inline note: "Skips months with fewer than 31 days." |
+
+### 11.3 External dependencies
+
+| Scenario | Behavior |
+|---|---|
+| Working directory deleted | Run fails with path in error message. Automation stays active. |
+| Working directory permission lost | Same as above. |
+| Workflow template deleted while referenced | **Workflow management UI blocks deletion**, shows "referenced by N automation(s)" badge, requires editing those automations first. |
+| All providers offline | Run fails. Automation continues; next fire retries. |
+| Provider auth expired | Same as above. |
+| Provider rate-limited | Run fails. No auto-retry. |
+| `forceNodeId` offline | Run fails. |
+
+### 11.4 Concurrency races
+
+| Scenario | Protection |
+|---|---|
+| Cron and Run-now near-simultaneously | Partial unique index on `running` ensures one wins, other becomes `pending`. |
+| Run-now × 3 in 100ms | First runs, second queues, third skips (`skip_reason='queueFull'`). |
+| Same scheduled time fired twice (scheduler bug after restart) | `(automation_id, scheduled_at)` unique index catches second insert; second becomes `skipped` with `skip_reason='duplicate'`. |
+| Pause clicked mid-fire | Runner re-checks status after overlap-decision tx; cancels with `skip_reason='pausedDuringFire'`. |
+
+### 11.5 Lifecycle races
+
+| Scenario | Behavior |
+|---|---|
+| App crashes between spawn and persisting `instance_id` | Step A startup sweep marks run `failed`. Spawned instance reconciled by existing instance-recovery; appears as a normal session without clock-icon link. |
+| Multiple Electron instances | `app.requestSingleInstanceLock()` enforces single-instance — verify in `src/main/index.ts` (Pre-flight #1). |
+| App killed mid-run | Step A startup sweep marks `failed`. |
+| App quit cleanly with pending run | Pending → `canceled`, `skip_reason='appShutdown'`. |
+
+### 11.6 Edit / delete races
+
+| Scenario | Behavior |
+|---|---|
+| Edit prompt while run is `running` | Edit applies; running spawn keeps old prompt. Toast: "Edit applied. Running session keeps the previous version." |
+| Edit schedule while run is `pending` | Pending keeps original `scheduled_at`; future fires use new schedule. Pending promotes with the config it had when queued. |
+| Delete while run is `running` | CASCADE removes run row immediately; running spawn becomes "just a normal session" (no clock icon). Confirmation modal warns. |
+| Toggle `actionType` (prompt ↔ workflow) | Allowed; form re-validates the action block. Doesn't affect running spawn. |
+
+### 11.7 Retention / history
+
+| Scenario | Behavior |
+|---|---|
+| Viewing run #50 when retention prunes it | Detail page subscribes to events; row fades out without popping the user. |
+| Spawned session deleted while run row references it | Run row keeps `instance_id`; lookup returns null; UI shows "Session no longer available." |
+
+### 11.8 Schema migration
+
+| Scenario | Behavior |
+|---|---|
+| First run after upgrade | New entry appended to `MIGRATIONS` in `rlm-schema.ts`; runs the `CREATE TABLE` statements. `IF NOT EXISTS` makes it idempotent. |
+| Down-migration | Not supported (consistent with existing migrations). |
+
+### 11.9 `oneTime`-after-app-closed
+
+User creates a one-time scheduled 5 min from now, closes the app, opens it the next day. Per policy:
+
+- `runOnce`: fires once on launch, marked `catchUp`. Parent → `completed`.
+- `skip`: inserts `skipped` row with `skip_reason='missedWhileOff'`. Parent → `completed`.
+- `notify`: same as skip but `skip_reason='missedNeedsAttention'`, drives the badge.
+
+### 11.10 Resource limits
+
+| Scenario | Behavior |
+|---|---|
+| Disk full during attachment staging | Staging fails before save. Form shows error. |
+| DB locked | Handler retries once with backoff; second failure surfaces "Storage busy" toast. |
+| Memory pressure (ResourceGovernor refuses spawn) | Run marked `failed` with governor's error. Next fire retries. |
+
+## 12. Testing strategy
+
+### Test seams
+
+| Layer | Real | Mocked |
+|---|---|---|
+| `AutomationStore` | better-sqlite3 (`:memory:`) | — |
+| `AutomationScheduler` | croner, store | runner, powerMonitor, injected `now` |
+| `AutomationRunner` | store, croner | instanceLifecycle, workflowManager, instanceEvents |
+| `CatchUpCoordinator` | store, croner | runner, settings, injected `now` |
+| IPC handlers | Zod schemas, `validatedHandler` | domain singletons |
+| Renderer store | Angular signals | IPC service |
+| Components | TestBed | store fakes |
+
+The clock is injected (`now: () => number`) wherever timing matters. No direct `Date.now()` calls in production automation code.
+
+### Coverage focus areas
+
+- `automation-store.ts` — partial-index enforcement, CASCADE, retention prune, JSON round-trip, migration idempotence (target 100%)
+- `automation-runner.ts` — full overlap matrix, dispatch branches, queue promotion, all cancellation paths, dedupe, late-fire guard (target 90%+)
+- `catch-up-coordinator.ts` — three policies × three schedule kinds × edge cases (target 90%+)
+- `automation-scheduler.ts` — payload-to-cron mapping, activate/deactivate/reschedule, suspend/resume hand-off (target 80%+)
+- IPC handlers — Zod-rejection paths cheap; aim 90%+
+- Components — schedule picker validation states, form submission, detail page run-now states, badge rendering (target 70%+)
+
+### Integration tests
+
+End-to-end-within-main-process tests wiring real store + croner + fake `instanceLifecycle`:
+
+- Create automation, advance mock clock, run inserted, dispatch called
+- Two rapid scheduled fires → first runs, second queues, third skips
+- Pause during running run → pending cleared, no further fires
+- Crash simulation → restart → step A reconciles, step C catches up
+- Workflow action: spawn returns executionId → run follows workflow lifecycle
+
+### Out of MVP testing
+
+- Real Electron `powerMonitor` (verified by handler unit tests + manual smoke)
+- Real OS-level cron timing across DST (croner's own suite covers this)
+- Playwright E2E (project doesn't have it wired today; manual smoke checklist used)
+
+### Manual smoke checklist (pre-merge)
+
+- [ ] Create daily automation; appears in list and detail
+- [ ] Run-now from detail; spawned instance has the prompt
+- [ ] Clock icon appears on spawned session in dashboard
+- [ ] Open spawned session; clock turns gray
+- [ ] Pause; no new fires
+- [ ] Edit schedule; next-fire updates
+- [ ] Delete; CASCADE works; spawned session survives
+- [ ] Force missed-run scenario by editing `last_fired_at` in DB; restart; verify policy applies
+- [ ] Cron-mode form: invalid expression blocks save
+- [ ] Cron-mode form: valid expression shows next 5 fires
+
+### Test execution
+
+```bash
+npx tsc --noEmit
+npx tsc --noEmit -p tsconfig.spec.json
+npm run lint
+npm run test -- src/main/automations          # focused
+npm run test                                   # full suite pre-merge
+```
+
+## 13. Phasing / MVP cut
+
+### Sub-phase order
+
+| Phase | Slice |
+|---|---|
+| 1.1 | Schema + `AutomationStore` (CRUD + retention + partial-index tests) |
+| 1.2 | `AutomationScheduler` + croner + payload-to-cron + activate/deactivate |
+| 1.3 | `AutomationRunner` with **prompt action only** + overlap/queue + dedupe |
+| 1.4 | `CatchUpCoordinator` + startup sweep + missed-fire policy |
+| 1.5 | IPC handlers + Zod schemas + preload bridge |
+| 1.6 | Renderer store + sidebar badge + automations list page |
+| 1.7 | Detail page + run-now + run history |
+| 1.8 | Create/edit form + schedule picker + cron preview |
+| 1.9 | Session-list clock-icon adornment + mark-seen wiring |
+| 1.10 | Workflow action dispatch (runner branch + form mode) |
+| 1.11 | Manual smoke + accessibility pass + perf check on long lists |
+
+Workflow action is intentionally last because it depends on `WorkflowManager.start`'s real shape, which the spec sketched but did not verify.
+
+### Effort estimate
+
+- Backend (1.1–1.4 + 1.10): 10–12 working days
+- IPC (1.5): 2 days
+- Renderer (1.6–1.9): 7–9 working days
+- Tests (parallel): 3–4 days incremental
+- Polish + smoke (1.11): 2 days
+
+Total: ~24–29 working days for one engineer (~5 calendar weeks).
+
+### Phase 2 (out of MVP)
+
+In rough priority order:
+
+1. **Always-on background daemon** — fires when app is closed (launchd / Windows service).
+2. **Desktop OS notifications** on completion.
+3. **Auto-retry on failure** with exponential backoff.
+4. **Action-handler registry** when a third action kind is needed.
+5. **First-class Project entity** — independent product decision, not just an automations feature.
+6. **Per-automation tags / color / pinned state** — UX enrichment.
+7. **Quota / cost limits per automation**.
+8. **Cross-automation dependencies** (one fires after another succeeds).
+
+### Phase 3+ (speculative)
+
+- Event triggers (file change, branch update, MCP message)
+- Webhook (incoming HTTP) triggers
+- Sharing / exporting automations between machines
+- Outbound webhooks on completion (Slack, Discord) — possibly via existing channel system
+
+## 14. Pre-flight verifications (during implementation)
+
+Before merging, the implementer should confirm these assumptions from the spec:
+
+1. `app.requestSingleInstanceLock()` is called in `src/main/index.ts` (Section 11.5). If absent, add it.
+2. `WorkflowManager.start()` real signature matches the dispatch sketch in Section 7. Adjust runner adapter if not.
+3. better-sqlite3 has JSON1 enabled by default for `json_valid` CHECKs. (It does in the project's current build, but verify on the implementer's machine.)
+4. `OutputStorageManager` (or equivalent content store) exposes a `storage_ref`-based put/get usable from main-process code (Section 5 attachments).
+5. `InstanceEventAggregator` emits the events assumed by the runner (`instance:idle-after-output`, `instance:terminated`). If naming differs, adjust subscriptions.
+
+## 15. Risks
+
+| Risk | Likelihood | Mitigation |
+|---|---|---|
+| Schema migration corrupts existing RLM DB | Low | `CREATE TABLE IF NOT EXISTS`; no ALTERs; follows existing migration pattern. |
+| `croner` DST bug we hit in production | Low | Library is actively maintained; has DST test suite. |
+| `WorkflowManager.start()` real signature differs from sketch | Medium | Phase 1.10 last; rest of MVP doesn't depend on this. |
+| Startup sweep slow with thousands of run rows | Low | Steps A/B are single UPDATEs; Step C is one SELECT per active automation; indexed. |
+| Single-instance lock not configured | Low | One-line addition if missing (Pre-flight #1). |
+
+## 16. References
+
+Files inspected during research:
+
+- `src/main/persistence/rlm/rlm-schema.ts` — existing RLM schema and migration pattern
+- `src/main/instance/instance-persistence.ts` — instance persistence (proves no SQL table for instances; sessions are JSON-on-disk)
+- `src/main/instance/lifecycle/instance-create-builder.ts` — proves `config.metadata` not threaded into `Instance`
+- `src/main/session/session-continuity.ts:1034` — proves `instance.metadata` not in `SessionState`
+- `src/main/tasks/jitter-scheduler.ts` — pattern for `powerMonitor.on('resume')` handling
+- `src/main/workflows/workflow-manager.ts` — existing workflow infrastructure to integrate with
+- `src/renderer/app/app.routes.ts` — existing `/automations` placeholder route to replace
+- `src/renderer/app/features/dashboard/sidebar-actions.component.ts` — sidebar entry for badge
+- `src/shared/types/instance.types.ts:207-360` — `Instance` and `InstanceCreateConfig` shapes
+- `src/renderer/app/core/services/ipc/instance-ipc.service.ts` — `createInstanceWithMessage` config shape
