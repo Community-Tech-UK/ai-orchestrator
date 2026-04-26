@@ -112,18 +112,36 @@ This narrow per-module ownership is what keeps the test surface small (Section 1
 
 In addition to the bootstrapping order shown below, the automations domain also **registers a deletion-reference probe** with `WorkflowManager` so attempts to remove a workflow template that's referenced by an automation are blocked at the source (not just in the UI — see Section 11.3 #12 for the full guard).
 
-### Startup wiring (in `src/main/index.ts`)
+### Startup wiring (in `src/main/app/initialization-steps.ts`)
+
+The actual app bootstrap is `createInitializationSteps()` in `src/main/app/initialization-steps.ts`, returning an ordered array of `AppInitializationStep` objects. The implementation plan inserts new steps in this array — **not** in `src/main/index.ts`.
+
+Crucially, **IPC handlers register first** in the existing flow (`initialization-steps.ts:85-92`) so they're ready before any other subsystem can want to dispatch through them. Our wiring must respect this:
 
 ```
-RLM database opens
-  └─ AutomationStore.init()                  (schema migration runs here)
-  └─ AutomationRunner.init(deps)             (subscribes to instance/workflow events)
-  └─ CatchUpCoordinator.runStartupSweep()    (Steps A/B/C)
-  └─ AutomationScheduler.initialize(deps)    (loads active rows, arms schedules)
-  └─ IPC handlers register
+existing step:        'IPC handlers'                  ← IpcMainHandler.registerHandlers()
+                                                         (automation-handlers added to the registration set)
+existing step:        'Runtime diagnostics'
+existing step:        'Hook approvals'
+existing step:        'Remote observer'
+existing step:        'Event forwarding'              ← InstanceManager event routing wired
+…
+NEW step:             'Automations: store + attachment service'
+                          AutomationStore.init()       (schema migration runs)
+                          AutomationAttachmentService.init()
+NEW step:             'Automations: runner'
+                          AutomationRunner.initialize(deps)
+                          (subscribes to InstanceManager + WorkflowManager events;
+                           registers reference probe with WorkflowManager)
+NEW step:             'Automations: catch-up sweep'
+                          CatchUpCoordinator.runStartupSweep()    (Steps A/B/C)
+NEW step:             'Automations: scheduler'
+                          AutomationScheduler.initialize(deps)    (loads active rows, arms schedules)
 ```
 
-Catch-up runs **before** the scheduler activates so missed-run policy is applied with deterministic state.
+Catch-up runs **before** the scheduler activates so missed-run policy is applied with deterministic state. The scheduler step is gated on the catch-up step completing (use the existing `critical: true` semantics for ordering).
+
+The IPC handler step needs to know about automation handlers — we add the registration call in `IpcMainHandler.registerHandlers()` (`src/main/ipc/ipc-main-handler.ts`). Crucially, the handlers themselves can be registered before the domain singletons are initialized, because they look up the singletons lazily on each call (the same pattern the existing handlers use — none of them eagerly resolve their domain at registration time).
 
 ## 5. Data model
 
@@ -385,7 +403,34 @@ function payloadToCron(payload: SchedulePayload): { cron: string | null; oneTime
 }
 ```
 
-`oneTime` doesn't go through croner — it uses a single `setTimeout`, fires once, then transitions the parent row to `status='completed'`.
+`oneTime` doesn't go through croner — it uses a **bounded re-arming timer pattern** rather than a single raw `setTimeout`. Node's `setTimeout` is not robust for delays measured in weeks/months (some Node versions clamp at ~24.8 days; even when they don't, the timer can drift across system suspend cycles or be lost to GC pressure). The scheduler instead arms a timer for `min(remainingMs, MAX_TIMER_MS = 24h)`; on fire, it rechecks the persisted `next_fire_at`:
+
+```ts
+private armOneTime(automationId: string, runAt: number): void {
+  const now = this.now();
+  const remaining = runAt - now;
+
+  // Past due (catch-up coordinator already handled this on startup, but defensive):
+  if (remaining <= 0) {
+    void this.runner.fire(automationId, { trigger: 'scheduled', scheduledAt: runAt });
+    return;
+  }
+
+  const delay = Math.min(remaining, 24 * 60 * 60 * 1000);  // cap at 24h
+  const timer = setTimeout(() => {
+    if (this.now() >= runAt) {
+      void this.runner.fire(automationId, { trigger: 'scheduled', scheduledAt: runAt });
+    } else {
+      this.armOneTime(automationId, runAt);  // re-arm for the remaining window
+    }
+  }, delay);
+
+  this.schedules.set(automationId, wrapTimerAsCronShim(timer, runAt));
+  this.store.updateNextFireAt(automationId, runAt);
+}
+```
+
+The DB's `next_fire_at` is the source of truth — even if the process restarts mid-wait, the catch-up coordinator's startup sweep handles whichever side of `runAt` we're on, then the scheduler re-arms with a bounded timer for the remaining time.
 
 ### Suspend / resume
 
@@ -450,7 +495,7 @@ class AutomationRunner {
   initialize(deps: {
     store: AutomationStore;
     instanceManager: InstanceManager;            // EventEmitter — subscribes for run completion
-    instanceLifecycle: InstanceLifecycleManager; // For createInstance / createInstanceWithMessage / terminateInstance
+    instanceLifecycle: InstanceLifecycleManager; // For createInstance(config) / terminateInstance — note: no createInstanceWithMessage exists on the lifecycle
     workflowManager: WorkflowManager;
     attachmentService: AutomationAttachmentService; // wraps ContentStore for durable attachment storage
     now?: () => number;
@@ -511,21 +556,23 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
 
   switch (automation.actionType) {
     case 'prompt': {
+      // No createInstanceWithMessage on the lifecycle — only createInstance.
+      // The "create + send first message" pattern is expressed by setting
+      // initialPrompt + attachments on InstanceCreateConfig (mirrors how the
+      // existing IPC handler implements it for the renderer's create-with-message flow).
       const attachments = await this.attachmentService.load(automation.id);
-      const result = await this.instanceLifecycle.createInstanceWithMessage({
+      const instance = await this.instanceLifecycle.createInstance({
         ...createConfig,
-        message: automation.prompt!,
+        initialPrompt: automation.prompt!,
         attachments,
       });
-      return { kind: 'instance', instanceId: result.instance.id };
+      return { kind: 'instance', instanceId: instance.id };
     }
 
     case 'workflow': {
       // Real API: WorkflowManager.startWorkflow(instanceId, templateId) requires an
-      // already-existing instance. We spawn an instance first (with the bound prompt
-      // text from the template's first phase, if defined; else an empty initial input),
-      // then start the workflow on that instance. This matches how the existing
-      // workflow UI flow works.
+      // already-existing instance. Spawn the instance first WITHOUT initialPrompt
+      // (the workflow's phase agents drive the conversation), then start the workflow.
       const instance = await this.instanceLifecycle.createInstance(createConfig);
       try {
         const exec = this.workflowManager.startWorkflow(instance.id, automation.workflowTemplateId!);
@@ -544,68 +591,131 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
 
 **Type-name reminder**: `InstanceCreateConfig.modelOverride` (not `model`) is the actual field for the model id. Spec sections that say "model" are referring to the automation row's column, which the runner maps to `modelOverride` when constructing the lifecycle config.
 
+**Lifecycle API reminder**: there is no `createInstanceWithMessage` on `InstanceLifecycleManager` — only `createInstance(config: InstanceCreateConfig): Promise<Instance>` (`src/main/instance/instance-lifecycle.ts:937`, exposed via `InstanceManager.createInstance` at `instance-manager.ts:951`). The "create + send first message" semantic is encoded by populating `initialPrompt` + `attachments` on `InstanceCreateConfig`, which the lifecycle's spawn path then forwards to the adapter (`instance-lifecycle.ts:1349-1361`).
+
+### Workflow auto-advance for unattended runs
+
+`WorkflowManager.startWorkflow()` launches the first phase's agents and emits `workflow:agents-completed` when they finish — but it does **not** advance to the next phase on its own. Phase advancement is done by `completePhase(executionId)`, which the existing UI calls manually after a user reviews the phase output. Without intervention, an automation-spawned workflow would sit forever after its first phase completes, and `workflow:completed` would never fire (it only fires when `completePhase()` reaches the end of the template — `workflow-manager.ts:199-201`).
+
+For unattended automations, two compatible mitigations apply:
+
+1. **Auto-advance non-gated phases**: the runner subscribes to `workflow:agents-completed` and, for each event whose `execution.id` is one of its tracked runs, calls `await workflowManager.completePhase(execution.id)` if the phase has `gateType === 'none'`. The phase transitions cleanly to the next, agents launch, the cycle repeats. This naturally drives the workflow to `workflow:completed` when the last phase's agents finish and the final `completePhase()` runs.
+2. **Block templates with gates from automation use** (MVP scope): the create/edit form's workflow-template dropdown filters to templates where every phase has `gateType === 'none'`. Templates with gates show in the dropdown disabled, with a tooltip: "Gated workflows can't run unattended yet — pick a gate-free template, or run this workflow manually."
+
+The runner adds the auto-advance subscription:
+
+```ts
+deps.workflowManager.on('workflow:agents-completed', async ({ execution, phase }) => {
+  if (!this.workflowExecutionToRunId.has(execution.id)) return;     // not one of our automations
+  if (phase.gateType !== 'none') {
+    // Should not reach here if the form filtered correctly; defensive bailout.
+    this.handleWorkflowTerminal(execution.id, 'failed',
+      `Workflow phase '${phase.id}' has gate type '${phase.gateType}' which can't run unattended`);
+    return;
+  }
+  try {
+    await deps.workflowManager.completePhase(execution.id);
+  } catch (err) {
+    this.handleWorkflowTerminal(execution.id, 'failed', err instanceof Error ? err.message : String(err));
+  }
+});
+```
+
+A future Phase-2 item ("Gated workflow support in automations") would design how user-action-required gates interact with unattended scheduling — likely by surfacing a notification and pausing the run until the user resolves the gate. Out of MVP.
+
 ### Completion detection
 
-Passive — subscribe, don't poll. The runner subscribes to `InstanceManager` (which extends `EventEmitter` and forwards lifecycle events; see `src/main/instance/instance-manager.ts:378-399`) and to `WorkflowManager` (also an `EventEmitter`).
+Passive — subscribe, don't poll. The runner subscribes to `InstanceManager` (which extends `EventEmitter` and forwards lifecycle events; see `src/main/instance/instance-manager.ts:378-417`) and to `WorkflowManager` (also an `EventEmitter`).
 
 `InstanceEventAggregator` is *not* an EventEmitter — it's a record-keeping class. Subscriptions go on `InstanceManager` instead.
 
+**Critical envelope shape detail** (`packages/contracts/src/types/instance-events.ts:59-65`): the `instance:event` payload is
+
 ```ts
-private trackingByInstance = new Map<string, RunTrackingState>();   // instanceId → { runId, hasGoneBusy }
+interface InstanceEventEnvelope {
+  eventId: string;
+  seq: number;
+  timestamp: number;
+  instanceId: string;
+  event: InstanceEvent;          // ← the discriminated union lives HERE, not on the envelope
+}
+```
+
+So inspection is `envelope.event.kind`, `envelope.event.status`, `envelope.event.failureClass` — *not* `envelope.kind` directly. And `instance:removed` is emitted with a plain `instanceId: string` payload (`instance-manager.ts:404`), not an envelope.
+
+**Why "first busy → idle" alone is unsafe**: the spawn path emits `state-update` events that walk through `initializing → ready → idle` *before* the initial prompt is sent. If sending the prompt fails (Codex adapter test cases prove this), the lifecycle then transitions the instance to `failed` (`instance-lifecycle.ts:1363`). A naive watcher would see the early `idle` and falsely declare success. We need a stronger signal.
+
+**The actual success signal**: the run is `succeeded` only after we observe **both** an `instance:output` event with an assistant-typed message *and* a subsequent transition back to `idle`. The output event proves the model actually produced something; the post-output idle proves the model finished its initial turn.
+
+```ts
+interface RunTrackingState {
+  runId: string;
+  sawAssistantOutput: boolean;        // bit flips on first assistant output
+  awaitingPostOutputIdle: boolean;    // arms after output; tripped on next idle
+}
+
+private trackingByInstance = new Map<string, RunTrackingState>();
 
 initialize(deps: ...): Promise<void> {
-  // Per-turn idle detection: instance went busy then became idle.
+  // (1) State changes for terminal failures + the post-output-idle confirmation
   deps.instanceManager.on('instance:event', (envelope: InstanceEventEnvelope) => {
     const tracking = this.trackingByInstance.get(envelope.instanceId);
     if (!tracking) return;
-    if (envelope.kind !== 'status_changed') return;
+    if (envelope.event.kind !== 'status_changed') return;
 
-    if (envelope.status === 'busy') {
-      tracking.hasGoneBusy = true;
-      return;
-    }
+    const { status, failureClass } = envelope.event;
 
-    // First idle-after-busy → run succeeded. Subsequent user interaction is normal session activity.
-    if (envelope.status === 'idle' && tracking.hasGoneBusy) {
+    if (status === 'idle' && tracking.awaitingPostOutputIdle) {
       this.trackingByInstance.delete(envelope.instanceId);
       this.handleInstanceTerminal(tracking.runId, 'succeeded');
       return;
     }
 
-    // Terminal failures.
-    if (envelope.status === 'error' || envelope.status === 'failed' || envelope.status === 'terminated') {
+    if (status === 'error' || status === 'failed' || status === 'terminated') {
       this.trackingByInstance.delete(envelope.instanceId);
       this.handleInstanceTerminal(
         tracking.runId,
         'failed',
-        `Instance ${envelope.status}` + (envelope.failureClass ? ` (${envelope.failureClass})` : ''),
+        `Instance ${status}` + (failureClass ? ` (${failureClass})` : ''),
       );
     }
   });
 
-  // Instance removed entirely — ensure we don't leak tracking entries.
-  deps.instanceManager.on('instance:removed', (envelope: InstanceEventEnvelope) => {
-    const tracking = this.trackingByInstance.get(envelope.instanceId);
+  // (2) Output observation — arms the post-output-idle watcher
+  deps.instanceManager.on('instance:output', ({ instanceId, message }) => {
+    const tracking = this.trackingByInstance.get(instanceId);
+    if (!tracking) return;
+    if (message.type !== 'assistant') return;       // ignore user-echo and tool-result outputs
+
+    tracking.sawAssistantOutput = true;
+    tracking.awaitingPostOutputIdle = true;
+  });
+
+  // (3) Instance removed entirely — ensure we don't leak tracking entries.
+  //     The 'instance:removed' payload is `instanceId: string`, NOT an envelope.
+  deps.instanceManager.on('instance:removed', (instanceId: string) => {
+    const tracking = this.trackingByInstance.get(instanceId);
     if (tracking) {
-      this.trackingByInstance.delete(envelope.instanceId);
+      this.trackingByInstance.delete(instanceId);
       this.handleInstanceTerminal(tracking.runId, 'failed', 'Instance removed before completion');
     }
   });
 
-  // Workflow completion.
+  // (4) Workflow completion — see "Workflow auto-advance" below for why this fires.
   deps.workflowManager.on('workflow:completed', (execution: WorkflowExecution) => {
     this.handleWorkflowTerminal(execution.id, 'succeeded');
   });
-  // No explicit 'workflow:failed' event; treat workflow:gate-rejected and instance terminal
-  // events for the workflow's instance_id as failure signals.
+  deps.workflowManager.on('workflow:gate-rejected', ({ execution }) => {
+    this.handleWorkflowTerminal(execution.id, 'failed', 'Workflow gate rejected');
+  });
 }
 ```
 
-**A run is `succeeded`** when the spawned instance transitions from `busy` to `idle` for the first time. The "first idle after busy" rule is what allows the user to keep using the spawned session afterward without it counting as still-in-the-automation: subsequent activity is normal session interaction, the queue can advance.
+**A run is `succeeded`** when the spawned instance has produced at least one assistant `output` AND has subsequently transitioned to `idle`. Subsequent user interaction is normal session activity — the queue advances.
 
-**A run is `failed`** when the instance enters `error`, `failed`, or `terminated` status before the first idle-after-busy. We surface the `failureClass` (`runtime`/`startup`/`recovery`/`termination`) in the error message.
+**A run is `failed`** when the instance enters `error`, `failed`, or `terminated` *or* is removed *before* the post-output idle. We surface the `failureClass` (`startup`/`runtime`/`recovery`/`termination`/`transition`/`permission` per the contract enum) in the error message.
 
-**Workflow runs** terminalize on `workflow:completed`. Instance-level failures during workflow execution (instance terminates abnormally) also fail the run via the instance subscription path — both subscriptions resolve to the same run row by `instance_id`/`workflow_execution_id`.
+**Note on the InstanceStatus enum**: the contract status enum (`packages/contracts/src/types/instance-events.ts:1-22`) is wider than just `idle`/`busy`/`error`/`failed`/`terminated` — it also includes `initializing`, `ready`, `processing`, `thinking_deeply`, `waiting_for_input`, `waiting_for_permission`, etc. The runner only acts on the explicit success/failure transitions above; intermediate statuses are ignored.
 
 ### Queue promotion
 
@@ -670,7 +780,10 @@ WHERE status='pending';
 For each automation with `status='active'`:
 
 ```ts
-const policy = automation.missedRunPolicy ?? settings.get('automations.defaultMissedRunPolicy');
+// SettingsManager.get<K extends keyof AppSettings>(key: K) — key must be a top-level
+// AppSettings field, not a dotted path. Phase 1.5 adds a flat `defaultMissedRunPolicy`
+// to AppSettings; the call site is therefore:
+const policy = automation.missedRunPolicy ?? settings.get('defaultMissedRunPolicy');
 const baseline = automation.lastFiredAt ?? automation.createdAt;
 const referencePoint = Math.max(baseline, since);
 const missed = computeMissedFireTimes(automation, referencePoint, until);
@@ -728,11 +841,13 @@ Same as Step C, with `since` = suspend timestamp (captured by `powerMonitor.on('
 
 ### Global default policy
 
+A new top-level `AppSettings` field (Phase 1.5):
+
 ```ts
-'automations.defaultMissedRunPolicy': 'runOnce' | 'skip' | 'notify'  // default 'runOnce'
+defaultMissedRunPolicy: 'runOnce' | 'skip' | 'notify'   // default 'runOnce'
 ```
 
-NULL on a row means "follow global default" — changing the global propagates without rewriting rows.
+NULL on an automation row means "follow global default" — changing the global propagates without rewriting rows. Accessed via `settings.get('defaultMissedRunPolicy')`.
 
 ## 9. IPC contract
 
@@ -777,7 +892,7 @@ Updated to match the project's current contract layout (the spec previously poin
 
 **Important**: the preload composition is generated — adding a new domain requires running whatever the project's preload-generation step is (verify in package.json scripts). If preload generation is manual (a hand-edited barrel), edit the barrel.
 
-**AppSettings extension** (from `src/shared/types/settings.types.ts:18`): adding `defaultMissedRunPolicy?: 'runOnce' | 'skip' | 'notify'` to the `AppSettings` interface and the corresponding default constants. The catch-up coordinator's `settings.get('automations.defaultMissedRunPolicy')` won't type-check until this extension is in place.
+**AppSettings extension** (from `src/shared/types/settings.types.ts:18`): `SettingsManager.get<K extends keyof AppSettings>(key: K)` is keyed by a top-level `AppSettings` field, not a dotted path (`src/main/core/config/settings-manager.ts:189`). Phase 1.5 adds a flat key `defaultMissedRunPolicy?: 'runOnce' | 'skip' | 'notify'` to `AppSettings` and the corresponding default constants. The catch-up coordinator calls `settings.get('defaultMissedRunPolicy')` (not `'automations.defaultMissedRunPolicy'`).
 
 ### Zod schemas (in `packages/contracts/src/schemas/automation.schemas.ts`)
 
@@ -1159,7 +1274,7 @@ npm run test                                   # full suite pre-merge
 | 1.7 | Detail page + run-now + run history |
 | 1.8 | Create/edit form + schedule picker + cron preview |
 | 1.9 | Session-list clock-icon adornment + mark-seen wiring |
-| 1.10 | Workflow action dispatch — **`createInstance` then `WorkflowManager.startWorkflow(instance.id, templateId)`** with rollback on failure + `registerReferenceProbe` wired into `WorkflowManager.removeTemplate()` for the deletion guard + form mode |
+| 1.10 | Workflow action dispatch — **`createInstance` then `WorkflowManager.startWorkflow(instance.id, templateId)`** with rollback on failure + **runner subscription to `workflow:agents-completed` calling `completePhase()` for no-gate phases** + **form filters template dropdown to no-gate templates only (gated templates disabled with tooltip)** + `registerReferenceProbe` wired into `WorkflowManager.removeTemplate()` for the deletion guard |
 | 1.11 | Manual smoke + accessibility pass + perf check on long lists |
 
 Workflow action is intentionally last because it requires extending `WorkflowManager.removeTemplate()` with the reference-probe pattern (a public-API change that adds risk). The spawn-then-start adapter itself is straightforward; the deletion guard is the bigger touch.
@@ -1181,11 +1296,12 @@ In rough priority order:
 1. **Always-on background daemon** — fires when app is closed (launchd / Windows service).
 2. **Desktop OS notifications** on completion.
 3. **Auto-retry on failure** with exponential backoff.
-4. **Action-handler registry** when a third action kind is needed.
-5. **First-class Project entity** — independent product decision, not just an automations feature.
-6. **Per-automation tags / color / pinned state** — UX enrichment.
-7. **Quota / cost limits per automation**.
-8. **Cross-automation dependencies** (one fires after another succeeds).
+4. **Gated workflow support in automations** — design how user-action-required gates interact with unattended scheduling (likely: surface a notification, pause the run, allow user to resolve via UI, then resume). MVP restricts to no-gate templates.
+5. **Action-handler registry** when a third action kind is needed.
+6. **First-class Project entity** — independent product decision, not just an automations feature.
+7. **Per-automation tags / color / pinned state** — UX enrichment.
+8. **Quota / cost limits per automation**.
+9. **Cross-automation dependencies** (one fires after another succeeds).
 
 ### Phase 3+ (speculative)
 
@@ -1196,17 +1312,21 @@ In rough priority order:
 
 ## 14. Pre-flight verifications (during implementation)
 
-Before merging, the implementer should confirm these (the spec was revised after a code review caught earlier mismatches; these are the remaining items to confirm during build):
+Before merging, the implementer should confirm these (the spec was revised twice after code reviews caught earlier mismatches; these are the remaining items to confirm during build):
 
 1. `app.requestSingleInstanceLock()` is called in `src/main/index.ts` (Section 11.5). If absent, add it.
 2. better-sqlite3 has JSON1 enabled by default for `json_valid` CHECKs. (It does in the project's current build, but verify in this branch.)
 3. The **preload composition** flow — confirm whether `src/preload/domains/*.preload.ts` composition is generated or hand-edited; follow the existing pattern when adding `automation.preload.ts`.
 4. **`ContentStore.storeDurable()`** — Phase 1.1 adds this method (or an equivalent) so attachment writes are awaited; if a different content store is preferred for blobs, document why.
-5. **`WorkflowManager.startWorkflow(instanceId, templateId)`** is the real signature (verified at `src/main/workflows/workflow-manager.ts:122`). The runner uses spawn-then-start. Confirm rollback (terminate on workflow start failure) leaves no orphans by exercising it in tests.
-6. **`InstanceManager` event names** — verified to be `instance:event`, `instance:created`, `instance:input-required`, `instance:batch-update`, `instance:removed` (`src/main/instance/instance-manager.ts:378-399`). The completion-detection logic relies on `instance:event` envelopes with `kind === 'status_changed'` and the status enum (`idle`, `busy`, `error`, `failed`, `terminated`). Confirm the precise transitions during integration testing.
-7. **`InstanceCreateConfig.reasoningEffort`** is added by Phase 1.3. Lower-level CLI adapters that don't support reasoning ignore the field.
-8. **`AppSettings.defaultMissedRunPolicy`** is added by Phase 1.5 alongside the other settings extensions.
-9. **`WorkflowManager.registerReferenceProbe()`** is a new public API added in Phase 1.10 — coordinate with anyone touching workflow code in parallel.
+5. **`WorkflowManager.startWorkflow(instanceId, templateId)`** is the real signature (`src/main/workflows/workflow-manager.ts:122`). Runner uses spawn-then-start. Test rollback path leaves no orphan instances on workflow start failure.
+6. **`InstanceManager` events**: `instance:event` (envelope shape `{ eventId, seq, timestamp, instanceId, event: { kind, status, … } }`); `instance:output` (`{ instanceId, message }`); `instance:removed` (bare `instanceId: string`). Listeners at `instance-manager.ts:378-417`. Envelope contract at `packages/contracts/src/types/instance-events.ts:59-65`.
+7. **`InstanceLifecycleManager.createInstance(config)`** is the only creation API — there is no `createInstanceWithMessage`. Pass `initialPrompt` + `attachments` on the config to get the "create + send first message" semantic (`instance-lifecycle.ts:937` and `:1349`).
+8. **`InstanceCreateConfig.reasoningEffort`** added by Phase 1.3. Lower-level CLI adapters that don't support reasoning ignore the field.
+9. **`AppSettings.defaultMissedRunPolicy`** is a flat top-level field on `AppSettings` (Phase 1.5). `SettingsManager.get('defaultMissedRunPolicy')` is the access path — dotted/nested keys won't type-check (`settings-manager.ts:189`).
+10. **`WorkflowManager.registerReferenceProbe()`** is a new public API added in Phase 1.10 — coordinate with anyone touching workflow code in parallel.
+11. **Workflow auto-advance**: Phase 1.10 wires runner subscription to `workflow:agents-completed` with auto-`completePhase` on no-gate phases. Form filters templates with any gated phase.
+12. **Startup wiring** lives in `src/main/app/initialization-steps.ts` (function `createInitializationSteps()` at line 78). New automation steps are inserted **after** the existing `'IPC handlers'` and `'Event forwarding'` steps. Automation IPC handlers register inside `IpcMainHandler.registerHandlers()` (`src/main/ipc/ipc-main-handler.ts`); they look up domain singletons lazily so registration order doesn't matter for correctness, but the documented order matches existing convention.
+13. **One-time long timers**: scheduler uses bounded re-arming (24h cap) instead of a single raw `setTimeout`. Verify `setTimeout` clamping behavior on the target Node/Electron version isn't tripped.
 
 ## 15. Risks
 
@@ -1241,8 +1361,28 @@ Files inspected during research:
 - `src/main/session/content-store.ts` — actual content-store API surface (post-revision)
 - `src/shared/types/settings.types.ts:18` — `AppSettings` extension target (post-revision)
 - `packages/contracts/src/schemas/instance.schemas.ts` — IPC schema location pattern (post-revision)
+- `packages/contracts/src/types/instance-events.ts` — `InstanceEventEnvelope`/`InstanceEvent` contract (v3)
+- `src/main/instance/instance-manager.ts:378-417` — real `instance:event`/`instance:output`/`instance:removed` forwarding (v3)
+- `src/main/instance/instance-lifecycle.ts:937,1349-1377` — confirmed only `createInstance` exists; `initialPrompt` flow + failure path (v3)
+- `src/main/core/config/settings-manager.ts:189` — `keyof AppSettings` typing (v3)
+- `src/main/app/initialization-steps.ts:78` — actual startup wiring (v3)
+- `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v3 — 2026-04-26 (post second code-review)
+
+User did a second deep review against the codebase and identified four P1 + three P2 issues; all verified and addressed:
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | Completion detection used wrong `InstanceEventEnvelope` shape (`envelope.kind` vs. real `envelope.event.kind`); treated `instance:removed` as an envelope (real payload is bare `instanceId: string`) | Section 7 completion-detection block rewritten with correct shape. `instance:removed` handler accepts `instanceId: string`. |
+| P1.B | `busy → idle` is unsafe success signal — adapter spawn-and-send paths emit `busy, idle` before send rejects, so naive watcher would falsely succeed | Success signal now requires both an `instance:output` event with `type === 'assistant'` AND a subsequent `idle` transition. Two-flag tracking state (`sawAssistantOutput`, `awaitingPostOutputIdle`). |
+| P1.C | `InstanceLifecycleManager.createInstanceWithMessage()` doesn't exist — only `createInstance(config)`; create-with-message semantic uses `initialPrompt`/`attachments` on the config | Section 7 dispatch updated to call `createInstance({ ...config, initialPrompt: prompt, attachments })` for the prompt branch; workflow branch unchanged (already used `createInstance` without prompt). |
+| P1.D | `settings.get('automations.defaultMissedRunPolicy')` won't type-check — `SettingsManager.get` is keyed by `keyof AppSettings`, not dotted paths | Settings key is now flat: `defaultMissedRunPolicy` on `AppSettings`. Catch-up coordinator calls `settings.get('defaultMissedRunPolicy')`. |
+| P2.A | Workflow `workflow:completed` only fires after `completePhase()` reaches the end; `startWorkflow()` doesn't auto-advance, so an unattended automation would hang after the first phase | Added "Workflow auto-advance for unattended runs" subsection in Section 7. Runner subscribes to `workflow:agents-completed` and auto-calls `completePhase()` for `gateType === 'none'` phases. Form filters template dropdown to no-gate templates only; gated templates disabled with tooltip. Future Phase-2 item: gated workflow support. |
+| P2.B | Startup wiring described in `src/main/index.ts` with IPC last; actual bootstrap is `createInitializationSteps()` in `src/main/app/initialization-steps.ts` and IPC registers first | Section 4 startup-wiring tree rewritten to match `initialization-steps.ts:78-134`. Automation steps inserted in the correct order (after IPC and event-forwarding). Note added that handlers can register before singletons since lookups are lazy. |
+| P2.C | `oneTime` `setTimeout` for far-future schedules (weeks/months) is unreliable | Section 6 one-time path rewritten to use a bounded re-arming timer (cap 24h) backed by persisted `next_fire_at`. Process restart mid-wait is handled by catch-up sweep. |
 
 ### v2 — 2026-04-26 (post code-review)
 
