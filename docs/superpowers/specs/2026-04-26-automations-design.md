@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-Automations are saved, scheduled prompts (or saved Workflow runs) that fire at user-configured times and spawn fresh AI instances to do the work. The user-facing model mirrors ChatGPT's "Tasks" feature: a named prompt + a recurrence + a target — the system does the rest.
+Automations are saved, scheduled prompts that fire at user-configured times and spawn fresh AI instances to do the work. The user-facing model mirrors ChatGPT's "Tasks" feature: a named prompt + a recurrence + a target — the system does the rest. (Workflow chaining was originally in scope but was deferred to Phase 2 — see Decision log Q1 update and revision history v7.)
 
 The route `/automations` already exists in the renderer as a "coming-soon" placeholder (`src/renderer/app/app.routes.ts:46`) and the sidebar already links to it (`src/renderer/app/features/dashboard/sidebar-actions.component.ts:25-37`). This spec defines the implementation that replaces the placeholder.
 
@@ -16,7 +16,7 @@ Users have recurring agent work (server-log reviews, daily summaries, dependency
 
 ### Single-line definition
 
-> An automation is a saved `(prompt | workflow)` + `(schedule)` + `(provider/model/agent/yolo config)` + `(working directory)` that fires by itself, spawns a fresh instance per fire, and surfaces results in the normal session list.
+> An automation is a saved `prompt` + `schedule` + `(provider/model/agent/yolo config)` + `working directory` that fires by itself, spawns a fresh instance per fire, and surfaces results in the normal session list. (Workflow action is Phase 2.)
 
 ## 2. Goals & non-goals
 
@@ -339,6 +339,28 @@ skipped                     failed
 canceled
 ```
 
+### `last_fired_at` / `last_run_id` update protocol
+
+These two fields drive the clock-backward dedupe (Section 7) and the catch-up baseline (Section 8). They MUST be advanced atomically alongside every run-row insertion that represents a fire-attempt at a specific scheduled timestamp:
+
+```
+Transaction (one BEGIN/COMMIT):
+  INSERT INTO automation_runs (..., scheduled_at, status, ...)  -- pending|running|skipped
+  UPDATE automations
+    SET last_fired_at = MAX(COALESCE(last_fired_at, 0), :scheduledAt),
+        last_run_id   = :insertedRunId,
+        updated_at    = :now
+    WHERE id = :automationId;
+```
+
+**Applies to all triggers** (`scheduled` / `manual` / `catchUp`) and **all initial outcomes** (`pending` queued / `running` started / `skipped` because of overlap / dedupe / pause / queueFull / missedWhileOff / missedNeedsAttention / duplicate). The catch-up policy's `insertSkippedRun()` helper invokes the same transaction.
+
+**Why advance on skipped runs too**: without it, the catch-up coordinator would re-discover the same missed window on every subsequent sweep (since `since = max(baseline, lastFiredAt)` would never advance past it), and the dedupe in Section 7 would fail to suppress repeated duplicate-fire detections.
+
+**Run terminalization** (the second transaction, when a run finishes — `succeeded` / `failed` / `canceled`): updates `automation_runs.status` + `completed_at` + optional `error_message`, but does **not** re-touch `automations.last_fired_at` (already advanced at insertion). Terminalization may also write `automations.next_fire_at` if the scheduler observed it (e.g., after `oneTime` succeeds — see Section 6 One-time terminal).
+
+The `last_fired_at` field is `NULL` until the first run insertion. Catch-up baseline accordingly uses `automation.lastFiredAt ?? automation.createdAt` to handle the NULL case (already shown in Section 8 Step C).
+
 ### Instance ↔ automation linkage
 
 The runner sets `automation_runs.instance_id` after the spawn returns. The renderer queries `getSpawnedSessionMap({ instanceIds })` to drive the clock-icon UI. **No `Instance.metadata` involvement** — that path was rejected because:
@@ -591,8 +613,9 @@ class AutomationRunner {
 
 ### Fire flow
 
-1. Load automation; if `status='paused'` or `'completed'`, insert `skipped` and return.
-2. **Clock-backward dedupe** (only for `trigger='scheduled'` or `'catchUp'`; manual fires are exempt because the user is intentionally firing now): if `scheduledAt <= last_fired_at`, insert `skipped` with `skip_reason='duplicate'`, return.
+0. **Normalize `scheduledAt`**: `automation_runs.scheduled_at` is `NOT NULL`, but `fire()`'s public signature accepts `opts.scheduledAt?: number` as optional (manual run-now omits it; some catch-up paths may too). At the very top of the flow, compute `const fireTime = opts.scheduledAt ?? this.now();` and use `fireTime` everywhere downstream (insert, dedupe checks, last_fired_at update). This guarantees every `automation_runs` row has a concrete `scheduled_at`.
+1. Load automation; if `status='paused'` or `'completed'`, insert `skipped(scheduled_at=fireTime)` and return.
+2. **Clock-backward dedupe** (only for `trigger='scheduled'` or `'catchUp'`; manual fires are exempt because the user is intentionally firing now): if `fireTime <= last_fired_at`, insert `skipped` with `skip_reason='duplicate'`, return.
 3. **Late-fire guard**: if `trigger='scheduled'` and `now() - scheduledAt > 60s`, re-label the call as `trigger='catchUp'` so it appears correctly in history. The fire still proceeds — this guard is about *labeling*, not about re-applying missed-run policy. (Policy is applied separately by the catch-up coordinator on startup/resume sweeps for fires we never received.)
 4. **Overlap decision** (single transaction):
    - No in-flight → `start`
@@ -650,21 +673,41 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
 
   // CRITICAL: register run tracking SYNCHRONOUSLY before returning.
   // createInstance() returns after Phase 1 (registry + record build), but Phase 2
-  // (CLI spawn + initial prompt send) runs in the background and can emit
-  // provider:normalized-event / instance:event with idle/error/failed/etc.
-  // BEFORE the caller in fire() finishes its post-dispatch DB writes.
-  // If we wait until after `await this.dispatch(...)` returns to set tracking,
-  // a fast adapter (or a fast init failure) can lose its terminal events,
-  // leaving the run stuck as 'running' indefinitely.
-  //
-  // Registering here, in the same synchronous block as the createInstance
-  // resolution, ensures any subsequent event for this instanceId finds the
-  // tracking entry already populated.
+  // (CLI spawn + initial prompt send) runs in the background. Even if we register
+  // tracking in the same synchronous block, Phase 2 may have already emitted (and
+  // delivered) terminal events between createInstance's promise-resolution
+  // microtask and this set — for example a fast init failure where buildInstanceRecord
+  // succeeded but the adapter spawn rejected synchronously inside the background.
   this.trackingByInstance.set(instance.id, {
     runId: run.id,
     sawAssistantOutput: false,
     awaitingPostOutputIdle: false,
   });
+
+  // Reconcile against any terminal state that landed before our tracking set.
+  // The Instance object IS the live record (instance-state-manager keeps it
+  // up-to-date), so reading status here reflects the current truth.
+  const liveStatus = instance.status;
+  if (liveStatus === 'error' || liveStatus === 'failed' || liveStatus === 'terminated') {
+    this.trackingByInstance.delete(instance.id);
+    this.handleInstanceTerminal(
+      run.id,
+      'failed',
+      `Instance entered terminal state '${liveStatus}' before tracking attached`,
+    );
+  } else if (liveStatus === 'waiting_for_input' || liveStatus === 'waiting_for_permission') {
+    this.trackingByInstance.delete(instance.id);
+    this.handleInstanceTerminal(
+      run.id,
+      'failed',
+      `Automation halted in '${liveStatus}' — interactive input/permission required.`,
+    );
+    void this.instanceManager.terminateInstance(instance.id, true).catch(() => undefined);
+  } else if (liveStatus === 'idle' && instance.outputBuffer.some(m => m.type === 'assistant')) {
+    // Race-rare but defensible: spawn produced output and went idle before we attached.
+    this.trackingByInstance.delete(instance.id);
+    this.handleInstanceTerminal(run.id, 'succeeded');
+  }
 
   return { kind: 'instance', instanceId: instance.id };
 }
@@ -943,7 +986,11 @@ function computeMissedFireTimes(automation: Automation, since: number, until: nu
   //
   // Walk forward from `since` using cron.nextRun(), which IS scheduled-time-relative.
   // Result is naturally chronological — no reverse() needed.
-  const cron = new Cron(automation.cronExpression!, { timezone: automation.timezone });
+  //
+  // CRITICAL: pass `paused: true` so this calculation-only Cron doesn't schedule a
+  // live timer. Without it, every catch-up sweep would leak a setTimeout into the
+  // event loop until the next process restart.
+  const cron = new Cron(automation.cronExpression!, { timezone: automation.timezone, paused: true });
   const missed: number[] = [];
   let cursor = new Date(since);
   while (true) {
@@ -1087,8 +1134,11 @@ export const updateAutomationInputSchema = createAutomationInputSchema.partial()
 ```ts
 ipcMain.handle('automation:validateCron',
   validatedHandler(validateCronSchema, async ({ expression, timezone }) => {
+    let cron: Cron | undefined;
     try {
-      const cron = new Cron(expression, { timezone: timezone ?? 'UTC' });
+      // paused: true — calculation-only; without it the validate handler would leak
+      // a live timer into the event loop on every keystroke during the form's debounce.
+      cron = new Cron(expression, { timezone: timezone ?? 'UTC', paused: true });
       const fires: number[] = [];
       let cursor = new Date();
       for (let i = 0; i < 5; i++) {
@@ -1100,6 +1150,8 @@ ipcMain.handle('automation:validateCron',
       return { valid: true, nextFires: fires };
     } catch (err) {
       return { valid: false, error: err instanceof Error ? err.message : 'Invalid cron expression' };
+    } finally {
+      cron?.stop();   // belt-and-suspenders for any croner version that ignores `paused`
     }
   }),
 );
@@ -1176,7 +1228,7 @@ Empty state: "No automations yet — create your first scheduled task" with CTA.
 Layout matches the screenshot:
 
 - Header: back link, title, [Pause/Resume], [Delete], [Run now] buttons
-- Body: prompt body / description (or workflow template summary)
+- Body: prompt body / description (workflow template summary will be added in Phase 2)
 - Right panel:
   - **Status**: status pill, Next run, Last ran
   - **Details**: Runs in (Local/remote node), Project (working dir), Repeats (schedule summary), Model, Reasoning — each with quick-edit dropdown
@@ -1298,8 +1350,8 @@ Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if curr
 |---|---|
 | Edit prompt while run is `running` | Edit applies to the automation row. Already-running spawn keeps the *old* prompt (it was sent at spawn time and lives in the instance's session). Any *pending* run at promotion time will use the new prompt (per "Edit schedule while pending" row). Toast: "Edit applied. The currently-running session keeps the previous version; queued and future fires use the new version." |
 | Edit schedule while run is `pending` | Pending keeps original `scheduled_at`; future fires use new schedule. **Pending promotes with the automation's *latest* config at promotion time** (we don't snapshot config when queueing — `automation_runs` only stores timing/status/link/seen, not config). If the user edits prompt/model/yolo/attachments while a run is pending, promotion uses the new values. Documented in the form's "edit while pending" toast. (Snapshot-on-queue was considered and rejected: bloats the schema and adds confusion when users edit because they want their fix to apply.) |
-| Delete while run is `running` | CASCADE removes run row immediately; running spawn becomes "just a normal session" (no clock icon). Confirmation modal warns. |
-| Toggle `actionType` (prompt ↔ workflow) | Allowed; form re-validates the action block. Doesn't affect running spawn. |
+| Delete while run is `running` | CASCADE removes run row immediately; running spawn becomes "just a normal session" (no clock icon). **The runner's `delete()` path also clears `trackingByInstance` for the orphaned instance** so `handleInstanceTerminal` doesn't fire later against a deleted run row. As an additional safety net, `handleInstanceTerminal` treats a missing run id as an expected no-op: `if (!this.store.getRun(runId)) return;` before attempting `completeRun()`. Confirmation modal warns: *"The currently-running session will continue but will no longer be tracked by this automation."* |
+| Toggle `actionType` | N/A in MVP — only `'prompt'` is allowed. Phase 2 adds the prompt↔workflow toggle and the form's discriminated state machine has been left compatible. |
 
 ### 11.7 Retention / history
 
@@ -1519,6 +1571,19 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v9 — 2026-04-27 (post eighth code-review)
+
+User did an eighth deep review against v8. Three P1, three P2, plus one minor stale-doc cleanup. All verified and addressed. No structural changes.
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | Tracking can still miss early createInstance failures: even after v8's synchronous `set` immediately after `createInstance` returns, the background Phase 2 init can have already emitted terminal events between `createInstance`'s promise-resolve microtask and the dispatch continuation. | Section 7 dispatch now reconciles immediately after the tracking set: reads the *live* `instance.status` and (for the rare race-fast success path) checks `instance.outputBuffer` for assistant content. If terminal (`error`/`failed`/`terminated`/`waiting_for_input`/`waiting_for_permission`) or already idle-after-output, terminalize inline and clear tracking. |
+| P1.B | `last_fired_at` and `last_run_id` were never specified to be updated. Without updates, clock-backward dedupe couldn't suppress repeats and catch-up baselines couldn't advance — every sweep would re-discover the same missed window. | Added "`last_fired_at` / `last_run_id` update protocol" subsection in Section 5 specifying the atomic transaction: every run-row insertion (any trigger, any initial outcome) updates `last_fired_at = MAX(COALESCE(last_fired_at, 0), :scheduledAt)` and `last_run_id = :insertedRunId` in the same transaction. Terminalization (the second transaction) does NOT re-touch these fields. Skipped/duplicate inserts MUST advance them too — otherwise catch-up would loop. |
+| P2.A | Manual fires (`runner.fire(id, { trigger: 'manual' })`) lack a `scheduledAt`, but `automation_runs.scheduled_at` is `NOT NULL`. | Section 7 fire flow now has Step 0: `const fireTime = opts.scheduledAt ?? this.now()` at the very top. Used for insert, dedupe, last_fired_at, everywhere. Dedupe still applies only to scheduled/catchUp triggers (per existing Step 2). |
+| P2.B | `computeMissedFireTimes` and `validateCron` constructed `new Cron(...)` instances for pure date math without `paused: true` or `stop()`, leaking live timers into the event loop on every catch-up sweep / form keystroke. | Both call sites now pass `paused: true` to the Cron constructor. `validateCron` additionally calls `cron.stop()` in a `finally` for belt-and-suspenders against any croner version that ignores the option. Comments cite the rationale. |
+| P2.C | Deleting a running automation cascades the run row but the spawned instance keeps emitting events. `trackingByInstance` still contains the orphaned mapping, so `handleInstanceTerminal` would later try to terminalize a deleted run row. | Edge-case table updated: the runner's `delete()` path explicitly clears `trackingByInstance` for the orphaned instance. Defensive guard added: `handleInstanceTerminal` does `if (!this.store.getRun(runId)) return;` before attempting `completeRun()`. Confirmation modal copy updated to surface the orphan-session behavior. |
+| Minor | Stale doc lines still mentioned prompt↔workflow toggling in Overview (line 9), Single-line definition (line 19), Detail page body (line 1179), and the edit/delete edge-case table (line 1302). | All four cleaned up to reflect v7 workflow descope. |
 
 ### v8 — 2026-04-27 (post seventh code-review)
 
