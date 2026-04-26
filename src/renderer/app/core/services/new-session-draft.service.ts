@@ -1,5 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import type { ProviderType } from './provider-state.service';
 
 @Injectable({ providedIn: 'root' })
@@ -20,6 +21,7 @@ export class NewSessionDraftService {
   readonly model = computed(() => this.activeDraft().model);
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
+  readonly agentId = computed(() => this.activeDraft().agentId);
   readonly nodeId = computed(() => this.activeDraft().nodeId);
   readonly updatedAt = computed(() => this.activeDraft().updatedAt);
   readonly pendingFiles = computed(() => this.pendingFilesByKey()[this.state().activeKey] ?? []);
@@ -165,6 +167,19 @@ export class NewSessionDraftService {
     }));
   }
 
+  setAgentId(agentId: string): void {
+    this.updateActiveDraft((draft) => {
+      if (draft.agentId === agentId) {
+        return draft;
+      }
+      return {
+        ...draft,
+        agentId,
+        updatedAt: Date.now(),
+      };
+    });
+  }
+
   addPendingFolder(folderPath: string): void {
     const normalized = this.normalizePath(folderPath);
     if (!normalized) {
@@ -261,6 +276,7 @@ export class NewSessionDraftService {
       ...draft,
       prompt: '',
       pendingFolders: [],
+      agentId: getDefaultAgent().id,
       updatedAt: Date.now(),
     }));
     const hadFiles = (this.pendingFilesByKey()[activeKey] ?? []).length > 0;
@@ -354,6 +370,9 @@ export class NewSessionDraftService {
 
   private hydrateDraft(draft: PersistedNewSessionDraft | undefined): NewSessionDraftState {
     const provider = this.isProviderType(draft?.provider) ? draft.provider : null;
+    const persistedAgentId = typeof draft?.agentId === 'string' ? draft.agentId.trim() : '';
+    const isKnownAgent = persistedAgentId.length > 0
+      && BUILTIN_AGENTS.some((a) => a.id === persistedAgentId);
     return {
       workingDirectory: this.normalizePath(draft?.workingDirectory),
       prompt: typeof draft?.prompt === 'string' ? draft.prompt : '',
@@ -364,6 +383,7 @@ export class NewSessionDraftService {
       ),
       nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
+      agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
       pendingFolders: Array.isArray(draft?.pendingFolders)
         ? draft.pendingFolders
             .map((entry) => this.normalizePath(entry))
@@ -436,6 +456,7 @@ export class NewSessionDraftService {
       model: null,
       nodeId: null,
       yoloMode: null,
+      agentId: getDefaultAgent().id,
       pendingFolders: [],
       updatedAt: Date.now(),
     };
@@ -479,12 +500,10 @@ export class NewSessionDraftService {
 
     if (this.persistHandle !== null) {
       window.clearTimeout(this.persistHandle);
+      this.persistHandle = null;
     }
 
-    this.persistHandle = window.setTimeout(() => {
-      this.persistHandle = null;
-      this.persistState(state);
-    }, 200);
+    this.persistState(state);
   }
 
   private persistNow(): void {
@@ -554,6 +573,7 @@ interface NewSessionDraftState {
   model: string | null;
   nodeId: string | null;
   yoloMode: boolean | null; // null = use settings default
+  agentId: string;
   pendingFolders: string[];
   updatedAt: number;
 }
@@ -571,6 +591,7 @@ interface PersistedNewSessionDraft {
   model: string | null;
   nodeId?: string | null;
   yoloMode?: boolean | null;
+  agentId?: string;
   pendingFolders: string[];
   updatedAt: number;
 }

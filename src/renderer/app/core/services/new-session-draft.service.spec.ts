@@ -35,6 +35,7 @@ describe('NewSessionDraftService', () => {
     service.setPrompt('Need a fresh brief');
     service.setProvider('codex');
     service.setModel('gpt-5-codex');
+    service.setAgentId('plan');
     service.addPendingFolder('/Users/suas/work/opencode');
     service.addPendingFiles([file]);
 
@@ -44,8 +45,9 @@ describe('NewSessionDraftService', () => {
     expect(service.prompt()).toBe('');
     expect(service.pendingFolders()).toEqual([]);
     expect(service.pendingFiles()).toEqual([]);
-    expect(service.provider()).toBe('codex');
-    expect(service.model()).toBe('gpt-5-codex');
+    expect(service.agentId()).toBe('build');
+    expect(service.provider()).toBe('codex');     // unchanged
+    expect(service.model()).toBe('gpt-5-codex');  // unchanged
   });
 
   it('reports saved drafts for project-scoped pending files', () => {
@@ -53,5 +55,70 @@ describe('NewSessionDraftService', () => {
     service.addPendingFiles([new File(['a'], 'draft.txt', { type: 'text/plain' })]);
 
     expect(service.hasSavedDraftFor('/Users/suas/work/orchestrat0r/claude-orchestrator')).toBe(true);
+  });
+
+  it('defaults agentId to "build" on a fresh draft', () => {
+    expect(service.agentId()).toBe('build');
+  });
+
+  it('updates agentId via setAgentId', () => {
+    service.setAgentId('plan');
+    expect(service.agentId()).toBe('plan');
+  });
+
+  it('persists agentId across reload', () => {
+    service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+    service.setAgentId('review');
+
+    const reloaded = new NewSessionDraftService();
+    reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+    expect(reloaded.agentId()).toBe('review');
+  });
+
+  it('hydrates legacy persisted records (no agentId field) to "build"', () => {
+    window.localStorage.setItem(
+      'new-session-drafts:v1',
+      JSON.stringify({
+        version: 1,
+        activeKey: '__default__',
+        drafts: {
+          __default__: {
+            workingDirectory: null,
+            prompt: 'old draft',
+            provider: null,
+            model: null,
+            pendingFolders: [],
+            updatedAt: 0,
+          },
+        },
+      }),
+    );
+
+    const reloaded = new NewSessionDraftService();
+    expect(reloaded.agentId()).toBe('build');
+  });
+
+  it('hydrates an unknown agent id to "build"', () => {
+    window.localStorage.setItem(
+      'new-session-drafts:v1',
+      JSON.stringify({
+        version: 1,
+        activeKey: '__default__',
+        drafts: {
+          __default__: {
+            workingDirectory: null,
+            prompt: '',
+            provider: null,
+            model: null,
+            agentId: 'made-up-agent',
+            pendingFolders: [],
+            updatedAt: 0,
+          },
+        },
+      }),
+    );
+
+    const reloaded = new NewSessionDraftService();
+    expect(reloaded.agentId()).toBe('build');
   });
 });
