@@ -1,8 +1,9 @@
 /**
- * Agent Selector Component - Dropdown to select agent mode
+ * Agent Selector Component - Compact pill that selects agent mode
  *
- * Displays available agent profiles (Build, Plan, Review) with colors
- * and allows switching between them for new instances.
+ * Fully controlled: caller owns state via [selectedAgentId] / (agentSelected).
+ * Renders the dropdown menu of built-in agent profiles (Build, Plan, Review,
+ * Retriever) with their per-mode color cue.
  */
 
 import {
@@ -10,11 +11,13 @@ import {
   Component,
   ElementRef,
   HostListener,
+  computed,
   inject,
+  input,
   output,
   signal,
 } from '@angular/core';
-import { AgentStore } from '../../core/state/agent.store';
+import { BUILTIN_AGENTS } from '../../../../shared/types/agent.types';
 import type { AgentProfile } from '../../../../shared/types/agent.types';
 
 @Component({
@@ -24,10 +27,11 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
   template: `
     <div class="agent-selector">
       <button
+        type="button"
         class="selected-agent"
         [style.border-color]="selectedAgent().color"
         (click)="toggleDropdown()"
-        title="Select agent mode for new instances"
+        [title]="'Mode: ' + selectedAgent().name"
       >
         <span class="agent-icon" [style.color]="selectedAgent().color">
           @switch (selectedAgent().icon) {
@@ -60,8 +64,9 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
           role="menu"
           tabindex="-1"
         >
-          @for (agent of allAgents(); track agent.id) {
+          @for (agent of allAgents; track agent.id) {
             <button
+              type="button"
               class="agent-option"
               [class.selected]="agent.id === selectedAgent().id"
               [style.border-left-color]="agent.color"
@@ -108,16 +113,16 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
       .selected-agent {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        height: 36px;
+        gap: 6px;
+        padding: 6px 10px;
+        height: 32px;
         box-sizing: border-box;
-        background: var(--bg-secondary);
+        background: transparent;
         border: 1px solid;
         border-radius: 6px;
         color: var(--text-primary);
         cursor: pointer;
-        transition: all var(--transition-fast);
+        transition: background var(--transition-fast);
         font-size: 13px;
       }
 
@@ -171,7 +176,7 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         color: var(--text-primary);
         cursor: pointer;
         text-align: left;
-        transition: all var(--transition-fast);
+        transition: background var(--transition-fast);
       }
 
       .agent-option:hover {
@@ -196,22 +201,21 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         font-size: 11px;
         color: var(--text-secondary);
       }
-    `
-  ]
+    `,
+  ],
 })
 export class AgentSelectorComponent {
-  private agentStore = inject(AgentStore);
   private elementRef = inject(ElementRef<HTMLElement>);
 
-  // Outputs
-  agentSelected = output<AgentProfile>();
+  readonly selectedAgentId = input.required<string>();
+  readonly agentSelected = output<AgentProfile>();
 
-  // Local state
-  protected isOpen = signal(false);
-
-  // From store
-  protected selectedAgent = this.agentStore.selectedAgent;
-  protected allAgents = this.agentStore.allAgents;
+  protected readonly allAgents = BUILTIN_AGENTS;
+  protected readonly isOpen = signal(false);
+  protected readonly selectedAgent = computed<AgentProfile>(() => {
+    const id = this.selectedAgentId();
+    return BUILTIN_AGENTS.find((a) => a.id === id) ?? BUILTIN_AGENTS[0];
+  });
 
   toggleDropdown(): void {
     this.isOpen.update((v) => !v);
@@ -222,7 +226,6 @@ export class AgentSelectorComponent {
   }
 
   selectAgent(agent: AgentProfile): void {
-    this.agentStore.selectAgent(agent.id);
     this.agentSelected.emit(agent);
     this.closeDropdown();
   }
