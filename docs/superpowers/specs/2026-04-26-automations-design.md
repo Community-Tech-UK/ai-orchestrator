@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS automations (
   agent_id              TEXT NOT NULL DEFAULT 'build',
   provider              TEXT NOT NULL DEFAULT 'auto',
   model                 TEXT,
-  reasoning_effort      TEXT,
+  reasoning_effort      TEXT,                       -- 'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|null (full Codex enum; Claude maps the lower bands)
   yolo_mode             INTEGER NOT NULL DEFAULT 0,
 
   -- WHEN (cron_expression null only for oneTime)
@@ -407,6 +407,11 @@ class CronHandle implements ScheduleHandle {
   readonly kind = 'cron';
   constructor(private cron: Cron) {}
   nextFireAt() { return this.cron.nextRun()?.getTime() ?? null; }
+  // Note: croner's previousRun() returns the most recent ACTUAL fire of this Cron,
+  // not a scheduled-time-relative computation. That's the right semantic for the
+  // "describeNextFire" read-only inspector (returns null until the cron has fired once),
+  // but it is NOT suitable for computing missed fires — see computeMissedFireTimes
+  // in Section 8 which walks forward with nextRun() instead.
   previousFireAt() { return this.cron.previousRun()?.getTime() ?? null; }
   stop() { this.cron.stop(); }
 }
@@ -642,6 +647,25 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
     initialPrompt: automation.prompt,                 // non-null per the schema CHECK
     attachments,
   });
+
+  // CRITICAL: register run tracking SYNCHRONOUSLY before returning.
+  // createInstance() returns after Phase 1 (registry + record build), but Phase 2
+  // (CLI spawn + initial prompt send) runs in the background and can emit
+  // provider:normalized-event / instance:event with idle/error/failed/etc.
+  // BEFORE the caller in fire() finishes its post-dispatch DB writes.
+  // If we wait until after `await this.dispatch(...)` returns to set tracking,
+  // a fast adapter (or a fast init failure) can lose its terminal events,
+  // leaving the run stuck as 'running' indefinitely.
+  //
+  // Registering here, in the same synchronous block as the createInstance
+  // resolution, ensures any subsequent event for this instanceId finds the
+  // tracking entry already populated.
+  this.trackingByInstance.set(instance.id, {
+    runId: run.id,
+    sawAssistantOutput: false,
+    awaitingPostOutputIdle: false,
+  });
+
   return { kind: 'instance', instanceId: instance.id };
 }
 ```
@@ -866,9 +890,14 @@ For each automation with `status='active'`:
 const policy = automation.missedRunPolicy ?? settings.get('defaultMissedRunPolicy');
 
 // Step C inputs — computed differently per sweep type, but applied identically below.
+// Resume fallback: when suspendedAt is null (first wake / missed suspend event /
+// powerMonitor wired late), use a 10-minute heuristic so we still scan a reasonable
+// window. This must be applied in code, not just prose — runResumeSweep accepts
+// `suspendedAt: number | null` and strict tsconfig won't let null flow into Math.max.
+const RESUME_FALLBACK_MS = 10 * 60 * 1000;
 const since = sweepKind === 'startup'
   ? (automation.lastFiredAt ?? automation.createdAt)
-  : suspendedAt;
+  : (suspendedAt ?? (resumedAt - RESUME_FALLBACK_MS));
 const until = sweepKind === 'startup' ? now() : resumedAt;
 
 const baseline = automation.lastFiredAt ?? automation.createdAt;
@@ -906,21 +935,31 @@ function computeMissedFireTimes(automation: Automation, since: number, until: nu
     const runAt = parsePayload(automation).runAt;
     return runAt > since && runAt <= until ? [runAt] : [];
   }
+
+  // IMPORTANT: do NOT use cron.previousRun() — its semantics are "the previous
+  // *actual* job run of this Cron instance", not "the previous *scheduled* time
+  // relative to a reference date". A freshly constructed Cron has no actual prior
+  // runs, so previousRun() returns null and missed-fire computation silently empties.
+  //
+  // Walk forward from `since` using cron.nextRun(), which IS scheduled-time-relative.
+  // Result is naturally chronological — no reverse() needed.
   const cron = new Cron(automation.cronExpression!, { timezone: automation.timezone });
   const missed: number[] = [];
-  let cursor = until;
+  let cursor = new Date(since);
   while (true) {
-    const prev = cron.previousRun(new Date(cursor))?.getTime();
-    if (!prev || prev <= since) break;
-    missed.push(prev);
-    cursor = prev - 1;
-    if (missed.length > 100) break;  // sanity cap
+    const next = cron.nextRun(cursor);
+    if (!next) break;
+    const ts = next.getTime();
+    if (ts > until) break;
+    missed.push(ts);
+    cursor = new Date(ts + 1000);            // step past this fire to find the next
+    if (missed.length > 100) break;          // sanity cap
   }
-  return missed.reverse();
+  return missed;
 }
 ```
 
-`runOnce` only fires the most recent missed time — matches "I want today's daily, not last week's" intuition.
+`runOnce` only fires the most recent missed time (`missed[missed.length - 1]`) — matches "I want today's daily, not last week's" intuition.
 
 ### Resume sweep
 
@@ -1011,7 +1050,7 @@ export const automationActionSchema = z.discriminatedUnion('actionType', [
   z.object({
     actionType: z.literal('prompt'),
     prompt:     z.string().min(1).max(50_000),
-    attachments: z.array(fileAttachmentSchema).max(20).optional(),
+    attachments: z.array(FileAttachmentSchema).max(20).optional(),  // PascalCase per packages/contracts/src/schemas/common.schemas.ts:12
   }),
   // Phase 2 (deferred):
   // z.object({
@@ -1028,7 +1067,11 @@ export const createAutomationInputSchema = z.object({
   agentId:            z.string().default('build'),
   provider:           z.enum(['claude','codex','gemini','copilot','cursor','auto']).default('auto'),
   model:              z.string().optional(),
-  reasoningEffort:    z.enum(['low','medium','high']).optional(),
+  // The full Codex reasoning enum per src/main/cli/adapters/codex/app-server-types.ts:67.
+  // Claude maps none/minimal/low onto its thinking-budget bands and treats xhigh as
+  // its highest budget; providers without reasoning support ignore the field. Restricting
+  // to low/medium/high would prevent automations from expressing valid Codex/Claude settings.
+  reasoningEffort:    z.enum(['none','minimal','low','medium','high','xhigh']).optional(),
   yoloMode:           z.boolean().default(false),
   schedule:           schedulePayloadSchema,
   timezone:           z.string().min(1),
@@ -1253,8 +1296,8 @@ Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if curr
 
 | Scenario | Behavior |
 |---|---|
-| Edit prompt while run is `running` | Edit applies; running spawn keeps old prompt. Toast: "Edit applied. Running session keeps the previous version." |
-| Edit schedule while run is `pending` | Pending keeps original `scheduled_at`; future fires use new schedule. Pending promotes with the config it had when queued. |
+| Edit prompt while run is `running` | Edit applies to the automation row. Already-running spawn keeps the *old* prompt (it was sent at spawn time and lives in the instance's session). Any *pending* run at promotion time will use the new prompt (per "Edit schedule while pending" row). Toast: "Edit applied. The currently-running session keeps the previous version; queued and future fires use the new version." |
+| Edit schedule while run is `pending` | Pending keeps original `scheduled_at`; future fires use new schedule. **Pending promotes with the automation's *latest* config at promotion time** (we don't snapshot config when queueing — `automation_runs` only stores timing/status/link/seen, not config). If the user edits prompt/model/yolo/attachments while a run is pending, promotion uses the new values. Documented in the form's "edit while pending" toast. (Snapshot-on-queue was considered and rejected: bloats the schema and adds confusion when users edit because they want their fix to apply.) |
 | Delete while run is `running` | CASCADE removes run row immediately; running spawn becomes "just a normal session" (no clock icon). Confirmation modal warns. |
 | Toggle `actionType` (prompt ↔ workflow) | Allowed; form re-validates the action block. Doesn't affect running spawn. |
 
@@ -1476,6 +1519,19 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v8 — 2026-04-27 (post seventh code-review)
+
+User did a seventh deep review against v7 and identified two P1 + four P2 issues. All verified against the codebase and addressed. No structural changes — these are precision fixes to specific code sketches.
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | Prompt-run tracking registered too late: dispatch returned `instance.id` and the caller in `fire()` recorded it on the run row via an awaited DB write *before* trackingByInstance was populated. A fast adapter (or fast init failure) could emit terminal events during the await, leaving the run stuck as 'running'. | Section 7 dispatch now sets `trackingByInstance` SYNCHRONOUSLY immediately after `createInstance()` returns, in the same synchronous block — before any further awaits. Comment added explaining the race window and why the order matters. |
+| P1.B | Missed-fire calculation used `cron.previousRun(new Date(cursor))`, but croner's `previousRun()` returns the *actual* prior job run for that Cron instance — not a scheduled-time-relative computation. A freshly constructed Cron has no prior runs, so startup/resume catch-up silently computes no missed fires. | Rewrote `computeMissedFireTimes` to walk forward from `since` using `cron.nextRun(cursor)` (which IS scheduled-time-relative). Naturally chronological — no `reverse()` needed. Step-past via `cursor = new Date(ts + 1000)`. Same 100-fire sanity cap. |
+| P2.A | Resume fallback (`suspendedAt ?? resumedAt - 10min`) was described in prose but the Step C code sketch assigned `since = suspendedAt` directly. Strict tsconfig wouldn't let `null` flow into `Math.max`. | Inline `RESUME_FALLBACK_MS = 10*60*1000` constant; `since = sweepKind === 'startup' ? ... : (suspendedAt ?? (resumedAt - RESUME_FALLBACK_MS))`. Comment cites the missed-suspend cases (first wake / powerMonitor wired late). |
+| P2.B | Edge-case table said "pending promotes with the config it had when queued", but `automation_runs` only stores timing/status/link/seen — no config snapshot. If user edits prompt/model/yolo/attachments while a run is pending, promotion would silently use the latest values. | Documented behavior changed: pending runs use the automation's *latest* config at promotion time. Form's "edit while pending" toast surfaces this. Snapshot-on-queue was considered and rejected (bloats schema, masks user-intent edits). The "edit while running" entry was also clarified for consistency. |
+| P2.C | Zod schema referenced `fileAttachmentSchema` (lowercase) but the actual export is `FileAttachmentSchema` (PascalCase) at `packages/contracts/src/schemas/common.schemas.ts:12`. | Corrected to `FileAttachmentSchema` with a comment citing the export location. |
+| P2.D | `reasoningEffort` enum allowed only `'low'|'medium'|'high'`. Real Codex adapter accepts `'none'|'minimal'|'low'|'medium'|'high'|'xhigh'` (`src/main/cli/adapters/codex/app-server-types.ts:67`); Claude maps the lower bands to thinking-budget settings. As written, automations couldn't represent valid Codex/Claude reasoning settings. | Expanded Zod enum to the full six-value set; schema column comment expanded too. Comment cites the codex types file. |
 
 ### v7 — 2026-04-27 (post sixth code-review)
 
