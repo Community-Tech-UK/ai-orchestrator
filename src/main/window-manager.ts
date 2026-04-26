@@ -294,6 +294,14 @@ export class WindowManager {
         submenu: [
           { role: 'about' },
           { type: 'separator' },
+          {
+            label: 'Settings…',
+            accelerator: 'Cmd+,',
+            click: () => {
+              this.mainWindow?.webContents.send(IPC_CHANNELS.MENU_OPEN_SETTINGS);
+            }
+          },
+          { type: 'separator' },
           { role: 'services' },
           { type: 'separator' },
           { role: 'hide' },

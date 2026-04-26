@@ -180,4 +180,5 @@ export const ORCHESTRATION_CHANNELS = {
 
   // Menu events (renderer-bound)
   MENU_NEW_INSTANCE: 'menu:new-instance',
+  MENU_OPEN_SETTINGS: 'menu:open-settings',
 } as const;

@@ -2,8 +2,8 @@
  * Root Application Component
  */
 
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { ChangeDetectionStrategy, Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { Router, RouterOutlet } from '@angular/router';
 import { ElectronIpcService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
@@ -27,11 +27,14 @@ declare global {
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   private ipcService = inject(ElectronIpcService);
+  private router = inject(Router);
   private perfService = inject(PerfInstrumentationService);
   private stressFixtures = inject(StressFixturesService);
   private workspaceBench = inject(WorkspaceBenchService);
+
+  private menuListenerCleanup: (() => void) | null = null;
 
   isMacOS = false;
   readonly startupCapabilities = signal<StartupCapabilityReport | null>(null);
@@ -55,6 +58,11 @@ export class AppComponent implements OnInit {
       this.startupCapabilities.set(report);
     });
 
+    // Open Settings when triggered from the macOS app menu (Cmd+,).
+    this.menuListenerCleanup = this.ipcService.on('menu:open-settings', () => {
+      void this.router.navigate(['/settings']);
+    });
+
     // Signal app ready
     await this.ipcService.appReady();
     if (!this.startupCapabilities()) {
@@ -63,6 +71,11 @@ export class AppComponent implements OnInit {
         this.startupCapabilities.set(report);
       }
     }
+  }
+
+  ngOnDestroy(): void {
+    this.menuListenerCleanup?.();
+    this.menuListenerCleanup = null;
   }
 
   startupCapabilitySummary(): string {

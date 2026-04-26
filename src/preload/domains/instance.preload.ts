@@ -294,6 +294,17 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
         ipcRenderer.removeListener(ch.MENU_NEW_INSTANCE, handler);
     },
 
+    /**
+     * Listen for the OS menu's Settings… action (Cmd+,).
+     */
+    onMenuOpenSettings: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.MENU_OPEN_SETTINGS, handler);
+      return () =>
+        ipcRenderer.removeListener(ch.MENU_OPEN_SETTINGS, handler);
+    },
+
     // ============================================
     // User Action Requests (Orchestrator -> User)
     // ============================================

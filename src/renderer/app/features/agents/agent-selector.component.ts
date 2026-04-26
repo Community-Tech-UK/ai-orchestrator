@@ -5,7 +5,15 @@
  * and allows switching between them for new instances.
  */
 
-import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  inject,
+  output,
+  signal,
+} from '@angular/core';
 import { AgentStore } from '../../core/state/agent.store';
 import type { AgentProfile } from '../../../../shared/types/agent.types';
 
@@ -84,18 +92,6 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         </div>
       }
     </div>
-
-    @if (isOpen()) {
-      <div
-        class="backdrop"
-        (click)="closeDropdown()"
-        (keydown.enter)="closeDropdown()"
-        (keydown.space)="closeDropdown()"
-        role="button"
-        tabindex="0"
-        aria-label="Close dropdown"
-      ></div>
-    }
   `,
   styles: [
     `
@@ -200,20 +196,12 @@ import type { AgentProfile } from '../../../../shared/types/agent.types';
         font-size: 11px;
         color: var(--text-secondary);
       }
-
-      .backdrop {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 99;
-      }
     `
   ]
 })
 export class AgentSelectorComponent {
   private agentStore = inject(AgentStore);
+  private elementRef = inject(ElementRef<HTMLElement>);
 
   // Outputs
   agentSelected = output<AgentProfile>();
@@ -237,5 +225,21 @@ export class AgentSelectorComponent {
     this.agentStore.selectAgent(agent.id);
     this.agentSelected.emit(agent);
     this.closeDropdown();
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.isOpen()) return;
+    const target = event.target as Node | null;
+    if (target && !this.elementRef.nativeElement.contains(target)) {
+      this.closeDropdown();
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.isOpen()) {
+      this.closeDropdown();
+    }
   }
 }
