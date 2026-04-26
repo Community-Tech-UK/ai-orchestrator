@@ -188,6 +188,7 @@ export class WelcomeCoordinatorService {
       message: finalMessage,
       files: this.pendingFiles(),
       workingDirectory: effectiveWorkingDir,
+      agentId: this.newSessionDraft.agentId(),
       provider,
       model,
       forceNodeId,
