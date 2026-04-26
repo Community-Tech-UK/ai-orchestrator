@@ -277,14 +277,26 @@ CREATE INDEX IF NOT EXISTS idx_automation_attachments_by_automation
   ON automation_attachments(automation_id, position);
 ```
 
-**Storage**: The existing `ContentStore` (`src/main/session/content-store.ts`) is used. Its `store(content: string): Promise<ContentRef>` accepts a string and returns either an inline ref (< 1 KB) or an external ref keyed by SHA-256.
+**Storage**: The existing `ContentStore` (`src/main/session/content-store.ts`) is used. Its `store(content: string): Promise<ContentRef>` accepts a string (UTF-8 hashed) and returns either an inline ref (< 1 KB) or an external ref keyed by SHA-256.
+
+**Encoding**: `FileAttachment.data` is already a `data:` URL string from the renderer (e.g. `data:image/png;base64,iVBORw0KGgo…`). We store the **raw data URL** as the string passed to `ContentStore.store()` — no decoding to bytes, no separate `Buffer` path. This is intentional:
+
+- ContentStore was designed for strings; the data URL is a string with predictable length characteristics
+- Round-trip is lossless: the data URL we pass in is exactly what we get back, ready to assign to `FileAttachment.data` at fire time
+- No need to add a `Buffer`-capable path to `ContentStore` for MVP
+
+The `mime_type` and `name` columns on `automation_attachments` capture the FileAttachment metadata; `size_bytes` records the data URL string's byte length (UTF-8) so list views can show "12 KB" without round-tripping the content.
 
 **Durability requirement**: `ContentStore.store()` is *fire-and-forget* by default — the disk write isn't awaited. For automation attachments we need durability (we may not fire the run for hours/days, and an app crash before the write would leave a dangling ref). Phase 1.1 adds an `AutomationAttachmentService` thin wrapper that exposes:
 
 ```ts
 class AutomationAttachmentService {
-  // Saves bytes durably (awaiting the disk write before returning) and persists the row.
-  async save(automationId: string, file: { name: string; mimeType: string; bytes: Uint8Array | string }): Promise<AutomationAttachmentRow>;
+  // Saves a data URL durably (awaiting the disk write before returning) and persists the row.
+  async save(
+    automationId: string,
+    attachment: FileAttachment,        // { name, type, size, data: string (data URL) }
+    position: number,
+  ): Promise<AutomationAttachmentRow>;
 
   // Loads attachments for fire-time materialization into FileAttachment[] for the lifecycle.
   async load(automationId: string): Promise<FileAttachment[]>;
@@ -293,9 +305,9 @@ class AutomationAttachmentService {
 }
 ```
 
-The "durable" path either uses a small extension to `ContentStore` (a `storeDurable()` method that awaits the write; backward-compatible addition) or — if we don't want to touch `ContentStore` — does the SHA-256 hash + write inline in the service. Either is fine; recommended is to extend `ContentStore` so the durability guarantee lives next to the rest of the storage logic.
+The "durable" path adds one new method to `ContentStore` — `storeDurable(content: string): Promise<ContentRef>` that awaits the disk write before returning. Backward-compatible (existing fire-and-forget callers keep current semantics).
 
-On create/edit, the renderer sends `FileAttachment[]` (each with `data: string` data URL); the IPC handler decodes the data URL, calls `attachmentService.save(...)`, and the row is inserted with the resulting `ContentRef`. On fire, the runner calls `attachmentService.load(automationId)` to get `FileAttachment[]` for the lifecycle call.
+On create/edit, the renderer sends `FileAttachment[]` (each with `data: string` data URL). The IPC handler calls `attachmentService.save(automationId, attachment, position)` for each; the service stores the data URL via `ContentStore.storeDurable()` and inserts the row with the resulting `ContentRef`. On fire, `attachmentService.load(automationId)` returns `FileAttachment[]` ready for `InstanceCreateConfig.attachments`.
 
 ### Schedule payload (JSON in `schedule_payload_json`)
 
@@ -379,11 +391,41 @@ class AutomationScheduler {
 
 ### Internal state
 
+The schedules map holds either a real `Cron` (for preset/cron schedules) or a re-arming timer (for one-time). Both implement a small `ScheduleHandle` interface so `deactivate()`, `shutdown()`, and `describeNextFire()` stay type-safe:
+
 ```ts
-private schedules = new Map<string, Cron>();
+interface ScheduleHandle {
+  kind: 'cron' | 'oneTime';
+  nextFireAt(): number | null;          // ms epoch; null when no future fire
+  previousFireAt(): number | null;
+  stop(): void;
+}
+
+class CronHandle implements ScheduleHandle {
+  readonly kind = 'cron';
+  constructor(private cron: Cron) {}
+  nextFireAt() { return this.cron.nextRun()?.getTime() ?? null; }
+  previousFireAt() { return this.cron.previousRun()?.getTime() ?? null; }
+  stop() { this.cron.stop(); }
+}
+
+class OneTimeHandle implements ScheduleHandle {
+  readonly kind = 'oneTime';
+  private timer: ReturnType<typeof setTimeout> | null;
+  constructor(timer: ReturnType<typeof setTimeout>, private runAt: number) { this.timer = timer; }
+  nextFireAt() { return this.timer ? this.runAt : null; }
+  previousFireAt() { return this.timer ? null : this.runAt; }
+  stop() { if (this.timer) { clearTimeout(this.timer); this.timer = null; } }
+  reArm(timer: ReturnType<typeof setTimeout>): void {
+    this.stop();
+    this.timer = timer;
+  }
+}
+
+private schedules = new Map<string, ScheduleHandle>();
 ```
 
-The map is the runtime truth; the DB is the durable truth. They reconcile on `initialize()` and after every CRUD operation.
+The map is the runtime truth; the DB is the durable truth. They reconcile on `initialize()` and after every CRUD operation. (Earlier iterations of the spec talked about a `wrapTimerAsCronShim` helper — replaced by the explicit `OneTimeHandle` for clarity.)
 
 ### Payload-to-cron translation
 
@@ -425,7 +467,14 @@ private armOneTime(automationId: string, runAt: number): void {
     }
   }, delay);
 
-  this.schedules.set(automationId, wrapTimerAsCronShim(timer, runAt));
+  // Reuse the existing OneTimeHandle if present (so a re-arm doesn't churn the map);
+  // otherwise create a fresh one.
+  const existing = this.schedules.get(automationId);
+  if (existing && existing.kind === 'oneTime') {
+    (existing as OneTimeHandle).reArm(timer);
+  } else {
+    this.schedules.set(automationId, new OneTimeHandle(timer, runAt));
+  }
   this.store.updateNextFireAt(automationId, runAt);
 }
 ```
@@ -494,10 +543,14 @@ class AutomationRunner {
 
   initialize(deps: {
     store: AutomationStore;
-    instanceManager: InstanceManager;            // EventEmitter — subscribes for run completion
-    instanceLifecycle: InstanceLifecycleManager; // For createInstance(config) / terminateInstance — note: no createInstanceWithMessage exists on the lifecycle
+    // InstanceManager is the SINGLE integration point for both events AND
+    // lifecycle calls. The lifecycle manager itself is `private` inside
+    // InstanceManager (`instance-manager.ts:116`) — no public accessor — so
+    // the runner uses InstanceManager.createInstance() / .terminateInstance(),
+    // which are public wrappers (`instance-manager.ts:951,955`).
+    instanceManager: InstanceManager;
     workflowManager: WorkflowManager;
-    attachmentService: AutomationAttachmentService; // wraps ContentStore for durable attachment storage
+    attachmentService: AutomationAttachmentService;
     now?: () => number;
   }): Promise<void>;
 
@@ -556,12 +609,11 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
 
   switch (automation.actionType) {
     case 'prompt': {
-      // No createInstanceWithMessage on the lifecycle — only createInstance.
-      // The "create + send first message" pattern is expressed by setting
-      // initialPrompt + attachments on InstanceCreateConfig (mirrors how the
-      // existing IPC handler implements it for the renderer's create-with-message flow).
+      // No createInstanceWithMessage exists. The "create + send first message"
+      // pattern is encoded by setting initialPrompt + attachments on
+      // InstanceCreateConfig. We call the public InstanceManager wrapper.
       const attachments = await this.attachmentService.load(automation.id);
-      const instance = await this.instanceLifecycle.createInstance({
+      const instance = await this.instanceManager.createInstance({
         ...createConfig,
         initialPrompt: automation.prompt!,
         attachments,
@@ -573,13 +625,13 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
       // Real API: WorkflowManager.startWorkflow(instanceId, templateId) requires an
       // already-existing instance. Spawn the instance first WITHOUT initialPrompt
       // (the workflow's phase agents drive the conversation), then start the workflow.
-      const instance = await this.instanceLifecycle.createInstance(createConfig);
+      const instance = await this.instanceManager.createInstance(createConfig);
       try {
         const exec = this.workflowManager.startWorkflow(instance.id, automation.workflowTemplateId!);
         return { kind: 'workflow', executionId: exec.id, instanceId: instance.id };
       } catch (err) {
         // Workflow start failed — terminate the orphaned instance so it doesn't linger.
-        await this.instanceLifecycle.terminateInstance(instance.id, true).catch(() => undefined);
+        await this.instanceManager.terminateInstance(instance.id, true).catch(() => undefined);
         throw err;
       }
     }
@@ -591,21 +643,24 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
 
 **Type-name reminder**: `InstanceCreateConfig.modelOverride` (not `model`) is the actual field for the model id. Spec sections that say "model" are referring to the automation row's column, which the runner maps to `modelOverride` when constructing the lifecycle config.
 
-**Lifecycle API reminder**: there is no `createInstanceWithMessage` on `InstanceLifecycleManager` — only `createInstance(config: InstanceCreateConfig): Promise<Instance>` (`src/main/instance/instance-lifecycle.ts:937`, exposed via `InstanceManager.createInstance` at `instance-manager.ts:951`). The "create + send first message" semantic is encoded by populating `initialPrompt` + `attachments` on `InstanceCreateConfig`, which the lifecycle's spawn path then forwards to the adapter (`instance-lifecycle.ts:1349-1361`).
+**Lifecycle access**: `InstanceLifecycleManager` is `private` inside `InstanceManager` (`instance-manager.ts:116`) — there is no public accessor. The runner uses the public wrappers `InstanceManager.createInstance(config)` (`instance-manager.ts:951`) and `InstanceManager.terminateInstance(id, graceful)` (`instance-manager.ts:955`).
+
+There is no `createInstanceWithMessage` anywhere in the lifecycle hierarchy. The "create + send first message" semantic is encoded by populating `initialPrompt` + `attachments` on `InstanceCreateConfig`, which the lifecycle's spawn path then forwards to the adapter (`instance-lifecycle.ts:1349-1361`).
 
 ### Workflow auto-advance for unattended runs
 
-`WorkflowManager.startWorkflow()` launches the first phase's agents and emits `workflow:agents-completed` when they finish — but it does **not** advance to the next phase on its own. Phase advancement is done by `completePhase(executionId)`, which the existing UI calls manually after a user reviews the phase output. Without intervention, an automation-spawned workflow would sit forever after its first phase completes, and `workflow:completed` would never fire (it only fires when `completePhase()` reaches the end of the template — `workflow-manager.ts:199-201`).
+`WorkflowManager.startWorkflow()` (`workflow-manager.ts:122-155`) emits `workflow:started` and then **only launches phase agents if the phase has agents** (`if (firstPhase.agents)` at line 145). Subsequent phase transitions inside `completePhase()` follow the same conditional (line 209). Three event-source cases need handling for unattended automations:
 
-For unattended automations, two compatible mitigations apply:
+| Phase shape | Event sequence | Auto-advance trigger |
+|---|---|---|
+| Has agents, gateType='none' | `workflow:started` (or `workflow:phase-changed`) → agents run → `workflow:agents-completed` | `workflow:agents-completed` |
+| **No agents, gateType='none'** | `workflow:started` (or `workflow:phase-changed`) → **nothing else fires; phase stalls** | `workflow:started` / `workflow:phase-changed` |
+| Any phase with gateType ≠ 'none' | Gate stalls phase indefinitely | **Not allowed in MVP** — form filters templates with any gated phase |
 
-1. **Auto-advance non-gated phases**: the runner subscribes to `workflow:agents-completed` and, for each event whose `execution.id` is one of its tracked runs, calls `await workflowManager.completePhase(execution.id)` if the phase has `gateType === 'none'`. The phase transitions cleanly to the next, agents launch, the cycle repeats. This naturally drives the workflow to `workflow:completed` when the last phase's agents finish and the final `completePhase()` runs.
-2. **Block templates with gates from automation use** (MVP scope): the create/edit form's workflow-template dropdown filters to templates where every phase has `gateType === 'none'`. Templates with gates show in the dropdown disabled, with a tooltip: "Gated workflows can't run unattended yet — pick a gate-free template, or run this workflow manually."
-
-The runner adds the auto-advance subscription:
+If we only listened to `workflow:agents-completed`, no-agent phases (which the project's built-in templates routinely use as setup/checkpoint phases) would stall the automation immediately. So the runner subscribes to **three** workflow events and uses the same advancement helper for all of them:
 
 ```ts
-deps.workflowManager.on('workflow:agents-completed', async ({ execution, phase }) => {
+const advanceIfPossible = async (execution: WorkflowExecution, phase: WorkflowPhase) => {
   if (!this.workflowExecutionToRunId.has(execution.id)) return;     // not one of our automations
   if (phase.gateType !== 'none') {
     // Should not reach here if the form filtered correctly; defensive bailout.
@@ -613,13 +668,39 @@ deps.workflowManager.on('workflow:agents-completed', async ({ execution, phase }
       `Workflow phase '${phase.id}' has gate type '${phase.gateType}' which can't run unattended`);
     return;
   }
+  // Skip auto-advance if the phase has agents but they haven't completed yet.
+  // workflow:started/phase-changed fire BEFORE agents run; we let the agents
+  // finish and rely on workflow:agents-completed to advance.
+  if (phase.agents && phase.agents.length > 0) return;
   try {
     await deps.workflowManager.completePhase(execution.id);
   } catch (err) {
-    this.handleWorkflowTerminal(execution.id, 'failed', err instanceof Error ? err.message : String(err));
+    this.handleWorkflowTerminal(execution.id, 'failed',
+      err instanceof Error ? err.message : String(err));
   }
+};
+
+deps.workflowManager.on('workflow:started', ({ execution, template }) => {
+  void advanceIfPossible(execution, template.phases[0]);
+});
+
+deps.workflowManager.on('workflow:phase-changed', ({ execution, phase }) => {
+  void advanceIfPossible(execution, phase);
+});
+
+deps.workflowManager.on('workflow:agents-completed', ({ execution, phase }) => {
+  // Always advance after agents finish for no-gate phases. Idempotent vs.
+  // workflow:started because that path bails when agents.length > 0.
+  void advanceIfPossible(execution, phase);
 });
 ```
+
+This lets the runner drive a workflow through any mix of agent / no-agent phases as long as none of them have gates. `workflow:completed` fires from the final `completePhase()` call and terminalizes the run.
+
+Two consequent Phase-1.10 implementation notes:
+
+- **Form filtering** must inspect *every* phase's `gateType`, not just the first; rejection tooltip lists the offending phase ids.
+- **Template-deletion guard** (Section 11.3 #12) treats automations referencing a template as references regardless of which phase shape is involved.
 
 A future Phase-2 item ("Gated workflow support in automations") would design how user-action-required gates interact with unattended scheduling — likely by surfacing a notification and pausing the run until the user resolves the gate. Out of MVP.
 
@@ -645,9 +726,14 @@ So inspection is `envelope.event.kind`, `envelope.event.status`, `envelope.event
 
 **Why "first busy → idle" alone is unsafe**: the spawn path emits `state-update` events that walk through `initializing → ready → idle` *before* the initial prompt is sent. If sending the prompt fails (Codex adapter test cases prove this), the lifecycle then transitions the instance to `failed` (`instance-lifecycle.ts:1363`). A naive watcher would see the early `idle` and falsely declare success. We need a stronger signal.
 
-**The actual success signal**: the run is `succeeded` only after we observe **both** an `instance:output` event with an assistant-typed message *and* a subsequent transition back to `idle`. The output event proves the model actually produced something; the post-output idle proves the model finished its initial turn.
+**The actual success signal**: the run is `succeeded` only after we observe **both** an assistant-typed output AND a subsequent transition back to `idle`. The output proves the model actually produced something; the post-output idle proves the model finished its initial turn.
+
+**Where assistant outputs come from**: `InstanceManager.publishOutput()` (`instance-manager.ts:829`) does *not* emit a separate `'instance:output'` event — it routes everything through `'provider:normalized-event'` (line 860) carrying a `ProviderRuntimeEventEnvelope`. The runner subscribes to that channel and converts each envelope back into an `OutputMessage` via the existing `toOutputMessageFromProviderEnvelope()` helper (`src/main/providers/provider-output-event.ts`; usage pattern at `channel-message-router.ts:1471-1474`).
 
 ```ts
+import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+
 interface RunTrackingState {
   runId: string;
   sawAssistantOutput: boolean;        // bit flips on first assistant output
@@ -681,11 +767,14 @@ initialize(deps: ...): Promise<void> {
     }
   });
 
-  // (2) Output observation — arms the post-output-idle watcher
-  deps.instanceManager.on('instance:output', ({ instanceId, message }) => {
-    const tracking = this.trackingByInstance.get(instanceId);
+  // (2) Output observation via provider:normalized-event — arms the post-output-idle watcher.
+  //     This is the real channel — there is NO 'instance:output' event.
+  deps.instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
+    const tracking = this.trackingByInstance.get(envelope.instanceId);
     if (!tracking) return;
-    if (message.type !== 'assistant') return;       // ignore user-echo and tool-result outputs
+
+    const message = toOutputMessageFromProviderEnvelope(envelope);
+    if (!message || message.type !== 'assistant') return;   // ignore non-assistant outputs
 
     tracking.sawAssistantOutput = true;
     tracking.awaitingPostOutputIdle = true;
@@ -777,6 +866,13 @@ WHERE status='pending';
 
 ### Step C: missed-fire policy application
 
+The window for "missed fires" depends on whether this is a startup or resume sweep:
+
+| Sweep | `since` | `until` |
+|---|---|---|
+| **Startup** | `automation.lastFiredAt ?? automation.createdAt` (per-automation; no app-level last-shutdown timestamp) | `now()` |
+| **Resume** | `suspendedAt` captured from `powerMonitor.on('suspend')` (fallback: `resumedAt - 10min` heuristic) | `resumedAt` |
+
 For each automation with `status='active'`:
 
 ```ts
@@ -784,6 +880,13 @@ For each automation with `status='active'`:
 // AppSettings field, not a dotted path. Phase 1.5 adds a flat `defaultMissedRunPolicy`
 // to AppSettings; the call site is therefore:
 const policy = automation.missedRunPolicy ?? settings.get('defaultMissedRunPolicy');
+
+// Step C inputs — computed differently per sweep type, but applied identically below.
+const since = sweepKind === 'startup'
+  ? (automation.lastFiredAt ?? automation.createdAt)
+  : suspendedAt;
+const until = sweepKind === 'startup' ? now() : resumedAt;
+
 const baseline = automation.lastFiredAt ?? automation.createdAt;
 const referencePoint = Math.max(baseline, since);
 const missed = computeMissedFireTimes(automation, referencePoint, until);
@@ -1319,7 +1422,7 @@ Before merging, the implementer should confirm these (the spec was revised twice
 3. The **preload composition** flow — confirm whether `src/preload/domains/*.preload.ts` composition is generated or hand-edited; follow the existing pattern when adding `automation.preload.ts`.
 4. **`ContentStore.storeDurable()`** — Phase 1.1 adds this method (or an equivalent) so attachment writes are awaited; if a different content store is preferred for blobs, document why.
 5. **`WorkflowManager.startWorkflow(instanceId, templateId)`** is the real signature (`src/main/workflows/workflow-manager.ts:122`). Runner uses spawn-then-start. Test rollback path leaves no orphan instances on workflow start failure.
-6. **`InstanceManager` events**: `instance:event` (envelope shape `{ eventId, seq, timestamp, instanceId, event: { kind, status, … } }`); `instance:output` (`{ instanceId, message }`); `instance:removed` (bare `instanceId: string`). Listeners at `instance-manager.ts:378-417`. Envelope contract at `packages/contracts/src/types/instance-events.ts:59-65`.
+6. **`InstanceManager` events**: `instance:event` (envelope shape `{ eventId, seq, timestamp, instanceId, event: { kind, status, … } }`); `provider:normalized-event` (carries `ProviderRuntimeEventEnvelope` from `publishOutput()` at `instance-manager.ts:829-861` — there is **no** `instance:output` event); `instance:removed` (bare `instanceId: string`). Listeners at `instance-manager.ts:378-417`. Envelope contract at `packages/contracts/src/types/instance-events.ts:59-65`. Use `toOutputMessageFromProviderEnvelope()` from `src/main/providers/provider-output-event.ts` to convert provider envelopes to `OutputMessage`.
 7. **`InstanceLifecycleManager.createInstance(config)`** is the only creation API — there is no `createInstanceWithMessage`. Pass `initialPrompt` + `attachments` on the config to get the "create + send first message" semantic (`instance-lifecycle.ts:937` and `:1349`).
 8. **`InstanceCreateConfig.reasoningEffort`** added by Phase 1.3. Lower-level CLI adapters that don't support reasoning ignore the field.
 9. **`AppSettings.defaultMissedRunPolicy`** is a flat top-level field on `AppSettings` (Phase 1.5). `SettingsManager.get('defaultMissedRunPolicy')` is the access path — dotted/nested keys won't type-check (`settings-manager.ts:189`).
@@ -1362,13 +1465,27 @@ Files inspected during research:
 - `src/shared/types/settings.types.ts:18` — `AppSettings` extension target (post-revision)
 - `packages/contracts/src/schemas/instance.schemas.ts` — IPC schema location pattern (post-revision)
 - `packages/contracts/src/types/instance-events.ts` — `InstanceEventEnvelope`/`InstanceEvent` contract (v3)
-- `src/main/instance/instance-manager.ts:378-417` — real `instance:event`/`instance:output`/`instance:removed` forwarding (v3)
+- `src/main/instance/instance-manager.ts:378-417` — real `instance:event` / `provider:normalized-event` / `instance:removed` forwarding (v3, refined v4)
+- `src/main/providers/provider-output-event.ts` — `toOutputMessageFromProviderEnvelope()` for converting provider envelopes (v4)
 - `src/main/instance/instance-lifecycle.ts:937,1349-1377` — confirmed only `createInstance` exists; `initialPrompt` flow + failure path (v3)
 - `src/main/core/config/settings-manager.ts:189` — `keyof AppSettings` typing (v3)
 - `src/main/app/initialization-steps.ts:78` — actual startup wiring (v3)
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v4 — 2026-04-26 (post third code-review)
+
+User did a third deep review against the v3 spec and identified three P1 + three P2 issues; all verified and addressed:
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | `instance:output` is not a real `InstanceManager` event — `publishOutput()` emits `provider:normalized-event` (carrying a `ProviderRuntimeEventEnvelope`) | Section 7 completion-detection rewritten to subscribe to `provider:normalized-event` and call `toOutputMessageFromProviderEnvelope()` (`src/main/providers/provider-output-event.ts`; usage pattern at `channel-message-router.ts:1471-1474`) to convert envelopes into `OutputMessage` for the assistant-output check. |
+| P1.B | Runner depends on `InstanceLifecycleManager`, but it's `private` inside `InstanceManager` (`instance-manager.ts:116`) with no public accessor | Runner now uses `InstanceManager.createInstance(config)` and `InstanceManager.terminateInstance(id, graceful)` (public wrappers at `instance-manager.ts:951,955`). The `instanceLifecycle` dep was removed from the runner's `initialize()` signature; `instanceManager` is the single integration point for both events and lifecycle calls. |
+| P1.C | Workflow auto-advance only fired on `workflow:agents-completed`, but `startWorkflow()` only launches agents `if (firstPhase.agents)` — no-agent gate-free phases would stall the automation immediately after `workflow:started` | Section 7 workflow auto-advance now subscribes to **three** events: `workflow:started`, `workflow:phase-changed`, and `workflow:agents-completed`. Single `advanceIfPossible()` helper called from each: skips when phase has agents (lets `workflow:agents-completed` handle it), advances immediately for no-agent no-gate phases. Form filtering inspects every phase's `gateType`, not just the first. |
+| P2.A | Catch-up `since`/`until` defined only for resume sweep, not startup | Section 8 Step C now has an explicit table: startup uses `since = automation.lastFiredAt ?? automation.createdAt` and `until = now()`; resume uses `since = suspendedAt`, `until = resumedAt`. Code sketch made the conditional explicit. |
+| P2.B | Scheduler declared `Map<string, Cron>` but one-time path stored `wrapTimerAsCronShim(...)`; type unsafe | Defined a real `ScheduleHandle` interface with two implementations (`CronHandle`, `OneTimeHandle`); `OneTimeHandle.reArm()` swaps timers without churning the map entry. Removed `wrapTimerAsCronShim`. |
+| P2.C | Attachment encoding underspecified — `ContentStore.store()` takes `string` and hashes UTF-8, but spec said handler decodes data URLs to bytes | Spec now explicit: store the **raw data URL string** as-is (no Buffer/Uint8Array path). Lossless round-trip; no `ContentStore` API change needed beyond the durability extension. Section 5 updated. |
 
 ### v3 — 2026-04-26 (post second code-review)
 
