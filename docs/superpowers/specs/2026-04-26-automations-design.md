@@ -341,25 +341,38 @@ canceled
 
 ### `last_fired_at` / `last_run_id` update protocol
 
-These two fields drive the clock-backward dedupe (Section 7) and the catch-up baseline (Section 8). They MUST be advanced atomically alongside every run-row insertion that represents a fire-attempt at a specific scheduled timestamp:
+These two fields serve different purposes and have different update rules:
 
+- **`last_fired_at`** — drives the clock-backward dedupe (Section 7) and the catch-up baseline (Section 8). Both are about scheduled-timeline progression: did we already process this scheduled timestamp? Manual fires must NOT advance this field, or a manual Run-now at 10:01 would mark a delayed scheduled callback for 10:00 as a duplicate, and the catch-up sweep would skip past missed scheduled fires.
+- **`last_run_id`** — pure UI convenience (the "Last run: …" affordance in the detail panel). Updated on any run insertion regardless of trigger.
+
+**Insertion transaction** (one BEGIN/COMMIT) for every run row insertion (any trigger, any initial outcome):
+
+```sql
+INSERT INTO automation_runs (..., scheduled_at, trigger, status, ...);
+UPDATE automations
+  SET
+    -- last_fired_at advances ONLY for scheduled/catchUp triggers.
+    -- Manual fires update last_run_id but leave last_fired_at alone.
+    last_fired_at = CASE
+      WHEN :trigger IN ('scheduled', 'catchUp')
+        THEN MAX(COALESCE(last_fired_at, 0), :scheduledAt)
+      ELSE last_fired_at
+    END,
+    last_run_id = :insertedRunId,
+    updated_at  = :now
+  WHERE id = :automationId;
 ```
-Transaction (one BEGIN/COMMIT):
-  INSERT INTO automation_runs (..., scheduled_at, status, ...)  -- pending|running|skipped
-  UPDATE automations
-    SET last_fired_at = MAX(COALESCE(last_fired_at, 0), :scheduledAt),
-        last_run_id   = :insertedRunId,
-        updated_at    = :now
-    WHERE id = :automationId;
-```
 
-**Applies to all triggers** (`scheduled` / `manual` / `catchUp`) and **all initial outcomes** (`pending` queued / `running` started / `skipped` because of overlap / dedupe / pause / queueFull / missedWhileOff / missedNeedsAttention / duplicate). The catch-up policy's `insertSkippedRun()` helper invokes the same transaction.
+**Applies to all triggers and all initial outcomes** (`pending` queued / `running` started / `skipped` for overlap, dedupe, pause, queueFull, missedWhileOff, missedNeedsAttention, duplicate). The catch-up policy's `insertSkippedRun()` helper uses the same transaction with `trigger='catchUp'`.
 
-**Why advance on skipped runs too**: without it, the catch-up coordinator would re-discover the same missed window on every subsequent sweep (since `since = max(baseline, lastFiredAt)` would never advance past it), and the dedupe in Section 7 would fail to suppress repeated duplicate-fire detections.
+**Why advance `last_fired_at` on skipped scheduled/catchUp runs too**: without it, the catch-up coordinator would re-discover the same missed window on every subsequent sweep (since `since = max(baseline, lastFiredAt)` would never advance past it), and the dedupe in Section 7 would fail to suppress repeated duplicate-fire detections.
 
-**Run terminalization** (the second transaction, when a run finishes — `succeeded` / `failed` / `canceled`): updates `automation_runs.status` + `completed_at` + optional `error_message`, but does **not** re-touch `automations.last_fired_at` (already advanced at insertion). Terminalization may also write `automations.next_fire_at` if the scheduler observed it (e.g., after `oneTime` succeeds — see Section 6 One-time terminal).
+**Why NOT advance on manual runs**: `last_fired_at` is the schedule-baseline anchor. Manual fires happen at `now()` and aren't part of the scheduled timeline. If a manual fire at 10:01 advanced the field, then (a) a delayed scheduled callback for 10:00 would be marked as `duplicate` even though it's a genuine first-time scheduled fire, and (b) on next-launch catch-up the sweep would compute `since=10:01` and miss the 10:00 scheduled fire entirely.
 
-The `last_fired_at` field is `NULL` until the first run insertion. Catch-up baseline accordingly uses `automation.lastFiredAt ?? automation.createdAt` to handle the NULL case (already shown in Section 8 Step C).
+**Run terminalization** (the second transaction, when a run finishes — `succeeded` / `failed` / `canceled`): updates `automation_runs.status` + `completed_at` + optional `error_message`, but does **not** re-touch `automations.last_fired_at` or `last_run_id` (already advanced at insertion). Terminalization may also write `automations.next_fire_at` if the scheduler observed it (e.g., after `oneTime` succeeds — see Section 6 One-time terminal).
+
+The `last_fired_at` field is `NULL` until the first scheduled/catchUp insertion. Catch-up baseline accordingly uses `automation.lastFiredAt ?? automation.createdAt` to handle the NULL case (already shown in Section 8 Step C).
 
 ### Instance ↔ automation linkage
 
@@ -549,26 +562,41 @@ Persist on `activate()`, after every fire, on `reschedule()`, on `deactivate()`,
 
 A `oneTime` automation's parent `status` transitions to `'completed'` only when the run produces a definitive non-failure outcome:
 
-| Run outcome | Parent transition | Rationale |
-|---|---|---|
-| `succeeded` | → `completed` | The run did its job. |
-| `failed` | stay `active`, `next_fire_at=NULL` | Allow manual re-fire from the UI; transient failures shouldn't bury the only chance to run. |
-| `skipped` (catch-up `skip` policy) | → `completed` | The user asked to skip this run; nothing else will happen. |
-| `skipped` (catch-up `notify` policy) | → `completed` | Same as above; the badge surfaces it. |
-| `canceled` (paused/deleted/appShutdown) | stay `active` | Allow re-arming after un-pause. (For `deleted`, the row is gone via CASCADE.) |
-| `skipped` (queueFull / pausedDuringFire / duplicate / overlap) | stay `active` | These are *runtime overlaps*, not the user's only chance — equivalent to a transient failure. |
+| Run outcome | Parent transition | Scheduler-handle action | Rationale |
+|---|---|---|---|
+| `succeeded` | → `completed`, `next_fire_at=NULL` | `deactivate()` | The run did its job. |
+| `failed` | stay `active`, `next_fire_at=NULL` | `deactivate()` (via `handleOneTimeFailed`) | Allow manual re-fire from the UI. **`next_fire_at` MUST be cleared even on failure** — otherwise the stale past `runAt` re-arms on next launch/resume and refires the failed one-time. |
+| `skipped` (catch-up `skip` policy) | → `completed`, `next_fire_at=NULL` | `deactivate()` | The user asked to skip this run; nothing else will happen. |
+| `skipped` (catch-up `notify` policy) | → `completed`, `next_fire_at=NULL` | `deactivate()` | Same as above; the badge surfaces it. |
+| `canceled` (paused) | stay `active`, `next_fire_at=NULL` | `deactivate()` (via `handleOneTimeFailed`) | Allow re-arming after un-pause without an immediate refire. |
+| `canceled` (deleted) | row is gone via CASCADE | n/a (delete path also clears the schedule handle) | — |
+| `canceled` (appShutdown) | stay `active`, `next_fire_at=NULL` | scheduler is shutting down anyway; startup sweep on next launch handles it | — |
+| `skipped` (queueFull / pausedDuringFire / duplicate / overlap) | stay `active` | scheduler unchanged — these don't reflect a true terminal for the schedule | These are *runtime overlaps*, not the user's only chance to run. The schedule handle and `next_fire_at` remain so the original `runAt` can still fire. |
 
 The transition is applied by:
 
 - The **scheduler** when it observes `automation:run-terminal` with `status='succeeded'` for a oneTime
 - The **catch-up coordinator** when it inserts a `skipped` row for a oneTime under `skip`/`notify` policy (see Section 8)
 
-In both cases:
+In both success-path cases:
 
 ```ts
 this.store.transitionToCompleted(automationId);  // status='completed', next_fire_at=NULL
 this.deactivate(automationId);                    // remove from schedules map
 ```
+
+For `failed` or `canceled` (non-success) terminal outcomes on a `oneTime`, the parent stays `active` so the user can re-fire, BUT the scheduler must still clear `next_fire_at` and remove the schedule handle — otherwise the stale `runAt` (now in the past) re-arms on next launch/resume and refires the failed one-time:
+
+```ts
+handleOneTimeFailed(automationId: string): void {
+  this.store.clearNextFireAt(automationId);       // status stays 'active', next_fire_at=NULL
+  this.deactivate(automationId);                  // remove from schedules map
+}
+```
+
+The runner's dispatch try/catch (Section 7 fire-flow Step 5) calls `handleOneTimeFailed()` inline. The instance-event terminalization path (Section 7 completion detection) calls it from `handleInstanceTerminal()` for any failed/canceled terminal status when `automation.scheduleKind === 'oneTime'`.
+
+This keeps `oneTime` semantics consistent: success → `completed`, skip/notify catch-up → `completed`, failure → `active` with no future fire (manual re-fire allowed).
 
 ### Late-fire guard
 
@@ -613,19 +641,72 @@ class AutomationRunner {
 
 ### Fire flow
 
-0. **Normalize `scheduledAt`**: `automation_runs.scheduled_at` is `NOT NULL`, but `fire()`'s public signature accepts `opts.scheduledAt?: number` as optional (manual run-now omits it; some catch-up paths may too). At the very top of the flow, compute `const fireTime = opts.scheduledAt ?? this.now();` and use `fireTime` everywhere downstream (insert, dedupe checks, last_fired_at update). This guarantees every `automation_runs` row has a concrete `scheduled_at`.
+0. **Normalize `scheduledAt`**: `automation_runs.scheduled_at` is `NOT NULL`, but `fire()`'s public signature accepts `opts.scheduledAt?: number` as optional (manual run-now omits it; some catch-up paths may too). At the very top of the flow, compute `const fireTime = opts.scheduledAt ?? this.now();` and use `fireTime` everywhere downstream (insert, dedupe checks, late-fire guard, last_fired_at update). This guarantees every `automation_runs` row has a concrete `scheduled_at`.
 1. Load automation; if `status='paused'` or `'completed'`, insert `skipped(scheduled_at=fireTime)` and return.
 2. **Clock-backward dedupe** (only for `trigger='scheduled'` or `'catchUp'`; manual fires are exempt because the user is intentionally firing now): if `fireTime <= last_fired_at`, insert `skipped` with `skip_reason='duplicate'`, return.
-3. **Late-fire guard**: if `trigger='scheduled'` and `now() - scheduledAt > 60s`, re-label the call as `trigger='catchUp'` so it appears correctly in history. The fire still proceeds — this guard is about *labeling*, not about re-applying missed-run policy. (Policy is applied separately by the catch-up coordinator on startup/resume sweeps for fires we never received.)
+3. **Late-fire guard**: if `trigger='scheduled'` and `this.now() - fireTime > 60s`, re-label the call as `trigger='catchUp'` so it appears correctly in history. The fire still proceeds — this guard is about *labeling*, not about re-applying missed-run policy. (Policy is applied separately by the catch-up coordinator on startup/resume sweeps for fires we never received.)
 4. **Overlap decision** (single transaction):
    - No in-flight → `start`
    - `running` only → `queue` (insert `pending`)
    - `running` + `pending` → `skip` (insert with `skip_reason='queueFull'`)
-5. If `start`, dispatch via action handler.
-6. Record `instance_id` on the run row. (`workflow_execution_id` is reserved for Phase 2.)
-7. Subscribe to completion events for this run.
+5. If `start`, **dispatch via action handler inside a try/catch**. On throw (forceNodeId pre-flight rejection, attachment-load failure, instance creation failure, etc.):
+   - Mark the just-inserted `running` row as `failed` with `error_message` set to the thrown error (`completeRun(runId, { status: 'failed', completedAt: now(), errorMessage })`).
+   - Emit `automation:run-updated` so the renderer surfaces the failure.
+   - Promote any `pending` row for the same automation (the failed run no longer occupies the `running` slot).
+   - For `oneTime` schedules: the failed-one-time terminal handler (Section 6) clears `next_fire_at` and deactivates the schedule handle.
+   - Return; do not proceed to step 6/7.
+6. If dispatch returned, record `instance_id` on the run row. (`workflow_execution_id` is reserved for Phase 2.)
+7. Tracking was registered synchronously inside dispatch (see "Action dispatch" — `trackingByInstance.set(...)` happens before dispatch returns). No additional subscription work needed at the fire-flow level.
 
 The partial unique indexes from Section 5 catch any race that slips past the read-then-insert pattern; constraint errors are treated as `skip`.
+
+**Sketch** (illustrative — actual code lives in `automation-runner.ts`):
+
+```ts
+async fire(automationId: string, opts: FireOpts): Promise<{ runId: string; outcome: 'started'|'queued'|'skipped' }> {
+  const fireTime = opts.scheduledAt ?? this.now();
+  const automation = await this.store.get(automationId);
+  if (!automation || automation.status !== 'active') {
+    const runId = this.store.insertSkippedRun(automationId, fireTime, 'paused', opts.trigger);
+    return { runId, outcome: 'skipped' };
+  }
+
+  // Step 2 dedupe (scheduled/catchUp only)
+  if ((opts.trigger === 'scheduled' || opts.trigger === 'catchUp')
+      && automation.lastFiredAt != null && fireTime <= automation.lastFiredAt) {
+    const runId = this.store.insertSkippedRun(automationId, fireTime, 'duplicate', opts.trigger);
+    return { runId, outcome: 'skipped' };
+  }
+
+  // Step 3 late-fire guard
+  let trigger = opts.trigger;
+  if (trigger === 'scheduled' && (this.now() - fireTime) > 60_000) {
+    trigger = 'catchUp';
+  }
+
+  // Step 4 overlap decision (transactional)
+  const decision = this.store.decideAndInsert(automationId, fireTime, trigger);
+  if (decision.outcome === 'skipped') return { runId: decision.runId, outcome: 'skipped' };
+  if (decision.outcome === 'queued')  return { runId: decision.runId, outcome: 'queued' };
+
+  // Step 5: dispatch inside try/catch
+  try {
+    await this.dispatch(automation, decision.run);   // dispatch sets trackingByInstance synchronously
+    return { runId: decision.runId, outcome: 'started' };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    this.store.completeRun(decision.runId, {
+      status: 'failed', completedAt: this.now(), errorMessage,
+    });
+    this.events.emit('automation:run-updated', { run: this.store.getRun(decision.runId)! });
+    await this.promotePendingIfAny(automationId);
+    if (automation.scheduleKind === 'oneTime') {
+      this.scheduler.handleOneTimeFailed(automationId);    // clears next_fire_at + deactivates
+    }
+    return { runId: decision.runId, outcome: 'started' }; // outcome 'started' is correct — we did try
+  }
+}
+```
 
 ### Action dispatch
 
@@ -1571,6 +1652,17 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v10 — 2026-04-27 (post ninth code-review)
+
+User did a ninth deep review against v9. Two P1 + two P2 issues. All verified and addressed.
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | v9's `last_fired_at` protocol said it advances for *all* triggers including manual. But that field is the dedupe + catch-up baseline for *scheduled* work — a manual Run-now at 10:01 would mark a delayed scheduled callback for 10:00 as a duplicate, and the next-launch catch-up sweep would see `since=10:01` and miss the 10:00 fire entirely. | Section 5 protocol now splits the rules: `last_fired_at` advances ONLY for `trigger='scheduled'` or `'catchUp'`; `last_run_id` (UI-only) updates on any trigger. SQL `CASE` expression in the update transaction does this in one statement. Added explicit "Why NOT advance on manual runs" subsection citing both broken paths. |
+| P1.B | Fire flow inserts a `running` row before dispatch, then dispatches. Dispatch can throw (forceNodeId pre-flight `RunDispatchError`, attachment-load failure, instance creation failure). The prose said this becomes a `failed` run, but the algorithm didn't show the try/catch; without it a pre-flight failure would leave the row stuck as `running`. | Step 5 of fire flow now has explicit try/catch. On throw: mark the just-inserted run `failed` with `error_message`, emit `automation:run-updated`, promote any pending row, call `handleOneTimeFailed` for one-time schedules (clears `next_fire_at` + deactivates). Includes a full sketch of the fire flow code with the try/catch wired in. |
+| P2.A | Step 3 late-fire guard still computed `now() - scheduledAt` instead of using the v9-introduced `fireTime` normalized variable. Strict tsconfig either errors or produces NaN if a scheduled/catchUp caller omits scheduledAt. | Step 3 now uses `this.now() - fireTime > 60_000`. Step 0's "use `fireTime` everywhere downstream" updated to explicitly include the late-fire guard. |
+| P2.B | One-time `failed` outcome was documented to "stay active with next_fire_at=NULL" but the described `transitionToCompleted` only handled success/skip/notify. A failed one-time would leave the stale past `runAt` in `next_fire_at`, re-arming on next launch/resume → duplicate skip / stale "Next run" UI / phantom refires. | Section 6 One-time terminal table expanded with a per-outcome scheduler-handle column. New `handleOneTimeFailed(automationId)` operation: clears `next_fire_at` and deactivates the schedule handle without marking the parent completed. Called from the runner's dispatch try/catch (Section 7) and from `handleInstanceTerminal()` for failed/canceled instance-event terminations on one-time schedules. |
 
 ### v9 — 2026-04-27 (post eighth code-review)
 
