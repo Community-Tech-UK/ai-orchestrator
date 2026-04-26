@@ -669,7 +669,7 @@ There is no `createInstanceWithMessage` anywhere in the lifecycle hierarchy. The
 | **No agents, gateType='none'** | `workflow:started` (or `workflow:phase-changed`) → **nothing else fires; phase stalls** | `workflow:started` / `workflow:phase-changed` |
 | Any phase with gateType ≠ 'none' | Gate stalls phase indefinitely | **Not allowed in MVP** — form filters templates with any gated phase |
 
-If we only listened to `workflow:agents-completed`, no-agent phases would stall the automation immediately. So the runner subscribes to **three** workflow events and dispatches through a single helper:
+If we only listened to `workflow:agents-completed`, no-agent phases would stall the automation immediately. So the runner subscribes to **three** workflow events and dispatches through a single helper that takes the event source into account:
 
 ```ts
 // Tracking maps (initialized in initialize()):
@@ -684,7 +684,18 @@ const findRunIdForEvent = (execution: WorkflowExecution): string | undefined => 
   return this.runByExecution.get(execution.id) ?? this.runByInstance.get(execution.instanceId);
 };
 
-const advanceIfPossible = (execution: WorkflowExecution, phase: WorkflowPhase) => {
+interface AdvanceContext {
+  // True iff called from workflow:agents-completed (i.e. the agent phase finished).
+  // Used to override the "skip if phase.agents is truthy" guard, which only applies
+  // BEFORE agents finish (during workflow:started / workflow:phase-changed).
+  readonly agentsCompleted: boolean;
+}
+
+const advanceIfPossible = (
+  execution: WorkflowExecution,
+  phase: WorkflowPhase,
+  ctx: AdvanceContext,
+) => {
   const runId = findRunIdForEvent(execution);
   if (!runId) return;                                          // not one of our automations
 
@@ -695,15 +706,20 @@ const advanceIfPossible = (execution: WorkflowExecution, phase: WorkflowPhase) =
     return;
   }
 
-  // Skip auto-advance if the phase has agents (we'll wait for workflow:agents-completed).
-  // WorkflowPhase.agents is an OBJECT (`{ count, agentType, prompts, parallel }`), not an array
-  // (workflow.types.ts:36-41); a truthy presence check is the correct guard.
-  if (phase.agents) return;
+  // Skip auto-advance if the phase has agents AND we haven't yet received the
+  // agents-completed event for this phase. Once agents finish, we DO want to advance.
+  // WorkflowPhase.agents is an OBJECT (`{ count, agentType, prompts, parallel }`),
+  // not an array (workflow.types.ts:36-41); truthy presence check is correct.
+  if (phase.agents && !ctx.agentsCompleted) return;
 
   // Reentrancy guard: workflow:phase-changed/agents-completed are emitted from inside
-  // completePhase()'s synchronous emit path. Calling completePhase() again synchronously
-  // would re-enter before the previous call has persisted state. Defer with queueMicrotask
-  // and use a per-execution flag so we don't double-fire.
+  // completePhase()'s synchronous emit path (workflow-manager.ts:206 emits BEFORE the
+  // method returns at :215). Calling completePhase() again synchronously would re-enter
+  // before persistence. Defer with queueMicrotask and use a per-execution flag.
+  //
+  // CRITICAL: in the finally, we re-check the execution's CURRENT phase. completePhase()
+  // may have advanced to a new no-agent phase whose phase-changed event was dropped by
+  // this same guard. Without the re-check, no-agent → no-agent transitions stall.
   if (this.advancingExecutions.has(execution.id)) return;
   this.advancingExecutions.add(execution.id);
 
@@ -713,24 +729,42 @@ const advanceIfPossible = (execution: WorkflowExecution, phase: WorkflowPhase) =
     } catch (err) {
       this.handleWorkflowTerminal(execution.id, 'failed',
         err instanceof Error ? err.message : String(err));
+      return;
     } finally {
       this.advancingExecutions.delete(execution.id);
+    }
+
+    // Follow-up retry: if completePhase() transitioned to a new phase that's also
+    // eligible for auto-advance (no agents OR agents-now-finished), pick it up.
+    const nextPhase = deps.workflowManager.getCurrentPhase(execution.id);
+    const stillRunning = deps.workflowManager.getExecution(execution.id)?.completedAt == null;
+    if (nextPhase && stillRunning) {
+      // Use a fresh AdvanceContext: agentsCompleted is false because we don't yet
+      // know whether agents have run on this new phase. If the new phase has agents,
+      // workflow:agents-completed will arrive and re-trigger us; if it has none, we
+      // advance immediately. The re-entry is safe because advancingExecutions was
+      // cleared in finally above.
+      advanceIfPossible(
+        deps.workflowManager.getExecution(execution.id)!,
+        nextPhase,
+        { agentsCompleted: false },
+      );
     }
   });
 };
 
 deps.workflowManager.on('workflow:started', ({ execution, template }) => {
-  advanceIfPossible(execution, template.phases[0]);
+  advanceIfPossible(execution, template.phases[0], { agentsCompleted: false });
 });
 
 deps.workflowManager.on('workflow:phase-changed', ({ execution, phase }) => {
-  advanceIfPossible(execution, phase);
+  advanceIfPossible(execution, phase, { agentsCompleted: false });
 });
 
 deps.workflowManager.on('workflow:agents-completed', ({ execution, phase }) => {
-  // Always advance after agents finish for no-gate phases. Idempotent vs.
-  // workflow:started because that path bails when phase.agents is truthy.
-  advanceIfPossible(execution, phase);
+  // Agents on this phase have just finished. Override the agents-truthy skip so we
+  // actually call completePhase() to move to the next phase.
+  advanceIfPossible(execution, phase, { agentsCompleted: true });
 });
 ```
 
@@ -858,6 +892,33 @@ initialize(deps: ...): Promise<void> {
 **A run is `failed`** when the instance enters `error`, `failed`, or `terminated` *or* is removed *before* the post-output idle. We surface the `failureClass` (`startup`/`runtime`/`recovery`/`termination`/`transition`/`permission` per the contract enum) in the error message.
 
 **Note on the InstanceStatus enum**: the contract status enum (`packages/contracts/src/types/instance-events.ts:1-22`) is wider than just `idle`/`busy`/`error`/`failed`/`terminated` — it also includes `initializing`, `ready`, `processing`, `thinking_deeply`, `waiting_for_input`, `waiting_for_permission`, etc. The runner only acts on the explicit success/failure transitions above; intermediate statuses are ignored.
+
+### Avoiding the workflow terminalization-vs-persistence race
+
+For an all-no-agent workflow, auto-advance can complete the workflow synchronously fast enough that `workflow:completed` fires *before* the caller of `dispatch()` has had a chance to record `workflow_execution_id` on the run row. `handleWorkflowTerminal()` MUST resolve the `runId` via the in-memory `runByExecution` map (with `runByInstance` as fallback) — *not* by querying `automation_runs.workflow_execution_id`:
+
+```ts
+private handleWorkflowTerminal(executionId: string, status: 'succeeded'|'failed', errorMessage?: string): void {
+  // CRITICAL: do NOT query automation_runs.workflow_execution_id here. The DB column may
+  // not be populated yet for fast all-no-agent workflows whose terminal events fire before
+  // the caller's `await this.dispatch(...)` continuation has had a chance to write it.
+  const execution = this.workflowManager.getExecution(executionId);
+  const runId = this.runByExecution.get(executionId)
+    ?? (execution ? this.runByInstance.get(execution.instanceId) : undefined);
+  if (!runId) return;        // not one of our runs (or we already terminalized it)
+
+  // Idempotent — clear maps so a duplicate terminal event for the same execution is a no-op.
+  this.runByExecution.delete(executionId);
+  if (execution) this.runByInstance.delete(execution.instanceId);
+
+  this.store.completeRun(runId, { status, completedAt: this.now(), errorMessage });
+  // ... usual run-finalization (mark automation lastFiredAt, promote pending, emit events) ...
+}
+```
+
+The same lookup pattern applies to `handleInstanceTerminal()` for prompt runs, which already uses an in-memory `trackingByInstance` map and is not affected by this race.
+
+After `dispatch()` returns, the caller (in `fire()`) writes `workflow_execution_id` to the row for any consumers that need to look it up by FK later (the run-history view, the spawned-session-map JOIN). That write is for read-paths only; the live terminalization path uses the in-memory map.
 
 ### Queue promotion
 
@@ -1480,7 +1541,7 @@ Before merging, the implementer should confirm these (the spec was revised twice
 8. **`InstanceCreateConfig.reasoningEffort`** added by Phase 1.3. Lower-level CLI adapters that don't support reasoning ignore the field.
 9. **`AppSettings.defaultMissedRunPolicy`** is a flat top-level field on `AppSettings` (Phase 1.5). `SettingsManager.get('defaultMissedRunPolicy')` is the access path — dotted/nested keys won't type-check (`settings-manager.ts:189`).
 10. **`WorkflowManager.registerReferenceProbe()`** is a new public API added in Phase 1.10 — coordinate with anyone touching workflow code in parallel.
-11. **Workflow auto-advance**: Phase 1.10 wires runner subscription to `workflow:agents-completed` with auto-`completePhase` on no-gate phases. Form filters templates with any gated phase.
+11. **Workflow auto-advance**: Phase 1.10 wires runner subscriptions to **all three** `workflow:started` / `workflow:phase-changed` / `workflow:agents-completed` events, dispatching through a single `advanceIfPossible(execution, phase, { agentsCompleted })` helper that auto-calls `completePhase()` for no-gate phases. The `runByInstance` map is populated **before** `startWorkflow()` is called (so the synchronous `workflow:started` event is reachable). The reentrancy guard re-checks `getCurrentPhase()` in its `finally` clause to handle no-agent → no-agent transitions whose `workflow:phase-changed` event was dropped during the previous advance. Form filters templates with any gated phase; built-ins all have gates and appear disabled.
 12. **Startup wiring** lives in `src/main/app/initialization-steps.ts` (function `createInitializationSteps()` at line 78). New automation steps are inserted **after** the existing `'IPC handlers'` and `'Event forwarding'` steps. Automation IPC handlers register inside `IpcMainHandler.registerHandlers()` (`src/main/ipc/ipc-main-handler.ts`); they look up domain singletons lazily so registration order doesn't matter for correctness, but the documented order matches existing convention.
 13. **One-time long timers**: scheduler uses bounded re-arming (24h cap) instead of a single raw `setTimeout`. Verify `setTimeout` clamping behavior on the target Node/Electron version isn't tripped.
 
@@ -1526,6 +1587,17 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v6 — 2026-04-26 (post fifth code-review)
+
+User did a fifth deep review against the v5 spec and identified two P1 + one P2 + one P3 issue; all verified and addressed:
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.A | Agent phases never auto-advance — `advanceIfPossible()` returns whenever `phase.agents` is truthy, including when called from the `workflow:agents-completed` handler. So agent phases wait for the event, receive it, then immediately bail out without calling `completePhase()`. | Added `AdvanceContext` parameter with an `agentsCompleted` boolean. The agents-truthy skip now applies only when `!ctx.agentsCompleted` — `workflow:started` and `workflow:phase-changed` set false (correctly skipping pre-agent phases), `workflow:agents-completed` sets true (correctly advancing past finished agent phases). |
+| P1.B | The reentrancy guard drops the next phase's auto-advance: `workflow:phase-changed` is emitted from inside `completePhase()` *before* it returns (verified at `workflow-manager.ts:206`), so when the listener calls `advanceIfPossible()` the `advancingExecutions` flag is still set and the new phase is dropped. No-agent → no-agent transitions stall. | After the deferred `completePhase()` resolves and the `finally` clears the flag, the spec now performs a follow-up call: it queries `workflowManager.getCurrentPhase(executionId)`, checks the workflow is still running, and re-invokes `advanceIfPossible()` for the new phase. Agent → no-agent and no-agent → no-agent transitions both work; agent → agent transitions also work because the next phase's agent run will trigger `workflow:agents-completed` on its own. |
+| P2 | Fast all-no-agent workflows can race DB persistence: auto-advance can fire `workflow:completed` before `dispatch()`'s caller has written `workflow_execution_id` to the run row. A terminalization handler that queries `automation_runs.workflow_execution_id` would miss the row. | Section 7 now has explicit "Avoiding the workflow terminalization-vs-persistence race" subsection with a `handleWorkflowTerminal()` sketch that resolves `runId` via the in-memory `runByExecution` (with `runByInstance` fallback) — *not* by DB query. The DB write of `workflow_execution_id` becomes a read-path-only convenience for history views. |
+| P3 | Pre-flight item #11 still said Phase 1.10 wires `workflow:agents-completed` only — stale vs. the v5 design's three-event subscriptions. | Pre-flight #11 expanded to call out all three subscriptions, the `agentsCompleted` context parameter, the pre-`startWorkflow()` mapping registration, and the finally-clause re-check. |
 
 ### v5 — 2026-04-26 (post fourth code-review)
 
