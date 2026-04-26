@@ -168,6 +168,7 @@ export function registerInstanceHandlers(deps: {
           initialPrompt: validated.message,
           attachments,
           initialOutputBuffer: [createInitialUserMessage(validated.message, attachments)],
+          agentId: validated.agentId,
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model,
           forceNodeId: validated.forceNodeId

@@ -31,6 +31,35 @@ describe('InstanceCreatePayloadSchema forceNodeId', () => {
   });
 });
 
+describe('InstanceCreateWithMessagePayloadSchema agentId', () => {
+  it('accepts an optional agentId string', () => {
+    const result = InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+      agentId: 'plan',
+    });
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.agentId).toBe('plan');
+  });
+
+  it('accepts payload without agentId', () => {
+    const result = InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects agentId longer than 100 characters', () => {
+    const result = InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+      agentId: 'x'.repeat(101),
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('IPC provider schema parity', () => {
   const canonicalProviders = ['auto', 'claude', 'codex', 'gemini', 'copilot'] as const;
 

@@ -29,6 +29,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   message: z.string().min(0).max(500000),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
+  agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   forceNodeId: z.string().uuid().optional(),

@@ -33,6 +33,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       workingDirectory: string;
       message: string;
       attachments?: unknown[];
+      agentId?: string;
       provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
       model?: string;
       forceNodeId?: string;
