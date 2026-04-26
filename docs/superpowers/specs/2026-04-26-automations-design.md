@@ -22,7 +22,7 @@ Users have recurring agent work (server-log reviews, daily summaries, dependency
 
 ### Goals (MVP)
 
-- Schedule a prompt or saved workflow on a recurrence (preset or cron)
+- Schedule a prompt on a recurrence (preset or cron). (Workflow chaining moves to Phase 2 — see Decision log Q1 update.)
 - Fire on schedule, even after suspend/resume cycles, with explicit per-automation policy for runs missed while the app was off
 - Produce one normal session per fire, in the working directory configured for the automation
 - Distinguish automation-spawned sessions visually with a clock icon (blue when unread, gray when seen)
@@ -38,7 +38,8 @@ Users have recurring agent work (server-log reviews, daily summaries, dependency
 - **Webhook / inbound HTTP triggers** (Phase 3+)
 - **Cross-automation dependencies** ("fire X only after Y succeeds")
 - **First-class Project entity** — "project" in this feature means "working directory"
-- **Action-handler registry** — using a fixed `switch (actionType)` for two action kinds (`prompt`, `workflow`); refactor to registry only when a third kind appears
+- **Workflow action** (`actionType='workflow'`) — descoped from MVP to Phase 2 alongside its prerequisites (workflow template authoring + gated workflow support). MVP supports `actionType='prompt'` only. See revision history v7.
+- **Action-handler registry** — MVP has only one action kind (`prompt`); `switch (actionType)` is a single arm. Phase 2 adds `'workflow'` and revisits whether to upgrade to a registry pattern.
 
 ## 3. Decision log
 
@@ -46,7 +47,7 @@ These are the decisions taken during brainstorming, recorded so the spec can sta
 
 | # | Question | Decision |
 |---|---|---|
-| Q1 | Trigger model — ChatGPT-style only, or include workflow chaining, or full event engine? | **Mirror ChatGPT shape, with `actionType` of either `prompt` or `workflow`** (saved templates from `WorkflowManager`) |
+| Q1 | Trigger model — ChatGPT-style only, or include workflow chaining, or full event engine? | Originally **B** (mirror ChatGPT shape with `actionType` of `prompt` or `workflow`). **Updated v7 → MVP supports `prompt` only**; workflow action descoped to Phase 2 alongside its prerequisites (template authoring + gated-workflow support). Schema and IPC keep the discriminated-union shape so Phase 2 is purely additive. See revision history v7. |
 | Q2 | Schedule semantics — preset only, preset + cron, or full RRULE? | **Preset picker + advanced cron mode**, backed by `croner` |
 | Q3 | What to do when the app was off at fire time? | **Per-automation `missed_run_policy`** with global default — values: `runOnce` / `skip` / `notify` |
 | Q4 | What is "Project" in the screenshot? | **Working directory only** — no new entity. Spawned instances become normal sessions in that folder, marked with a clock icon |
@@ -104,13 +105,13 @@ This narrow per-module ownership is what keeps the test surface small (Section 1
 
 - **`croner`** (~10 KB, no deps, DST-correct, computes next-fire without polling) — added to `package.json`
 - **`better-sqlite3`** (already in project) — for the new tables
-- **Existing modules** — `InstanceLifecycleManager` (instance creation), `InstanceManager` (event source — subscribed for run completion), `WorkflowManager`, `ContentStore` (`src/main/session/content-store.ts` — used for attachment binary storage), `SettingsStore` (extended with one new key, see Section 9)
+- **Existing modules** — `InstanceManager` (event source AND lifecycle wrapper — subscribed for run completion via `instance:event` / `provider:normalized-event` / `instance:removed`; `createInstance` / `terminateInstance` for spawn/cleanup), `ContentStore` (`src/main/session/content-store.ts` — used for attachment binary storage), `SettingsStore` (extended with one new key, see Section 9)
 
 `automation-events.ts` is the domain's internal `EventEmitter`. It's wired both internally (e.g., scheduler listens for `automation:run-terminal` to handle `oneTime` completion) and externally — the IPC layer subscribes and fans the events out to the renderer per Section 9.
 
 ### Cross-domain wiring at startup
 
-In addition to the bootstrapping order shown below, the automations domain also **registers a deletion-reference probe** with `WorkflowManager` so attempts to remove a workflow template that's referenced by an automation are blocked at the source (not just in the UI — see Section 11.3 #12 for the full guard).
+The MVP automations domain has no cross-domain registrations beyond the standard event subscriptions on `InstanceManager`. (Phase 2's workflow action will register a deletion-reference probe with `WorkflowManager` — see Section 11.3 #12 for the eventual design and Section 13 Phase 2 list.)
 
 ### Startup wiring (in `src/main/app/initialization-steps.ts`)
 
@@ -131,8 +132,8 @@ NEW step:             'Automations: store + attachment service'
                           AutomationAttachmentService.init()
 NEW step:             'Automations: runner'
                           AutomationRunner.initialize(deps)
-                          (subscribes to InstanceManager + WorkflowManager events;
-                           registers reference probe with WorkflowManager)
+                          (subscribes to InstanceManager events:
+                           instance:event, provider:normalized-event, instance:removed)
 NEW step:             'Automations: catch-up sweep'
                           CatchUpCoordinator.runStartupSweep()    (Steps A/B/C)
 NEW step:             'Automations: scheduler'
@@ -155,10 +156,11 @@ CREATE TABLE IF NOT EXISTS automations (
   name                  TEXT NOT NULL,
   description           TEXT,
 
-  -- WHAT to do
+  -- WHAT to do — MVP supports 'prompt' only. 'workflow' is reserved for Phase 2.
+  -- The CHECK below is enforced at the IPC layer too (Zod schema rejects 'workflow' in MVP).
   action_type           TEXT NOT NULL CHECK (action_type IN ('prompt','workflow')),
   prompt                TEXT,                       -- non-null when action_type='prompt'
-  workflow_template_id  TEXT,                       -- non-null when action_type='workflow'
+  workflow_template_id  TEXT,                       -- reserved; non-null when action_type='workflow' (Phase 2)
 
   -- WHERE (the "project" = working directory)
   working_directory     TEXT NOT NULL,
@@ -221,7 +223,7 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   trigger               TEXT NOT NULL CHECK (trigger IN ('scheduled','manual','catchUp')),
 
   instance_id           TEXT,
-  workflow_execution_id TEXT,
+  workflow_execution_id TEXT,                       -- reserved for Phase 2 workflow action
 
   status                TEXT NOT NULL CHECK (
                           status IN ('pending','running','succeeded','failed','skipped','canceled')),
@@ -483,13 +485,30 @@ The DB's `next_fire_at` is the source of truth — even if the process restarts 
 
 ### Suspend / resume
 
+The scheduler subscribes to **both** `suspend` and `resume` so the catch-up coordinator can use the real suspend window (rather than a heuristic):
+
 ```ts
-powerMonitor.on('resume', () => this.handleResume());
+private suspendedAt: number | null = null;
+
+powerMonitor.on('suspend', () => {
+  // Capture the moment of suspend so the resume sweep has a real `since` value.
+  this.suspendedAt = this.now();
+});
+
+powerMonitor.on('resume', () => {
+  void this.handleResume();
+});
 
 private async handleResume(): Promise<void> {
-  // Croner pauses while OS sleeps. Hand control to catch-up coordinator,
-  // which applies per-automation missed_run_policy. Then re-arm schedules.
-  await this.catchUp.runResumeSweep(this.now());
+  // Croner pauses while OS sleeps. Hand control to the catch-up coordinator
+  // with both timestamps so it can apply per-automation missed_run_policy
+  // against the actual suspend window. If we somehow missed the suspend event
+  // (powerMonitor not wired in time, OS hibernated without firing), the
+  // coordinator falls back to a heuristic — see Section 8 Resume sweep.
+  const resumedAt = this.now();
+  const suspendedAt = this.suspendedAt;        // may be null on first wake / missed suspend
+  this.suspendedAt = null;
+  await this.catchUp.runResumeSweep({ suspendedAt, resumedAt });
 }
 ```
 
@@ -532,7 +551,7 @@ Each croner callback compares `expectedFireTime` against `now()`. If skew exceed
 
 ### Responsibilities
 
-Take `fire(automationId, { trigger })` calls; decide whether to run, queue, or skip; dispatch via `InstanceManager.createInstance()` or via `InstanceManager.createInstance()` + `WorkflowManager.startWorkflow()`; record the run; subscribe to completion events; promote queued runs.
+Take `fire(automationId, { trigger })` calls; decide whether to run, queue, or skip; dispatch via `InstanceManager.createInstance()` (with `initialPrompt` + `attachments`); record the run; subscribe to completion events; promote queued runs. (MVP supports `actionType='prompt'` only; workflow dispatch is Phase 2.)
 
 ### Public API
 
@@ -549,8 +568,8 @@ class AutomationRunner {
     // the runner uses InstanceManager.createInstance() / .terminateInstance(),
     // which are public wrappers (`instance-manager.ts:951,955`).
     instanceManager: InstanceManager;
-    workflowManager: WorkflowManager;
     attachmentService: AutomationAttachmentService;
+    // workflowManager: deferred to Phase 2.
     now?: () => number;
   }): Promise<void>;
 
@@ -575,14 +594,14 @@ class AutomationRunner {
    - `running` only → `queue` (insert `pending`)
    - `running` + `pending` → `skip` (insert with `skip_reason='queueFull'`)
 5. If `start`, dispatch via action handler.
-6. Record `instance_id` (or `workflow_execution_id`) on the run row.
+6. Record `instance_id` on the run row. (`workflow_execution_id` is reserved for Phase 2.)
 7. Subscribe to completion events for this run.
 
 The partial unique indexes from Section 5 catch any race that slips past the read-then-insert pattern; constraint errors are treated as `skip`.
 
 ### Action dispatch
 
-The runner runs in the main process and calls `InstanceManager` (public wrappers `createInstance`/`terminateInstance`) and `WorkflowManager` directly — it does *not* go through the renderer-side IPC schemas. Constraints are on `InstanceCreateConfig` (the type the underlying lifecycle accepts), not on `InstanceCreateWithMessagePayloadSchema` (which is only for the renderer's create flow).
+The runner runs in the main process and calls `InstanceManager` (public wrappers `createInstance`/`terminateInstance`) directly — it does *not* go through the renderer-side IPC schemas. Constraints are on `InstanceCreateConfig` (the type the underlying lifecycle accepts), not on `InstanceCreateWithMessagePayloadSchema` (which is only for the renderer's create flow).
 
 **Pre-flight check** (Section 11.3 #16): if the automation has a `forceNodeId`, the runner verifies the node is reachable *before* calling the lifecycle. The lifecycle's existing behavior is to log a warning and silently fall through to local execution if a forced node is offline (`src/main/instance/instance-lifecycle.ts:424-433`); for unattended automations this is dangerous (creds/paths may only exist on the remote), so the runner short-circuits with a `failed` run instead.
 
@@ -607,47 +626,23 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
     reasoningEffort: automation.reasoningEffort ?? undefined,   // see schema-extension note below
   };
 
-  switch (automation.actionType) {
-    case 'prompt': {
-      // No createInstanceWithMessage exists. The "create + send first message"
-      // pattern is encoded by setting initialPrompt + attachments on
-      // InstanceCreateConfig. We call the public InstanceManager wrapper.
-      const attachments = await this.attachmentService.load(automation.id);
-      const instance = await this.instanceManager.createInstance({
-        ...createConfig,
-        initialPrompt: automation.prompt!,
-        attachments,
-      });
-      return { kind: 'instance', instanceId: instance.id };
-    }
+  // MVP supports `actionType='prompt'` only. `'workflow'` was descoped after five
+  // code-review rounds surfaced cascading complexity (synchronous-event tracking, agent
+  // vs no-agent advancement, reentrant completePhase, terminalization-vs-persistence
+  // races) AND the realization that the app has no UI/IPC to *create* a no-gate template
+  // (registerTemplate is internal/test-only); built-in templates all have gates and would
+  // be unusable. Phase 2 ships workflow action together with template authoring + gated
+  // workflow support. See decision log Q1 update and revision history v7.
 
-    case 'workflow': {
-      // Real API: WorkflowManager.startWorkflow(instanceId, templateId) requires an
-      // already-existing instance. Spawn the instance first WITHOUT initialPrompt
-      // (the workflow's phase agents drive the conversation), then start the workflow.
-      const instance = await this.instanceManager.createInstance(createConfig);
-
-      // CRITICAL: register the run-tracking mapping by instanceId BEFORE calling
-      // startWorkflow(). startWorkflow() emits 'workflow:started' SYNCHRONOUSLY
-      // (workflow-manager.ts:141) before returning, so listeners that key by
-      // executionId would miss the event because we don't have execution.id yet.
-      // Our event handlers look up by execution.instanceId — see below.
-      this.runByInstance.set(instance.id, run.id);
-
-      try {
-        const exec = this.workflowManager.startWorkflow(instance.id, automation.workflowTemplateId!);
-        // Now that we have execution.id, also register the executionId mapping for
-        // workflow:completed (which only carries the WorkflowExecution, not the instanceId of origin).
-        this.runByExecution.set(exec.id, run.id);
-        return { kind: 'workflow', executionId: exec.id, instanceId: instance.id };
-      } catch (err) {
-        // Workflow start failed — clean up tracking + terminate the orphaned instance.
-        this.runByInstance.delete(instance.id);
-        await this.instanceManager.terminateInstance(instance.id, true).catch(() => undefined);
-        throw err;
-      }
-    }
-  }
+  // No createInstanceWithMessage exists. The "create + send first message" pattern is
+  // encoded by setting initialPrompt + attachments on InstanceCreateConfig.
+  const attachments = await this.attachmentService.load(automation.id);
+  const instance = await this.instanceManager.createInstance({
+    ...createConfig,
+    initialPrompt: automation.prompt,                 // non-null per the schema CHECK
+    attachments,
+  });
+  return { kind: 'instance', instanceId: instance.id };
 }
 ```
 
@@ -659,134 +654,24 @@ private async dispatch(automation: Automation, run: AutomationRun): Promise<Disp
 
 There is no `createInstanceWithMessage` anywhere in the lifecycle hierarchy. The "create + send first message" semantic is encoded by populating `initialPrompt` + `attachments` on `InstanceCreateConfig`, which the lifecycle's spawn path then forwards to the adapter (`instance-lifecycle.ts:1349-1361`).
 
-### Workflow auto-advance for unattended runs
+### Workflow action — DEFERRED TO PHASE 2
 
-`WorkflowManager.startWorkflow()` (`workflow-manager.ts:122-155`) emits `workflow:started` and then **only launches phase agents if the phase has agents** (`if (firstPhase.agents)` at line 145). Subsequent phase transitions inside `completePhase()` follow the same conditional (line 209). Three event-source cases need handling for unattended automations:
+**MVP supports `actionType='prompt'` only.** Workflow action was descoped after sustained code-review pressure surfaced cascading issues:
 
-| Phase shape | Event sequence | Auto-advance trigger |
-|---|---|---|
-| Has agents, gateType='none' | `workflow:started` (or `workflow:phase-changed`) → agents run → `workflow:agents-completed` | `workflow:agents-completed` |
-| **No agents, gateType='none'** | `workflow:started` (or `workflow:phase-changed`) → **nothing else fires; phase stalls** | `workflow:started` / `workflow:phase-changed` |
-| Any phase with gateType ≠ 'none' | Gate stalls phase indefinitely | **Not allowed in MVP** — form filters templates with any gated phase |
+- `WorkflowManager.startWorkflow()` emits `workflow:started` synchronously inside its call frame, so any executionId-keyed mapping registered after it returns misses the first event (race);
+- The auto-advance helper has a real distinction between "called pre-agents" and "called post-agents" that requires a context flag to avoid stalling agent phases;
+- `workflow:phase-changed` is emitted from inside `completePhase()` before it returns, so any reentrancy guard drops follow-up advancements (no-agent → no-agent and agent → no-agent stall);
+- All four built-in workflow templates contain at least one non-`none` gate, so a no-gate-template filter would show an empty/disabled dropdown by default;
+- The app exposes no UI/IPC path to create user-defined templates (`registerTemplate()` is internal/test-only), so an "empty state with create-template link" goes nowhere;
+- Workflow runs would also need to handle `instance:event`/`instance:removed` failure paths plus `workflow:cancelled` (`workflow-manager.ts:484`), separate from the prompt-run tracking logic.
 
-If we only listened to `workflow:agents-completed`, no-agent phases would stall the automation immediately. So the runner subscribes to **three** workflow events and dispatches through a single helper that takes the event source into account:
+Phase 2 ships workflow action together with **template authoring/import** + **gated workflow support** + the auto-advance/race fixes that v5/v6 of this spec sketched. The historical sketches are preserved in git history (commits `7ca530a`, `c1860d7`, `b35db51`, `88f7c85`) and the v6 design content can be revived directly into a Phase 2 spec when those prerequisites are in place.
 
-```ts
-// Tracking maps (initialized in initialize()):
-//   runByInstance:  Map<instanceId,    runId>  — set BEFORE startWorkflow()
-//   runByExecution: Map<executionId,   runId>  — set AFTER  startWorkflow() returns
-//   advancingExecutions: Set<executionId>      — reentrancy guard for completePhase()
-
-const findRunIdForEvent = (execution: WorkflowExecution): string | undefined => {
-  // Prefer executionId lookup (set after startWorkflow returns), fall back to
-  // instanceId lookup (set before startWorkflow). The fallback is what makes
-  // the synchronous workflow:started fire reachable.
-  return this.runByExecution.get(execution.id) ?? this.runByInstance.get(execution.instanceId);
-};
-
-interface AdvanceContext {
-  // True iff called from workflow:agents-completed (i.e. the agent phase finished).
-  // Used to override the "skip if phase.agents is truthy" guard, which only applies
-  // BEFORE agents finish (during workflow:started / workflow:phase-changed).
-  readonly agentsCompleted: boolean;
-}
-
-const advanceIfPossible = (
-  execution: WorkflowExecution,
-  phase: WorkflowPhase,
-  ctx: AdvanceContext,
-) => {
-  const runId = findRunIdForEvent(execution);
-  if (!runId) return;                                          // not one of our automations
-
-  if (phase.gateType !== 'none') {
-    // Should not reach here if the form filtered correctly; defensive bailout.
-    this.handleWorkflowTerminal(execution.id, 'failed',
-      `Workflow phase '${phase.id}' has gate type '${phase.gateType}' which can't run unattended`);
-    return;
-  }
-
-  // Skip auto-advance if the phase has agents AND we haven't yet received the
-  // agents-completed event for this phase. Once agents finish, we DO want to advance.
-  // WorkflowPhase.agents is an OBJECT (`{ count, agentType, prompts, parallel }`),
-  // not an array (workflow.types.ts:36-41); truthy presence check is correct.
-  if (phase.agents && !ctx.agentsCompleted) return;
-
-  // Reentrancy guard: workflow:phase-changed/agents-completed are emitted from inside
-  // completePhase()'s synchronous emit path (workflow-manager.ts:206 emits BEFORE the
-  // method returns at :215). Calling completePhase() again synchronously would re-enter
-  // before persistence. Defer with queueMicrotask and use a per-execution flag.
-  //
-  // CRITICAL: in the finally, we re-check the execution's CURRENT phase. completePhase()
-  // may have advanced to a new no-agent phase whose phase-changed event was dropped by
-  // this same guard. Without the re-check, no-agent → no-agent transitions stall.
-  if (this.advancingExecutions.has(execution.id)) return;
-  this.advancingExecutions.add(execution.id);
-
-  queueMicrotask(async () => {
-    try {
-      await deps.workflowManager.completePhase(execution.id);
-    } catch (err) {
-      this.handleWorkflowTerminal(execution.id, 'failed',
-        err instanceof Error ? err.message : String(err));
-      return;
-    } finally {
-      this.advancingExecutions.delete(execution.id);
-    }
-
-    // Follow-up retry: if completePhase() transitioned to a new phase that's also
-    // eligible for auto-advance (no agents OR agents-now-finished), pick it up.
-    const nextPhase = deps.workflowManager.getCurrentPhase(execution.id);
-    const stillRunning = deps.workflowManager.getExecution(execution.id)?.completedAt == null;
-    if (nextPhase && stillRunning) {
-      // Use a fresh AdvanceContext: agentsCompleted is false because we don't yet
-      // know whether agents have run on this new phase. If the new phase has agents,
-      // workflow:agents-completed will arrive and re-trigger us; if it has none, we
-      // advance immediately. The re-entry is safe because advancingExecutions was
-      // cleared in finally above.
-      advanceIfPossible(
-        deps.workflowManager.getExecution(execution.id)!,
-        nextPhase,
-        { agentsCompleted: false },
-      );
-    }
-  });
-};
-
-deps.workflowManager.on('workflow:started', ({ execution, template }) => {
-  advanceIfPossible(execution, template.phases[0], { agentsCompleted: false });
-});
-
-deps.workflowManager.on('workflow:phase-changed', ({ execution, phase }) => {
-  advanceIfPossible(execution, phase, { agentsCompleted: false });
-});
-
-deps.workflowManager.on('workflow:agents-completed', ({ execution, phase }) => {
-  // Agents on this phase have just finished. Override the agents-truthy skip so we
-  // actually call completePhase() to move to the next phase.
-  advanceIfPossible(execution, phase, { agentsCompleted: true });
-});
-```
-
-This lets the runner drive a workflow through any mix of agent / no-agent phases as long as none of them have gates. `workflow:completed` fires from the final `completePhase()` call and terminalizes the run.
-
-**MVP template availability — IMPORTANT**: every existing built-in workflow template (`feature-development`, `issue-implementation`, `pr-review`, `repo-health-audit`) contains at least one non-`none` gate (`completion`/`user_confirmation`/`user_selection`/`user_approval`). The MVP automation form filter therefore lists **zero usable built-in templates** by default. Two consequences:
-
-1. The form's workflow-template dropdown shows **only user-defined templates** that are entirely gate-free. Built-in templates appear in the list disabled, with a tooltip: *"This workflow has '\<gateType\>' phases (e.g. \<phaseId\>) and can't run unattended yet — gated workflow support is planned for Phase 2."*
-2. If the user has no custom no-gate templates, the dropdown shows an empty state with a "Create a custom workflow" link to the workflows page. The workflow action remains in MVP scope but is effectively opt-in via custom templates until Phase 2.
-
-This is honest about the current state without dropping the action type entirely. (Designing a new built-in "automation-friendly" template was considered and deferred — it's a workflow product decision, not an automations one.)
-
-Two consequent Phase-1.10 implementation notes:
-
-- **Form filtering** must inspect *every* phase's `gateType`, not just the first; rejection tooltip lists the offending phase ids.
-- **Template-deletion guard** (Section 11.3 #12) treats automations referencing a template as references regardless of which phase shape is involved.
-
-A future Phase-2 item ("Gated workflow support in automations") would design how user-action-required gates interact with unattended scheduling — likely by surfacing a notification and pausing the run until the user resolves the gate. That work would also unlock the existing built-in templates for automation use.
+The decision log Q1 is updated to: "MVP — prompt action only. Workflow chaining shipped in Phase 2 alongside its prerequisites."
 
 ### Completion detection
 
-Passive — subscribe, don't poll. The runner subscribes to `InstanceManager` (which extends `EventEmitter` and forwards lifecycle events; see `src/main/instance/instance-manager.ts:378-417`) and to `WorkflowManager` (also an `EventEmitter`).
+Passive — subscribe, don't poll. The runner subscribes to `InstanceManager` (which extends `EventEmitter` and forwards lifecycle events; see `src/main/instance/instance-manager.ts:378-417`).
 
 `InstanceEventAggregator` is *not* an EventEmitter — it's a record-keeping class. Subscriptions go on `InstanceManager` instead.
 
@@ -822,13 +707,6 @@ interface RunTrackingState {
 
 private trackingByInstance = new Map<string, RunTrackingState>();
 
-// Workflow run tracking (used by Workflow auto-advance below).
-// runByInstance is set BEFORE startWorkflow() so the synchronous workflow:started
-// fire is reachable; runByExecution is set AFTER startWorkflow() returns.
-private runByInstance = new Map<string, string>();         // instanceId    → runId
-private runByExecution = new Map<string, string>();        // executionId   → runId
-private advancingExecutions = new Set<string>();           // reentrancy guard for completePhase()
-
 initialize(deps: ...): Promise<void> {
   // (1) State changes for terminal failures + the post-output-idle confirmation
   deps.instanceManager.on('instance:event', (envelope: InstanceEventEnvelope) => {
@@ -851,6 +729,25 @@ initialize(deps: ...): Promise<void> {
         'failed',
         `Instance ${status}` + (failureClass ? ` (${failureClass})` : ''),
       );
+      return;
+    }
+
+    // Unattended-automation guard: waiting_for_input / waiting_for_permission are
+    // durable interactive states that block the queue indefinitely. Even with
+    // yolo enabled, some prompts (e.g. uncategorized tool requests) can land here.
+    // Treat as terminal failure with a clear message; the user can re-fire manually
+    // (after enabling yolo, completing the prompt manually, or editing the
+    // automation's permission scope).
+    if (status === 'waiting_for_input' || status === 'waiting_for_permission') {
+      this.trackingByInstance.delete(envelope.instanceId);
+      this.handleInstanceTerminal(
+        tracking.runId,
+        'failed',
+        `Automation halted in '${status}' — interactive input/permission required. ` +
+        `Enable yolo on this automation, narrow its agent profile, or re-run manually.`,
+      );
+      // Best-effort terminate to free the instance + spawned session for re-use.
+      void this.instanceManager.terminateInstance(envelope.instanceId, true).catch(() => undefined);
     }
   });
 
@@ -877,13 +774,7 @@ initialize(deps: ...): Promise<void> {
     }
   });
 
-  // (4) Workflow completion — see "Workflow auto-advance" below for why this fires.
-  deps.workflowManager.on('workflow:completed', (execution: WorkflowExecution) => {
-    this.handleWorkflowTerminal(execution.id, 'succeeded');
-  });
-  deps.workflowManager.on('workflow:gate-rejected', ({ execution }) => {
-    this.handleWorkflowTerminal(execution.id, 'failed', 'Workflow gate rejected');
-  });
+  // (4) Workflow events — DEFERRED TO PHASE 2 (no workflow action in MVP).
 }
 ```
 
@@ -891,34 +782,13 @@ initialize(deps: ...): Promise<void> {
 
 **A run is `failed`** when the instance enters `error`, `failed`, or `terminated` *or* is removed *before* the post-output idle. We surface the `failureClass` (`startup`/`runtime`/`recovery`/`termination`/`transition`/`permission` per the contract enum) in the error message.
 
-**Note on the InstanceStatus enum**: the contract status enum (`packages/contracts/src/types/instance-events.ts:1-22`) is wider than just `idle`/`busy`/`error`/`failed`/`terminated` — it also includes `initializing`, `ready`, `processing`, `thinking_deeply`, `waiting_for_input`, `waiting_for_permission`, etc. The runner only acts on the explicit success/failure transitions above; intermediate statuses are ignored.
+**Note on the InstanceStatus enum**: the contract status enum (`packages/contracts/src/types/instance-events.ts:1-22`) is wider than just `idle`/`busy`/`error`/`failed`/`terminated` — it also includes `initializing`, `ready`, `processing`, `thinking_deeply`, `waiting_for_input`, `waiting_for_permission`, etc. The runner reacts to:
 
-### Avoiding the workflow terminalization-vs-persistence race
+- `idle` (only after assistant output → success)
+- `error` / `failed` / `terminated` (failure)
+- `waiting_for_input` / `waiting_for_permission` (failure with "interactive input required" message; instance terminated to free the queue)
 
-For an all-no-agent workflow, auto-advance can complete the workflow synchronously fast enough that `workflow:completed` fires *before* the caller of `dispatch()` has had a chance to record `workflow_execution_id` on the run row. `handleWorkflowTerminal()` MUST resolve the `runId` via the in-memory `runByExecution` map (with `runByInstance` as fallback) — *not* by querying `automation_runs.workflow_execution_id`:
-
-```ts
-private handleWorkflowTerminal(executionId: string, status: 'succeeded'|'failed', errorMessage?: string): void {
-  // CRITICAL: do NOT query automation_runs.workflow_execution_id here. The DB column may
-  // not be populated yet for fast all-no-agent workflows whose terminal events fire before
-  // the caller's `await this.dispatch(...)` continuation has had a chance to write it.
-  const execution = this.workflowManager.getExecution(executionId);
-  const runId = this.runByExecution.get(executionId)
-    ?? (execution ? this.runByInstance.get(execution.instanceId) : undefined);
-  if (!runId) return;        // not one of our runs (or we already terminalized it)
-
-  // Idempotent — clear maps so a duplicate terminal event for the same execution is a no-op.
-  this.runByExecution.delete(executionId);
-  if (execution) this.runByInstance.delete(execution.instanceId);
-
-  this.store.completeRun(runId, { status, completedAt: this.now(), errorMessage });
-  // ... usual run-finalization (mark automation lastFiredAt, promote pending, emit events) ...
-}
-```
-
-The same lookup pattern applies to `handleInstanceTerminal()` for prompt runs, which already uses an in-memory `trackingByInstance` map and is not affected by this race.
-
-After `dispatch()` returns, the caller (in `fire()`) writes `workflow_execution_id` to the row for any consumers that need to look it up by FK later (the run-history view, the spawned-session-map JOIN). That write is for read-paths only; the live terminalization path uses the in-memory map.
+All other intermediate statuses (`initializing`, `ready`, `processing`, `thinking_deeply`, etc.) are ignored — they're transient and don't terminalize the run.
 
 ### Queue promotion
 
@@ -958,7 +828,7 @@ class CatchUpCoordinator {
   }): Promise<void>;
 
   runStartupSweep(): Promise<StartupSweepResult>;
-  runResumeSweep(resumedAt: number): Promise<ResumeSweepResult>;
+  runResumeSweep(window: { suspendedAt: number | null; resumedAt: number }): Promise<ResumeSweepResult>;
 }
 ```
 
@@ -985,7 +855,7 @@ The window for "missed fires" depends on whether this is a startup or resume swe
 | Sweep | `since` | `until` |
 |---|---|---|
 | **Startup** | `automation.lastFiredAt ?? automation.createdAt` (per-automation; no app-level last-shutdown timestamp) | `now()` |
-| **Resume** | `suspendedAt` captured from `powerMonitor.on('suspend')` (fallback: `resumedAt - 10min` heuristic) | `resumedAt` |
+| **Resume** | `window.suspendedAt` (passed from scheduler's `suspend` listener; fallback to `resumedAt - 10min` heuristic when null — first wake / missed suspend event) | `window.resumedAt` |
 
 For each automation with `status='active'`:
 
@@ -1054,7 +924,7 @@ function computeMissedFireTimes(automation: Automation, since: number, until: nu
 
 ### Resume sweep
 
-Same as Step C, with `since` = suspend timestamp (captured by `powerMonitor.on('suspend')`, fallback "10 minutes before resume" if missed) and `until` = the resume timestamp. Steps A/B are not re-run on resume.
+Called as `runResumeSweep({ suspendedAt, resumedAt })`. Step C runs with `since = suspendedAt ?? (resumedAt - 10 * 60 * 1000)` (10-minute heuristic fallback when the suspend event was missed — e.g., on first wake, or if powerMonitor wasn't wired in time) and `until = resumedAt`. Steps A/B are not re-run on resume.
 
 ### Global default policy
 
@@ -1109,6 +979,16 @@ Updated to match the project's current contract layout (the spec previously poin
 
 **Important**: the preload composition is generated — adding a new domain requires running whatever the project's preload-generation step is (verify in package.json scripts). If preload generation is manual (a hand-edited barrel), edit the barrel.
 
+**`@contracts/...` subpath registration (per AGENTS.md "Packaging Gotchas")**: adding new files under `packages/contracts/src/schemas/` and `packages/contracts/src/channels/` means importers reference them as `@contracts/schemas/automation` and `@contracts/channels/automation`. The short subpath aliasing is bridged by **five** places that must stay in sync — tsc path aliases are type-check-only and don't rewrite emitted JS, so missing the runtime resolver causes the packaged DMG to crash on startup with `Cannot find module …/schemas/automation` even though typecheck and lint pass:
+
+1. `packages/contracts/package.json` — add the new `exports` subpath entries (`./schemas/automation` and `./channels/automation`)
+2. `tsconfig.json` — add path alias entries for `@contracts/schemas/automation` and `@contracts/channels/automation`
+3. `tsconfig.electron.json` — same path alias additions for main-process type-checking
+4. `src/main/register-aliases.ts` — add to `exactAliases` (Node runtime resolver — this is the load-bearing one for the packaged app)
+5. `vitest.config.ts` — add the alias if any spec imports the new subpath
+
+This is a checklist item the implementer must complete in Phase 1.5 alongside creating the schema/channel files.
+
 **AppSettings extension** (from `src/shared/types/settings.types.ts:18`): `SettingsManager.get<K extends keyof AppSettings>(key: K)` is keyed by a top-level `AppSettings` field, not a dotted path (`src/main/core/config/settings-manager.ts:189`). Phase 1.5 adds a flat key `defaultMissedRunPolicy?: 'runOnce' | 'skip' | 'notify'` to `AppSettings` and the corresponding default constants. The catch-up coordinator calls `settings.get('defaultMissedRunPolicy')` (not `'automations.defaultMissedRunPolicy'`).
 
 ### Zod schemas (in `packages/contracts/src/schemas/automation.schemas.ts`)
@@ -1125,16 +1005,19 @@ export const schedulePayloadSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('oneTime'), runAt: z.number().int().positive() }),
 ]);
 
+// MVP: prompt action only. The workflow branch is reserved for Phase 2 — keep the
+// discriminated-union shape so adding it later is purely additive.
 export const automationActionSchema = z.discriminatedUnion('actionType', [
   z.object({
     actionType: z.literal('prompt'),
     prompt:     z.string().min(1).max(50_000),
     attachments: z.array(fileAttachmentSchema).max(20).optional(),
   }),
-  z.object({
-    actionType:         z.literal('workflow'),
-    workflowTemplateId: z.string().min(1),
-  }),
+  // Phase 2 (deferred):
+  // z.object({
+  //   actionType:         z.literal('workflow'),
+  //   workflowTemplateId: z.string().min(1),
+  // }),
 ]);
 
 export const createAutomationInputSchema = z.object({
@@ -1262,7 +1145,7 @@ Quick-edit popovers commit via `update(id, patch)`. Bigger edits go through the 
 
 Six sections:
 1. Name & description
-2. **What to do** — prompt or workflow toggle. Prompt mode: large textarea + attachment dropzone. Workflow mode: dropdown of templates.
+2. **What to do** — prompt textarea + attachment dropzone. (Phase 2 will add a "Run a workflow" toggle alongside; the form's discriminated state machine should leave room for it.)
 3. **Where to run** — working-directory picker (re-uses recent-directories), forceNodeId picker if remote configured.
 4. **How to run** — embedded compact composer toolbar (agent, provider, model, reasoning, yolo).
 5. **When to run** — `<schedule-picker>`.
@@ -1342,7 +1225,7 @@ Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if curr
 |---|---|
 | Working directory deleted | Run fails with path in error message. Automation stays active. |
 | Working directory permission lost | Same as above. |
-| Workflow template deleted while referenced | Guard is enforced **inside `WorkflowManager.removeTemplate()`** — not just the UI. The current implementation (`src/main/workflows/workflow-manager.ts:112`) blindly deletes from memory; we extend it with a *reference-probe* registration: `WorkflowManager.registerReferenceProbe((templateId) => Promise<{ referencedBy: string[] } \| null>)`. The automations domain registers a probe at startup that queries `automations` for matching `workflow_template_id`. `removeTemplate(id)` consults all probes, and if any return references it returns `{ removed: false, reason: 'Referenced by N automation(s)', references }` — non-UI call paths see the same protection. The UI surfaces the reason as a toast and lists the referencing automations so the user can edit them. |
+| Workflow template deleted while referenced | N/A in MVP — no automation can reference a workflow template (workflow action is Phase 2). Reference-probe registration moves to Phase 2 alongside the workflow action. |
 | All providers offline | Run fails. Automation continues; next fire retries. |
 | Provider auth expired | Same as above. |
 | Provider rate-limited | Run fails. No auto-retry. |
@@ -1413,7 +1296,7 @@ User creates a one-time scheduled 5 min from now, closes the app, opens it the n
 |---|---|---|
 | `AutomationStore` | better-sqlite3 (`:memory:`) | — |
 | `AutomationScheduler` | croner, store | runner, powerMonitor, injected `now` |
-| `AutomationRunner` | store, croner | instanceManager (fake EventEmitter exposing `provider:normalized-event`, `instance:event`, `instance:removed` + `createInstance`/`terminateInstance` stubs), workflowManager (fake EventEmitter), attachmentService |
+| `AutomationRunner` | store, croner | instanceManager (fake EventEmitter exposing `provider:normalized-event`, `instance:event`, `instance:removed` + `createInstance`/`terminateInstance` stubs), attachmentService |
 | `CatchUpCoordinator` | store, croner | runner, settings, injected `now` |
 | IPC handlers | Zod schemas, `validatedHandler` | domain singletons |
 | Renderer store | Angular signals | IPC service |
@@ -1432,20 +1315,19 @@ The clock is injected (`now: () => number`) wherever timing matters. No direct `
 
 ### Integration tests
 
-End-to-end-within-main-process tests wiring real store + croner + fake `InstanceManager` (real EventEmitter exposing `createInstance`/`terminateInstance` stubs) + fake `WorkflowManager` (real EventEmitter):
+End-to-end-within-main-process tests wiring real store + croner + fake `InstanceManager` (real EventEmitter exposing `createInstance`/`terminateInstance` stubs):
 
 - Create automation, advance mock clock, run inserted, dispatch called
 - Two rapid scheduled fires → first runs, second queues, third skips
 - Pause during running run → pending cleared, no further fires
 - Crash simulation → restart → step A reconciles, step C catches up
-- **Run terminalization on `instance:event` envelope (`busy → idle`)** — verifies the new completion-detection wiring
-- **Run terminalization on `instance:event` envelope with terminal status** (`error`/`failed`/`terminated`) — failure path
-- **`instance:removed`** before terminal status — run marked failed with "Instance removed before completion"
-- **Workflow action: spawn-then-start path** — runner creates instance, calls `startWorkflow(instance.id, templateId)`, the workflow's `workflow:completed` event terminalizes the run
-- **Workflow start rollback** — `WorkflowManager.startWorkflow` throws (e.g., template not found, instance already has active workflow) → runner terminates the orphaned instance and marks run failed
-- **Reference-probe deletion guard** — `WorkflowManager.removeTemplate(id)` returns `{ removed: false, reason }` when an automation references the template; the row in `automations.workflow_template_id` survives
+- **Run succeeded** — fake instance fires `instance:event` with `busy` → fake `provider:normalized-event` carrying assistant output → fake `instance:event` with `idle` → run terminalizes as `succeeded`
+- **Run failed (terminal status)** — fake `instance:event` with `error`/`failed`/`terminated` → run marked failed with `failureClass`
+- **Run failed (interactive wait)** — fake `instance:event` with `waiting_for_input` or `waiting_for_permission` → run marked failed with the interactive-input message; instance.terminate called
+- **`instance:removed` before terminal status** — run marked failed with "Instance removed before completion"
 - **forceNodeId pre-check** — runner skips dispatch and marks run failed when registry says node is offline (no lifecycle call attempted)
 - **Duplicate skip insertion** — partial unique index now allows skipped rows alongside the (potentially-existing) running row for the same `(automation_id, scheduled_at)`
+- *(Workflow action tests deferred to Phase 2.)*
 
 ### Out of MVP testing
 
@@ -1491,10 +1373,10 @@ npm run test                                   # full suite pre-merge
 | 1.7 | Detail page + run-now + run history |
 | 1.8 | Create/edit form + schedule picker + cron preview |
 | 1.9 | Session-list clock-icon adornment + mark-seen wiring |
-| 1.10 | Workflow action dispatch — **`InstanceManager.createInstance` then `WorkflowManager.startWorkflow(instance.id, templateId)`** with rollback on failure + **runner subscriptions to `workflow:started`, `workflow:phase-changed`, and `workflow:agents-completed` driving auto-advance through `completePhase()` for no-gate phases (with reentrancy guard via `queueMicrotask` + per-execution advancing flag)** + `runByInstance` mapping registered BEFORE `startWorkflow()` so the synchronous `workflow:started` event is reachable + **form filters template dropdown to templates with gateType='none' on every phase only (built-in templates all have gates and will appear disabled with a tooltip)** + `registerReferenceProbe` wired into `WorkflowManager.removeTemplate()` for the deletion guard |
+| 1.10 | *(removed — workflow action descoped to Phase 2; see Decision log Q1 update and v7 revision history. Phase 1 tooling and form leave the discriminated-union shape so Phase 2 is additive.)* |
 | 1.11 | Manual smoke + accessibility pass + perf check on long lists |
 
-Workflow action is intentionally last because it requires extending `WorkflowManager.removeTemplate()` with the reference-probe pattern (a public-API change that adds risk). The spawn-then-start adapter itself is straightforward; the deletion guard is the bigger touch.
+Phase 1.10 (workflow action) was removed entirely in v7 — workflow action is now Phase 2. Phase 1.11 (manual smoke + a11y + perf) becomes Phase 1.10 in execution order.
 
 ### Effort estimate
 
@@ -1510,10 +1392,17 @@ Total: ~24–29 working days for one engineer (~5 calendar weeks).
 
 In rough priority order:
 
-1. **Always-on background daemon** — fires when app is closed (launchd / Windows service).
-2. **Desktop OS notifications** on completion.
-3. **Auto-retry on failure** with exponential backoff.
-4. **Gated workflow support in automations** — design how user-action-required gates interact with unattended scheduling (likely: surface a notification, pause the run, allow user to resolve via UI, then resume). MVP restricts to no-gate templates.
+1. **Workflow action** — full restoration of `actionType='workflow'`, including:
+   - Auto-advance for no-agent and agent phases (`workflow:started` / `workflow:phase-changed` / `workflow:agents-completed` triple subscription with `AdvanceContext.agentsCompleted` flag, reentrancy-guarded `completePhase()` deferral with finally-clause re-check, `runByInstance` map registered before `startWorkflow()` to catch synchronous emit)
+   - Workflow-spawned instance failure handling via `instance:event`/`instance:removed`/`workflow:cancelled`
+   - Terminalization-vs-persistence race fix using in-memory `runByExecution` map
+   - Reference-probe registration with `WorkflowManager.removeTemplate()` to prevent orphaning
+   - **Workflow template authoring** — IPC + UI for creating/importing user-defined templates (no path exists today; `registerTemplate()` is internal/test-only)
+   - **Gated workflow support** — design how `gateType !== 'none'` phases interact with unattended scheduling (surface notification, pause run, allow user to resolve via UI, then resume)
+   - The v6 spec sketches the auto-advance machinery (commits `7ca530a` → `88f7c85`); revive into a Phase 2 spec.
+2. **Always-on background daemon** — fires when app is closed (launchd / Windows service).
+3. **Desktop OS notifications** on completion.
+4. **Auto-retry on failure** with exponential backoff.
 5. **Action-handler registry** when a third action kind is needed.
 6. **First-class Project entity** — independent product decision, not just an automations feature.
 7. **Per-automation tags / color / pinned state** — UX enrichment.
@@ -1535,13 +1424,13 @@ Before merging, the implementer should confirm these (the spec was revised twice
 2. better-sqlite3 has JSON1 enabled by default for `json_valid` CHECKs. (It does in the project's current build, but verify in this branch.)
 3. The **preload composition** flow — confirm whether `src/preload/domains/*.preload.ts` composition is generated or hand-edited; follow the existing pattern when adding `automation.preload.ts`.
 4. **`ContentStore.storeDurable()`** — Phase 1.1 adds this method (or an equivalent) so attachment writes are awaited; if a different content store is preferred for blobs, document why.
-5. **`WorkflowManager.startWorkflow(instanceId, templateId)`** is the real signature (`src/main/workflows/workflow-manager.ts:122`). Runner uses spawn-then-start. Test rollback path leaves no orphan instances on workflow start failure.
+5. *(Workflow integration deferred to Phase 2 — no MVP requirement on `WorkflowManager.startWorkflow` shape.)*
 6. **`InstanceManager` events**: `instance:event` (envelope shape `{ eventId, seq, timestamp, instanceId, event: { kind, status, … } }`); `provider:normalized-event` (carries `ProviderRuntimeEventEnvelope` from `publishOutput()` at `instance-manager.ts:829-861` — there is **no** `instance:output` event); `instance:removed` (bare `instanceId: string`). Listeners at `instance-manager.ts:378-417`. Envelope contract at `packages/contracts/src/types/instance-events.ts:59-65`. Use `toOutputMessageFromProviderEnvelope()` from `src/main/providers/provider-output-event.ts` to convert provider envelopes to `OutputMessage`.
 7. **`InstanceLifecycleManager.createInstance(config)`** is the only creation API — there is no `createInstanceWithMessage`. Pass `initialPrompt` + `attachments` on the config to get the "create + send first message" semantic (`instance-lifecycle.ts:937` and `:1349`).
 8. **`InstanceCreateConfig.reasoningEffort`** added by Phase 1.3. Lower-level CLI adapters that don't support reasoning ignore the field.
 9. **`AppSettings.defaultMissedRunPolicy`** is a flat top-level field on `AppSettings` (Phase 1.5). `SettingsManager.get('defaultMissedRunPolicy')` is the access path — dotted/nested keys won't type-check (`settings-manager.ts:189`).
-10. **`WorkflowManager.registerReferenceProbe()`** is a new public API added in Phase 1.10 — coordinate with anyone touching workflow code in parallel.
-11. **Workflow auto-advance**: Phase 1.10 wires runner subscriptions to **all three** `workflow:started` / `workflow:phase-changed` / `workflow:agents-completed` events, dispatching through a single `advanceIfPossible(execution, phase, { agentsCompleted })` helper that auto-calls `completePhase()` for no-gate phases. The `runByInstance` map is populated **before** `startWorkflow()` is called (so the synchronous `workflow:started` event is reachable). The reentrancy guard re-checks `getCurrentPhase()` in its `finally` clause to handle no-agent → no-agent transitions whose `workflow:phase-changed` event was dropped during the previous advance. Form filters templates with any gated phase; built-ins all have gates and appear disabled.
+10. *(WorkflowManager extensions deferred to Phase 2.)*
+11. **Workflow auto-advance**: deferred to Phase 2 alongside the workflow action descope (v7). Implementation guidance for Phase 2 lives in git history (`88f7c85` v6 sketch) and in the Phase 2 list (Section 13).
 12. **Startup wiring** lives in `src/main/app/initialization-steps.ts` (function `createInitializationSteps()` at line 78). New automation steps are inserted **after** the existing `'IPC handlers'` and `'Event forwarding'` steps. Automation IPC handlers register inside `IpcMainHandler.registerHandlers()` (`src/main/ipc/ipc-main-handler.ts`); they look up domain singletons lazily so registration order doesn't matter for correctness, but the documented order matches existing convention.
 13. **One-time long timers**: scheduler uses bounded re-arming (24h cap) instead of a single raw `setTimeout`. Verify `setTimeout` clamping behavior on the target Node/Electron version isn't tripped.
 
@@ -1552,7 +1441,7 @@ Before merging, the implementer should confirm these (the spec was revised twice
 | Schema migration corrupts existing RLM DB | Low | `CREATE TABLE IF NOT EXISTS`; no ALTERs; follows existing migration pattern. |
 | `croner` DST bug we hit in production | Low | Library is actively maintained; has DST test suite. |
 | Adding `reasoningEffort` to `InstanceCreateConfig` breaks an unanticipated caller | Low | Optional field — additions to the config interface that existing callers omit cause no behavior change. Type-check verifies. |
-| `WorkflowManager.registerReferenceProbe()` change collides with parallel workflow work | Low | Phase 1.10 explicitly last; merged after most MVP touches WorkflowManager are settled. |
+| Phase 2 workflow integration discovers blockers requiring schema/IPC migration | Low | Schema and IPC keep `'workflow'` in the discriminated unions (Zod branch commented out, action_type CHECK includes both values). Phase 2 is purely additive; no migration needed unless we discover new column requirements. |
 | `ContentStore.storeDurable()` extension causes regressions in existing fire-and-forget callers | Low | New method is additive; existing `store()` keeps current semantics. |
 | Startup sweep slow with thousands of run rows | Low | Steps A/B are single UPDATEs; Step C is one SELECT per active automation; indexed. |
 | Single-instance lock not configured | Low | One-line addition if missing (Pre-flight #1). |
@@ -1587,6 +1476,19 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v7 — 2026-04-27 (post sixth code-review)
+
+User did a sixth deep review against the v6 spec and identified three P1 + two P2 issues plus a structural concern about workflow template availability. Verified all findings against the codebase. The major change: **workflow action descoped from MVP to Phase 2**. Two prompt-run issues fixed. Two infrastructure issues spelled out.
+
+| # | Issue | Resolution |
+|---|---|---|
+| Major | Workflow MVP keeps producing new bugs (P1 in five consecutive reviews) AND has no usable template path: built-in templates all have non-`none` gates and the app exposes no UI/IPC to create custom templates (`registerTemplate()` is internal/test-only). | **Workflow action descoped to MVP**. Section 7 dispatch is now prompt-only. Workflow auto-advance subsection collapsed to a "Phase 2" pointer with a list of the design considerations from v5/v6 (preserved in git history at `7ca530a` / `c1860d7` / `b35db51` / `88f7c85`). Workflow run-tracking maps (`runByInstance`, `runByExecution`, `advancingExecutions`) and the terminalization-vs-persistence-race subsection removed. Decision log Q1 updated. Phase 2 list elevates "Workflow action" to item #1, including template authoring + gated workflow support as dependencies. The DB schema CHECK keeps `'workflow'` in the action_type enum so Phase 2 is purely additive (Zod schema layer rejects it for now via commented-out branch). |
+| P1.A | (workflow) Agent phase completion lost during guarded advance — the v6 follow-up retry passed `agentsCompleted: false` and the agent-completed event was dropped during the guard window | Resolved by descoping workflow from MVP. (For Phase 2, the fix is to pass `agentsCompleted: true` in the finally re-check since `completePhase()` awaits `launchPhaseAgents()` and `agents-completed` has fired by the time we re-check.) |
+| P1.B | (workflow) Workflow runs ignore instance failure/removal — `instance:event`/`instance:removed` handlers only check `trackingByInstance` (prompt runs); workflow runs use `runByInstance` and were unhandled | Resolved by descoping workflow from MVP. (For Phase 2: extend the instance-event handlers to also check `runByInstance` and terminalize the corresponding workflow run; subscribe to `workflow:cancelled` from `workflow-manager.ts:484`.) |
+| P1.C | Permission/input waits can leave prompt runs running forever — `waiting_for_input` and `waiting_for_permission` are durable interactive states that aren't currently terminal in the runner | `instance:event` handler now treats `waiting_for_input` and `waiting_for_permission` as failure states with a clear error message ("Automation halted in '\<status\>' — interactive input/permission required. Enable yolo on this automation, narrow its agent profile, or re-run manually."). Best-effort `terminateInstance()` call to free the queue. The InstanceStatus enum note in Section 7 lists the new terminal statuses. |
+| P2.A | Resume sweep API has no suspend timestamp source — `runResumeSweep(resumedAt)` doesn't carry the suspend time, but Step C references `suspendedAt` directly | Scheduler now subscribes to **both** `powerMonitor.on('suspend')` and `powerMonitor.on('resume')`; captures `suspendedAt` on suspend, passes `{ suspendedAt, resumedAt }` to `runResumeSweep()`. Coordinator uses `suspendedAt ?? (resumedAt - 10min)` heuristic fallback for missed-suspend cases (first wake, powerMonitor not yet wired). API signature updated. |
+| P2.B | New contract subpaths need export and alias updates — adding `@contracts/schemas/automation` and `@contracts/channels/automation` requires five-place sync per project AGENTS.md "Packaging Gotchas" | Section 9 expanded with the explicit five-place checklist: `packages/contracts/package.json` exports, `tsconfig.json`, `tsconfig.electron.json`, `src/main/register-aliases.ts` (the load-bearing one for the packaged app), and `vitest.config.ts`. Marked as a Phase 1.5 implementation requirement. |
 
 ### v6 — 2026-04-26 (post fifth code-review)
 
