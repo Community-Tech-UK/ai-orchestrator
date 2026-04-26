@@ -104,9 +104,13 @@ This narrow per-module ownership is what keeps the test surface small (Section 1
 
 - **`croner`** (~10 KB, no deps, DST-correct, computes next-fire without polling) — added to `package.json`
 - **`better-sqlite3`** (already in project) — for the new tables
-- **Existing modules** — `InstanceLifecycleManager`, `WorkflowManager`, `InstanceEventAggregator`, `OutputStorageManager` (content store), `SettingsStore`
+- **Existing modules** — `InstanceLifecycleManager` (instance creation), `InstanceManager` (event source — subscribed for run completion), `WorkflowManager`, `ContentStore` (`src/main/session/content-store.ts` — used for attachment binary storage), `SettingsStore` (extended with one new key, see Section 9)
 
 `automation-events.ts` is the domain's internal `EventEmitter`. It's wired both internally (e.g., scheduler listens for `automation:run-terminal` to handle `oneTime` completion) and externally — the IPC layer subscribes and fans the events out to the renderer per Section 9.
+
+### Cross-domain wiring at startup
+
+In addition to the bootstrapping order shown below, the automations domain also **registers a deletion-reference probe** with `WorkflowManager` so attempts to remove a workflow template that's referenced by an automation are blocked at the source (not just in the UI — see Section 11.3 #12 for the full guard).
 
 ### Startup wiring (in `src/main/index.ts`)
 
@@ -225,9 +229,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_one_running
 CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_one_pending
   ON automation_runs(automation_id) WHERE status = 'pending';
 
+-- Excludes skipped/canceled so duplicate-detection skip rows
+-- (e.g. clock-backward dedupe markers) can still be inserted for history visibility.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_unique_scheduled
   ON automation_runs(automation_id, scheduled_at)
-  WHERE trigger IN ('scheduled', 'catchUp');
+  WHERE trigger IN ('scheduled', 'catchUp')
+    AND status NOT IN ('skipped', 'canceled');
 ```
 
 `skip_reason` enum (string, not enforced by CHECK because of the open-ended set): `queueFull` / `paused` / `pausedDuringFire` / `deleted` / `appShutdown` / `missedWhileOff` / `missedNeedsAttention` / `duplicate`.
@@ -236,19 +243,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_unique_scheduled
 
 ```sql
 CREATE TABLE IF NOT EXISTS automation_attachments (
-  id            TEXT PRIMARY KEY,
-  automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
-  position      INTEGER NOT NULL,
-  name          TEXT NOT NULL,
-  mime_type     TEXT NOT NULL,
-  size_bytes    INTEGER NOT NULL,
-  storage_ref   TEXT NOT NULL
+  id              TEXT PRIMARY KEY,
+  automation_id   TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+  position        INTEGER NOT NULL,
+  name            TEXT NOT NULL,
+  mime_type       TEXT NOT NULL,
+  size_bytes      INTEGER NOT NULL,
+  -- A serialized ContentStore ContentRef:
+  --   inline:  '{"inline":true,"content":"…"}'
+  --   external:'{"inline":false,"hash":"<sha256>","size":<n>}'
+  content_ref_json TEXT NOT NULL,
+  CHECK (json_valid(content_ref_json))
 );
 CREATE INDEX IF NOT EXISTS idx_automation_attachments_by_automation
   ON automation_attachments(automation_id, position);
 ```
 
-On create/edit, the renderer's `data:` URLs are uploaded into the existing `OutputStorageManager`, which returns a stable `storage_ref`. On fire, the runner re-materializes a `FileAttachment[]` from those refs.
+**Storage**: The existing `ContentStore` (`src/main/session/content-store.ts`) is used. Its `store(content: string): Promise<ContentRef>` accepts a string and returns either an inline ref (< 1 KB) or an external ref keyed by SHA-256.
+
+**Durability requirement**: `ContentStore.store()` is *fire-and-forget* by default — the disk write isn't awaited. For automation attachments we need durability (we may not fire the run for hours/days, and an app crash before the write would leave a dangling ref). Phase 1.1 adds an `AutomationAttachmentService` thin wrapper that exposes:
+
+```ts
+class AutomationAttachmentService {
+  // Saves bytes durably (awaiting the disk write before returning) and persists the row.
+  async save(automationId: string, file: { name: string; mimeType: string; bytes: Uint8Array | string }): Promise<AutomationAttachmentRow>;
+
+  // Loads attachments for fire-time materialization into FileAttachment[] for the lifecycle.
+  async load(automationId: string): Promise<FileAttachment[]>;
+
+  async delete(automationId: string, attachmentId: string): Promise<void>;
+}
+```
+
+The "durable" path either uses a small extension to `ContentStore` (a `storeDurable()` method that awaits the write; backward-compatible addition) or — if we don't want to touch `ContentStore` — does the SHA-256 hash + write inline in the service. Either is fine; recommended is to extend `ContentStore` so the durability guarantee lives next to the rest of the storage logic.
+
+On create/edit, the renderer sends `FileAttachment[]` (each with `data: string` data URL); the IPC handler decodes the data URL, calls `attachmentService.save(...)`, and the row is inserted with the resulting `ContentRef`. On fire, the runner calls `attachmentService.load(automationId)` to get `FileAttachment[]` for the lifecycle call.
 
 ### Schedule payload (JSON in `schedule_payload_json`)
 
@@ -378,14 +407,28 @@ Persist on `activate()`, after every fire, on `reschedule()`, on `deactivate()`,
 
 ### One-time terminal
 
-When a `oneTime` succeeds, the runner emits `automation:run-terminal` and the scheduler:
+A `oneTime` automation's parent `status` transitions to `'completed'` only when the run produces a definitive non-failure outcome:
+
+| Run outcome | Parent transition | Rationale |
+|---|---|---|
+| `succeeded` | → `completed` | The run did its job. |
+| `failed` | stay `active`, `next_fire_at=NULL` | Allow manual re-fire from the UI; transient failures shouldn't bury the only chance to run. |
+| `skipped` (catch-up `skip` policy) | → `completed` | The user asked to skip this run; nothing else will happen. |
+| `skipped` (catch-up `notify` policy) | → `completed` | Same as above; the badge surfaces it. |
+| `canceled` (paused/deleted/appShutdown) | stay `active` | Allow re-arming after un-pause. (For `deleted`, the row is gone via CASCADE.) |
+| `skipped` (queueFull / pausedDuringFire / duplicate / overlap) | stay `active` | These are *runtime overlaps*, not the user's only chance — equivalent to a transient failure. |
+
+The transition is applied by:
+
+- The **scheduler** when it observes `automation:run-terminal` with `status='succeeded'` for a oneTime
+- The **catch-up coordinator** when it inserts a `skipped` row for a oneTime under `skip`/`notify` policy (see Section 8)
+
+In both cases:
 
 ```ts
 this.store.transitionToCompleted(automationId);  // status='completed', next_fire_at=NULL
-this.deactivate(automationId);
+this.deactivate(automationId);                    // remove from schedules map
 ```
-
-If a `oneTime` fails, the parent stays `active` with `next_fire_at=NULL` — the user can manually re-fire.
 
 ### Late-fire guard
 
@@ -406,10 +449,10 @@ class AutomationRunner {
 
   initialize(deps: {
     store: AutomationStore;
-    instanceLifecycle: InstanceLifecycleManager;
+    instanceManager: InstanceManager;            // EventEmitter — subscribes for run completion
+    instanceLifecycle: InstanceLifecycleManager; // For createInstance / createInstanceWithMessage / terminateInstance
     workflowManager: WorkflowManager;
-    instanceEvents: InstanceEventAggregator;
-    contentStore: ContentStore;
+    attachmentService: AutomationAttachmentService; // wraps ContentStore for durable attachment storage
     now?: () => number;
   }): Promise<void>;
 
@@ -441,62 +484,128 @@ The partial unique indexes from Section 5 catch any race that slips past the rea
 
 ### Action dispatch
 
+The runner runs in the main process and calls `InstanceLifecycleManager` and `WorkflowManager` directly — it does *not* go through the renderer-side IPC schemas. Constraints are on `InstanceCreateConfig` (the type the lifecycle manager accepts), not on `InstanceCreateWithMessagePayloadSchema` (which is only for the renderer's create flow).
+
+**Pre-flight check** (Section 11.3 #16): if the automation has a `forceNodeId`, the runner verifies the node is reachable *before* calling the lifecycle. The lifecycle's existing behavior is to log a warning and silently fall through to local execution if a forced node is offline (`src/main/instance/instance-lifecycle.ts:424-433`); for unattended automations this is dangerous (creds/paths may only exist on the remote), so the runner short-circuits with a `failed` run instead.
+
 ```ts
 private async dispatch(automation: Automation, run: AutomationRun): Promise<DispatchResult> {
-  const baseConfig = {
+  // Pre-flight: forceNodeId must be reachable. Don't trust lifecycle's silent fall-through.
+  if (automation.forceNodeId) {
+    const node = getWorkerNodeRegistry().getNode(automation.forceNodeId);
+    if (!node || (node.status !== 'connected' && node.status !== 'degraded')) {
+      throw new RunDispatchError(`Forced node ${automation.forceNodeId} is unreachable (status=${node?.status ?? 'not-found'})`);
+    }
+  }
+
+  // Build InstanceCreateConfig — note `modelOverride` (not `model`) is the field name.
+  const createConfig: InstanceCreateConfig = {
     workingDirectory: automation.workingDirectory,
     agentId: automation.agentId,
     provider: automation.provider,
-    model: automation.model ?? undefined,
+    modelOverride: automation.model ?? undefined,
     yoloMode: automation.yoloMode,
     forceNodeId: automation.forceNodeId ?? undefined,
-    reasoningEffort: automation.reasoningEffort ?? undefined,
+    reasoningEffort: automation.reasoningEffort ?? undefined,   // see schema-extension note below
   };
 
   switch (automation.actionType) {
     case 'prompt': {
-      const attachments = await this.contentStore.materializeAttachments(automation.id);
+      const attachments = await this.attachmentService.load(automation.id);
       const result = await this.instanceLifecycle.createInstanceWithMessage({
-        ...baseConfig,
+        ...createConfig,
         message: automation.prompt!,
         attachments,
       });
       return { kind: 'instance', instanceId: result.instance.id };
     }
+
     case 'workflow': {
-      const exec = await this.workflowManager.start({
-        templateId: automation.workflowTemplateId!,
-        ...baseConfig,
-      });
-      return { kind: 'workflow', executionId: exec.id, instanceId: exec.instanceId };
+      // Real API: WorkflowManager.startWorkflow(instanceId, templateId) requires an
+      // already-existing instance. We spawn an instance first (with the bound prompt
+      // text from the template's first phase, if defined; else an empty initial input),
+      // then start the workflow on that instance. This matches how the existing
+      // workflow UI flow works.
+      const instance = await this.instanceLifecycle.createInstance(createConfig);
+      try {
+        const exec = this.workflowManager.startWorkflow(instance.id, automation.workflowTemplateId!);
+        return { kind: 'workflow', executionId: exec.id, instanceId: instance.id };
+      } catch (err) {
+        // Workflow start failed — terminate the orphaned instance so it doesn't linger.
+        await this.instanceLifecycle.terminateInstance(instance.id, true).catch(() => undefined);
+        throw err;
+      }
     }
   }
 }
 ```
 
-`InstanceCreateConfig` is extended with `reasoningEffort` (provider-specific; Codex/GPT-5.x translate to their reasoning knob; Claude/Gemini ignore).
+**Schema-extension note**: `InstanceCreateConfig` (`src/shared/types/instance.types.ts:337`) does not currently have a `reasoningEffort` field. Phase 1.3 includes adding it. The lower-level CLI adapters already understand reasoning effort, so the type extension is the only missing piece for the runner to thread it through. The renderer's `InstanceCreateWithMessagePayloadSchema` does not need to change — that schema is only for the renderer's manual create flow, and the runner doesn't go through it.
+
+**Type-name reminder**: `InstanceCreateConfig.modelOverride` (not `model`) is the actual field for the model id. Spec sections that say "model" are referring to the automation row's column, which the runner maps to `modelOverride` when constructing the lifecycle config.
 
 ### Completion detection
 
-Passive — subscribe, don't poll:
+Passive — subscribe, don't poll. The runner subscribes to `InstanceManager` (which extends `EventEmitter` and forwards lifecycle events; see `src/main/instance/instance-manager.ts:378-399`) and to `WorkflowManager` (also an `EventEmitter`).
+
+`InstanceEventAggregator` is *not* an EventEmitter — it's a record-keeping class. Subscriptions go on `InstanceManager` instead.
 
 ```ts
-this.instanceEvents.on('instance:idle-after-output', ({ instanceId }) => {
-  this.handleInstanceTerminal(instanceId, 'succeeded');
-});
-this.instanceEvents.on('instance:terminated', ({ instanceId, reason }) => {
-  this.handleInstanceTerminal(
-    instanceId,
-    reason === 'error' ? 'failed' : 'succeeded',
-    reason === 'error' ? 'Instance terminated abnormally' : undefined,
-  );
-});
-this.workflowManager.on('execution:completed', ({ executionId, status }) => {
-  this.handleWorkflowTerminal(executionId, status === 'failed' ? 'failed' : 'succeeded');
-});
+private trackingByInstance = new Map<string, RunTrackingState>();   // instanceId → { runId, hasGoneBusy }
+
+initialize(deps: ...): Promise<void> {
+  // Per-turn idle detection: instance went busy then became idle.
+  deps.instanceManager.on('instance:event', (envelope: InstanceEventEnvelope) => {
+    const tracking = this.trackingByInstance.get(envelope.instanceId);
+    if (!tracking) return;
+    if (envelope.kind !== 'status_changed') return;
+
+    if (envelope.status === 'busy') {
+      tracking.hasGoneBusy = true;
+      return;
+    }
+
+    // First idle-after-busy → run succeeded. Subsequent user interaction is normal session activity.
+    if (envelope.status === 'idle' && tracking.hasGoneBusy) {
+      this.trackingByInstance.delete(envelope.instanceId);
+      this.handleInstanceTerminal(tracking.runId, 'succeeded');
+      return;
+    }
+
+    // Terminal failures.
+    if (envelope.status === 'error' || envelope.status === 'failed' || envelope.status === 'terminated') {
+      this.trackingByInstance.delete(envelope.instanceId);
+      this.handleInstanceTerminal(
+        tracking.runId,
+        'failed',
+        `Instance ${envelope.status}` + (envelope.failureClass ? ` (${envelope.failureClass})` : ''),
+      );
+    }
+  });
+
+  // Instance removed entirely — ensure we don't leak tracking entries.
+  deps.instanceManager.on('instance:removed', (envelope: InstanceEventEnvelope) => {
+    const tracking = this.trackingByInstance.get(envelope.instanceId);
+    if (tracking) {
+      this.trackingByInstance.delete(envelope.instanceId);
+      this.handleInstanceTerminal(tracking.runId, 'failed', 'Instance removed before completion');
+    }
+  });
+
+  // Workflow completion.
+  deps.workflowManager.on('workflow:completed', (execution: WorkflowExecution) => {
+    this.handleWorkflowTerminal(execution.id, 'succeeded');
+  });
+  // No explicit 'workflow:failed' event; treat workflow:gate-rejected and instance terminal
+  // events for the workflow's instance_id as failure signals.
+}
 ```
 
-A run is `succeeded` when the instance reaches `idle` after producing at least one assistant message. Subsequent user interaction with that session is treated as normal session activity, not part of the automation run — this is what allows the queue to advance without waiting for the user to close the window.
+**A run is `succeeded`** when the spawned instance transitions from `busy` to `idle` for the first time. The "first idle after busy" rule is what allows the user to keep using the spawned session afterward without it counting as still-in-the-automation: subsequent activity is normal session interaction, the queue can advance.
+
+**A run is `failed`** when the instance enters `error`, `failed`, or `terminated` status before the first idle-after-busy. We surface the `failureClass` (`runtime`/`startup`/`recovery`/`termination`) in the error message.
+
+**Workflow runs** terminalize on `workflow:completed`. Instance-level failures during workflow execution (instance terminates abnormally) also fail the run via the instance subscription path — both subscriptions resolve to the same run row by `instance_id`/`workflow_execution_id`.
 
 ### Queue promotion
 
@@ -571,12 +680,20 @@ if (missed.length === 0) return;
 switch (policy) {
   case 'runOnce':
     await runner.fire(automation.id, { trigger: 'catchUp', scheduledAt: missed[missed.length - 1] });
+    // For oneTime: the runner's terminal handler transitions parent → 'completed' on success,
+    // or leaves it 'active' on failure (allowing manual re-fire). See Section 6's One-time terminal.
     break;
   case 'skip':
     store.insertSkippedRun(automation.id, missed[missed.length - 1], 'missedWhileOff');
+    if (automation.scheduleKind === 'oneTime') {
+      store.transitionToCompleted(automation.id);   // see One-time completion rules below
+    }
     break;
   case 'notify':
     store.insertSkippedRun(automation.id, missed[missed.length - 1], 'missedNeedsAttention');
+    if (automation.scheduleKind === 'oneTime') {
+      store.transitionToCompleted(automation.id);
+    }
     break;
 }
 ```
@@ -647,7 +764,22 @@ NULL on a row means "follow global default" — changing the global propagates w
 - `automation:next-fire-changed` — `{ id, nextFireAt }`
 - `automation:unseen-count-changed` — `{ count }`
 
-### Zod schemas (in `src/shared/validation/ipc-schemas.ts`)
+### Where the schemas / channels / preload live
+
+Updated to match the project's current contract layout (the spec previously pointed at `src/shared/validation/ipc-schemas.ts`, which doesn't exist):
+
+| Concern | Location | Pattern |
+|---|---|---|
+| Zod schemas | **NEW** `packages/contracts/src/schemas/automation.schemas.ts` | exports `*PayloadSchema` Zod values; matches sibling `instance.schemas.ts` |
+| Channel constants | **NEW** `packages/contracts/src/channels/automation.channels.ts` | matches sibling `instance.channels.ts` |
+| Preload bridge | `src/preload/domains/automation.preload.ts` | composed into the generated preload bundle alongside other domains |
+| Main-process handlers | `src/main/ipc/handlers/automation-handlers.ts` | uses `validatedHandler` with the schemas above |
+
+**Important**: the preload composition is generated — adding a new domain requires running whatever the project's preload-generation step is (verify in package.json scripts). If preload generation is manual (a hand-edited barrel), edit the barrel.
+
+**AppSettings extension** (from `src/shared/types/settings.types.ts:18`): adding `defaultMissedRunPolicy?: 'runOnce' | 'skip' | 'notify'` to the `AppSettings` interface and the corresponding default constants. The catch-up coordinator's `settings.get('automations.defaultMissedRunPolicy')` won't type-check until this extension is in place.
+
+### Zod schemas (in `packages/contracts/src/schemas/automation.schemas.ts`)
 
 ```ts
 const timeStringSchema = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'HH:mm');
@@ -878,11 +1010,11 @@ Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if curr
 |---|---|
 | Working directory deleted | Run fails with path in error message. Automation stays active. |
 | Working directory permission lost | Same as above. |
-| Workflow template deleted while referenced | **Workflow management UI blocks deletion**, shows "referenced by N automation(s)" badge, requires editing those automations first. |
+| Workflow template deleted while referenced | Guard is enforced **inside `WorkflowManager.removeTemplate()`** — not just the UI. The current implementation (`src/main/workflows/workflow-manager.ts:112`) blindly deletes from memory; we extend it with a *reference-probe* registration: `WorkflowManager.registerReferenceProbe((templateId) => Promise<{ referencedBy: string[] } \| null>)`. The automations domain registers a probe at startup that queries `automations` for matching `workflow_template_id`. `removeTemplate(id)` consults all probes, and if any return references it returns `{ removed: false, reason: 'Referenced by N automation(s)', references }` — non-UI call paths see the same protection. The UI surfaces the reason as a toast and lists the referencing automations so the user can edit them. |
 | All providers offline | Run fails. Automation continues; next fire retries. |
 | Provider auth expired | Same as above. |
 | Provider rate-limited | Run fails. No auto-retry. |
-| `forceNodeId` offline | Run fails. |
+| `forceNodeId` offline | Runner pre-checks the worker-node registry *before* calling lifecycle (`src/main/instance/instance-lifecycle.ts:424-433` would otherwise log a warning and silently fall through to local execution — dangerous for unattended runs whose creds/paths only exist on the remote). If the node isn't `connected` or `degraded`, the run is marked `failed` with the node id and last-known status in the error message. |
 
 ### 11.4 Concurrency races
 
@@ -890,7 +1022,7 @@ Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if curr
 |---|---|
 | Cron and Run-now near-simultaneously | Partial unique index on `running` ensures one wins, other becomes `pending`. |
 | Run-now × 3 in 100ms | First runs, second queues, third skips (`skip_reason='queueFull'`). |
-| Same scheduled time fired twice (scheduler bug after restart) | `(automation_id, scheduled_at)` unique index catches second insert; second becomes `skipped` with `skip_reason='duplicate'`. |
+| Same scheduled time fired twice (scheduler bug after restart) | `(automation_id, scheduled_at)` unique index (excluding `skipped`/`canceled` per Section 5) catches the second *real* run; runner traps the constraint error and inserts a `skipped` history row with `skip_reason='duplicate'` (now allowed because skipped rows aren't covered by the unique index). |
 | Pause clicked mid-fire | Runner re-checks status after overlap-decision tx; cancels with `skip_reason='pausedDuringFire'`. |
 
 ### 11.5 Lifecycle races
@@ -949,7 +1081,7 @@ User creates a one-time scheduled 5 min from now, closes the app, opens it the n
 |---|---|---|
 | `AutomationStore` | better-sqlite3 (`:memory:`) | — |
 | `AutomationScheduler` | croner, store | runner, powerMonitor, injected `now` |
-| `AutomationRunner` | store, croner | instanceLifecycle, workflowManager, instanceEvents |
+| `AutomationRunner` | store, croner | instanceManager (fake EventEmitter), instanceLifecycle, workflowManager, attachmentService |
 | `CatchUpCoordinator` | store, croner | runner, settings, injected `now` |
 | IPC handlers | Zod schemas, `validatedHandler` | domain singletons |
 | Renderer store | Angular signals | IPC service |
@@ -968,13 +1100,20 @@ The clock is injected (`now: () => number`) wherever timing matters. No direct `
 
 ### Integration tests
 
-End-to-end-within-main-process tests wiring real store + croner + fake `instanceLifecycle`:
+End-to-end-within-main-process tests wiring real store + croner + fake `instanceLifecycle` + fake `InstanceManager` (real EventEmitter) + fake `WorkflowManager` (real EventEmitter):
 
 - Create automation, advance mock clock, run inserted, dispatch called
 - Two rapid scheduled fires → first runs, second queues, third skips
 - Pause during running run → pending cleared, no further fires
 - Crash simulation → restart → step A reconciles, step C catches up
-- Workflow action: spawn returns executionId → run follows workflow lifecycle
+- **Run terminalization on `instance:event` envelope (`busy → idle`)** — verifies the new completion-detection wiring
+- **Run terminalization on `instance:event` envelope with terminal status** (`error`/`failed`/`terminated`) — failure path
+- **`instance:removed`** before terminal status — run marked failed with "Instance removed before completion"
+- **Workflow action: spawn-then-start path** — runner creates instance, calls `startWorkflow(instance.id, templateId)`, the workflow's `workflow:completed` event terminalizes the run
+- **Workflow start rollback** — `WorkflowManager.startWorkflow` throws (e.g., template not found, instance already has active workflow) → runner terminates the orphaned instance and marks run failed
+- **Reference-probe deletion guard** — `WorkflowManager.removeTemplate(id)` returns `{ removed: false, reason }` when an automation references the template; the row in `automations.workflow_template_id` survives
+- **forceNodeId pre-check** — runner skips dispatch and marks run failed when registry says node is offline (no lifecycle call attempted)
+- **Duplicate skip insertion** — partial unique index now allows skipped rows alongside the (potentially-existing) running row for the same `(automation_id, scheduled_at)`
 
 ### Out of MVP testing
 
@@ -1011,19 +1150,19 @@ npm run test                                   # full suite pre-merge
 
 | Phase | Slice |
 |---|---|
-| 1.1 | Schema + `AutomationStore` (CRUD + retention + partial-index tests) |
+| 1.1 | Schema + `AutomationStore` + `AutomationAttachmentService` (CRUD + retention + partial-index tests + ContentStore durable-write extension) |
 | 1.2 | `AutomationScheduler` + croner + payload-to-cron + activate/deactivate |
-| 1.3 | `AutomationRunner` with **prompt action only** + overlap/queue + dedupe |
-| 1.4 | `CatchUpCoordinator` + startup sweep + missed-fire policy |
-| 1.5 | IPC handlers + Zod schemas + preload bridge |
+| 1.3 | `AutomationRunner` with **prompt action only** + overlap/queue + dedupe + **`InstanceCreateConfig.reasoningEffort` extension** + forceNodeId pre-check + completion-detection wiring against `InstanceManager` |
+| 1.4 | `CatchUpCoordinator` + startup sweep + missed-fire policy + oneTime `completed` transitions |
+| 1.5 | IPC handlers + new schemas in **`packages/contracts/src/schemas/automation.schemas.ts`** + new channels in **`packages/contracts/src/channels/automation.channels.ts`** + preload bridge + **AppSettings extension** (`defaultMissedRunPolicy`) |
 | 1.6 | Renderer store + sidebar badge + automations list page |
 | 1.7 | Detail page + run-now + run history |
 | 1.8 | Create/edit form + schedule picker + cron preview |
 | 1.9 | Session-list clock-icon adornment + mark-seen wiring |
-| 1.10 | Workflow action dispatch (runner branch + form mode) |
+| 1.10 | Workflow action dispatch — **`createInstance` then `WorkflowManager.startWorkflow(instance.id, templateId)`** with rollback on failure + `registerReferenceProbe` wired into `WorkflowManager.removeTemplate()` for the deletion guard + form mode |
 | 1.11 | Manual smoke + accessibility pass + perf check on long lists |
 
-Workflow action is intentionally last because it depends on `WorkflowManager.start`'s real shape, which the spec sketched but did not verify.
+Workflow action is intentionally last because it requires extending `WorkflowManager.removeTemplate()` with the reference-probe pattern (a public-API change that adds risk). The spawn-then-start adapter itself is straightforward; the deletion guard is the bigger touch.
 
 ### Effort estimate
 
@@ -1057,13 +1196,17 @@ In rough priority order:
 
 ## 14. Pre-flight verifications (during implementation)
 
-Before merging, the implementer should confirm these assumptions from the spec:
+Before merging, the implementer should confirm these (the spec was revised after a code review caught earlier mismatches; these are the remaining items to confirm during build):
 
 1. `app.requestSingleInstanceLock()` is called in `src/main/index.ts` (Section 11.5). If absent, add it.
-2. `WorkflowManager.start()` real signature matches the dispatch sketch in Section 7. Adjust runner adapter if not.
-3. better-sqlite3 has JSON1 enabled by default for `json_valid` CHECKs. (It does in the project's current build, but verify on the implementer's machine.)
-4. `OutputStorageManager` (or equivalent content store) exposes a `storage_ref`-based put/get usable from main-process code (Section 5 attachments).
-5. `InstanceEventAggregator` emits the events assumed by the runner (`instance:idle-after-output`, `instance:terminated`). If naming differs, adjust subscriptions.
+2. better-sqlite3 has JSON1 enabled by default for `json_valid` CHECKs. (It does in the project's current build, but verify in this branch.)
+3. The **preload composition** flow — confirm whether `src/preload/domains/*.preload.ts` composition is generated or hand-edited; follow the existing pattern when adding `automation.preload.ts`.
+4. **`ContentStore.storeDurable()`** — Phase 1.1 adds this method (or an equivalent) so attachment writes are awaited; if a different content store is preferred for blobs, document why.
+5. **`WorkflowManager.startWorkflow(instanceId, templateId)`** is the real signature (verified at `src/main/workflows/workflow-manager.ts:122`). The runner uses spawn-then-start. Confirm rollback (terminate on workflow start failure) leaves no orphans by exercising it in tests.
+6. **`InstanceManager` event names** — verified to be `instance:event`, `instance:created`, `instance:input-required`, `instance:batch-update`, `instance:removed` (`src/main/instance/instance-manager.ts:378-399`). The completion-detection logic relies on `instance:event` envelopes with `kind === 'status_changed'` and the status enum (`idle`, `busy`, `error`, `failed`, `terminated`). Confirm the precise transitions during integration testing.
+7. **`InstanceCreateConfig.reasoningEffort`** is added by Phase 1.3. Lower-level CLI adapters that don't support reasoning ignore the field.
+8. **`AppSettings.defaultMissedRunPolicy`** is added by Phase 1.5 alongside the other settings extensions.
+9. **`WorkflowManager.registerReferenceProbe()`** is a new public API added in Phase 1.10 — coordinate with anyone touching workflow code in parallel.
 
 ## 15. Risks
 
@@ -1071,9 +1214,12 @@ Before merging, the implementer should confirm these assumptions from the spec:
 |---|---|---|
 | Schema migration corrupts existing RLM DB | Low | `CREATE TABLE IF NOT EXISTS`; no ALTERs; follows existing migration pattern. |
 | `croner` DST bug we hit in production | Low | Library is actively maintained; has DST test suite. |
-| `WorkflowManager.start()` real signature differs from sketch | Medium | Phase 1.10 last; rest of MVP doesn't depend on this. |
+| Adding `reasoningEffort` to `InstanceCreateConfig` breaks an unanticipated caller | Low | Optional field — additions to the config interface that existing callers omit cause no behavior change. Type-check verifies. |
+| `WorkflowManager.registerReferenceProbe()` change collides with parallel workflow work | Low | Phase 1.10 explicitly last; merged after most MVP touches WorkflowManager are settled. |
+| `ContentStore.storeDurable()` extension causes regressions in existing fire-and-forget callers | Low | New method is additive; existing `store()` keeps current semantics. |
 | Startup sweep slow with thousands of run rows | Low | Steps A/B are single UPDATEs; Step C is one SELECT per active automation; indexed. |
 | Single-instance lock not configured | Low | One-line addition if missing (Pre-flight #1). |
+| Completion detection misses some terminal transitions across providers | Medium | Integration tests exercise transitions for each adapter (`claude`, `codex`, `gemini`, `copilot`, `cursor`); fall-through `instance:removed` handler ensures no run is left tracked indefinitely. |
 
 ## 16. References
 
@@ -1089,3 +1235,27 @@ Files inspected during research:
 - `src/renderer/app/features/dashboard/sidebar-actions.component.ts` — sidebar entry for badge
 - `src/shared/types/instance.types.ts:207-360` — `Instance` and `InstanceCreateConfig` shapes
 - `src/renderer/app/core/services/ipc/instance-ipc.service.ts` — `createInstanceWithMessage` config shape
+- `src/main/instance/instance-manager.ts:378-399` — real event-emitter forwarding (post-revision)
+- `src/main/instance/instance-event-aggregator.ts` — confirmed *not* an EventEmitter (post-revision)
+- `src/main/instance/instance-lifecycle.ts:403-433` — `forceNodeId` resolution behavior (post-revision)
+- `src/main/session/content-store.ts` — actual content-store API surface (post-revision)
+- `src/shared/types/settings.types.ts:18` — `AppSettings` extension target (post-revision)
+- `packages/contracts/src/schemas/instance.schemas.ts` — IPC schema location pattern (post-revision)
+
+## 17. Revision history
+
+### v2 — 2026-04-26 (post code-review)
+
+User reviewed v1 against the actual codebase and identified nine issues (five P1, four P2). All were verified against the source and the spec was revised:
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1.1 | Workflow dispatch called `workflowManager.start({ ... })` — real API is `startWorkflow(instanceId, templateId)` requiring an existing instance | Section 7 dispatch updated to spawn-then-start with rollback on failure. Instance is created via lifecycle, then `startWorkflow(instance.id, templateId)` is called. |
+| P1.2 | Subscribed to events that don't exist (`instance:idle-after-output`, etc.) on `InstanceEventAggregator` (which isn't an EventEmitter) | Section 7 completion detection rewritten to subscribe to `InstanceManager.on('instance:event', ...)` with `InstanceEventEnvelope` inspection. Status transitions (`busy → idle`, `error`/`failed`/`terminated`) drive run terminalization. |
+| P1.3 | `reasoningEffort` and `yoloMode` not plumbed; `model` named `modelOverride` in `InstanceCreateConfig` | Section 7 dispatch uses `modelOverride`; Phase 1.3 adds `reasoningEffort` to `InstanceCreateConfig`. Runner calls lifecycle directly (not via IPC), so the renderer's IPC schema doesn't constrain the runner. |
+| P1.4 | `forceNodeId` offline silently falls through to local execution per `instance-lifecycle.ts:424-433` — spec said "run fails" | Runner now pre-checks the worker-node registry before dispatching; fails the run if forced node is unreachable rather than allowing silent fall-through. Section 11.3 updated. |
+| P1.5 | Unique index `(automation_id, scheduled_at) WHERE trigger IN ('scheduled','catchUp')` blocks the duplicate-skip history row | Index revised to also exclude `status IN ('skipped','canceled')`. Skip markers can be inserted; real-fire uniqueness preserved. |
+| P2.6 | Attachments assumed `OutputStorageManager` API that doesn't exist; `ContentStore.store()` is fire-and-forget | Replaced with new `AutomationAttachmentService` wrapping `ContentStore` plus a `storeDurable()` extension that awaits the disk write. Schema column changed from `storage_ref` to `content_ref_json` storing the full `ContentRef`. |
+| P2.7 | One-time `completed` transitions inconsistent across Sections 6 / 8 / 11.9 | Section 6 added a per-outcome table; catch-up coordinator now explicitly transitions oneTime → `completed` for `skip`/`notify` policies. |
+| P2.8 | Schemas/channels in spec pointed at non-existent `src/shared/validation/ipc-schemas.ts`; no `AppSettings` extension call-out | Section 9 updated: schemas in `packages/contracts/src/schemas/automation.schemas.ts`, channels in `packages/contracts/src/channels/automation.channels.ts`, `AppSettings.defaultMissedRunPolicy` extension flagged in Phase 1.5. |
+| P2.9 | Workflow-template deletion guard was UI-only; `WorkflowManager.removeTemplate()` blindly deletes from memory | `WorkflowManager.registerReferenceProbe()` API added (Phase 1.10); automations domain registers a probe at startup; `removeTemplate()` consults probes and returns `{ removed: false, reason }` when references exist. UI surfaces the rejection. |
