@@ -91,6 +91,7 @@ export class DisplayItemProcessor {
   private lastHistoryOffset = 0;
   private firstMessageId: string | null = null;
   private seenStreamingIds = new Set<string>();
+  private processedMessageRefs: readonly OutputMessage[] = [];
   private _newItemCount = 0;
 
   process(
@@ -100,11 +101,13 @@ export class DisplayItemProcessor {
   ): DisplayItem[] {
     // Detect instance switch, buffer shrink, or prepend (first message ID changed)
     const currentFirstId = messages.length > 0 ? messages[0].id : null;
+    const processedMessagesChanged = this.haveProcessedMessagesChanged(messages);
     if (
       instanceId !== this.lastInstanceId ||
       historyOffset !== this.lastHistoryOffset ||
       messages.length < this.lastProcessedCount ||
-      (currentFirstId !== null && currentFirstId !== this.firstMessageId)
+      (currentFirstId !== null && currentFirstId !== this.firstMessageId) ||
+      processedMessagesChanged
     ) {
       this.reset();
       this.lastInstanceId = instanceId ?? null;
@@ -127,6 +130,7 @@ export class DisplayItemProcessor {
     this._newItemCount = this.items.length - prevLength;
 
     this.computeHeaders();
+    this.processedMessageRefs = messages.slice();
 
     return this.wrapForDisplay();
   }
@@ -142,6 +146,7 @@ export class DisplayItemProcessor {
     this.lastProcessedCount = 0;
     this.lastHistoryOffset = 0;
     this.seenStreamingIds.clear();
+    this.processedMessageRefs = [];
     // Reset newItemCount too: if reset is followed by an early-return
     // (messages.length === lastProcessedCount === 0), process() skips the
     // recompute path and consumers would otherwise see a stale count from
@@ -223,6 +228,21 @@ export class DisplayItemProcessor {
     }
 
     return items;
+  }
+
+  private haveProcessedMessagesChanged(messages: readonly OutputMessage[]): boolean {
+    if (this.lastProcessedCount === 0) {
+      return false;
+    }
+
+    const processedCount = Math.min(this.lastProcessedCount, messages.length);
+    for (let i = 0; i < processedCount; i++) {
+      if (messages[i] !== this.processedMessageRefs[i]) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private hasStandaloneAssistantContent(message: OutputMessage): boolean {

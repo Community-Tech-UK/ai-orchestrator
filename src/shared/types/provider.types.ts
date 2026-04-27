@@ -221,7 +221,7 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'openai-compatible': OPENAI_MODELS.GPT55,
   'ollama': 'llama3',
   'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
-  'copilot': COPILOT_MODELS.AUTO,
+  'copilot': COPILOT_MODELS.GEMINI_3_1_PRO,
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT55,
   cursor: CURSOR_MODELS.AUTO,
@@ -307,7 +307,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },
   ],
   copilot: [
-    { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced' },
+    { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'powerful' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_46_FAST, name: 'Claude Opus 4.6 Fast', tier: 'powerful' },
@@ -315,7 +315,6 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced' },
-    { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
     { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
     { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced' },
     { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
@@ -329,6 +328,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
     { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast' },
     { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast' },
+    { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced' },
   ],
   ollama: [],
   cursor: [

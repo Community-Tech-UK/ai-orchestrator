@@ -56,7 +56,7 @@ export const DEFAULT_COPILOT_CONFIG: ProviderConfig = {
   type: 'copilot',
   name: 'GitHub Copilot CLI',
   enabled: false,
-  // Copilot dynamically fetches available models from the CLI at runtime; don't pin a default.
+  defaultModel: COPILOT_MODELS.GEMINI_3_1_PRO,
 };
 
 export const COPILOT_DESCRIPTOR: ProviderAdapterDescriptor = {
@@ -123,9 +123,8 @@ export class CopilotCliProvider extends BaseProvider {
 
     this.instanceId = options.instanceId ?? '';
 
-    // Map session options to Copilot CLI config. If no model is supplied we
-    // fall back to the provider config default; the adapter itself will let
-    // the CLI use the user's configured default when neither is set.
+    // Map session options to Copilot CLI config. Copilot sessions now default
+    // to Gemini 3.1 Pro unless the caller explicitly overrides the model.
     const copilotConfig: CopilotCliConfig = {
       model: options.model || this.config.defaultModel,
       workingDir: options.workingDirectory,
@@ -209,11 +208,11 @@ export class CopilotCliProvider extends BaseProvider {
    *
    * Mirrors ClaudeCliProvider.updateUsageFromContext: context events give us
    * the running total token count but no input/output split, so we estimate
-   * 70/30 to derive per-side cost. Model pricing falls back to Sonnet-class
+   * 70/30 to derive per-side cost. Model pricing falls back to Gemini Pro-class
    * rates when the selected Copilot model is not in MODEL_PRICING.
    */
   private updateUsageFromContext(context: ContextUsage): void {
-    const modelId = this.config.defaultModel || COPILOT_MODELS.CLAUDE_SONNET_46;
+    const modelId = this.config.defaultModel || COPILOT_MODELS.GEMINI_3_1_PRO;
     const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId]
       || { input: 3.0, output: 15.0 };
 

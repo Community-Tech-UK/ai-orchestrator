@@ -14,6 +14,11 @@ import type {
 import { LIMITS } from '../../../../../shared/constants/limits';
 import { ImageAttachmentService, type ImageAttachmentSink } from '../../../features/instance-detail/image-attachment.service';
 
+function getAccumulatedStreamingContent(message: OutputMessage): string {
+  const accumulated = message.metadata?.['accumulatedContent'];
+  return typeof accumulated === 'string' ? accumulated : message.content;
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceOutputStore implements ImageAttachmentSink {
   private stateService = inject(InstanceStateService);
@@ -84,28 +89,29 @@ export class InstanceOutputStore implements ImageAttachmentSink {
           if (msg.type === 'assistant') {
             candidateMessageIds.add(msg.id);
           }
-          const isStreaming =
-            msg.metadata &&
-            'streaming' in msg.metadata &&
-            msg.metadata['streaming'] === true;
+          const streamingState = msg.metadata && 'streaming' in msg.metadata
+            ? msg.metadata['streaming']
+            : undefined;
 
-          if (isStreaming) {
+          if (streamingState === true || streamingState === false) {
             // For streaming messages, update existing or add new
             const existingIdx = outputBuffer.findIndex((m) => m.id === msg.id);
             if (existingIdx >= 0) {
               // Update existing message with accumulated content
-              const accumulatedContent =
-                msg.metadata && 'accumulatedContent' in msg.metadata
-                  ? String(msg.metadata['accumulatedContent'])
-                  : msg.content;
+              const accumulatedContent = getAccumulatedStreamingContent(msg);
               outputBuffer[existingIdx] = {
                 ...outputBuffer[existingIdx],
                 content: accumulatedContent,
                 metadata: msg.metadata,
+                thinking: msg.thinking ?? outputBuffer[existingIdx].thinking,
+                thinkingExtracted: msg.thinkingExtracted ?? outputBuffer[existingIdx].thinkingExtracted,
               };
             } else {
               // First chunk of this streaming message
-              outputBuffer.push(msg);
+              outputBuffer.push({
+                ...msg,
+                content: getAccumulatedStreamingContent(msg),
+              });
             }
           } else {
             // Regular message - just append
@@ -321,6 +327,10 @@ export class InstanceOutputStore implements ImageAttachmentSink {
     }
     // Messages with thinking content are valid even without text response
     if (message.thinking && message.thinking.length > 0) {
+      return true;
+    }
+    const accumulatedContent = message.metadata?.['accumulatedContent'];
+    if (typeof accumulatedContent === 'string' && accumulatedContent.trim()) {
       return true;
     }
     // For all other messages, check for non-empty content

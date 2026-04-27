@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   CLAUDE_MODELS,
   COPILOT_MODELS,
+  DEFAULT_MODELS,
   PROVIDER_MODEL_LIST,
+  getPrimaryModelForProvider,
   getProviderModelContextWindow,
   normalizeModelAliasForProvider,
   normalizeModelForProvider,
@@ -56,6 +58,11 @@ describe('provider model lists', () => {
 
     expect(copilotModels).toContain(COPILOT_MODELS.GEMINI_3_1_PRO);
     expect(copilotModels).toContain(COPILOT_MODELS.GEMINI_25_PRO);
+  });
+
+  it('uses Gemini 3.1 Pro as the default Copilot model', () => {
+    expect(DEFAULT_MODELS.copilot).toBe(COPILOT_MODELS.GEMINI_3_1_PRO);
+    expect(getPrimaryModelForProvider('copilot')).toBe(COPILOT_MODELS.GEMINI_3_1_PRO);
   });
 });
 

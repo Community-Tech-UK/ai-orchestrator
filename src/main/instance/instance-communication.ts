@@ -138,6 +138,11 @@ function summarizeInputResponse(response: string, permissionKey?: string): Recor
   };
 }
 
+function getAccumulatedStreamingContent(message: OutputMessage): string {
+  const accumulated = message.metadata?.['accumulatedContent'];
+  return typeof accumulated === 'string' ? accumulated : message.content;
+}
+
 export class InstanceCommunicationManager extends EventEmitter {
   private settings = getSettingsManager();
   private outputStorage = getOutputStorageManager();
@@ -963,8 +968,10 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         // Check circuit breaker for assistant messages
         if (message.type === 'assistant') {
+          const accumulatedContent = getAccumulatedStreamingContent(message);
           const hasContent = !!(
             (message.content && message.content.trim()) ||
+            (accumulatedContent && accumulatedContent.trim()) ||
             (message.thinking && message.thinking.length > 0)
           );
           // Successful response means overflow retry worked — allow future retries
@@ -1793,16 +1800,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
 
-    const isStreaming = message.metadata && 'streaming' in message.metadata && message.metadata['streaming'] === true;
+    const streamingState = message.metadata && 'streaming' in message.metadata
+      ? message.metadata['streaming']
+      : undefined;
 
-    if (isStreaming) {
+    if (streamingState === true || streamingState === false) {
       const existingIndex = instance.outputBuffer.findIndex(m => m.id === message.id);
       if (existingIndex >= 0) {
-        const accumulatedContent = message.metadata && 'accumulatedContent' in message.metadata
-          ? String(message.metadata['accumulatedContent'])
-          : message.content;
+        const accumulatedContent = getAccumulatedStreamingContent(message);
         const previousContent = instance.outputBuffer[existingIndex].content ?? '';
-        if (accumulatedContent.length < previousContent.length) {
+        if (streamingState === true && accumulatedContent.length < previousContent.length) {
           logger.warn('[STREAMING_DROP] streaming update shrank content', {
             instanceId: instance.id,
             messageId: message.id,
@@ -1816,7 +1823,9 @@ export class InstanceCommunicationManager extends EventEmitter {
         instance.outputBuffer[existingIndex] = {
           ...instance.outputBuffer[existingIndex],
           content: accumulatedContent,
-          metadata: message.metadata
+          metadata: message.metadata,
+          thinking: message.thinking ?? instance.outputBuffer[existingIndex].thinking,
+          thinkingExtracted: message.thinkingExtracted ?? instance.outputBuffer[existingIndex].thinkingExtracted,
         };
         this.emit('output', {
           instanceId: instance.id,
@@ -1826,21 +1835,25 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
 
-    instance.outputBuffer.push(message);
+    const messageToStore = streamingState === true || streamingState === false
+      ? { ...message, content: getAccumulatedStreamingContent(message) }
+      : message;
+
+    instance.outputBuffer.push(messageToStore);
 
     // Record token stats (best-effort)
     try {
       const statsService = getTokenStatsService();
-      const charCount = typeof message.content === 'string'
-        ? message.content.length
-        : JSON.stringify(message.content).length;
+      const charCount = typeof messageToStore.content === 'string'
+        ? messageToStore.content.length
+        : JSON.stringify(messageToStore.content).length;
       statsService.record({
         instanceId: instance.id,
-        toolType: statsService.classifyToolType(message),
+        toolType: statsService.classifyToolType(messageToStore),
         tokenCount: Math.ceil(charCount / 4),
         charCount,
-        truncated: !!(message.metadata?.['truncated']),
-        metadata: message.metadata ? { toolName: message.metadata['toolName'] } : undefined
+        truncated: !!(messageToStore.metadata?.['truncated']),
+        metadata: messageToStore.metadata ? { toolName: messageToStore.metadata['toolName'] } : undefined
       });
     } catch { /* stats are best-effort */ }
 

@@ -149,6 +149,7 @@ interface AcpPendingPromptTurn {
   startedAt: number;
   chunks: string[];
   messageChunksById: Map<string, string[]>;
+  agentMessageIds: Set<string>;
 }
 
 interface AcpPendingPermissionRequest {
@@ -495,6 +496,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       startedAt: Date.now(),
       chunks: [],
       messageChunksById: new Map<string, string[]>(),
+      agentMessageIds: new Set<string>(),
     };
     this.emit('status', 'busy');
     this.armStallWatchdog();
@@ -514,9 +516,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
         },
       };
 
+      if (turn) {
+        this.emitFinalAssistantFlushes(turn);
+      }
       this.emit('status', 'idle');
       this.emit('complete', response);
       return response;
+    } catch (error) {
+      if (this.currentPrompt) {
+        this.emitFinalAssistantFlushes(this.currentPrompt);
+      }
+      throw error;
     } finally {
       this.currentPrompt = null;
       this.currentPromptRequestId = null;
@@ -1028,6 +1038,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
       if (update.sessionUpdate === 'agent_message_chunk') {
         turn.chunks.push(content);
+        turn.agentMessageIds.add(messageId);
       }
     }
 
@@ -1043,6 +1054,27 @@ export class AcpCliAdapter extends BaseCliAdapter {
         accumulatedContent,
       },
     } satisfies OutputMessage);
+  }
+
+  private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
+    for (const messageId of turn.agentMessageIds) {
+      const accumulatedContent = (turn.messageChunksById.get(messageId) ?? []).join('');
+      if (!accumulatedContent.trim()) {
+        continue;
+      }
+
+      this.emit('output', {
+        id: messageId,
+        timestamp: Date.now(),
+        type: 'assistant',
+        content: accumulatedContent,
+        metadata: {
+          transport: 'acp',
+          streaming: false,
+          accumulatedContent,
+        },
+      } satisfies OutputMessage);
+    }
   }
 
   private handleToolCallCreated(update: Extract<AcpSessionUpdate, { sessionUpdate: 'tool_call' }>): void {

@@ -16,6 +16,7 @@ import {
   output,
   signal
 } from '@angular/core';
+import { COPILOT_MODELS } from '../../../../shared/types/provider.types';
 import { ElectronIpcService, CopilotModelInfo } from '../../core/services/ipc';
 
 export interface CopilotModel {
@@ -32,9 +33,11 @@ const AUTO_COPILOT_MODEL: CopilotModel = {
   tier: 'auto',
 };
 
+const DEFAULT_COPILOT_MODEL_ID = COPILOT_MODELS.GEMINI_3_1_PRO;
+
 // Default fallback models (used when CLI discovery is unavailable).
 export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
-  AUTO_COPILOT_MODEL,
+  { id: DEFAULT_COPILOT_MODEL_ID, name: 'Gemini 3.1 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
   { id: 'claude-opus-4.7', name: 'Claude Opus 4.7', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: 'claude-opus-4.6-fast', name: 'Claude Opus 4.6 Fast', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
@@ -47,10 +50,15 @@ export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
   { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.2', name: 'GPT-5.2', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.1', name: 'GPT-5.1', tier: 'high', supportsVision: true, contextWindow: 200000 },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', tier: 'high', supportsVision: true, contextWindow: 200000 },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5.5-mini', name: 'GPT-5.5 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-5-mini', name: 'GPT-5 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: 'gpt-4.1', name: 'GPT-4.1', tier: 'fast', supportsVision: true, contextWindow: 200000 },
+  AUTO_COPILOT_MODEL,
 ];
 
 function ensureAutoOption(models: CopilotModel[]): CopilotModel[] {
@@ -106,7 +114,7 @@ function convertToModel(info: CopilotModelInfo): CopilotModel {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="model-selector">
+    <div class="model-selector" [class.open]="isOpen()">
       <span class="selector-label">
         Copilot Model
         @if (isLoading()) {
@@ -216,7 +224,11 @@ function convertToModel(info: CopilotModelInfo): CopilotModel {
 
     .model-selector {
       position: relative;
-      z-index: 50;
+      z-index: var(--z-dropdown);
+    }
+
+    .model-selector.open {
+      z-index: var(--z-overlay);
     }
 
     .selector-label {
@@ -305,7 +317,7 @@ function convertToModel(info: CopilotModelInfo): CopilotModel {
       border-radius: 8px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
       overflow: hidden;
-      z-index: 51;
+      z-index: 1;
       max-height: 400px;
       overflow-y: auto;
     }
@@ -393,7 +405,7 @@ function convertToModel(info: CopilotModelInfo): CopilotModel {
       left: 0;
       right: 0;
       bottom: 0;
-      z-index: 49;
+      z-index: var(--z-sticky);
     }
   `]
 })
@@ -409,7 +421,7 @@ export class CopilotModelSelectorComponent implements OnInit {
   protected isOpen = signal(false);
   protected isLoading = signal(false);
   protected models = signal<CopilotModel[]>(DEFAULT_COPILOT_MODELS);
-  protected selectedModelId = signal<string>(AUTO_COPILOT_MODEL.id);
+  protected selectedModelId = signal<string>(DEFAULT_COPILOT_MODEL_ID);
 
   // Computed - selected model
   protected selectedModel = computed(() =>
@@ -497,8 +509,9 @@ export class CopilotModelSelectorComponent implements OnInit {
     const nextModel = (configuredModel
       ? availableModels.find(model => model.id === configuredModel)
       : undefined) || availableModels.find(model => model.id === this.selectedModelId())
-      || availableModels.find(model => model.id === AUTO_COPILOT_MODEL.id)
+      || availableModels.find(model => model.id === DEFAULT_COPILOT_MODEL_ID)
       || availableModels.find(model => model.tier === 'high')
+      || availableModels.find(model => model.id === AUTO_COPILOT_MODEL.id)
       || availableModels[0];
 
     if (!nextModel) {

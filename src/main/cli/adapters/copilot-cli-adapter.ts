@@ -211,25 +211,24 @@ function parseCopilotModelIdsFromHelpConfig(output: string): string[] {
  * `--model auto` even though `help config` does not list it.
  */
 export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
-  'auto',
+  'gemini-3.1-pro-preview',
   'claude-sonnet-4.6',
   'claude-sonnet-4.5',
   'claude-haiku-4.5',
   'claude-opus-4.7',
   'claude-sonnet-4',
-  'gpt-5.4',
   'gpt-5.5',
   'gpt-5.3-codex',
   'gpt-5.2-codex',
   'gpt-5.2',
-  'gpt-5.4-mini',
+  'gpt-5.5-mini',
   'gpt-5-mini',
   'gpt-4.1',
-  'gemini-3.1-pro-preview',
   'gemini-3-pro-preview',
   'gemini-3-flash-preview',
   'gemini-2.5-pro',
   'gemini-2.5-flash',
+  'auto',
 ].map(toCopilotModelInfo);
 
 /**
