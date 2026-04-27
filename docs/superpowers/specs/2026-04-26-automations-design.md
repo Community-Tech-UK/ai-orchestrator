@@ -565,10 +565,10 @@ A `oneTime` automation's parent `status` transitions to `'completed'` only when 
 | Run outcome | Parent transition | Scheduler-handle action | Rationale |
 |---|---|---|---|
 | `succeeded` | → `completed`, `next_fire_at=NULL` | `deactivate()` | The run did its job. |
-| `failed` | stay `active`, `next_fire_at=NULL` | `deactivate()` (via `handleOneTimeFailed`) | Allow manual re-fire from the UI. **`next_fire_at` MUST be cleared even on failure** — otherwise the stale past `runAt` re-arms on next launch/resume and refires the failed one-time. |
+| `failed` | stay `active`, `next_fire_at=NULL` | `deactivate()` (via scheduler's `automation:run-terminal` listener) | Allow manual re-fire from the UI. **`next_fire_at` MUST be cleared even on failure** — otherwise the stale past `runAt` re-arms on next launch/resume and refires the failed one-time. |
 | `skipped` (catch-up `skip` policy) | → `completed`, `next_fire_at=NULL` | `deactivate()` | The user asked to skip this run; nothing else will happen. |
 | `skipped` (catch-up `notify` policy) | → `completed`, `next_fire_at=NULL` | `deactivate()` | Same as above; the badge surfaces it. |
-| `canceled` (paused) | stay `active`, `next_fire_at=NULL` | `deactivate()` (via `handleOneTimeFailed`) | Allow re-arming after un-pause without an immediate refire. |
+| `canceled` (paused) | stay `active`, `next_fire_at=NULL` | `deactivate()` (via scheduler's `automation:run-terminal` listener) | Allow re-arming after un-pause without an immediate refire. |
 | `canceled` (deleted) | row is gone via CASCADE | n/a (delete path also clears the schedule handle) | — |
 | `canceled` (appShutdown) | stay `active`, `next_fire_at=NULL` | scheduler is shutting down anyway; startup sweep on next launch handles it | — |
 | `skipped` (queueFull / pausedDuringFire / duplicate / overlap) | stay `active` | scheduler unchanged — these don't reflect a true terminal for the schedule | These are *runtime overlaps*, not the user's only chance to run. The schedule handle and `next_fire_at` remain so the original `runAt` can still fire. |
@@ -585,18 +585,38 @@ this.store.transitionToCompleted(automationId);  // status='completed', next_fir
 this.deactivate(automationId);                    // remove from schedules map
 ```
 
-For `failed` or `canceled` (non-success) terminal outcomes on a `oneTime`, the parent stays `active` so the user can re-fire, BUT the scheduler must still clear `next_fire_at` and remove the schedule handle — otherwise the stale `runAt` (now in the past) re-arms on next launch/resume and refires the failed one-time:
+For `failed` or `canceled` (non-success) terminal outcomes on a `oneTime`, the parent stays `active` so the user can re-fire, BUT the scheduler must still clear `next_fire_at` and remove the schedule handle — otherwise the stale `runAt` (now in the past) re-arms on next launch/resume and refires the failed one-time.
+
+**The scheduler does this via the events bus, not via direct cross-call.** The runner emits `automation:run-terminal` whenever a run finishes (any outcome); the scheduler subscribes and dispatches:
 
 ```ts
-handleOneTimeFailed(automationId: string): void {
-  this.store.clearNextFireAt(automationId);       // status stays 'active', next_fire_at=NULL
-  this.deactivate(automationId);                  // remove from schedules map
-}
+// In AutomationScheduler.initialize(), after store/runner deps are ready:
+
+// Race: runner.fire() found that the automation row has been deleted (CASCADE
+// hasn't reached the schedules map yet, or the cron callback was already in
+// flight). Drop the schedule.
+this.events.on('automation:orphaned-fire', ({ automationId }) => {
+  this.deactivate(automationId);
+});
+
+this.events.on('automation:run-terminal', ({ automationId, runId, status }) => {
+  const automation = this.store.get(automationId);
+  if (!automation || automation.scheduleKind !== 'oneTime') return;
+
+  if (status === 'succeeded') {
+    this.store.transitionToCompleted(automationId);   // status='completed', next_fire_at=NULL
+  } else {
+    // failed / canceled / skipped — keep parent 'active' but clear next_fire_at so
+    // the stale past runAt isn't re-armed on next launch/resume.
+    this.store.clearNextFireAt(automationId);
+  }
+  this.deactivate(automationId);                       // remove from schedules map
+});
 ```
 
-The runner's dispatch try/catch (Section 7 fire-flow Step 5) calls `handleOneTimeFailed()` inline. The instance-event terminalization path (Section 7 completion detection) calls it from `handleInstanceTerminal()` for any failed/canceled terminal status when `automation.scheduleKind === 'oneTime'`.
+Why events instead of a direct `scheduler.handleOneTimeFailed()` call from the runner: the runner is initialized before the scheduler (Section 4 wiring order), so it can't hold a typed scheduler reference. The events bus (`automation-events.ts`) is wired before either, and lets the scheduler subscribe lazily once it comes up.
 
-This keeps `oneTime` semantics consistent: success → `completed`, skip/notify catch-up → `completed`, failure → `active` with no future fire (manual re-fire allowed).
+This keeps `oneTime` semantics consistent: success → `completed`, skip/notify catch-up → `completed`, failure/cancel → `active` with no future fire (manual re-fire allowed).
 
 ### Late-fire guard
 
@@ -663,10 +683,23 @@ The partial unique indexes from Section 5 catch any race that slips past the rea
 **Sketch** (illustrative — actual code lives in `automation-runner.ts`):
 
 ```ts
-async fire(automationId: string, opts: FireOpts): Promise<{ runId: string; outcome: 'started'|'queued'|'skipped' }> {
+async fire(automationId: string, opts: FireOpts): Promise<{ runId: string; outcome: 'started'|'queued'|'skipped' } | null> {
   const fireTime = opts.scheduledAt ?? this.now();
   const automation = await this.store.get(automationId);
-  if (!automation || automation.status !== 'active') {
+
+  // The automation may have been deleted between when this fire() was queued
+  // (cron callback, IPC, catch-up) and now. We CANNOT insert a row keyed by
+  // automationId — the FK would reject it (automation_runs.automation_id REFERENCES
+  // automations(id)). Emit an orphaned-fire event so the scheduler drops the live
+  // schedule, then bail. Return type allows `null` so callers can recognize this
+  // (cron callback ignores; IPC layer surfaces "automation no longer exists").
+  if (!automation) {
+    this.events.emit('automation:orphaned-fire', { automationId });
+    return null;
+  }
+
+  if (automation.status !== 'active') {
+    // Parent exists; status='paused' or 'completed'. The skipped insert is safe.
     const runId = this.store.insertSkippedRun(automationId, fireTime, 'paused', opts.trigger);
     return { runId, outcome: 'skipped' };
   }
@@ -699,10 +732,14 @@ async fire(automationId: string, opts: FireOpts): Promise<{ runId: string; outco
       status: 'failed', completedAt: this.now(), errorMessage,
     });
     this.events.emit('automation:run-updated', { run: this.store.getRun(decision.runId)! });
+    // Emit terminal event — the scheduler subscribes to handle one-time finalization
+    // (success → completed; non-success → clear next_fire_at + deactivate). This
+    // avoids a tight runner→scheduler dependency that would conflict with the
+    // initialization order (runner inits before scheduler in Section 4 wiring).
+    this.events.emit('automation:run-terminal', {
+      automationId, runId: decision.runId, status: 'failed',
+    });
     await this.promotePendingIfAny(automationId);
-    if (automation.scheduleKind === 'oneTime') {
-      this.scheduler.handleOneTimeFailed(automationId);    // clears next_fire_at + deactivates
-    }
     return { runId: decision.runId, outcome: 'started' }; // outcome 'started' is correct — we did try
   }
 }
@@ -940,7 +977,47 @@ All other intermediate statuses (`initializing`, `ready`, `processing`, `thinkin
 
 ### Queue promotion
 
-When a `running` run terminates, the runner finds any `pending` row for the same automation and promotes it transactionally (`UPDATE ... SET status='running'` — the partial unique index protects against double-promotion).
+When a `running` run terminates, the runner finds any `pending` row for the same automation and promotes it. The promotion is **not** just a status flip — the new `running` row needs an actual instance, tracking, and the same dispatch try/catch that fresh fires use.
+
+```ts
+private async promotePendingIfAny(automationId: string): Promise<void> {
+  // Atomically claim the pending row. Partial unique index on status='running'
+  // prevents two simultaneous promotions; partial unique index on status='pending'
+  // ensures there's only ever one to claim.
+  const promoted = this.store.tryClaimPending(automationId, this.now());
+  // Returns the row with status flipped to 'running' and started_at set, OR null
+  // if no pending row existed or another promoter beat us.
+  if (!promoted) return;
+
+  const automation = await this.store.get(automationId);
+  if (!automation) {
+    // Race: automation deleted between insert and promotion. CASCADE will clean
+    // the row when the parent row goes; emit orphaned event so scheduler drops too.
+    this.events.emit('automation:orphaned-fire', { automationId });
+    return;
+  }
+
+  // Same dispatch+reconcile path as Step 5 of the fire flow.
+  try {
+    await this.dispatch(automation, promoted);     // sets trackingByInstance synchronously
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    this.store.completeRun(promoted.id, {
+      status: 'failed', completedAt: this.now(), errorMessage,
+    });
+    this.events.emit('automation:run-updated', { run: this.store.getRun(promoted.id)! });
+    this.events.emit('automation:run-terminal', {
+      automationId, runId: promoted.id, status: 'failed',
+    });
+    // Recurse: another pending row could exist if multiple fires queued in rapid
+    // succession. The partial-pending unique index limits us to one at a time, so
+    // tail recursion is bounded.
+    await this.promotePendingIfAny(automationId);
+  }
+}
+```
+
+The promotion code path matches the fresh-fire dispatch one-for-one (try/catch, tracking-set inside dispatch, `automation:run-terminal` emission for the scheduler). If the dispatch fails, we recurse to drain any further pending rows. If dispatch succeeds, the eventual completion event will trigger `promotePendingIfAny` again from `handleInstanceTerminal()`.
 
 ### Run-now
 
@@ -1057,7 +1134,13 @@ switch (policy) {
 function computeMissedFireTimes(automation: Automation, since: number, until: number): number[] {
   if (automation.scheduleKind === 'oneTime') {
     const runAt = parsePayload(automation).runAt;
-    return runAt > since && runAt <= until ? [runAt] : [];
+    // For oneTime, the `since` window can incorrectly exclude a past `runAt` that
+    // was created BEFORE the window opened (typical for "user creates a one-time
+    // scheduled in the past at create-time", explicitly allowed per Section 11.2 #7).
+    // The right test is "has this oneTime's specific runAt already been processed
+    // (i.e., last_fired_at >= runAt)?" — independent of the catch-up window.
+    const alreadyProcessed = automation.lastFiredAt != null && automation.lastFiredAt >= runAt;
+    return (!alreadyProcessed && runAt <= until) ? [runAt] : [];
   }
 
   // IMPORTANT: do NOT use cron.previousRun() — its semantics are "the previous
@@ -1652,6 +1735,17 @@ Files inspected during research:
 - `src/main/workflows/workflow-manager.ts:122,159,199-201,345` — `startWorkflow`, `completePhase`, `workflow:completed`/`workflow:agents-completed` (v3)
 
 ## 17. Revision history
+
+### v11 — 2026-04-27 (post tenth code-review)
+
+User did a tenth deep review against v10. One P1 + three P2 issues. All verified and addressed.
+
+| # | Issue | Resolution |
+|---|---|---|
+| P1 | Queue promotion specified only `UPDATE ... SET status='running'`. Without dispatch + tracking, a pending row would become running with no spawned instance, blocking future fires. The fire-flow catch path also called `promotePendingIfAny` after dispatch failure but didn't show that the promoted run got dispatched. | Section 7 "Queue promotion" rewritten with full code: `promotePendingIfAny` atomically claims the pending row via a new `store.tryClaimPending()`, runs the same `dispatch + try/catch + tracking` path used for fresh fires, emits `automation:run-terminal` on failure, and recurses to drain further pending rows. Partial unique indexes on `pending`/`running` keep the claim safe under concurrency. |
+| P2.A | Runner sketch called `this.scheduler.handleOneTimeFailed()`, but `AutomationRunner.initialize()` didn't accept a scheduler dependency, startup initializes the runner before the scheduler, and `handleOneTimeFailed` wasn't in the scheduler's public API. | Replaced direct cross-call with `automation:run-terminal` event emission on the existing events bus. Scheduler subscribes in its `initialize()` and dispatches: success → `transitionToCompleted`; non-success on a `oneTime` → `clearNextFireAt` + `deactivate`. No tight coupling, no init-order issue. Section 6 One-time terminal updated; Section 7 fire-flow catch updated. |
+| P2.B | Missing-automation path inserted a skip row keyed by `automationId`, which would FK-fail because the parent row is gone. | `fire()` return type changed to `... | null`. When `automation` is null, runner emits `automation:orphaned-fire` (scheduler subscribes and `deactivate`s the stale schedule) and returns null. Callers (cron callback, IPC, catch-up) handle null gracefully. The paused/completed path is unchanged — parent exists, skip insert is safe. |
+| P2.C | `computeMissedFireTimes` for `oneTime` returned `runAt` only when `runAt > since`. With `lastFiredAt` null and `since = createdAt`, a `oneTime` with a past `runAt` (created in the past, explicitly allowed per Section 11.2 #7) is never picked up — `runAt < createdAt = since`. The "edit-with-confirm-warning" path documented in 11.2 silently failed. | Replaced the `runAt > since` test with `alreadyProcessed = lastFiredAt != null && lastFiredAt >= runAt`. Returns `runAt` whenever it's not yet processed and is `<= until`. Independent of the catch-up window. Past-`runAt` create flow now actually works on the next sweep. |
 
 ### v10 — 2026-04-27 (post ninth code-review)
 
