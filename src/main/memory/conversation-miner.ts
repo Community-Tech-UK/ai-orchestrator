@@ -26,6 +26,14 @@ interface TextChunk {
   chunkIndex: number;
 }
 
+interface ChatGPTNode {
+  message?: {
+    author?: { role: string };
+    content?: { parts: string[] };
+  };
+  children?: string[];
+}
+
 export class ConversationMiner extends EventEmitter {
   private static instance: ConversationMiner | null = null;
   private config: MiningConfig;
@@ -108,9 +116,10 @@ export class ConversationMiner extends EventEmitter {
 
   static chunkExchanges(transcript: string, config?: Partial<MiningConfig>): TextChunk[] {
     const minSize = config?.minChunkSize ?? DEFAULT_MINING_CONFIG.minChunkSize;
+    const chunkSize = config?.chunkSize ?? DEFAULT_MINING_CONFIG.chunkSize;
     const markerCount = (transcript.match(/^>/gm) || []).length;
-    if (markerCount >= 3) return chunkByExchange(transcript, minSize);
-    return chunkByParagraph(transcript, config?.chunkSize ?? DEFAULT_MINING_CONFIG.chunkSize, minSize);
+    if (markerCount >= 3) return chunkByExchange(transcript, minSize, chunkSize);
+    return chunkByParagraph(transcript, chunkSize, minSize);
   }
 
   // ============ Room Detection ============
@@ -295,7 +304,6 @@ function normalizeChatGptJson(content: string): NormalizedMessage[] {
         if (node.parent === null) { rootId = id; break; }
       }
       if (!rootId) continue;
-      type ChatGPTNode = { message?: { author?: { role: string }; content?: { parts: string[] } }; children?: string[] };
       const typedMapping = mapping as Record<string, ChatGPTNode>;
       const visited = new Set<string>();
       let currentId: string | undefined = rootId;
@@ -351,29 +359,54 @@ function messagesToTranscript(messages: NormalizedMessage[]): string {
 
 // ============ Chunking Helpers ============
 
-function chunkByExchange(transcript: string, minSize: number): TextChunk[] {
+function chunkByExchange(transcript: string, minSize: number, chunkSize: number): TextChunk[] {
   const chunks: TextChunk[] = [];
   const lines = transcript.split('\n');
-  let chunkIndex = 0;
   let i = 0;
   while (i < lines.length) {
     if (lines[i].startsWith('>')) {
       const userTurn = lines[i];
       i++;
       const responseLines: string[] = [];
-      let responseCount = 0;
-      while (i < lines.length && !lines[i].startsWith('>') && responseCount < 8) {
-        if (lines[i].trim()) { responseLines.push(lines[i]); responseCount++; }
+      while (i < lines.length && !lines[i].startsWith('>') && !lines[i].trim().startsWith('---')) {
+        if (lines[i].trim()) responseLines.push(lines[i]);
         i++;
       }
-      while (i < lines.length && !lines[i].startsWith('>') && !lines[i].trim().startsWith('---')) { i++; }
       const chunkContent = `${userTurn}\n${responseLines.join('\n')}`.trim();
-      if (chunkContent.length >= minSize) { chunks.push({ content: chunkContent, chunkIndex }); chunkIndex++; }
+      appendSplitChunks(chunks, chunkContent, chunkSize, minSize);
     } else {
       i++;
     }
   }
   return chunks;
+}
+
+function appendSplitChunks(chunks: TextChunk[], content: string, chunkSize: number, minSize: number): void {
+  let start = 0;
+  const stripped = content.trim();
+  while (start < stripped.length) {
+    let end = Math.min(start + chunkSize, stripped.length);
+    if (end < stripped.length) {
+      const newlineBreak = stripped.lastIndexOf('\n', end);
+      const spaceBreak = stripped.lastIndexOf(' ', end);
+      const breakAt = newlineBreak > start + minSize
+        ? newlineBreak
+        : spaceBreak > start + minSize
+          ? spaceBreak
+          : end;
+      end = breakAt;
+    }
+
+    const chunk = stripped.slice(start, end).trim();
+    if (chunk.length >= minSize) {
+      chunks.push({ content: chunk, chunkIndex: chunks.length });
+    }
+
+    start = end;
+    while (start < stripped.length && /\s/.test(stripped[start])) {
+      start++;
+    }
+  }
 }
 
 function chunkByParagraph(text: string, chunkSize: number, minSize: number): TextChunk[] {

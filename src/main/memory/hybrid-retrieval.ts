@@ -106,8 +106,12 @@ export class HybridRetrievalManager extends EventEmitter {
   private memoryManager: MemoryManagerAgent;
   private tokenCounter: TokenCounter;
   private bm25Index: BM25Index;
+  private indexDirty = false;
   private trajectories: TrajectoryRecord[] = [];
   private readonly maxTrajectories = 1000;
+  private readonly markIndexDirty = (): void => {
+    this.indexDirty = true;
+  };
 
   private constructor() {
     super();
@@ -115,6 +119,7 @@ export class HybridRetrievalManager extends EventEmitter {
     this.memoryManager = getMemoryManager();
     this.tokenCounter = getTokenCounter();
     this.bm25Index = this.createEmptyIndex();
+    this.bindMemoryEvents();
 
     // Build initial index
     this.rebuildIndex();
@@ -128,6 +133,10 @@ export class HybridRetrievalManager extends EventEmitter {
   }
 
   static _resetForTesting(): void {
+    if (HybridRetrievalManager.instance) {
+      HybridRetrievalManager.instance.unbindMemoryEvents();
+      HybridRetrievalManager.instance.removeAllListeners();
+    }
     HybridRetrievalManager.instance = null;
   }
 
@@ -159,6 +168,7 @@ export class HybridRetrievalManager extends EventEmitter {
   ): Promise<ScoredRetrievalResult[]> {
     // Tokenize query
     const queryTerms = this.tokenize(query);
+    this.ensureIndexFresh();
 
     // Get all entries
     const allEntries = this.memoryManager.getAllEntries().filter(e => !e.isArchived);
@@ -448,6 +458,27 @@ export class HybridRetrievalManager extends EventEmitter {
       documents: this.bm25Index.totalDocuments,
       uniqueTerms: this.bm25Index.documentFrequency.size,
     });
+    this.indexDirty = false;
+  }
+
+  private ensureIndexFresh(): void {
+    if (this.indexDirty) {
+      this.rebuildIndex();
+    }
+  }
+
+  private bindMemoryEvents(): void {
+    this.memoryManager.on('entry:added', this.markIndexDirty);
+    this.memoryManager.on('entry:updated', this.markIndexDirty);
+    this.memoryManager.on('entry:deleted', this.markIndexDirty);
+    this.memoryManager.on('state:loaded', this.markIndexDirty);
+  }
+
+  private unbindMemoryEvents(): void {
+    this.memoryManager.off('entry:added', this.markIndexDirty);
+    this.memoryManager.off('entry:updated', this.markIndexDirty);
+    this.memoryManager.off('entry:deleted', this.markIndexDirty);
+    this.memoryManager.off('state:loaded', this.markIndexDirty);
   }
 
   /**
@@ -538,6 +569,7 @@ export class HybridRetrievalManager extends EventEmitter {
    * Clean up resources
    */
   destroy(): void {
+    this.unbindMemoryEvents();
     this.reset();
     this.removeAllListeners();
     HybridRetrievalManager.instance = null;

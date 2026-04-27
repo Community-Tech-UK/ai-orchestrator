@@ -25,10 +25,10 @@ vi.mock('../../../main/persistence/rlm-database', async () => {
 
 vi.mock('../../../main/logging/logger', () => ({
   getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   }),
 }));
 
@@ -120,6 +120,31 @@ describe('ConversationMiner', () => {
       // Each chunk should start with a user turn (>)
       for (const chunk of chunks) {
         expect(chunk.content).toMatch(/^>/);
+      }
+    });
+
+    it('preserves assistant responses longer than 8 lines', () => {
+      const longResponse = Array.from(
+        { length: 13 },
+        (_, index) => `Step ${index + 1}: important implementation detail that must be stored.`
+      );
+      const transcript = [
+        '> How do I implement authentication?',
+        ...longResponse,
+        '> What should I test?',
+        'Test login, logout, refresh, and expired-session handling.',
+        '> Anything else?',
+        'Keep credentials out of localStorage and prefer httpOnly cookies.',
+      ].join('\n');
+
+      const chunks = ConversationMiner.chunkExchanges(transcript, {
+        minChunkSize: 10,
+        chunkSize: 2_000,
+      });
+      const stored = chunks.map(chunk => chunk.content).join('\n');
+
+      for (let i = 1; i <= 13; i++) {
+        expect(stored).toContain(`Step ${i}:`);
       }
     });
 
