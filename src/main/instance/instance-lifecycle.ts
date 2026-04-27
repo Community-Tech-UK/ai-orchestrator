@@ -1212,6 +1212,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           systemPrompt: systemPrompt,
           model: modelOverride,
           yoloMode: instance.yoloMode,
+          reasoningEffort: config.reasoningEffort,
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,

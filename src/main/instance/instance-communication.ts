@@ -1801,6 +1801,18 @@ export class InstanceCommunicationManager extends EventEmitter {
         const accumulatedContent = message.metadata && 'accumulatedContent' in message.metadata
           ? String(message.metadata['accumulatedContent'])
           : message.content;
+        const previousContent = instance.outputBuffer[existingIndex].content ?? '';
+        if (accumulatedContent.length < previousContent.length) {
+          logger.warn('[STREAMING_DROP] streaming update shrank content', {
+            instanceId: instance.id,
+            messageId: message.id,
+            previousLength: previousContent.length,
+            newLength: accumulatedContent.length,
+            hasAccumulatedContentMeta: !!(message.metadata && 'accumulatedContent' in message.metadata),
+            previousTail: previousContent.slice(-120),
+            newTail: accumulatedContent.slice(-120),
+          });
+        }
         instance.outputBuffer[existingIndex] = {
           ...instance.outputBuffer[existingIndex],
           content: accumulatedContent,

@@ -11,6 +11,7 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto' | 'cursor';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
+export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 
 /**
  * Application settings that are persisted to disk
@@ -28,6 +29,7 @@ export interface AppSettings {
   maxTotalInstances: number; // 0 = unlimited
   autoTerminateIdleMinutes: number; // 0 = disabled
   allowNestedOrchestration: boolean;
+  defaultMissedRunPolicy: DefaultMissedRunPolicy;
 
   // Memory Management
   outputBufferSize: number; // messages kept in memory per instance
@@ -93,6 +95,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxTotalInstances: 20,
   autoTerminateIdleMinutes: 30,
   allowNestedOrchestration: false,
+  defaultMissedRunPolicy: 'notify',
 
   // Memory Management
   outputBufferSize: 500, // keep 500 messages in memory per instance
@@ -275,6 +278,18 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Allow child instances to spawn their own children',
     type: 'boolean',
     category: 'orchestration'
+  },
+  {
+    key: 'defaultMissedRunPolicy',
+    label: 'Default Missed Run Policy',
+    description: 'Default behavior when scheduled automation runs are missed',
+    type: 'select',
+    category: 'orchestration',
+    options: [
+      { value: 'skip', label: 'Skip' },
+      { value: 'notify', label: 'Notify' },
+      { value: 'runOnce', label: 'Run Once' },
+    ],
   },
 
   // Memory

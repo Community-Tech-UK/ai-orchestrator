@@ -372,7 +372,7 @@ UPDATE automations
 
 **Run terminalization** (the second transaction, when a run finishes — `succeeded` / `failed` / `canceled`): updates `automation_runs.status` + `completed_at` + optional `error_message`, but does **not** re-touch `automations.last_fired_at` or `last_run_id` (already advanced at insertion). Terminalization may also write `automations.next_fire_at` if the scheduler observed it (e.g., after `oneTime` succeeds — see Section 6 One-time terminal).
 
-The `last_fired_at` field is `NULL` until the first scheduled/catchUp insertion. Catch-up baseline accordingly uses `automation.lastFiredAt ?? automation.createdAt` to handle the NULL case (already shown in Section 8 Step C).
+The `last_fired_at` field is `NULL` until the first scheduled/catchUp insertion. Catch-up baseline accordingly uses `automation.lastFiredAt ?? automation.createdAt` for cron schedules. For one-time schedules, Step C uses `min(automation.createdAt, runAt - 1)` when `last_fired_at` is still `NULL`, so a one-time created with a past `runAt` is still caught and policy-applied instead of being hidden behind its later `created_at`.
 
 ### Instance ↔ automation linkage
 
@@ -446,7 +446,7 @@ class CronHandle implements ScheduleHandle {
   // not a scheduled-time-relative computation. That's the right semantic for the
   // "describeNextFire" read-only inspector (returns null until the cron has fired once),
   // but it is NOT suitable for computing missed fires — see computeMissedFireTimes
-  // in Section 8 which walks forward with nextRun() instead.
+  // in Section 8 which uses previousRuns(count, referenceDate) instead.
   previousFireAt() { return this.cron.previousRun()?.getTime() ?? null; }
   stop() { this.cron.stop(); }
 }
@@ -1101,8 +1101,16 @@ const since = sweepKind === 'startup'
   : (suspendedAt ?? (resumedAt - RESUME_FALLBACK_MS));
 const until = sweepKind === 'startup' ? now() : resumedAt;
 
-const baseline = automation.lastFiredAt ?? automation.createdAt;
-const referencePoint = Math.max(baseline, since);
+const baseline = automation.lastFiredAt ?? (
+  automation.scheduleKind === 'oneTime'
+    // Past-one-time create support: createdAt can be after runAt, so the normal
+    // createdAt baseline would incorrectly exclude the only scheduled timestamp.
+    ? Math.min(automation.createdAt, parsePayload(automation).runAt - 1)
+    : automation.createdAt
+);
+const referencePoint = automation.scheduleKind === 'oneTime'
+  ? baseline
+  : Math.max(baseline, since);
 const missed = computeMissedFireTimes(automation, referencePoint, until);
 
 if (missed.length === 0) return;
@@ -1134,13 +1142,9 @@ switch (policy) {
 function computeMissedFireTimes(automation: Automation, since: number, until: number): number[] {
   if (automation.scheduleKind === 'oneTime') {
     const runAt = parsePayload(automation).runAt;
-    // For oneTime, the `since` window can incorrectly exclude a past `runAt` that
-    // was created BEFORE the window opened (typical for "user creates a one-time
-    // scheduled in the past at create-time", explicitly allowed per Section 11.2 #7).
-    // The right test is "has this oneTime's specific runAt already been processed
-    // (i.e., last_fired_at >= runAt)?" — independent of the catch-up window.
-    const alreadyProcessed = automation.lastFiredAt != null && automation.lastFiredAt >= runAt;
-    return (!alreadyProcessed && runAt <= until) ? [runAt] : [];
+    // Step C supplies `since = min(createdAt, runAt - 1)` when last_fired_at is
+    // null, so past-one-time creates are still caught here.
+    return (runAt > since && runAt <= until) ? [runAt] : [];
   }
 
   // IMPORTANT: do NOT use cron.previousRun() — its semantics are "the previous
@@ -1148,25 +1152,23 @@ function computeMissedFireTimes(automation: Automation, since: number, until: nu
   // relative to a reference date". A freshly constructed Cron has no actual prior
   // runs, so previousRun() returns null and missed-fire computation silently empties.
   //
-  // Walk forward from `since` using cron.nextRun(), which IS scheduled-time-relative.
-  // Result is naturally chronological — no reverse() needed.
+  // Use previousRuns(count, referenceDate) for schedule-time-relative history.
+  // Filter and sort because Croner returns history relative to `until`, not
+  // specifically bounded by our app's missed-fire window.
   //
   // CRITICAL: pass `paused: true` so this calculation-only Cron doesn't schedule a
   // live timer. Without it, every catch-up sweep would leak a setTimeout into the
   // event loop until the next process restart.
   const cron = new Cron(automation.cronExpression!, { timezone: automation.timezone, paused: true });
-  const missed: number[] = [];
-  let cursor = new Date(since);
-  while (true) {
-    const next = cron.nextRun(cursor);
-    if (!next) break;
-    const ts = next.getTime();
-    if (ts > until) break;
-    missed.push(ts);
-    cursor = new Date(ts + 1000);            // step past this fire to find the next
-    if (missed.length > 100) break;          // sanity cap
+  try {
+    return cron
+      .previousRuns(100, new Date(until))
+      .map((date) => date.getTime())
+      .filter((ts) => ts > since && ts <= until)
+      .sort((a, b) => a - b);
+  } finally {
+    cron.stop();
   }
-  return missed;
 }
 ```
 
@@ -1513,7 +1515,7 @@ Clicking marks the run seen via `markRunsSeen({ runIds: [link.runId] })` if curr
 | Scenario | Behavior |
 |---|---|
 | Edit prompt while run is `running` | Edit applies to the automation row. Already-running spawn keeps the *old* prompt (it was sent at spawn time and lives in the instance's session). Any *pending* run at promotion time will use the new prompt (per "Edit schedule while pending" row). Toast: "Edit applied. The currently-running session keeps the previous version; queued and future fires use the new version." |
-| Edit schedule while run is `pending` | Pending keeps original `scheduled_at`; future fires use new schedule. **Pending promotes with the automation's *latest* config at promotion time** (we don't snapshot config when queueing — `automation_runs` only stores timing/status/link/seen, not config). If the user edits prompt/model/yolo/attachments while a run is pending, promotion uses the new values. Documented in the form's "edit while pending" toast. (Snapshot-on-queue was considered and rejected: bloats the schema and adds confusion when users edit because they want their fix to apply.) |
+| Edit schedule while run is `pending` | Pending keeps original `scheduled_at`; future fires use new schedule. **Pending promotes with the config snapshot captured when it was queued** (`automation_runs.config_snapshot_json`, plus durable attachment references). If the user edits prompt/model/yolo/attachments while a run is pending, the already-queued run keeps its original config and the edit applies only to future fires. |
 | Delete while run is `running` | CASCADE removes run row immediately; running spawn becomes "just a normal session" (no clock icon). **The runner's `delete()` path also clears `trackingByInstance` for the orphaned instance** so `handleInstanceTerminal` doesn't fire later against a deleted run row. As an additional safety net, `handleInstanceTerminal` treats a missing run id as an expected no-op: `if (!this.store.getRun(runId)) return;` before attempting `completeRun()`. Confirmation modal warns: *"The currently-running session will continue but will no longer be tracked by this automation."* |
 | Toggle `actionType` | N/A in MVP — only `'prompt'` is allowed. Phase 2 adds the prompt↔workflow toggle and the form's discriminated state machine has been left compatible. |
 
@@ -1754,9 +1756,9 @@ User did a ninth deep review against v9. Two P1 + two P2 issues. All verified an
 | # | Issue | Resolution |
 |---|---|---|
 | P1.A | v9's `last_fired_at` protocol said it advances for *all* triggers including manual. But that field is the dedupe + catch-up baseline for *scheduled* work — a manual Run-now at 10:01 would mark a delayed scheduled callback for 10:00 as a duplicate, and the next-launch catch-up sweep would see `since=10:01` and miss the 10:00 fire entirely. | Section 5 protocol now splits the rules: `last_fired_at` advances ONLY for `trigger='scheduled'` or `'catchUp'`; `last_run_id` (UI-only) updates on any trigger. SQL `CASE` expression in the update transaction does this in one statement. Added explicit "Why NOT advance on manual runs" subsection citing both broken paths. |
-| P1.B | Fire flow inserts a `running` row before dispatch, then dispatches. Dispatch can throw (forceNodeId pre-flight `RunDispatchError`, attachment-load failure, instance creation failure). The prose said this becomes a `failed` run, but the algorithm didn't show the try/catch; without it a pre-flight failure would leave the row stuck as `running`. | Step 5 of fire flow now has explicit try/catch. On throw: mark the just-inserted run `failed` with `error_message`, emit `automation:run-updated`, promote any pending row, call `handleOneTimeFailed` for one-time schedules (clears `next_fire_at` + deactivates). Includes a full sketch of the fire flow code with the try/catch wired in. |
+| P1.B | Fire flow inserts a `running` row before dispatch, then dispatches. Dispatch can throw (forceNodeId pre-flight `RunDispatchError`, attachment-load failure, instance creation failure). The prose said this becomes a `failed` run, but the algorithm didn't show the try/catch; without it a pre-flight failure would leave the row stuck as `running`. | Step 5 of fire flow now has explicit try/catch. On throw: mark the just-inserted run `failed` with `error_message`, emit `automation:run-updated`, promote any pending row, and for one-time schedules clear `next_fire_at` + deactivate through the events bus. Includes a full sketch of the fire flow code with the try/catch wired in. |
 | P2.A | Step 3 late-fire guard still computed `now() - scheduledAt` instead of using the v9-introduced `fireTime` normalized variable. Strict tsconfig either errors or produces NaN if a scheduled/catchUp caller omits scheduledAt. | Step 3 now uses `this.now() - fireTime > 60_000`. Step 0's "use `fireTime` everywhere downstream" updated to explicitly include the late-fire guard. |
-| P2.B | One-time `failed` outcome was documented to "stay active with next_fire_at=NULL" but the described `transitionToCompleted` only handled success/skip/notify. A failed one-time would leave the stale past `runAt` in `next_fire_at`, re-arming on next launch/resume → duplicate skip / stale "Next run" UI / phantom refires. | Section 6 One-time terminal table expanded with a per-outcome scheduler-handle column. New `handleOneTimeFailed(automationId)` operation: clears `next_fire_at` and deactivates the schedule handle without marking the parent completed. Called from the runner's dispatch try/catch (Section 7) and from `handleInstanceTerminal()` for failed/canceled instance-event terminations on one-time schedules. |
+| P2.B | One-time `failed` outcome was documented to "stay active with next_fire_at=NULL" but the described completion flow only handled success/skip/notify. A failed one-time would leave the stale past `runAt` in `next_fire_at`, re-arming on next launch/resume → duplicate skip / stale "Next run" UI / phantom refires. | Section 6 One-time terminal table expanded with a per-outcome scheduler-handle column. Failed/canceled one-time terminalization clears `next_fire_at` and deactivates the schedule handle without marking the parent completed. This is triggered from the runner's dispatch try/catch and from instance-event terminalization via the automation events bus. |
 
 ### v9 — 2026-04-27 (post eighth code-review)
 
@@ -1765,7 +1767,7 @@ User did an eighth deep review against v8. Three P1, three P2, plus one minor st
 | # | Issue | Resolution |
 |---|---|---|
 | P1.A | Tracking can still miss early createInstance failures: even after v8's synchronous `set` immediately after `createInstance` returns, the background Phase 2 init can have already emitted terminal events between `createInstance`'s promise-resolve microtask and the dispatch continuation. | Section 7 dispatch now reconciles immediately after the tracking set: reads the *live* `instance.status` and (for the rare race-fast success path) checks `instance.outputBuffer` for assistant content. If terminal (`error`/`failed`/`terminated`/`waiting_for_input`/`waiting_for_permission`) or already idle-after-output, terminalize inline and clear tracking. |
-| P1.B | `last_fired_at` and `last_run_id` were never specified to be updated. Without updates, clock-backward dedupe couldn't suppress repeats and catch-up baselines couldn't advance — every sweep would re-discover the same missed window. | Added "`last_fired_at` / `last_run_id` update protocol" subsection in Section 5 specifying the atomic transaction: every run-row insertion (any trigger, any initial outcome) updates `last_fired_at = MAX(COALESCE(last_fired_at, 0), :scheduledAt)` and `last_run_id = :insertedRunId` in the same transaction. Terminalization (the second transaction) does NOT re-touch these fields. Skipped/duplicate inserts MUST advance them too — otherwise catch-up would loop. |
+| P1.B | `last_fired_at` and `last_run_id` were never specified to be updated. Without updates, clock-backward dedupe couldn't suppress repeats and catch-up baselines couldn't advance — every sweep would re-discover the same missed window. | Added "`last_fired_at` / `last_run_id` update protocol" subsection in Section 5 specifying the atomic transaction: every run-row insertion updates `last_run_id`, while scheduled/catchUp insertions also update `last_fired_at = MAX(COALESCE(last_fired_at, 0), :scheduledAt)`. Manual insertions leave `last_fired_at` unchanged. Terminalization (the second transaction) does NOT re-touch these fields. Skipped/duplicate scheduled/catchUp inserts MUST advance them too — otherwise catch-up would loop. |
 | P2.A | Manual fires (`runner.fire(id, { trigger: 'manual' })`) lack a `scheduledAt`, but `automation_runs.scheduled_at` is `NOT NULL`. | Section 7 fire flow now has Step 0: `const fireTime = opts.scheduledAt ?? this.now()` at the very top. Used for insert, dedupe, last_fired_at, everywhere. Dedupe still applies only to scheduled/catchUp triggers (per existing Step 2). |
 | P2.B | `computeMissedFireTimes` and `validateCron` constructed `new Cron(...)` instances for pure date math without `paused: true` or `stop()`, leaking live timers into the event loop on every catch-up sweep / form keystroke. | Both call sites now pass `paused: true` to the Cron constructor. `validateCron` additionally calls `cron.stop()` in a `finally` for belt-and-suspenders against any croner version that ignores the option. Comments cite the rationale. |
 | P2.C | Deleting a running automation cascades the run row but the spawned instance keeps emitting events. `trackingByInstance` still contains the orphaned mapping, so `handleInstanceTerminal` would later try to terminalize a deleted run row. | Edge-case table updated: the runner's `delete()` path explicitly clears `trackingByInstance` for the orphaned instance. Defensive guard added: `handleInstanceTerminal` does `if (!this.store.getRun(runId)) return;` before attempting `completeRun()`. Confirmation modal copy updated to surface the orphan-session behavior. |
@@ -1778,9 +1780,9 @@ User did a seventh deep review against v7 and identified two P1 + four P2 issues
 | # | Issue | Resolution |
 |---|---|---|
 | P1.A | Prompt-run tracking registered too late: dispatch returned `instance.id` and the caller in `fire()` recorded it on the run row via an awaited DB write *before* trackingByInstance was populated. A fast adapter (or fast init failure) could emit terminal events during the await, leaving the run stuck as 'running'. | Section 7 dispatch now sets `trackingByInstance` SYNCHRONOUSLY immediately after `createInstance()` returns, in the same synchronous block — before any further awaits. Comment added explaining the race window and why the order matters. |
-| P1.B | Missed-fire calculation used `cron.previousRun(new Date(cursor))`, but croner's `previousRun()` returns the *actual* prior job run for that Cron instance — not a scheduled-time-relative computation. A freshly constructed Cron has no prior runs, so startup/resume catch-up silently computes no missed fires. | Rewrote `computeMissedFireTimes` to walk forward from `since` using `cron.nextRun(cursor)` (which IS scheduled-time-relative). Naturally chronological — no `reverse()` needed. Step-past via `cursor = new Date(ts + 1000)`. Same 100-fire sanity cap. |
+| P1.B | Missed-fire calculation used `cron.previousRun(new Date(cursor))`, but croner's `previousRun()` returns the *actual* prior job run for that Cron instance — not a scheduled-time-relative computation. A freshly constructed Cron has no prior runs, so startup/resume catch-up silently computes no missed fires. | Rewrote `computeMissedFireTimes` to use Croner's schedule-history API: `previousRuns(count, referenceDate)`, then filter/sort into the missed-fire window. Calculation-only Cron instances are constructed with `paused: true` and stopped in `finally`. |
 | P2.A | Resume fallback (`suspendedAt ?? resumedAt - 10min`) was described in prose but the Step C code sketch assigned `since = suspendedAt` directly. Strict tsconfig wouldn't let `null` flow into `Math.max`. | Inline `RESUME_FALLBACK_MS = 10*60*1000` constant; `since = sweepKind === 'startup' ? ... : (suspendedAt ?? (resumedAt - RESUME_FALLBACK_MS))`. Comment cites the missed-suspend cases (first wake / powerMonitor wired late). |
-| P2.B | Edge-case table said "pending promotes with the config it had when queued", but `automation_runs` only stores timing/status/link/seen — no config snapshot. If user edits prompt/model/yolo/attachments while a run is pending, promotion would silently use the latest values. | Documented behavior changed: pending runs use the automation's *latest* config at promotion time. Form's "edit while pending" toast surfaces this. Snapshot-on-queue was considered and rejected (bloats schema, masks user-intent edits). The "edit while running" entry was also clarified for consistency. |
+| P2.B | Edge-case table said "pending promotes with the config it had when queued", but `automation_runs` only stored timing/status/link/seen — no config snapshot. If user edited prompt/model/yolo/attachments while a run was pending, promotion would silently use the latest values. | Added `automation_runs.config_snapshot_json` and durable attachment references. Pending promotion now dispatches from the queued snapshot, so edits apply only to future fires. |
 | P2.C | Zod schema referenced `fileAttachmentSchema` (lowercase) but the actual export is `FileAttachmentSchema` (PascalCase) at `packages/contracts/src/schemas/common.schemas.ts:12`. | Corrected to `FileAttachmentSchema` with a comment citing the export location. |
 | P2.D | `reasoningEffort` enum allowed only `'low'|'medium'|'high'`. Real Codex adapter accepts `'none'|'minimal'|'low'|'medium'|'high'|'xhigh'` (`src/main/cli/adapters/codex/app-server-types.ts:67`); Claude maps the lower bands to thinking-budget settings. As written, automations couldn't represent valid Codex/Claude reasoning settings. | Expanded Zod enum to the full six-value set; schema column comment expanded too. Comment cites the codex types file. |
 

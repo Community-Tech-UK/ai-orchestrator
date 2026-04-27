@@ -4,6 +4,9 @@ import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter'
 import { toProviderOutputEvent } from './provider-output-event';
 import type { ContextUsage, OutputMessage } from '../../shared/types/instance.types';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
+import { getLogger } from '../logging/logger';
+
+const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
 
 export type AdapterRuntimeEventSource = Pick<EventEmitter, 'on' | 'off'>;
 
@@ -168,6 +171,11 @@ function normalizeOutputMessage(message: OutputMessage | string): OutputMessage 
   }
 
   if (!message || typeof message !== 'object' || typeof message.content !== 'string') {
+    bridgeLogger.warn('[NORMALIZE_DROP] dropped output without string content', {
+      valueType: typeof message,
+      contentType: typeof (message as { content?: unknown })?.content,
+      messageType: (message as { type?: unknown })?.type,
+    });
     return null;
   }
 

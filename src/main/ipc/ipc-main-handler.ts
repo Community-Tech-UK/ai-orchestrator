@@ -38,6 +38,7 @@ import { getRLMDatabase } from '../persistence/rlm-database';
 import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
+import { getAutomationEvents } from '../automations/automation-events';
 
 // Import extracted handlers
 import {
@@ -80,6 +81,7 @@ import {
   registerKnowledgeGraphHandlers,
   registerConversationMiningHandlers,
   registerWakeContextHandlers,
+  registerAutomationHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -342,6 +344,9 @@ export class IpcMainHandler {
     // Wake context handlers (wake-up context generation and hints)
     registerWakeContextHandlers();
 
+    // Automation handlers (scheduled prompt runs)
+    registerAutomationHandlers();
+
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();
     this.setupRlmEventForwarding();
@@ -352,8 +357,19 @@ export class IpcMainHandler {
     this.setupChannelEventForwarding();
     this.setupReactionEventForwarding();
     this.setupKnowledgeEventForwarding();
+    this.setupAutomationEventForwarding();
 
     logger.info('IPC handlers registered');
+  }
+
+  private setupAutomationEventForwarding(): void {
+    const events = getAutomationEvents();
+    events.on('automation:changed', (event) => {
+      this.windowManager.sendToRenderer(IPC_CHANNELS.AUTOMATION_CHANGED, event);
+    });
+    events.on('automation:run-changed', (event) => {
+      this.windowManager.sendToRenderer(IPC_CHANNELS.AUTOMATION_RUN_CHANGED, event);
+    });
   }
 
   private registerMemoryStatsHandlers(): void {

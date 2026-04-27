@@ -42,3 +42,4 @@ export { registerRemoteFsHandlers } from './remote-fs-handlers';
 export { registerKnowledgeGraphHandlers } from './knowledge-graph-handlers';
 export { registerConversationMiningHandlers } from './conversation-mining-handlers';
 export { registerWakeContextHandlers } from './wake-context-handlers';
+export { registerAutomationHandlers } from './automation-handlers';

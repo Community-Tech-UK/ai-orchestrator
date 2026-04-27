@@ -353,6 +353,7 @@ export interface InstanceCreateConfig {
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)
   agentId?: string; // Agent profile ID (defaults to 'build')
   modelOverride?: string; // Optional model override for the instance
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   provider?: InstanceProvider; // CLI provider to use (defaults to settings.defaultCli)
 
   // Phase 2: Hierarchical instance options

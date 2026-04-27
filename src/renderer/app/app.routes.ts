@@ -38,17 +38,13 @@ export const routes: Routes = [
       ),
   },
 
-  // Automations (placeholder — feature under construction)
+  // Automations
   {
     path: 'automations',
     loadComponent: () =>
-      import('./features/coming-soon/coming-soon-page.component').then(
-        (m) => m.ComingSoonPageComponent
+      import('./features/automations/automations-page.component').then(
+        (m) => m.AutomationsPageComponent
       ),
-    data: {
-      title: 'Automations',
-      subtitle: 'Schedule and trigger recurring agent runs.',
-    },
   },
 
   // Phase 6: Workflows

@@ -536,6 +536,88 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_sections_summary_scan;
     `,
   },
+  // Migration 015: Scheduled automations and automation run history.
+  {
+    name: '015_automations',
+    up: `
+      CREATE TABLE IF NOT EXISTS automations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        active INTEGER NOT NULL DEFAULT 1,
+        schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'oneTime')),
+        schedule_json TEXT NOT NULL,
+        missed_run_policy TEXT NOT NULL CHECK(missed_run_policy IN ('skip', 'notify', 'runOnce')),
+        concurrency_policy TEXT NOT NULL CHECK(concurrency_policy IN ('skip', 'queue')),
+        action_json TEXT NOT NULL,
+        next_fire_at INTEGER,
+        last_fired_at INTEGER,
+        last_run_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_automations_active_next_fire
+        ON automations(active, enabled, next_fire_at);
+      CREATE INDEX IF NOT EXISTS idx_automations_last_fired
+        ON automations(last_fired_at);
+
+      CREATE TABLE IF NOT EXISTS automation_runs (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled')),
+        trigger TEXT NOT NULL CHECK(trigger IN ('scheduled', 'catchUp', 'manual')),
+        scheduled_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER,
+        instance_id TEXT,
+        error TEXT,
+        output_summary TEXT,
+        seen_at INTEGER,
+        config_snapshot_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_status
+        ON automation_runs(automation_id, status);
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_instance
+        ON automation_runs(instance_id);
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_scheduled
+        ON automation_runs(automation_id, scheduled_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_schedule_dedupe
+        ON automation_runs(automation_id, scheduled_at)
+        WHERE trigger IN ('scheduled', 'catchUp');
+
+      CREATE TABLE IF NOT EXISTS automation_attachments (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        content_ref_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_automation_attachments_automation
+        ON automation_attachments(automation_id, position);
+    `,
+    down: `
+      DROP TABLE IF EXISTS automation_attachments;
+      DROP INDEX IF EXISTS idx_automation_runs_schedule_dedupe;
+      DROP INDEX IF EXISTS idx_automation_runs_scheduled;
+      DROP INDEX IF EXISTS idx_automation_runs_instance;
+      DROP INDEX IF EXISTS idx_automation_runs_automation_status;
+      DROP TABLE IF EXISTS automation_runs;
+      DROP INDEX IF EXISTS idx_automations_last_fired;
+      DROP INDEX IF EXISTS idx_automations_active_next_fire;
+      DROP TABLE IF EXISTS automations;
+    `,
+  },
 ];
 
 /**

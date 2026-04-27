@@ -83,6 +83,25 @@ export class ContentStore {
   }
 
   /**
+   * Store content and wait until any external file has reached disk.
+   * Use this for durable references that are committed to another database
+   * record immediately after the call.
+   */
+  async storeDurable(content: string): Promise<ContentRef> {
+    const bytes = Buffer.byteLength(content, 'utf8');
+
+    if (bytes < INLINE_THRESHOLD_BYTES) {
+      return { inline: true, content };
+    }
+
+    const hash = sha256(content);
+    const filePath = this.externalPath(hash);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, 'utf8');
+    return { inline: false, hash, size: bytes };
+  }
+
+  /**
    * Resolve a ContentRef back to its string content.
    * Throws ContentIntegrityError if the retrieved content does not match
    * the expected hash (external refs only).

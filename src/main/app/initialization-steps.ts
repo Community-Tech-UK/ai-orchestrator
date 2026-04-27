@@ -53,6 +53,7 @@ import { getPermissionManager } from '../security/permission-manager';
 import { PermissionDecisionStore } from '../security/permission-decision-store';
 import { WorkflowPersistence } from '../workflows/workflow-persistence';
 import { initializeCodemem } from '../codemem';
+import { initializeAutomations } from '../automations';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
@@ -107,6 +108,7 @@ export function createInitializationSteps(
       }),
     },
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },
+    { name: 'Automations', fn: () => initializeAutomations(instanceManager) },
     { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(instanceManager) },
     { name: 'Debate invokers', fn: () => registerDefaultDebateInvoker(instanceManager) },
     { name: 'Workflow invokers', fn: () => registerDefaultWorkflowInvoker(instanceManager) },

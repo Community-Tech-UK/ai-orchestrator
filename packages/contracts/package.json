@@ -18,6 +18,7 @@
     "./schemas/remote-node":      { "types": "./src/schemas/remote-node.schemas.ts",   "default": "./src/schemas/remote-node.schemas.ts" },
     "./schemas/plugin":           { "types": "./src/schemas/plugin.schemas.ts",        "default": "./src/schemas/plugin.schemas.ts" },
     "./schemas/image":            { "types": "./src/schemas/image.schemas.ts",         "default": "./src/schemas/image.schemas.ts" },
+    "./schemas/automation":       { "types": "./src/schemas/automation.schemas.ts",    "default": "./src/schemas/automation.schemas.ts" },
     "./schemas/provider-runtime-events": { "types": "./src/schemas/provider-runtime-events.schemas.ts", "default": "./src/schemas/provider-runtime-events.schemas.ts" },
     "./channels/instance":        { "types": "./src/channels/instance.channels.ts",        "default": "./src/channels/instance.channels.ts" },
     "./channels/file":            { "types": "./src/channels/file.channels.ts",            "default": "./src/channels/file.channels.ts" },
@@ -29,6 +30,7 @@
     "./channels/communication":   { "types": "./src/channels/communication.channels.ts",   "default": "./src/channels/communication.channels.ts" },
     "./channels/learning":        { "types": "./src/channels/learning.channels.ts",        "default": "./src/channels/learning.channels.ts" },
     "./channels/workspace":       { "types": "./src/channels/workspace.channels.ts",       "default": "./src/channels/workspace.channels.ts" },
+    "./channels/automation":      { "types": "./src/channels/automation.channels.ts",      "default": "./src/channels/automation.channels.ts" },
     "./types/instance-events":    { "types": "./src/types/instance-events.ts",             "default": "./src/types/instance-events.ts" },
     "./types/provider-runtime-events": { "types": "./src/types/provider-runtime-events.ts", "default": "./src/types/provider-runtime-events.ts" },
     "./types/transport":          { "types": "./src/types/transport.types.ts",             "default": "./src/types/transport.types.ts" }

@@ -6,9 +6,11 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  inject,
   signal
 } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+import { AutomationStore } from '../../core/state/automation.store';
 
 interface NavItem {
   label: string;
@@ -46,6 +48,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Agents',
     items: [
+      {
+        label: 'Automations',
+        route: '/automations',
+        icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+      },
       {
         label: 'Workflows',
         route: '/workflows',
@@ -225,6 +232,9 @@ const NAV_GROUPS: NavGroup[] = [
                     [innerHTML]="item.icon">
                   </svg>
                   <span class="nav-label">{{ item.label }}</span>
+                  @if (item.route === '/automations' && unreadAutomations() > 0) {
+                    <span class="nav-badge">{{ unreadAutomations() }}</span>
+                  }
                 </a>
               }
             </div>
@@ -342,9 +352,26 @@ const NAV_GROUPS: NavGroup[] = [
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
+    .nav-badge {
+      margin-left: auto;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--warning-color, #f59e0b);
+      color: #111;
+      font-size: 10px;
+      font-weight: 700;
+    }
   `]
 })
 export class SidebarNavComponent {
+  private readonly automationStore = inject(AutomationStore);
   readonly expanded = signal(true);
   readonly groups = NAV_GROUPS;
+  readonly unreadAutomations = this.automationStore.unreadCount;
 }
