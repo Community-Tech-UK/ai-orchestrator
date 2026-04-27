@@ -448,7 +448,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     executionLocation: { type: 'local' },
     diffStats: undefined,
 
-    outputBuffer: config.initialOutputBuffer || [],
+    outputBuffer: config.initialOutputBuffer ? [...config.initialOutputBuffer] : [],
     outputBufferMaxSize: 1000,
 
     communicationTokens: new Map(),

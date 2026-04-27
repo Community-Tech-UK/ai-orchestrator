@@ -35,6 +35,7 @@ import {
   getConversationHistoryTitle,
   inferConversationHistoryProvider,
 } from '../../../shared/types/history.types';
+import type { ConversationHistoryEntry } from '../../../shared/types/history.types';
 import type { ExportedSession, InstanceProvider, OutputMessage } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
@@ -50,6 +51,10 @@ import { isRemoteNodeReachable } from './remote-node-check';
 import { planSessionRecovery } from '../../instance/lifecycle/session-recovery';
 
 const logger = getLogger('SessionHandlers');
+const SESSION_NOT_FOUND_MESSAGE = /no conversation found|session.*not.*found/i;
+const SESSION_NOT_FOUND_ID_MESSAGE = /session\s+id:\s*([^\s]+)/i;
+const UUID_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 
 /**
  * Select the most recent messages within a count limit for display during restore.
@@ -75,6 +80,89 @@ export function selectMessagesForRestore(
     selected: messages.slice(startIdx),
     truncatedCount: startIdx,
   };
+}
+
+function isRestoreInfrastructureMessage(message: OutputMessage): boolean {
+  const kind = message.metadata?.['systemMessageKind'];
+  if (message.metadata?.['isRestoreNotice'] === true || kind === 'restore-fallback') {
+    return true;
+  }
+
+  if (message.type === 'system' && RESTORE_FALLBACK_NOTICE_MESSAGE.test(message.content.trim())) {
+    return true;
+  }
+
+  return message.type === 'error' && SESSION_NOT_FOUND_MESSAGE.test(message.content);
+}
+
+export function getMessagesForRestoreTranscript(messages: OutputMessage[]): OutputMessage[] {
+  return (messages || []).filter((message) => !isRestoreInfrastructureMessage(message));
+}
+
+function normalizeSessionId(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function getFailedResumeSessionIds(messages: OutputMessage[]): Set<string> {
+  const failedSessionIds = new Set<string>();
+  for (const message of messages || []) {
+    if (message.type === 'error' && SESSION_NOT_FOUND_MESSAGE.test(message.content)) {
+      const failedId = message.content.match(SESSION_NOT_FOUND_ID_MESSAGE)?.[1];
+      if (failedId?.trim()) {
+        failedSessionIds.add(failedId.trim());
+      }
+    }
+
+    const originalSessionId = message.metadata?.['originalSessionId'];
+    if (isRestoreInfrastructureMessage(message) && typeof originalSessionId === 'string') {
+      const normalized = normalizeSessionId(originalSessionId);
+      if (normalized) {
+        failedSessionIds.add(normalized);
+      }
+    }
+  }
+
+  return failedSessionIds;
+}
+
+export function getNativeResumeSessionId(
+  entry: Pick<ConversationHistoryEntry, 'sessionId' | 'historyThreadId' | 'nativeResumeFailedAt'>,
+  messages: OutputMessage[],
+  provider: InstanceProvider
+): string | undefined {
+  const sessionId = normalizeSessionId(entry.sessionId);
+  const historyThreadId = normalizeSessionId(entry.historyThreadId);
+
+  if (entry.nativeResumeFailedAt == null) {
+    return sessionId || historyThreadId;
+  }
+
+  if (!historyThreadId || historyThreadId === sessionId) {
+    return undefined;
+  }
+
+  if (provider !== 'claude' || !UUID_SESSION_ID.test(historyThreadId)) {
+    return undefined;
+  }
+
+  const failedSessionIds = getFailedResumeSessionIds(messages);
+  return failedSessionIds.has(historyThreadId) ? undefined : historyThreadId;
+}
+
+function getOriginalSessionIdFromRestoreNotices(messages: OutputMessage[]): string | undefined {
+  for (const message of messages || []) {
+    if (!isRestoreInfrastructureMessage(message)) {
+      continue;
+    }
+
+    const originalSessionId = message.metadata?.['originalSessionId'];
+    if (typeof originalSessionId === 'string' && originalSessionId.trim()) {
+      return originalSessionId.trim();
+    }
+  }
+
+  return undefined;
 }
 
 function getProviderDisplayName(provider: InstanceProvider): string {
@@ -944,6 +1032,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
 
         const workingDir =
           validated.workingDirectory || data.entry.workingDirectory;
+        const restoreTranscriptMessages = getMessagesForRestoreTranscript(data.messages);
         // Derive the restored instance's displayName via the same resolver
         // the workspace rail uses for history entries — so the title the user
         // saw in the rail *before* clicking matches the title shown *after*
@@ -961,6 +1050,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           data.entry.historyThreadId || data.entry.sessionId || data.entry.id;
         const restoreProvider = inferConversationHistoryProvider(data.entry);
         const restoreModel = data.entry.currentModel?.trim() || undefined;
+        const nativeResumeSessionId = getNativeResumeSessionId(
+          data.entry,
+          data.messages,
+          restoreProvider
+        );
 
         // If the session originally ran on a remote node, extract the nodeId
         // so createInstance routes the CLI to the same node.
@@ -983,26 +1077,25 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         const recoveryPlan = planSessionRecovery({
           instanceId: validated.entryId,
           reason: 'history-restore',
-          previousProviderSessionId: data.entry.sessionId?.trim() || undefined,
+          previousProviderSessionId: nativeResumeSessionId,
           provider: restoreProvider,
           model: restoreModel,
           cwd: workingDir,
           yolo: false,
           executionLocation: restoreNodeId ? 'remote' : 'local',
           capabilities: {
-            supportsResume: Boolean(data.entry.sessionId?.trim())
-              && !data.entry.nativeResumeFailedAt
-              && remoteNodeAvailable,
+            supportsResume: Boolean(nativeResumeSessionId) && remoteNodeAvailable,
             supportsForkSession: false,
           },
           adapterGeneration: 0,
-          hasConversation: data.messages.some(
+          hasConversation: restoreTranscriptMessages.some(
             (message) => message.type === 'user' || message.type === 'assistant',
           ),
-          sessionResumeBlacklisted: Boolean(data.entry.nativeResumeFailedAt),
+          sessionResumeBlacklisted: Boolean(data.entry.nativeResumeFailedAt && !nativeResumeSessionId),
         });
         const canAttemptNativeResume =
-          recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
+          Boolean(nativeResumeSessionId)
+          && (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork');
         let resumeFailed = false;
 
         // Phase 1: Try to resume the CLI session
@@ -1016,9 +1109,9 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               displayName,
               isRenamed: data.entry.isRenamed,
               historyThreadId,
-              sessionId: data.entry.sessionId,
+              sessionId: nativeResumeSessionId,
               resume: true,
-              initialOutputBuffer: data.messages,
+              initialOutputBuffer: restoreTranscriptMessages,
               provider: restoreProvider,
               modelOverride: restoreModel,
               forceNodeId: restoreNodeId,
@@ -1133,7 +1226,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
                 // Resume confirmed — context usage observed, session truly restored
                 logger.info('History restore: CLI session resumed successfully (confirmed)', {
                   instanceId: instance.id,
-                  sessionId: data.entry.sessionId,
+                  sessionId: nativeResumeSessionId,
                 });
                 return {
                   success: true,
@@ -1150,11 +1243,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               // preamble so the agent has conversation context either way.
               logger.info('History restore: resume unconfirmed — injecting replay preamble as safety net', {
                 instanceId: instance.id,
-                sessionId: data.entry.sessionId,
+                sessionId: nativeResumeSessionId,
               });
 
               try {
-                const preamble = buildReplayContinuityMessage(data.messages, { reason: 'resume-unconfirmed' });
+                const preamble = buildReplayContinuityMessage(restoreTranscriptMessages, { reason: 'resume-unconfirmed' });
                 if (preamble) {
                   instanceManager.queueContinuityPreamble(instance.id, preamble);
                 }
@@ -1181,7 +1274,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             instance.autoRespawnSuppressedUntil = undefined;
             logger.warn('History restore: CLI session resume failed, falling back to fresh instance', {
               instanceId: instance.id,
-              sessionId: data.entry.sessionId,
+              sessionId: nativeResumeSessionId,
               status: currentInstance?.status
             });
 
@@ -1223,7 +1316,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           resumeFailed = true;
           logger.info('History restore: skipping native resume', {
             entryId: validated.entryId,
-            sessionId: data.entry.sessionId,
+            sessionId: nativeResumeSessionId ?? data.entry.sessionId,
             nativeResumeFailedAt: data.entry.nativeResumeFailedAt ?? null,
             remoteNodeAvailable: restoreNodeId ? remoteNodeAvailable : undefined,
             restoreNodeId: restoreNodeId ?? null,
@@ -1244,7 +1337,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           }
 
           const { selected: displayMessages, hidden: hiddenMessages, truncatedCount } =
-            selectMessagesForRestore(data.messages, 100);
+            selectMessagesForRestore(restoreTranscriptMessages, 100);
 
           // Only route the fallback to the remote node if it's still connected.
           // When the node is unavailable, fall back to a local session and resolve
@@ -1293,7 +1386,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
             }
           }
 
-          const replayContinuity = buildReplayContinuityMessage(data.messages, {
+          const replayContinuity = buildReplayContinuityMessage(restoreTranscriptMessages, {
             reason: canAttemptNativeResume ? 'history-restore-fallback' : 'history-restore-replay',
           });
           if (replayContinuity) {
@@ -1301,6 +1394,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
           }
 
           const providerName = getProviderDisplayName(restoreProvider);
+          const originalSessionId =
+            (canAttemptNativeResume
+              ? nativeResumeSessionId
+              : getOriginalSessionIdFromRestoreNotices(data.messages))
+            || data.entry.sessionId;
 
           // Add a system message informing the user that CLI context was lost
           const systemMessage: OutputMessage = {
@@ -1316,11 +1414,11 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
               isRestoreNotice: true,
               systemMessageKind: 'restore-fallback',
               provider: restoreProvider,
-              restoredMessageCount: data.messages.length,
+              restoredMessageCount: restoreTranscriptMessages.length,
               hiddenMessageCount: hiddenMessages.length,
               continuityInjectionQueued: Boolean(replayContinuity),
               nativeResumeFailedAt: canAttemptNativeResume ? Date.now() : (data.entry.nativeResumeFailedAt ?? null),
-              originalSessionId: data.entry.sessionId,
+              originalSessionId,
               restoreNodeId: restoreNodeId ?? null,
               remoteNodeAvailable: restoreNodeId ? remoteNodeAvailable : undefined,
             }

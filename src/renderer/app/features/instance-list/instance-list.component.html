@@ -368,34 +368,46 @@
                           </button>
                         </div>
                         <div class="history-entry-meta">
-                          @if (getHistoryChangeSummary(entry); as changeSummary) {
-                            <div class="history-entry-diff" title="Changes in this completed session">
-                              <span class="history-entry-diff-additions">
-                                +{{ changeSummary.additions }}
-                              </span>
-                              <span class="history-entry-diff-deletions">
-                                -{{ changeSummary.deletions }}
-                              </span>
-                            </div>
-                          } @else {
-                            <span
-                              class="history-entry-time"
-                              [title]="historySortMode() === 'created' ? 'Created' : 'Last interacted'"
+                          @if (pendingArchiveId() === entry.id) {
+                            <button
+                              type="button"
+                              class="history-entry-confirm-btn"
+                              aria-label="Confirm archive"
+                              title="Confirm archive"
+                              (click)="confirmArchiveHistory(entry.id, $event)"
                             >
-                              {{ formatHistoryTime(entry) }}
-                            </span>
+                              Confirm
+                            </button>
+                          } @else {
+                            @if (getHistoryChangeSummary(entry); as changeSummary) {
+                              <div class="history-entry-diff" title="Changes in this completed session">
+                                <span class="history-entry-diff-additions">
+                                  +{{ changeSummary.additions }}
+                                </span>
+                                <span class="history-entry-diff-deletions">
+                                  -{{ changeSummary.deletions }}
+                                </span>
+                              </div>
+                            } @else {
+                              <span
+                                class="history-entry-time"
+                                [title]="historySortMode() === 'created' ? 'Created' : 'Last interacted'"
+                              >
+                                {{ formatHistoryTime(entry) }}
+                              </span>
+                            }
+                            <button
+                              type="button"
+                              class="history-entry-action"
+                              aria-label="Archive thread"
+                              title="Archive thread"
+                              (click)="onArchiveHistory(entry.id, $event)"
+                            >
+                              <svg viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M2.5 2.5h11a1 1 0 0 1 1 1v2.1a1 1 0 0 1-.29.7l-1.56 1.56a1 1 0 0 0-.29.7V13a1 1 0 0 1-1 1h-6.7a1 1 0 0 1-1-1V8.56a1 1 0 0 0-.29-.7L1.79 6.3a1 1 0 0 1-.29-.7V3.5a1 1 0 0 1 1-1Zm0 1v1.7l1.56 1.56c.38.37.59.88.59 1.4V13h6.7V8.16c0-.52.21-1.03.59-1.4L13.5 5.2V3.5h-11Zm3.1 2.9h4.8v1h-4.8v-1Z" />
+                              </svg>
+                            </button>
                           }
-                          <button
-                            type="button"
-                            class="history-entry-action"
-                            aria-label="Archive thread"
-                            title="Archive thread"
-                            (click)="onArchiveHistory(entry.id, $event)"
-                          >
-                            <svg viewBox="0 0 16 16" aria-hidden="true">
-                              <path d="M2.5 2.5h11a1 1 0 0 1 1 1v2.1a1 1 0 0 1-.29.7l-1.56 1.56a1 1 0 0 0-.29.7V13a1 1 0 0 1-1 1h-6.7a1 1 0 0 1-1-1V8.56a1 1 0 0 0-.29-.7L1.79 6.3a1 1 0 0 1-.29-.7V3.5a1 1 0 0 1 1-1Zm0 1v1.7l1.56 1.56c.38.37.59.88.59 1.4V13h6.7V8.16c0-.52.21-1.03.59-1.4L13.5 5.2V3.5h-11Zm3.1 2.9h4.8v1h-4.8v-1Z" />
-                            </svg>
-                          </button>
                         </div>
                       </div>
                     }

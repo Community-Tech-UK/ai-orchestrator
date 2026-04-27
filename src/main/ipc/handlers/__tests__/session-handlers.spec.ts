@@ -342,6 +342,175 @@ describe('session-handlers', () => {
       expect(mockInstanceManager.queueContinuityPreamble).toHaveBeenCalledTimes(1);
     });
 
+    it('repairs old failed rows by trying historyThreadId when the archived session id failed', async () => {
+      vi.useFakeTimers();
+      try {
+        const failedSessionId = '66061320-7298-4d9b-9552-25f024f5e90d';
+        const nativeSessionId = 'd813b60a-de12-4f83-9a09-8cc9d0714d12';
+        const resumeInstance = {
+          id: 'resume-repaired',
+          outputBuffer: [{ type: 'assistant', content: 'Restored response' }],
+          readyPromise: Promise.resolve(),
+        };
+
+        mockLoadConversation.mockResolvedValue({
+          entry: {
+            id: 'entry-repair',
+            displayName: 'Claude thread',
+            createdAt: Date.now() - 10_000,
+            endedAt: Date.now(),
+            workingDirectory: '/tmp/project',
+            messageCount: 4,
+            firstUserMessage: 'Continue fixing restore',
+            lastUserMessage: 'Can you restore this session?',
+            status: 'completed',
+            originalInstanceId: 'instance-repair',
+            parentId: null,
+            sessionId: failedSessionId,
+            historyThreadId: nativeSessionId,
+            provider: 'claude',
+            nativeResumeFailedAt: Date.now() - 1_000,
+          },
+          messages: [
+            { id: 'u1', type: 'user', content: 'Continue fixing restore', timestamp: Date.now() - 4_000 },
+            { id: 'a1', type: 'assistant', content: 'I was working on restore.', timestamp: Date.now() - 3_500 },
+            {
+              id: 'e1',
+              type: 'error',
+              content: `No conversation found with session ID: ${failedSessionId}`,
+              timestamp: Date.now() - 3_000,
+            },
+            {
+              id: 's1',
+              type: 'system',
+              content: 'Previous Claude CLI session could not be restored natively. Your conversation history is displayed above.',
+              timestamp: Date.now() - 2_500,
+              metadata: {
+                isRestoreNotice: true,
+                systemMessageKind: 'restore-fallback',
+                originalSessionId: failedSessionId,
+              },
+            },
+          ],
+        });
+
+        vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+          resumeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+        );
+
+        vi.mocked(mockInstanceManager.getInstance).mockReturnValue({
+          id: 'resume-repaired',
+          status: 'busy',
+          outputBuffer: resumeInstance.outputBuffer,
+          contextUsage: { used: 0, total: 200_000, percentage: 0 },
+        } as unknown as ReturnType<typeof mockInstanceManager.getInstance>);
+
+        const resultPromise = invoke(IPC_CHANNELS.HISTORY_RESTORE, {
+          entryId: 'entry-repair',
+        });
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        const result = await resultPromise;
+
+        expect(result.success).toBe(true);
+        expect(result.data).toMatchObject({
+          instanceId: 'resume-repaired',
+          restoreMode: 'resume-unconfirmed',
+        });
+        expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0]).toMatchObject({
+          resume: true,
+          sessionId: nativeSessionId,
+          initialOutputBuffer: [
+            expect.objectContaining({ id: 'u1' }),
+            expect.objectContaining({ id: 'a1' }),
+          ],
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('removes archived restore errors and notices before replay fallback display', async () => {
+      const fallbackInstance: { id: string; outputBuffer: MockOutputMessage[] } = {
+        id: 'fallback-clean',
+        outputBuffer: [],
+      };
+
+      mockLoadConversation.mockResolvedValue({
+        entry: {
+          id: 'entry-clean',
+          displayName: 'Claude thread',
+          createdAt: Date.now() - 10_000,
+          endedAt: Date.now(),
+          workingDirectory: '/tmp/project',
+          messageCount: 4,
+          firstUserMessage: 'Continue fixing restore',
+          lastUserMessage: 'Can you restore this session?',
+          status: 'completed',
+          originalInstanceId: 'instance-clean',
+          parentId: null,
+          sessionId: 'fresh-unused-session',
+          nativeResumeFailedAt: Date.now() - 1_000,
+        },
+        messages: [
+          { id: 'u1', type: 'user', content: 'Continue fixing restore', timestamp: Date.now() - 4_000 },
+          { id: 'a1', type: 'assistant', content: 'I was working on restore.', timestamp: Date.now() - 3_500 },
+          {
+            id: 'e1',
+            type: 'error',
+            content: 'No conversation found with session ID: native-session',
+            timestamp: Date.now() - 3_000,
+          },
+          {
+            id: 's1',
+            type: 'system',
+            content: 'Previous Claude CLI session could not be restored natively. Your conversation history is displayed above.',
+            timestamp: Date.now() - 2_500,
+            metadata: {
+              isRestoreNotice: true,
+              systemMessageKind: 'restore-fallback',
+              originalSessionId: 'native-session',
+            },
+          },
+        ],
+      });
+
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fallbackInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      const result = await invoke(IPC_CHANNELS.HISTORY_RESTORE, {
+        entryId: 'entry-clean',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledTimes(1);
+      const createCall = vi.mocked(mockInstanceManager.createInstance).mock.calls[0][0];
+      expect(createCall.initialOutputBuffer).toEqual([
+        expect.objectContaining({ id: 'u1' }),
+        expect.objectContaining({ id: 'a1' }),
+      ]);
+
+      const restoredMessages = result.data?.['restoredMessages'] as MockOutputMessage[];
+      expect(restoredMessages).toHaveLength(3);
+      expect(restoredMessages.map((message) => message.id)).toEqual([
+        'u1',
+        'a1',
+        expect.any(String),
+      ]);
+      expect(JSON.stringify(restoredMessages)).not.toContain('No conversation found');
+      expect(
+        restoredMessages.filter(
+          (message) => message.metadata?.['systemMessageKind'] === 'restore-fallback'
+        )
+      ).toHaveLength(1);
+      expect(fallbackInstance.outputBuffer.at(-1)?.metadata).toMatchObject({
+        originalSessionId: 'native-session',
+        restoredMessageCount: 2,
+      });
+    });
+
     it('passes forceNodeId when restoring a remote session with a connected node', async () => {
       vi.useFakeTimers();
       try {

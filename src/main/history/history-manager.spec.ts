@@ -3,7 +3,70 @@ import * as os from 'os';
 import * as path from 'path';
 import * as zlib from 'zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Instance } from '../../shared/types/instance.types';
+import type { Instance, OutputMessage } from '../../shared/types/instance.types';
+
+function makeInstance(overrides: Partial<Instance> = {}): Instance {
+  const sessionId = overrides.sessionId ?? 'session-1';
+  return {
+    id: 'instance-1',
+    displayName: 'Thread',
+    createdAt: 100,
+    historyThreadId: 'thread-1',
+    parentId: null,
+    childrenIds: [],
+    supervisorNodeId: '',
+    workerNodeId: undefined,
+    depth: 0,
+    terminationPolicy: 'terminate-children',
+    contextInheritance: {} as Instance['contextInheritance'],
+    agentId: 'build',
+    agentMode: 'build',
+    planMode: {
+      enabled: false,
+      state: 'off',
+    },
+    status: 'idle',
+    contextUsage: {
+      used: 0,
+      total: 200000,
+      percentage: 0,
+    },
+    lastActivity: 200,
+    processId: null,
+    providerSessionId: sessionId,
+    sessionId,
+    restartEpoch: 0,
+    workingDirectory: '/tmp/project',
+    yoloMode: false,
+    provider: 'claude',
+    currentModel: 'opus',
+    outputBuffer: [],
+    outputBufferMaxSize: 1000,
+    communicationTokens: new Map(),
+    subscribedTo: [],
+    totalTokensUsed: 0,
+    requestCount: 0,
+    errorCount: 0,
+    restartCount: 0,
+    ...overrides,
+  };
+}
+
+function message(
+  id: string,
+  type: OutputMessage['type'],
+  content: string,
+  timestamp: number,
+  metadata?: Record<string, unknown>
+): OutputMessage {
+  return {
+    id,
+    type,
+    content,
+    timestamp,
+    metadata,
+  };
+}
 
 describe('HistoryManager', () => {
   let userDataDir = '';
@@ -262,6 +325,114 @@ describe('HistoryManager', () => {
       .readdirSync(path.join(userDataDir, 'conversation-history'))
       .filter((file) => file.endsWith('.json.gz'));
     expect(storageFiles).toHaveLength(1);
+  });
+
+  it('preserves the failed native session id when archiving an unresolved replay fallback', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const originalMessages = [
+      message('message-user-1', 'user', 'Continue the refactor plan', 101),
+      message('message-assistant-1', 'assistant', 'The plan is in progress.', 102),
+    ];
+    const original = makeInstance({
+      id: 'instance-original-native',
+      historyThreadId: 'thread-native',
+      sessionId: 'native-session',
+      providerSessionId: 'native-session',
+      outputBuffer: originalMessages,
+    });
+
+    await manager.archiveInstance(original, 'completed');
+
+    const fallback = makeInstance({
+      id: 'instance-fallback-idle',
+      historyThreadId: 'thread-native',
+      sessionId: 'fresh-unused-session',
+      providerSessionId: 'fresh-unused-session',
+      outputBuffer: [
+        ...originalMessages,
+        message(
+          'message-error-1',
+          'error',
+          'No conversation found with session ID: native-session',
+          103
+        ),
+        message(
+          'message-notice-1',
+          'system',
+          'Previous Claude CLI session could not be restored natively. Your conversation history is displayed above.',
+          104,
+          {
+            isRestoreNotice: true,
+            systemMessageKind: 'restore-fallback',
+            originalSessionId: 'native-session',
+          }
+        ),
+      ],
+    });
+
+    await manager.archiveInstance(fallback, 'terminated');
+
+    const entries = manager.getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.sessionId).toBe('native-session');
+    expect(entries[0]?.nativeResumeFailedAt).toBe(104);
+    expect(entries[0]?.messageCount).toBe(4);
+  });
+
+  it('uses the fresh session id once replay fallback receives new assistant output', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const originalMessages = [
+      message('message-user-1', 'user', 'Continue the refactor plan', 101),
+      message('message-assistant-1', 'assistant', 'The plan is in progress.', 102),
+    ];
+    const original = makeInstance({
+      id: 'instance-original-native',
+      historyThreadId: 'thread-native-recovered',
+      sessionId: 'native-session',
+      providerSessionId: 'native-session',
+      outputBuffer: originalMessages,
+    });
+
+    await manager.archiveInstance(original, 'completed');
+
+    const recoveredFallback = makeInstance({
+      id: 'instance-fallback-recovered',
+      historyThreadId: 'thread-native-recovered',
+      sessionId: 'fresh-real-session',
+      providerSessionId: 'fresh-real-session',
+      outputBuffer: [
+        ...originalMessages,
+        message(
+          'message-error-1',
+          'error',
+          'No conversation found with session ID: native-session',
+          103
+        ),
+        message(
+          'message-notice-1',
+          'system',
+          'Previous Claude CLI session could not be restored natively. Your conversation history is displayed above.',
+          104,
+          {
+            isRestoreNotice: true,
+            systemMessageKind: 'restore-fallback',
+            originalSessionId: 'native-session',
+          }
+        ),
+        message('message-user-2', 'user', 'Use the replayed context.', 105),
+        message('message-assistant-2', 'assistant', 'Continuing from the replayed context.', 106),
+      ],
+    });
+
+    await manager.archiveInstance(recoveredFallback, 'completed');
+
+    const entry = manager.getEntries()[0];
+    expect(entry?.sessionId).toBe('fresh-real-session');
+    expect(entry?.nativeResumeFailedAt).toBeUndefined();
   });
 
   it('marks archived sessions as non-resumable when resume failures were never followed by assistant output', async () => {

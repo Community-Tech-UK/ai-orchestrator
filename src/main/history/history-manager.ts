@@ -36,6 +36,7 @@ const HISTORY_INDEX_VERSION = 1;
 const MAX_PREVIEW_LENGTH = 150;
 const MAX_HISTORY_ENTRIES = 100; // Keep last 100 conversations
 const RESUME_FAILURE_MESSAGE = /no conversation found|session.*not.*found/i;
+const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 
 export class HistoryManager {
   private storageDir: string;
@@ -131,8 +132,14 @@ export class HistoryManager {
       }
 
       // Create history entry
-      const nativeResumeFailedAt =
-        this.inferUnresolvedNativeResumeFailure(messages) ?? undefined;
+      const unresolvedNativeResumeFailedAt = this.inferUnresolvedNativeResumeFailure(messages);
+      const nativeResumeFailedAt = unresolvedNativeResumeFailedAt ?? undefined;
+      const sessionId = this.resolveArchivedSessionId(
+        instance,
+        messages,
+        previousEntries,
+        unresolvedNativeResumeFailedAt
+      );
       const entry: ConversationHistoryEntry = {
         id: entryId,
         displayName: instance.displayName,
@@ -147,7 +154,7 @@ export class HistoryManager {
         status,
         originalInstanceId: instance.id,
         parentId: instance.parentId,
-        sessionId: instance.sessionId,
+        sessionId,
         nativeResumeFailedAt,
         provider: instance.provider,
         currentModel: instance.currentModel,
@@ -640,6 +647,10 @@ export class HistoryManager {
       return false;
     }
 
+    if (this.isRestoreFallbackNoticeMessage(message)) {
+      return true;
+    }
+
     if (message.type === 'error' && RESUME_FAILURE_MESSAGE.test(content)) {
       return true;
     }
@@ -659,6 +670,50 @@ export class HistoryManager {
       message.type === 'assistant'
       || message.type === 'tool_use'
       || message.type === 'tool_result'
+    );
+  }
+
+  private resolveArchivedSessionId(
+    instance: Pick<Instance, 'sessionId'>,
+    messages: OutputMessage[],
+    previousEntries: ConversationHistoryEntry[],
+    unresolvedNativeResumeFailedAt: number | null
+  ): string {
+    if (unresolvedNativeResumeFailedAt === null) {
+      return instance.sessionId;
+    }
+
+    return (
+      this.getOriginalSessionIdFromRestoreNotice(messages)
+      || previousEntries.find((entry) => entry.nativeResumeFailedAt && entry.sessionId.trim())?.sessionId
+      || instance.sessionId
+    );
+  }
+
+  private getOriginalSessionIdFromRestoreNotice(messages: OutputMessage[]): string | undefined {
+    for (const message of messages) {
+      if (!this.isRestoreFallbackNoticeMessage(message)) {
+        continue;
+      }
+
+      const originalSessionId = message.metadata?.['originalSessionId'];
+      if (typeof originalSessionId === 'string' && originalSessionId.trim()) {
+        return originalSessionId.trim();
+      }
+    }
+
+    return undefined;
+  }
+
+  private isRestoreFallbackNoticeMessage(message: OutputMessage): boolean {
+    const kind = message.metadata?.['systemMessageKind'];
+    return (
+      message.type === 'system'
+      && (
+        message.metadata?.['isRestoreNotice'] === true
+        || kind === 'restore-fallback'
+        || RESTORE_FALLBACK_NOTICE_MESSAGE.test(message.content.trim())
+      )
     );
   }
 

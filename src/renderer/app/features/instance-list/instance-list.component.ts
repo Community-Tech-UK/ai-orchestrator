@@ -97,6 +97,7 @@ export class InstanceListComponent {
   statusFilter = signal<string>('all');
   locationFilter = signal<'all' | 'local' | 'remote'>('all');
   filtersOpen = signal(false);
+  pendingArchiveId = signal<string | null>(null);
   collapsedIds = signal<Set<string>>(new Set());
   collapsedProjectKeys = signal<Set<string>>(new Set());
   rootInstanceOrder = signal<string[]>(this.loadOrder());
@@ -763,10 +764,17 @@ export class InstanceListComponent {
     return selectedNow === selectedAtStart || selectedNow === restoredInstanceId;
   }
 
-  async onArchiveHistory(entryId: string, event: Event): Promise<void> {
+  onArchiveHistory(entryId: string, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
     this.closeProjectMenu({ restoreFocus: false });
+    this.pendingArchiveId.set(entryId);
+  }
+
+  async confirmArchiveHistory(entryId: string, event: Event): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    this.pendingArchiveId.set(null);
     await this.historyStore.archiveEntry(entryId);
   }
 
@@ -782,11 +790,24 @@ export class InstanceListComponent {
     if (this.openProjectMenuKey() && (!targetEl || !targetEl.closest('.project-menu-anchor'))) {
       this.closeProjectMenu({ restoreFocus: false });
     }
+
+    // Any click outside the archive request/confirm buttons cancels the pending
+    // archive (those button handlers call stopPropagation so they never reach
+    // the document handler).
+    if (this.pendingArchiveId() !== null) {
+      this.pendingArchiveId.set(null);
+    }
   }
 
   @HostListener('document:keydown', ['$event'])
   onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') {
+      return;
+    }
+
+    if (this.pendingArchiveId() !== null) {
+      event.preventDefault();
+      this.pendingArchiveId.set(null);
       return;
     }
 
