@@ -112,7 +112,7 @@ describe('ConsensusCoordinator', () => {
     });
   });
 
-  it('collects only assistant output when providers emit mixed message types', async () => {
+	  it('collects only assistant output when providers emit mixed message types', async () => {
     detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }] });
     createAdapterMock.mockImplementation(() => {
       const adapter = new MockConsensusAdapter();
@@ -142,5 +142,32 @@ describe('ConsensusCoordinator', () => {
     });
 
     expect(result.responses[0]?.content).toBe('Assistant answer');
+	  });
+
+  it('bounds raw all-strategy consensus output', async () => {
+    detectAllMock.mockResolvedValue({ available: [{ name: 'claude' }, { name: 'gemini' }] });
+    createAdapterMock.mockImplementation(() => {
+      const adapter = new MockConsensusAdapter();
+      adapter.sendInput = vi.fn(async () => {
+        adapter.emit('output', {
+          id: 'assistant-long',
+          timestamp: Date.now(),
+          type: 'assistant',
+          content: 'x'.repeat(10_000),
+        });
+        adapter.emit('status', 'idle');
+      });
+      return adapter;
+    });
+
+    const coordinator = ConsensusCoordinator.getInstance();
+    const result = await coordinator.query('Give long output', undefined, {
+      providers: [{ provider: 'claude' }, { provider: 'gemini' }],
+      strategy: 'all',
+      timeout: 1,
+    });
+
+    expect(result.consensus.length).toBeLessThanOrEqual(8_003);
+    expect(result.consensus).toContain('...');
   });
-});
+	});

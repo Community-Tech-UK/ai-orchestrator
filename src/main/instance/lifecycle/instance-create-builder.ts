@@ -90,6 +90,7 @@ export function buildInstanceRecord(
     requestCount: 0,
     errorCount: 0,
     restartCount: 0,
+    metadata: config.metadata,
   };
 }
 

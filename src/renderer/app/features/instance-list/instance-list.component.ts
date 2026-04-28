@@ -21,7 +21,9 @@ import { HistoryStore } from '../../core/state/history.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { InstanceRowComponent } from './instance-row.component';
+import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
@@ -77,7 +79,7 @@ interface RailChangeSummary {
 @Component({
   selector: 'app-instance-list',
   standalone: true,
-  imports: [ScrollingModule, InstanceRowComponent, DragDropModule],
+  imports: [ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent],
   templateUrl: './instance-list.component.html',
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -88,6 +90,7 @@ export class InstanceListComponent {
   private historyStore = inject(HistoryStore);
   private recentDirectoriesService = inject(RecentDirectoriesIpcService);
   private fileIpc = inject(FileIpcService);
+  private historyIpc = inject(HistoryIpcService);
   protected readonly remoteNodeStore = inject(RemoteNodeStore);
   protected readonly projectGroupComputation = inject(ProjectGroupComputationService);
   protected readonly historyRail = inject(HistoryRailService);
@@ -106,6 +109,10 @@ export class InstanceListComponent {
   openProjectMenuKey = signal<string | null>(null);
   preferredEditorLabel = signal('Editor');
   lastVisitedHistoryThreadId = signal<string | null>(null);
+  protected contextMenuVisible = signal(false);
+  protected contextMenuX = signal(0);
+  protected contextMenuY = signal(0);
+  protected contextMenuItems = signal<ContextMenuItem[]>([]);
   selectedId = this.store.selectedInstanceId;
   hasActiveFilters = computed(() =>
     this.statusFilter() !== 'all'
@@ -474,6 +481,238 @@ export class InstanceListComponent {
       }
       return next;
     });
+  }
+
+  async onInstanceContextMenu(payload: {
+    event: MouseEvent;
+    instance: Instance;
+    displayTitle: string;
+  }): Promise<void> {
+    this.closeProjectMenu({ restoreFocus: false });
+    this.pendingArchiveId.set(null);
+    this.store.setSelectedInstance(payload.instance.id);
+    await this.ensurePreferredEditorLoaded();
+    this.showContextMenu(payload.event, this.buildLiveInstanceContextMenuItems(
+      payload.instance,
+      payload.displayTitle
+    ));
+  }
+
+  async onHistoryContextMenu(event: MouseEvent, entry: ConversationHistoryEntry): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeProjectMenu({ restoreFocus: false });
+    this.pendingArchiveId.set(null);
+    await this.ensurePreferredEditorLoaded();
+    this.showContextMenu(event, this.buildHistoryContextMenuItems(entry));
+  }
+
+  protected closeContextMenu(): void {
+    this.contextMenuVisible.set(false);
+    this.contextMenuItems.set([]);
+  }
+
+  private showContextMenu(event: MouseEvent, items: ContextMenuItem[]): void {
+    if (items.length === 0) {
+      this.closeContextMenu();
+      return;
+    }
+
+    this.contextMenuX.set(event.clientX);
+    this.contextMenuY.set(event.clientY);
+    this.contextMenuItems.set(items);
+    this.contextMenuVisible.set(true);
+  }
+
+  private buildLiveInstanceContextMenuItems(
+    instance: Instance,
+    displayTitle: string
+  ): ContextMenuItem[] {
+    const workingDirectory = instance.workingDirectory.trim();
+    const canOpenWorkingDirectory = workingDirectory.length > 0 && instance.executionLocation?.type !== 'remote';
+    const hasChildren = instance.childrenIds.length > 0;
+    const isCollapsed = this.collapsedIds().has(instance.id);
+    const supportsResume = instance.provider === 'claude' || instance.provider === 'codex';
+
+    const items: ContextMenuItem[] = [
+      {
+        id: 'select-session',
+        label: 'Select session',
+        disabled: this.selectedId() === instance.id,
+        action: () => this.store.setSelectedInstance(instance.id),
+      },
+      {
+        id: 'rename-session',
+        label: 'Rename session',
+        action: () => void this.renameLiveInstance(instance, displayTitle),
+      },
+      {
+        id: 'restart-session',
+        label: supportsResume ? 'Restart and resume' : 'Restart session',
+        disabled: instance.status === 'initializing',
+        action: () => void this.store.restartInstance(instance.id),
+      },
+    ];
+
+    if (hasChildren) {
+      items.push({
+        id: 'toggle-children',
+        label: isCollapsed ? 'Expand children' : 'Collapse children',
+        action: () => this.onToggleExpand(instance.id),
+      });
+    }
+
+    items.push(
+      {
+        id: 'copy-transcript',
+        label: 'Copy transcript as Markdown',
+        divider: true,
+        action: () => void this.copyLiveTranscript(instance.id),
+      },
+      {
+        id: 'copy-session-id',
+        label: 'Copy session ID',
+        action: () => void this.copyTextToClipboard(instance.sessionId),
+      }
+    );
+
+    const threadId = this.getInstanceThreadId(instance);
+    if (threadId && threadId !== instance.sessionId) {
+      items.push({
+        id: 'copy-thread-id',
+        label: 'Copy thread ID',
+        action: () => void this.copyTextToClipboard(threadId),
+      });
+    }
+
+    if (workingDirectory) {
+      items.push({
+        id: 'copy-working-directory',
+        label: 'Copy working directory',
+        action: () => void this.copyTextToClipboard(workingDirectory),
+      });
+    }
+
+    if (canOpenWorkingDirectory) {
+      items.push(
+        {
+          id: 'open-finder',
+          label: `Open in ${this.systemFileManagerLabel}`,
+          divider: true,
+          action: () => void this.fileIpc.openPath(workingDirectory),
+        },
+        {
+          id: 'open-editor',
+          label: `Open in ${this.preferredEditorLabel()}`,
+          action: () => void this.fileIpc.editorOpenDirectory(workingDirectory),
+        }
+      );
+    }
+
+    items.push({
+      id: 'terminate-session',
+      label: 'Terminate session',
+      divider: true,
+      danger: true,
+      action: () => void this.store.terminateInstance(instance.id),
+    });
+
+    return items;
+  }
+
+  private buildHistoryContextMenuItems(entry: ConversationHistoryEntry): ContextMenuItem[] {
+    const workingDirectory = entry.workingDirectory.trim();
+    const canOpenWorkingDirectory = workingDirectory.length > 0 && entry.executionLocation?.type !== 'remote';
+    const threadId = this.historyRail.getHistoryThreadId(entry);
+    const isPinned = this.isPinnedHistory(entry.id);
+    const isRestoring = this.isRestoringHistory(entry.id);
+
+    const items: ContextMenuItem[] = [
+      {
+        id: 'restore-thread',
+        label: 'Restore thread',
+        disabled: isRestoring,
+        action: () => void this.onRestoreHistory(entry.id),
+      },
+      {
+        id: 'pin-thread',
+        label: isPinned ? 'Unpin thread' : 'Pin thread',
+        action: () => this.historyRail.togglePinnedHistoryId(entry.id),
+      },
+      {
+        id: 'copy-thread-id',
+        label: 'Copy thread ID',
+        divider: true,
+        action: () => void this.copyTextToClipboard(threadId),
+      },
+      {
+        id: 'copy-session-id',
+        label: 'Copy session ID',
+        action: () => void this.copyTextToClipboard(entry.sessionId),
+      },
+    ];
+
+    if (workingDirectory) {
+      items.push({
+        id: 'copy-working-directory',
+        label: 'Copy working directory',
+        action: () => void this.copyTextToClipboard(workingDirectory),
+      });
+    }
+
+    if (canOpenWorkingDirectory) {
+      items.push(
+        {
+          id: 'open-finder',
+          label: `Open in ${this.systemFileManagerLabel}`,
+          divider: true,
+          action: () => void this.fileIpc.openPath(workingDirectory),
+        },
+        {
+          id: 'open-editor',
+          label: `Open in ${this.preferredEditorLabel()}`,
+          action: () => void this.fileIpc.editorOpenDirectory(workingDirectory),
+        }
+      );
+    }
+
+    items.push({
+      id: 'archive-thread',
+      label: 'Archive thread',
+      divider: true,
+      danger: true,
+      action: () => void this.historyStore.archiveEntry(entry.id),
+    });
+
+    return items;
+  }
+
+  private async renameLiveInstance(instance: Instance, displayTitle: string): Promise<void> {
+    const nextName = window.prompt('Rename session', displayTitle)?.trim();
+    if (!nextName || nextName === displayTitle) {
+      return;
+    }
+
+    await this.store.renameInstance(instance.id, nextName);
+  }
+
+  private async copyLiveTranscript(instanceId: string): Promise<void> {
+    const response = await this.historyIpc.copySessionToClipboard(instanceId, 'markdown');
+    if (!response.success) {
+      console.error('Failed to copy transcript:', response.error?.message ?? 'Unknown error');
+    }
+  }
+
+  private async copyTextToClipboard(text: string): Promise<void> {
+    if (!text.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+    }
   }
 
   toggleProjectGroup(projectKey: string): void {

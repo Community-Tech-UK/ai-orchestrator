@@ -102,14 +102,21 @@ describe('PluginManifestSchema', () => {
   });
 
   it('accepts all valid hook event names', () => {
-    const allHooks = [
-      'instance.created', 'instance.removed', 'instance.output', 'instance.stateChanged',
-      'verification.started', 'verification.completed', 'verification.error',
-      'orchestration.debate.round', 'orchestration.consensus.vote',
-      'tool.execute.before', 'tool.execute.after',
-      'session.created', 'session.resumed', 'session.compacting',
-      'permission.ask', 'config.loaded',
-    ];
+	    const allHooks = [
+	      'instance.created', 'instance.removed', 'instance.spawn.before', 'instance.spawn.after',
+	      'instance.input.before', 'instance.input.after', 'instance.output', 'instance.stateChanged',
+	      'verification.started', 'verification.completed', 'verification.error',
+	      'orchestration.debate.round', 'orchestration.consensus.vote',
+	      'orchestration.command.received', 'orchestration.command.completed', 'orchestration.command.failed',
+	      'orchestration.child.started', 'orchestration.child.progress', 'orchestration.child.completed',
+	      'orchestration.child.failed', 'orchestration.child.result.reported',
+	      'orchestration.consensus.started', 'orchestration.consensus.completed', 'orchestration.consensus.failed',
+	      'tool.execute.before', 'tool.execute.after',
+	      'session.created', 'session.resumed', 'session.compacting', 'session.archived', 'session.terminated',
+	      'automation.run.started', 'automation.run.completed', 'automation.run.failed',
+	      'cleanup.candidate.before', 'cleanup.candidate.after',
+	      'permission.ask', 'config.loaded',
+	    ];
     const result = PluginManifestSchema.parse({
       name: 'all-hooks',
       version: '1.0.0',
@@ -234,13 +241,21 @@ describe('SkillFrontmatterSchema', () => {
 
 describe('HookPayloadSchemas', () => {
   it('has entries for all expected hook events', () => {
-    const expectedEvents = [
-      'instance.created', 'instance.removed', 'instance.output', 'instance.stateChanged',
-      'verification.started', 'verification.completed', 'verification.error',
-      'tool.execute.before', 'tool.execute.after',
-      'session.created', 'session.resumed', 'session.compacting',
-      'permission.ask', 'config.loaded',
-    ];
+	    const expectedEvents = [
+	      'instance.created', 'instance.removed', 'instance.spawn.before', 'instance.spawn.after',
+	      'instance.input.before', 'instance.input.after', 'instance.output', 'instance.stateChanged',
+	      'verification.started', 'verification.completed', 'verification.error',
+	      'orchestration.debate.round', 'orchestration.consensus.vote',
+	      'orchestration.command.received', 'orchestration.command.completed', 'orchestration.command.failed',
+	      'orchestration.child.started', 'orchestration.child.progress', 'orchestration.child.completed',
+	      'orchestration.child.failed', 'orchestration.child.result.reported',
+	      'orchestration.consensus.started', 'orchestration.consensus.completed', 'orchestration.consensus.failed',
+	      'tool.execute.before', 'tool.execute.after',
+	      'session.created', 'session.resumed', 'session.compacting', 'session.archived', 'session.terminated',
+	      'automation.run.started', 'automation.run.completed', 'automation.run.failed',
+	      'cleanup.candidate.before', 'cleanup.candidate.after',
+	      'permission.ask', 'config.loaded',
+	    ];
     for (const event of expectedEvents) {
       expect(HookPayloadSchemas).toHaveProperty(event);
     }

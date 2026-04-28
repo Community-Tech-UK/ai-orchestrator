@@ -3,9 +3,21 @@ import type { FileAttachment, InstanceProvider } from './instance.types';
 export type AutomationScheduleType = 'cron' | 'oneTime';
 export type AutomationMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type AutomationConcurrencyPolicy = 'skip' | 'queue';
-export type AutomationTrigger = 'scheduled' | 'catchUp' | 'manual';
+export type AutomationTrigger = 'scheduled' | 'catchUp' | 'manual' | 'webhook' | 'channel' | 'providerRuntime' | 'orchestrationEvent';
 export type AutomationRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
 export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type AutomationDeliveryMode = 'notify' | 'silent' | 'localOnly';
+
+export interface AutomationTriggerSource {
+  type: AutomationTrigger;
+  id?: string;
+  eventType?: string;
+  deliveryId?: string;
+  instanceId?: string;
+  provider?: string;
+  channel?: string;
+  metadata?: Record<string, unknown>;
+}
 
 export type AutomationSchedule =
   | {
@@ -68,6 +80,10 @@ export interface AutomationRun {
   instanceId: string | null;
   error: string | null;
   outputSummary: string | null;
+  outputFullRef: string | null;
+  idempotencyKey: string | null;
+  triggerSource: AutomationTriggerSource | null;
+  deliveryMode: AutomationDeliveryMode;
   seenAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -98,6 +114,9 @@ export interface UpdateAutomationInput {
 export interface FireAutomationOptions {
   trigger: AutomationTrigger;
   scheduledAt?: number;
+  idempotencyKey?: string;
+  triggerSource?: AutomationTriggerSource;
+  deliveryMode?: AutomationDeliveryMode;
 }
 
 export type AutomationFireOutcome =

@@ -217,6 +217,10 @@ function slug(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function isAcpPromptRequestTimeout(error: Error): boolean {
+  return /^ACP session\/prompt request timed out after \d+ms \(id=.+\)\./.test(error.message);
+}
+
 function stripDataUrlPrefix(data: string): string {
   if (!data.startsWith('data:')) {
     return data;
@@ -448,6 +452,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // when the user types while a turn is still running — was silently
       // swallowed by the caller and the UI kept showing "Processing…".
       const err = error instanceof Error ? error : new Error(String(error));
+      const isRecoverablePromptTimeout = isAcpPromptRequestTimeout(err);
       const errorMessage: OutputMessage = {
         id: generateId(),
         timestamp: Date.now(),
@@ -457,10 +462,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
           source: 'acp-send-input',
           transport: 'acp',
           adapter: this.getName(),
+          ...(isRecoverablePromptTimeout ? {
+            recoverable: true,
+            retryKind: 'acp-prompt-timeout',
+          } : {}),
         },
       };
       this.emit('output', errorMessage);
-      this.emit('status', 'error');
+      this.emit('status', isRecoverablePromptTimeout ? 'idle' : 'error');
       this.emit('error', err);
     }
   }
@@ -1572,6 +1581,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
           id,
           timeoutMs,
         });
+        if (method === 'session/prompt') {
+          this.cancelTimedOutPrompt(id, timeoutMs);
+        }
         reject(error);
       }, timeoutMs);
       // Let the event loop exit even if this timer is still armed (e.g.,
@@ -1608,6 +1620,32 @@ export class AcpCliAdapter extends BaseCliAdapter {
       throw err;
     }
     return responsePromise;
+  }
+
+  private cancelTimedOutPrompt(id: string, timeoutMs: number): void {
+    if (!this.sessionId || !this.process) {
+      return;
+    }
+
+    void this.sendNotification('session/cancel', { sessionId: this.sessionId })
+      .catch((error) => {
+        logger.debug('ACP session/cancel after prompt timeout failed; continuing recovery', {
+          adapter: this.getName(),
+          promptRequestId: id,
+          timeoutMs,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    void this.cancelPendingPermissionRequests()
+      .catch((error) => {
+        logger.debug('ACP permission cancellation after prompt timeout failed; continuing recovery', {
+          adapter: this.getName(),
+          promptRequestId: id,
+          timeoutMs,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 
   private async sendNotification(method: string, params?: unknown): Promise<void> {

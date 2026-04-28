@@ -194,6 +194,42 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined, undefined);
   });
 
+  it('keeps ACP session/prompt timeouts retryable instead of poisoning the instance', async () => {
+    const adapter = new AcpCliAdapter({
+      adapterName: 'copilot-acp',
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    const timeoutError = 'ACP session/prompt request timed out after 600000ms (id=3). The agent may be stuck on an orphaned tool call or permission request.';
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+    instance.status = 'busy';
+
+    manager.setupAdapterEvents(instance.id, adapter as unknown as CliAdapter);
+    adapter.emit(
+      'output',
+      createMessage('error', timeoutError, {
+        metadata: {
+          source: 'acp-send-input',
+          transport: 'acp',
+          recoverable: true,
+          retryKind: 'acp-prompt-timeout',
+        },
+      }),
+    );
+    adapter.emit('status', 'idle');
+    adapter.emit('error', new Error(timeoutError));
+    await flushOutputHandlers();
+
+    expect(instance.status).toBe('idle');
+    expect(adapters.get(instance.id)).toBe(adapter);
+    expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'idle', instance.contextUsage);
+    expect(
+      instance.outputBuffer.filter(
+        (message) => message.type === 'error' && message.content === timeoutError,
+      ),
+    ).toHaveLength(1);
+  });
+
   it('captures baselines from tool_result messages', async () => {
     const captureBaseline = vi.fn();
     const tracker = {

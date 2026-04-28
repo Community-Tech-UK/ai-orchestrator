@@ -5,12 +5,13 @@ import type {
   AutomationAction,
   AutomationConfigSnapshot,
   AutomationConcurrencyPolicy,
-  AutomationFireOutcome,
+  AutomationDeliveryMode,
   AutomationMissedRunPolicy,
   AutomationRun,
   AutomationRunStatus,
   AutomationSchedule,
   AutomationTrigger,
+  AutomationTriggerSource,
   ClaimedAutomationRun,
   CreateAutomationInput,
   UpdateAutomationInput,
@@ -47,6 +48,10 @@ interface AutomationRunRow {
   instance_id: string | null;
   error: string | null;
   output_summary: string | null;
+  output_full_ref: string | null;
+  idempotency_key: string | null;
+  trigger_source_json: string | null;
+  delivery_mode: AutomationDeliveryMode;
   seen_at: number | null;
   config_snapshot_json: string | null;
   created_at: number;
@@ -58,6 +63,21 @@ type FireDecision =
   | { kind: 'skipped'; reason: string; run?: AutomationRun }
   | { kind: 'queued'; run: AutomationRun }
   | { kind: 'started'; run: AutomationRun };
+
+interface RunInsertExtras {
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+  idempotencyKey?: string;
+  triggerSource?: AutomationTriggerSource;
+  deliveryMode?: AutomationDeliveryMode;
+}
+
+export interface AutomationRunDecisionOptions {
+  idempotencyKey?: string;
+  triggerSource?: AutomationTriggerSource;
+  deliveryMode?: AutomationDeliveryMode;
+}
 
 function stripAttachmentData(action: AutomationAction): AutomationAction {
   const { attachments, ...rest } = action;
@@ -243,6 +263,7 @@ export class AutomationStore {
     trigger: AutomationTrigger,
     fireTime: number,
     now = Date.now(),
+    options: AutomationRunDecisionOptions = {},
   ): FireDecision {
     if (!automation) {
       return { kind: 'missing', reason: 'Automation no longer exists' };
@@ -263,16 +284,24 @@ export class AutomationStore {
         const run = this.insertRun(current, 'skipped', trigger, fireTime, now, {
           finishedAt: now,
           error: current.active ? 'Automation is disabled' : 'Automation is inactive',
+          ...options,
         });
         this.advanceScheduleBaselineIfNeeded(current.id, run.id, trigger, fireTime);
         return { kind: 'skipped', reason: run.error ?? 'Automation skipped', run };
       }
 
-      if (trigger !== 'manual' && current.lastFiredAt !== null && fireTime <= current.lastFiredAt) {
+      if (options.idempotencyKey) {
+        const existing = this.findIdempotentRun(current.id, trigger, options.idempotencyKey);
+        if (existing) {
+          return { kind: 'skipped', reason: 'Automation trigger idempotency key already processed', run: this.mapRun(existing) };
+        }
+      }
+
+      if (this.isScheduleTrigger(trigger) && current.lastFiredAt !== null && fireTime <= current.lastFiredAt) {
         return { kind: 'skipped', reason: 'Scheduled fire time was already processed' };
       }
 
-      if (trigger !== 'manual' && this.findDedupeRun(current.id, fireTime)) {
+      if (this.isScheduleTrigger(trigger) && this.findDedupeRun(current.id, fireTime)) {
         this.advanceScheduleBaselineIfNeeded(current.id, current.lastRunId, trigger, fireTime);
         return { kind: 'skipped', reason: 'Scheduled fire time already has a run' };
       }
@@ -289,18 +318,19 @@ export class AutomationStore {
         const run = this.insertRun(current, 'skipped', trigger, fireTime, now, {
           finishedAt: now,
           error: 'Previous automation run is still active',
+          ...options,
         });
         this.advanceScheduleBaselineIfNeeded(current.id, run.id, trigger, fireTime);
         return { kind: 'skipped', reason: run.error ?? 'Automation skipped', run };
       }
 
       if (running && current.concurrencyPolicy === 'queue') {
-        const run = this.insertRun(current, 'pending', trigger, fireTime, now);
+        const run = this.insertRun(current, 'pending', trigger, fireTime, now, options);
         this.advanceScheduleBaselineIfNeeded(current.id, run.id, trigger, fireTime);
         return { kind: 'queued', run };
       }
 
-      const run = this.insertRun(current, 'running', trigger, fireTime, now, { startedAt: now });
+      const run = this.insertRun(current, 'running', trigger, fireTime, now, { startedAt: now, ...options });
       this.advanceScheduleBaselineIfNeeded(current.id, run.id, trigger, fireTime);
       return { kind: 'started', run };
     });
@@ -322,8 +352,10 @@ export class AutomationStore {
     status: Exclude<AutomationRunStatus, 'pending' | 'running'>,
     error?: string,
     outputSummary?: string,
-    now = Date.now(),
+    nowOrOptions: number | { now?: number; outputFullRef?: string } = Date.now(),
   ): AutomationRun | null {
+    const now = typeof nowOrOptions === 'number' ? nowOrOptions : nowOrOptions.now ?? Date.now();
+    const outputFullRef = typeof nowOrOptions === 'number' ? undefined : nowOrOptions.outputFullRef;
     const tx = this.db.transaction(() => {
       const row = this.getRunRow(runId);
       if (!row || !['pending', 'running'].includes(row.status)) {
@@ -336,9 +368,10 @@ export class AutomationStore {
             finished_at = ?,
             error = ?,
             output_summary = ?,
+            output_full_ref = COALESCE(?, output_full_ref),
             updated_at = ?
         WHERE id = ?
-      `).run(status, now, error ?? null, outputSummary ?? null, now, runId);
+      `).run(status, now, error ?? null, outputSummary ?? null, outputFullRef ?? null, now, runId);
 
       const automation = this.getAutomationRow(row.automation_id);
       if (automation?.schedule_type === 'oneTime') {
@@ -430,7 +463,7 @@ export class AutomationStore {
     now = Date.now(),
   ): AutomationRun {
     const tx = this.db.transaction(() => {
-      if (trigger !== 'manual' && this.findDedupeRun(automation.id, fireTime)) {
+      if (this.isScheduleTrigger(trigger) && this.findDedupeRun(automation.id, fireTime)) {
         this.advanceScheduleBaselineIfNeeded(automation.id, automation.lastRunId, trigger, fireTime);
         const existing = this.findDedupeRun(automation.id, fireTime);
         if (existing) {
@@ -571,15 +604,16 @@ export class AutomationStore {
     trigger: AutomationTrigger,
     scheduledAt: number,
     now: number,
-    extras: { startedAt?: number; finishedAt?: number; error?: string } = {},
+    extras: RunInsertExtras = {},
   ): AutomationRun {
     const id = generateId();
     const snapshot = toSnapshot(automation);
     this.db.prepare(`
       INSERT INTO automation_runs
         (id, automation_id, status, trigger, scheduled_at, started_at, finished_at,
-         instance_id, error, output_summary, seen_at, config_snapshot_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?)
+         instance_id, error, output_summary, output_full_ref, idempotency_key,
+         trigger_source_json, delivery_mode, seen_at, config_snapshot_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?)
     `).run(
       id,
       automation.id,
@@ -589,6 +623,9 @@ export class AutomationStore {
       extras.startedAt ?? null,
       extras.finishedAt ?? null,
       extras.error ?? null,
+      extras.idempotencyKey ?? null,
+      extras.triggerSource ? JSON.stringify(extras.triggerSource) : null,
+      extras.deliveryMode ?? 'notify',
       JSON.stringify(snapshot),
       now,
       now,
@@ -607,7 +644,7 @@ export class AutomationStore {
     trigger: AutomationTrigger,
     fireTime: number,
   ): void {
-    if (trigger === 'manual') {
+    if (!this.isScheduleTrigger(trigger)) {
       if (runId) {
         this.db.prepare(`UPDATE automations SET last_run_id = ? WHERE id = ?`).run(runId, automationId);
       }
@@ -631,6 +668,19 @@ export class AutomationStore {
       WHERE automation_id = ? AND scheduled_at = ? AND trigger IN ('scheduled', 'catchUp')
       LIMIT 1
     `).get<AutomationRunRow>(automationId, scheduledAt);
+  }
+
+  private findIdempotentRun(automationId: string, trigger: AutomationTrigger, idempotencyKey: string): AutomationRunRow | undefined {
+    return this.db.prepare(`
+      SELECT *
+      FROM automation_runs
+      WHERE automation_id = ? AND trigger = ? AND idempotency_key = ?
+      LIMIT 1
+    `).get<AutomationRunRow>(automationId, trigger, idempotencyKey);
+  }
+
+  private isScheduleTrigger(trigger: AutomationTrigger): boolean {
+    return trigger === 'scheduled' || trigger === 'catchUp';
   }
 
   private getAutomationRow(id: string): AutomationRow | undefined {
@@ -682,6 +732,12 @@ export class AutomationStore {
       instanceId: row.instance_id,
       error: row.error,
       outputSummary: row.output_summary,
+      outputFullRef: row.output_full_ref,
+      idempotencyKey: row.idempotency_key,
+      triggerSource: row.trigger_source_json
+        ? JSON.parse(row.trigger_source_json) as AutomationTriggerSource
+        : null,
+      deliveryMode: row.delivery_mode ?? 'notify',
       seenAt: row.seen_at,
       configSnapshot: row.config_snapshot_json
         ? JSON.parse(row.config_snapshot_json) as AutomationConfigSnapshot

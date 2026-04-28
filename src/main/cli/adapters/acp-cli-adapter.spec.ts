@@ -712,6 +712,48 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('sendInput leaves session/prompt timeouts retryable and returns to idle', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', () => {
+      /* no-op: agent is "hung" */
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 50,
+    });
+    await adapter.spawn();
+
+    const statuses: string[] = [];
+    const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
+    const errors: Error[] = [];
+    adapter.on('status', (status: string) => statuses.push(status));
+    adapter.on('output', (message: { type: string; content: string; metadata?: Record<string, unknown> }) => {
+      outputs.push(message);
+    });
+    adapter.on('error', (error: Error) => errors.push(error));
+
+    await adapter.sendInput('hello');
+
+    expect(statuses).toEqual(['busy', 'idle']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toMatch(/session\/prompt request timed out after 50ms/);
+    expect(outputs).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        content: expect.stringMatching(/session\/prompt request timed out after 50ms/),
+        metadata: expect.objectContaining({
+          recoverable: true,
+          retryKind: 'acp-prompt-timeout',
+        }),
+      }),
+    );
+
+    proc.exit();
+  });
+
   it('rejects non-prompt ACP requests after requestTimeoutMs when the agent is silent', async () => {
     const proc = new FakeAcpProcess();
     // Respond to initialize but never to session/new — forces spawn() to hit

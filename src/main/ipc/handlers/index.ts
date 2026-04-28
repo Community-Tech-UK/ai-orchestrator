@@ -43,3 +43,4 @@ export { registerKnowledgeGraphHandlers } from './knowledge-graph-handlers';
 export { registerConversationMiningHandlers } from './conversation-mining-handlers';
 export { registerWakeContextHandlers } from './wake-context-handlers';
 export { registerAutomationHandlers } from './automation-handlers';
+export { registerWebhookHandlers } from './webhook-handlers';

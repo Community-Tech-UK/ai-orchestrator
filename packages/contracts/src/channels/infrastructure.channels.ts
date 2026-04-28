@@ -134,6 +134,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   SEARCH_GET_INDEX_STATS: 'search:get-index-stats',
   SEARCH_CONFIGURE_EXA: 'search:configure-exa',
   SEARCH_IS_EXA_CONFIGURED: 'search:is-exa-configured',
+  SESSION_RECALL_SEARCH: 'session-recall:search',
 
   // Recent Directories operations
   RECENT_DIRS_GET: 'recent-dirs:get',

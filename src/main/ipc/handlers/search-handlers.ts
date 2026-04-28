@@ -10,8 +10,10 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   SearchBuildIndexPayloadSchema,
   SearchConfigureExaPayloadSchema,
+  SessionRecallSearchPayloadSchema,
   SearchSemanticPayloadSchema,
 } from '@contracts/schemas/observability';
+import { getSessionRecallService } from '../../session/session-recall-service';
 
 export function registerSearchHandlers(): void {
   const searchManager = getSemanticSearchManager();
@@ -168,6 +170,34 @@ export function registerSearchHandlers(): void {
           success: false,
           error: {
             code: 'SEARCH_IS_EXA_CONFIGURED_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_RECALL_SEARCH,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(SessionRecallSearchPayloadSchema, payload ?? {}, 'SESSION_RECALL_SEARCH');
+        const results = await getSessionRecallService().search({
+          query: validated.query,
+          parentId: validated.parentId,
+          automationId: validated.automationId,
+          limit: validated.limit,
+        });
+        return { success: true, data: results };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_RECALL_SEARCH_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

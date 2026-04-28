@@ -8,9 +8,11 @@
 
 import { app } from 'electron';
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import { LLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
+import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
 
 const logger = getLogger('ChildResultStorage');
 import type {
@@ -46,6 +48,13 @@ const DEFAULT_CONFIG: Required<ChildResultStorageConfig> = {
 const BROWSER_EVIDENCE_FILE_PATTERN =
   /(?:^|[\s("'`])((?:\/|[A-Za-z]:[\\/])[^"'`\s]+\.(?:png|jpe?g|webp|gif|log|txt|json|har|trace|zip))(?:$|[\s)"'`])/g;
 
+function getUserDataPath(): string {
+  const electronApp = app as { getPath?: (name: string) => string } | undefined;
+  return typeof electronApp?.getPath === 'function'
+    ? electronApp.getPath('userData')
+    : path.join(os.tmpdir(), 'ai-orchestrator');
+}
+
 export class ChildResultStorage {
   private static instance: ChildResultStorage | null = null;
   private config: Required<ChildResultStorageConfig>;
@@ -56,7 +65,7 @@ export class ChildResultStorage {
   private llmService: LLMService;
 
   private constructor(config: ChildResultStorageConfig = {}) {
-    const storagePath = config.storagePath || path.join(app.getPath('userData'), 'child-results');
+    const storagePath = config.storagePath || path.join(getUserDataPath(), 'child-results');
     this.config = { ...DEFAULT_CONFIG, ...config, storagePath };
     this.llmService = LLMService.getInstance();
   }
@@ -155,6 +164,7 @@ export class ChildResultStorage {
     // Save result metadata
     const resultPath = path.join(this.config.storagePath, `${resultId}.json`);
     await fs.writeFile(resultPath, JSON.stringify(result, null, 2));
+    this.registerArtifacts(result, resultPath, transcriptPath);
 
     // Update in-memory indexes
     this.results.set(resultId, result);
@@ -175,6 +185,50 @@ export class ChildResultStorage {
     });
 
     return result;
+  }
+
+  private registerArtifacts(result: ChildResult, resultPath: string, transcriptPath: string): void {
+    try {
+      const registry = getArtifactAttributionStore();
+      registry.registerArtifact({
+        ownerType: 'child_result',
+        ownerId: result.id,
+        kind: 'child_result_json',
+        path: resultPath,
+        protected: true,
+      });
+      registry.registerArtifact({
+        ownerType: 'child_result',
+        ownerId: result.id,
+        kind: 'child_transcript',
+        path: transcriptPath,
+      });
+      for (const artifact of result.artifacts) {
+        const artifactPath = typeof artifact.metadata?.['screenshotPath'] === 'string'
+          ? artifact.metadata['screenshotPath']
+          : typeof artifact.metadata?.['consolePath'] === 'string'
+            ? artifact.metadata['consolePath']
+            : typeof artifact.metadata?.['networkPath'] === 'string'
+              ? artifact.metadata['networkPath']
+              : typeof artifact.metadata?.['tracePath'] === 'string'
+                ? artifact.metadata['tracePath']
+                : artifact.file;
+        if (artifactPath) {
+          registry.registerArtifact({
+            ownerType: 'child_result',
+            ownerId: result.id,
+            kind: artifact.type,
+            path: artifactPath,
+            metadata: { artifactId: artifact.id, childId: result.childId },
+          });
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to register child result artifacts', {
+        resultId: result.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

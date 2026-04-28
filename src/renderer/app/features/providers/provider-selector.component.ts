@@ -35,7 +35,7 @@ export interface ProviderOption {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="provider-selector">
+    <div class="provider-selector" [class.open]="isOpen()">
       <button
         class="selected-provider"
         [style.border-color]="selectedProvider().color"
@@ -178,7 +178,11 @@ export interface ProviderOption {
 
       .provider-selector {
         position: relative;
-        z-index: 100;
+        z-index: var(--z-dropdown);
+      }
+
+      .provider-selector.open {
+        z-index: var(--z-overlay);
       }
 
       .selected-provider {
@@ -235,7 +239,7 @@ export interface ProviderOption {
         border-radius: 8px;
         box-shadow: var(--shadow-lg);
         overflow: hidden;
-        z-index: 101;
+        z-index: 1;
       }
 
       .provider-option {
@@ -287,7 +291,7 @@ export interface ProviderOption {
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 99;
+        z-index: var(--z-sticky);
       }
     `
   ]

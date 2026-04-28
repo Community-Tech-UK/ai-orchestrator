@@ -6,6 +6,26 @@ import {
 
 export const AutomationIdSchema = z.string().min(1).max(100);
 export const AutomationRunIdSchema = z.string().min(1).max(100);
+export const AutomationTriggerSchema = z.enum([
+  'scheduled',
+  'catchUp',
+  'manual',
+  'webhook',
+  'channel',
+  'providerRuntime',
+  'orchestrationEvent',
+]);
+export const AutomationDeliveryModeSchema = z.enum(['notify', 'silent', 'localOnly']);
+export const AutomationTriggerSourceSchema = z.object({
+  type: AutomationTriggerSchema,
+  id: z.string().max(200).optional(),
+  eventType: z.string().max(200).optional(),
+  deliveryId: z.string().max(500).optional(),
+  instanceId: z.string().max(200).optional(),
+  provider: z.string().max(100).optional(),
+  channel: z.string().max(100).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
 
 export const AutomationScheduleTypeSchema = z.enum(['cron', 'oneTime']);
 export const AutomationMissedRunPolicySchema = z.enum(['skip', 'notify', 'runOnce']);
@@ -74,6 +94,9 @@ export const AutomationDeletePayloadSchema = z.object({
 
 export const AutomationRunNowPayloadSchema = z.object({
   id: AutomationIdSchema,
+  idempotencyKey: z.string().max(500).optional(),
+  triggerSource: AutomationTriggerSourceSchema.optional(),
+  deliveryMode: AutomationDeliveryModeSchema.optional(),
 });
 
 export const AutomationCancelPendingPayloadSchema = z.object({

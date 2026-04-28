@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AgentTreePersistence } from '../agent-tree-persistence';
-import type { AgentTreeNode, AgentTreeSnapshot } from '../../../shared/types/agent-tree.types';
+import { AGENT_TREE_SCHEMA_VERSION, type AgentTreeNode, type AgentTreeSnapshot } from '../../../shared/types/agent-tree.types';
 
 // Mock electron app
 vi.mock('electron', () => ({
@@ -20,7 +20,7 @@ describe('AgentTreePersistence', () => {
     expect(a).toBe(b);
   });
 
-  it('should build a tree snapshot from flat instance data', () => {
+	  it('should build a tree snapshot from flat instance data', () => {
     const persistence = AgentTreePersistence.getInstance();
     const instances = [
       makeInstance('root', null, ['child-1', 'child-2']),
@@ -39,8 +39,42 @@ describe('AgentTreePersistence', () => {
     expect(root.parentId).toBeNull();
     expect(root.depth).toBe(0);
 
-    const grandchild = snapshot.nodes.find(n => n.instanceId === 'grandchild-1')!;
-    expect(grandchild.depth).toBe(2);
+	    const grandchild = snapshot.nodes.find(n => n.instanceId === 'grandchild-1')!;
+	    expect(grandchild.depth).toBe(2);
+    expect(root.statusTimeline[0]?.status).toBe('idle');
+    expect(root.role).toBe('parent_orchestrator');
+	  });
+
+  it('captures child routing runtime metadata in schema v2 snapshots', () => {
+    const persistence = AgentTreePersistence.getInstance();
+    const instances = [
+      makeInstance('root', null, ['child-1']),
+      {
+        ...makeInstance('child-1', 'root', []),
+        currentModel: 'gpt-5.3-codex',
+        metadata: {
+          orchestration: {
+            role: 'worker',
+            task: 'Check implementation',
+            routingAudit: {
+              requestedProvider: 'copilot',
+              actualProvider: 'copilot',
+              actualModel: 'gemini-3.1-pro-preview',
+              routingSource: 'explicit',
+            },
+          },
+        },
+      },
+    ];
+
+    const snapshot = persistence.buildSnapshot('root', instances);
+    const child = snapshot.nodes.find(n => n.instanceId === 'child-1')!;
+
+    expect(snapshot.schemaVersion).toBe(AGENT_TREE_SCHEMA_VERSION);
+    expect(child.role).toBe('worker');
+    expect(child.spawnPromptHash).toHaveLength(64);
+    expect(child.routing?.actualModel).toBe('gemini-3.1-pro-preview');
+    expect(child.spawnConfig?.task).toBe('Check implementation');
   });
 
   it('should compute BFS traversal order for restore', () => {
@@ -55,7 +89,7 @@ describe('AgentTreePersistence', () => {
         makeNode('c', 'a', [], 2),
       ],
       edges: [],
-      schemaVersion: 1,
+	      schemaVersion: AGENT_TREE_SCHEMA_VERSION,
       timestamp: Date.now(),
       workingDirectory: '/tmp',
       totalInstances: 4,
@@ -77,7 +111,7 @@ describe('AgentTreePersistence', () => {
         makeNode('b', 'a', [], 2),
       ],
       edges: [],
-      schemaVersion: 1,
+	      schemaVersion: AGENT_TREE_SCHEMA_VERSION,
       timestamp: Date.now(),
       workingDirectory: '/tmp',
       totalInstances: 3,
@@ -91,17 +125,20 @@ describe('AgentTreePersistence', () => {
 
 function makeInstance(id: string, parentId: string | null, childrenIds: string[]) {
   return {
-    id, displayName: `Instance ${id}`, parentId, childrenIds,
-    depth: parentId ? 1 : 0, status: 'idle', provider: 'claude-cli',
-    workingDirectory: '/tmp/test', sessionId: `session-${id}`,
-    totalTokensUsed: 100, createdAt: Date.now(),
-  };
+	    id, displayName: `Instance ${id}`, parentId, childrenIds,
+	    depth: parentId ? 1 : 0, status: 'idle', provider: 'claude-cli',
+	    workingDirectory: '/tmp/test', sessionId: `session-${id}`,
+	    totalTokensUsed: 100, createdAt: Date.now(), lastActivity: Date.now(),
+	  };
 }
 
 function makeNode(id: string, parentId: string | null, childrenIds: string[], depth: number): AgentTreeNode {
   return {
-    instanceId: id, displayName: `Node ${id}`, parentId, childrenIds, depth,
-    status: 'idle', provider: 'claude-cli', workingDirectory: '/tmp/test',
-    sessionId: `session-${id}`, hasResult: false, createdAt: Date.now(),
-  };
-}
+	    instanceId: id, displayName: `Node ${id}`, parentId, childrenIds, depth,
+	    status: 'idle', provider: 'claude-cli', workingDirectory: '/tmp/test',
+	    sessionId: `session-${id}`, hasResult: false,
+	    statusTimeline: [{ status: 'idle', timestamp: Date.now() }],
+	    lastActivityAt: Date.now(),
+	    createdAt: Date.now(),
+	  };
+	}

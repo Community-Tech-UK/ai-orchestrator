@@ -626,6 +626,7 @@ export const IPC_CHANNELS = {
   SEARCH_GET_INDEX_STATS: 'search:get-index-stats',
   SEARCH_CONFIGURE_EXA: 'search:configure-exa',
   SEARCH_IS_EXA_CONFIGURED: 'search:is-exa-configured',
+  SESSION_RECALL_SEARCH: 'session-recall:search',
 
   // Recent Directories operations
   RECENT_DIRS_GET: 'recent-dirs:get',
@@ -925,6 +926,11 @@ export const IPC_CHANNELS = {
 
   AUTOMATION_CHANGED: 'automation:changed',
   AUTOMATION_RUN_CHANGED: 'automation:run-changed',
+
+  WEBHOOK_STATUS: 'webhook:status',
+  WEBHOOK_LIST_ROUTES: 'webhook:list-routes',
+  WEBHOOK_CREATE_ROUTE: 'webhook:create-route',
+  WEBHOOK_LIST_DELIVERIES: 'webhook:list-deliveries',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

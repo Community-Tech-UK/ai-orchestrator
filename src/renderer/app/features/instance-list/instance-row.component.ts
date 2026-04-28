@@ -28,6 +28,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       [class.draggable]="isDraggable()"
       [style.padding-left.px]="6 + depth() * 18"
       (click)="instanceSelect.emit(instance().id)"
+      (contextmenu)="onContextMenu($event)"
       (keydown.enter)="instanceSelect.emit(instance().id)"
       (keydown.space)="instanceSelect.emit(instance().id)"
       tabindex="0"
@@ -631,6 +632,7 @@ export class InstanceRowComponent {
   terminate = output<string>();
   restart = output<string>();
   toggleExpand = output<string>();
+  contextMenu = output<{ event: MouseEvent; instance: Instance; displayTitle: string }>();
   readonly resolvedDisplayTitle = computed(() => this.displayTitle()?.trim() || this.instance().displayName);
 
   readonly hasPendingApproval = computed(() =>
@@ -775,4 +777,13 @@ export class InstanceRowComponent {
     this.toggleExpand.emit(this.instance().id);
   }
 
+  onContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenu.emit({
+      event,
+      instance: this.instance(),
+      displayTitle: this.resolvedDisplayTitle(),
+    });
+  }
 }

@@ -157,7 +157,15 @@ export function registerAutomationHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(AutomationRunNowPayloadSchema, payload, 'AUTOMATION_RUN_NOW');
-        return { success: true, data: await runner.fire(validated.id, { trigger: 'manual' }) };
+        return {
+          success: true,
+          data: await runner.fire(validated.id, {
+            trigger: 'manual',
+            idempotencyKey: validated.idempotencyKey,
+            triggerSource: validated.triggerSource,
+            deliveryMode: validated.deliveryMode,
+          }),
+        };
       } catch (error) {
         return responseError('AUTOMATION_RUN_NOW_FAILED', error);
       }

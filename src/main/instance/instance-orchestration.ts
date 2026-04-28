@@ -27,7 +27,7 @@ import type {
   GetChildOutputCommand
 } from '../orchestration/orchestration-protocol';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
-import type { TaskExecution } from '../../shared/types/task.types';
+import type { TaskExecution, TaskProgress } from '../../shared/types/task.types';
 import type { ToolUsageRecord } from '../../shared/types/self-improvement.types';
 import type { FastPathResult } from './instance-types';
 import { getChildErrorClassifier } from '../orchestration/child-error-classifier';
@@ -41,6 +41,9 @@ import type {
   ChildArtifactsResponse,
   ChildSectionResponse,
 } from '../../shared/types/child-result.types';
+import { SpawnChildPayloadSchema } from '@contracts/schemas/orchestration';
+import { emitPluginHook } from '../plugins/hook-emitter';
+import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
 
 /**
  * Dependencies required by the orchestration manager
@@ -55,6 +58,18 @@ export interface OrchestrationDependencies {
 }
 
 const logger = getLogger('InstanceOrchestration');
+
+function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
+  const orchestration = child.metadata?.['orchestration'];
+  if (!orchestration || typeof orchestration !== 'object') {
+    return undefined;
+  }
+  const audit = (orchestration as Record<string, unknown>)['routingAudit'];
+  if (!audit || typeof audit !== 'object') {
+    return undefined;
+  }
+  return audit as PluginRoutingAudit;
+}
 
 export class InstanceOrchestrationManager {
   private orchestration: OrchestrationHandler;
@@ -152,6 +167,23 @@ export class InstanceOrchestrationManager {
         const parent = this.deps.getInstance(parentId);
         if (!parent) return;
 
+        const validation = SpawnChildPayloadSchema.safeParse({
+          parentInstanceId: parentId,
+          task: command.task,
+          name: command.name,
+          agentId: command.agentId,
+          model: command.model,
+          provider: command.provider,
+        });
+        if (!validation.success) {
+          const issue = validation.error.issues[0];
+          this.orchestration.notifyError(
+            parentId,
+            `Invalid spawn_child command: ${issue?.path.join('.') || 'payload'} ${issue?.message || 'failed validation'}`,
+          );
+          return;
+        }
+
         // Check max total instances limit
         if (
           this.orchestrationSettings.maxTotalInstances > 0 &&
@@ -218,9 +250,17 @@ export class InstanceOrchestrationManager {
             logger.info('Estimated cost savings from model routing', { savingsPercent: routingDecision.estimatedSavingsPercent });
           }
 
-          const child = await this.deps.createChildInstance(parentId, command, routingDecision);
+	          const child = await this.deps.createChildInstance(parentId, command, routingDecision);
+	          emitPluginHook('orchestration.child.started', {
+	            parentId,
+	            childId: child.id,
+	            task: command.task,
+	            name: child.displayName,
+	            routing: getChildRoutingAudit(child),
+	            timestamp: Date.now(),
+	          });
 
-          this.orchestration.notifyChildSpawned(
+	          this.orchestration.notifyChildSpawned(
             parentId,
             child.id,
             child.displayName,
@@ -326,6 +366,19 @@ export class InstanceOrchestrationManager {
     );
 
     this.orchestration.on(
+      'task-progress',
+      (parentId: string, childId: string, progress: TaskProgress) => {
+        emitPluginHook('orchestration.child.progress', {
+          parentId,
+          childId,
+          percentage: progress.percentage,
+          currentStep: progress.currentStep,
+          timestamp: Date.now(),
+        });
+      }
+    );
+
+    this.orchestration.on(
       'task-error',
       (
         parentId: string,
@@ -424,10 +477,20 @@ export class InstanceOrchestrationManager {
             child.createdAt
           );
 
-          const summary = await storage.getChildSummary(childId);
-          callback(summary);
+	          const summary = await storage.getChildSummary(childId);
+	          callback(summary);
+	          emitPluginHook('orchestration.child.result.reported', {
+	            parentId: child.parentId,
+	            childId,
+	            name: child.displayName,
+	            success: command.success !== false,
+	            summary: command.summary,
+	            resultId: result.id,
+	            artifactCount: result.artifactCount,
+	            timestamp: Date.now(),
+	          });
 
-          // Also record task completion
+	          // Also record task completion
           if (task) {
             taskManager.completeTask(task.taskId, {
               success: command.success !== false,

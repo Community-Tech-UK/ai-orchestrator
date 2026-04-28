@@ -47,6 +47,7 @@
       "@contracts/schemas/plugin":           ["./packages/contracts/src/schemas/plugin.schemas"],
       "@contracts/schemas/image":            ["./packages/contracts/src/schemas/image.schemas"],
       "@contracts/schemas/automation":       ["./packages/contracts/src/schemas/automation.schemas"],
+      "@contracts/schemas/webhook":          ["./packages/contracts/src/schemas/webhook.schemas"],
       "@contracts/schemas/quota":            ["./packages/contracts/src/schemas/quota.schemas"],
       "@contracts/schemas/provider-runtime-events": ["./packages/contracts/src/schemas/provider-runtime-events.schemas"],
       "@contracts/channels/automation":      ["./packages/contracts/src/channels/automation.channels"],

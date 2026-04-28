@@ -7,6 +7,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
 import type {
@@ -33,6 +34,8 @@ interface InstanceData {
   sessionId: string;
   totalTokensUsed: number;
   createdAt: number;
+  lastActivity?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export class AgentTreePersistence {
@@ -113,6 +116,24 @@ export class AgentTreePersistence {
         current = instanceMap.get(current.parentId)!;
       }
 
+      const orchestrationMetadata = typeof inst.metadata?.['orchestration'] === 'object'
+        && inst.metadata['orchestration'] !== null
+        ? inst.metadata['orchestration'] as Record<string, unknown>
+        : undefined;
+      const routing = typeof orchestrationMetadata?.['routingAudit'] === 'object'
+        && orchestrationMetadata['routingAudit'] !== null
+        ? orchestrationMetadata['routingAudit'] as AgentTreeNode['routing']
+        : undefined;
+      const task = typeof orchestrationMetadata?.['task'] === 'string'
+        ? orchestrationMetadata['task']
+        : undefined;
+      const resultId = typeof orchestrationMetadata?.['resultId'] === 'string'
+        ? orchestrationMetadata['resultId']
+        : undefined;
+      const artifactCount = typeof orchestrationMetadata?.['artifactCount'] === 'number'
+        ? orchestrationMetadata['artifactCount']
+        : undefined;
+
       nodes.push({
         instanceId: inst.id,
         displayName: inst.displayName,
@@ -125,7 +146,30 @@ export class AgentTreePersistence {
         workingDirectory: inst.workingDirectory,
         agentId: inst.agentId,
         sessionId: inst.sessionId,
-        hasResult: false,
+        hasResult: Boolean(resultId),
+        role: typeof orchestrationMetadata?.['role'] === 'string'
+          ? orchestrationMetadata['role']
+          : inst.parentId ? 'worker' : 'parent_orchestrator',
+        spawnPromptHash: task
+          ? createHash('sha256').update(task).digest('hex')
+          : undefined,
+        statusTimeline: [{
+          status: inst.status,
+          timestamp: inst.lastActivity ?? inst.createdAt,
+        }],
+        heartbeatAt: inst.lastActivity,
+        lastActivityAt: inst.lastActivity ?? inst.createdAt,
+        resultId,
+        artifactCount,
+        routing,
+        spawnConfig: task
+          ? {
+              task,
+              model: inst.currentModel,
+              provider: inst.provider,
+              agentId: inst.agentId,
+            }
+          : undefined,
         createdAt: inst.createdAt,
       });
 
@@ -203,7 +247,7 @@ export class AgentTreePersistence {
       }
       const data = await fs.readFile(filePath, 'utf-8');
       const snapshot = JSON.parse(data) as AgentTreeSnapshot;
-      if (snapshot.schemaVersion !== AGENT_TREE_SCHEMA_VERSION) {
+      if (snapshot.schemaVersion > AGENT_TREE_SCHEMA_VERSION) {
         logger.warn('Snapshot schema version mismatch', {
           snapshotId,
           expected: AGENT_TREE_SCHEMA_VERSION,
@@ -211,11 +255,31 @@ export class AgentTreePersistence {
         });
         return null;
       }
-      return snapshot;
+      return this.migrateSnapshot(snapshot);
     } catch {
       logger.warn('Failed to load agent tree snapshot', { snapshotId });
       return null;
     }
+  }
+
+  private migrateSnapshot(snapshot: AgentTreeSnapshot): AgentTreeSnapshot {
+    if (snapshot.schemaVersion === AGENT_TREE_SCHEMA_VERSION) {
+      return snapshot;
+    }
+
+    return {
+      ...snapshot,
+      schemaVersion: AGENT_TREE_SCHEMA_VERSION,
+      nodes: snapshot.nodes.map((node) => ({
+        ...node,
+        role: node.role ?? (node.parentId ? 'worker' : 'parent_orchestrator'),
+        statusTimeline: node.statusTimeline?.length
+          ? node.statusTimeline
+          : [{ status: node.status, timestamp: node.createdAt }],
+        lastActivityAt: node.lastActivityAt ?? node.createdAt,
+        heartbeatAt: node.heartbeatAt ?? node.createdAt,
+      })),
+    };
   }
 
   async listSnapshots(): Promise<{ id: string; rootId: string; totalInstances: number; timestamp: number }[]> {

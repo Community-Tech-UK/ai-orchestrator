@@ -1,3 +1,7 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { app } from 'electron';
 import { getLogger } from '../logging/logger';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
@@ -13,14 +17,28 @@ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-run
 import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
 import { AutomationStore } from './automation-store';
 import { getAutomationEvents } from './automation-events';
+import { emitPluginHook } from '../plugins/hook-emitter';
+import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
 
 const logger = getLogger('AutomationRunner');
+
+function getUserDataPath(): string {
+  const electronApp = app as { getPath?: (name: string) => string } | undefined;
+  return typeof electronApp?.getPath === 'function'
+    ? electronApp.getPath('userData')
+    : path.join(os.tmpdir(), 'ai-orchestrator');
+}
 
 interface RunTracking {
   runId: string;
   automationId: string;
   seenAssistantOutput: boolean;
   lastAssistantOutput?: string;
+  outputChunks: Array<{
+    kind: string;
+    content?: string;
+    timestamp: number;
+  }>;
 }
 
 const FAILURE_STATUSES = new Set<InstanceStatus>([
@@ -85,6 +103,11 @@ export class AutomationRunner {
       options.trigger,
       fireTime,
       this.now(),
+      {
+        idempotencyKey: options.idempotencyKey,
+        triggerSource: options.triggerSource,
+        deliveryMode: options.deliveryMode,
+      },
     );
 
     if (decision.kind === 'missing') {
@@ -106,6 +129,14 @@ export class AutomationRunner {
 
     const run = decision.run;
     this.events.emitRunChanged({ automationId: run.automationId, run });
+    emitPluginHook('automation.run.started', {
+      automationId: run.automationId,
+      runId: run.id,
+      trigger: run.trigger,
+      source: run.triggerSource ?? undefined,
+      deliveryMode: run.deliveryMode,
+      timestamp: Date.now(),
+    });
     await this.dispatchRun({
       run,
       automation: automation as Automation,
@@ -170,9 +201,17 @@ export class AutomationRunner {
         undefined,
         this.now(),
       );
-      if (failed) {
-        this.events.emitRunChanged({ automationId: failed.automationId, run: failed });
-        this.events.emitRunTerminal({
+	      if (failed) {
+	        this.events.emitRunChanged({ automationId: failed.automationId, run: failed });
+	        emitPluginHook('automation.run.failed', {
+	          automationId: failed.automationId,
+	          runId: failed.id,
+	          status: failed.status,
+	          error: failed.error ?? undefined,
+	          outputFullRef: failed.outputFullRef ?? undefined,
+	          timestamp: Date.now(),
+	        });
+	        this.events.emitRunTerminal({
           automationId: failed.automationId,
           runId: failed.id,
           status: failed.status as Exclude<AutomationRunStatus, 'pending' | 'running'>,
@@ -191,6 +230,7 @@ export class AutomationRunner {
       runId: run.id,
       automationId: run.automationId,
       seenAssistantOutput: false,
+      outputChunks: [],
     });
     this.instanceByRun.set(run.id, instanceId);
   }
@@ -203,6 +243,11 @@ export class AutomationRunner {
 
     switch (envelope.event.kind) {
       case 'output':
+        tracking.outputChunks.push({
+          kind: envelope.event.messageType ?? 'output',
+          content: envelope.event.content,
+          timestamp: Date.now(),
+        });
         if (envelope.event.messageType === 'assistant' && envelope.event.content.trim().length > 0) {
           tracking.seenAssistantOutput = true;
           tracking.lastAssistantOutput = envelope.event.content;
@@ -284,6 +329,11 @@ export class AutomationRunner {
       tracking.seenAssistantOutput = true;
       tracking.lastAssistantOutput = assistant.content;
     }
+    tracking.outputChunks.push(...instance.outputBuffer.slice(-20).map((message) => ({
+      kind: message.type,
+      content: message.content,
+      timestamp: message.timestamp,
+    })));
 
     if (FAILURE_STATUSES.has(instance.status)) {
       this.failTrackedInstance(instance.id, `Instance entered ${instance.status}`);
@@ -318,12 +368,13 @@ export class AutomationRunner {
     this.trackingByInstance.delete(instanceId);
     this.instanceByRun.delete(tracking.runId);
 
+    const outputFullRef = this.writeFullOutput(tracking);
     const run = this.store.terminalizeRun(
       tracking.runId,
       status,
       error,
       tracking.lastAssistantOutput ? tracking.lastAssistantOutput.slice(0, 4000) : undefined,
-      this.now(),
+      { now: this.now(), outputFullRef },
     );
     if (!run) {
       return;
@@ -335,6 +386,25 @@ export class AutomationRunner {
       runId: run.id,
       status: run.status as Exclude<AutomationRunStatus, 'pending' | 'running'>,
     });
+    if (run.status === 'failed') {
+      emitPluginHook('automation.run.failed', {
+        automationId: run.automationId,
+        runId: run.id,
+        status: run.status,
+        error: run.error ?? undefined,
+        outputFullRef: run.outputFullRef ?? undefined,
+        timestamp: Date.now(),
+      });
+    } else {
+      emitPluginHook('automation.run.completed', {
+        automationId: run.automationId,
+        runId: run.id,
+        status: run.status,
+        outputSummary: run.outputSummary ?? undefined,
+        outputFullRef: run.outputFullRef ?? undefined,
+        timestamp: Date.now(),
+      });
+    }
     if (this.isOneTimeRun(run)) {
       this.emitAutomationState(run.automationId);
       this.events.emitScheduleDeactivated({ automationId: run.automationId });
@@ -349,6 +419,38 @@ export class AutomationRunner {
 
   private failTrackedInstance(instanceId: string, reason: string): void {
     this.completeTrackedInstance(instanceId, 'failed', reason);
+  }
+
+  private writeFullOutput(tracking: RunTracking): string | undefined {
+    if (tracking.outputChunks.length === 0 && !tracking.lastAssistantOutput) {
+      return undefined;
+    }
+
+    try {
+      const outputDir = path.join(getUserDataPath(), 'automation-run-output');
+      fs.mkdirSync(outputDir, { recursive: true });
+      const filePath = path.join(outputDir, `${tracking.runId}.json`);
+      fs.writeFileSync(filePath, JSON.stringify({
+        runId: tracking.runId,
+        automationId: tracking.automationId,
+        lastAssistantOutput: tracking.lastAssistantOutput,
+        events: tracking.outputChunks,
+        capturedAt: Date.now(),
+      }, null, 2), 'utf-8');
+      getArtifactAttributionStore().registerArtifact({
+        ownerType: 'automation_run',
+        ownerId: tracking.runId,
+        kind: 'automation_full_output',
+        path: filePath,
+      });
+      return filePath;
+    } catch (error) {
+      logger.warn('Failed to persist full automation output', {
+        runId: tracking.runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   private isOneTimeRun(run: AutomationRun): boolean {

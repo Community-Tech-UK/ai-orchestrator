@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PermissionRegistry } from '../permission-registry';
+import { evaluateOrchestrationCapability } from '../role-capability-policy';
 
 describe('PermissionRegistry', () => {
   beforeEach(() => {
@@ -55,5 +56,29 @@ describe('PermissionRegistry', () => {
     expect(registry.getPendingCount()).toBe(1);
     registry.clearForInstance('remove-me');
     expect(registry.getPendingCount()).toBe(0);
+  });
+});
+
+describe('role capability policy', () => {
+  it('allows parents to spawn children but blocks workers from spawning recursively', () => {
+    const command = {
+      action: 'spawn_child' as const,
+      task: 'Review this patch',
+    };
+
+    expect(evaluateOrchestrationCapability('parent_orchestrator', command).allowed).toBe(true);
+    const workerDecision = evaluateOrchestrationCapability('worker', command);
+    expect(workerDecision.allowed).toBe(false);
+    expect(workerDecision.reason).toContain('worker cannot spawn');
+  });
+
+  it('allows workers to report results', () => {
+    const command = {
+      action: 'report_result' as const,
+      summary: 'done',
+      success: true,
+    };
+
+    expect(evaluateOrchestrationCapability('worker', command).allowed).toBe(true);
   });
 });

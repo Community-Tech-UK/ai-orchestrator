@@ -254,6 +254,17 @@ export class InstanceCommunicationManager extends EventEmitter {
   }
 
   /**
+   * ACP prompt timeouts mean the current turn failed to close its JSON-RPC
+   * `session/prompt` request. The streamed output may be partial, but the
+   * instance itself should remain retryable: Copilot/Cursor can accept a
+   * fresh prompt or be restarted manually. Treating this as fatal strands the
+   * input box in "instance is error" after a single hung turn.
+   */
+  private isRecoverableAcpPromptTurnError(errorMessage: string): boolean {
+    return /^ACP session\/prompt request timed out after \d+ms \(id=.+\)\./.test(errorMessage);
+  }
+
+  /**
    * Get or create circuit breaker state for an instance
    */
   private getCircuitBreaker(instanceId: string): CircuitBreakerState {
@@ -1329,10 +1340,12 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
       const recoverableStatelessExecError = this.isRecoverableStatelessExecTurnError(adapter, error);
+      const recoverableAcpPromptTurnError = this.isRecoverableAcpPromptTurnError(errorMessage);
+      const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
       emitProviderRuntimeEvent({
         kind: 'error',
         message: errorMessage,
-        recoverable: recoverableStatelessExecError,
+        recoverable: recoverableTurnError,
       });
       const instance = this.deps.getInstance(instanceId);
       logger.error('Instance error', error instanceof Error ? error : undefined, { instanceId, status: instance?.status });
@@ -1490,12 +1503,13 @@ export class InstanceCommunicationManager extends EventEmitter {
         this.emit('output', { instanceId, message: errorMessage });
       }
 
-      if (recoverableStatelessExecError) {
+      if (recoverableTurnError) {
         instance.errorCount++;
-        logger.info('Keeping stateless exec adapter instance recoverable after turn failure', {
+        logger.info('Keeping instance recoverable after turn failure', {
           instanceId,
           adapter: adapter.getName(),
           message: errText,
+          recoverableKind: recoverableAcpPromptTurnError ? 'acp-prompt-timeout' : 'stateless-exec',
         });
         if (instance.status !== 'respawning' && instance.status !== 'interrupting' && instance.status !== 'cancelling') {
           this.transitionInstanceStatus(instance, 'idle');

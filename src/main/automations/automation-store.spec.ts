@@ -162,7 +162,7 @@ describe('AutomationStore', () => {
     expect(afterSkip?.nextFireAt).toBeNull();
   });
 
-  it('fails running one-time runs on startup without re-arming stale next fire time', async () => {
+	  it('fails running one-time runs on startup without re-arming stale next fire time', async () => {
     const automation = await store.create({
       name: 'Restarted one-time check',
       schedule: { type: 'oneTime', runAt: 1_000, timezone: 'UTC' },
@@ -184,5 +184,58 @@ describe('AutomationStore', () => {
     expect(failed[0]?.status).toBe('failed');
     expect(afterRestart?.active).toBe(true);
     expect(afterRestart?.nextFireAt).toBeNull();
+	  });
+
+  it('deduplicates external trigger runs by idempotency key', async () => {
+    const automation = await store.create({
+      name: 'Webhook check',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'queue',
+      action: {
+        prompt: 'Handle webhook',
+        workingDirectory: '/tmp',
+      },
+    }, 1_000, 100);
+
+    const first = store.decideAndInsertRun(automation, 'webhook', 2_000, 2_000, {
+      idempotencyKey: 'delivery-1',
+      triggerSource: { type: 'webhook', id: 'route-1', deliveryId: 'delivery-1' },
+      deliveryMode: 'localOnly',
+    });
+    expect(first.kind).toBe('started');
+
+    const duplicate = store.decideAndInsertRun(automation, 'webhook', 3_000, 3_000, {
+      idempotencyKey: 'delivery-1',
+      triggerSource: { type: 'webhook', id: 'route-1', deliveryId: 'delivery-1' },
+    });
+    expect(duplicate.kind).toBe('skipped');
+    expect(duplicate.run?.id).toBe(first.run.id);
+    expect(duplicate.run?.triggerSource?.deliveryId).toBe('delivery-1');
+    expect(duplicate.run?.deliveryMode).toBe('localOnly');
   });
-});
+
+  it('persists full output references when terminalizing runs', async () => {
+    const automation = await store.create({
+      name: 'Output check',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: {
+        prompt: 'Write output',
+        workingDirectory: '/tmp',
+      },
+    }, 1_000, 100);
+
+    const decision = store.decideAndInsertRun(automation, 'manual', 2_000, 2_000);
+    expect(decision.kind).toBe('started');
+
+    const completed = store.terminalizeRun(decision.run.id, 'succeeded', undefined, 'summary', {
+      now: 3_000,
+      outputFullRef: '/tmp/automation-output.json',
+    });
+
+    expect(completed?.outputFullRef).toBe('/tmp/automation-output.json');
+    expect(completed?.outputSummary).toBe('summary');
+  });
+	});

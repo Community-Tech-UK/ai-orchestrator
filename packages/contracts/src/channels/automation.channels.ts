@@ -14,4 +14,9 @@ export const AUTOMATION_CHANNELS = {
 
   AUTOMATION_CHANGED: 'automation:changed',
   AUTOMATION_RUN_CHANGED: 'automation:run-changed',
+
+  WEBHOOK_STATUS: 'webhook:status',
+  WEBHOOK_LIST_ROUTES: 'webhook:list-routes',
+  WEBHOOK_CREATE_ROUTE: 'webhook:create-route',
+  WEBHOOK_LIST_DELIVERIES: 'webhook:list-deliveries',
 } as const;

@@ -618,6 +618,128 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS automations;
     `,
   },
+  // Migration 016: orchestration automation triggers, webhook ingress, and artifact registry.
+  {
+    name: '016_unified_orchestration_runtime',
+    up: `
+      PRAGMA foreign_keys=OFF;
+
+      DROP INDEX IF EXISTS idx_automation_runs_schedule_dedupe;
+      DROP INDEX IF EXISTS idx_automation_runs_scheduled;
+      DROP INDEX IF EXISTS idx_automation_runs_instance;
+      DROP INDEX IF EXISTS idx_automation_runs_automation_status;
+
+      ALTER TABLE automation_runs RENAME TO automation_runs_legacy;
+
+      CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled')),
+        trigger TEXT NOT NULL CHECK(trigger IN ('scheduled', 'catchUp', 'manual', 'webhook', 'channel', 'providerRuntime', 'orchestrationEvent')),
+        scheduled_at INTEGER NOT NULL,
+        started_at INTEGER,
+        finished_at INTEGER,
+        instance_id TEXT,
+        error TEXT,
+        output_summary TEXT,
+        output_full_ref TEXT,
+        idempotency_key TEXT,
+        trigger_source_json TEXT,
+        delivery_mode TEXT NOT NULL DEFAULT 'notify',
+        seen_at INTEGER,
+        config_snapshot_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO automation_runs
+        (id, automation_id, status, trigger, scheduled_at, started_at, finished_at,
+         instance_id, error, output_summary, output_full_ref, idempotency_key,
+         trigger_source_json, delivery_mode, seen_at, config_snapshot_json, created_at, updated_at)
+      SELECT
+        id, automation_id, status, trigger, scheduled_at, started_at, finished_at,
+        instance_id, error, output_summary, NULL, NULL, NULL, 'notify',
+        seen_at, config_snapshot_json, created_at, updated_at
+      FROM automation_runs_legacy;
+
+      DROP TABLE automation_runs_legacy;
+
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_status
+        ON automation_runs(automation_id, status);
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_instance
+        ON automation_runs(instance_id);
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_scheduled
+        ON automation_runs(automation_id, scheduled_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_schedule_dedupe
+        ON automation_runs(automation_id, scheduled_at)
+        WHERE trigger IN ('scheduled', 'catchUp');
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_runs_external_idempotency
+        ON automation_runs(automation_id, trigger, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS webhook_routes (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL UNIQUE,
+        secret_hash TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        allow_unsigned_dev INTEGER NOT NULL DEFAULT 0,
+        max_body_bytes INTEGER NOT NULL DEFAULT 262144,
+        allowed_automation_ids_json TEXT NOT NULL DEFAULT '[]',
+        allowed_events_json TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        route_id TEXT NOT NULL,
+        delivery_id TEXT NOT NULL,
+        event_type TEXT,
+        status TEXT NOT NULL,
+        status_code INTEGER,
+        error TEXT,
+        payload_hash TEXT NOT NULL,
+        received_at INTEGER NOT NULL,
+        processed_at INTEGER,
+        trigger_source_json TEXT,
+        UNIQUE(route_id, delivery_id),
+        FOREIGN KEY (route_id) REFERENCES webhook_routes(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_route
+        ON webhook_deliveries(route_id, received_at DESC);
+
+      CREATE TABLE IF NOT EXISTS artifact_registry (
+        id TEXT PRIMARY KEY,
+        owner_type TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL,
+        protected INTEGER NOT NULL DEFAULT 0,
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        UNIQUE(path, owner_type, owner_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_artifact_registry_owner
+        ON artifact_registry(owner_type, owner_id);
+      CREATE INDEX IF NOT EXISTS idx_artifact_registry_cleanup
+        ON artifact_registry(protected, last_seen_at);
+
+      PRAGMA foreign_keys=ON;
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_artifact_registry_cleanup;
+      DROP INDEX IF EXISTS idx_artifact_registry_owner;
+      DROP TABLE IF EXISTS artifact_registry;
+      DROP INDEX IF EXISTS idx_webhook_deliveries_route;
+      DROP TABLE IF EXISTS webhook_deliveries;
+      DROP TABLE IF EXISTS webhook_routes;
+      DROP INDEX IF EXISTS idx_automation_runs_external_idempotency;
+    `,
+  },
 ];
 
 /**

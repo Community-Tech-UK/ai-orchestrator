@@ -82,6 +82,7 @@ import {
   registerConversationMiningHandlers,
   registerWakeContextHandlers,
   registerAutomationHandlers,
+  registerWebhookHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -346,6 +347,7 @@ export class IpcMainHandler {
 
     // Automation handlers (scheduled prompt runs)
     registerAutomationHandlers();
+    registerWebhookHandlers();
 
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();

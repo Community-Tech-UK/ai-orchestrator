@@ -182,6 +182,10 @@ export class HistoryRailService {
   togglePinnedHistory(entryId: string, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+    this.togglePinnedHistoryId(entryId);
+  }
+
+  togglePinnedHistoryId(entryId: string): void {
     this.pinnedHistoryIds.update((current) => {
       const next = new Set(current);
       if (next.has(entryId)) {

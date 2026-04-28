@@ -373,6 +373,9 @@ export interface InstanceCreateConfig {
 
   /** Force execution on a specific node (overrides placement logic) */
   forceNodeId?: string;
+
+  /** Internal provenance/runtime metadata for orchestration, automation, and recovery flows. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface InstanceSummary {
@@ -457,7 +460,8 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     totalTokensUsed: 0,
     requestCount: 0,
     errorCount: 0,
-    restartCount: 0
+    restartCount: 0,
+    metadata: config.metadata,
   };
 }
 

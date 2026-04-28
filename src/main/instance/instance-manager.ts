@@ -64,6 +64,8 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { emitPluginHook } from '../plugins/hook-emitter';
+import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -80,6 +82,26 @@ function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LEN
   }
 
   return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
+}
+
+function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<InstanceCreateConfig> {
+  const { attachments, initialOutputBuffer, initialPrompt, ...rest } = config;
+  return {
+    ...rest,
+    initialPrompt: initialPrompt ? summarizeLogText(initialPrompt, 240) : undefined,
+    attachments: attachments?.map((attachment) => ({
+      name: attachment.name,
+      type: attachment.type,
+      size: attachment.size,
+      data: `[${attachment.size} bytes omitted]`,
+    })),
+    initialOutputBuffer: initialOutputBuffer
+      ? initialOutputBuffer.map((message) => ({
+          ...message,
+          content: summarizeLogText(message.content, 240) ?? '',
+        }))
+      : undefined,
+  };
 }
 
 function summarizeInputRequiredPayload(payload: {
@@ -949,12 +971,54 @@ export class InstanceManager extends EventEmitter {
   // ============================================
 
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
-    return this.lifecycle.createInstance(config);
+    emitPluginHook('instance.spawn.before', {
+      parentId: config.parentId ?? null,
+      displayName: config.displayName,
+      workingDirectory: config.workingDirectory,
+      requestedProvider: config.provider,
+      requestedModel: config.modelOverride,
+      agentId: config.agentId,
+      config: sanitizeCreateConfig(config),
+      timestamp: Date.now(),
+    });
+
+    const instance = await this.lifecycle.createInstance(config);
+    const emitAfter = (success: boolean, error?: unknown): void => {
+      emitPluginHook('instance.spawn.after', {
+        instanceId: instance.id,
+        parentId: instance.parentId,
+        displayName: instance.displayName,
+        workingDirectory: instance.workingDirectory,
+        requestedProvider: config.provider,
+        requestedModel: config.modelOverride,
+        actualProvider: instance.provider,
+        actualModel: instance.currentModel,
+        agentId: instance.agentId,
+        success,
+        error: error instanceof Error ? error.message : error ? String(error) : undefined,
+        timestamp: Date.now(),
+      });
+    };
+
+    if (instance.readyPromise) {
+      instance.readyPromise.then(() => emitAfter(instance.status !== 'failed')).catch((error: unknown) => emitAfter(false, error));
+    } else {
+      emitAfter(instance.status !== 'failed');
+    }
+
+    return instance;
   }
 
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
+    const instance = this.state.getInstance(instanceId);
     getAutoTitleService().clearInstance(instanceId);
-    return this.lifecycle.terminateInstance(instanceId, graceful);
+    await this.lifecycle.terminateInstance(instanceId, graceful);
+    emitPluginHook('session.terminated', {
+      instanceId,
+      parentId: instance?.parentId ?? null,
+      graceful,
+      timestamp: Date.now(),
+    });
   }
 
   async restartInstance(instanceId: string): Promise<void> {
@@ -1043,6 +1107,22 @@ export class InstanceManager extends EventEmitter {
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+
+    const inputHookBase = {
+      instanceId,
+      messageLength: message.length,
+      attachmentCount: attachments?.length ?? 0,
+    };
+    emitPluginHook('instance.input.before', {
+      ...inputHookBase,
+      messagePreview: summarizeLogText(message, 240) ?? '',
+      isRetry: options?.isRetry,
+      autoContinuation: options?.autoContinuation,
+      timestamp: Date.now(),
+    });
+
+    let hookError: string | undefined;
+    try {
 
     // If the instance is still initializing in the background, wait for it to
     // finish before sending any user input. A 30s timeout guards against a
@@ -1270,6 +1350,17 @@ export class InstanceManager extends EventEmitter {
     await this.communication.sendInput(instanceId, resolvedMessage, attachments, contextBlock, {
       autoContinuation: options?.autoContinuation === true,
     });
+    } catch (error) {
+      hookError = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      emitPluginHook('instance.input.after', {
+        ...inputHookBase,
+        success: hookError === undefined,
+        error: hookError,
+        timestamp: Date.now(),
+      });
+    }
   }
 
   private async spawnCommandSubtask(
@@ -1317,6 +1408,14 @@ export class InstanceManager extends EventEmitter {
       spawnCommand.provider ||
       parent.provider ||
       'auto';
+    const routingAudit: PluginRoutingAudit = {
+      requestedProvider: spawnCommand.provider,
+      requestedModel: spawnCommand.model,
+      actualProvider: resolvedProvider,
+      actualModel: routingDecision.model,
+      routingSource: spawnCommand.model || spawnCommand.provider ? 'explicit' : 'parent',
+      reason: routingDecision.reason,
+    };
 
     // Tag seeded messages so handleChildExit can distinguish them from the
     // child's own output when auto-capturing a result. Without this tag, the
@@ -1337,6 +1436,15 @@ export class InstanceManager extends EventEmitter {
       modelOverride: routingDecision.model,
       provider: resolvedProvider,
       initialOutputBuffer: seededOutputBuffer,
+      metadata: {
+        orchestration: {
+          role: 'worker',
+          parentId,
+          commandName: options.commandName,
+          task,
+          routingAudit,
+        },
+      },
     });
     this.armChildStartupWatchdog(parentId, child.id, CHILD_STARTUP_TIMEOUT_MS);
   }
@@ -1571,6 +1679,14 @@ export class InstanceManager extends EventEmitter {
       commandProvider ||
       parent.provider ||
       'auto';
+    const routingAudit: PluginRoutingAudit = {
+      requestedProvider: command.provider,
+      requestedModel: command.model,
+      actualProvider: resolvedProvider,
+      actualModel: routingDecision.model,
+      routingSource: command.model || command.provider ? 'explicit' : parent.provider ? 'parent' : 'auto',
+      reason: routingDecision.reason,
+    };
 
     // Pass relevant parent output to child for RLM indexing (limited for short-lived children)
     // Strip orchestration markers to prevent children from seeing parent commands.
@@ -1606,6 +1722,14 @@ export class InstanceManager extends EventEmitter {
       provider: resolvedProvider,
       initialOutputBuffer: initialOutputForChild,
       forceNodeId,
+      metadata: {
+        orchestration: {
+          role: 'worker',
+          parentId,
+          task: command.task,
+          routingAudit,
+        },
+      },
     });
 
     // Mark this child as already having received its first message
@@ -1766,14 +1890,22 @@ export class InstanceManager extends EventEmitter {
     }
 
     // 2. Get child summary for both UI notification and CLI injection
-    let childSummaryData: { summary: string; success: boolean; conclusions: string[] } | undefined;
+    let childSummaryData: {
+      resultId: string;
+      summary: string;
+      success: boolean;
+      conclusions: string[];
+      artifactCount: number;
+    } | undefined;
     try {
       const childSummary = await storage.getChildSummary(childId);
       if (childSummary) {
         childSummaryData = {
+          resultId: childSummary.resultId,
           summary: childSummary.summary,
           success: childSummary.success,
-          conclusions: childSummary.conclusions
+          conclusions: childSummary.conclusions,
+          artifactCount: childSummary.artifactCount,
         };
       }
     } catch (err) {
@@ -1823,6 +1955,16 @@ export class InstanceManager extends EventEmitter {
     );
 
     logger.info('Child exited, parent notified', { childId, exitCode, parentId: child.parentId, remainingChildren });
+    emitPluginHook(childSummaryData?.success === false ? 'orchestration.child.failed' : 'orchestration.child.completed', {
+      parentId: child.parentId,
+      childId,
+      name: child.displayName,
+      success: childSummaryData?.success,
+      summary: childSummaryData?.summary,
+      resultId: childSummaryData?.resultId,
+      exitCode,
+      timestamp: Date.now(),
+    });
 
     // 6. If all children are done, inject synthesis prompt to parent CLI
     if (remainingChildren === 0) {

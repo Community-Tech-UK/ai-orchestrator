@@ -33,6 +33,8 @@ const logger = getLogger('ConsensusCoordinator');
 
 /** Maximum concurrent provider queries */
 const MAX_CONCURRENT_QUERIES = 5;
+const MAX_CONSENSUS_RESPONSE_CHARS = 2_500;
+const MAX_RAW_CONSENSUS_CHARS = 8_000;
 
 /** Default providers to query when none specified */
 const DEFAULT_PROVIDER_PRIORITY: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
@@ -459,8 +461,11 @@ export class ConsensusCoordinator extends EventEmitter {
 
     // For 'all' strategy, just return raw responses without synthesis
     if (strategy === 'all') {
+      const rawConsensus = successful
+        .map(r => `**[${r.provider}${r.model ? ` / ${r.model}` : ''}]:**\n${this.truncateContent(r.content, MAX_CONSENSUS_RESPONSE_CHARS)}`)
+        .join('\n\n---\n\n');
       return {
-        consensus: successful.map(r => `**[${r.provider}${r.model ? ` / ${r.model}` : ''}]:**\n${r.content}`).join('\n\n---\n\n'),
+        consensus: this.truncateContent(rawConsensus, MAX_RAW_CONSENSUS_CHARS),
         agreement: 0, // Not computed for 'all' strategy
         responses,
         dissent: [],
@@ -504,7 +509,7 @@ export class ConsensusCoordinator extends EventEmitter {
   ): { consensus: string; agreement: number; dissent: string[]; edgeCases: string[] } {
     if (responses.length === 1) {
       return {
-        consensus: responses[0].content,
+        consensus: this.truncateContent(responses[0].content, MAX_CONSENSUS_RESPONSE_CHARS),
         agreement: 1,
         dissent: [],
         edgeCases: [],
@@ -607,7 +612,7 @@ export class ConsensusCoordinator extends EventEmitter {
     // Primary response (highest weight)
     const primaryLabel = `${primary.provider}${primary.model ? ` (${primary.model})` : ''}`;
     parts.push(`### Primary: ${primaryLabel} (weight: ${primaryWeight})\n`);
-    parts.push(primary.content);
+    parts.push(this.truncateContent(primary.content, MAX_CONSENSUS_RESPONSE_CHARS));
     parts.push('');
 
     // Supporting views — truncated
@@ -722,6 +727,13 @@ export class ConsensusCoordinator extends EventEmitter {
       return firstParagraph.trimEnd() + '...';
     }
     return firstParagraph;
+  }
+
+  private truncateContent(content: string, maxChars: number): string {
+    if (content.length <= maxChars) {
+      return content;
+    }
+    return `${content.slice(0, maxChars).trimEnd()}...`;
   }
 
   /**

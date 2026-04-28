@@ -45,6 +45,8 @@ import type {
   ChildArtifactsResponse,
   ChildSectionResponse,
 } from '../../shared/types/child-result.types';
+import { emitPluginHook } from '../plugins/hook-emitter';
+import { evaluateOrchestrationCapability, inferRoleFromContext } from './role-capability-policy';
 
 export interface OrchestrationContext {
   instanceId: string;
@@ -345,6 +347,15 @@ export class OrchestrationHandler extends EventEmitter {
       return;
     }
 
+    const capability = evaluateOrchestrationCapability(inferRoleFromContext(ctx.parentId), command);
+    if (!capability.allowed) {
+      this.injectResponse(instanceId, command.action, false, {
+        error: capability.reason,
+        role: capability.profile.role,
+      });
+      return;
+    }
+
     // Rate limiting: prevent feedback loops from runaway command execution.
     // Read-only commands (get_children, get_task_status, etc.) are exempt.
     const isReadOnly = ['get_children', 'get_task_status', 'get_child_output', 'get_child_summary', 'get_child_artifacts', 'get_child_section'].includes(command.action);
@@ -378,6 +389,12 @@ export class OrchestrationHandler extends EventEmitter {
     }
 
     logger.info('Executing orchestrator command', { action: command.action, instanceId });
+    emitPluginHook('orchestration.command.received', {
+      instanceId,
+      action: command.action,
+      command: { ...(command as unknown as Record<string, unknown>) },
+      timestamp: Date.now(),
+    });
 
     switch (command.action) {
       case 'spawn_child':
@@ -963,6 +980,23 @@ export class OrchestrationHandler extends EventEmitter {
     success: boolean,
     data: unknown
   ): void {
+    const payload = {
+      instanceId,
+      action,
+      data,
+      timestamp: Date.now(),
+    };
+    if (success) {
+      emitPluginHook('orchestration.command.completed', payload);
+    } else {
+      const error = typeof data === 'object' && data !== null && 'error' in data
+        ? String((data as Record<string, unknown>)['error'])
+        : undefined;
+      emitPluginHook('orchestration.command.failed', {
+        ...payload,
+        error,
+      });
+    }
     const response = formatCommandResponse(action as OrchestratorAction, success, data);
     this.emit('inject-response', instanceId, response);
   }
@@ -1167,6 +1201,13 @@ export class OrchestrationHandler extends EventEmitter {
       providersRequested: command.providers ?? [],
       message: `Consensus query started. Consulting ${command.providers?.length || 'all available'} providers...`
     });
+    emitPluginHook('orchestration.consensus.started', {
+      instanceId,
+      question: command.question,
+      providers: command.providers,
+      strategy: command.strategy,
+      timestamp: Date.now(),
+    });
 
     try {
       const coordinator = getConsensusCoordinator();
@@ -1203,6 +1244,21 @@ export class OrchestrationHandler extends EventEmitter {
         : `Consensus query failed: all ${result.failureCount} provider(s) errored. ${providerSummary}`;
 
       finishConsensusQuery();
+      if (anyProviderSucceeded) {
+        emitPluginHook('orchestration.consensus.completed', {
+          instanceId,
+          successCount: result.successCount,
+          failureCount: result.failureCount,
+          totalDurationMs: result.totalDurationMs,
+          timestamp: Date.now(),
+        });
+      } else {
+        emitPluginHook('orchestration.consensus.failed', {
+          instanceId,
+          error: message,
+          timestamp: Date.now(),
+        });
+      }
       this.injectResponse(instanceId, 'consensus_query', anyProviderSucceeded, {
         status: anyProviderSucceeded ? 'complete' : 'failed',
         message,
@@ -1229,6 +1285,11 @@ export class OrchestrationHandler extends EventEmitter {
       });
     } catch (error) {
       finishConsensusQuery();
+      emitPluginHook('orchestration.consensus.failed', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: Date.now(),
+      });
       this.injectResponse(instanceId, 'consensus_query', false, {
         status: 'failed',
         activeConsensusQueries: this.getActiveConsensusQueryCount(instanceId),

@@ -10,6 +10,7 @@ import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { getLogger } from '../../logging/logger';
 import type { ConversationEndStatus } from '../../../shared/types/history.types';
 import type { Instance, InstanceStatus } from '../../../shared/types/instance.types';
+import { emitPluginHook } from '../../plugins/hook-emitter';
 
 const logger = getLogger('InstanceTermination');
 
@@ -157,6 +158,13 @@ export class InstanceTerminationCoordinator {
     try {
       const status = instance.status === 'error' ? 'error' : 'completed';
       await this.deps.archiveInstance(instance, status);
+      emitPluginHook('session.archived', {
+        instanceId,
+        historyThreadId: instance.historyThreadId,
+        providerSessionId: instance.providerSessionId,
+        messageCount: instance.outputBuffer.length,
+        timestamp: Date.now(),
+      });
     } catch (error) {
       logger.error('Failed to archive instance to history', error instanceof Error ? error : undefined, {
         instanceId,

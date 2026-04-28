@@ -18,6 +18,24 @@ export interface AgentTreeNode {
   agentId?: string;
   sessionId: string;
   hasResult: boolean;
+  role?: string;
+  spawnPromptHash?: string;
+  statusTimeline: Array<{
+    status: string;
+    timestamp: number;
+  }>;
+  heartbeatAt?: number;
+  lastActivityAt: number;
+  resultId?: string;
+  artifactCount?: number;
+  routing?: {
+    requestedProvider?: string;
+    requestedModel?: string;
+    actualProvider?: string;
+    actualModel?: string;
+    routingSource?: string;
+    reason?: string;
+  };
   spawnConfig?: {
     task: string;
     model?: string;
@@ -25,6 +43,22 @@ export interface AgentTreeNode {
     agentId?: string;
   };
   createdAt: number;
+}
+
+export interface ChildDiagnosticBundle {
+  childId: string;
+  parentId: string;
+  status: string;
+  task?: string;
+  resultId?: string;
+  routing?: AgentTreeNode['routing'];
+  recentOutput: Array<{
+    type: string;
+    content: string;
+    timestamp: number;
+  }>;
+  timeoutReason?: string;
+  capturedAt: number;
 }
 
 export interface SpawnEdge {
@@ -53,4 +87,4 @@ export interface TreeRestoreOptions {
   workingDirectory?: string;
 }
 
-export const AGENT_TREE_SCHEMA_VERSION = 1;
+export const AGENT_TREE_SCHEMA_VERSION = 2;

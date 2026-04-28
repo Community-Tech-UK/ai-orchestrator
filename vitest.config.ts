@@ -53,6 +53,7 @@ export default defineConfig({
       '@contracts/schemas/plugin':          resolve(__dirname, './packages/contracts/src/schemas/plugin.schemas'),
       '@contracts/schemas/image':           resolve(__dirname, './packages/contracts/src/schemas/image.schemas'),
       '@contracts/schemas/automation':      resolve(__dirname, './packages/contracts/src/schemas/automation.schemas'),
+      '@contracts/schemas/webhook':         resolve(__dirname, './packages/contracts/src/schemas/webhook.schemas'),
       '@contracts/schemas/quota':           resolve(__dirname, './packages/contracts/src/schemas/quota.schemas'),
       '@contracts/schemas/provider-runtime-events': resolve(__dirname, './packages/contracts/src/schemas/provider-runtime-events.schemas'),
       '@contracts/channels/automation':     resolve(__dirname, './packages/contracts/src/channels/automation.channels'),
