@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PermissionRegistry } from '../permission-registry';
-import { evaluateOrchestrationCapability } from '../role-capability-policy';
+import { classifyToolCategory, evaluateOrchestrationCapability } from '../role-capability-policy';
 
 describe('PermissionRegistry', () => {
   beforeEach(() => {
@@ -80,5 +80,52 @@ describe('role capability policy', () => {
     };
 
     expect(evaluateOrchestrationCapability('worker', command).allowed).toBe(true);
+  });
+
+  it('applies result-reporting policy to legacy report commands', () => {
+    const legacyCommand = {
+      action: 'report_task_complete' as const,
+      summary: 'done',
+      success: true,
+    };
+
+    expect(evaluateOrchestrationCapability('worker', legacyCommand).allowed).toBe(true);
+    expect(evaluateOrchestrationCapability('parent_orchestrator', legacyCommand).allowed).toBe(false);
+  });
+
+  it('blocks spawn requests for providers outside the role allowlist', () => {
+    const command = {
+      action: 'spawn_child' as const,
+      task: 'Review this patch',
+      provider: 'unknown-provider' as never,
+    };
+
+    const decision = evaluateOrchestrationCapability('parent_orchestrator', command);
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain('unknown-provider');
+  });
+
+  it('classifies tool commands and blocks disallowed role categories', () => {
+    expect(classifyToolCategory('mcp__lsp__lsp_diagnostics')).toBe('read');
+    expect(classifyToolCategory('mcp__webhook__send')).toBe('webhook');
+
+    const decision = evaluateOrchestrationCapability('worker', {
+      action: 'call_tool',
+      toolId: 'mcp__webhook__send',
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.category).toBe('webhook');
+  });
+
+  it('denies filesystem write tools for reviewer roles', () => {
+    const decision = evaluateOrchestrationCapability('reviewer', {
+      action: 'call_tool',
+      toolId: 'filesystem_write_file',
+      args: { path: '/tmp/a' },
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain('filesystem_write');
   });
 });

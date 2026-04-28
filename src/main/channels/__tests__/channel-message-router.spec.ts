@@ -3,7 +3,8 @@ import { EventEmitter } from 'events';
 import { ChannelMessageRouter } from '../channel-message-router';
 import type { ChannelManager, ChannelEvent } from '../channel-manager';
 import type { ChannelPersistence } from '../channel-persistence';
-import type { InboundChannelMessage, SentMessage } from '../../../shared/types/channels';
+import type { ChannelRouteStore, SavedChannelRoutePin } from '../channel-route-store';
+import type { AccessPolicy, InboundChannelMessage, SentMessage } from '../../../shared/types/channels';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +29,15 @@ vi.mock('../../remote-node', () => ({
   }),
 }));
 
-const { remoteNodeConfigState, updateRemoteNodeConfigMock, settingsSetMock } = vi.hoisted(() => {
+const {
+  remoteNodeConfigState,
+  updateRemoteNodeConfigMock,
+  settingsSetMock,
+  recentDirectoriesState,
+  addRecentDirectoryMock,
+  hibernatedInstancesState,
+  historyEntriesState,
+} = vi.hoisted(() => {
   const remoteNodeConfigState = {
     enabled: false,
     autoOffloadBrowser: false,
@@ -39,11 +48,43 @@ const { remoteNodeConfigState, updateRemoteNodeConfigMock, settingsSetMock } = v
     Object.assign(remoteNodeConfigState, partial);
   });
   const settingsSetMock = vi.fn();
+  const recentDirectoriesState = {
+    entries: [] as {
+      path: string;
+      displayName?: string;
+      lastAccessed?: number;
+    }[],
+  };
+  const addRecentDirectoryMock = vi.fn();
+  const hibernatedInstancesState = {
+    entries: [] as {
+      instanceId: string;
+      displayName: string;
+      agentId: string;
+      sessionState: Record<string, unknown>;
+      hibernatedAt: number;
+      workingDirectory?: string;
+    }[],
+  };
+  const historyEntriesState = {
+    entries: [] as {
+      id: string;
+      workingDirectory?: string;
+      firstUserMessage?: string;
+      displayName?: string;
+      createdAt?: number;
+      endedAt?: number;
+    }[],
+  };
 
   return {
     remoteNodeConfigState,
     updateRemoteNodeConfigMock,
     settingsSetMock,
+    recentDirectoriesState,
+    addRecentDirectoryMock,
+    hibernatedInstancesState,
+    historyEntriesState,
   };
 });
 
@@ -55,6 +96,25 @@ vi.mock('../../remote-node/remote-node-config', () => ({
 vi.mock('../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     set: settingsSetMock,
+  }),
+}));
+
+vi.mock('../../core/config/recent-directories-manager', () => ({
+  getRecentDirectoriesManager: () => ({
+    getDirectories: vi.fn(async () => recentDirectoriesState.entries),
+    addDirectory: addRecentDirectoryMock,
+  }),
+}));
+
+vi.mock('../../process/hibernation-manager', () => ({
+  getHibernationManager: () => ({
+    getHibernatedInstances: vi.fn(() => hibernatedInstancesState.entries),
+  }),
+}));
+
+vi.mock('../../history/history-manager', () => ({
+  getHistoryManager: () => ({
+    getEntries: vi.fn(() => historyEntriesState.entries),
   }),
 }));
 
@@ -101,12 +161,32 @@ function makeSentMessage(overrides: Partial<SentMessage> = {}): SentMessage {
   return { messageId: 'sent-1', chatId: 'chat-1', timestamp: Date.now(), ...overrides };
 }
 
+interface MockInstanceRecord {
+  id: string;
+  status: string;
+  displayName?: string;
+  workingDirectory?: string;
+  lastActivity?: number;
+}
+
 function makeMockAdapter() {
+  let accessPolicy: AccessPolicy = {
+    mode: 'pairing',
+    allowedSenders: ['user-1'],
+    pendingPairings: [],
+    maxPending: 3,
+    codeExpiryMs: 60 * 60 * 1000,
+  };
   return {
+    status: 'connected',
     sendMessage: vi.fn(async () => makeSentMessage()),
     addReaction: vi.fn(async () => undefined),
     sendFile: vi.fn(async () => makeSentMessage()),
     editMessage: vi.fn(async () => undefined),
+    getAccessPolicy: vi.fn(() => accessPolicy),
+    setAccessPolicy: vi.fn((nextPolicy: AccessPolicy) => {
+      accessPolicy = nextPolicy;
+    }),
   };
 }
 
@@ -120,11 +200,45 @@ function makeMockPersistence() {
 
 function makeMockInstanceManager() {
   const em = new EventEmitter();
+  const getInstances = vi.fn(() => [] as MockInstanceRecord[]);
   return Object.assign(em, {
     createInstance: vi.fn(async () => ({ id: 'inst-1' })),
     sendInput: vi.fn(async () => undefined),
-    getInstances: vi.fn(() => [] as { id: string; status: string }[]),
+    getInstances,
+    getInstance: vi.fn((instanceId: string) => {
+      return getInstances().find((instance) => instance.id === instanceId) ?? null;
+    }),
+    wakeInstance: vi.fn(async (instanceId: string) => {
+      const instance = getInstances().find((entry) => entry.id === instanceId);
+      if (instance) {
+        instance.status = 'ready';
+      }
+    }),
+    interruptInstance: vi.fn(() => true),
   });
+}
+
+function makeMockRouteStore() {
+  const pins = new Map<string, SavedChannelRoutePin>();
+  const keyFor = (platform: string, scope: string, routeKey: string) => `${platform}:${scope}:${routeKey}`;
+  return {
+    savePin: vi.fn((platform: string, scope: string, routeKey: string, pin: SavedChannelRoutePin) => {
+      pins.set(keyFor(platform, scope, routeKey), pin);
+    }),
+    getPin: vi.fn((platform: string, scope: string, routeKey: string) => {
+      return pins.get(keyFor(platform, scope, routeKey)) ?? null;
+    }),
+    removePin: vi.fn((platform: string, scope: string, routeKey: string) => {
+      pins.delete(keyFor(platform, scope, routeKey));
+    }),
+    removePlatform: vi.fn((platform: string) => {
+      for (const key of pins.keys()) {
+        if (key.startsWith(`${platform}:`)) {
+          pins.delete(key);
+        }
+      }
+    }),
+  };
 }
 
 function makeMockChannelManager(adapter: ReturnType<typeof makeMockAdapter>) {
@@ -155,6 +269,7 @@ describe('ChannelMessageRouter', () => {
   let persistence: ReturnType<typeof makeMockPersistence>;
   let channelManager: ReturnType<typeof makeMockChannelManager>;
   let instanceManager: ReturnType<typeof makeMockInstanceManager>;
+  let routeStore: ReturnType<typeof makeMockRouteStore>;
   let router: ChannelMessageRouter;
 
   beforeEach(() => {
@@ -164,13 +279,19 @@ describe('ChannelMessageRouter', () => {
     remoteNodeConfigState.maxRemoteInstances = 20;
     updateRemoteNodeConfigMock.mockClear();
     settingsSetMock.mockClear();
+    recentDirectoriesState.entries = [];
+    addRecentDirectoryMock.mockClear();
+    hibernatedInstancesState.entries = [];
+    historyEntriesState.entries = [];
     adapter = makeMockAdapter();
     persistence = makeMockPersistence();
     channelManager = makeMockChannelManager(adapter);
     instanceManager = makeMockInstanceManager();
+    routeStore = makeMockRouteStore();
     router = new ChannelMessageRouter(
       channelManager as unknown as ChannelManager,
       persistence as unknown as ChannelPersistence,
+      routeStore as unknown as ChannelRouteStore,
     );
     router._setInstanceManagerForTesting(instanceManager);
   });
@@ -178,6 +299,7 @@ describe('ChannelMessageRouter', () => {
   afterEach(() => {
     router.stop();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   // -------------------------------------------------------------------------
@@ -397,6 +519,330 @@ describe('ChannelMessageRouter', () => {
         'c1',
         'Broadcasting to 2 instances...',
         expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+  });
+
+  describe('session listing and revival', () => {
+    it('shows projects with active and revivable counts without listing sleeping session names globally', async () => {
+      recentDirectoriesState.entries = [
+        { path: '/work/project-a', displayName: 'Project A', lastAccessed: 3000 },
+      ];
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'active-1',
+          status: 'idle',
+          displayName: 'Live Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 5000,
+        },
+        {
+          id: 'sleep-1',
+          status: 'hibernated',
+          displayName: 'Sleeping Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 4000,
+        },
+      ]);
+      hibernatedInstancesState.entries = [
+        {
+          instanceId: 'sleep-1',
+          displayName: 'Sleeping Session',
+          agentId: 'build',
+          sessionState: {},
+          hibernatedAt: 4000,
+          workingDirectory: '/work/project-a',
+        },
+      ];
+      historyEntriesState.entries = [
+        {
+          id: 'archived-1',
+          workingDirectory: '/work/project-a',
+          firstUserMessage: 'Old archived request',
+          createdAt: 1000,
+          endedAt: 2000,
+        },
+      ];
+
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', messageId: 'dm1', content: '/list' }));
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        expect.stringContaining('**1.** **Project A** : 1 active, 1 revivable'),
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+      const content = adapter.sendMessage.mock.calls[0][1];
+      expect(content).not.toContain('Sleeping Session');
+      expect(content).not.toContain('Old archived request');
+    });
+
+    it('drills into a project with active sessions first and revivable sessions separated', async () => {
+      recentDirectoriesState.entries = [
+        { path: '/work/project-a', displayName: 'Project A', lastAccessed: 3000 },
+      ];
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'active-1',
+          status: 'idle',
+          displayName: 'Live Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 5000,
+        },
+        {
+          id: 'sleep-1',
+          status: 'hibernated',
+          displayName: 'Sleeping Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 4000,
+        },
+      ]);
+      hibernatedInstancesState.entries = [
+        {
+          instanceId: 'sleep-1',
+          displayName: 'Sleeping Session',
+          agentId: 'build',
+          sessionState: {},
+          hibernatedAt: 4000,
+          workingDirectory: '/work/project-a',
+        },
+      ];
+      historyEntriesState.entries = [
+        {
+          id: 'archived-1',
+          workingDirectory: '/work/project-a',
+          firstUserMessage: 'Old archived request',
+          createdAt: 1000,
+          endedAt: 2000,
+        },
+      ];
+
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', messageId: 'dm1', content: '/list Project A' }));
+
+      const content = adapter.sendMessage.mock.calls[0][1];
+      expect(content).toContain('Active sessions:');
+      expect(content).toContain('* Live Session — idle');
+      expect(content).toContain('Revivable sessions:');
+      expect(content).toContain('* Sleeping Session — hibernated');
+      expect(content).not.toContain('Old archived request');
+    });
+
+    it('keeps /pick active-only and excludes hibernated sessions', async () => {
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'active-1',
+          status: 'idle',
+          displayName: 'Live Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 5000,
+        },
+        {
+          id: 'sleep-1',
+          status: 'hibernated',
+          displayName: 'Sleeping Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 4000,
+        },
+      ]);
+      hibernatedInstancesState.entries = [
+        {
+          instanceId: 'sleep-1',
+          displayName: 'Sleeping Session',
+          agentId: 'build',
+          sessionState: {},
+          hibernatedAt: 4000,
+          workingDirectory: '/work/project-a',
+        },
+      ];
+
+      await router.handleInboundMessage(makeMessage({ chatId: 'c1', messageId: 'dm1', content: '/pick' }));
+
+      const content = adapter.sendMessage.mock.calls[0][1];
+      expect(content).toContain('Live Session');
+      expect(content).not.toContain('Sleeping Session');
+      expect(content).not.toContain('Hibernated instances');
+    });
+
+    it('wakes a hibernated session before routing input to it', async () => {
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'sleep-1',
+          status: 'hibernated',
+          displayName: 'Sleeping Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 4000,
+        },
+      ]);
+      hibernatedInstancesState.entries = [
+        {
+          instanceId: 'sleep-1',
+          displayName: 'Sleeping Session',
+          agentId: 'build',
+          sessionState: {},
+          hibernatedAt: 4000,
+          workingDirectory: '/work/project-a',
+        },
+      ];
+
+      await router.handleInboundMessage(
+        makeMessage({ content: '@project-a continue this work' }),
+      );
+
+      expect(instanceManager.wakeInstance).toHaveBeenCalledWith('sleep-1');
+      expect(instanceManager.sendInput).toHaveBeenCalledWith('sleep-1', 'continue this work');
+      expect(instanceManager.createInstance).not.toHaveBeenCalled();
+    });
+
+    it('revives a project session and persists the selected channel pin', async () => {
+      recentDirectoriesState.entries = [
+        { path: '/work/project-a', displayName: 'Project A', lastAccessed: 3000 },
+      ];
+      instanceManager.getInstances.mockReturnValue([
+        {
+          id: 'sleep-1',
+          status: 'hibernated',
+          displayName: 'Sleeping Session',
+          workingDirectory: '/work/project-a',
+          lastActivity: 4000,
+        },
+      ]);
+      hibernatedInstancesState.entries = [
+        {
+          instanceId: 'sleep-1',
+          displayName: 'Sleeping Session',
+          agentId: 'build',
+          sessionState: {},
+          hibernatedAt: 4000,
+          workingDirectory: '/work/project-a',
+        },
+      ];
+
+      await router.handleInboundMessage(makeMessage({
+        chatId: 'channel-1',
+        messageId: 'revive-1',
+        content: '/revive Project A',
+        isDM: false,
+        isGroup: true,
+      }));
+
+      expect(instanceManager.wakeInstance).toHaveBeenCalledWith('sleep-1');
+      expect(routeStore.savePin).toHaveBeenCalledWith(
+        'discord',
+        'chat',
+        'channel-1',
+        { kind: 'instance', instanceId: 'sleep-1' },
+      );
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'channel-1',
+        expect.stringContaining('Revived and selected'),
+        expect.objectContaining({
+          replyTo: 'revive-1',
+          actions: expect.arrayContaining([
+            expect.objectContaining({ label: 'Stop' }),
+            expect.objectContaining({ label: 'Continue' }),
+          ]),
+        }),
+      );
+    });
+
+    it('shows whereami using a persisted channel project pin', async () => {
+      routeStore.savePin('discord', 'chat', 'channel-1', {
+        kind: 'project',
+        projectKey: '/work/project-a',
+        label: 'Project A',
+        workingDirectory: '/work/project-a',
+      });
+      recentDirectoriesState.entries = [
+        { path: '/work/project-a', displayName: 'Project A', lastAccessed: 3000 },
+      ];
+
+      await router.handleInboundMessage(makeMessage({
+        chatId: 'channel-1',
+        messageId: 'where-1',
+        content: '/whereami',
+        isDM: false,
+        isGroup: true,
+      }));
+
+      const content = adapter.sendMessage.mock.calls[0][1];
+      expect(content).toContain('Channel pin: project **Project A**');
+      expect(content).toContain('Path: `/work/project-a`');
+    });
+  });
+
+  describe('discord admin and attachment commands', () => {
+    it('lets Discord admins allow a sender and persists the access policy', async () => {
+      await router.handleInboundMessage(makeMessage({
+        content: '/allow 222222',
+        senderIsAdmin: true,
+        chatId: 'admin-chan',
+        messageId: 'allow-1',
+      }));
+
+      expect(adapter.setAccessPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allowedSenders: expect.arrayContaining(['user-1', '222222']),
+        }),
+      );
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'admin-chan',
+        'Allowed Discord user `222222`.',
+        expect.objectContaining({ replyTo: 'allow-1' }),
+      );
+    });
+
+    it('rejects allow commands from non-admin Discord users', async () => {
+      await router.handleInboundMessage(makeMessage({
+        content: '/allow 222222',
+        senderIsAdmin: false,
+        chatId: 'admin-chan',
+        messageId: 'allow-2',
+      }));
+
+      expect(adapter.setAccessPolicy).not.toHaveBeenCalled();
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'admin-chan',
+        expect.stringContaining('administrator permission is required'),
+        expect.objectContaining({ replyTo: 'allow-2' }),
+      );
+    });
+
+    it('downloads Discord attachments and passes them into new session creation', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/plain' }),
+        arrayBuffer: async () => new TextEncoder().encode('hello file').buffer,
+      })));
+
+      await router.handleInboundMessage(makeMessage({
+        content: 'inspect this file',
+        attachments: [
+          {
+            name: 'note.txt',
+            type: 'text/plain',
+            size: 10,
+            url: 'https://cdn.discordapp.test/note.txt',
+          },
+        ],
+        chatId: 'attach-chan',
+        messageId: 'attach-1',
+      }));
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'attach-chan',
+        'Attached 1 file to the session.',
+        expect.objectContaining({ replyTo: 'attach-1' }),
+      );
+      expect(instanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            expect.objectContaining({
+              name: 'note.txt',
+              type: 'text/plain',
+              data: expect.stringContaining('data:text/plain;base64,'),
+            }),
+          ],
+        }),
       );
     });
   });

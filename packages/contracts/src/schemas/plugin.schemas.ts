@@ -257,6 +257,7 @@ const HookChildResultSchema = z.object({
   exitCode: z.number().nullable().optional(),
   error: z.string().max(5000).optional(),
   artifactCount: z.number().int().min(0).optional(),
+  diagnosticBundle: z.record(z.string(), z.unknown()).optional(),
   timestamp: z.number(),
 });
 

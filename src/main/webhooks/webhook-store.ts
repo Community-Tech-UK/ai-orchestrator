@@ -2,7 +2,14 @@ import * as crypto from 'crypto';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../../shared/utils/id-generator';
-import type { WebhookCreateRouteInput, WebhookDeliveryRecord, WebhookRouteConfig } from './webhook-types';
+import type {
+  WebhookCreateRouteInput,
+  WebhookDeliveryRecord,
+  WebhookRouteConfig,
+  WebhookRuntimeRouteConfig,
+} from './webhook-types';
+
+const SIGNING_SECRET_PREFIX = 'secret:v1:';
 
 interface WebhookRouteRow {
   id: string;
@@ -48,7 +55,7 @@ export class WebhookStore {
     `).run(
       id,
       this.normalizePath(input.path),
-      this.hashSecret(input.secret),
+      this.encodeSigningSecret(input.secret),
       input.enabled === false ? 0 : 1,
       input.allowUnsignedDev === true ? 1 : 0,
       input.maxBodyBytes ?? 262_144,
@@ -76,6 +83,11 @@ export class WebhookStore {
   getRouteByPath(requestPath: string): WebhookRouteConfig | null {
     const row = this.db.prepare(`SELECT * FROM webhook_routes WHERE path = ?`).get<WebhookRouteRow>(this.normalizePath(requestPath));
     return row ? this.mapRoute(row) : null;
+  }
+
+  getRuntimeRouteByPath(requestPath: string): WebhookRuntimeRouteConfig | null {
+    const row = this.db.prepare(`SELECT * FROM webhook_routes WHERE path = ?`).get<WebhookRouteRow>(this.normalizePath(requestPath));
+    return row ? this.mapRuntimeRoute(row) : null;
   }
 
   recordDelivery(
@@ -127,6 +139,28 @@ export class WebhookStore {
     return row ? this.mapDelivery(row) : null;
   }
 
+  findRecentDelivery(
+    routeId: string,
+    deliveryId: string,
+    ttlMs: number,
+    now = Date.now(),
+  ): WebhookDeliveryRecord | null {
+    const row = this.db.prepare(`
+      SELECT *
+      FROM webhook_deliveries
+      WHERE route_id = ? AND delivery_id = ? AND received_at >= ?
+    `).get<WebhookDeliveryRow>(routeId, deliveryId, now - ttlMs);
+    return row ? this.mapDelivery(row) : null;
+  }
+
+  pruneDeliveriesOlderThan(cutoff: number): number {
+    const result = this.db.prepare(`
+      DELETE FROM webhook_deliveries
+      WHERE received_at < ?
+    `).run(cutoff);
+    return typeof result.changes === 'number' ? result.changes : 0;
+  }
+
   recentDeliveries(limit = 50): WebhookDeliveryRecord[] {
     return this.db.prepare(`
       SELECT *
@@ -140,11 +174,23 @@ export class WebhookStore {
     return requestPath.startsWith('/') ? requestPath : `/${requestPath}`;
   }
 
+  private encodeSigningSecret(secret: string): string {
+    return `${SIGNING_SECRET_PREFIX}${Buffer.from(secret, 'utf-8').toString('base64')}`;
+  }
+
+  private decodeSigningSecret(value: string): string | null {
+    if (!value.startsWith(SIGNING_SECRET_PREFIX)) {
+      return null;
+    }
+    return Buffer.from(value.slice(SIGNING_SECRET_PREFIX.length), 'base64').toString('utf-8');
+  }
+
   private mapRoute(row: WebhookRouteRow): WebhookRouteConfig {
+    const signingSecret = this.decodeSigningSecret(row.secret_hash);
     return {
       id: row.id,
       path: row.path,
-      secretHash: row.secret_hash,
+      secretHash: signingSecret ? this.hashSecret(signingSecret) : row.secret_hash,
       enabled: row.enabled === 1,
       allowUnsignedDev: row.allow_unsigned_dev === 1,
       maxBodyBytes: row.max_body_bytes,
@@ -152,6 +198,14 @@ export class WebhookStore {
       allowedEvents: JSON.parse(row.allowed_events_json) as string[],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    };
+  }
+
+  private mapRuntimeRoute(row: WebhookRouteRow): WebhookRuntimeRouteConfig {
+    const signingSecret = this.decodeSigningSecret(row.secret_hash) ?? row.secret_hash;
+    return {
+      ...this.mapRoute(row),
+      signingSecret,
     };
   }
 

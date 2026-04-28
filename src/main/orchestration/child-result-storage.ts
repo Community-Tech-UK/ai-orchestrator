@@ -433,6 +433,44 @@ export class ChildResultStorage {
   }
 
   /**
+   * Get all stored child results without loading full transcripts.
+   */
+  async getAllResults(limit = 200): Promise<ChildResult[]> {
+    await this.ensureInitialized();
+
+    const resultIds = new Set<string>(this.results.keys());
+    for (const parentResults of this.parentToResults.values()) {
+      for (const resultId of parentResults) {
+        resultIds.add(resultId);
+      }
+    }
+    for (const resultId of this.childToResult.values()) {
+      resultIds.add(resultId);
+    }
+
+    try {
+      const files = await fs.readdir(this.config.storagePath);
+      for (const file of files) {
+        if (!file.endsWith('.json') || file === 'index.json' || file.endsWith('-transcript.json')) {
+          continue;
+        }
+        resultIds.add(file.replace(/\.json$/, ''));
+      }
+    } catch {
+      // The in-memory indexes above still cover initialized results.
+    }
+
+    const loaded = await Promise.all(
+      Array.from(resultIds).map((resultId) => this.loadResult(resultId)),
+    );
+
+    return loaded
+      .filter((result): result is ChildResult => result !== null)
+      .sort((a, b) => b.completedAt - a.completedAt)
+      .slice(0, limit);
+  }
+
+  /**
    * Get result ID for a child
    */
   getResultId(childId: string): string | undefined {

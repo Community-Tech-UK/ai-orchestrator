@@ -1,4 +1,11 @@
-export type ArtifactOwnerType = 'child_result' | 'automation_run' | 'webhook_delivery' | 'session';
+export type ArtifactOwnerType =
+  | 'child_result'
+  | 'automation_run'
+  | 'webhook_delivery'
+  | 'session'
+  | 'instance'
+  | 'worktree'
+  | 'diagnostic_bundle';
 
 export interface ArtifactRegistryRecord {
   id: string;

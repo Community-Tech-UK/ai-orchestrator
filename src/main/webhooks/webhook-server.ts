@@ -4,9 +4,11 @@ import { URL } from 'url';
 import { getLogger } from '../logging/logger';
 import { getAutomationRunner } from '../automations';
 import { getWebhookStore, WebhookStore } from './webhook-store';
-import type { WebhookRouteConfig, WebhookServerOptions, WebhookServerStatus } from './webhook-types';
+import { RateLimiter } from '../channels/rate-limiter';
+import type { WebhookRuntimeRouteConfig, WebhookServerOptions, WebhookServerStatus } from './webhook-types';
 
 const logger = getLogger('WebhookServer');
+const DEFAULT_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface WebhookPayload {
   id?: string;
@@ -15,15 +17,30 @@ interface WebhookPayload {
   [key: string]: unknown;
 }
 
+class WebhookHttpError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export class WebhookServer {
   private static instance: WebhookServer | null = null;
   private server: http.Server | null = null;
   private port: number | undefined;
+  private readonly rateLimiter: RateLimiter;
 
   constructor(
     private readonly store: WebhookStore = getWebhookStore(),
     private readonly options: WebhookServerOptions = {},
-  ) {}
+  ) {
+    this.rateLimiter = new RateLimiter(
+      options.maxRequestsPerWindow ?? 60,
+      options.rateLimitWindowMs ?? 60_000,
+    );
+  }
 
   static getInstance(): WebhookServer {
     if (!this.instance) {
@@ -45,8 +62,11 @@ export class WebhookServer {
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res).catch((error) => {
         logger.warn('Webhook request failed', { error: error instanceof Error ? error.message : String(error) });
-        res.writeHead(500, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'webhook request failed' }));
+        if (!res.headersSent) {
+          const statusCode = error instanceof WebhookHttpError ? error.statusCode : 500;
+          res.writeHead(statusCode, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'webhook request failed' }));
+        }
       });
     });
 
@@ -82,13 +102,52 @@ export class WebhookServer {
     }
 
     const requestPath = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
-    const route = this.store.getRouteByPath(requestPath);
+    const route = this.store.getRuntimeRouteByPath(requestPath);
     if (!route || !route.enabled) {
       this.send(res, 404, { error: 'webhook route not found' });
       return;
     }
 
-    const body = await this.readBody(req, route.maxBodyBytes);
+    const rateLimitKey = `${route.id}:${req.socket.remoteAddress ?? 'unknown'}`;
+    if (!this.rateLimiter.check(rateLimitKey)) {
+      const deliveryId = this.deliveryId(req, undefined, 'rate-limited');
+      this.store.recordDelivery(route.id, deliveryId, undefined, 'rejected', 'rate-limited', {
+        statusCode: 429,
+        error: 'rate limit exceeded',
+      });
+      this.send(res, 429, { error: 'rate limit exceeded' });
+      return;
+    }
+
+    const contentLength = typeof req.headers['content-length'] === 'string'
+      ? Number.parseInt(req.headers['content-length'], 10)
+      : undefined;
+    if (contentLength !== undefined && contentLength > route.maxBodyBytes) {
+      const deliveryId = this.deliveryId(req, undefined, 'body-too-large');
+      this.store.recordDelivery(route.id, deliveryId, undefined, 'rejected', 'body-too-large', {
+        statusCode: 413,
+        error: `request body exceeds ${route.maxBodyBytes} bytes`,
+      });
+      this.send(res, 413, { error: `request body exceeds ${route.maxBodyBytes} bytes` });
+      return;
+    }
+
+    let body: Buffer;
+    try {
+      body = await this.readBody(req, route.maxBodyBytes);
+    } catch (error) {
+      if (error instanceof WebhookHttpError) {
+        const deliveryId = this.deliveryId(req, undefined, 'body-too-large');
+        this.store.recordDelivery(route.id, deliveryId, undefined, 'rejected', 'body-too-large', {
+          statusCode: error.statusCode,
+          error: error.message,
+        });
+        this.send(res, error.statusCode, { error: error.message });
+        return;
+      }
+      throw error;
+    }
+
     const payloadHash = crypto.createHash('sha256').update(body).digest('hex');
     if (!this.verifySignature(route, body, req.headers['x-orchestrator-signature'])) {
       const deliveryId = this.deliveryId(req, undefined, payloadHash);
@@ -100,7 +159,19 @@ export class WebhookServer {
       return;
     }
 
-    const payload = JSON.parse(body.toString('utf-8')) as WebhookPayload;
+    let payload: WebhookPayload;
+    try {
+      payload = JSON.parse(body.toString('utf-8')) as WebhookPayload;
+    } catch {
+      const deliveryId = this.deliveryId(req, undefined, payloadHash);
+      this.store.recordDelivery(route.id, deliveryId, undefined, 'rejected', payloadHash, {
+        statusCode: 400,
+        error: 'invalid json',
+      });
+      this.send(res, 400, { error: 'invalid json' });
+      return;
+    }
+
     const eventType = typeof payload.event === 'string'
       ? payload.event
       : typeof payload.type === 'string'
@@ -117,7 +188,13 @@ export class WebhookServer {
     }
 
     const deliveryId = this.deliveryId(req, payload, payloadHash);
-    const existing = this.store.findDelivery(route.id, deliveryId);
+    const deliveryTtlMs = this.options.deliveryTtlMs ?? DEFAULT_DELIVERY_TTL_MS;
+    if (deliveryTtlMs > 0) {
+      this.store.pruneDeliveriesOlderThan(Date.now() - deliveryTtlMs);
+    }
+    const existing = deliveryTtlMs > 0
+      ? this.store.findRecentDelivery(route.id, deliveryId, deliveryTtlMs)
+      : this.store.findDelivery(route.id, deliveryId);
     if (existing) {
       this.store.recordDelivery(route.id, `${deliveryId}:duplicate`, eventType, 'duplicate', payloadHash, {
         statusCode: 202,
@@ -158,21 +235,36 @@ export class WebhookServer {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let bytes = 0;
+      let settled = false;
       req.on('data', (chunk: Buffer) => {
+        if (settled) {
+          return;
+        }
         bytes += chunk.length;
         if (bytes > maxBytes) {
-          reject(new Error(`request body exceeds ${maxBytes} bytes`));
+          settled = true;
+          reject(new WebhookHttpError(413, `request body exceeds ${maxBytes} bytes`));
           req.destroy();
           return;
         }
         chunks.push(chunk);
       });
-      req.on('end', () => resolve(Buffer.concat(chunks)));
-      req.on('error', reject);
+      req.on('end', () => {
+        if (!settled) {
+          settled = true;
+          resolve(Buffer.concat(chunks));
+        }
+      });
+      req.on('error', (error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      });
     });
   }
 
-  private verifySignature(route: WebhookRouteConfig, body: Buffer, header: string | string[] | undefined): boolean {
+  private verifySignature(route: WebhookRuntimeRouteConfig, body: Buffer, header: string | string[] | undefined): boolean {
     if ((route.allowUnsignedDev || this.options.allowUnsignedDev) && !header) {
       return true;
     }
@@ -180,7 +272,7 @@ export class WebhookServer {
     if (!signature) {
       return false;
     }
-    const expected = crypto.createHmac('sha256', route.secretHash).update(body).digest('hex');
+    const expected = crypto.createHmac('sha256', route.signingSecret).update(body).digest('hex');
     const normalized = signature.startsWith('sha256=') ? signature.slice('sha256='.length) : signature;
     return normalized.length === expected.length
       && crypto.timingSafeEqual(Buffer.from(normalized), Buffer.from(expected));

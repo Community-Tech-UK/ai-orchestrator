@@ -6,6 +6,10 @@ export type {
   WebhookServerStatus,
 };
 
+export interface WebhookRuntimeRouteConfig extends WebhookRouteConfig {
+  signingSecret: string;
+}
+
 export interface WebhookCreateRouteInput {
   path: string;
   secret: string;
@@ -19,4 +23,7 @@ export interface WebhookCreateRouteInput {
 export interface WebhookServerOptions {
   port?: number;
   allowUnsignedDev?: boolean;
+  maxRequestsPerWindow?: number;
+  rateLimitWindowMs?: number;
+  deliveryTtlMs?: number;
 }

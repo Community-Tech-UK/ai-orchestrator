@@ -34,6 +34,7 @@ import {
   ChannelPersistence,
   ChannelCredentialStore,
   ChannelAccessPolicyStore,
+  restoreSavedAccessPolicy,
 } from '../channels';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { bootstrapAll } from '../bootstrap';
@@ -86,6 +87,7 @@ export function createInitializationSteps(
       name: 'IPC handlers',
       critical: true,
       fn: () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { IpcMainHandler } = require('../ipc/ipc-main-handler') as typeof import('../ipc/ipc-main-handler');
         const ipcHandler = new IpcMainHandler(instanceManager, windowManager);
         ipcHandler.registerHandlers();
@@ -272,22 +274,13 @@ export function createInitializationSteps(
               continue;
             }
 
-            const savedPolicy = policyStore.get(platform);
-            const restoredSenders = savedPolicy
-              ? JSON.parse(savedPolicy.allowed_senders_json) as string[]
-              : [];
-            const restoredMode = savedPolicy?.mode ?? 'pairing';
+            const restoredSenders = restoreSavedAccessPolicy(adapter, platform, policyStore);
+            const restoredMode = adapter.getAccessPolicy().mode;
 
             logger.info('Auto-reconnecting channel', {
               platform,
               restoredSenders: restoredSenders.length,
               mode: restoredMode,
-            });
-
-            adapter.setAccessPolicy({
-              ...adapter.getAccessPolicy(),
-              mode: restoredMode as 'pairing' | 'allowlist' | 'disabled',
-              allowedSenders: restoredSenders,
             });
 
             adapter.connect({

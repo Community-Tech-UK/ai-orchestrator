@@ -1810,8 +1810,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       "isn't allowed",                   // Contraction variant
       "not authorized",                  // Authorization-style denial
     ];
+    const claudeRequestedPermissionPattern =
+      /\bclaude requested permissions? to (?:access|add|change|create|delete|edit|execute|modify|move|open|read|remove|rename|run|update|use|view|write)\b/i;
 
-    return patterns.some(p => lower.includes(p));
+    return patterns.some(p => lower.includes(p))
+      || claudeRequestedPermissionPattern.test(content);
   }
 
   private extractPermissionDetails(
@@ -1825,10 +1828,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     let displayPath: string | undefined;
 
     const patterns: RegExp[] = [
-      /permissions to (\w+) to (.+?)(?:,|$)/i,
-      /permissions to (\w+) on (.+?)(?:,|$)/i,
-      /permissions to (\w+) for (.+?)(?:,|$)/i,
-      /permission to (\w+) (.+?)(?:,|$)/i
+      /permissions? to (\w+) to (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
+      /permissions? to (\w+) on (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
+      /permissions? to (\w+) for (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
+      /permissions? to (access|add|change|create|delete|edit|modify|move|open|read|remove|rename|update|view|write) (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i
     ];
 
     for (const pattern of patterns) {

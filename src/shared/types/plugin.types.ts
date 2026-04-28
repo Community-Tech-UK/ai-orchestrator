@@ -8,6 +8,7 @@
 
 import type { InstanceCreateConfig, OutputMessage } from './instance.types';
 import type { AutomationDeliveryMode, AutomationTriggerSource } from './automation.types';
+import type { ChildDiagnosticBundle } from './agent-tree.types';
 
 export type PluginRecord = Record<string, unknown>;
 
@@ -88,6 +89,7 @@ export interface PluginChildResultPayload {
   summary?: string;
   resultId?: string;
   exitCode?: number | null;
+  diagnosticBundle?: ChildDiagnosticBundle;
 }
 
 export interface PluginHookPayloads {

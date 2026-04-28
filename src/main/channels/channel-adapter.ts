@@ -17,8 +17,26 @@ import type {
   ChannelErrorEvent,
 } from '../../shared/types/channels';
 
+export interface ChannelAutocompleteChoice {
+  name: string;
+  value: string;
+}
+
+export interface ChannelAutocompleteRequest {
+  platform: ChannelPlatform;
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  commandName: string;
+  focusedName: string;
+  focusedValue: string;
+  options: Record<string, string>;
+  respond: (choices: ChannelAutocompleteChoice[]) => Promise<void>;
+}
+
 export interface ChannelAdapterEvents {
   message: [InboundChannelMessage];
+  autocomplete: [ChannelAutocompleteRequest];
   status: [ChannelStatusEvent];
   error: [ChannelErrorEvent];
   qr: [string]; // QR code data (WhatsApp only)

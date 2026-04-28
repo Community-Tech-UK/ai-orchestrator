@@ -740,6 +740,27 @@ export const MIGRATIONS: Migration[] = [
       DROP INDEX IF EXISTS idx_automation_runs_external_idempotency;
     `,
   },
+  // Migration 017: persistent channel route pins for Discord/WhatsApp.
+  {
+    name: '017_channel_route_pins',
+    up: `
+      CREATE TABLE IF NOT EXISTS channel_route_pins (
+        platform TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK(scope IN ('chat', 'dm')),
+        route_key TEXT NOT NULL,
+        pin_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (platform, scope, route_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_channel_route_pins_platform
+        ON channel_route_pins(platform, scope);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_channel_route_pins_platform;
+      DROP TABLE IF EXISTS channel_route_pins;
+    `,
+  },
 ];
 
 /**

@@ -20,6 +20,7 @@ import {
 import { ChannelPersistence } from '../../channels/channel-persistence';
 import { ChannelCredentialStore } from '../../channels/channel-credential-store';
 import { ChannelAccessPolicyStore } from '../../channels/channel-access-policy-store';
+import { restoreSavedAccessPolicy } from '../../channels/channel-policy-restore';
 import { getRLMDatabase } from '../../persistence/rlm-database';
 
 const logger = getLogger('ChannelHandlers');
@@ -48,10 +49,16 @@ export function registerChannelHandlers(): void {
             error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
+        const allowedSenders = restoreSavedAccessPolicy(
+          adapter,
+          validated.platform,
+          getAccessPolicyStore(),
+        );
+
         await adapter.connect({
           platform: validated.platform,
           token: validated.token,
-          allowedSenders: [],
+          allowedSenders,
           allowedChats: [],
         });
         // Persist token so we can auto-reconnect on restart
@@ -86,13 +93,13 @@ export function registerChannelHandlers(): void {
             error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
           };
         }
-        await adapter.disconnect();
         // Remove saved credential so we don't auto-reconnect next time
         try {
           getCredentialStore().remove(validated.platform);
         } catch (err) {
           logger.warn('Failed to remove channel credential', { platform: validated.platform, error: String(err) });
         }
+        await adapter.disconnect();
         return { success: true, data: { platform: validated.platform, status: 'disconnected' } };
       } catch (error) {
         logger.error('CHANNEL_DISCONNECT failed', error instanceof Error ? error : new Error(String(error)));

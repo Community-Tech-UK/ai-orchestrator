@@ -10,6 +10,23 @@ const logger = getLogger('NdjsonParser');
 // Default max buffer size: 1MB
 const DEFAULT_MAX_BUFFER_KB = 1024;
 
+function normalizeTimestamp(timestamp: unknown): number {
+  if (typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp >= 0) {
+    return timestamp;
+  }
+  if (typeof timestamp === 'string') {
+    const numeric = Number(timestamp);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      return numeric;
+    }
+    const parsed = Date.parse(timestamp);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return Date.now();
+}
+
 export class NdjsonParser {
   private buffer: string = '';
   private maxBufferBytes: number;
@@ -60,7 +77,7 @@ export class NdjsonParser {
         if (!trimmed) continue;
         try {
           const parsed = JSON.parse(trimmed) as CliStreamMessage;
-          parsed.timestamp = parsed.timestamp || Date.now();
+          parsed.timestamp = normalizeTimestamp(parsed.timestamp);
           messages.push(parsed);
         } catch (err) {
           logger.warn('Failed to parse NDJSON line during buffer overflow recovery', {
@@ -85,7 +102,7 @@ export class NdjsonParser {
 
       try {
         const parsed = JSON.parse(trimmed) as CliStreamMessage;
-        parsed.timestamp = parsed.timestamp || Date.now();
+        parsed.timestamp = normalizeTimestamp(parsed.timestamp);
 
         // Log input_required and elicitation messages specifically for debugging
         if (parsed.type === 'input_required' || parsed.type === 'elicitation') {
@@ -113,7 +130,7 @@ export class NdjsonParser {
 
     try {
       const parsed = JSON.parse(this.buffer.trim()) as CliStreamMessage;
-      parsed.timestamp = parsed.timestamp || Date.now();
+      parsed.timestamp = normalizeTimestamp(parsed.timestamp);
       this.buffer = '';
       return [parsed];
     } catch {

@@ -422,5 +422,73 @@ describe('validateHookPayload', () => {
       });
       expect(result).toMatchObject({ toolName: 'read_file', durationMs: 42 });
     });
+
+    it('validates automation run lifecycle payloads', () => {
+      const started = validateHookPayload('automation.run.started', {
+        automationId: 'auto-1',
+        runId: 'run-1',
+        trigger: 'webhook',
+        source: { type: 'webhook', deliveryId: 'delivery-1' },
+        deliveryMode: 'notify',
+        timestamp: 123,
+      });
+      const completed = validateHookPayload('automation.run.completed', {
+        automationId: 'auto-1',
+        runId: 'run-1',
+        status: 'succeeded',
+        outputSummary: 'ok',
+        outputFullRef: '/tmp/run-output.json',
+        timestamp: 124,
+      });
+
+      expect(started).toMatchObject({ trigger: 'webhook', deliveryMode: 'notify' });
+      expect(completed).toMatchObject({ status: 'succeeded', outputFullRef: '/tmp/run-output.json' });
+    });
+
+    it('validates cleanup candidate payloads', () => {
+      const before = validateHookPayload('cleanup.candidate.before', {
+        artifactId: 'artifact-1',
+        path: '/tmp/artifact.json',
+        reason: 'old artifact',
+        dryRun: true,
+        timestamp: 123,
+      });
+      const after = validateHookPayload('cleanup.candidate.after', {
+        artifactId: 'artifact-1',
+        path: '/tmp/artifact.json',
+        reason: 'old artifact',
+        removed: false,
+        dryRun: true,
+        timestamp: 124,
+      });
+
+      expect(before).toMatchObject({ dryRun: true });
+      expect(after).toMatchObject({ removed: false });
+    });
+
+    it('validates child failure diagnostic bundle payloads', () => {
+      const result = validateHookPayload('orchestration.child.failed', {
+        parentId: 'parent-1',
+        childId: 'child-1',
+        name: 'Worker',
+        success: false,
+        summary: 'startup timeout',
+        exitCode: 1,
+        diagnosticBundle: {
+          childInstanceId: 'child-1',
+          parentInstanceId: 'parent-1',
+          status: 'failed',
+          recentEvents: [],
+        },
+        timestamp: 123,
+      });
+
+      expect(result).toMatchObject({
+        diagnosticBundle: {
+          childInstanceId: 'child-1',
+          status: 'failed',
+        },
+      });
+    });
   });
 });

@@ -188,8 +188,13 @@ export function registerSearchHandlers(): void {
         const validated = validateIpcPayload(SessionRecallSearchPayloadSchema, payload ?? {}, 'SESSION_RECALL_SEARCH');
         const results = await getSessionRecallService().search({
           query: validated.query,
+          intent: validated.intent,
           parentId: validated.parentId,
           automationId: validated.automationId,
+          provider: validated.provider,
+          model: validated.model,
+          repositoryPath: validated.repositoryPath,
+          sources: validated.sources,
           limit: validated.limit,
         });
         return { success: true, data: results };

@@ -29,6 +29,17 @@ export type OrchestrationRole =
   | 'recovery_agent'
   | 'automation_runner';
 
+export type RoleFilesystemWritePolicy = 'allow' | 'ask' | 'deny';
+
+export type RoleToolCategory =
+  | 'read'
+  | 'analysis'
+  | 'command_execution'
+  | 'filesystem_write'
+  | 'network'
+  | 'webhook'
+  | 'unknown';
+
 export interface RoleCapabilityProfile {
   role: OrchestrationRole;
   canSpawnChildren: boolean;
@@ -38,10 +49,18 @@ export interface RoleCapabilityProfile {
   canMessageChildren: boolean;
   canTerminateChildren: boolean;
   canCallTools: boolean;
+  providerAllowlist: string[];
+  modelAllowlist: string[];
+  filesystemWrite: RoleFilesystemWritePolicy;
+  commandCategories: RoleToolCategory[];
+  networkAccess: boolean;
+  webhookAccess: boolean;
+  canUseYoloMode: boolean;
 }
 
 export interface RoleCapabilityDecision {
   allowed: boolean;
   reason?: string;
   profile: RoleCapabilityProfile;
+  category?: RoleToolCategory;
 }

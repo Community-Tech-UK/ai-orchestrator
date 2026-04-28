@@ -3,7 +3,7 @@
  */
 
 import { getLogger } from '../logging/logger';
-import { BaseChannelAdapter } from './channel-adapter';
+import { BaseChannelAdapter, type ChannelAutocompleteRequest } from './channel-adapter';
 import { registerCleanup } from '../util/cleanup-registry';
 import type {
   ChannelPlatform,
@@ -18,6 +18,7 @@ const logger = getLogger('ChannelManager');
 
 export type ChannelEvent =
   | { type: 'message'; data: InboundChannelMessage }
+  | { type: 'autocomplete'; data: ChannelAutocompleteRequest }
   | { type: 'status'; data: ChannelStatusEvent }
   | { type: 'error'; data: ChannelErrorEvent }
   | { type: 'qr'; data: string }
@@ -110,6 +111,10 @@ export class ChannelManager {
   private subscribeToAdapter(adapter: BaseChannelAdapter): void {
     adapter.on('message', (data: InboundChannelMessage) => {
       this.notifyListeners({ type: 'message', data });
+    });
+
+    adapter.on('autocomplete', (data: ChannelAutocompleteRequest) => {
+      this.notifyListeners({ type: 'autocomplete', data });
     });
 
     adapter.on('status', (data: ChannelStatusEvent) => {

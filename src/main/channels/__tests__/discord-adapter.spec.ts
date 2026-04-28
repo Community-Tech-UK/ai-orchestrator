@@ -4,9 +4,15 @@ import { EventEmitter } from 'events';
 // ---------- Mock discord.js BEFORE importing the adapter ----------
 
 let capturedMessageHandler: ((msg: unknown) => void) | null = null;
+let capturedInteractionHandler: ((interaction: unknown) => void) | null = null;
 
 class MockClient extends EventEmitter {
   user: { id: string; tag: string } | null = null;
+  application = {
+    commands: {
+      set: vi.fn(async () => undefined),
+    },
+  };
   channels = {
     fetch: vi.fn(),
   };
@@ -14,6 +20,8 @@ class MockClient extends EventEmitter {
   override on(event: string, listener: (...args: unknown[]) => void): this {
     if (event === 'messageCreate') {
       capturedMessageHandler = listener;
+    } else if (event === 'interactionCreate') {
+      capturedInteractionHandler = listener;
     }
     return super.on(event, listener);
   }
@@ -95,6 +103,92 @@ function makeMessage(overrides: Partial<MockMessage> = {}): MockMessage {
   };
 }
 
+interface MockInteraction {
+  id: string;
+  commandName?: string;
+  customId?: string;
+  channelId: string;
+  guildId: string | null;
+  guild: object | null;
+  user: { id: string; username: string; tag: string };
+  memberPermissions?: { has: (permission: string) => boolean };
+  options?: {
+    data?: { name: string; value?: string; user?: { id: string } }[];
+    getString?: (name: string) => string | null;
+    getUser?: (name: string) => { id: string } | null;
+    getFocused?: (withName: boolean) => { name: string; value: string };
+  };
+  deferred: boolean;
+  replied: boolean;
+  isChatInputCommand: () => boolean;
+  isButton: () => boolean;
+  isAutocomplete: () => boolean;
+  deferReply: ReturnType<typeof vi.fn>;
+  reply: ReturnType<typeof vi.fn>;
+  editReply: ReturnType<typeof vi.fn>;
+  followUp: ReturnType<typeof vi.fn>;
+  respond: ReturnType<typeof vi.fn>;
+}
+
+function makeChatInputInteraction(overrides: Partial<MockInteraction> = {}): MockInteraction {
+  const { options: overrideOptions, ...rest } = overrides;
+  const strings = new Map<string, string>();
+  for (const option of overrideOptions?.data ?? []) {
+    if (option.value) strings.set(option.name, option.value);
+  }
+  return {
+    id: 'interaction-1',
+    commandName: 'list',
+    channelId: 'chan-1',
+    guildId: null,
+    guild: null,
+    user: { id: 'user-1', username: 'alice', tag: 'alice#1234' },
+    memberPermissions: { has: () => false },
+    options: {
+      data: [],
+      getString: (name: string) => strings.get(name) ?? null,
+      getUser: () => null,
+      getFocused: () => ({ name: 'project', value: '' }),
+      ...overrideOptions,
+    },
+    deferred: false,
+    replied: false,
+    isChatInputCommand: () => true,
+    isButton: () => false,
+    isAutocomplete: () => false,
+    deferReply: vi.fn(async function defer(this: MockInteraction) { this.deferred = true; }),
+    reply: vi.fn(async () => ({ id: 'reply-1', channelId: 'chan-1', createdTimestamp: 2000 })),
+    editReply: vi.fn(async () => ({ id: 'reply-1', channelId: 'chan-1', createdTimestamp: 2000 })),
+    followUp: vi.fn(async () => ({ id: 'follow-1', channelId: 'chan-1', createdTimestamp: 3000 })),
+    respond: vi.fn(async () => undefined),
+    ...rest,
+  };
+}
+
+function makeButtonInteraction(customId: string): MockInteraction {
+  return {
+    ...makeChatInputInteraction({
+      id: 'button-1',
+      customId,
+      commandName: undefined,
+    }),
+    isChatInputCommand: () => false,
+    isButton: () => true,
+  };
+}
+
+function makeAutocompleteInteraction(overrides: Partial<MockInteraction> = {}): MockInteraction {
+  return {
+    ...makeChatInputInteraction({
+      id: 'auto-1',
+      commandName: 'list',
+      ...overrides,
+    }),
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true,
+  };
+}
+
 // ---------- tests ----------
 
 describe('DiscordAdapter', () => {
@@ -102,8 +196,10 @@ describe('DiscordAdapter', () => {
 
   beforeEach(() => {
     capturedMessageHandler = null;
+    capturedInteractionHandler = null;
     adapter = new DiscordAdapter();
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   // ---- initial state ----
@@ -406,5 +502,88 @@ describe('DiscordAdapter', () => {
     await adapter.connect(makeConfig({ allowedSenders: ['user-a', 'user-b'] }));
     expect(adapter.getAccessPolicy().allowedSenders).toContain('user-a');
     expect(adapter.getAccessPolicy().allowedSenders).toContain('user-b');
+  });
+
+  // ---- Discord interactions ----
+
+  it('registers native slash commands on connect', async () => {
+    await adapter.connect(makeConfig());
+    expect(mockClientInstance.application.commands.set).toHaveBeenCalledOnce();
+    expect(mockClientInstance.application.commands.set.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'list' }),
+        expect.objectContaining({ name: 'revive' }),
+        expect.objectContaining({ name: 'whereami' }),
+      ]),
+    );
+  });
+
+  it('converts slash commands into inbound channel messages', async () => {
+    await adapter.connect(makeConfig({ allowedSenders: ['user-1'] }));
+    const messages: InboundChannelMessage[] = [];
+    adapter.on('message', (msg: InboundChannelMessage) => messages.push(msg));
+
+    const interaction = makeChatInputInteraction({
+      id: 'slash-1',
+      commandName: 'list',
+      options: {
+        data: [{ name: 'project', value: 'Project A' }],
+      },
+    });
+    await capturedInteractionHandler!(interaction);
+
+    expect(interaction.deferReply).toHaveBeenCalledOnce();
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toEqual(expect.objectContaining({
+      messageId: 'slash-1',
+      content: '/list Project A',
+      senderId: 'user-1',
+    }));
+  });
+
+  it('converts button actions into inbound channel messages', async () => {
+    await adapter.connect(makeConfig({ allowedSenders: ['user-1'] }));
+    const messages: InboundChannelMessage[] = [];
+    adapter.on('message', (msg: InboundChannelMessage) => messages.push(msg));
+
+    await capturedInteractionHandler!(makeButtonInteraction('orch:revive:sleep-1'));
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('/revive sleep-1');
+  });
+
+  it('emits autocomplete requests and forwards choices to Discord', async () => {
+    await adapter.connect(makeConfig({ allowedSenders: ['user-1'] }));
+    adapter.on('autocomplete', (request) => {
+      request.respond([{ name: 'Project A', value: 'Project A' }]).catch(() => undefined);
+    });
+
+    const interaction = makeAutocompleteInteraction({
+      options: {
+        data: [],
+        getFocused: () => ({ name: 'project', value: 'Pro' }),
+      },
+    });
+    await capturedInteractionHandler!(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([{ name: 'Project A', value: 'Project A' }]);
+  });
+
+  it('reports reconnect health after a gateway disconnect', async () => {
+    vi.useFakeTimers();
+    await adapter.connect(makeConfig({ allowedSenders: ['user-1'] }));
+    adapter.on('error', () => undefined);
+
+    mockClientInstance.emit('shardDisconnect', { code: 1006, reason: 'network drop' });
+
+    expect(adapter.status).toBe('error');
+    expect(adapter.getHealthSnapshot()).toEqual(
+      expect.objectContaining({
+        reconnectAttempts: 1,
+        reconnectScheduled: true,
+        lastError: 'network drop',
+      }),
+    );
+    await adapter.disconnect();
   });
 });

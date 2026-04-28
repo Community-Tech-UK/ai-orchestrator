@@ -17,9 +17,11 @@ export interface InboundChannelMessage {
   platform: ChannelPlatform;
   chatId: string;
   messageId: string;
+  guildId?: string;
   threadId?: string;
   senderId: string;
   senderName: string;
+  senderIsAdmin?: boolean;
   content: string;
   attachments: ChannelAttachment[];
   isGroup: boolean;
@@ -44,6 +46,15 @@ export interface ChannelResponse {
 export interface SendOptions {
   replyTo?: string;
   splitAt?: number;
+  actions?: ChannelMessageAction[];
+}
+
+export type ChannelActionStyle = 'primary' | 'secondary' | 'success' | 'danger';
+
+export interface ChannelMessageAction {
+  id: string;
+  label: string;
+  style?: ChannelActionStyle;
 }
 
 export interface SentMessage {

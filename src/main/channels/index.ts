@@ -5,5 +5,8 @@ export type { ChannelAdapterEvents } from './channel-adapter';
 export { ChannelPersistence } from './channel-persistence';
 export { ChannelCredentialStore } from './channel-credential-store';
 export { ChannelAccessPolicyStore } from './channel-access-policy-store';
+export { restoreSavedAccessPolicy } from './channel-policy-restore';
+export { ChannelRouteStore } from './channel-route-store';
+export type { ChannelRouteScope, SavedChannelRoutePin } from './channel-route-store';
 export { RateLimiter } from './rate-limiter';
 export { ChannelMessageRouter } from './channel-message-router';

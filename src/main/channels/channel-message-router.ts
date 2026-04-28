@@ -26,10 +26,15 @@ import { getLogger } from '../logging/logger';
 import type { ChannelManager, ChannelEvent } from './channel-manager';
 import type { ChannelPersistence } from './channel-persistence';
 import { RateLimiter } from './rate-limiter';
-import type { BaseChannelAdapter } from './channel-adapter';
+import type { BaseChannelAdapter, ChannelAutocompleteChoice, ChannelAutocompleteRequest } from './channel-adapter';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import { getSettingsManager } from '../core/config/settings-manager';
-import type { InboundChannelMessage } from '../../shared/types/channels';
+import type {
+  ChannelMessageAction,
+  ChannelPlatform,
+  InboundChannelMessage,
+} from '../../shared/types/channels';
+import type { FileAttachment } from '../../shared/types/instance.types';
 import { detectBrowserIntent } from './browser-intent';
 import {
   getRemoteNodeConfig,
@@ -38,6 +43,9 @@ import {
 import { getWorkerNodeRegistry } from '../remote-node';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
+import { ChannelAccessPolicyStore } from './channel-access-policy-store';
+import { ChannelRouteStore, type SavedChannelRoutePin } from './channel-route-store';
+import { getRLMDatabase } from '../persistence/rlm-database';
 
 const logger = getLogger('ChannelMessageRouter');
 
@@ -77,17 +85,26 @@ interface ProjectDescriptor {
   lastActivity: number;
 }
 
-type ChannelPin =
-  | { kind: 'instance'; instanceId: string }
-  | { kind: 'project'; projectKey: string; label: string; workingDirectory: string | null };
+type ChannelPin = SavedChannelRoutePin;
 
 type ResolvedNamedTarget =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   | { kind: 'instance'; instance: any }
   | { kind: 'project'; project: ProjectDescriptor };
 
+interface KnownChannelInstance {
+  id: string;
+  displayName?: string;
+  workingDirectory?: string;
+  status?: string;
+  lastActivity?: number;
+}
+
 interface OutputStreamTracker {
   content: string;
+  suppressedContent: string;
+  flushCount: number;
+  suppressionNoticeSent: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   pendingFinalization: boolean;
   outputHandler: (envelope: ProviderRuntimeEventEnvelope) => void;
@@ -96,8 +113,27 @@ interface OutputStreamTracker {
 
 /** Directories that must never be sent out via channel file sharing */
 const FORBIDDEN_PATHS = ['.env', 'credentials', 'tokens', 'secrets', '.ssh', 'access.json'];
+const MAX_CHANNEL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_LIVE_STREAM_FLUSHES = 3;
 const NO_PROJECT_KEY = '__no_project__';
 const NO_PROJECT_LABEL = '(no project)';
+const ACTIVE_SESSION_STATUSES = new Set([
+  'initializing',
+  'ready',
+  'idle',
+  'busy',
+  'processing',
+  'thinking_deeply',
+  'waiting_for_input',
+  'waiting_for_permission',
+  'interrupting',
+  'cancelling',
+  'interrupt-escalating',
+  'cancelled',
+  'respawning',
+  'waking',
+  'degraded',
+]);
 
 export class ChannelMessageRouter {
   private rateLimiter = new RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
@@ -112,13 +148,18 @@ export class ChannelMessageRouter {
   private pendingPicks = new Map<string, any[]>();
   /** Maps channelId/senderId → ordered project list from last /list for numeric selection */
   private pendingProjectPicks = new Map<string, ProjectDescriptor[]>();
+  /** Maps channelId/senderId → ordered revivable session list from last /revive or /list <project> */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private pendingRevivePicks = new Map<string, any[]>();
   // We need InstanceManager but import it lazily to avoid circular deps
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _instanceManagerOverride: any = null;
+  private resolvedRouteStore: ChannelRouteStore | null | undefined;
 
   constructor(
     private channelManager: ChannelManager,
     private persistence: ChannelPersistence,
+    private routeStore?: ChannelRouteStore | null,
   ) {}
 
   start(): void {
@@ -126,6 +167,10 @@ export class ChannelMessageRouter {
       if (event.type === 'message') {
         this.handleInboundMessage(event.data).catch(err => {
           logger.error('Error handling inbound message', err instanceof Error ? err : new Error(String(err)));
+        });
+      } else if (event.type === 'autocomplete') {
+        this.handleAutocompleteRequest(event.data).catch(err => {
+          logger.error('Error handling channel autocomplete', err instanceof Error ? err : new Error(String(err)));
         });
       }
     });
@@ -177,6 +222,114 @@ export class ChannelMessageRouter {
     this._instanceManagerOverride = im;
   }
 
+  private getRouteStore(): ChannelRouteStore | null {
+    if (this.routeStore !== undefined) {
+      return this.routeStore;
+    }
+    if (this.resolvedRouteStore !== undefined) {
+      return this.resolvedRouteStore;
+    }
+    try {
+      this.resolvedRouteStore = new ChannelRouteStore(getRLMDatabase().getRawDb());
+    } catch (err) {
+      logger.warn('Channel route store unavailable', { error: String(err) });
+      this.resolvedRouteStore = null;
+    }
+    return this.resolvedRouteStore;
+  }
+
+  private getAccessPolicyStore(): ChannelAccessPolicyStore | null {
+    try {
+      return new ChannelAccessPolicyStore(getRLMDatabase().getRawDb());
+    } catch (err) {
+      logger.warn('Channel access policy store unavailable', { error: String(err) });
+      return null;
+    }
+  }
+
+  private setChannelPin(platform: ChannelPlatform, chatId: string, pin: ChannelPin): void {
+    this.channelPins.set(chatId, pin);
+    try {
+      this.getRouteStore()?.savePin(platform, 'chat', chatId, pin);
+    } catch (err) {
+      logger.warn('Failed to persist channel pin', { platform, chatId, error: String(err) });
+    }
+  }
+
+  private getChannelPin(platform: ChannelPlatform, chatId: string): ChannelPin | undefined {
+    const cached = this.channelPins.get(chatId);
+    if (cached) {
+      return cached;
+    }
+    try {
+      const persisted = this.getRouteStore()?.getPin(platform, 'chat', chatId) ?? null;
+      if (persisted) {
+        this.channelPins.set(chatId, persisted);
+        return persisted;
+      }
+    } catch (err) {
+      logger.warn('Failed to load channel pin', { platform, chatId, error: String(err) });
+    }
+    return undefined;
+  }
+
+  private clearChannelPin(platform: ChannelPlatform, chatId: string): void {
+    this.channelPins.delete(chatId);
+    try {
+      this.getRouteStore()?.removePin(platform, 'chat', chatId);
+    } catch (err) {
+      logger.warn('Failed to remove channel pin', { platform, chatId, error: String(err) });
+    }
+  }
+
+  private setDmPin(platform: ChannelPlatform, senderId: string, instanceId: string): void {
+    this.dmPins.set(senderId, instanceId);
+    try {
+      this.getRouteStore()?.savePin(platform, 'dm', senderId, { kind: 'instance', instanceId });
+    } catch (err) {
+      logger.warn('Failed to persist DM pin', { platform, senderId, error: String(err) });
+    }
+  }
+
+  private getDmPin(platform: ChannelPlatform, senderId: string): string | undefined {
+    const cached = this.dmPins.get(senderId);
+    if (cached) {
+      return cached;
+    }
+    try {
+      const persisted = this.getRouteStore()?.getPin(platform, 'dm', senderId) ?? null;
+      if (persisted?.kind === 'instance') {
+        this.dmPins.set(senderId, persisted.instanceId);
+        return persisted.instanceId;
+      }
+    } catch (err) {
+      logger.warn('Failed to load DM pin', { platform, senderId, error: String(err) });
+    }
+    return undefined;
+  }
+
+  private clearDmPin(platform: ChannelPlatform, senderId: string): void {
+    this.dmPins.delete(senderId);
+    try {
+      this.getRouteStore()?.removePin(platform, 'dm', senderId);
+    } catch (err) {
+      logger.warn('Failed to remove DM pin', { platform, senderId, error: String(err) });
+    }
+  }
+
+  private clearAllPins(platform: ChannelPlatform): void {
+    this.channelPins.clear();
+    this.dmPins.clear();
+    this.pendingPicks.clear();
+    this.pendingProjectPicks.clear();
+    this.pendingRevivePicks.clear();
+    try {
+      this.getRouteStore()?.removePlatform(platform);
+    } catch (err) {
+      logger.warn('Failed to remove channel route pins', { platform, error: String(err) });
+    }
+  }
+
   // ============ Instance helpers ============
 
   /**
@@ -221,30 +374,50 @@ export class ChannelMessageRouter {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private getRouteableInstances(project: ProjectDescriptor): any[] {
-    const active = project.activeInstances.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (instance: any) =>
-        instance.status === 'idle' ||
-        instance.status === 'busy' ||
-        instance.status === 'waiting_for_input'
-    );
+  private isActiveSession(instance: any): boolean {
+    return ACTIVE_SESSION_STATUSES.has(String(instance.status || ''));
+  }
 
-    const hibernated = project.hibernatedInstances.map(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (entry: any) => ({
-        id: entry.instanceId,
+  private sortByLastActivity<T extends { lastActivity?: number }>(instances: T[]): T[] {
+    return [...instances].sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getActiveInstances(project: ProjectDescriptor): any[] {
+    return this.sortByLastActivity(
+      project.activeInstances.filter(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (instance: any) => this.isActiveSession(instance),
+      ),
+    );
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getRevivableInstances(project: ProjectDescriptor): any[] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const byId = new Map<string, any>();
+    for (const entry of project.hibernatedInstances) {
+      const id = entry.instanceId || entry.id;
+      if (!id || byId.has(id)) {
+        continue;
+      }
+      byId.set(id, {
+        id,
         displayName: entry.displayName,
         workingDirectory: entry.workingDirectory || project.workingDirectory || '',
         status: 'hibernated',
-        lastActivity: entry.hibernatedAt,
-      })
-    );
+        lastActivity: entry.hibernatedAt || entry.lastActivity,
+      });
+    }
+    return this.sortByLastActivity([...byId.values()]);
+  }
 
-    return [...active, ...hibernated].sort(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0)
-    );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getRouteableInstances(project: ProjectDescriptor): any[] {
+    return [
+      ...this.getActiveInstances(project),
+      ...this.getRevivableInstances(project),
+    ];
   }
 
   private async getProjectDescriptors(): Promise<Map<string, ProjectDescriptor>> {
@@ -295,7 +468,16 @@ export class ChannelMessageRouter {
     for (const instances of this.getProjectMap().values()) {
       for (const instance of instances) {
         const descriptor = ensureDescriptor(instance.workingDirectory);
-        descriptor.activeInstances.push(instance);
+        if (instance.status === 'hibernated') {
+          descriptor.hibernatedInstances.push({
+            instanceId: instance.id,
+            displayName: instance.displayName,
+            workingDirectory: instance.workingDirectory,
+            hibernatedAt: instance.lastActivity || 0,
+          });
+        } else {
+          descriptor.activeInstances.push(instance);
+        }
         descriptor.lastActivity = Math.max(descriptor.lastActivity, instance.lastActivity || 0);
       }
     }
@@ -419,6 +601,100 @@ export class ChannelMessageRouter {
     return project.workingDirectory ? { kind: 'project', project } : null;
   }
 
+  private async handleAutocompleteRequest(request: ChannelAutocompleteRequest): Promise<void> {
+    const focusedName = request.focusedName.toLowerCase();
+    const focusedValue = request.focusedValue.toLowerCase();
+    let choices: ChannelAutocompleteChoice[] = [];
+
+    if (focusedName === 'project') {
+      const descriptors = [...(await this.getProjectDescriptors()).values()]
+        .sort((a, b) => b.lastActivity - a.lastActivity || a.label.localeCompare(b.label));
+      choices = descriptors
+        .filter(project => {
+          const label = project.label.toLowerCase();
+          const workingDirectory = project.workingDirectory?.toLowerCase() || '';
+          return !focusedValue || label.includes(focusedValue) || workingDirectory.includes(focusedValue);
+        })
+        .slice(0, 25)
+        .map(project => ({
+          name: project.workingDirectory ? `${project.label} - ${project.workingDirectory}` : project.label,
+          value: project.label,
+        }));
+    } else if (focusedName === 'session') {
+      const projectName = request.options['project'];
+      const project = projectName ? await this.resolveProject(projectName) : null;
+      const instances = project
+        ? this.getRouteableInstances(project)
+        : this.getAllKnownInstances();
+      choices = instances
+        .filter(instance => {
+          const label = String(instance.displayName || instance.id || '').toLowerCase();
+          return !focusedValue || label.includes(focusedValue) || String(instance.id || '').toLowerCase().includes(focusedValue);
+        })
+        .slice(0, 25)
+        .map(instance => ({
+          name: `${instance.displayName || String(instance.id).slice(0, 8)} - ${instance.status || 'unknown'}`,
+          value: instance.displayName || instance.id,
+        }));
+    }
+
+    await request.respond(choices);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getAllKnownInstances(): any[] {
+    const im = this.getInstanceManager();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const liveInstances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
+    const liveIds = new Set(liveInstances.map(instance => instance.id));
+    const hibernated = [...this.getHibernatedByProject().values()]
+      .flat()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((entry: any) => !liveIds.has(entry.instanceId))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((entry: any) => ({
+        id: entry.instanceId,
+        displayName: entry.displayName,
+        workingDirectory: entry.workingDirectory,
+        status: 'hibernated',
+        lastActivity: entry.hibernatedAt,
+      }));
+    return this.sortByLastActivity([...liveInstances, ...hibernated]);
+  }
+
+  private makeAction(
+    id: string,
+    label: string,
+    style: ChannelMessageAction['style'] = 'secondary',
+  ): ChannelMessageAction {
+    return { id, label, style };
+  }
+
+  private encodeActionArg(value: string): string {
+    return encodeURIComponent(value).replace(/%20/g, '+');
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private buildReviveActions(instances: any[]): ChannelMessageAction[] {
+    return instances.slice(0, 4).map((instance, index) => {
+      const label = instance.displayName || String(instance.id || '').slice(0, 8) || `Session ${index + 1}`;
+      return this.makeAction(
+        `orch:revive:${this.encodeActionArg(instance.id)}`,
+        `Revive ${label}`.slice(0, 80),
+        'success',
+      );
+    });
+  }
+
+  private buildSessionActions(instanceId: string): ChannelMessageAction[] {
+    const encoded = this.encodeActionArg(instanceId);
+    return [
+      this.makeAction(`orch:stop:${encoded}`, 'Stop', 'danger'),
+      this.makeAction(`orch:continue:${encoded}`, 'Continue', 'primary'),
+      this.makeAction('orch:pick', 'Pick', 'secondary'),
+    ];
+  }
+
   // ============ Command handlers ============
 
   /**
@@ -495,48 +771,67 @@ export class ChannelMessageRouter {
         return;
       }
 
-      const routeableInstances = this.getRouteableInstances(project);
+      const activeInstances = this.getActiveInstances(project);
+      const revivableInstances = this.getRevivableInstances(project);
       const historyEntries = [...project.historyEntries].sort(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (a: any, b: any) => (b.endedAt || b.createdAt || 0) - (a.endedAt || a.createdAt || 0)
       );
-      const totalSessions = routeableInstances.length + historyEntries.length;
 
       lines.push(`**${project.label}**`);
       if (project.workingDirectory) {
         lines.push(`Path: \`${project.workingDirectory}\``);
       }
-      lines.push(`Sessions: ${totalSessions} total`);
+      const summaryParts = [
+        `${activeInstances.length} active`,
+        `${revivableInstances.length} revivable`,
+      ];
+      if (historyEntries.length > 0) {
+        summaryParts.push(`${historyEntries.length} archived`);
+      }
+      lines.push(`Sessions: ${summaryParts.join(', ')}`);
       lines.push('');
 
-      if (routeableInstances.length === 0 && historyEntries.length === 0) {
+      if (activeInstances.length === 0 && revivableInstances.length === 0 && historyEntries.length === 0) {
         lines.push('No sessions yet for this project.');
       }
 
-      for (const instance of routeableInstances) {
+      if (activeInstances.length > 0) {
+        lines.push('Active sessions:');
+      }
+      for (const instance of activeInstances) {
         const name = instance.displayName || instance.id?.slice(0, 8) || 'unknown';
         const status = instance.status || 'unknown';
         const age = this.formatAge(instance.lastActivity);
         lines.push(`* ${name} — ${status}, ${age}`);
       }
 
-      const shownHistory = historyEntries.slice(0, 5);
-      for (const entry of shownHistory) {
-        const preview = entry.firstUserMessage || entry.displayName || entry.id?.slice(0, 8) || 'Session';
-        const truncated = preview.length > 70 ? `${preview.slice(0, 67)}...` : preview;
-        const age = this.formatAge(entry.endedAt || entry.createdAt);
-        lines.push(`- ${truncated} — archived, ${age}`);
+      if (revivableInstances.length > 0) {
+        if (activeInstances.length > 0) {
+          lines.push('');
+        }
+        lines.push('Revivable sessions:');
+      }
+      for (const instance of revivableInstances) {
+        const name = instance.displayName || instance.id?.slice(0, 8) || 'unknown';
+        const age = this.formatAge(instance.lastActivity);
+        lines.push(`* ${name} — hibernated, ${age}`);
       }
 
-      if (historyEntries.length > shownHistory.length) {
-        lines.push(`… +${historyEntries.length - shownHistory.length} more archived sessions`);
+      if (historyEntries.length > 0) {
+        lines.push('');
+        lines.push(`Archived sessions: ${historyEntries.length} not shown in Discord.`);
       }
 
       lines.push('');
       lines.push(
-        `Use \`/select ${project.label}\` to pin this project or \`/new ${project.label} -- <prompt>\` to start a new session.`,
+        `Use \`/select ${project.label}\` to pin this project, \`/select ${project.label}/<session>\` to pin a session, or \`/new ${project.label} -- <prompt>\` to start a new session.`,
       );
-      await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+      this.pendingRevivePicks.set(`${msg.chatId}:${msg.senderId}`, revivableInstances);
+      await adapter.sendMessage(msg.chatId, lines.join('\n'), {
+        replyTo: msg.messageId,
+        actions: this.buildReviveActions(revivableInstances),
+      });
       return;
     }
 
@@ -551,16 +846,22 @@ export class ChannelMessageRouter {
     lines.push('**Projects**');
     for (let i = 0; i < projects.length; i++) {
       const project = projects[i];
-      const routeableCount = this.getRouteableInstances(project).length;
-      const totalSessions = routeableCount + project.historyEntries.length;
-      const activeSuffix = routeableCount > 0 ? ` (${routeableCount} active)` : '';
-      lines.push(`**${i + 1}.** **${project.label}** : ${totalSessions}${activeSuffix}`);
+      const activeCount = this.getActiveInstances(project).length;
+      const revivableCount = this.getRevivableInstances(project).length;
+      const countParts = [`${activeCount} active`];
+      if (revivableCount > 0) {
+        countParts.push(`${revivableCount} revivable`);
+      }
+      if (project.historyEntries.length > 0) {
+        countParts.push(`${project.historyEntries.length} archived`);
+      }
+      lines.push(`**${i + 1}.** **${project.label}** : ${countParts.join(', ')}`);
       if (project.workingDirectory) {
         lines.push(`  ${project.workingDirectory}`);
       }
     }
 
-    const pin = this.channelPins.get(msg.chatId);
+    const pin = this.getChannelPin(msg.platform, msg.chatId);
     if (pin?.kind === 'instance') {
       const im = this.getInstanceManager();
       const pinned = im.getInstance?.(pin.instanceId);
@@ -577,7 +878,12 @@ export class ChannelMessageRouter {
       'Use `/list <number>` or `/list <project>` to drill into sessions, `/select <number>` to pin a project, or `/new <number> -- <prompt>` to start a session.',
     );
 
-    await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+    await adapter.sendMessage(msg.chatId, lines.join('\n'), {
+      replyTo: msg.messageId,
+      actions: [
+        this.makeAction('orch:pick', 'Pick Active', 'primary'),
+      ],
+    });
   }
 
   private async handleSelectCommand(
@@ -603,7 +909,7 @@ export class ChannelMessageRouter {
     if (!instanceName) {
       const project = await this.resolveProjectByNumberOrName(projectName, pickKey);
       if (project) {
-        this.channelPins.set(msg.chatId, {
+        this.setChannelPin(msg.platform, msg.chatId, {
           kind: 'project',
           projectKey: project.key,
           label: project.label,
@@ -634,7 +940,7 @@ export class ChannelMessageRouter {
     }
 
     const instance = target.instance;
-    this.channelPins.set(msg.chatId, { kind: 'instance', instanceId: instance.id });
+    this.setChannelPin(msg.platform, msg.chatId, { kind: 'instance', instanceId: instance.id });
     const label = instance.displayName || instance.id.slice(0, 8);
     const dir = this.getProjectLabel(instance.workingDirectory);
     await adapter.sendMessage(
@@ -648,8 +954,8 @@ export class ChannelMessageRouter {
     msg: InboundChannelMessage,
     adapter: BaseChannelAdapter,
   ): Promise<void> {
-    if (this.channelPins.has(msg.chatId)) {
-      this.channelPins.delete(msg.chatId);
+    if (this.getChannelPin(msg.platform, msg.chatId)) {
+      this.clearChannelPin(msg.platform, msg.chatId);
       await adapter.sendMessage(msg.chatId, 'Pin cleared. Messages will create new instances.', {
         replyTo: msg.messageId,
       });
@@ -658,6 +964,464 @@ export class ChannelMessageRouter {
         replyTo: msg.messageId,
       });
     }
+  }
+
+  private async handleWhereAmICommand(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const lines = ['**Current Discord target**'];
+    const dmPinId = this.isDm(msg) ? this.getDmPin(msg.platform, msg.senderId) : undefined;
+    const channelPin = this.getChannelPin(msg.platform, msg.chatId);
+    const im = this.getInstanceManager();
+
+    if (dmPinId) {
+      const instance = im.getInstance?.(dmPinId);
+      lines.push(`DM pin: ${this.formatInstanceLabel(instance, dmPinId)}`);
+    } else if (this.isDm(msg)) {
+      lines.push('DM pin: none');
+    }
+
+    if (channelPin?.kind === 'instance') {
+      const instance = im.getInstance?.(channelPin.instanceId);
+      lines.push(`Channel pin: ${this.formatInstanceLabel(instance, channelPin.instanceId)}`);
+    } else if (channelPin?.kind === 'project') {
+      const project = await this.resolveProject(channelPin.workingDirectory || channelPin.label);
+      const active = project ? this.getActiveInstances(project).length : 0;
+      const revivable = project ? this.getRevivableInstances(project).length : 0;
+      lines.push(`Channel pin: project **${channelPin.label}** (${active} active, ${revivable} revivable)`);
+      if (channelPin.workingDirectory) {
+        lines.push(`Path: \`${channelPin.workingDirectory}\``);
+      }
+    } else if (!this.isDm(msg)) {
+      lines.push('Channel pin: none');
+    }
+
+    lines.push('');
+    lines.push('Use `/select <project>` to set the default target, `/pick` for active sessions, or `/revive <project>` for hibernated sessions.');
+    await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+  }
+
+  private async handleStatusCommand(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const policy = adapter.getAccessPolicy();
+    const health = this.getAdapterHealth(adapter);
+    const projects = [...(await this.getProjectDescriptors()).values()];
+    const activeCount = projects.reduce((sum, project) => sum + this.getActiveInstances(project).length, 0);
+    const revivableCount = projects.reduce((sum, project) => sum + this.getRevivableInstances(project).length, 0);
+
+    const lines = [
+      '**Discord bot status**',
+      `Connection: ${adapter.status}`,
+      health?.botUsername ? `Bot: ${health.botUsername}` : null,
+      health?.lastMessageAt ? `Last message: ${this.formatAge(health.lastMessageAt)}` : null,
+      health?.lastGatewayEventAt ? `Last gateway event: ${this.formatAge(health.lastGatewayEventAt)}` : null,
+      `Reconnect attempts: ${health?.reconnectAttempts ?? 0}${health?.reconnectScheduled ? ' (scheduled)' : ''}`,
+      health?.lastError ? `Last error: ${health.lastError}` : null,
+      `Access mode: ${policy.mode}`,
+      `Paired senders: ${policy.allowedSenders.length}`,
+      `Projects: ${projects.length}`,
+      `Sessions: ${activeCount} active, ${revivableCount} revivable`,
+    ].filter(Boolean) as string[];
+
+    await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+  }
+
+  private async handleReviveCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const pickKey = `${msg.chatId}:${msg.senderId}`;
+    const trimmed = args.trim();
+    const numericPick = parseInt(trimmed, 10);
+    if (!Number.isNaN(numericPick) && String(numericPick) === trimmed && this.pendingRevivePicks.has(pickKey)) {
+      const candidates = this.pendingRevivePicks.get(pickKey)!;
+      if (numericPick < 1 || numericPick > candidates.length) {
+        await adapter.sendMessage(msg.chatId, `Pick a number between 1 and ${candidates.length}.`, { replyTo: msg.messageId });
+        return;
+      }
+      await this.reviveInstance(msg, candidates[numericPick - 1], adapter);
+      return;
+    }
+
+    const candidates = await this.resolveReviveCandidates(msg, trimmed);
+    if (candidates.length === 0) {
+      await adapter.sendMessage(
+        msg.chatId,
+        'No revivable session found. Use `/list` to choose a project, then `/list <project>` to see revivable sessions.',
+        { replyTo: msg.messageId },
+      );
+      return;
+    }
+
+    if (candidates.length > 1) {
+      this.pendingRevivePicks.set(pickKey, candidates);
+      const lines = ['**Revivable sessions** (reply with `/revive <number>`):'];
+      for (let i = 0; i < candidates.length; i++) {
+        const instance = candidates[i];
+        lines.push(`**${i + 1}.** ${this.formatInstanceLabel(instance, instance.id)} (${this.formatAge(instance.lastActivity)})`);
+      }
+      await adapter.sendMessage(msg.chatId, lines.join('\n'), {
+        replyTo: msg.messageId,
+        actions: this.buildReviveActions(candidates),
+      });
+      return;
+    }
+
+    await this.reviveInstance(msg, candidates[0], adapter);
+  }
+
+  private async handleStopCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const instanceId = await this.resolveInstanceIdForCommand(msg, args.trim());
+    if (!instanceId) {
+      await adapter.sendMessage(msg.chatId, 'No session selected. Use `/pick` or `/select <project>/<session>` first.', { replyTo: msg.messageId });
+      return;
+    }
+    const im = this.getInstanceManager();
+    const accepted = im.interruptInstance?.(instanceId);
+    await adapter.sendMessage(
+      msg.chatId,
+      accepted === false ? `Could not stop **${instanceId.slice(0, 8)}**.` : `Stop requested for **${instanceId.slice(0, 8)}**.`,
+      { replyTo: msg.messageId },
+    );
+  }
+
+  private async handleContinueCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const instanceId = await this.resolveInstanceIdForCommand(msg, args.trim());
+    if (!instanceId) {
+      await adapter.sendMessage(msg.chatId, 'No session selected. Use `/pick` or `/select <project>/<session>` first.', { replyTo: msg.messageId });
+      return;
+    }
+    await this.routeToInstance(msg, instanceId, 'continue', adapter, []);
+    await adapter.sendMessage(msg.chatId, `Sent \`continue\` to **${instanceId.slice(0, 8)}**.`, {
+      replyTo: msg.messageId,
+      actions: this.buildSessionActions(instanceId),
+    });
+  }
+
+  private async handlePairCommand(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const paired = adapter.getAccessPolicy().allowedSenders.includes(msg.senderId);
+    await adapter.sendMessage(
+      msg.chatId,
+      paired
+        ? `You are paired as \`${msg.senderId}\`.`
+        : 'You are not paired. Send any message to request a pairing code.',
+      { replyTo: msg.messageId },
+    );
+  }
+
+  private async handleWhoAmICommand(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const policy = adapter.getAccessPolicy();
+    const paired = policy.allowedSenders.includes(msg.senderId);
+    const lines = [
+      `Discord id: \`${msg.senderId}\``,
+      `Name: ${msg.senderName}`,
+      `Pairing: ${paired ? 'paired' : 'not paired'}`,
+      `Discord admin: ${msg.senderIsAdmin ? 'yes' : 'no'}`,
+      `Access mode: ${policy.mode}`,
+    ];
+    await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
+  }
+
+  private async handleAllowCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    if (!(await this.requireDiscordAdmin(msg, adapter, 'allow users'))) {
+      return;
+    }
+    const senderId = this.parseUserId(args);
+    if (!senderId) {
+      await adapter.sendMessage(msg.chatId, 'Usage: `/allow <discord-user-id>`', { replyTo: msg.messageId });
+      return;
+    }
+    this.setAllowedSender(msg.platform, adapter, senderId, true);
+    await adapter.sendMessage(msg.chatId, `Allowed Discord user \`${senderId}\`.`, { replyTo: msg.messageId });
+  }
+
+  private async handleDenyCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    if (!(await this.requireDiscordAdmin(msg, adapter, 'remove users'))) {
+      return;
+    }
+    const senderId = this.parseUserId(args);
+    if (!senderId) {
+      await adapter.sendMessage(msg.chatId, 'Usage: `/deny <discord-user-id>`', { replyTo: msg.messageId });
+      return;
+    }
+    this.setAllowedSender(msg.platform, adapter, senderId, false);
+    await adapter.sendMessage(msg.chatId, `Removed Discord user \`${senderId}\` from the allowlist.`, { replyTo: msg.messageId });
+  }
+
+  private async handleUnpairCommand(
+    msg: InboundChannelMessage,
+    args: string,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const requestedId = this.parseUserId(args) || msg.senderId;
+    if (requestedId !== msg.senderId && !(await this.requireDiscordAdmin(msg, adapter, 'unpair another user'))) {
+      return;
+    }
+    this.setAllowedSender(msg.platform, adapter, requestedId, false);
+    if (requestedId === msg.senderId) {
+      this.clearDmPin(msg.platform, msg.senderId);
+    }
+    await adapter.sendMessage(msg.chatId, `Unpaired Discord user \`${requestedId}\`.`, { replyTo: msg.messageId });
+  }
+
+  private async handleResetDiscordCommand(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    if (!(await this.requireDiscordAdmin(msg, adapter, 'reset Discord state'))) {
+      return;
+    }
+    adapter.setAccessPolicy({
+      ...adapter.getAccessPolicy(),
+      mode: 'pairing',
+      allowedSenders: [],
+      pendingPairings: [],
+    });
+    try {
+      this.getAccessPolicyStore()?.remove(msg.platform);
+    } catch (err) {
+      logger.warn('Failed to remove Discord access policy', { error: String(err) });
+    }
+    this.clearAllPins(msg.platform);
+    await adapter.sendMessage(
+      msg.chatId,
+      'Discord routing pins and pairing allowlist were reset. The bot connection remains active.',
+      { replyTo: msg.messageId },
+    );
+  }
+
+  private getAdapterHealth(adapter: BaseChannelAdapter): {
+    botUsername?: string;
+    lastMessageAt?: number;
+    lastGatewayEventAt?: number;
+    reconnectAttempts?: number;
+    reconnectScheduled?: boolean;
+    lastError?: string;
+  } | null {
+    const maybeHealth = adapter as BaseChannelAdapter & {
+      getHealthSnapshot?: () => {
+        botUsername?: string;
+        lastMessageAt?: number;
+        lastGatewayEventAt?: number;
+        reconnectAttempts?: number;
+        reconnectScheduled?: boolean;
+        lastError?: string;
+      };
+    };
+    return maybeHealth.getHealthSnapshot?.() ?? null;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private formatInstanceLabel(instance: any, fallbackId: string): string {
+    const name = instance?.displayName || fallbackId.slice(0, 8);
+    const status = instance?.status || 'unknown';
+    const dir = this.getProjectLabel(instance?.workingDirectory);
+    return `**${dir}/${name}** (${status})`;
+  }
+
+  private parseUserId(args: string): string | null {
+    const trimmed = args.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const mention = trimmed.match(/^<@!?(\d+)>$/);
+    if (mention) {
+      return mention[1];
+    }
+    const id = trimmed.match(/\d{5,}/);
+    return id?.[0] ?? null;
+  }
+
+  private async requireDiscordAdmin(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+    action: string,
+  ): Promise<boolean> {
+    if (msg.senderIsAdmin) {
+      return true;
+    }
+    await adapter.sendMessage(
+      msg.chatId,
+      `Discord administrator permission is required to ${action}.`,
+      { replyTo: msg.messageId },
+    );
+    return false;
+  }
+
+  private setAllowedSender(
+    platform: ChannelPlatform,
+    adapter: BaseChannelAdapter,
+    senderId: string,
+    allow: boolean,
+  ): void {
+    const policy = adapter.getAccessPolicy();
+    const allowed = new Set(policy.allowedSenders);
+    if (allow) {
+      allowed.add(senderId);
+    } else {
+      allowed.delete(senderId);
+    }
+    const nextPolicy = {
+      ...policy,
+      mode: policy.mode === 'disabled' && allow ? 'allowlist' as const : policy.mode,
+      allowedSenders: [...allowed],
+      pendingPairings: policy.pendingPairings.filter(pairing => pairing.senderId !== senderId),
+    };
+    adapter.setAccessPolicy(nextPolicy);
+    try {
+      this.getAccessPolicyStore()?.save(platform, nextPolicy);
+    } catch (err) {
+      logger.warn('Failed to persist channel access policy', { platform, error: String(err) });
+    }
+  }
+
+  private async resolveInstanceIdForCommand(
+    msg: InboundChannelMessage,
+    reference: string,
+  ): Promise<string | null> {
+    const trimmed = reference.trim();
+    if (trimmed) {
+      if (trimmed.includes('/')) {
+        const [projectName, ...instanceNameParts] = trimmed.split('/');
+        const target = await this.resolveNamedTarget(
+          projectName.trim(),
+          instanceNameParts.join('/').trim() || undefined,
+          true,
+        );
+        return target?.kind === 'instance' ? target.instance.id : null;
+      }
+
+      const lower = trimmed.toLowerCase();
+      const matched = this.getAllKnownInstances().find(instance => {
+        const id = String(instance.id || '').toLowerCase();
+        const label = String(instance.displayName || '').toLowerCase();
+        return id === lower || id.startsWith(lower) || label.includes(lower);
+      });
+      if (matched) {
+        return matched.id;
+      }
+    }
+
+    const dmPinId = this.isDm(msg) ? this.getDmPin(msg.platform, msg.senderId) : undefined;
+    if (dmPinId) {
+      return dmPinId;
+    }
+
+    const channelPin = this.getChannelPin(msg.platform, msg.chatId);
+    if (channelPin?.kind === 'instance') {
+      return channelPin.instanceId;
+    }
+    if (channelPin?.kind === 'project') {
+      const project = await this.resolveProject(channelPin.workingDirectory || channelPin.label);
+      return project ? this.getRouteableInstances(project)[0]?.id ?? null : null;
+    }
+
+    return null;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async resolveReviveCandidates(msg: InboundChannelMessage, args: string): Promise<any[]> {
+    const trimmed = args.trim();
+    if (!trimmed) {
+      const channelPin = this.getChannelPin(msg.platform, msg.chatId);
+      if (channelPin?.kind === 'project') {
+        const project = await this.resolveProject(channelPin.workingDirectory || channelPin.label);
+        return project ? this.getRevivableInstances(project) : [];
+      }
+      return [];
+    }
+
+    if (trimmed.includes('/')) {
+      const [projectName, ...sessionParts] = trimmed.split('/');
+      const project = await this.resolveProject(projectName.trim());
+      if (!project) {
+        return [];
+      }
+      const needle = sessionParts.join('/').trim().toLowerCase();
+      return this.getRevivableInstances(project).filter(instance => {
+        const id = String(instance.id || '').toLowerCase();
+        const label = String(instance.displayName || '').toLowerCase();
+        return !needle || id === needle || id.startsWith(needle) || label.includes(needle);
+      });
+    }
+
+    const lower = trimmed.toLowerCase();
+    const directMatches = this.getAllKnownInstances().filter(instance => {
+      if (instance.status !== 'hibernated') {
+        return false;
+      }
+      const id = String(instance.id || '').toLowerCase();
+      const label = String(instance.displayName || '').toLowerCase();
+      return id === lower || id.startsWith(lower) || label.includes(lower);
+    });
+    if (directMatches.length > 0) {
+      return directMatches;
+    }
+
+    const project = await this.resolveProject(trimmed);
+    return project ? this.getRevivableInstances(project) : [];
+  }
+
+  private async reviveInstance(
+    msg: InboundChannelMessage,
+    instance: KnownChannelInstance,
+    adapter: BaseChannelAdapter,
+  ): Promise<void> {
+    const im = this.getInstanceManager();
+    const liveInstance = im.getInstance?.(instance.id);
+    if (!liveInstance) {
+      await adapter.sendMessage(
+        msg.chatId,
+        `Session **${instance.displayName || instance.id.slice(0, 8)}** is listed as hibernated, but it is not present in the live instance store and cannot be revived from Discord.`,
+        { replyTo: msg.messageId },
+      );
+      return;
+    }
+
+    if (liveInstance.status === 'hibernated') {
+      await im.wakeInstance(instance.id);
+    }
+
+    if (this.isDm(msg)) {
+      this.setDmPin(msg.platform, msg.senderId, instance.id);
+    } else {
+      this.setChannelPin(msg.platform, msg.chatId, { kind: 'instance', instanceId: instance.id });
+    }
+
+    await adapter.sendMessage(
+      msg.chatId,
+      `Revived and selected ${this.formatInstanceLabel(liveInstance, instance.id)}.`,
+      {
+        replyTo: msg.messageId,
+        actions: this.buildSessionActions(instance.id),
+      },
+    );
   }
 
   private async handleHelpCommand(
@@ -671,10 +1435,17 @@ export class ChannelMessageRouter {
       '`/help` — show this message',
       '`/list` — show numbered projects',
       '`/list <number|project>` — show sessions in a project',
-      '`/pick` — interactive numbered picker, then `/pick <number>` to select',
+      '`/pick` — pick from active sessions, then `/pick <number>` to select',
+      '`/revive <number|project|project/session>` — wake a hibernated session',
       '`/select <number|project>` — pin this channel to a project',
       '`/select <project>/<instance>` — pin to a specific instance',
       '`/new <number|project> -- <prompt>` — start a new session in a project',
+      '`/whereami` — show the current Discord routing target',
+      '`/status` — show bot connection and pairing health',
+      '`/stop [session]` — interrupt a session',
+      '`/continue [session]` — send continue to a session',
+      '`/pair`, `/whoami`, `/unpair` — pairing utilities',
+      '`/allow <user>`, `/deny <user>`, `/reset-discord` — admin setup tools',
       '`/clear` — remove channel pin',
       '`/switch` — clear your DM instance (start a new conversation)',
       '`/nodes` — list connected worker nodes',
@@ -701,7 +1472,11 @@ export class ChannelMessageRouter {
     adapter: BaseChannelAdapter,
   ): Promise<void> {
     const trimmedArgs = args.trim();
-    const [rawProjectArg, ...rawPromptParts] = trimmedArgs.split(/\s+--\s+/);
+    const startsWithPromptSeparator = trimmedArgs.startsWith('--');
+    const [rawProjectArgFromSplit, ...rawPromptParts] = startsWithPromptSeparator
+      ? ['', trimmedArgs.slice(2)]
+      : trimmedArgs.split(/\s+--\s+/);
+    const rawProjectArg = rawProjectArgFromSplit;
     const prompt = rawPromptParts.join(' -- ').trim();
 
     const pickKey = `${msg.chatId}:${msg.senderId}`;
@@ -717,7 +1492,7 @@ export class ChannelMessageRouter {
         return;
       }
     } else {
-      const pin = this.channelPins.get(msg.chatId);
+      const pin = this.getChannelPin(msg.platform, msg.chatId);
       if (pin?.kind === 'project') {
         project = await this.resolveProject(pin.workingDirectory || pin.label);
       } else if (pin?.kind === 'instance') {
@@ -733,9 +1508,9 @@ export class ChannelMessageRouter {
     const instanceId = await this.routeDefault(msg, prompt, adapter, workingDirectory);
 
     if (msg.isDM) {
-      this.dmPins.set(msg.senderId, instanceId);
+      this.setDmPin(msg.platform, msg.senderId, instanceId);
     } else {
-      this.channelPins.set(msg.chatId, { kind: 'instance', instanceId });
+      this.setChannelPin(msg.platform, msg.chatId, { kind: 'instance', instanceId });
     }
 
     const im = this.getInstanceManager();
@@ -774,9 +1549,9 @@ export class ChannelMessageRouter {
       // If this is a DM, pin to this user's DM. Otherwise pin to channel.
       const isDm = this.isDm(msg);
       if (isDm) {
-        this.dmPins.set(msg.senderId, chosen.id);
+        this.setDmPin(msg.platform, msg.senderId, chosen.id);
       } else {
-        this.channelPins.set(msg.chatId, { kind: 'instance', instanceId: chosen.id });
+        this.setChannelPin(msg.platform, msg.chatId, { kind: 'instance', instanceId: chosen.id });
       }
 
       const dir = this.getProjectLabel(chosen.workingDirectory);
@@ -789,61 +1564,37 @@ export class ChannelMessageRouter {
       return;
     }
 
-    // Show the pick list — active + hibernated instances
+    // Show the pick list — active instances only. Project drill-down handles revivable sessions.
     const im = this.getInstanceManager();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const instances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
     const active = instances
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((i: any) => i.status === 'idle' || i.status === 'busy' || i.status === 'waiting_for_input')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0));
-
-    // Also include hibernated instances
-    const activeIds = new Set(active.map((i: { id: string }) => i.id));
-    const hibernatedList = this.getHibernatedByProject();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hibernated: any[] = [];
-    for (const group of hibernatedList.values()) {
-      for (const h of group) {
-        if (!activeIds.has(h.instanceId)) {
-          // Normalize to match active instance shape for the pick list
-          hibernated.push({
-            id: h.instanceId,
-            displayName: h.displayName,
-            workingDirectory: h.workingDirectory || '',
-            status: 'hibernated',
-            lastActivity: h.hibernatedAt,
-          });
-        }
-      }
-    }
-
-    const combined = [...active, ...hibernated]
+      .filter((i: any) => this.isActiveSession(i))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .sort((a: any, b: any) => (b.lastActivity || 0) - (a.lastActivity || 0))
       .slice(0, 15);
 
-    if (combined.length === 0) {
-      await adapter.sendMessage(msg.chatId, 'No instances available. Send a message to create one.', { replyTo: msg.messageId });
+    if (active.length === 0) {
+      await adapter.sendMessage(
+        msg.chatId,
+        'No active sessions. Use `/list` to choose a project, `/list <project>` to view revivable sessions, or send a message to create one.',
+        { replyTo: msg.messageId },
+      );
       return;
     }
 
-    this.pendingPicks.set(pickKey, combined);
+    this.pendingPicks.set(pickKey, active);
 
     const lines = ['**Pick an instance** (reply with `/pick <number>`):'];
-    for (let i = 0; i < combined.length; i++) {
-      const inst = combined[i];
+    for (let i = 0; i < active.length; i++) {
+      const inst = active[i];
       const dir = crossPlatformBasename(inst.workingDirectory || '');
       const name = inst.displayName || inst.id.slice(0, 8);
       const status = inst.status || 'unknown';
-      const icon = status === 'idle' ? '🟢' : status === 'busy' ? '🟡' : status === 'hibernated' ? '💤' : '⚪';
+      const icon = status === 'idle' || status === 'ready' ? '🟢' : status === 'busy' ? '🟡' : '⚪';
       const age = this.formatAge(inst.lastActivity);
       lines.push(`**${i + 1}.** ${icon} ${dir}/**${name}**  —  ${status}  (${age})`);
-    }
-    if (hibernated.length > 0) {
-      lines.push('');
-      lines.push('💤 Hibernated instances will be woken when you send a message.');
     }
     await adapter.sendMessage(msg.chatId, lines.join('\n'), { replyTo: msg.messageId });
   }
@@ -853,8 +1604,8 @@ export class ChannelMessageRouter {
     adapter: BaseChannelAdapter,
   ): Promise<void> {
     // Clear DM pin so next message creates a fresh instance
-    if (this.dmPins.has(msg.senderId)) {
-      this.dmPins.delete(msg.senderId);
+    if (this.getDmPin(msg.platform, msg.senderId)) {
+      this.clearDmPin(msg.platform, msg.senderId);
       await adapter.sendMessage(
         msg.chatId,
         'Cleared your DM instance. Your next message will start a new conversation.\nUse `/pick` to select an existing instance.',
@@ -901,7 +1652,7 @@ export class ChannelMessageRouter {
     }
 
     // 3. Parse intent
-    const intent = this.parseIntent(msg.content, msg.threadId, msg.chatId);
+    const intent = this.parseIntent(msg.content, msg.threadId, msg.chatId, msg.platform);
 
     // 4. Handle commands (no persistence needed for these)
     if (intent.type === 'command') {
@@ -914,6 +1665,39 @@ export class ChannelMessageRouter {
           return;
         case 'select':
           await this.handleSelectCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'whereami':
+          await this.handleWhereAmICommand(msg, adapter);
+          return;
+        case 'status':
+          await this.handleStatusCommand(msg, adapter);
+          return;
+        case 'revive':
+          await this.handleReviveCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'stop':
+          await this.handleStopCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'continue':
+          await this.handleContinueCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'pair':
+          await this.handlePairCommand(msg, adapter);
+          return;
+        case 'whoami':
+          await this.handleWhoAmICommand(msg, adapter);
+          return;
+        case 'allow':
+          await this.handleAllowCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'deny':
+          await this.handleDenyCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'unpair':
+          await this.handleUnpairCommand(msg, intent.commandArgs || '', adapter);
+          return;
+        case 'reset-discord':
+          await this.handleResetDiscordCommand(msg, adapter);
           return;
         case 'new':
           await this.handleNewCommand(msg, intent.commandArgs || '', adapter);
@@ -969,6 +1753,8 @@ export class ChannelMessageRouter {
       // Ignore reaction failures
     }
 
+    const inputAttachments = await this.resolveInputAttachments(msg, adapter);
+
     // 7. Route based on intent
     try {
       let instanceId: string;
@@ -976,12 +1762,12 @@ export class ChannelMessageRouter {
       switch (intent.type) {
         case 'thread':
           instanceId = intent.instanceId!;
-          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
           break;
 
         case 'explicit':
           instanceId = intent.instanceId!;
-          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
           break;
 
         case 'named': {
@@ -992,20 +1778,20 @@ export class ChannelMessageRouter {
 
           if (target.kind === 'instance') {
             instanceId = target.instance.id;
-            await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+            await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
           } else {
-            instanceId = await this.routeToProject(msg, intent.cleanContent, adapter, target.project);
+            instanceId = await this.routeToProject(msg, intent.cleanContent, adapter, target.project, inputAttachments);
           }
           break;
         }
 
         case 'broadcast':
-          await this.routeBroadcast(msg, intent.cleanContent, adapter);
+          await this.routeBroadcast(msg, intent.cleanContent, adapter, inputAttachments);
           return; // broadcast handles its own completion
 
         case 'pinned-instance':
           instanceId = intent.instanceId!;
-          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
           break;
 
         case 'pinned-project':
@@ -1022,25 +1808,26 @@ export class ChannelMessageRouter {
               historyEntries: [],
               lastActivity: 0,
             },
+            inputAttachments,
           );
           break;
 
         case 'default':
         default: {
           // Check DM pin before creating a new instance
-          const dmPinId = this.dmPins.get(msg.senderId);
+          const dmPinId = this.getDmPin(msg.platform, msg.senderId);
           if (dmPinId) {
             const im = this.getInstanceManager();
             const pinned = im.getInstance?.(dmPinId);
             if (pinned) {
               instanceId = dmPinId;
-              await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter);
+              await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
               break;
             }
             // Stale pin — instance gone
-            this.dmPins.delete(msg.senderId);
+            this.clearDmPin(msg.platform, msg.senderId);
           }
-          instanceId = await this.routeDefault(msg, intent.cleanContent, adapter);
+          instanceId = await this.routeDefault(msg, intent.cleanContent, adapter, process.cwd(), inputAttachments);
           break;
         }
       }
@@ -1069,7 +1856,12 @@ export class ChannelMessageRouter {
 
   // ============ Intent parsing ============
 
-  parseIntent(content: string, threadId?: string, chatId?: string): ParsedIntent {
+  parseIntent(
+    content: string,
+    threadId?: string,
+    chatId?: string,
+    platform: ChannelPlatform = 'discord',
+  ): ParsedIntent {
     const trimmed = content.trim();
 
     // Bare "?" or "help" → treat as /help
@@ -1078,7 +1870,7 @@ export class ChannelMessageRouter {
     }
 
     // Commands: /help, /list, /select <args>, /pick, /switch, /clear
-    const cmdMatch = trimmed.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
+    const cmdMatch = trimmed.match(/^\/([\w-]+)(?:\s+([\s\S]*))?$/);
     if (cmdMatch) {
       return {
         type: 'command',
@@ -1126,7 +1918,7 @@ export class ChannelMessageRouter {
 
     // Channel pin
     if (chatId) {
-      const pin = this.channelPins.get(chatId);
+      const pin = this.getChannelPin(platform, chatId);
       if (pin?.kind === 'instance') {
         // Verify the pinned instance still exists
         const im = this.getInstanceManager();
@@ -1135,7 +1927,7 @@ export class ChannelMessageRouter {
           return { type: 'pinned-instance', instanceId: pin.instanceId, cleanContent: content };
         }
         // Instance gone — clear stale pin
-        this.channelPins.delete(chatId);
+        this.clearChannelPin(platform, chatId);
       } else if (pin?.kind === 'project') {
         return {
           type: 'pinned-project',
@@ -1273,6 +2065,7 @@ export class ChannelMessageRouter {
     content: string,
     adapter: BaseChannelAdapter,
     workingDirectory = process.cwd(),
+    attachments: FileAttachment[] = [],
   ): Promise<string> {
     const im = this.getInstanceManager();
     try {
@@ -1288,12 +2081,13 @@ export class ChannelMessageRouter {
       displayName: `${msg.platform}:${msg.senderName}`,
       workingDirectory,
       initialPrompt: content || undefined,
+      attachments: attachments.length > 0 ? attachments : undefined,
       yoloMode: true,
       ...(needsBrowser ? { nodePlacement: { requiresBrowser: true } } : {}),
     });
 
     // Stream results back
-    if (content) {
+    if (content || attachments.length > 0) {
       this.streamResults(msg, instance.id, adapter);
     }
 
@@ -1305,6 +2099,7 @@ export class ChannelMessageRouter {
     content: string,
     adapter: BaseChannelAdapter,
     project: ProjectDescriptor,
+    attachments: FileAttachment[] = [],
   ): Promise<string> {
     const refreshedProject =
       (project.workingDirectory
@@ -1313,7 +2108,7 @@ export class ChannelMessageRouter {
     const latestInstance = this.getRouteableInstances(refreshedProject)[0];
 
     if (latestInstance) {
-      await this.routeToInstance(msg, latestInstance.id, content, adapter);
+      await this.routeToInstance(msg, latestInstance.id, content, adapter, attachments);
       return latestInstance.id;
     }
 
@@ -1323,7 +2118,7 @@ export class ChannelMessageRouter {
       );
     }
 
-    return this.routeDefault(msg, content, adapter, refreshedProject.workingDirectory);
+    return this.routeDefault(msg, content, adapter, refreshedProject.workingDirectory, attachments);
   }
 
   private async routeToInstance(
@@ -1331,9 +2126,19 @@ export class ChannelMessageRouter {
     instanceId: string,
     content: string,
     adapter: BaseChannelAdapter,
+    attachments: FileAttachment[] = [],
   ): Promise<void> {
     const im = this.getInstanceManager();
-    await im.sendInput(instanceId, content);
+    const instance = im.getInstance?.(instanceId);
+    if (instance?.status === 'hibernated') {
+      await im.wakeInstance(instanceId);
+    }
+
+    if (attachments.length > 0) {
+      await im.sendInput(instanceId, content, attachments);
+    } else {
+      await im.sendInput(instanceId, content);
+    }
 
     // Stream results back
     this.streamResults(msg, instanceId, adapter);
@@ -1343,13 +2148,14 @@ export class ChannelMessageRouter {
     msg: InboundChannelMessage,
     content: string,
     adapter: BaseChannelAdapter,
+    attachments: FileAttachment[] = [],
   ): Promise<void> {
     const im = this.getInstanceManager();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const instances: any[] = im.getAllInstances?.() ?? im.getInstances?.() ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const activeInstances = instances.filter((i: any) =>
-      i.status === 'idle' || i.status === 'busy'
+      this.isActiveSession(i)
     );
 
     if (activeInstances.length === 0) {
@@ -1367,12 +2173,87 @@ export class ChannelMessageRouter {
 
     for (const inst of activeInstances) {
       try {
-        await im.sendInput(inst.id, content);
+        if (attachments.length > 0) {
+          await im.sendInput(inst.id, content, attachments);
+        } else {
+          await im.sendInput(inst.id, content);
+        }
         this.streamResults(msg, inst.id, adapter);
       } catch (err) {
         logger.warn('Failed to send broadcast to instance', { instanceId: inst.id, error: err });
       }
     }
+  }
+
+  private async resolveInputAttachments(
+    msg: InboundChannelMessage,
+    adapter: BaseChannelAdapter,
+  ): Promise<FileAttachment[]> {
+    if (msg.attachments.length === 0) {
+      return [];
+    }
+
+    const accepted: FileAttachment[] = [];
+    const rejected: string[] = [];
+
+    for (const attachment of msg.attachments) {
+      if (attachment.size > MAX_CHANNEL_ATTACHMENT_BYTES) {
+        rejected.push(`${attachment.name} is larger than ${Math.round(MAX_CHANNEL_ATTACHMENT_BYTES / 1024 / 1024)} MB`);
+        continue;
+      }
+
+      try {
+        if (attachment.localPath) {
+          this.assertSendable(attachment.localPath);
+          const data = fs.readFileSync(attachment.localPath);
+          accepted.push({
+            name: attachment.name,
+            type: attachment.type || 'application/octet-stream',
+            size: attachment.size || data.length,
+            data: `data:${attachment.type || 'application/octet-stream'};base64,${data.toString('base64')}`,
+          });
+          continue;
+        }
+
+        if (!attachment.url) {
+          rejected.push(`${attachment.name} has no downloadable URL`);
+          continue;
+        }
+
+        const response = await fetch(attachment.url);
+        if (!response.ok) {
+          rejected.push(`${attachment.name} download failed (${response.status})`);
+          continue;
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength > MAX_CHANNEL_ATTACHMENT_BYTES) {
+          rejected.push(`${attachment.name} downloaded larger than ${Math.round(MAX_CHANNEL_ATTACHMENT_BYTES / 1024 / 1024)} MB`);
+          continue;
+        }
+        const type = attachment.type || response.headers.get('content-type') || 'application/octet-stream';
+        accepted.push({
+          name: attachment.name,
+          type,
+          size: arrayBuffer.byteLength,
+          data: `data:${type};base64,${Buffer.from(arrayBuffer).toString('base64')}`,
+        });
+      } catch (err) {
+        rejected.push(`${attachment.name} could not be attached: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    const summary: string[] = [];
+    if (accepted.length > 0) {
+      summary.push(`Attached ${accepted.length} file${accepted.length === 1 ? '' : 's'} to the session.`);
+    }
+    if (rejected.length > 0) {
+      summary.push(`Rejected ${rejected.length} file${rejected.length === 1 ? '' : 's'}: ${rejected.join('; ')}`);
+    }
+    if (summary.length > 0) {
+      await adapter.sendMessage(msg.chatId, summary.join('\n'), { replyTo: msg.messageId });
+    }
+
+    return accepted;
   }
 
   // ============ Output streaming ============
@@ -1390,6 +2271,9 @@ export class ChannelMessageRouter {
 
     const tracker: OutputStreamTracker = {
       content: '',
+      suppressedContent: '',
+      flushCount: 0,
+      suppressionNoticeSent: false,
       timer: null,
       pendingFinalization: false,
       outputHandler: () => undefined,
@@ -1412,19 +2296,41 @@ export class ChannelMessageRouter {
         tracker.timer = null;
       }
 
-      if (!tracker.content) {
+      if (!tracker.content && !tracker.suppressedContent) {
         if (tracker.pendingFinalization) {
           cleanup();
         }
         return;
       }
 
-      const bufferedContent = tracker.content;
+      const bufferedContent = `${tracker.suppressedContent}${tracker.content}`;
       tracker.content = '';
+      tracker.suppressedContent = '';
+
+      if (!tracker.pendingFinalization && tracker.flushCount >= MAX_LIVE_STREAM_FLUSHES) {
+        tracker.suppressedContent += bufferedContent;
+        if (!tracker.suppressionNoticeSent) {
+          tracker.suppressionNoticeSent = true;
+          void adapter.sendMessage(
+            msg.chatId,
+            'Output is still streaming. I will hold further live chunks and post the final update when the session settles.',
+            {
+              replyTo: msg.messageId,
+              actions: this.buildSessionActions(instanceId),
+            },
+          ).catch((err: unknown) => {
+            logger.error('Failed to send stream suppression notice', err instanceof Error ? err : new Error(String(err)));
+          });
+        }
+        return;
+      }
+
+      tracker.flushCount += 1;
       const shouldCleanupAfterSend = tracker.pendingFinalization;
 
       void adapter.sendMessage(msg.chatId, bufferedContent, {
         replyTo: msg.messageId,
+        actions: this.buildSessionActions(instanceId),
       }).then((sentMessage) => {
         this.persistence.saveMessage({
           id: `out-${msg.platform}-${sentMessage.messageId}`,

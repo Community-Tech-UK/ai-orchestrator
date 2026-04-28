@@ -13,12 +13,14 @@ import type {
   ClaimedAutomationRun,
   FireAutomationOptions,
 } from '../../shared/types/automation.types';
+import type { ChannelPlatform } from '../../shared/types/channels';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
 import { AutomationStore } from './automation-store';
 import { getAutomationEvents } from './automation-events';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
+import { getChannelManager } from '../channels/channel-manager';
 
 const logger = getLogger('AutomationRunner');
 
@@ -53,6 +55,8 @@ const WAIT_STATUSES = new Set<InstanceStatus>([
   'waiting_for_input',
   'waiting_for_permission',
 ]);
+
+const CHANNEL_DELIVERY_MAX_CHARS = 3500;
 
 export class AutomationRunner {
   private instanceManager: InstanceManager | null = null;
@@ -409,6 +413,13 @@ export class AutomationRunner {
       this.emitAutomationState(run.automationId);
       this.events.emitScheduleDeactivated({ automationId: run.automationId });
     }
+    this.deliverRunSummaryToChannel(run).catch((deliveryError) => {
+      logger.warn('Failed to deliver automation run summary to channel', {
+        automationId: run.automationId,
+        runId: run.id,
+        error: deliveryError instanceof Error ? deliveryError.message : String(deliveryError),
+      });
+    });
     this.promotePendingIfAny(run.automationId).catch((promoteError) => {
       logger.warn('Failed to promote pending automation run', {
         automationId: run.automationId,
@@ -455,6 +466,86 @@ export class AutomationRunner {
 
   private isOneTimeRun(run: AutomationRun): boolean {
     return run.configSnapshot?.schedule.type === 'oneTime';
+  }
+
+  private async deliverRunSummaryToChannel(run: AutomationRun): Promise<void> {
+    if (run.deliveryMode !== 'notify') {
+      return;
+    }
+    const target = this.getChannelDeliveryTarget(run);
+    if (!target) {
+      return;
+    }
+
+    const adapter = getChannelManager().getAdapter(target.platform);
+    if (!adapter) {
+      return;
+    }
+
+    const content = this.formatChannelRunSummary(run);
+    const sent = await adapter.sendMessage(target.chatId, content, target.replyToMessageId
+      ? { replyTo: target.replyToMessageId }
+      : undefined);
+    getChannelManager().emitResponseSent({
+      channelMessageId: target.replyToMessageId ?? run.id,
+      platform: target.platform,
+      chatId: target.chatId,
+      messageId: sent.messageId,
+      instanceId: run.instanceId ?? run.id,
+      content,
+      status: run.status === 'failed' ? 'error' : 'complete',
+      replyToMessageId: target.replyToMessageId,
+      timestamp: Date.now(),
+    });
+  }
+
+  private getChannelDeliveryTarget(run: AutomationRun): {
+    platform: ChannelPlatform;
+    chatId: string;
+    replyToMessageId?: string;
+  } | null {
+    const source = run.triggerSource;
+    if (!source?.channel && !source?.metadata) {
+      return null;
+    }
+    const metadata = source.metadata ?? {};
+    const channelParts = typeof source.channel === 'string'
+      ? source.channel.split(':')
+      : [];
+    const platform = this.toChannelPlatform(metadata['platform'])
+      ?? this.toChannelPlatform(channelParts[0]);
+    const chatId = typeof metadata['chatId'] === 'string'
+      ? metadata['chatId']
+      : channelParts.length > 1
+        ? channelParts.slice(1).join(':')
+        : undefined;
+    if (!platform || !chatId) {
+      return null;
+    }
+    const replyToMessageId = typeof metadata['replyToMessageId'] === 'string'
+      ? metadata['replyToMessageId']
+      : typeof metadata['messageId'] === 'string'
+        ? metadata['messageId']
+        : undefined;
+    return { platform, chatId, replyToMessageId };
+  }
+
+  private toChannelPlatform(value: unknown): ChannelPlatform | null {
+    return value === 'discord' || value === 'whatsapp' ? value : null;
+  }
+
+  private formatChannelRunSummary(run: AutomationRun): string {
+    const name = run.configSnapshot?.name ?? run.automationId;
+    const status = run.status === 'succeeded'
+      ? 'succeeded'
+      : run.status === 'failed'
+        ? 'failed'
+        : run.status;
+    const body = run.outputSummary ?? run.error ?? 'No summary was captured.';
+    const text = `Automation "${name}" ${status}.\n\n${body}`;
+    return text.length > CHANNEL_DELIVERY_MAX_CHARS
+      ? `${text.slice(0, CHANNEL_DELIVERY_MAX_CHARS - 3)}...`
+      : text;
   }
 
   private emitAutomationState(automationId: string): void {

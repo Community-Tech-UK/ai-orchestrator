@@ -17,6 +17,7 @@ import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration
 import { getCommandManager } from '../commands/command-manager';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
+import { buildChildDiagnosticBundle } from '../orchestration/child-diagnostics';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
@@ -1955,7 +1956,18 @@ export class InstanceManager extends EventEmitter {
     );
 
     logger.info('Child exited, parent notified', { childId, exitCode, parentId: child.parentId, remainingChildren });
-    emitPluginHook(childSummaryData?.success === false ? 'orchestration.child.failed' : 'orchestration.child.completed', {
+    const childFailed = childSummaryData?.success === false || exitCode !== 0;
+    const diagnosticBundle = childFailed
+      ? await buildChildDiagnosticBundle(child, this.getChildTimeoutReason(child)).catch((error: unknown) => {
+          logger.warn('Failed to build child diagnostic bundle', {
+            childId,
+            parentId: child.parentId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return undefined;
+        })
+      : undefined;
+    emitPluginHook(childFailed ? 'orchestration.child.failed' : 'orchestration.child.completed', {
       parentId: child.parentId,
       childId,
       name: child.displayName,
@@ -1963,6 +1975,7 @@ export class InstanceManager extends EventEmitter {
       summary: childSummaryData?.summary,
       resultId: childSummaryData?.resultId,
       exitCode,
+      diagnosticBundle,
       timestamp: Date.now(),
     });
 
@@ -2014,6 +2027,16 @@ export class InstanceManager extends EventEmitter {
         logger.error('Failed to clean up child instance', err instanceof Error ? err : undefined, { childId });
       }
     }
+  }
+
+  private getChildTimeoutReason(child: Instance): string | undefined {
+    const timeoutMessage = [...child.outputBuffer]
+      .reverse()
+      .find((message) => (
+        message.metadata?.['source'] === 'child-startup-watchdog'
+        && typeof message.content === 'string'
+      ));
+    return timeoutMessage?.content;
   }
 
   // ============================================

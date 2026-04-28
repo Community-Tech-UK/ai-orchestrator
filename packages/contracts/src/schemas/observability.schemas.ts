@@ -72,7 +72,26 @@ export const SearchConfigureExaPayloadSchema = z.object({
 
 export const SessionRecallSearchPayloadSchema = z.object({
   query: z.string().max(10000).default(''),
+  intent: z.enum([
+    'general',
+    'priorFailuresByProviderModel',
+    'priorFixesByRepositoryPath',
+    'priorDecisions',
+    'stuckSessionDiagnostics',
+    'automationRunHistory',
+  ]).optional(),
   parentId: z.string().max(200).optional(),
   automationId: z.string().max(200).optional(),
+  provider: z.string().max(100).optional(),
+  model: z.string().max(200).optional(),
+  repositoryPath: z.string().max(2000).optional(),
+  sources: z.array(z.enum([
+    'child_result',
+    'child_diagnostic',
+    'automation_run',
+    'provider_event',
+    'agent_tree',
+    'archived_session',
+  ])).max(10).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });

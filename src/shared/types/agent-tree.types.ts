@@ -45,18 +45,51 @@ export interface AgentTreeNode {
   createdAt: number;
 }
 
+export interface ChildDiagnosticOutputLine {
+  type: string;
+  content: string;
+  timestamp: number;
+}
+
+export interface ChildDiagnosticEvent {
+  type: string;
+  summary: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChildDiagnosticArtifactsSummary {
+  resultId?: string;
+  success?: boolean;
+  artifactCount: number;
+  artifactTypes: string[];
+  hasMoreDetails: boolean;
+}
+
 export interface ChildDiagnosticBundle {
+  /** Backward-compatible alias for childInstanceId. */
   childId: string;
+  /** Backward-compatible alias for parentInstanceId. */
   parentId: string;
+  parentInstanceId: string;
+  childInstanceId: string;
   status: string;
+  provider: string;
+  model?: string;
+  workingDirectory: string;
+  /** Backward-compatible alias for spawnTaskSummary. */
   task?: string;
+  spawnTaskSummary?: string;
+  spawnPromptHash?: string;
   resultId?: string;
   routing?: AgentTreeNode['routing'];
-  recentOutput: Array<{
-    type: string;
-    content: string;
-    timestamp: number;
-  }>;
+  statusTimeline: AgentTreeNode['statusTimeline'];
+  lastHeartbeatAt?: number;
+  recentEvents: ChildDiagnosticEvent[];
+  /** Backward-compatible alias for recentOutputTail. */
+  recentOutput: ChildDiagnosticOutputLine[];
+  recentOutputTail: ChildDiagnosticOutputLine[];
+  artifactsSummary: ChildDiagnosticArtifactsSummary;
   timeoutReason?: string;
   capturedAt: number;
 }
