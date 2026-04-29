@@ -1,0 +1,87 @@
+{
+  "capturedAt": "2026-04-29T09:05:52.476Z",
+  "target": "http://127.0.0.1:4567/?bench=1",
+  "mode": "dev renderer benchmark mode, isolated Chrome user-data-dir, no installed app control",
+  "screenshots": [
+    "docs/runbooks/screenshots/wave-7/dashboard-orchestration-dark.png",
+    "docs/runbooks/screenshots/wave-7/command-palette-dark.png",
+    "docs/runbooks/screenshots/wave-7/command-help-browser-dark.png",
+    "docs/runbooks/screenshots/wave-7/session-picker-light.png",
+    "docs/runbooks/screenshots/wave-7/model-picker-light.png",
+    "docs/runbooks/screenshots/wave-7/resume-picker-dark.png",
+    "docs/runbooks/screenshots/wave-7/prompt-history-search-dark.png",
+    "docs/runbooks/screenshots/wave-7/prompt-recall-dark.png",
+    "docs/runbooks/screenshots/wave-7/settings-doctor-artifacts-light.png",
+    "docs/runbooks/screenshots/wave-7/verification-results-dark.png"
+  ],
+  "assertions": {
+    "seed": {
+      "selectedInstanceId": "wave7-parent",
+      "instanceCount": 5,
+      "commandCount": 4,
+      "promptHistoryCount": 2,
+      "historyCount": 2,
+      "cliUpdatePillCount": 2,
+      "hasHud": true,
+      "hasInput": true
+    },
+    "numericHotkey": {
+      "before": "wave7-parent",
+      "after": "wave7-child-failed",
+      "changed": true
+    },
+    "commandPalette": {
+      "open": true,
+      "rows": 4,
+      "hasSearchInput": true
+    },
+    "commandHelp": {
+      "open": true,
+      "hasBrowserCommand": true
+    },
+    "sessionPicker": {
+      "open": true,
+      "rows": 3,
+      "hasLiveSession": true,
+      "hasHistory": true
+    },
+    "modelPicker": {
+      "open": true,
+      "rows": 39,
+      "hasCurrent": true,
+      "hasProviderModels": true
+    },
+    "resumePicker": {
+      "open": true,
+      "hasLatest": true,
+      "hasFallback": true
+    },
+    "promptHistorySearch": {
+      "open": true,
+      "hasEntries": true
+    },
+    "promptRecall": {
+      "value": "Re-run Wave 7 smoke with screenshots and artifact bundle export.",
+      "recalled": true
+    },
+    "doctorArtifacts": {
+      "open": true,
+      "hasExport": true,
+      "hasFilesCount": true
+    },
+    "verificationResults": {
+      "open": true,
+      "hasVerdict": true,
+      "hasExportButton": true
+    },
+    "final": {
+      "url": "http://127.0.0.1:4567/verification?bench=1",
+      "bodyHasOverlapEvidence": true,
+      "exceptionCount": 0
+    },
+    "recheckedAt": "2026-04-29T09:07:10.547Z"
+  },
+  "consoleErrors": [],
+  "exceptions": [],
+  "recheckMode": "selector/count-based overlay assertions after screenshots"
+}

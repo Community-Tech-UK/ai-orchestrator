@@ -67,4 +67,15 @@ describe('InstanceEventsService', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/gap/i));
     warn.mockRestore();
   });
+
+  it('runs as a no-op in browser mode when preload events are unavailable', () => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    const svc = TestBed.inject(InstanceEventsService);
+    const received: ProviderRuntimeEventEnvelope[] = [];
+    svc.events$.subscribe(e => received.push(e));
+
+    expect(captured).toBeUndefined();
+    expect(received).toEqual([]);
+    expect(() => svc.ngOnDestroy()).not.toThrow();
+  });
 });

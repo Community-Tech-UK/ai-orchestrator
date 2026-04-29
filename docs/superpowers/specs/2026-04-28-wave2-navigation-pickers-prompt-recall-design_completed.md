@@ -2,11 +2,11 @@
 
 **Date:** 2026-04-28
 **Status:** Proposed
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](./2026-04-28-cross-repo-usability-upgrades-design.md) (Track A — Navigation, Pickers, And Prompt Recall continuation)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan.md) (Wave 2)
-**Wave 1 design (depended on):** [`docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`](./2026-04-28-wave1-command-registry-and-overlay-design.md)
-**Wave 1 plan:** [`docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan.md`](../plans/2026-04-28-wave1-command-registry-and-overlay-plan.md)
-**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan.md`
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](./2026-04-28-cross-repo-usability-upgrades-design_completed.md) (Track A — Navigation, Pickers, And Prompt Recall continuation)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md) (Wave 2)
+**Wave 1 design (depended on):** [`docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`](./2026-04-28-wave1-command-registry-and-overlay-design_completed.md)
+**Wave 1 plan:** [`docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md`](../plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md)
+**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md`
 
 ## Doc taxonomy in this repo
 
@@ -69,8 +69,8 @@ Give operators fast, low-error navigation between live instances and recovery of
 
 The decisions and types in this spec were grounded by reading these files in full prior to drafting:
 
-- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`
-- Wave 1 contracts (depended on): `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`, `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan.md`
+- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`
+- Wave 1 contracts (depended on): `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`, `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md`
 - Keybinding system: `src/shared/types/keybinding.types.ts`, `src/renderer/app/core/services/keybinding.service.ts`, `src/renderer/app/core/services/action-dispatch.service.ts`
 - Project rail / visible order: `src/renderer/app/features/instance-list/instance-list.component.ts`, `src/renderer/app/features/instance-list/project-group-computation.service.ts`, `src/renderer/app/features/instance-list/instance-list.component.html`
 - Drafts and composer: `src/renderer/app/core/services/draft.service.ts`, `src/renderer/app/core/services/new-session-draft.service.ts`, `src/renderer/app/features/instance-detail/input-panel.component.ts`, `src/renderer/app/features/instance-detail/input-panel.component.html`
@@ -1039,7 +1039,7 @@ Preload exposes `electronAPI.promptHistory.{getSnapshot,record,clearInstance,onD
 | `tsconfig.electron.json` | Same |
 | `src/main/register-aliases.ts` | Same |
 | `vitest.config.ts` | Same (if not auto-derived) |
-| `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md` | Mark Wave 2 tasks `[x]` after landing |
+| `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md` | Mark Wave 2 tasks `[x]` after landing |
 
 ### Removed
 

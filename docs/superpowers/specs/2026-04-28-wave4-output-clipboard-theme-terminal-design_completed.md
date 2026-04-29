@@ -2,9 +2,9 @@
 
 **Date:** 2026-04-28
 **Status:** Implemented
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](./2026-04-28-cross-repo-usability-upgrades-design.md) (Track D — Operator Reliability And Local Tooling)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan.md) (Wave 4)
-**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan.md`
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](./2026-04-28-cross-repo-usability-upgrades-design_completed.md) (Track D — Operator Reliability And Local Tooling)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md) (Wave 4)
+**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md`
 
 ## Doc taxonomy in this repo
 
@@ -67,8 +67,8 @@ Wave 4 is intentionally narrow: foundation + adoption pilot, not full saturation
 
 The decisions and call-site inventory in this spec were grounded by reading these files prior to drafting:
 
-- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`
-- Pattern reference: `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`, `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan.md`
+- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`
+- Pattern reference: `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`, `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md`
 - Renderer state: `src/renderer/app/core/state/settings.store.ts` (lines 75–235; theme one-shot at 226–235; constructor effect 79–89; `destroy()` 270–276)
 - Markdown service: `src/renderer/app/core/services/markdown.service.ts` (lines 60–120; inline file-path regex at 76–77; codespan + link renderer)
 - Output stream component: `src/renderer/app/features/instance-detail/output-stream.component.ts` (lines 579–587 + 599 for data-file-path delegation; 600–622 for the existing `copyMessageContent` flow with reset timer)

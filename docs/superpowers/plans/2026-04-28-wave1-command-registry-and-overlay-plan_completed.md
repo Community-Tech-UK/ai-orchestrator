@@ -8,9 +8,9 @@
 
 **Tech Stack:** TypeScript 5.9, Angular 21 (zoneless, signals), Electron 40, `electron-store`, Vitest, Zod 4, ESLint.
 
-**Spec:** [`docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`](../specs/2026-04-28-wave1-command-registry-and-overlay-design.md)
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design.md)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](./2026-04-28-cross-repo-usability-upgrades-plan.md)
+**Spec:** [`docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`](../specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md)
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](./2026-04-28-cross-repo-usability-upgrades-plan_completed.md)
 
 ---
 
@@ -4376,16 +4376,16 @@ If startup crashes with `Cannot find module …schemas/command…`, recheck the 
 
 - [ ] **Step 1: Update parent plan to mark Wave 1 tasks done**
 
-Edit `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`. In the Wave 1 task list, replace each `- [ ]` with `- [x]` for the items that are now landed.
+Edit `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`. In the Wave 1 task list, replace each `- [ ]` with `- [x]` for the items that are now landed.
 
 - [ ] **Step 2: Self-review the spec for any drift**
 
-Re-read `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`. If you discovered any architectural decisions during implementation that diverge from the spec, update the spec to match what shipped.
+Re-read `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`. If you discovered any architectural decisions during implementation that diverge from the spec, update the spec to match what shipped.
 
 - [ ] **Step 3: Final commit**
 
 ```bash
-git add docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md
+git add docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md
 git commit -m "docs: mark Wave 1 tasks complete in parent plan; spec touch-ups"
 ```
 
@@ -4437,7 +4437,7 @@ If any cell above ever flips to "missing", add a task in the closest phase befor
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan.md`. Two execution options:
+Plan complete and saved to `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md`. Two execution options:
 
 **1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between tasks, fast iteration.
 

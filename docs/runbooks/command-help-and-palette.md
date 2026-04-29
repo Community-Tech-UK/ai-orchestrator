@@ -26,3 +26,9 @@ Alias and name collisions appear in the Doctor `Commands & Skills` section and i
 - `invalid-frontmatter-type`: a markdown command has a frontmatter field with the wrong type.
 
 Fix the markdown command frontmatter, refresh Doctor, then reopen the palette to confirm the collision is gone.
+
+## Wave 7 Evidence
+
+- Screenshot: `screenshots/wave-7/command-palette-dark.png`.
+- Screenshot: `screenshots/wave-7/command-help-browser-dark.png`.
+- Assertions: `screenshots/wave-7/smoke-evidence.json` records the palette open with 4 rows and the help browser open with command metadata present.

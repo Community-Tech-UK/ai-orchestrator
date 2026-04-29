@@ -30,3 +30,10 @@ Interrupt boundaries are top-level transcript items. Phases progress through req
 ## Compaction Summary Items
 
 Compaction summaries are top-level transcript items with reason, before/after counts, optional tokens reclaimed, and fallback mode. They must not be folded into system-event groups.
+
+## Wave 7 Evidence
+
+- Screenshot: `screenshots/wave-7/resume-picker-dark.png`.
+- Screenshot: `screenshots/wave-7/prompt-history-search-dark.png`.
+- Assertions: `screenshots/wave-7/smoke-evidence.json` records resume latest/fallback actions and advanced history entries present.
+- Specs: workflow policy, display-item processor, resume picker, and cross-wave smoke tests cover overlap policy, interrupt boundaries, compaction summaries, and resume action wiring.

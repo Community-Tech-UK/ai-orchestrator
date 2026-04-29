@@ -8,10 +8,10 @@
 
 **Tech Stack:** TypeScript 5.9, Angular 21 (zoneless, signals), Electron 40, `electron-store`, Vitest, Zod 4, ESLint.
 
-**Spec:** [`docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design.md`](../specs/2026-04-28-wave3-workflow-resume-history-recovery-design.md)
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design.md)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](./2026-04-28-cross-repo-usability-upgrades-plan.md)
-**Wave 1 spec consumed (treated as available):** [`docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`](../specs/2026-04-28-wave1-command-registry-and-overlay-design.md)
+**Spec:** [`docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md`](../specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md)
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](./2026-04-28-cross-repo-usability-upgrades-plan_completed.md)
+**Wave 1 spec consumed (treated as available):** [`docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`](../specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md)
 
 ---
 

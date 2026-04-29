@@ -27,3 +27,10 @@ Export Bundle writes a local zip under app user data. Bundles include Doctor rep
 ## Redaction Policy
 
 Bundles are local and redacted before writing. Home paths are converted to `~/...`; secret environment values are replaced with `<redacted-secret>` or presence-only env metadata; selected session bodies are omitted.
+
+## Wave 7 Evidence
+
+- Screenshot: `screenshots/wave-7/settings-doctor-artifacts-light.png`.
+- Screenshot: `screenshots/wave-7/dashboard-orchestration-dark.png`.
+- Assertions: `screenshots/wave-7/smoke-evidence.json` records Doctor artifacts open, export controls present, export file count visible, and title-bar CLI update pill count = 2.
+- Specs: Doctor store, CLI update pill store/component, diagnostics handlers, and operator artifact exporter tests cover the non-visual behavior and redaction rules.

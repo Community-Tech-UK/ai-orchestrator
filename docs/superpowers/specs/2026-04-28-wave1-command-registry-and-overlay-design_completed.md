@@ -2,9 +2,9 @@
 
 **Date:** 2026-04-28
 **Status:** Proposed
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](./2026-04-28-cross-repo-usability-upgrades-design.md) (Track A — Command, Palette, Overlay, And Navigation)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan.md) (Wave 1)
-**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan.md`
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](./2026-04-28-cross-repo-usability-upgrades-design_completed.md) (Track A — Command, Palette, Overlay, And Navigation)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md) (Wave 1)
+**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md`
 
 ## Doc taxonomy in this repo
 
@@ -68,7 +68,7 @@ Give commands enough structured metadata to power richer discovery, actionable e
 
 The decisions and types in this spec were grounded by reading these files in full prior to drafting:
 
-- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`
+- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`
 - Types: `src/shared/types/command.types.ts`, `src/shared/types/ipc.types.ts`, `src/shared/utils/markdown-frontmatter.ts`
 - Main: `src/main/commands/command-manager.ts`, `src/main/commands/markdown-command-registry.ts`, `src/main/commands/__tests__/command-manager.spec.ts`, `src/main/ipc/handlers/command-handlers.ts`, `src/main/register-aliases.ts`
 - Renderer: `src/renderer/app/core/state/command.store.ts`, `src/renderer/app/features/commands/command-palette.component.ts`, `src/renderer/app/features/instance-detail/input-panel.component.ts`, `src/renderer/app/features/instance-detail/input-panel.component.html`

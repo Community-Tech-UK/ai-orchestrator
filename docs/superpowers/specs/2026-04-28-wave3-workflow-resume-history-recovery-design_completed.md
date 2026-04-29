@@ -2,10 +2,10 @@
 
 **Date:** 2026-04-28
 **Status:** Proposed
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](./2026-04-28-cross-repo-usability-upgrades-design.md) (Track B — Workflow, Resume, History, And Recovery)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan.md) (Wave 3)
-**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan.md`
-**Wave 1 contracts consumed (treated as available):** `OverlayShellComponent`, `OverlayController<T>`, `UsageStore`/`UsageTracker` (see `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`)
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](./2026-04-28-cross-repo-usability-upgrades-design_completed.md) (Track B — Workflow, Resume, History, And Recovery)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md) (Wave 3)
+**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md`
+**Wave 1 contracts consumed (treated as available):** `OverlayShellComponent`, `OverlayController<T>`, `UsageStore`/`UsageTracker` (see `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`)
 
 ## Doc taxonomy in this repo
 
@@ -70,8 +70,8 @@ Make workflow transitions, history search, session resume, interrupt boundaries,
 
 The decisions and types in this spec were grounded by reading these files in full prior to drafting:
 
-- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`
-- Wave 1: `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md` (overlay shell + controller interface, `UsageStore`)
+- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`
+- Wave 1: `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md` (overlay shell + controller interface, `UsageStore`)
 - Workflow main: `src/main/workflows/workflow-manager.ts` (lines 122–155 for `startWorkflow`, 159–216 for `completePhase`), `src/main/workflows/workflow-persistence.ts`, `src/main/workflows/templates.ts`
 - Workflow types: `src/shared/types/workflow.types.ts` (lines 6–132 for the existing `WorkflowExecution` / `WorkflowPhase` / `GateType` model)
 - History main: `src/main/history/history-manager.ts` (lines 1–240 for `archiveInstance`, `getEntries`, `loadConversation`)

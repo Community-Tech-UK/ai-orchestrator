@@ -28,3 +28,10 @@ Path links should resolve through the shared open-file/editor path instead of em
 ## Terminal Drawer Scope
 
 The terminal drawer is a boundary/scaffold surface. Treat deeper terminal runtime behavior as follow-up work unless a task explicitly targets it.
+
+## Wave 7 Evidence
+
+- Screenshot: `screenshots/wave-7/model-picker-light.png`.
+- Screenshot: `screenshots/wave-7/dashboard-orchestration-dark.png`.
+- Screenshot: `screenshots/wave-7/settings-doctor-artifacts-light.png`.
+- Specs: clipboard service, quick-action dispatcher, settings theme listener, and shared link-detection tests cover the non-visual portions of this runbook.

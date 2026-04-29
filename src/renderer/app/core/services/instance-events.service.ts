@@ -2,6 +2,10 @@ import { Injectable, OnDestroy } from '@angular/core';
 import { Subject, filter } from 'rxjs';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
+interface ProviderRuntimeEventApi {
+  onProviderRuntimeEvent?: (cb: (env: ProviderRuntimeEventEnvelope) => void) => () => void;
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceEventsService implements OnDestroy {
   private readonly _events$ = new Subject<ProviderRuntimeEventEnvelope>();
@@ -21,7 +25,13 @@ export class InstanceEventsService implements OnDestroy {
   private readonly unsub: () => void;
 
   constructor() {
-    this.unsub = window.electronAPI.onProviderRuntimeEvent(env => {
+    const api = (window as unknown as { electronAPI?: ProviderRuntimeEventApi }).electronAPI;
+    if (!api?.onProviderRuntimeEvent) {
+      this.unsub = () => undefined;
+      return;
+    }
+
+    this.unsub = api.onProviderRuntimeEvent(env => {
       const expected = this.expectedSeq.get(env.instanceId) ?? 0;
       if (env.seq !== expected) {
         console.warn(`[InstanceEventsService] event gap for ${env.instanceId}: expected seq ${expected}, got ${env.seq}`);

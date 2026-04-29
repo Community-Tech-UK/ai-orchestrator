@@ -2,9 +2,9 @@
 
 **Date:** 2026-04-28
 **Status:** Completed
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](./2026-04-28-cross-repo-usability-upgrades-design.md) (Track C — Orchestration And Verification Visibility)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan.md) (Wave 5)
-**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan.md`
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](./2026-04-28-cross-repo-usability-upgrades-design_completed.md) (Track C — Orchestration And Verification Visibility)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md) (Wave 5)
+**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md`
 
 ## Doc taxonomy in this repo
 
@@ -70,8 +70,8 @@ The wave normalizes presentation without inventing a parallel persistence layer:
 
 The decisions and types in this spec were grounded by reading these files in full prior to drafting:
 
-- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md` (Track C, lines 208–247), `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md` (Wave 5, lines 196–237).
-- Wave 1 reference (mirrored structure): `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md`, `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan.md`.
+- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md` (Track C, lines 208–247), `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md` (Wave 5, lines 196–237).
+- Wave 1 reference (mirrored structure): `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md`, `docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md`.
 - Shared types: `src/shared/types/agent-tree.types.ts` (lines 8–46 for `AgentTreeNode`, lines 69–95 for `ChildDiagnosticBundle`), `src/shared/types/verification.types.ts` (lines 86–99 for `VerificationAnalysis`, 142–165 for `VerificationResult`).
 - Main: `src/main/orchestration/child-diagnostics.ts` (full), `src/main/orchestration/orchestration-activity-bridge.ts` (full — lines 232–305 for verification wiring), `src/main/register-aliases.ts` (lines 22–38 for the existing alias map; no `verification` entry today).
 - Renderer: `src/renderer/app/features/instance-detail/child-instances-panel.component.ts` (lines 1–330 — existing `ChildInfo` shape, derived counts, status rank), `src/renderer/app/features/instance-detail/instance-detail.component.html` (lines 220–235 — child panel mount slot), `src/renderer/app/features/verification/results/verification-results.component.ts` (lines 1–120 — existing tabs/results shape), `src/renderer/app/features/verification/results/verification-results.component.html` (lines 1–80 — header + tabs), `src/renderer/app/core/state/verification/verification.store.ts` (lines 1–80 — store re-exports), `src/renderer/app/core/state/verification/verification.types.ts` (lines 1–112).

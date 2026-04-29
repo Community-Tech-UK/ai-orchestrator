@@ -8,9 +8,9 @@
 
 **Tech Stack:** TypeScript 5.9, Angular 21 (zoneless, signals), Electron 40, Vitest, ESLint.
 
-**Spec:** [`docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design.md`](../specs/2026-04-28-wave4-output-clipboard-theme-terminal-design.md)
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design.md)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](./2026-04-28-cross-repo-usability-upgrades-plan.md)
+**Spec:** [`docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md`](../specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md)
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](./2026-04-28-cross-repo-usability-upgrades-plan_completed.md)
 
 ---
 
@@ -2265,7 +2265,7 @@ Open the produced `.dmg` (or run the packaged Electron from `dist/`). The app sh
 
 - [ ] **Step 1: Update parent plan to mark Wave 4 tasks done**
 
-Edit `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`. In the Wave 4 task list, replace each `- [ ]` with `- [x]` for the items that landed:
+Edit `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`. In the Wave 4 task list, replace each `- [ ]` with `- [x]` for the items that landed:
 
 - [x] Add a renderer `ClipboardService` for text, JSON, and image-copy status where applicable.
 - [x] Replace direct `navigator.clipboard.writeText` calls with the service in output, verification, history rail, RLM, settings, and code search.
@@ -2277,12 +2277,12 @@ Edit `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`. 
 
 - [ ] **Step 2: Self-review the spec for any drift**
 
-Re-read `docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design.md`. If any decision drifted during implementation (e.g. a regex was tightened, a label was renamed), update the spec to match what shipped.
+Re-read `docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md`. If any decision drifted during implementation (e.g. a regex was tightened, a label was renamed), update the spec to match what shipped.
 
 - [ ] **Step 3: Final commit**
 
 ```bash
-git add docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design.md
+git add docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md
 git commit -m "docs: mark Wave 4 tasks complete in parent plan; spec touch-ups"
 ```
 
@@ -2329,7 +2329,7 @@ If any cell ever flips to "missing", add a task in the closest phase before cont
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan.md`. Two execution options:
+Plan complete and saved to `docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md`. Two execution options:
 
 **1. Subagent-Driven (recommended)** — Dispatch a fresh subagent per task, review between tasks, fast iteration. Phase 5 (11 call sites) is especially well-suited to parallel subagents — each task is independent.
 

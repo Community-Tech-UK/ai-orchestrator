@@ -4321,16 +4321,16 @@
       "lines": 1541
     },
     {
-      "path": "src/main/ipc/handlers/session-handlers.ts",
-      "lines": 1535
+      "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
+      "lines": 1540
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1535
+      "lines": 1536
     },
     {
-      "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design.md",
-      "lines": 1529
+      "path": "src/main/ipc/handlers/session-handlers.ts",
+      "lines": 1535
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -4847,6 +4847,10 @@
     {
       "path": "src/renderer/app/features/remote-config/remote-config-page.component.ts",
       "lines": 815
+    },
+    {
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 814
     },
     {
       "path": "src/renderer/app/features/observations/observations-page.component.ts",

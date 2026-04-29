@@ -17,6 +17,7 @@ import { PauseStore, type ResumeEvent } from './core/state/pause/pause.store';
 import { PauseToggleComponent } from './core/state/pause/pause-toggle.component';
 import { PauseBannerComponent } from './core/state/pause/pause-banner.component';
 import { PauseDetectorErrorModalComponent } from './core/state/pause/pause-detector-error-modal.component';
+import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
 import type {
   StartupCapabilityCheck,
   StartupCapabilityReport,
@@ -37,6 +38,7 @@ declare global {
   imports: [
     RouterOutlet,
     ProviderQuotaChipComponent,
+    CliUpdatePillComponent,
     PauseToggleComponent,
     PauseBannerComponent,
     PauseDetectorErrorModalComponent,

@@ -28,3 +28,10 @@ When enabled, the reverse-search action opens a prompt-history overlay. Pick a r
 ## Rail Filter Performance
 
 The rail filter is debounce-backed. If filtering feels slow, check for large instance lists, expensive computed dependencies, and console warnings before changing debounce timing.
+
+## Wave 7 Evidence
+
+- Screenshot: `screenshots/wave-7/session-picker-light.png`.
+- Screenshot: `screenshots/wave-7/model-picker-light.png`.
+- Screenshot: `screenshots/wave-7/prompt-recall-dark.png`.
+- Assertions: `screenshots/wave-7/smoke-evidence.json` records numeric hotkey selection changing instances, model picker rows, session picker rows, and recalled prompt text.

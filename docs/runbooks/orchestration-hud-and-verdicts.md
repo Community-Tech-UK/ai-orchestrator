@@ -29,3 +29,10 @@ Verdict statuses are pass, pass-with-notes, needs-changes, blocked, and inconclu
 ## Raw Responses
 
 Raw responses remain attached to verdict payloads for audit. If a rendered panel looks truncated, fetch the underlying verification result before assuming the source evidence was dropped.
+
+## Wave 7 Evidence
+
+- Screenshot: `screenshots/wave-7/dashboard-orchestration-dark.png`.
+- Screenshot: `screenshots/wave-7/verification-results-dark.png`.
+- Assertions: `screenshots/wave-7/smoke-evidence.json` records the HUD present, verification verdict present, and zero browser exceptions.
+- Specs: child diagnostics, quick-action dispatcher, verdict derivation, verdict IPC round-trip, and verification results component tests cover the underlying behavior.

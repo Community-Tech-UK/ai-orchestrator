@@ -2,9 +2,9 @@
 
 **Date:** 2026-04-28
 **Status:** Completed
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](./2026-04-28-cross-repo-usability-upgrades-design.md) (Track D — Operator Reliability And Local Tooling)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan.md) (Wave 6)
-**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan.md`
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](./2026-04-28-cross-repo-usability-upgrades-design_completed.md) (Track D — Operator Reliability And Local Tooling)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](../plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md) (Wave 6)
+**Implementation plan (to follow):** `docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md`
 
 ## Doc taxonomy in this repo
 
@@ -71,8 +71,8 @@ The wave does **not** introduce new probe semantics — every probe and every da
 
 The decisions and types in this spec were grounded by reading these files in full prior to drafting:
 
-- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`
-- Wave 1 dependency: `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design.md` (§ 1.7 diagnostics shape; § 9.1 `COMMAND_REGISTRY_SNAPSHOT` IPC)
+- Parent docs: `docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`, `docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`
+- Wave 1 dependency: `docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md` (§ 1.7 diagnostics shape; § 9.1 `COMMAND_REGISTRY_SNAPSHOT` IPC)
 - Probes: `src/main/providers/provider-doctor.ts` (lines 1–429), `src/main/bootstrap/capability-probe.ts` (lines 1–280), `src/main/browser-automation/browser-automation-health.ts` (referenced from `capability-probe.ts` lines 213–270)
 - CLI: `src/main/cli/cli-update-service.ts` (lines 1–53 = `CLI_UPDATE_SPECS`), `src/renderer/app/features/settings/cli-health-settings-tab.component.ts` (lines 90–639)
 - Settings shell: `src/renderer/app/features/settings/settings.component.ts` (tab list + signal-based selection), `src/renderer/app/app.routes.ts` (line 25 `/settings` route)

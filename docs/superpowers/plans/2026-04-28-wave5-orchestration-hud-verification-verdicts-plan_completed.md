@@ -8,9 +8,9 @@
 
 **Tech Stack:** TypeScript 5.9, Angular 21 (zoneless, signals), Electron 40, Zod 4, Vitest, ESLint.
 
-**Spec:** [`docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design.md`](../specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design.md)
-**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design.md)
-**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan.md`](./2026-04-28-cross-repo-usability-upgrades-plan.md)
+**Spec:** [`docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md`](../specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md)
+**Parent design:** [`docs/superpowers/specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md`](../specs/2026-04-28-cross-repo-usability-upgrades-design_completed.md)
+**Parent plan:** [`docs/superpowers/plans/2026-04-28-cross-repo-usability-upgrades-plan_completed.md`](./2026-04-28-cross-repo-usability-upgrades-plan_completed.md)
 
 ---
 
