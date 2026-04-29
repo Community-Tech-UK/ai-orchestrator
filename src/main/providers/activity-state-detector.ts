@@ -88,7 +88,10 @@ export class ActivityStateDetector {
     if (!entry) return null;
     const age = Date.now() - entry.ts;
     let state = entry.state;
-    if ((state === 'waiting_input' || state === 'blocked') && age > ACTIVITY_INPUT_STALENESS_MS) {
+    if (
+      (state === 'waiting_input' || state === 'blocked' || state === 'exited')
+      && age > ACTIVITY_INPUT_STALENESS_MS
+    ) {
       state = 'idle';
     }
     return {

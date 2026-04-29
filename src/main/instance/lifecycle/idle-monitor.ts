@@ -125,6 +125,12 @@ export class IdleMonitor {
     const recoveryEngine = this.deps.getRecoveryEngine();
 
     for (const [instanceId, detector] of this.deps.getActivityDetectors()) {
+      const instanceBeforeDetect = this.deps.getInstance(instanceId);
+      if (!instanceBeforeDetect) continue;
+      if (typeof instanceBeforeDetect.processId === 'number') {
+        detector.setPid(instanceBeforeDetect.processId);
+      }
+
       detector
         .detect()
         .then((result) => {

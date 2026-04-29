@@ -176,3 +176,35 @@ describe.each(FIXTURES)('$name lifecycle parity', ({ create, spawn }) => {
     expect(adapter.interrupt().status).toBe('already-idle');
   });
 });
+
+describe('GeminiCliAdapter one-shot errors', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does not throw an uncaught EventEmitter error when stderr reports an error without listeners', async () => {
+    const adapter = new GeminiCliAdapter();
+    const harness = new MockCliHarness();
+    let proc: MockChildProcess | null = null;
+    vi.spyOn(
+      adapter as unknown as { spawnProcess: (args: string[]) => ChildProcess },
+      'spawnProcess',
+    ).mockImplementation(() => {
+      proc = harness.createProcess();
+      return proc as unknown as ChildProcess;
+    });
+
+    const sendPromise = adapter.sendMessage({
+      role: 'user',
+      content: 'hello',
+    });
+
+    expect(proc).not.toBeNull();
+    expect(() => {
+      proc!.stderr.write('Error executing tool run_shell_command: Tool "run_shell_command" not found.');
+    }).not.toThrow();
+    harness.crash(1);
+
+    await expect(sendPromise).rejects.toThrow(/1/);
+  });
+});

@@ -319,6 +319,7 @@ export class InstanceManager extends EventEmitter {
       markInterrupted: (id) => this.communication.markInterrupted(id),
       clearInterrupted: (id) => this.communication.clearInterrupted(id),
       addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
+      queueContinuityPreamble: (id, preamble) => this.communication.queueContinuityPreamble(id, preamble),
       clearFirstMessageTracking: (id) => this.hasReceivedFirstMessage.delete(id),
       markFirstMessageReceived: (id) => this.hasReceivedFirstMessage.add(id),
       clearPendingState: (id) => this.clearPendingInteractiveState(id),

@@ -115,6 +115,7 @@ export interface InterruptRespawnDeps {
   waitForAdapterWritable: (instanceId: string, timeoutMs: number) => Promise<boolean>;
   buildReplayContinuityMessage: (instance: Instance, reason: string) => string;
   buildFallbackHistory: (instance: Instance, reason: string) => Promise<string>;
+  queueContinuityPreamble?: (instanceId: string, preamble: string) => void;
 
   /** Forward an 'output' event onto the lifecycle EventEmitter. */
   emitOutput: (instanceId: string, message: OutputMessage) => void;
@@ -417,7 +418,10 @@ export class InterruptRespawnHandler {
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
-    const triggeredByInterrupt = this.isInterruptRecoveryStatus(instance.status);
+    const hasActiveInterruptRequest =
+      !!instance.interruptRequestId && instance.interruptPhase !== 'completed';
+    const triggeredByInterrupt =
+      this.isInterruptRecoveryStatus(instance.status) || hasActiveInterruptRequest;
     const replayReason = triggeredByInterrupt ? 'interrupt-respawn' : 'stuck-auto-respawn';
 
     const release = await getSessionMutex().acquire(instanceId, 'respawn-interrupt', {
@@ -476,9 +480,10 @@ export class InterruptRespawnHandler {
         hasConversation,
         sessionResumeBlacklisted: resumeBlacklisted,
       });
-      const shouldResume =
-        recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
-      const shouldForkSession = recoveryPlan.kind === 'provider-fork';
+      const allowNativeResume = !triggeredByInterrupt;
+      const shouldResume = allowNativeResume
+        && (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork');
+      const shouldForkSession = shouldResume && recoveryPlan.kind === 'provider-fork';
 
       const newSessionId = shouldResume && shouldForkSession
         ? generateId()
@@ -554,10 +559,13 @@ export class InterruptRespawnHandler {
             await this.deps.waitForAdapterWritable(instanceId, 3000);
 
             if (hasConversation) {
-              await adapter.sendInput(
-                await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback'),
-              );
-              recoveryInputSent = true;
+              const fallbackHistory = await this.deps.buildFallbackHistory(instance, 'resume-failed-fallback');
+              if (triggeredByInterrupt && this.deps.queueContinuityPreamble) {
+                this.deps.queueContinuityPreamble(instanceId, fallbackHistory);
+              } else {
+                await adapter.sendInput(fallbackHistory);
+                recoveryInputSent = true;
+              }
             }
           } else {
             throw spawnError;
@@ -575,8 +583,13 @@ export class InterruptRespawnHandler {
         if (!actuallyResumed && shouldResume) {
           // Already sent continuity message in fallback path above
         } else if (!shouldResume && hasConversation) {
-          await adapter.sendInput(this.deps.buildReplayContinuityMessage(instance, replayReason));
-          recoveryInputSent = true;
+          const replayContinuity = this.deps.buildReplayContinuityMessage(instance, replayReason);
+          if (triggeredByInterrupt && this.deps.queueContinuityPreamble) {
+            this.deps.queueContinuityPreamble(instanceId, replayContinuity);
+          } else {
+            await adapter.sendInput(replayContinuity);
+            recoveryInputSent = true;
+          }
         }
 
         if (recoveryInputSent) {
@@ -602,7 +615,9 @@ export class InterruptRespawnHandler {
           id: generateId(),
           type: 'system' as const,
           content: triggeredByInterrupt
-            ? (actuallyResumed ? 'Interrupted — waiting for input' : 'Interrupted — session restarted (resume failed)')
+            ? (actuallyResumed || !allowNativeResume
+                ? 'Interrupted — waiting for input'
+                : 'Interrupted — session restarted (resume failed)')
             : (actuallyResumed ? 'Session reconnected automatically' : 'Session restarted automatically (resume failed)'),
           timestamp: Date.now(),
           metadata: triggeredByInterrupt ? undefined : { autoRespawn: true, recoveryCause: 'stuck' },

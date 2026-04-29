@@ -179,7 +179,10 @@
                       <pre class="hljs"><code>{{ formatContent(item.message) }}</code></pre>
                     </div>
                   } @else {
-                    <div class="markdown-content" [innerHTML]="item.renderedMessage"></div>
+                    <div
+                      class="markdown-content"
+                      [class.user-message-collapsed]="item.message.type === 'user' && shouldShowUserMessageToggle(item.message) && !isUserMessageExpanded(item.message.id)"
+                      [innerHTML]="item.renderedMessage"></div>
                   }
                   @if (item.message.attachments && item.message.attachments.length > 0) {
                     <app-message-attachments [attachments]="item.message.attachments" />
@@ -193,6 +196,15 @@
                     <span class="inline-timestamp">{{ item.message.timestamp | date: 'HH:mm' }}</span>
                   }
                 </div>
+                @if (item.message.type === 'user' && shouldShowUserMessageToggle(item.message)) {
+                  <button
+                    class="message-expand-btn"
+                    type="button"
+                    [attr.aria-expanded]="isUserMessageExpanded(item.message.id)"
+                    (click)="toggleUserMessageExpansion(item.message.id)">
+                    {{ isUserMessageExpanded(item.message.id) ? 'Show less' : 'Show more' }}
+                  </button>
+                }
               </div>
               @if (item.message.type === 'user') {
                 <div class="message-hover-actions align-right">

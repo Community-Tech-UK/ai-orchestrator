@@ -232,6 +232,14 @@ export class InputPanelComponent implements OnDestroy {
       || status === 'cancelling'
       || status === 'interrupt-escalating';
   });
+  readonly isTerminalTarget = computed(() => {
+    const status = this.instanceStatus();
+    return status === 'failed'
+      || status === 'error'
+      || status === 'terminated'
+      || status === 'cancelled'
+      || status === 'superseded';
+  });
   selectedProvider = computed(() =>
     this.isDraftComposer()
       ? (this.newSessionDraft.provider() ?? this.providerState.selectedProvider())
@@ -789,6 +797,9 @@ export class InputPanelComponent implements OnDestroy {
     } else {
       this.recordPromptHistory(text, false);
       this.sendMessage.emit(text);
+    }
+    if (this.isTerminalTarget()) {
+      return;
     }
     this.message.set('');
     this.showCommandSuggestions.set(false);

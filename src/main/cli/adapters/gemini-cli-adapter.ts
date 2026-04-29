@@ -352,13 +352,14 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception/i.test(trimmed);
 
         if (looksLikeError) {
+          const error = new Error(trimmed);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'error',
             content: trimmed.slice(0, 2000),
           } as OutputMessage);
-          this.emit('error', new Error(trimmed));
+          this.emitErrorIfObserved(error);
         } else {
           // Non-error stderr (debug banners, version notices). Still surface
           // in case it contains useful diagnostic info, but as a system note
@@ -373,7 +374,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         // Check for API error in stream-json output (e.g., ModelNotFoundError)
         const apiError = this.extractApiError(this.outputBuffer);
         if (apiError) {
-          this.emit('error', new Error(apiError));
+          this.emitErrorIfObserved(new Error(apiError));
           this.emit('output', {
             id: streamingMessageId,
             timestamp: Date.now(),
@@ -419,7 +420,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     let spawnError: Error | null = null;
     this.process.on('error', (err) => {
       spawnError = new Error(`Failed to spawn gemini CLI: ${err.message}`);
-      this.emit('error', spawnError);
+      this.emitErrorIfObserved(spawnError);
       this.emit('output', {
         id: generateId(),
         timestamp: Date.now(),
@@ -556,6 +557,15 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   }
 
   // ============ Private Helper Methods ============
+
+  private emitErrorIfObserved(error: Error): void {
+    if (this.listenerCount('error') > 0) {
+      this.emit('error', error);
+      return;
+    }
+
+    logger.warn('Gemini CLI error without listener', { error: error.message });
+  }
 
   /**
    * Check stream-json output for an API error result event.
@@ -814,10 +824,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       };
       this.emit('output', errorMessage);
       this.emit('status', 'error' as InstanceStatus);
-      this.emit(
-        'error',
-        error instanceof Error ? error : new Error(String(error))
-      );
+      this.emitErrorIfObserved(error instanceof Error ? error : new Error(String(error)));
     }
   }
 

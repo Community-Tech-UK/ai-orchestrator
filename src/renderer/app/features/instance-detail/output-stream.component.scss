@@ -81,6 +81,34 @@
         min-width: 0;
       }
 
+      .message-user .message-content > .markdown-content.user-message-collapsed {
+        display: -webkit-box;
+        flex-basis: 100%;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 8;
+      }
+
+      .message-expand-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 6px;
+        padding: 0;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.2;
+        transition: color var(--transition-fast);
+
+        &:hover {
+          color: var(--text-primary);
+        }
+      }
+
       /* Inline timestamp — sits right of text, drops below when text is long */
       .inline-timestamp {
         flex-shrink: 0;

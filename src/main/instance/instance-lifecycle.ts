@@ -237,6 +237,7 @@ export interface LifecycleDependencies {
   markInterrupted: (instanceId: string) => void;
   clearInterrupted: (instanceId: string) => void;
   addToOutputBuffer: (instance: Instance, message: OutputMessage) => void;
+  queueContinuityPreamble?: (instanceId: string, preamble: string) => void;
   clearFirstMessageTracking: (instanceId: string) => void;
   markFirstMessageReceived: (instanceId: string) => void;
   clearPendingState?: (instanceId: string) => void;
@@ -606,6 +607,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       waitForAdapterWritable: (id, timeoutMs) => this.waitForAdapterWritable(id, timeoutMs),
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
       buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
+      queueContinuityPreamble: (id, preamble) => this.deps.queueContinuityPreamble?.(id, preamble),
       emitOutput: (instanceId, message) => { this.emit('output', { instanceId, message }); },
       emitDisplayMarker: (instance, message) => {
         this.deps.addToOutputBuffer(instance, message);

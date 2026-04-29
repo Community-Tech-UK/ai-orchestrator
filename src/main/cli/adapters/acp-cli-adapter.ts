@@ -18,6 +18,7 @@ import {
   type CliAttachment as AdapterCliAttachment,
   type CliCapabilities,
   type InterruptResult,
+  type TurnInterruptCompletion,
   type CliMessage,
   type CliResponse,
   type CliStatus,
@@ -114,6 +115,7 @@ const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
 };
 
 const DEFAULT_CLIENT_CAPABILITIES: AcpClientCapabilities = {};
+const ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE = 'ACP prompt turn was cancelled by the client.';
 
 const ACP_CAPABILITIES: CliCapabilities = {
   streaming: true,
@@ -219,6 +221,10 @@ function slug(value: string): string {
 
 function isAcpPromptRequestTimeout(error: Error): boolean {
   return /^ACP session\/prompt request timed out after \d+ms \(id=.+\)\./.test(error.message);
+}
+
+function isAcpPromptCancelledByClient(error: Error): boolean {
+  return error.message === ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE;
 }
 
 function stripDataUrlPrefix(data: string): string {
@@ -452,6 +458,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
       // when the user types while a turn is still running — was silently
       // swallowed by the caller and the UI kept showing "Processing…".
       const err = error instanceof Error ? error : new Error(String(error));
+      if (isAcpPromptCancelledByClient(err)) {
+        return;
+      }
       const isRecoverablePromptTimeout = isAcpPromptRequestTimeout(err);
       const errorMessage: OutputMessage = {
         id: generateId(),
@@ -695,8 +704,24 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return { status: 'no-active-turn', reason: 'No ACP prompt is in flight' };
     }
 
-    void this.cancelCurrentPrompt();
-    return { status: 'accepted', turnId: String(this.currentPromptRequestId) };
+    const turnId = String(this.currentPromptRequestId);
+    const completion: Promise<TurnInterruptCompletion> = this.cancelCurrentPrompt()
+      .then(() => ({
+        status: 'interrupted' as const,
+        turnId,
+      }))
+      .catch((error) => ({
+        status: 'rejected' as const,
+        turnId,
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+
+    const result: InterruptResult = { status: 'accepted', turnId };
+    Object.defineProperty(result, 'completion', {
+      value: completion,
+      enumerable: false,
+    });
+    return result;
   }
 
   async sendRaw(response: string, permissionKey?: string): Promise<void> {
@@ -841,7 +866,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     if (pending) {
       clearTimeout(pending.timer);
       this.pendingRequests.delete(cancelledRequestId);
-      pending.reject(new Error('ACP prompt turn was cancelled by the client.'));
+      pending.reject(new Error(ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE));
     }
     if (this.currentPromptRequestId === cancelledRequestId) {
       this.currentPromptRequestId = null;

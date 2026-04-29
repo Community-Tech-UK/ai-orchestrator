@@ -39,6 +39,7 @@ import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
+import { shouldCollapseUserMessage } from './output-stream-message-collapse';
 
 type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 
@@ -117,6 +118,7 @@ export class OutputStreamComponent {
   private lastAutoScrollSignature = '';
 
   protected copiedMessageId = signal<string | null>(null);
+  protected expandedUserMessageIds = signal(new Set<string>());
   private copyResetTimer: number | null = null;
 
   // Context menu state
@@ -714,6 +716,26 @@ export class OutputStreamComponent {
     return failures.filter((failure) => {
       if (failure.reason !== 'unsupported') return true;
       return failure.origin !== 'bare';
+    });
+  }
+
+  protected shouldShowUserMessageToggle(message: OutputMessage): boolean {
+    return shouldCollapseUserMessage(message);
+  }
+
+  protected isUserMessageExpanded(messageId: string): boolean {
+    return this.expandedUserMessageIds().has(messageId);
+  }
+
+  protected toggleUserMessageExpansion(messageId: string): void {
+    this.expandedUserMessageIds.update((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
     });
   }
 

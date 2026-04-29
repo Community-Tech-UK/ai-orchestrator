@@ -461,6 +461,10 @@ export class InstanceDetailComponent {
 
   @HostListener('window:keydown', ['$event'])
   handleKeyboardShortcut(event: KeyboardEvent): void {
+    if (event.defaultPrevented) {
+      return;
+    }
+
     // Escape - interrupt busy or respawning instance
     if (event.key === 'Escape') {
       const inst = this.instance();

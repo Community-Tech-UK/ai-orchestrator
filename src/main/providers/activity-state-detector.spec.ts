@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ActivityStateDetector } from './activity-state-detector';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -53,6 +53,14 @@ describe('ActivityStateDetector', () => {
     it('should decay stale blocked to idle after 5 minutes', async () => {
       writeActivityLog([
         { ts: Date.now() - 400_000, state: 'blocked', source: 'terminal', provider: 'openai' },
+      ]);
+      const result = await detector.detect();
+      expect(result.state).toBe('idle');
+    });
+
+    it('should decay stale exited to idle after 5 minutes', async () => {
+      writeActivityLog([
+        { ts: Date.now() - 400_000, state: 'exited', source: 'process-check', provider: 'openai' },
       ]);
       const result = await detector.detect();
       expect(result.state).toBe('idle');
