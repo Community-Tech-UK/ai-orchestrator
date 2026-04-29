@@ -109,4 +109,11 @@ export const DEFAULT_VERIFICATION_CONFIG: VerificationUIConfig = {
 
 // Re-export shared types for convenience
 export type { CliInfo, CliType } from '../../../../../shared/types/unified-cli-response';
-export type { VerificationResult, PersonalityType, SynthesisStrategy, AgentResponse } from '../../../../../shared/types/verification.types';
+export type {
+  VerificationResult,
+  PersonalityType,
+  SynthesisStrategy,
+  AgentResponse,
+  VerificationVerdict,
+  VerificationVerdictReadyPayload,
+} from '../../../../../shared/types/verification.types';

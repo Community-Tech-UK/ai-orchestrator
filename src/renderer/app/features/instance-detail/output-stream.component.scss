@@ -401,6 +401,60 @@
         user-select: none;
       }
 
+      .interrupt-boundary {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-sm);
+        padding: 4px 0;
+        user-select: none;
+      }
+
+      .interrupt-boundary .boundary-label {
+        color: rgba(245, 158, 11, 0.9);
+      }
+
+      .boundary-time {
+        color: var(--text-muted);
+        font: 11px var(--font-mono);
+        white-space: nowrap;
+      }
+
+      .compaction-summary-card {
+        max-width: 720px;
+        margin: 8px auto;
+        padding: 10px 12px;
+        border: 1px solid rgba(var(--primary-rgb), 0.24);
+        border-radius: 8px;
+        background: rgba(var(--primary-rgb), 0.07);
+        color: var(--text-secondary);
+      }
+
+      .compaction-summary-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+
+      .compaction-summary-title {
+        color: var(--text-primary);
+        font-weight: 700;
+      }
+
+      .compaction-summary-time {
+        flex-shrink: 0;
+        color: var(--text-muted);
+        font: 11px var(--font-mono);
+      }
+
+      .compaction-summary-body {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        font-size: 12px;
+      }
+
       .boundary-line {
         flex: 1;
         height: 1px;

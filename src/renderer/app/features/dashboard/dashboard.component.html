@@ -140,8 +140,38 @@
   <!-- Command Palette -->
   @if (showCommandPalette()) {
     <app-command-palette
-      (close)="showCommandPalette.set(false)"
+      (closeRequested)="showCommandPalette.set(false)"
       (commandExecuted)="onCommandExecuted($event)"
+    />
+  }
+
+  @if (showCommandHelp()) {
+    <app-command-help-host
+      (closeRequested)="showCommandHelp.set(false)"
+    />
+  }
+
+  @if (showSessionPicker()) {
+    <app-session-picker-host
+      (closeRequested)="showSessionPicker.set(false)"
+    />
+  }
+
+  @if (showResumePicker()) {
+    <app-resume-picker-host
+      (closeRequested)="showResumePicker.set(false)"
+    />
+  }
+
+  @if (showModelPicker()) {
+    <app-model-picker-host
+      (closeRequested)="showModelPicker.set(false)"
+    />
+  }
+
+  @if (showPromptHistorySearch()) {
+    <app-prompt-history-search-host
+      (closeRequested)="showPromptHistorySearch.set(false)"
     />
   }
 }

@@ -10,6 +10,9 @@ import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getOutputPersistenceManager } from '../../context/output-persistence';
 import { buildCliSpawnOptions } from '../cli-environment';
+import { getPauseCoordinator } from '../../pause/pause-coordinator';
+import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
+import type { FileAttachment } from '../../../shared/types/instance.types';
 
 const logger = getLogger('BaseCliAdapter');
 
@@ -355,6 +358,11 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   protected abstract buildArgs(message: CliMessage): string[];
 
+  /**
+   * Provider-specific implementation for sending renderer/user input.
+   */
+  protected abstract sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void>;
+
   // ============ Common Methods with Default Implementations ============
 
   /**
@@ -365,6 +373,17 @@ export abstract class BaseCliAdapter extends EventEmitter {
     if (!status.available) {
       throw new Error(`${this.getName()} CLI not available: ${status.error || 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Public user-input entry point shared by all local adapters.
+   */
+  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('CLI input refused while orchestrator is paused');
+    }
+
+    await this.sendInputImpl(message, attachments);
   }
 
   /**

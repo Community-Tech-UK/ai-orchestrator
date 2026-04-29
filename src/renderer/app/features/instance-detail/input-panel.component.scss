@@ -83,6 +83,78 @@ app-copilot-model-selector {
   line-height: 1;
 }
 
+.nl-workflow-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--primary-rgb), 0.22);
+  border-radius: 8px;
+  background: rgba(var(--primary-rgb), 0.07);
+}
+
+.nl-workflow-suggestion.preflight {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.nl-workflow-main {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.nl-workflow-kicker,
+.nl-workflow-meta,
+.nl-workflow-error {
+  font: 11px var(--font-mono);
+}
+
+.nl-workflow-kicker {
+  color: var(--primary-color);
+  text-transform: uppercase;
+}
+
+.nl-workflow-title {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.nl-workflow-meta {
+  color: var(--text-muted);
+}
+
+.nl-workflow-error {
+  color: var(--error-color, #ef4444);
+}
+
+.nl-workflow-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.nl-workflow-btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--primary-rgb), 0.35);
+  border-radius: 5px;
+  background: rgba(var(--primary-rgb), 0.16);
+  color: var(--text-primary);
+  font: 12px var(--font-display);
+  cursor: pointer;
+}
+
+.nl-workflow-btn.secondary {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
 /* Pending Files - Attachment preview area */
 .pending-files {
   display: flex;
@@ -520,10 +592,32 @@ app-copilot-model-selector {
   white-space: nowrap;
 }
 
+.queued-kind {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--primary-rgb), 0.22);
+  color: var(--primary-color);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
+}
+
 .queued-file-count {
   font-size: 11px;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.queued-drop-warning {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--warning-rgb, 245, 158, 11), 0.28);
+  color: var(--warning-color, #f59e0b);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1;
 }
 
 .queued-cancel-btn {
@@ -574,9 +668,18 @@ app-copilot-model-selector {
   border-radius: 2px;
 }
 
+.suggestion-header {
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .suggestion-item {
   width: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
@@ -600,6 +703,18 @@ app-copilot-model-selector {
   }
 }
 
+.suggestion-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cmd-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .cmd-name {
   font-family: var(--font-mono);
   font-weight: 600;
@@ -615,6 +730,25 @@ app-copilot-model-selector {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.cmd-disabled {
+  font-size: 11px;
+  color: var(--warning-color, #ffb74d);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmd-meta,
+.cmd-category {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
 }
 
 .edit-mode-bar {

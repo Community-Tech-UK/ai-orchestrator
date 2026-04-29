@@ -18,8 +18,14 @@ import {
   ComponentFixture,
   TestBed
 } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ExportPanelComponent } from './export-panel.component';
+import {
+  CLIPBOARD_SERVICE,
+  type ClipboardCopyResult,
+  type ClipboardService,
+} from '../../../core/services/clipboard.service';
 
 describe('ExportPanelComponent', () => {
   let component: ExportPanelComponent;
@@ -82,8 +88,16 @@ describe('ExportPanelComponent', () => {
   let mockCreateElement: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockClick: any;
+  let fakeClipboard: ClipboardService;
 
   beforeEach(async () => {
+    fakeClipboard = {
+      lastResult: signal<ClipboardCopyResult | null>(null).asReadonly(),
+      copyText: vi.fn().mockResolvedValue({ ok: true }),
+      copyJSON: vi.fn().mockResolvedValue({ ok: true }),
+      copyImage: vi.fn().mockResolvedValue({ ok: true }),
+    };
+
     // Setup URL mocks - these don't interfere with Angular
     mockCreateObjectURL = vi.fn().mockReturnValue('blob:test-url');
     mockRevokeObjectURL = vi.fn();
@@ -108,15 +122,9 @@ describe('ExportPanelComponent', () => {
     vi.spyOn(document.body, 'appendChild');
     vi.spyOn(document.body, 'removeChild');
 
-    // Mock clipboard
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: vi.fn().mockResolvedValue(undefined)
-      }
-    });
-
     await TestBed.configureTestingModule({
-      imports: [ExportPanelComponent, FormsModule]
+      imports: [ExportPanelComponent, FormsModule],
+      providers: [{ provide: CLIPBOARD_SERVICE, useValue: fakeClipboard }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(ExportPanelComponent);
@@ -478,7 +486,7 @@ describe('ExportPanelComponent', () => {
 
     it('should copy content to clipboard', async () => {
       await component.copyToClipboard();
-      expect(navigator.clipboard.writeText).toHaveBeenCalled();
+      expect(fakeClipboard.copyText).toHaveBeenCalled();
     });
 
     it('should show copied state after copying', async () => {
@@ -498,9 +506,7 @@ describe('ExportPanelComponent', () => {
       const expectedContent = component.generateExport();
       await component.copyToClipboard();
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        expectedContent
-      );
+      expect(fakeClipboard.copyText).toHaveBeenCalledWith(expectedContent, { label: 'export' });
     });
   });
 

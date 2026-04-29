@@ -37,4 +37,9 @@ export const INSTANCE_CHANNELS = {
   // Input required events (CLI permission prompts, etc.)
   INPUT_REQUIRED: 'instance:input-required',
   INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
+
+  // Queue persistence (Pause on VPN feature)
+  INSTANCE_QUEUE_SAVE: 'instance:queue-save',
+  INSTANCE_QUEUE_LOAD_ALL: 'instance:queue-load-all',
+  INSTANCE_QUEUE_INITIAL_PROMPT: 'instance:queue-initial-prompt',
 } as const;

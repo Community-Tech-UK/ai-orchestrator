@@ -1,0 +1,103 @@
+@if (bundle(); as b) {
+  <div class="modal-backdrop">
+    <button
+      type="button"
+      class="backdrop-dismiss"
+      aria-label="Close child diagnostic bundle"
+      (click)="close()"
+    ></button>
+    <article
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Child diagnostic bundle"
+    >
+      <header class="modal-header">
+        <div class="modal-title-block">
+          <h2>{{ b.childInstanceId }}</h2>
+          <span class="subtitle">
+            {{ b.provider }}
+            @if (b.model) {
+              <span>/ {{ b.model }}</span>
+            }
+          </span>
+        </div>
+        <span class="status">{{ b.status }}</span>
+        <button class="icon-btn" type="button" aria-label="Close" (click)="close()">×</button>
+      </header>
+
+      <section class="modal-body">
+        <dl class="metadata">
+          <dt>Parent</dt>
+          <dd>{{ b.parentInstanceId || 'None' }}</dd>
+          <dt>Working dir</dt>
+          <dd>{{ b.workingDirectory }}</dd>
+          @if (b.spawnTaskSummary) {
+            <dt>Task</dt>
+            <dd>{{ b.spawnTaskSummary }}</dd>
+          }
+          @if (b.spawnPromptHash) {
+            <dt>Prompt hash</dt>
+            <dd class="hash-row">
+              <code>{{ b.spawnPromptHash }}</code>
+              <button type="button" class="text-btn" (click)="copyPromptHash()">Copy</button>
+            </dd>
+          }
+          @if (b.timeoutReason) {
+            <dt>Timeout</dt>
+            <dd>{{ b.timeoutReason }}</dd>
+          }
+        </dl>
+
+        @if (b.routing) {
+          <section class="diagnostic-section">
+            <h3>Routing</h3>
+            <pre>{{ b.routing | json }}</pre>
+          </section>
+        }
+
+        <section class="diagnostic-section">
+          <h3>Status Timeline</h3>
+          <ol class="timeline">
+            @for (entry of b.statusTimeline; track entry.timestamp) {
+              <li>
+                <time>{{ formatTimestamp(entry.timestamp) }}</time>
+                <span>{{ entry.status }}</span>
+              </li>
+            }
+          </ol>
+        </section>
+
+        <section class="diagnostic-section">
+          <h3>Recent Events</h3>
+          @if (b.recentEvents.length > 0) {
+            <ul class="event-list">
+              @for (event of b.recentEvents; track event.timestamp) {
+                <li>
+                  <span class="event-type">{{ event.type }}</span>
+                  <span>{{ event.summary }}</span>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="empty">No recent events.</p>
+          }
+        </section>
+
+        <section class="diagnostic-section">
+          <h3>Recent Output</h3>
+          @if (b.recentOutputTail.length > 0) {
+            <pre class="output">{{ formatOutputLines(b.recentOutputTail) }}</pre>
+          } @else {
+            <p class="empty">No recent output.</p>
+          }
+        </section>
+
+        <section class="diagnostic-section">
+          <h3>Artifacts</h3>
+          <pre>{{ b.artifactsSummary | json }}</pre>
+        </section>
+      </section>
+    </article>
+  </div>
+}

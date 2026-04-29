@@ -164,6 +164,90 @@ export interface VerificationResult {
   debateRounds?: DebateSessionRound[];
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Wave 5: Verification Verdict
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Closed enum for the canonical verdict status. Mutually exclusive.
+ */
+export type VerdictStatus =
+  | 'pass'
+  | 'pass-with-notes'
+  | 'needs-changes'
+  | 'blocked'
+  | 'inconclusive';
+
+export const VERDICT_STATUSES: readonly VerdictStatus[] = [
+  'pass',
+  'pass-with-notes',
+  'needs-changes',
+  'blocked',
+  'inconclusive',
+] as const;
+
+export type RiskAreaSeverity = 'low' | 'medium' | 'high';
+
+export type RiskAreaCategory =
+  | 'correctness'
+  | 'security'
+  | 'performance'
+  | 'compatibility'
+  | 'data-loss'
+  | 'ux'
+  | 'maintainability'
+  | 'unknown';
+
+export interface RiskArea {
+  category: RiskAreaCategory;
+  description: string;
+  severity: RiskAreaSeverity;
+  agentIds?: string[];
+}
+
+export interface VerdictEvidence {
+  kind: 'agent-response' | 'agreement' | 'disagreement' | 'outlier' | 'unique-insight';
+  agentId?: string;
+  snippet?: string;
+  keyPointId?: string;
+}
+
+/**
+ * Canonical, presentation-oriented verdict. Derived synchronously from a
+ * VerificationResult via deriveVerdict(). NOT a replacement for VerificationResult.
+ */
+export interface VerificationVerdict {
+  status: VerdictStatus;
+  confidence: number;
+  headline?: string;
+  requiredActions: string[];
+  riskAreas: RiskArea[];
+  evidence: VerdictEvidence[];
+  rawResponses: AgentResponse[];
+  sourceResultId: string;
+  derivedAt: number;
+  schemaVersion: 1;
+}
+
+export const VERIFICATION_VERDICT_SCHEMA_VERSION = 1;
+
+export interface VerdictDerivationDiagnostic {
+  reason:
+    | 'normal'
+    | 'low-confidence'
+    | 'missing-analysis'
+    | 'no-disagreements'
+    | 'unknown-error';
+  note?: string;
+}
+
+export interface VerificationVerdictReadyPayload {
+  resultId: string;
+  instanceId: string;
+  verdict: VerificationVerdict;
+  diagnostic?: VerdictDerivationDiagnostic;
+}
+
 /**
  * @deprecated Use DebateSessionRound from debate.types.ts instead
  */

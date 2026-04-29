@@ -931,7 +931,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    * Send a message to Copilot via exec command. Each call spawns a new
    * `copilot -p` child. Multi-turn is handled via --resume.
    */
-  async sendInput(message: string, attachments?: unknown[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: unknown[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }

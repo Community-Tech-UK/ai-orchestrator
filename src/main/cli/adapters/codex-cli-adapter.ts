@@ -463,7 +463,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * Sends a message and emits events.
    * Routes to app-server or exec mode based on current configuration.
    */
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }

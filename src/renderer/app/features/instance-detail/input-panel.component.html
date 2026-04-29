@@ -84,19 +84,62 @@
   }
 
   <!-- Command suggestions dropdown -->
-  @if (showCommandSuggestions() && filteredCommands().length > 0) {
+  @if (showCommandSuggestions() && visibleCommandSuggestions().length > 0) {
     <div class="command-suggestions">
-      @for (cmd of filteredCommands(); track cmd.id; let i = $index) {
+      @if (slashResolutionLabel()) {
+        <div class="suggestion-header">{{ slashResolutionLabel() }}</div>
+      }
+      @for (cmd of visibleCommandSuggestions(); track cmd.id; let i = $index) {
         <button
           class="suggestion-item"
           [class.selected]="i === selectedCommandIndex()"
+          [disabled]="!commandStore.commandEligibility(cmd).eligible"
           (click)="onSelectCommand(cmd)"
           (mouseenter)="selectedCommandIndex.set(i)"
         >
-          <span class="cmd-name">/{{ cmd.name }}</span>
-          <span class="cmd-desc">{{ cmd.description }}</span>
+          <span class="cmd-main">
+            <span class="cmd-name">/{{ cmd.name }}</span>
+            <span class="cmd-desc">{{ cmd.description }}</span>
+            @if (commandStore.commandEligibility(cmd).reason) {
+              <span class="cmd-disabled">{{ commandStore.commandEligibility(cmd).reason }}</span>
+            }
+          </span>
+          @if (cmd.usage || cmd.aliases?.length) {
+            <span class="cmd-meta">
+              {{ cmd.usage || ('/' + cmd.aliases?.[0]) }}
+            </span>
+          }
+          @if (cmd.category) {
+            <span class="cmd-category">{{ cmd.category }}</span>
+          }
         </button>
       }
+    </div>
+  }
+
+  @if (nlWorkflowSuggestion(); as suggestion) {
+    <div class="nl-workflow-suggestion" [class.preflight]="suggestion.surface === 'preflight-modal'">
+      <div class="nl-workflow-main">
+        <span class="nl-workflow-kicker">
+          {{ suggestion.surface === 'preflight-modal' ? 'Workflow preflight' : 'Workflow suggestion' }}
+        </span>
+        <span class="nl-workflow-title">
+          {{ suggestion.suggestedRef || 'Review suggested workflow' }}
+        </span>
+        @if (suggestion.estimatedChildCount) {
+          <span class="nl-workflow-meta">{{ suggestion.estimatedChildCount }} children estimated</span>
+        }
+        @if (suggestion.estimatedProviderImpact) {
+          <span class="nl-workflow-meta">provider impact: {{ suggestion.estimatedProviderImpact }}</span>
+        }
+        @if (nlWorkflowSuggestionError()) {
+          <span class="nl-workflow-error">{{ nlWorkflowSuggestionError() }}</span>
+        }
+      </div>
+      <div class="nl-workflow-actions">
+        <button type="button" class="nl-workflow-btn secondary" (click)="dismissNlWorkflowSuggestion()">Dismiss</button>
+        <button type="button" class="nl-workflow-btn" (click)="acceptNlWorkflowSuggestion()">Accept</button>
+      </div>
     </div>
   }
 
@@ -145,6 +188,10 @@
       <div class="input-hints">
         @if (showGhostText()) {
           <span class="hint hint-ghost">Tab or → to accept suggestion</span>
+        } @else if (isRespawning()) {
+          <span class="hint">Enter to send after interrupt, Shift+Enter for new line</span>
+        } @else if (isSteeringTarget()) {
+          <span class="hint">Enter to steer, Shift+Enter for new line</span>
         } @else {
           <span class="hint">Press Enter to send, Shift+Enter for new line</span>
         }
@@ -153,7 +200,7 @@
         } @else if (isRespawning()) {
           <span class="hint hint-respawning">Recovering session...</span>
         } @else if (isBusy()) {
-          <span class="hint hint-interrupt">Press Esc to interrupt</span>
+          <span class="hint hint-interrupt">Esc interrupts without sending</span>
         } @else if (isReplayFallback()) {
           <span class="hint hint-recovery">Context not restored — re-summarize to continue</span>
         } @else {
@@ -166,7 +213,7 @@
           class="btn-send"
           [disabled]="disabled() || !canSend() || isInitializing()"
           (click)="onSend()"
-          title="Send message (Enter)"
+          [title]="isSteeringTarget() ? 'Steer current turn (Enter)' : 'Send message (Enter)'"
         >
           <span class="send-icon">↑</span>
         </button>
@@ -186,9 +233,17 @@
             <span class="queued-message-text" [title]="queuedMsg.message">
               {{ truncateMessage(queuedMsg.message) }}
             </span>
+            @if (queuedMsg.kind === 'steer') {
+              <span class="queued-kind queued-kind-steer" title="Will send before passive queued messages">steer</span>
+            }
             @if (queuedMsg.files && queuedMsg.files.length > 0) {
               <span class="queued-file-count" title="Attached files">
                 📎{{ queuedMsg.files.length }}
+              </span>
+            }
+            @if (queuedMsg.hadAttachmentsDropped) {
+              <span class="queued-drop-warning" title="Attachments could not be restored for this queued message">
+                attachments dropped
               </span>
             }
             <button

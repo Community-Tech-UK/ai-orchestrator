@@ -12,6 +12,7 @@ export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
+export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
 
 /**
  * Application settings that are persisted to disk
@@ -55,6 +56,8 @@ export interface AppSettings {
   codememEnabled: boolean;
   codememIndexingEnabled: boolean;
   codememLspWorkerEnabled: boolean;
+  commandDiagnosticsAvailable: boolean;
+  broadRootFileThreshold: number;
 
   // Cross-Model Review
   crossModelReviewEnabled: boolean;
@@ -77,6 +80,17 @@ export interface AppSettings {
   remoteNodesTlsCertPath: string;
   remoteNodesTlsKeyPath: string;
   remoteNodesRegisteredNodes: string;
+
+  // Network (Pause on VPN)
+  pauseFeatureEnabled: boolean;
+  pauseOnVpnEnabled: boolean;
+  pauseVpnInterfacePattern: string;
+  pauseTreatExistingVpnAsActive: boolean;
+  pauseDetectorDiagnostics: boolean;
+  pauseReachabilityProbeHost: string;
+  pauseReachabilityProbeMode: PauseReachabilityProbeMode;
+  pauseReachabilityProbeIntervalSec: number;
+  pauseAllowPrivateRanges: boolean;
 }
 
 /**
@@ -121,6 +135,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codememEnabled: true,
   codememIndexingEnabled: true,
   codememLspWorkerEnabled: true,
+  commandDiagnosticsAvailable: true,
+  broadRootFileThreshold: 100,
 
   // Cross-Model Review
   crossModelReviewEnabled: true,
@@ -143,6 +159,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remoteNodesTlsCertPath: '',
   remoteNodesTlsKeyPath: '',
   remoteNodesRegisteredNodes: '{}',
+
+  // Network (Pause on VPN)
+  pauseFeatureEnabled: true,
+  pauseOnVpnEnabled: true,
+  pauseVpnInterfacePattern: '^(utun[0-9]+|ipsec[0-9]+|ppp[0-9]+|tap[0-9]+)$',
+  pauseTreatExistingVpnAsActive: false,
+  pauseDetectorDiagnostics: false,
+  pauseReachabilityProbeHost: '',
+  pauseReachabilityProbeMode: 'disabled',
+  pauseReachabilityProbeIntervalSec: 30,
+  pauseAllowPrivateRanges: false,
 };
 
 /**
@@ -167,7 +194,7 @@ export interface SettingMetadata {
   label: string;
   description: string;
   type: 'boolean' | 'string' | 'number' | 'select' | 'directory' | 'multi-select';
-  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review';
+  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review' | 'network';
   options?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
@@ -435,6 +462,22 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     type: 'boolean',
     category: 'advanced'
   },
+  {
+    key: 'commandDiagnosticsAvailable',
+    label: 'Enable Command Diagnostics',
+    description: 'Show command registry diagnostics in Doctor reports',
+    type: 'boolean',
+    category: 'advanced'
+  },
+  {
+    key: 'broadRootFileThreshold',
+    label: 'Broad Instruction Scan Threshold',
+    description: 'Warn when project-level instruction files apply broadly above this file count',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 100000
+  },
 
   // Cross-Model Review
   {
@@ -498,6 +541,80 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'plan', label: 'Plans' },
       { value: 'architecture', label: 'Architecture' },
     ],
+  },
+
+  // Network (Pause on VPN)
+  {
+    key: 'pauseFeatureEnabled',
+    label: 'Enable VPN pause feature',
+    description: 'Master switch for VPN pause, detector, network gate, and queue persistence.',
+    type: 'boolean',
+    category: 'network',
+  },
+  {
+    key: 'pauseOnVpnEnabled',
+    label: 'Pause on VPN',
+    description: 'Automatically pause AI traffic when a VPN is detected.',
+    type: 'boolean',
+    category: 'network',
+  },
+  {
+    key: 'pauseVpnInterfacePattern',
+    label: 'Interface pattern',
+    description: 'Network interface names matching this regex are treated as VPN.',
+    type: 'string',
+    category: 'network',
+    placeholder: '^(utun[0-9]+|ipsec[0-9]+)$',
+  },
+  {
+    key: 'pauseTreatExistingVpnAsActive',
+    label: 'Treat existing VPN as active',
+    description: 'If a calibrated matching interface is present at launch, treat the VPN as already up.',
+    type: 'boolean',
+    category: 'network',
+  },
+  {
+    key: 'pauseDetectorDiagnostics',
+    label: 'Verbose detection logging',
+    description: 'Record detector ticks for VPN pattern calibration.',
+    type: 'boolean',
+    category: 'network',
+  },
+  {
+    key: 'pauseReachabilityProbeHost',
+    label: 'Reachability probe host',
+    description: 'Optional host:port for a VPN-only reachability check.',
+    type: 'string',
+    category: 'network',
+    placeholder: 'host.internal:443',
+  },
+  {
+    key: 'pauseReachabilityProbeMode',
+    label: 'Probe mode',
+    description: 'How to interpret reachability probe results.',
+    type: 'select',
+    category: 'network',
+    options: [
+      { value: 'disabled', label: 'Disabled' },
+      { value: 'reachable-means-vpn', label: 'Reachable means VPN' },
+      { value: 'unreachable-means-vpn', label: 'Unreachable means VPN' },
+    ],
+  },
+  {
+    key: 'pauseReachabilityProbeIntervalSec',
+    label: 'Probe interval',
+    description: 'How often to run the reachability probe.',
+    type: 'number',
+    category: 'network',
+    min: 10,
+    max: 600,
+  },
+  {
+    key: 'pauseAllowPrivateRanges',
+    label: 'Allow private ranges during pause',
+    description: 'Permit RFC 1918 private network hosts while paused.',
+    type: 'boolean',
+    category: 'network',
   },
 ];
 

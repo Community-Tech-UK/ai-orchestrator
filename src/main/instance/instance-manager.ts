@@ -11,7 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
@@ -67,6 +67,15 @@ import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
+import { getPauseCoordinator } from '../pause/pause-coordinator';
+import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
+import { IPC_CHANNELS } from '@contracts/channels';
+import type { WindowManager } from '../window-manager';
+import {
+  getHistoryRestoreCoordinator,
+  type HistoryRestoreCoordinatorOptions,
+  type HistoryRestoreCoordinatorResult,
+} from '../history/history-restore-coordinator';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -150,8 +159,11 @@ export class InstanceManager extends EventEmitter {
   private settings = getSettingsManager();
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private providerRuntimeSeqByInstance = new Map<string, number>();
+  private readonly handlePause = (): void => {
+    this.interruptActiveTurnsForPause();
+  };
 
-  constructor() {
+  constructor(private readonly windowManager?: Pick<WindowManager, 'sendToRenderer'>) {
     super();
 
     // Initialize the warm-start manager. The spawnAdapter callback creates a
@@ -314,6 +326,7 @@ export class InstanceManager extends EventEmitter {
       getStateMachine: (id) => this.state.getStateMachine(id),
       setStateMachine: (id, machine) => this.state.setStateMachine(id, machine),
       deleteStateMachine: (id) => this.state.deleteStateMachine(id),
+      queueInitialPromptForRenderer: (payload) => this.queueInitialPromptForRenderer(payload),
       coreDeps: (() => { try { return productionCoreDeps(); } catch { return undefined; } })(),
     });
 
@@ -392,6 +405,8 @@ export class InstanceManager extends EventEmitter {
         (instanceId, message) => this.publishOutput(instanceId, message),
       );
     });
+
+    getPauseCoordinator().on('pause', this.handlePause);
   }
 
   // ============================================
@@ -853,6 +868,39 @@ export class InstanceManager extends EventEmitter {
     this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message));
   }
 
+  private queueInitialPromptForRenderer(payload: {
+    instanceId: string;
+    message: string;
+    attachments?: FileAttachment[];
+    seededAlready: true;
+  }): void {
+    this.emit('instance:queue-initial-prompt', payload);
+    this.windowManager?.sendToRenderer(IPC_CHANNELS.INSTANCE_QUEUE_INITIAL_PROMPT, payload);
+  }
+
+  private interruptActiveTurnsForPause(): void {
+    const activeStatuses = new Set<InstanceStatus>([
+      'busy',
+      'processing',
+      'thinking_deeply',
+      'waiting_for_input',
+      'waiting_for_permission',
+    ]);
+
+    for (const instance of this.state.getAllInstances()) {
+      if (!activeStatuses.has(instance.status)) continue;
+      try {
+        this.lifecycle.interruptInstance(instance.id);
+      } catch (error) {
+        logger.warn('Failed to interrupt active instance after pause', {
+          instanceId: instance.id,
+          status: instance.status,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
   private emitProviderRuntimeEvent(
     instanceId: string,
     event: ProviderRuntimeEvent,
@@ -1010,6 +1058,13 @@ export class InstanceManager extends EventEmitter {
     return instance;
   }
 
+  async restoreFromHistory(
+    entryId: string,
+    options: HistoryRestoreCoordinatorOptions = {},
+  ): Promise<HistoryRestoreCoordinatorResult> {
+    return getHistoryRestoreCoordinator().restore(this, entryId, options);
+  }
+
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     getAutoTitleService().clearInstance(instanceId);
@@ -1107,6 +1162,10 @@ export class InstanceManager extends EventEmitter {
     const instance = this.state.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('Instance input refused while orchestrator is paused');
     }
 
     const inputHookBase = {
@@ -1728,6 +1787,7 @@ export class InstanceManager extends EventEmitter {
           role: 'worker',
           parentId,
           task: command.task,
+          spawnPromptHash: createHash('sha256').update(command.task).digest('hex'),
           routingAudit,
         },
       },
@@ -2044,6 +2104,7 @@ export class InstanceManager extends EventEmitter {
   // ============================================
 
   destroy(): void {
+    getPauseCoordinator().removeListener('pause', this.handlePause);
     getTaskManager().stopTimeoutChecker();
     this.state.destroy();
     this.lifecycle.destroy();

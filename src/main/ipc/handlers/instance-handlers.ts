@@ -4,6 +4,7 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import ElectronStore from 'electron-store';
 import { getLogger } from '../../logging/logger';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
@@ -12,6 +13,7 @@ import type { FileAttachment, OutputMessage } from '../../../shared/types/instan
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   InputRequiredResponsePayloadSchema,
+  InstanceQueueSavePayloadSchema,
   InstanceChangeAgentPayloadSchema,
   InstanceChangeModelPayloadSchema,
   InstanceCompactPayloadSchema,
@@ -33,8 +35,36 @@ import { getSettingsManager } from '../../core/config/settings-manager';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
+import { getPauseCoordinator } from '../../pause/pause-coordinator';
 
 const logger = getLogger('InstanceHandlers');
+
+interface PersistedQueueEntry {
+  message: string;
+  hadAttachmentsDropped: boolean;
+  retryCount?: number;
+  seededAlready?: boolean;
+  kind?: 'queue' | 'steer';
+}
+
+interface QueueStoreShape {
+  queues?: Record<string, PersistedQueueEntry[]>;
+}
+
+interface Store<T> {
+  store: T;
+  set<K extends keyof T>(key: K, value: T[K]): void;
+  clear(): void;
+}
+
+let queueStore: Store<QueueStoreShape> | null = null;
+
+function getQueueStore(): Store<QueueStoreShape> {
+  queueStore ??= new ElectronStore<QueueStoreShape>({
+    name: 'instance-message-queue',
+  }) as unknown as Store<QueueStoreShape>;
+  return queueStore;
+}
 
 /**
  * Serialize instance for IPC response
@@ -689,6 +719,82 @@ export function registerInstanceHandlers(deps: {
   );
 
   // ============================================
+  // Queue Persistence
+  // ============================================
+
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_QUEUE_SAVE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const settings = getSettingsManager();
+        if (!settings.get('pauseFeatureEnabled')) {
+          getQueueStore().clear();
+          return { success: true };
+        }
+        if (!settings.get('persistSessionContent')) {
+          getQueueStore().clear();
+          return { success: true };
+        }
+
+        const validated = validateIpcPayload(
+          InstanceQueueSavePayloadSchema,
+          payload,
+          'INSTANCE_QUEUE_SAVE'
+        );
+        const store = getQueueStore();
+        const queues = { ...(store.store.queues ?? {}) };
+        if (validated.queue.length === 0) {
+          delete queues[validated.instanceId];
+        } else {
+          queues[validated.instanceId] = validated.queue.map((entry) => ({
+            message: entry.message,
+            hadAttachmentsDropped: entry.hadAttachmentsDropped,
+            retryCount: entry.retryCount,
+            seededAlready: entry.seededAlready,
+            kind: entry.kind,
+          }));
+        }
+        store.set('queues', queues);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'INSTANCE_QUEUE_SAVE_FAILED',
+            message: error instanceof Error ? error.message : String(error),
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(IPC_CHANNELS.INSTANCE_QUEUE_LOAD_ALL, async (): Promise<IpcResponse> => {
+    try {
+      const settings = getSettingsManager();
+      if (!settings.get('pauseFeatureEnabled')) {
+        getQueueStore().clear();
+        return { success: true, data: { queues: {} } };
+      }
+      if (!settings.get('persistSessionContent')) {
+        getQueueStore().clear();
+        return { success: true, data: { queues: {} } };
+      }
+
+      return { success: true, data: { queues: getQueueStore().store.queues ?? {} } };
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'INSTANCE_QUEUE_LOAD_ALL_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+          timestamp: Date.now(),
+        },
+      };
+    }
+  });
+
+  // ============================================
   // User Action Handlers
   // ============================================
 
@@ -954,6 +1060,17 @@ export function registerInstanceHandlers(deps: {
               rulePattern: grantResult.ok ? grantResult.rulePattern : undefined,
               alreadyExisted: grantResult.ok ? grantResult.alreadyExisted : undefined,
               respawned,
+            },
+          };
+        }
+
+        if (getPauseCoordinator().isPaused()) {
+          return {
+            success: false,
+            error: {
+              code: 'ORCHESTRATOR_PAUSED',
+              message: 'Input response refused while orchestrator is paused',
+              timestamp: Date.now(),
             },
           };
         }

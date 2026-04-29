@@ -17,6 +17,9 @@ import { COMMUNICATION_CHANNELS } from './communication.channels';
 import { LEARNING_CHANNELS } from './learning.channels';
 import { WORKSPACE_CHANNELS } from './workspace.channels';
 import { AUTOMATION_CHANNELS } from './automation.channels';
+import { PAUSE_CHANNELS } from './pause.channels';
+import { WORKFLOW_CHANNELS } from './workflow.channels';
+import { DIAGNOSTICS_CHANNELS } from './diagnostics.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -30,6 +33,9 @@ export {
   LEARNING_CHANNELS,
   WORKSPACE_CHANNELS,
   AUTOMATION_CHANNELS,
+  PAUSE_CHANNELS,
+  WORKFLOW_CHANNELS,
+  DIAGNOSTICS_CHANNELS,
 };
 
 /**
@@ -48,6 +54,9 @@ export const IPC_CHANNELS = {
   ...LEARNING_CHANNELS,
   ...WORKSPACE_CHANNELS,
   ...AUTOMATION_CHANNELS,
+  ...PAUSE_CHANNELS,
+  ...WORKFLOW_CHANNELS,
+  ...DIAGNOSTICS_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

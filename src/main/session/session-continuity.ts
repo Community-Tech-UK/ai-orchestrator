@@ -754,6 +754,14 @@ export class SessionContinuityManager extends EventEmitter {
           messageCount: messageCountBeforeCompaction,
           tokenCount: state.contextUsage.used,
         });
+        this.emit('session:compaction-display', {
+          instanceId,
+          reason: decision.reason,
+          beforeCount: messageCountBeforeCompaction,
+          afterCount: state.conversationHistory.length,
+          tokensReclaimed: undefined,
+          fallbackMode: 'in-place',
+        });
       }
     }
 

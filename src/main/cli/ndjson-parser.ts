@@ -28,7 +28,7 @@ function normalizeTimestamp(timestamp: unknown): number {
 }
 
 export class NdjsonParser {
-  private buffer: string = '';
+  private buffer = '';
   private maxBufferBytes: number;
 
   constructor(maxBufferKB: number = DEFAULT_MAX_BUFFER_KB) {

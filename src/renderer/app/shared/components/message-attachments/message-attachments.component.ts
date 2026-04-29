@@ -7,6 +7,7 @@
 
 import { Component, input, signal, inject, ChangeDetectionStrategy } from '@angular/core';
 import { ElectronIpcService } from '../../../core/services/ipc/electron-ipc.service';
+import { dataUrlToClipboardCompatibleDataUrl } from '../../../core/services/clipboard-image.util';
 
 export interface AttachmentDisplay {
   name: string;
@@ -482,7 +483,7 @@ export class MessageAttachmentsComponent {
     const attachment = this.previewAttachment();
     if (!attachment?.data) return;
 
-    const dataUrl = await this.toClipboardCompatibleDataUrl(attachment.data);
+    const dataUrl = await dataUrlToClipboardCompatibleDataUrl(attachment.data);
     if (!dataUrl) {
       console.error('Failed to prepare image for clipboard');
       return;
@@ -506,7 +507,7 @@ export class MessageAttachmentsComponent {
    * and JPEG — can round-trip our pasted WebP tiles.
    */
   private async showImageContextMenu(attachment: AttachmentDisplay): Promise<void> {
-    const dataUrl = await this.toClipboardCompatibleDataUrl(attachment.data!);
+    const dataUrl = await dataUrlToClipboardCompatibleDataUrl(attachment.data!);
     if (!dataUrl) {
       console.error('Failed to prepare image for native context menu');
       return;
@@ -522,37 +523,4 @@ export class MessageAttachmentsComponent {
     }
   }
 
-  /**
-   * Electron's nativeImage.createFromDataURL only supports PNG and JPEG.
-   * Pasted screenshots are stored as WebP (see instance-list.store tiling),
-   * so re-encode anything that isn't already PNG/JPEG via a canvas.
-   */
-  private toClipboardCompatibleDataUrl(dataUrl: string): Promise<string | null> {
-    const header = dataUrl.slice(0, 32).toLowerCase();
-    if (header.startsWith('data:image/png') || header.startsWith('data:image/jpeg')) {
-      return Promise.resolve(dataUrl);
-    }
-
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx || canvas.width === 0 || canvas.height === 0) {
-          resolve(null);
-          return;
-        }
-        ctx.drawImage(img, 0, 0);
-        try {
-          resolve(canvas.toDataURL('image/png'));
-        } catch {
-          resolve(null);
-        }
-      };
-      img.onerror = () => resolve(null);
-      img.src = dataUrl;
-    });
-  }
 }

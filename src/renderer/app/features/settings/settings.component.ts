@@ -4,7 +4,8 @@
  */
 
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { SettingsStore } from '../../core/state/settings.store';
 import { GeneralSettingsTabComponent } from './general-settings-tab.component';
 import { OrchestrationSettingsTabComponent } from './orchestration-settings-tab.component';
@@ -19,6 +20,8 @@ import { ConnectionsSettingsTabComponent } from './connections-settings-tab.comp
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 import { ProviderQuotaSettingsTabComponent } from './provider-quota-settings-tab.component';
+import { NetworkSettingsTabComponent } from './network-settings-tab.component';
+import { DoctorSettingsTabComponent } from './doctor-settings-tab.component';
 import { McpPageComponent } from '../mcp/mcp-page.component';
 import { HooksPageComponent } from '../hooks/hooks-page.component';
 import { WorktreePageComponent } from '../worktree/worktree-page.component';
@@ -31,6 +34,7 @@ type SettingsTab =
   | 'general'
   | 'orchestration'
   | 'connections'
+  | 'network'
   | 'memory'
   | 'display'
   | 'ecosystem'
@@ -39,6 +43,7 @@ type SettingsTab =
   | 'advanced'
   | 'keyboard'
   | 'remote-nodes'
+  | 'doctor'
   | 'cli-health'
   | 'provider-quota'
   | 'models'
@@ -58,6 +63,7 @@ const WIDE_TABS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
   'snapshots',
   'archive',
   'remote-config',
+  'doctor',
 ]);
 
 interface SettingsNavItem {
@@ -69,6 +75,7 @@ interface SettingsNavItem {
 const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'general', label: 'General' },
   { id: 'connections', label: 'Connections' },
+  { id: 'network', label: 'Network' },
   { id: 'display', label: 'Display' },
   { id: 'keyboard', label: 'Keyboard' },
   { id: 'permissions', label: 'Permissions' },
@@ -83,11 +90,18 @@ const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'archive', label: 'Archive', group: 'Configuration' },
   { id: 'remote-config', label: 'Remote Config', group: 'Configuration' },
   { id: 'cli-health', label: 'CLI Health', group: 'Advanced' },
+  { id: 'doctor', label: 'Doctor', group: 'Advanced' },
   { id: 'provider-quota', label: 'Provider Quota', group: 'Advanced' },
   { id: 'remote-nodes', label: 'Remote Nodes', group: 'Advanced' },
   { id: 'ecosystem', label: 'Ecosystem', group: 'Advanced' },
   { id: 'advanced', label: 'Advanced', group: 'Advanced' },
 ];
+
+const SETTINGS_TAB_IDS = new Set<SettingsTab>(NAV_ITEMS.map((item) => item.id));
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return Boolean(value && SETTINGS_TAB_IDS.has(value as SettingsTab));
+}
 
 @Component({
   selector: 'app-settings',
@@ -103,6 +117,8 @@ const NAV_ITEMS: SettingsNavItem[] = [
     KeyboardSettingsTabComponent,
     PermissionsSettingsTabComponent,
     ConnectionsSettingsTabComponent,
+    NetworkSettingsTabComponent,
+    DoctorSettingsTabComponent,
     RemoteNodesSettingsTabComponent,
     CliHealthSettingsTabComponent,
     ProviderQuotaSettingsTabComponent,
@@ -132,7 +148,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
             <button
               class="nav-item"
               [class.active]="activeTab() === item.id"
-              (click)="activeTab.set(item.id)"
+              (click)="selectTab(item.id)"
             >
               {{ item.label }}
             </button>
@@ -144,7 +160,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
               <button
                 class="nav-item"
                 [class.active]="activeTab() === item.id"
-                (click)="activeTab.set(item.id)"
+                (click)="selectTab(item.id)"
               >
                 {{ item.label }}
               </button>
@@ -162,6 +178,9 @@ const NAV_ITEMS: SettingsNavItem[] = [
             }
             @case ('connections') {
               <app-connections-settings-tab />
+            }
+            @case ('network') {
+              <app-network-settings-tab />
             }
             @case ('orchestration') {
               <app-orchestration-settings-tab />
@@ -192,6 +211,9 @@ const NAV_ITEMS: SettingsNavItem[] = [
             }
             @case ('cli-health') {
               <app-cli-health-settings-tab />
+            }
+            @case ('doctor') {
+              <app-doctor-settings-tab />
             }
             @case ('provider-quota') {
               <app-provider-quota-settings-tab />
@@ -335,6 +357,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
 export class SettingsComponent {
   private store = inject(SettingsStore);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   /** Still emitted when opened as a modal (legacy callers). */
   closeDialog = output<void>();
@@ -346,8 +369,37 @@ export class SettingsComponent {
   readonly ungroupedItems = NAV_ITEMS.filter(i => !i.group);
   readonly groups = [...new Set(NAV_ITEMS.filter(i => i.group).map(i => i.group!))];
 
+  constructor() {
+    this.route.fragment
+      .pipe(takeUntilDestroyed())
+      .subscribe((fragment) => {
+        if (isSettingsTab(fragment)) {
+          this.activeTab.set(fragment);
+        }
+      });
+
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed())
+      .subscribe((params) => {
+        const tab = params.get('tab');
+        if (isSettingsTab(tab)) {
+          this.activeTab.set(tab);
+        }
+      });
+  }
+
   getGroupItems(group: string): SettingsNavItem[] {
     return NAV_ITEMS.filter(i => i.group === group);
+  }
+
+  selectTab(tab: SettingsTab): void {
+    this.activeTab.set(tab);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab, section: tab === 'doctor' ? this.route.snapshot.queryParamMap.get('section') : null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   goBack(): void {

@@ -18,7 +18,7 @@ describe('packages/contracts/package.json exports', () => {
   it('exposes every schemas domain subpath', () => {
     for (const domain of [
       'common', 'instance', 'session', 'provider', 'orchestration',
-      'settings', 'file-operations', 'security', 'observability',
+      'verification', 'settings', 'file-operations', 'security', 'observability',
       'workspace-tools', 'knowledge', 'remote-node', 'plugin', 'webhook',
     ]) {
       expect(pkg.exports[`./schemas/${domain}`]).toBeDefined();
@@ -29,6 +29,7 @@ describe('packages/contracts/package.json exports', () => {
     for (const domain of [
       'instance', 'file', 'session', 'orchestration', 'memory',
       'provider', 'infrastructure', 'communication', 'learning', 'workspace', 'automation',
+      'diagnostics',
     ]) {
       expect(pkg.exports[`./channels/${domain}`]).toBeDefined();
     }

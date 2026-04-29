@@ -77,6 +77,29 @@
                 }
               </div>
             }
+          } @else if (item.type === 'interrupt-boundary' && item.interruptBoundary) {
+            <div class="interrupt-boundary">
+              <div class="boundary-line"></div>
+              <span class="boundary-label">
+                interrupt {{ item.interruptBoundary.phase }} · {{ item.interruptBoundary.outcome }}
+              </span>
+              <span class="boundary-time">{{ item.interruptBoundary.at | date: 'HH:mm:ss' }}</span>
+              <div class="boundary-line"></div>
+            </div>
+          } @else if (item.type === 'compaction-summary' && item.compactionSummary) {
+            <div class="compaction-summary-card">
+              <div class="compaction-summary-header">
+                <span class="compaction-summary-title">Context compacted</span>
+                <span class="compaction-summary-time">{{ item.compactionSummary.at | date: 'HH:mm:ss' }}</span>
+              </div>
+              <div class="compaction-summary-body">
+                <span>{{ item.compactionSummary.reason }}</span>
+                <span>{{ item.compactionSummary.beforeCount }} -> {{ item.compactionSummary.afterCount }} messages</span>
+                @if (item.compactionSummary.fallbackMode) {
+                  <span>{{ item.compactionSummary.fallbackMode }}</span>
+                }
+              </div>
+            </div>
           } @else if (item.type === 'tool-group' && item.toolMessages) {
             <app-tool-group [toolMessages]="item.toolMessages" [instanceId]="instanceId()" [itemId]="item.id" />
           } @else if (item.type === 'system-event-group') {

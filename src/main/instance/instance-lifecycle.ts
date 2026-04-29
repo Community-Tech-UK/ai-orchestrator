@@ -87,6 +87,7 @@ import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
+import { isOrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import {
   attachToolFilterMetadata,
   buildToolPermissionConfig,
@@ -250,6 +251,12 @@ export interface LifecycleDependencies {
   getStateMachine?: (instanceId: string) => InstanceStateMachine | undefined;
   setStateMachine?: (instanceId: string, machine: InstanceStateMachine) => void;
   deleteStateMachine?: (instanceId: string) => void;
+  queueInitialPromptForRenderer?: (payload: {
+    instanceId: string;
+    message: string;
+    attachments?: NonNullable<InstanceCreateConfig['attachments']>;
+    seededAlready: true;
+  }) => void;
   /**
    * Narrow dependency interfaces for the core execution loop.
    * When provided, lifecycle methods should prefer these over direct singleton access.
@@ -599,6 +606,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
       buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
       emitOutput: (instanceId, message) => { this.emit('output', { instanceId, message }); },
+      emitDisplayMarker: (instance, message) => {
+        this.deps.addToOutputBuffer(instance, message);
+        this.emit('output', { instanceId: instance.id, message });
+      },
     });
     this.setupMemoryMonitoring();
   }
@@ -791,6 +802,33 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
   }
 
+  private queuePausedInitialPrompt(params: {
+    instance: Instance;
+    message: string;
+    attachments?: InstanceCreateConfig['attachments'];
+  }): void {
+    const { instance, message, attachments } = params;
+    this.deps.queueInitialPromptForRenderer?.({
+      instanceId: instance.id,
+      message,
+      attachments,
+      seededAlready: true,
+    });
+
+    const notice: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: 'Initial prompt queued while the orchestrator is paused. It will be sent when pause is lifted.',
+      metadata: {
+        source: 'pause-on-vpn',
+        queuedInitialPrompt: true,
+      },
+    };
+    this.deps.addToOutputBuffer(instance, notice);
+    this.emit('output', { instanceId: instance.id, message: notice });
+  }
+
   private async sendInitialPromptWithAttachmentFallback(params: {
     instance: Instance;
     adapter: CliAdapter;
@@ -805,6 +843,11 @@ export class InstanceLifecycleManager extends EventEmitter {
       await adapter.sendInput(message, attachments);
       return;
     } catch (initialError) {
+      if (isOrchestratorPausedError(initialError)) {
+        this.queuePausedInitialPrompt({ instance, message, attachments });
+        return;
+      }
+
       if (!attachments?.length || !isUnsupportedOrchestratorAttachmentError(initialError)) {
         throw initialError;
       }
@@ -820,7 +863,15 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       attachments = undefined;
-      await adapter.sendInput(message, attachments);
+      try {
+        await adapter.sendInput(message, attachments);
+      } catch (retryError) {
+        if (isOrchestratorPausedError(retryError)) {
+          this.queuePausedInitialPrompt({ instance, message, attachments });
+          return;
+        }
+        throw retryError;
+      }
     }
   }
 

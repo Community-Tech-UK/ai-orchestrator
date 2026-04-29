@@ -7,6 +7,7 @@ import {
   Component,
   ElementRef,
   HostListener,
+  OnDestroy,
   computed,
   effect,
   inject,
@@ -30,6 +31,8 @@ import type { RecentDirectoryEntry } from '../../../../shared/types/recent-direc
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { ProjectGroupComputationService } from './project-group-computation.service';
 import { HistoryRailService } from './history-rail.service';
+import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 const ORDER_STORAGE_KEY = 'instance-list-order';
 const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
@@ -84,7 +87,7 @@ interface RailChangeSummary {
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class InstanceListComponent {
+export class InstanceListComponent implements OnDestroy {
   private host = inject(ElementRef<HTMLElement>);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
@@ -95,7 +98,10 @@ export class InstanceListComponent {
   protected readonly projectGroupComputation = inject(ProjectGroupComputationService);
   protected readonly historyRail = inject(HistoryRailService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private visibleInstanceResolver = inject(VisibleInstanceResolver);
+  private clipboard = inject(CLIPBOARD_SERVICE);
 
+  filterInput = signal('');
   filterText = signal('');
   statusFilter = signal<string>('all');
   locationFilter = signal<'all' | 'local' | 'remote'>('all');
@@ -122,12 +128,14 @@ export class InstanceListComponent {
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
   private restoreSelectionRequestId = 0;
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly FILTER_DEBOUNCE_MS = 250;
 
   isDragDisabled = computed(() =>
-    this.filterText().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all'
+    this.filterInput().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all'
   );
   isProjectDragDisabled = computed(() =>
-    this.filterText().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all' || this.openProjectMenuKey() !== null
+    this.filterInput().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all' || this.openProjectMenuKey() !== null
   );
 
   projectGroups = computed(() => {
@@ -328,6 +336,7 @@ export class InstanceListComponent {
   });
 
   constructor() {
+    this.visibleInstanceResolver.setProjectGroupsSource(this.projectGroups);
     void this.historyStore.loadHistory();
     void this.loadRecentDirectories();
 
@@ -436,8 +445,26 @@ export class InstanceListComponent {
 
   onFilterChange(event: Event): void {
     const input = event.target as HTMLInputElement;
-    this.filterText.set(input.value);
+    this.setFilterText(input.value);
     this.closeProjectMenu({ restoreFocus: false });
+  }
+
+  setFilterText(value: string): void {
+    this.filterInput.set(value);
+    if (this.filterDebounceTimer) {
+      clearTimeout(this.filterDebounceTimer);
+    }
+    this.filterDebounceTimer = setTimeout(() => {
+      this.filterDebounceTimer = null;
+      this.filterText.set(value);
+    }, InstanceListComponent.FILTER_DEBOUNCE_MS);
+  }
+
+  ngOnDestroy(): void {
+    if (this.filterDebounceTimer) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
   }
 
   onStatusFilterChange(event: Event): void {
@@ -708,10 +735,9 @@ export class InstanceListComponent {
       return;
     }
 
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+    const result = await this.clipboard.copyText(text, { label: 'session value' });
+    if (!result.ok) {
+      console.error('Failed to copy to clipboard:', result.reason, result.cause);
     }
   }
 

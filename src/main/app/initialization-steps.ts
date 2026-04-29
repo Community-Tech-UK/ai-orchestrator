@@ -13,6 +13,7 @@ import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
 import { getResourceGovernor } from '../process/resource-governor';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getPoolManager } from '../process/pool-manager';
@@ -58,6 +59,8 @@ import { initializeAutomations } from '../automations';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
+import { initializePauseFeatureRuntime } from './pause-feature-bootstrap';
+import { getCliUpdatePollService } from '../cli/cli-update-poll-service';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 
@@ -94,6 +97,8 @@ export function createInitializationSteps(
       },
     },
     { name: 'Runtime diagnostics', fn: () => installRuntimeDiagnostics() },
+    { name: 'CLI update poller', fn: () => getCliUpdatePollService().start() },
+    { name: 'Pause feature', fn: () => initializePauseFeatureRuntime() },
     { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
     {
       name: 'Remote observer',
@@ -250,7 +255,9 @@ export function createInitializationSteps(
     {
       name: 'Session continuity wiring',
       fn: () => {
-        getSessionContinuityManager().setInstanceManager(instanceManager);
+        const continuity = getSessionContinuityManager();
+        continuity.setInstanceManager(instanceManager);
+        registerCompactionSummaryRenderer(continuity, instanceManager);
       },
     },
     {

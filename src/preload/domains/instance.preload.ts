@@ -56,6 +56,23 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       return ipcRenderer.invoke(ch.INSTANCE_SEND_INPUT, payload);
     },
 
+    instanceQueueSave: (payload: {
+      instanceId: string;
+      queue: {
+        message: string;
+        hadAttachmentsDropped: boolean;
+        retryCount?: number;
+        seededAlready?: boolean;
+        kind?: 'queue' | 'steer';
+      }[];
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_QUEUE_SAVE, payload);
+    },
+
+    instanceQueueLoadAll: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_QUEUE_LOAD_ALL);
+    },
+
     /**
      * Terminate an instance
      */
@@ -216,6 +233,12 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       ipcRenderer.on(ch.INSTANCE_BATCH_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(ch.INSTANCE_BATCH_UPDATE, handler);
+    },
+
+    onInstanceQueueInitialPrompt: (callback: (payload: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown) => callback(payload);
+      ipcRenderer.on(ch.INSTANCE_QUEUE_INITIAL_PROMPT, handler);
+      return () => ipcRenderer.removeListener(ch.INSTANCE_QUEUE_INITIAL_PROMPT, handler);
     },
 
     /**

@@ -11,6 +11,7 @@ import type {
 import { AgentTreePersistence } from './agent-tree-persistence';
 import type { AgentTreeNode } from '../../shared/types/agent-tree.types';
 import { getSessionArchiveManager, type SessionArchiveManager } from './session-archive';
+import { getHistoryManager, type HistoryManager } from '../history/history-manager';
 
 function scoreText(queryTerms: string[], text: string): number {
   const haystack = text.toLowerCase();
@@ -31,6 +32,7 @@ export class SessionRecallService {
     private readonly treePersistence = AgentTreePersistence.getInstance(),
     private readonly childResultStorage: ChildResultStorage = getChildResultStorage(),
     private readonly archiveManagerProvider: () => SessionArchiveManager = getSessionArchiveManager,
+    private readonly historyProvider: () => HistoryManager = getHistoryManager,
   ) {}
 
   async search(query: SessionRecallQuery): Promise<SessionRecallResult[]> {
@@ -225,9 +227,85 @@ export class SessionRecallService {
       }
     }
 
+    if (
+      includeSource('history-transcript') &&
+      query.includeHistoryTranscripts === true &&
+      intent !== 'automationRunHistory' &&
+      intent !== 'stuckSessionDiagnostics'
+    ) {
+      const cap = Math.max(0, query.maxHistoryTranscriptResults ?? 25);
+      const historyEntries = this.historyProvider().getEntries({
+        snippetQuery: query.query.trim() || undefined,
+        projectScope: 'all',
+        source: 'history-transcript',
+      });
+      let added = 0;
+      const loweredQuery = query.query.toLowerCase();
+
+      for (const entry of historyEntries) {
+        if (added >= cap) {
+          break;
+        }
+        if (query.repositoryPath && !entry.workingDirectory.includes(query.repositoryPath)) {
+          continue;
+        }
+
+        const snippets = (entry.snippets ?? []).filter(snippet =>
+          !loweredQuery || snippet.excerpt.toLowerCase().includes(loweredQuery)
+        );
+        for (const snippet of snippets) {
+          if (added >= cap) {
+            break;
+          }
+
+          results.push({
+            source: 'history-transcript',
+            id: `${entry.id}:${snippet.position}`,
+            title: entry.displayName,
+            summary: compact(snippet.excerpt),
+            score: snippet.score + scoreText(terms, entry.displayName) * 0.1,
+            timestamp: entry.endedAt,
+            sourceLink: {
+              type: 'archived_session',
+              ref: entry.id,
+              label: 'Open archived session',
+            },
+            hasMore: (entry.snippets?.length ?? 0) > snippets.length,
+            metadata: {
+              entryId: entry.id,
+              position: snippet.position,
+              excerpt: snippet.excerpt,
+              provider: entry.provider,
+              model: entry.currentModel,
+              workingDirectory: entry.workingDirectory,
+              historyThreadId: entry.historyThreadId,
+            },
+          });
+          added += 1;
+        }
+      }
+    }
+
     return results
       .sort((a, b) => b.score - a.score || b.timestamp - a.timestamp)
       .slice(0, limit);
+  }
+
+  async getSessionDiagnostics(sessionId: string): Promise<{
+    sessionId: string;
+    generatedAt: number;
+    results: SessionRecallResult[];
+  }> {
+    const results = await this.search({
+      query: sessionId,
+      limit: 50,
+      includeHistoryTranscripts: false,
+    });
+    return {
+      sessionId,
+      generatedAt: Date.now(),
+      results,
+    };
   }
 
   private childResultMatchesIntent(result: ChildResult, query: SessionRecallQuery): boolean {

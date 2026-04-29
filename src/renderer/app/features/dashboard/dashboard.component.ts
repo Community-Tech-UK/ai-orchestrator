@@ -22,11 +22,17 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
+import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { CommandPaletteComponent } from '../commands/command-palette.component';
+import { CommandHelpHostComponent } from '../commands/command-help-host.component';
+import { SessionPickerHostComponent } from '../sessions/session-picker-host.component';
+import { ResumePickerHostComponent } from '../resume/resume-picker-host.component';
+import { ModelPickerHostComponent } from '../models/model-picker-host.component';
+import { PromptHistorySearchHostComponent } from '../prompt-history/prompt-history-search-host.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SidebarHeaderComponent } from './sidebar-header.component';
@@ -44,6 +50,11 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
     CliErrorComponent,
     HistorySidebarComponent,
     CommandPaletteComponent,
+    CommandHelpHostComponent,
+    SessionPickerHostComponent,
+    ResumePickerHostComponent,
+    ModelPickerHostComponent,
+    PromptHistorySearchHostComponent,
     FileExplorerComponent,
     SidebarHeaderComponent,
     SidebarActionsComponent,
@@ -66,9 +77,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private visibleInstanceResolver = inject(VisibleInstanceResolver);
 
   showHistory = signal(false);
   showCommandPalette = signal(false);
+  showCommandHelp = signal(false);
+  showSessionPicker = signal(false);
+  showResumePicker = signal(false);
+  showModelPicker = signal(false);
+  showPromptHistorySearch = signal(false);
   showControlPlane = signal(false);
   showSidebar = signal(true);
   showFileExplorer = signal(false);
@@ -182,7 +199,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
    * Register all keybinding handlers
    */
   private registerKeybindingHandlers(): void {
+    const visibleInstanceActions = Array.from({ length: 9 }, (_, index) => {
+      const slot = index + 1;
+      return this.actionDispatch.register({
+        id: `select-visible-instance-${slot}`,
+        when: ['multiple-instances'],
+        run: () => {
+          this.visibleInstanceResolver.selectVisibleInstance(slot);
+        },
+      });
+    });
+
     this.actionCleanup.push(
+      ...visibleInstanceActions,
       this.actionDispatch.register({
         id: 'toggle-command-palette',
         when: ['instance-selected'],
@@ -270,6 +299,26 @@ export class DashboardComponent implements OnInit, OnDestroy {
             return;
           }
 
+          if (this.showCommandHelp()) {
+            this.showCommandHelp.set(false);
+            return;
+          }
+
+          if (this.showSessionPicker()) {
+            this.showSessionPicker.set(false);
+            return;
+          }
+
+          if (this.showModelPicker()) {
+            this.showModelPicker.set(false);
+            return;
+          }
+
+          if (this.showPromptHistorySearch()) {
+            this.showPromptHistorySearch.set(false);
+            return;
+          }
+
           if (this.showHistory()) {
             this.showHistory.set(false);
             return;
@@ -291,6 +340,38 @@ export class DashboardComponent implements OnInit, OnDestroy {
         id: 'app.open-rlm',
         run: () => {
           this.openRlm();
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'app.open-command-help',
+        run: () => {
+          this.showCommandHelp.set(true);
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'open-session-picker',
+        run: () => {
+          this.showSessionPicker.set(true);
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'resume.openPicker',
+        run: () => {
+          this.showResumePicker.set(true);
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'open-model-picker',
+        when: ['instance-selected'],
+        run: () => {
+          this.showModelPicker.set(true);
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'open-prompt-history-search',
+        when: ['instance-selected'],
+        run: () => {
+          this.showPromptHistorySearch.set(true);
         },
       }),
     );

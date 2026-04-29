@@ -140,7 +140,7 @@ export class KeybindingService {
           return;
         }
       } else {
-        if (matchesKeyCombo(event, binding.keys)) {
+        if (this.matchesPlatformKeyCombo(event, binding.keys)) {
           event.preventDefault();
           event.stopPropagation();
           this.triggerBinding(binding, event);
@@ -167,7 +167,7 @@ export class KeybindingService {
     if (nextIndex >= sequence.length) return false;
 
     const expectedCombo = sequence[nextIndex];
-    if (!matchesKeyCombo(event, expectedCombo)) {
+    if (!this.matchesPlatformKeyCombo(event, expectedCombo)) {
       return false;
     }
 
@@ -207,6 +207,19 @@ export class KeybindingService {
       clearTimeout(this.leaderTimeout);
       this.leaderTimeout = null;
     }
+  }
+
+  private matchesPlatformKeyCombo(event: KeyboardEvent, combo: KeyCombo): boolean {
+    if (this.isMac || !combo.modifiers.includes('meta')) {
+      return matchesKeyCombo(event, combo);
+    }
+
+    const normalized: KeyCombo = {
+      ...combo,
+      modifiers: combo.modifiers.map((modifier) => modifier === 'meta' ? 'ctrl' : modifier),
+    };
+
+    return matchesKeyCombo(event, normalized);
   }
 
   /**

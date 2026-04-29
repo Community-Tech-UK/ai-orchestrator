@@ -31,7 +31,15 @@ import {
 } from '@angular/core/testing';
 import { VerificationResultsComponent } from './verification-results.component';
 import { VerificationStore } from '../../../core/state/verification.store';
-import type { VerificationResult } from '../../../../../shared/types/verification.types';
+import type {
+  VerificationResult,
+  VerificationVerdict,
+} from '../../../../../shared/types/verification.types';
+import {
+  CLIPBOARD_SERVICE,
+  type ClipboardCopyResult,
+  type ClipboardService,
+} from '../../../core/services/clipboard.service';
 
 @Component({
   selector: 'app-consensus-heatmap',
@@ -85,13 +93,16 @@ describe('VerificationResultsComponent', () => {
   // Mock store signals
   let mockResult: WritableSignal<VerificationResult | null>;
   let mockIsRunning: WritableSignal<boolean>;
+  let mockCurrentVerdict: WritableSignal<VerificationVerdict | null>;
 
   let mockVerificationStore: {
     result: WritableSignal<VerificationResult | null>;
+    currentVerdict: WritableSignal<VerificationVerdict | null>;
     isRunning: WritableSignal<boolean>;
     clearResult: Mock;
     setSelectedTab: Mock;
   };
+  let fakeClipboard: ClipboardService;
 
   // Test data - using correct types from verification.types.ts
   const mockVerificationResult: VerificationResult = {
@@ -307,24 +318,49 @@ describe('VerificationResultsComponent', () => {
   function setupMocks() {
     mockResult = signal<VerificationResult | null>(mockVerificationResult);
     mockIsRunning = signal(false);
+    mockCurrentVerdict = signal<VerificationVerdict | null>(null);
 
     mockVerificationStore = {
       result: mockResult,
+      currentVerdict: mockCurrentVerdict,
       isRunning: mockIsRunning,
       clearResult: vi.fn(),
       setSelectedTab: vi.fn()
     };
   }
 
+  function makeVerdict(
+    status: VerificationVerdict['status'] = 'needs-changes'
+  ): VerificationVerdict {
+    return {
+      status,
+      confidence: 0.82,
+      headline: 'Agents found actionable concerns.',
+      requiredActions: ['Address failing tests before release.'],
+      riskAreas: [
+        {
+          category: 'correctness',
+          severity: 'high',
+          description: 'One reviewer reported a regression risk.',
+          agentIds: ['agent-2'],
+        },
+      ],
+      evidence: [],
+      rawResponses: mockVerificationResult.responses,
+      sourceResultId: mockVerificationResult.id,
+      derivedAt: Date.now(),
+      schemaVersion: 1,
+    };
+  }
+
   beforeEach(async () => {
     setupMocks();
-
-    // Mock clipboard API
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: vi.fn().mockResolvedValue(undefined)
-      }
-    });
+    fakeClipboard = {
+      lastResult: signal<ClipboardCopyResult | null>(null).asReadonly(),
+      copyText: vi.fn().mockResolvedValue({ ok: true }),
+      copyJSON: vi.fn().mockResolvedValue({ ok: true }),
+      copyImage: vi.fn().mockResolvedValue({ ok: true }),
+    };
 
     // Mock URL API for export functionality
     global.URL.createObjectURL = vi.fn().mockReturnValue('blob:test-url');
@@ -344,7 +380,8 @@ describe('VerificationResultsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [VerificationResultsComponent],
       providers: [
-        { provide: VerificationStore, useValue: mockVerificationStore }
+        { provide: VerificationStore, useValue: mockVerificationStore },
+        { provide: CLIPBOARD_SERVICE, useValue: fakeClipboard },
       ]
     })
       .compileComponents();
@@ -383,6 +420,25 @@ describe('VerificationResultsComponent', () => {
       fixture.detectChanges();
       const emptyState = fixture.nativeElement.querySelector('.empty-state');
       expect(emptyState).toBeTruthy();
+    });
+  });
+
+  describe('Verdict Banner', () => {
+    it('does not render a verdict banner when no verdict is available', () => {
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.verdict-banner')).toBeNull();
+    });
+
+    it('renders the canonical verdict above the tab navigation', () => {
+      mockCurrentVerdict.set(makeVerdict());
+      fixture.detectChanges();
+
+      const banner = fixture.nativeElement.querySelector('.verdict-banner');
+      expect(banner).toBeTruthy();
+      expect(banner.textContent).toContain('Needs changes');
+      expect(banner.textContent).toContain('82% confidence');
+      expect(banner.textContent).toContain('Address failing tests before release');
+      expect(banner.classList.contains('needs-changes')).toBe(true);
     });
   });
 
@@ -611,8 +667,9 @@ describe('VerificationResultsComponent', () => {
         mockVerificationResult.synthesizedResponse
       );
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        mockVerificationResult.synthesizedResponse
+      expect(fakeClipboard.copyText).toHaveBeenCalledWith(
+        mockVerificationResult.synthesizedResponse,
+        { label: 'verification response' }
       );
     });
 

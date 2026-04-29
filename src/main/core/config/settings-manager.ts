@@ -10,6 +10,7 @@ import { app } from 'electron';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
 import { getLogger } from '../../logging/logger';
+import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators';
 
 const logger = getLogger('SettingsManager');
 
@@ -49,6 +50,25 @@ interface SettingsCache {
 export class SettingsManager extends EventEmitter {
   private store: Store<AppSettings>;
   private settingsCache: SettingsCache = { merged: null, mergedAt: 0 };
+
+  private validateSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings[K] {
+    const validator = PAUSE_SETTING_VALIDATORS[key] as Validator<K> | undefined;
+    if (!validator) return value;
+
+    const result = validator(value);
+    if (!result.ok) {
+      throw new Error(`Invalid setting ${String(key)}: ${result.error}`);
+    }
+
+    return result.value;
+  }
+
+  private normalizeSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings[K] {
+    if (key === 'defaultCli' && value === 'openai') {
+      return 'codex' as AppSettings[K];
+    }
+    return value;
+  }
 
   constructor() {
     super();
@@ -194,10 +214,8 @@ export class SettingsManager extends EventEmitter {
    * Set a single setting value
    */
   set<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
-    const normalizedValue =
-      key === 'defaultCli' && value === 'openai'
-        ? ('codex' as AppSettings[K])
-        : value;
+    const validatedValue = this.validateSetting(key, value);
+    const normalizedValue = this.normalizeSetting(key, validatedValue);
 
     this.store.set(key, normalizedValue);
     this.invalidate(3);
@@ -210,16 +228,16 @@ export class SettingsManager extends EventEmitter {
    */
   update(settings: Partial<AppSettings>): void {
     for (const [key, value] of Object.entries(settings)) {
-      const normalizedValue =
-        key === 'defaultCli' && value === 'openai'
-          ? 'codex'
-          : value;
-
-      this.store.set(
-        key as keyof AppSettings,
-        normalizedValue as AppSettings[keyof AppSettings]
+      const typedKey = key as keyof AppSettings;
+      const validatedValue = this.validateSetting(
+        typedKey,
+        value as AppSettings[keyof AppSettings]
       );
+      const normalizedValue = this.normalizeSetting(typedKey, validatedValue);
+
+      this.store.set(typedKey, normalizedValue);
       this.emit('setting-changed', key, normalizedValue);
+      this.emit(`setting:${key}`, normalizedValue);
     }
     this.invalidate(3);
     this.emit('settings-updated', this.getAll());
@@ -261,8 +279,12 @@ export class SettingsManager extends EventEmitter {
   reset(): void {
     this.store.clear();
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-      this.store.set(key as keyof AppSettings, value as AppSettings[keyof AppSettings]);
+      const typedKey = key as keyof AppSettings;
+      this.store.set(typedKey, value as AppSettings[keyof AppSettings]);
+      this.emit('setting-changed', typedKey, value);
+      this.emit(`setting:${key}`, value);
     }
+    this.invalidate(3);
     this.emit('settings-reset', DEFAULT_SETTINGS);
   }
 
@@ -271,7 +293,9 @@ export class SettingsManager extends EventEmitter {
    */
   resetOne<K extends keyof AppSettings>(key: K): void {
     this.store.set(key, DEFAULT_SETTINGS[key]);
+    this.invalidate(3);
     this.emit('setting-changed', key, DEFAULT_SETTINGS[key]);
+    this.emit(`setting:${key}`, DEFAULT_SETTINGS[key]);
   }
 
   /**

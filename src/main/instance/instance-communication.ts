@@ -35,6 +35,8 @@ import type {
   ProviderName,
   ProviderRuntimeEvent,
 } from '@contracts/types/provider-runtime-events';
+import { getPauseCoordinator } from '../pause/pause-coordinator';
+import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 
 /**
  * Dependencies required by the communication manager
@@ -824,6 +826,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         throw new Error(`Instance ${instanceId} is recovering. Please wait for it to be ready.`);
       }
       throw new Error(`Instance ${instanceId} is in an inconsistent state. Please restart the instance.`);
+    }
+
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('Permission response refused while orchestrator is paused');
     }
 
     instance.lastActivity = Date.now();

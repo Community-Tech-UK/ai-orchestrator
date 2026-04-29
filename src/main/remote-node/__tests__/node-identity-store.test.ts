@@ -10,17 +10,20 @@ describe('NodeIdentityStore', () => {
     store.loadFromJson('{}');
   });
 
-  const makeIdentity = (id: string): NodeIdentity => ({
-    sessionId: `session-${id}`,
-    nodeId: id,
-    nodeName: `node-${id}`,
-    transportToken: 'a'.repeat(64),
-    token: 'a'.repeat(64),
-    issuedAt: Date.now(),
-    createdAt: Date.now(),
-    lastSeenAt: Date.now(),
-    authMethod: 'pairing_credential',
-  });
+  const makeIdentity = (id: string): NodeIdentity => {
+    const timestamp = Date.now();
+    return {
+      sessionId: `session-${id}`,
+      nodeId: id,
+      nodeName: `node-${id}`,
+      transportToken: 'a'.repeat(64),
+      token: 'a'.repeat(64),
+      issuedAt: timestamp,
+      createdAt: timestamp,
+      lastSeenAt: timestamp,
+      authMethod: 'pairing_credential',
+    };
+  };
 
   it('stores and retrieves a node identity', () => {
     const identity = makeIdentity('abc');

@@ -431,7 +431,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
   }
 
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     const cliAttachments: AdapterCliAttachment[] | undefined = attachments?.map((attachment) => ({
       type: attachment.type.startsWith('image/') ? 'image' : 'file',
       content: attachment.data,

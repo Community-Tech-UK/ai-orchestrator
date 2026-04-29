@@ -12,9 +12,11 @@ import {
   Component,
   signal,
   ChangeDetectionStrategy,
+  inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
 
 interface ApiKeyEntry {
   id: string;
@@ -616,6 +618,8 @@ interface ProviderInfo {
   `],
 })
 export class ApiKeyManagerComponent {
+  private clipboard = inject(CLIPBOARD_SERVICE);
+
   // Providers
   providers: ProviderInfo[] = [
     {
@@ -798,7 +802,13 @@ export class ApiKeyManagerComponent {
   async copyKey(keyId: string): Promise<void> {
     const key = this.apiKeys().find(k => k.id === keyId);
     if (key?.keyFull) {
-      await navigator.clipboard.writeText(key.keyFull);
+      const result = await this.clipboard.copyText(key.keyFull, {
+        silent: true,
+        label: 'API key',
+      });
+      if (!result.ok) {
+        console.error('Failed to copy API key:', result.reason, result.cause);
+      }
     }
   }
 

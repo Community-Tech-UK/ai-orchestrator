@@ -28,6 +28,21 @@ export interface CreateInstanceWithMessageConfig {
   forceNodeId?: string;
 }
 
+export interface PersistedQueuedMessage {
+  message: string;
+  hadAttachmentsDropped: boolean;
+  retryCount?: number;
+  seededAlready?: boolean;
+  kind?: 'queue' | 'steer';
+}
+
+export interface InstanceQueueInitialPromptPayload {
+  instanceId: string;
+  message: string;
+  attachments?: FileAttachment[];
+  seededAlready: true;
+}
+
 @Injectable({ providedIn: 'root' })
 export class InstanceIpcService {
   private base = inject(ElectronIpcService);
@@ -66,6 +81,27 @@ export class InstanceIpcService {
   async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.sendInput({ instanceId, message, attachments, isRetry });
+  }
+
+  async instanceQueueSave(instanceId: string, queue: PersistedQueuedMessage[]): Promise<IpcResponse> {
+    if (!this.api?.instanceQueueSave) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.instanceQueueSave({ instanceId, queue });
+  }
+
+  async instanceQueueLoadAll(): Promise<IpcResponse<{ queues: Record<string, PersistedQueuedMessage[]> }>> {
+    if (!this.api?.instanceQueueLoadAll) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.instanceQueueLoadAll() as Promise<
+      IpcResponse<{ queues: Record<string, PersistedQueuedMessage[]> }>
+    >;
+  }
+
+  onInstanceQueueInitialPrompt(callback: (payload: InstanceQueueInitialPromptPayload) => void): () => void {
+    if (!this.api?.onInstanceQueueInitialPrompt) return () => { /* noop */ };
+    return this.api.onInstanceQueueInitialPrompt((payload) => {
+      this.ngZone.run(() => callback(payload as InstanceQueueInitialPromptPayload));
+    });
   }
 
   /**

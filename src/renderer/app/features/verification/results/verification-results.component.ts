@@ -18,6 +18,8 @@ import {
 import { VerificationStore } from '../../../core/state/verification.store';
 import { ConsensusHeatmapComponent } from './consensus-heatmap.component';
 import { StreamingTextComponent } from '../../../shared/components/streaming-text/streaming-text.component';
+import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
+import type { VerdictStatus } from '../../../../../shared/types/verification.types';
 
 type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 
@@ -31,6 +33,7 @@ type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 })
 export class VerificationResultsComponent {
   store = inject(VerificationStore);
+  private clipboard = inject(CLIPBOARD_SERVICE);
 
   // UI State
   selectedTab = signal<ResultTab>('summary');
@@ -39,6 +42,7 @@ export class VerificationResultsComponent {
 
   // Computed
   result = computed(() => this.store.result());
+  verdict = computed(() => this.store.currentVerdict());
 
   currentRound = computed(() => {
     const r = this.result();
@@ -99,6 +103,21 @@ export class VerificationResultsComponent {
     if (confidence >= 0.8) return 'high';
     if (confidence >= 0.5) return 'medium';
     return 'low';
+  }
+
+  getVerdictLabel(status: VerdictStatus): string {
+    switch (status) {
+      case 'pass':
+        return 'Pass';
+      case 'pass-with-notes':
+        return 'Pass with notes';
+      case 'needs-changes':
+        return 'Needs changes';
+      case 'blocked':
+        return 'Blocked';
+      case 'inconclusive':
+        return 'Inconclusive';
+    }
   }
 
   getAgreementIcon(strength?: number): string {
@@ -192,22 +211,20 @@ export class VerificationResultsComponent {
     return this.copiedKey() === key;
   }
 
-  copyContent(key: string, content?: string): void {
+  async copyContent(key: string, content?: string): Promise<void> {
     if (!content) return;
 
-    navigator.clipboard
-      .writeText(content)
-      .then(() => {
-        this.copiedKey.set(key);
-        setTimeout(() => {
-          if (this.copiedKey() === key) {
-            this.copiedKey.set(null);
-          }
-        }, 2000);
-      })
-      .catch((err) => {
-        console.error('Failed to copy content:', err);
-      });
+    const result = await this.clipboard.copyText(content, { label: 'verification response' });
+    if (result.ok) {
+      this.copiedKey.set(key);
+      setTimeout(() => {
+        if (this.copiedKey() === key) {
+          this.copiedKey.set(null);
+        }
+      }, 2000);
+    } else {
+      console.error('Failed to copy content:', result.reason, result.cause);
+    }
   }
 
   // ============================================

@@ -21,7 +21,12 @@ import type { Stats } from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import {
+  COMMAND_CATEGORIES,
   createMarkdownCommandId,
+  type CommandApplicability,
+  type CommandCategory,
+  type CommandDiagnostic,
+  type CommandRankHints,
   type CommandTemplate,
 } from '../../shared/types/command.types';
 import { parseMarkdownFrontmatter } from '../../shared/utils/markdown-frontmatter';
@@ -36,12 +41,20 @@ type CommandFrontmatter = {
   model?: string;
   agent?: string;
   subtask?: boolean;
+  aliases?: unknown;
+  category?: unknown;
+  usage?: unknown;
+  examples?: unknown;
+  applicability?: unknown;
+  disabledReason?: unknown;
+  rankHints?: unknown;
 };
 
 interface CacheEntry {
   loadedAt: number;
   commandsByName: Map<string, CommandTemplate>;
   candidatesByName: Map<string, CommandTemplate[]>;
+  diagnostics: CommandDiagnostic[];
   scanDirs: string[];
 }
 
@@ -153,6 +166,182 @@ export class MarkdownCommandRegistry {
     return m?.[1]?.trim() || null;
   }
 
+  private collectInvalidType(
+    diagnostics: CommandDiagnostic[],
+    filePath: string,
+    field: string,
+    expected: string,
+  ): void {
+    diagnostics.push({
+      code: 'invalid-frontmatter-type',
+      severity: 'warn',
+      filePath,
+      message: `Invalid frontmatter field "${field}": expected ${expected}`,
+    });
+  }
+
+  private parseStringArray(
+    value: unknown,
+    field: string,
+    filePath: string,
+    diagnostics: CommandDiagnostic[],
+  ): string[] | undefined {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+      this.collectInvalidType(diagnostics, filePath, field, 'an array of strings');
+      return undefined;
+    }
+    const values = value.map((item) => item.trim()).filter(Boolean);
+    return values.length > 0 ? values : undefined;
+  }
+
+  private parseCategory(
+    value: unknown,
+    filePath: string,
+    diagnostics: CommandDiagnostic[],
+  ): CommandCategory | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string') {
+      this.collectInvalidType(diagnostics, filePath, 'category', 'a string');
+      return undefined;
+    }
+    if (!(COMMAND_CATEGORIES as readonly string[]).includes(value)) {
+      diagnostics.push({
+        code: 'unknown-category',
+        severity: 'warn',
+        filePath,
+        message: `Unknown command category "${value}"`,
+      });
+      return undefined;
+    }
+    return value as CommandCategory;
+  }
+
+  private parseApplicability(
+    value: unknown,
+    filePath: string,
+    diagnostics: CommandDiagnostic[],
+  ): CommandApplicability | undefined {
+    if (value === undefined) return undefined;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      this.collectInvalidType(diagnostics, filePath, 'applicability', 'an object');
+      return undefined;
+    }
+
+    const allowed = new Set([
+      'provider',
+      'instanceStatus',
+      'requiresWorkingDirectory',
+      'requiresGitRepo',
+      'featureFlag',
+      'hideWhenIneligible',
+    ]);
+    const raw = value as Record<string, unknown>;
+    for (const key of Object.keys(raw)) {
+      if (!allowed.has(key)) {
+        diagnostics.push({
+          code: 'unknown-applicability-key',
+          severity: 'warn',
+          filePath,
+          message: `Unknown applicability key "${key}"`,
+        });
+      }
+    }
+
+    const applicability: CommandApplicability = {};
+    if (typeof raw['provider'] === 'string') {
+      applicability.provider = raw['provider'] as CommandApplicability['provider'];
+    } else if (Array.isArray(raw['provider']) && raw['provider'].every((item) => typeof item === 'string')) {
+      applicability.provider = raw['provider'] as CommandApplicability['provider'];
+    } else if (raw['provider'] !== undefined) {
+      this.collectInvalidType(diagnostics, filePath, 'applicability.provider', 'a string or array of strings');
+    }
+
+    if (typeof raw['instanceStatus'] === 'string') {
+      applicability.instanceStatus = raw['instanceStatus'] as CommandApplicability['instanceStatus'];
+    } else if (Array.isArray(raw['instanceStatus']) && raw['instanceStatus'].every((item) => typeof item === 'string')) {
+      applicability.instanceStatus = raw['instanceStatus'] as CommandApplicability['instanceStatus'];
+    } else if (raw['instanceStatus'] !== undefined) {
+      this.collectInvalidType(diagnostics, filePath, 'applicability.instanceStatus', 'a string or array of strings');
+    }
+
+    for (const key of ['requiresWorkingDirectory', 'requiresGitRepo', 'hideWhenIneligible'] as const) {
+      if (raw[key] === undefined) continue;
+      if (typeof raw[key] === 'boolean') {
+        applicability[key] = raw[key];
+      } else {
+        this.collectInvalidType(diagnostics, filePath, `applicability.${key}`, 'a boolean');
+      }
+    }
+
+    if (raw['featureFlag'] !== undefined) {
+      if (typeof raw['featureFlag'] === 'string') {
+        applicability.featureFlag = raw['featureFlag'];
+      } else {
+        this.collectInvalidType(diagnostics, filePath, 'applicability.featureFlag', 'a string');
+      }
+    }
+
+    return Object.keys(applicability).length > 0 ? applicability : undefined;
+  }
+
+  private parseRankHints(
+    value: unknown,
+    filePath: string,
+    diagnostics: CommandDiagnostic[],
+  ): CommandRankHints | undefined {
+    if (value === undefined) return undefined;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      diagnostics.push({
+        code: 'invalid-rank-hints',
+        severity: 'warn',
+        filePath,
+        message: 'Invalid rankHints: expected an object',
+      });
+      return undefined;
+    }
+
+    const raw = value as Record<string, unknown>;
+    const hints: CommandRankHints = {};
+    if (raw['pinned'] !== undefined) {
+      if (typeof raw['pinned'] === 'boolean') {
+        hints.pinned = raw['pinned'];
+      } else {
+        diagnostics.push({
+          code: 'invalid-rank-hints',
+          severity: 'warn',
+          filePath,
+          message: 'Invalid rankHints.pinned: expected a boolean',
+        });
+      }
+    }
+    if (raw['providerAffinity'] !== undefined) {
+      if (Array.isArray(raw['providerAffinity']) && raw['providerAffinity'].every((item) => typeof item === 'string')) {
+        hints.providerAffinity = raw['providerAffinity'] as CommandRankHints['providerAffinity'];
+      } else {
+        diagnostics.push({
+          code: 'invalid-rank-hints',
+          severity: 'warn',
+          filePath,
+          message: 'Invalid rankHints.providerAffinity: expected an array of strings',
+        });
+      }
+    }
+    if (raw['weight'] !== undefined) {
+      if (typeof raw['weight'] === 'number' && Number.isFinite(raw['weight'])) {
+        hints.weight = Math.min(Math.max(raw['weight'], 0), 3);
+      } else {
+        diagnostics.push({
+          code: 'invalid-rank-hints',
+          severity: 'warn',
+          filePath,
+          message: 'Invalid rankHints.weight: expected a finite number',
+        });
+      }
+    }
+    return Object.keys(hints).length > 0 ? hints : undefined;
+  }
+
   private toCommandTemplate(params: {
     name: string;
     template: string;
@@ -163,6 +352,13 @@ export class MarkdownCommandRegistry {
     agent?: string;
     subtask?: boolean;
     priority?: number;
+    aliases?: string[];
+    category?: CommandCategory;
+    usage?: string;
+    examples?: string[];
+    applicability?: CommandApplicability;
+    disabledReason?: string;
+    rankHints?: CommandRankHints;
   }): CommandTemplate {
     const now = Date.now();
     return {
@@ -180,12 +376,79 @@ export class MarkdownCommandRegistry {
       agent: params.agent,
       subtask: params.subtask,
       priority: params.priority,
+      aliases: params.aliases,
+      category: params.category ?? 'custom',
+      usage: params.usage,
+      examples: params.examples,
+      applicability: params.applicability,
+      disabledReason: params.disabledReason,
+      rankHints: params.rankHints,
     };
+  }
+
+  private computeCollisionDiagnostics(
+    commandsByName: Map<string, CommandTemplate>,
+    candidatesByName: Map<string, CommandTemplate[]>,
+  ): CommandDiagnostic[] {
+    const diagnostics: CommandDiagnostic[] = [];
+    for (const [name, candidates] of candidatesByName.entries()) {
+      if (candidates.length > 1) {
+        diagnostics.push({
+          code: 'name-collision',
+          severity: 'warn',
+          message: `Multiple markdown commands define "/${name}"; highest-priority source wins.`,
+          commandId: commandsByName.get(name)?.id,
+          candidates: candidates.map((candidate) => candidate.filePath || candidate.id),
+        });
+      }
+    }
+
+    const names = new Map<string, CommandTemplate>();
+    for (const command of commandsByName.values()) {
+      names.set(command.name.toLowerCase(), command);
+    }
+
+    const aliases = new Map<string, CommandTemplate[]>();
+    for (const command of commandsByName.values()) {
+      for (const alias of command.aliases ?? []) {
+        const key = alias.toLowerCase();
+        const existing = aliases.get(key) ?? [];
+        existing.push(command);
+        aliases.set(key, existing);
+      }
+    }
+
+    for (const [alias, ownerList] of aliases.entries()) {
+      const shadow = names.get(alias);
+      if (shadow && ownerList.some((owner) => owner.id !== shadow.id)) {
+        diagnostics.push({
+          code: 'alias-shadowed-by-name',
+          severity: 'warn',
+          alias,
+          commandId: shadow.id,
+          message: `Alias "${alias}" is shadowed by command "/${shadow.name}"`,
+          candidates: [shadow.id, ...ownerList.map((owner) => owner.id)],
+        });
+      }
+      const uniqueOwners = [...new Map(ownerList.map((owner) => [owner.id, owner])).values()];
+      if (uniqueOwners.length > 1) {
+        diagnostics.push({
+          code: 'alias-collision',
+          severity: 'warn',
+          alias,
+          message: `Alias "${alias}" is defined by multiple markdown commands`,
+          candidates: uniqueOwners.map((owner) => owner.id),
+        });
+      }
+    }
+
+    return diagnostics;
   }
 
   private async loadCommandsForWorkingDirectory(workingDirectory: string): Promise<Map<string, CommandTemplate>> {
     const commandsByName = new Map<string, CommandTemplate>();
     const candidatesByName = new Map<string, CommandTemplate[]>();
+    const diagnostics: CommandDiagnostic[] = [];
 
     const roots = this.getScanRoots(workingDirectory);
     // Load low-to-high priority so later wins.  sourcePriority increments per
@@ -268,6 +531,19 @@ export class MarkdownCommandRegistry {
           const model = typeof parsed.data.model === 'string' ? parsed.data.model : undefined;
           const agent = typeof parsed.data.agent === 'string' ? parsed.data.agent : undefined;
           const subtask = typeof parsed.data.subtask === 'boolean' ? parsed.data.subtask : undefined;
+          const aliases = this.parseStringArray(parsed.data.aliases, 'aliases', filePath, diagnostics);
+          const category = this.parseCategory(parsed.data.category, filePath, diagnostics);
+          const usage = typeof parsed.data.usage === 'string' ? parsed.data.usage : undefined;
+          if (parsed.data.usage !== undefined && typeof parsed.data.usage !== 'string') {
+            this.collectInvalidType(diagnostics, filePath, 'usage', 'a string');
+          }
+          const examples = this.parseStringArray(parsed.data.examples, 'examples', filePath, diagnostics);
+          const applicability = this.parseApplicability(parsed.data.applicability, filePath, diagnostics);
+          const disabledReason = typeof parsed.data.disabledReason === 'string' ? parsed.data.disabledReason : undefined;
+          if (parsed.data.disabledReason !== undefined && typeof parsed.data.disabledReason !== 'string') {
+            this.collectInvalidType(diagnostics, filePath, 'disabledReason', 'a string');
+          }
+          const rankHints = this.parseRankHints(parsed.data.rankHints, filePath, diagnostics);
 
           const cmd = this.toCommandTemplate({
             name,
@@ -279,6 +555,13 @@ export class MarkdownCommandRegistry {
             agent,
             subtask,
             priority: sourcePriority,
+            aliases,
+            category,
+            usage,
+            examples,
+            applicability,
+            disabledReason,
+            rankHints,
           });
 
           const existing = candidatesByName.get(name) || [];
@@ -296,6 +579,7 @@ export class MarkdownCommandRegistry {
       loadedAt: Date.now(),
       commandsByName,
       candidatesByName,
+      diagnostics: [...diagnostics, ...this.computeCollisionDiagnostics(commandsByName, candidatesByName)],
       scanDirs,
     });
     return commandsByName;
@@ -317,6 +601,7 @@ export class MarkdownCommandRegistry {
   async listCommands(workingDirectory: string): Promise<{
     commands: CommandTemplate[];
     candidatesByName: Record<string, CommandTemplate[]>;
+    diagnostics: CommandDiagnostic[];
     scanDirs: string[];
   }> {
     const cacheKey = workingDirectory;
@@ -337,7 +622,12 @@ export class MarkdownCommandRegistry {
       candidatesByName[name] = list.slice();
     }
 
-    return { commands, candidatesByName, scanDirs: entry.scanDirs.slice() };
+    return {
+      commands,
+      candidatesByName,
+      diagnostics: entry.diagnostics.slice(),
+      scanDirs: entry.scanDirs.slice(),
+    };
   }
 
   clearCache(workingDirectory?: string): void {

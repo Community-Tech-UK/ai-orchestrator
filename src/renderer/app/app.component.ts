@@ -2,14 +2,27 @@
  * Root Application Component
  */
 
-import { ChangeDetectionStrategy, Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { ElectronIpcService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
 import { StressFixturesService } from './core/services/stress-fixtures.service';
 import { WorkspaceBenchService, type WorkspaceBenchmarkHarness, type BenchmarkPresetName } from './core/services/workspace-bench.service';
+import { UsageStore } from './core/state/usage.store';
+import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
-import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
+import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
+import { SettingsStore } from './core/state/settings.store';
+import { PauseRendererController } from './core/state/pause/pause-renderer-controller.service';
+import { PauseStore, type ResumeEvent } from './core/state/pause/pause.store';
+import { PauseToggleComponent } from './core/state/pause/pause-toggle.component';
+import { PauseBannerComponent } from './core/state/pause/pause-banner.component';
+import { PauseDetectorErrorModalComponent } from './core/state/pause/pause-detector-error-modal.component';
+import type {
+  StartupCapabilityCheck,
+  StartupCapabilityReport,
+} from '../../shared/types/startup-capability.types';
+import type { DoctorSectionId } from '../../shared/types/diagnostics.types';
 
 declare global {
   interface Window {
@@ -22,7 +35,14 @@ declare global {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ProviderQuotaChipComponent],
+  imports: [
+    RouterOutlet,
+    CliUpdatePillComponent,
+    ProviderQuotaChipComponent,
+    PauseToggleComponent,
+    PauseBannerComponent,
+    PauseDetectorErrorModalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
@@ -33,13 +53,41 @@ export class AppComponent implements OnInit, OnDestroy {
   private perfService = inject(PerfInstrumentationService);
   private stressFixtures = inject(StressFixturesService);
   private workspaceBench = inject(WorkspaceBenchService);
+  private usageStore = inject(UsageStore);
+  private promptHistoryStore = inject(PromptHistoryStore);
+  protected readonly settingsStore = inject(SettingsStore);
+  protected readonly pauseStore = inject(PauseStore);
+  private pauseRendererController = inject(PauseRendererController);
 
   private menuListenerCleanup: (() => void) | null = null;
+  private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   isMacOS = false;
   readonly startupCapabilities = signal<StartupCapabilityReport | null>(null);
+  protected readonly resumeToast = signal<ResumeEvent | null>(null);
+
+  constructor() {
+    effect(() => {
+      const latest = this.pauseStore.resumeEvents().at(-1);
+      if (!latest) return;
+      this.resumeToast.set(latest);
+      if (this.resumeToastTimer) clearTimeout(this.resumeToastTimer);
+      this.resumeToastTimer = setTimeout(() => {
+        if (this.resumeToast()?.id === latest.id) {
+          this.resumeToast.set(null);
+        }
+      }, 4500);
+    });
+  }
 
   async ngOnInit(): Promise<void> {
+    try {
+      await this.settingsStore.initialize();
+    } catch {
+      // SettingsStore records the load error; keep the rest of root startup alive.
+    }
+    this.pauseRendererController.bindReactive();
+
     // Check platform - use Electron API if available, fallback to navigator
     const electronPlatform = this.ipcService.platform;
     if (electronPlatform && electronPlatform !== 'browser') {
@@ -53,6 +101,8 @@ export class AppComponent implements OnInit, OnDestroy {
     window.__perfService = this.perfService;
     window.__stressFixtures = this.stressFixtures;
     window.__workspaceBench = this.workspaceBench;
+    void this.usageStore.init();
+    void this.promptHistoryStore.init();
 
     this.ipcService.onStartupCapabilities((report) => {
       this.startupCapabilities.set(report);
@@ -74,6 +124,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.resumeToastTimer) clearTimeout(this.resumeToastTimer);
+    this.resumeToastTimer = null;
     this.menuListenerCleanup?.();
     this.menuListenerCleanup = null;
   }
@@ -93,6 +145,37 @@ export class AppComponent implements OnInit, OnDestroy {
       .slice(0, 3)
       .map((check) => `${check.label}: ${check.summary}`)
       .join(' ');
+  }
+
+  openDoctorForBanner(): void {
+    const report = this.startupCapabilities();
+    const check = report ? this.pickHighestSeverityFailingCheck(report.checks) : null;
+    void this.router.navigate(['/settings'], {
+      queryParams: {
+        tab: 'doctor',
+        section: check ? this.doctorSectionForCheck(check.id) : 'startup-capabilities',
+      },
+    });
+  }
+
+  private pickHighestSeverityFailingCheck(
+    checks: StartupCapabilityCheck[],
+  ): StartupCapabilityCheck | null {
+    const rank: Record<StartupCapabilityCheck['status'], number> = {
+      unavailable: 4,
+      degraded: 3,
+      disabled: 2,
+      ready: 1,
+    };
+    return checks
+      .filter((check) => check.status !== 'ready' && check.status !== 'disabled')
+      .sort((a, b) => rank[b.status] - rank[a.status] || Number(b.critical) - Number(a.critical))[0] ?? null;
+  }
+
+  private doctorSectionForCheck(checkId: string): DoctorSectionId {
+    if (checkId.startsWith('provider.')) return 'provider-health';
+    if (checkId === 'subsystem.browser-automation') return 'browser-automation';
+    return 'startup-capabilities';
   }
 }
 

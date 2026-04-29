@@ -17,6 +17,10 @@ import { createInstanceDomain } from './domains/instance.preload';
 import { createFileDomain } from './domains/file.preload';
 import { createSessionDomain } from './domains/session.preload';
 import { createOrchestrationDomain } from './domains/orchestration.preload';
+import { createWorkflowDomain } from './domains/workflow.preload';
+import { createPromptHistoryDomain } from './domains/prompt-history.preload';
+import { createPauseDomain } from './domains/pause.preload';
+import { createDiagnosticsDomain } from './domains/diagnostics.preload';
 import { createMemoryDomain } from './domains/memory.preload';
 import { createProviderDomain } from './domains/provider.preload';
 import { createInfrastructureDomain } from './domains/infrastructure.preload';
@@ -44,6 +48,10 @@ const electronAPI = {
   ...createFileDomain(ipcRenderer, IPC_CHANNELS),
   ...createSessionDomain(ipcRenderer, IPC_CHANNELS),
   ...createOrchestrationDomain(ipcRenderer, IPC_CHANNELS),
+  ...createWorkflowDomain(ipcRenderer, IPC_CHANNELS),
+  ...createPromptHistoryDomain(ipcRenderer, IPC_CHANNELS),
+  ...createPauseDomain(ipcRenderer, IPC_CHANNELS),
+  ...createDiagnosticsDomain(ipcRenderer, IPC_CHANNELS),
   ...createMemoryDomain(ipcRenderer, IPC_CHANNELS),
   ...createProviderDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createInfrastructureDomain(ipcRenderer, IPC_CHANNELS, withAuth),

@@ -220,7 +220,7 @@ export class InstanceStore implements OnDestroy {
   // ============================================
 
   private applyUpdate(update: StateUpdate): void {
-    const newStatus = update.status as InstanceStatus;
+    const newStatus = update.status as InstanceStatus | undefined;
 
     // Read previous status BEFORE applying update
     const instance = this.stateService.getInstance(update.instanceId);
@@ -242,10 +242,12 @@ export class InstanceStore implements OnDestroy {
     }
 
     // Track busy-since timestamps for elapsed time display
-    this.updateBusySince(update.instanceId, newStatus);
+    if (newStatus) {
+      this.updateBusySince(update.instanceId, newStatus);
 
-    // Track respawn timeouts — force-terminate if stuck
-    this.updateRespawnWatchdog(update.instanceId, newStatus);
+      // Track respawn timeouts — force-terminate if stuck
+      this.updateRespawnWatchdog(update.instanceId, newStatus);
+    }
 
     // Clear pending approval count when instance resumes work or is terminated
     if (newStatus === 'busy' || newStatus === 'terminated') {
@@ -259,11 +261,14 @@ export class InstanceStore implements OnDestroy {
 
       if (inst) {
         newMap.set(update.instanceId, {
-          ...inst,
-          status: newStatus || inst.status,
-          activityState: update.activityState ?? inst.activityState,
-          contextUsage: update.contextUsage || inst.contextUsage,
-          lastActivity: Date.now(),
+            ...inst,
+            status: newStatus || inst.status,
+            activityState: update.activityState ?? inst.activityState,
+            contextUsage: update.contextUsage || inst.contextUsage,
+            lastActivity: Date.now(),
+            metadata: newStatus
+              ? this.withStatusTimeline(inst.metadata, newStatus, Date.now())
+              : inst.metadata,
           diffStats:
             update.diffStats !== undefined ? update.diffStats ?? undefined : inst.diffStats,
           providerSessionId: update.providerSessionId ?? inst.providerSessionId,
@@ -318,7 +323,7 @@ export class InstanceStore implements OnDestroy {
 
     // Handle activity clearing, approval clearing, and busy-since tracking
     for (const update of updates) {
-      const newStatus = update.status as InstanceStatus;
+      const newStatus = update.status as InstanceStatus | undefined;
       if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'terminated' || newStatus === 'hibernated') {
         this.activityDebouncer.clearActivity(update.instanceId);
         this.outputStore.flushInstanceOutput(update.instanceId);
@@ -327,8 +332,10 @@ export class InstanceStore implements OnDestroy {
       if (newStatus === 'busy' || newStatus === 'terminated') {
         this.clearPendingApprovals(update.instanceId);
       }
-      this.updateBusySince(update.instanceId, newStatus);
-      this.updateRespawnWatchdog(update.instanceId, newStatus);
+      if (newStatus) {
+        this.updateBusySince(update.instanceId, newStatus);
+        this.updateRespawnWatchdog(update.instanceId, newStatus);
+      }
     }
 
     // Update state FIRST so processMessageQueue sees the new statuses
@@ -338,12 +345,17 @@ export class InstanceStore implements OnDestroy {
       for (const update of updates) {
         const instance = newMap.get(update.instanceId);
         if (instance) {
+          const timestamp = Date.now();
+          const status = (update.status as InstanceStatus | undefined) || instance.status;
           newMap.set(update.instanceId, {
             ...instance,
-            status: (update.status as InstanceStatus) || instance.status,
+            status,
             activityState: update.activityState ?? instance.activityState,
             contextUsage: update.contextUsage || instance.contextUsage,
-            lastActivity: Date.now(),
+            lastActivity: timestamp,
+            metadata: update.status
+              ? this.withStatusTimeline(instance.metadata, status, timestamp)
+              : instance.metadata,
             diffStats:
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
             providerSessionId: update.providerSessionId ?? instance.providerSessionId,
@@ -413,6 +425,39 @@ export class InstanceStore implements OnDestroy {
       }
       return next;
     });
+  }
+
+  private withStatusTimeline(
+    metadata: Record<string, unknown> | undefined,
+    status: InstanceStatus,
+    timestamp: number,
+  ): Record<string, unknown> {
+    const current = metadata ?? {};
+    const orchestration = this.isRecord(current['orchestration'])
+      ? current['orchestration']
+      : {};
+    const existing = Array.isArray(orchestration['statusTimeline'])
+      ? orchestration['statusTimeline'].filter((entry): entry is { status: string; timestamp: number } =>
+          this.isRecord(entry)
+          && typeof entry['status'] === 'string'
+          && typeof entry['timestamp'] === 'number'
+        )
+      : [];
+    const last = existing[existing.length - 1];
+    const statusTimeline = last?.status === status
+      ? existing
+      : [...existing, { status, timestamp }].slice(-100);
+    return {
+      ...current,
+      orchestration: {
+        ...orchestration,
+        statusTimeline,
+      },
+    };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
   /** Get the timestamp when the selected instance became busy (for elapsed time) */
@@ -525,6 +570,11 @@ export class InstanceStore implements OnDestroy {
     return this.messagingStore.sendInput(instanceId, message, files);
   }
 
+  /** Steer the active turn, interrupting once if the provider needs a prompt first. */
+  async steerInput(instanceId: string, message: string, files?: File[]): Promise<void> {
+    return this.messagingStore.steerInput(instanceId, message, files);
+  }
+
   /** Terminate an instance */
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
     return this.listStore.terminateInstance(instanceId, graceful);
@@ -532,6 +582,7 @@ export class InstanceStore implements OnDestroy {
 
   /** Interrupt an instance (Ctrl+C equivalent) */
   async interruptInstance(instanceId: string): Promise<boolean> {
+    this.messagingStore.noteInterruptRequested(instanceId);
     return this.listStore.interruptInstance(instanceId);
   }
 
@@ -611,7 +662,7 @@ export class InstanceStore implements OnDestroy {
   }
 
   /** Get the message queue for an instance (reactive) */
-  getMessageQueue(instanceId: string): { message: string; files?: File[] }[] {
+  getMessageQueue(instanceId: string): { message: string; files?: File[]; kind?: 'queue' | 'steer' }[] {
     return this.messagingStore.getMessageQueue(instanceId);
   }
 
@@ -621,7 +672,7 @@ export class InstanceStore implements OnDestroy {
   }
 
   /** Remove a specific message from the queue and return it */
-  removeFromQueue(instanceId: string, index: number): { message: string; files?: File[] } | null {
+  removeFromQueue(instanceId: string, index: number): { message: string; files?: File[]; kind?: 'queue' | 'steer' } | null {
     return this.messagingStore.removeFromQueue(instanceId, index);
   }
 

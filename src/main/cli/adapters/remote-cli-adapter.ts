@@ -16,6 +16,8 @@ import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
 import type { AdapterRuntimeCapabilities, InterruptResult } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import { getPauseCoordinator } from '../../pause/pause-coordinator';
+import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 
 const logger = getLogger('RemoteCliAdapter');
 
@@ -159,6 +161,9 @@ export class RemoteCliAdapter extends EventEmitter {
   async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.remoteInstanceId) {
       throw new Error('RemoteCliAdapter: not spawned — call spawn() before sendInput()');
+    }
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
     }
 
     await this.nodeConnection.sendRpc(

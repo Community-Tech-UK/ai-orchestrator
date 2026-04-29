@@ -15,11 +15,14 @@ export class SettingsStore {
   private _settings = signal<AppSettings>(DEFAULT_SETTINGS);
   private _loading = signal(false);
   private _error = signal<string | null>(null);
+  private _initialized = signal(false);
+  private initPromise: Promise<void> | null = null;
 
   // Public readonly signals
   readonly settings = this._settings.asReadonly();
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
+  readonly isInitialized = this._initialized.asReadonly();
 
   // Computed values for common settings
   readonly defaultYoloMode = computed(() => this._settings().defaultYoloMode);
@@ -32,6 +35,12 @@ export class SettingsStore {
   readonly showThinking = computed(() => this._settings().showThinking);
   readonly thinkingDefaultExpanded = computed(() => this._settings().thinkingDefaultExpanded);
   readonly contextWarningThreshold = computed(() => this._settings().contextWarningThreshold);
+  readonly featureFlags = computed(() => {
+    const settings = this._settings();
+    return Object.fromEntries(
+      Object.entries(settings).filter(([, value]) => typeof value === 'boolean'),
+    ) as Record<string, boolean>;
+  });
 
   // Settings metadata for UI
   readonly metadata = SETTINGS_METADATA;
@@ -55,6 +64,9 @@ export class SettingsStore {
   readonly reviewSettings = computed(() =>
     SETTINGS_METADATA.filter(s => s.category === 'review')
   );
+  readonly networkSettings = computed(() =>
+    SETTINGS_METADATA.filter(s => s.category === 'network')
+  );
 
   // Remote Nodes
   readonly remoteNodesEnabled = computed(() => this._settings().remoteNodesEnabled);
@@ -75,6 +87,7 @@ export class SettingsStore {
   });
 
   private unsubscribe: (() => void) | null = null;
+  private _systemThemeMql: MediaQueryList | null = null;
 
   constructor() {
     // Apply theme on settings change
@@ -92,16 +105,22 @@ export class SettingsStore {
    * Initialize the store - load settings from main process
    */
   async initialize(): Promise<void> {
+    if (this._initialized()) return;
+    if (this.initPromise) return this.initPromise;
+
     this._loading.set(true);
     this._error.set(null);
 
-    try {
+    this.initPromise = (async () => {
       const response = await this.settingsIpc.getSettings();
-      if (response.success && response.data) {
-        this._settings.set(response.data as AppSettings);
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.message || 'Failed to load settings');
       }
 
+      this._settings.set(response.data as AppSettings);
+
       // Listen for settings changes from main process
+      this.unsubscribe?.();
       this.unsubscribe = this.settingsIpc.onSettingsChanged((data: unknown) => {
         if (data && typeof data === 'object' && 'settings' in data) {
           this._settings.set((data as { settings: AppSettings }).settings);
@@ -118,10 +137,17 @@ export class SettingsStore {
           }));
         }
       });
+      this._initialized.set(true);
+    })();
+
+    try {
+      await this.initPromise;
     } catch (error) {
+      this._initialized.set(false);
       this._error.set((error as Error).message);
     } finally {
       this._loading.set(false);
+      this.initPromise = null;
     }
   }
 
@@ -143,7 +169,7 @@ export class SettingsStore {
     } catch (error) {
       this._error.set((error as Error).message);
       // Reload settings to restore consistent state
-      await this.initialize();
+      await this.reload();
     }
   }
 
@@ -164,7 +190,7 @@ export class SettingsStore {
       }
     } catch (error) {
       this._error.set((error as Error).message);
-      await this.initialize();
+      await this.reload();
     }
   }
 
@@ -205,10 +231,13 @@ export class SettingsStore {
   async reload(): Promise<void> {
     try {
       const response = await this.settingsIpc.getSettings();
-      if (response.success && response.data) {
-        this._settings.set(response.data as AppSettings);
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.message || 'Failed to load settings');
       }
+      this._settings.set(response.data as AppSettings);
+      this._initialized.set(true);
     } catch (error) {
+      this._initialized.set(false);
       this._error.set((error as Error).message);
     }
   }
@@ -227,11 +256,33 @@ export class SettingsStore {
     const root = document.documentElement;
 
     if (theme === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      this._attachSystemThemeListener();
+      const prefersDark = this._systemThemeMql?.matches ?? false;
       root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
     } else {
+      this._detachSystemThemeListener();
       root.setAttribute('data-theme', theme);
     }
+  }
+
+  private _onSystemThemeChange = (event: MediaQueryListEvent): void => {
+    if (this._settings().theme !== 'system') {
+      return;
+    }
+    document.documentElement.setAttribute('data-theme', event.matches ? 'dark' : 'light');
+  };
+
+  private _attachSystemThemeListener(): void {
+    if (this._systemThemeMql || typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    this._systemThemeMql = window.matchMedia('(prefers-color-scheme: dark)');
+    this._systemThemeMql.addEventListener('change', this._onSystemThemeChange);
+  }
+
+  private _detachSystemThemeListener(): void {
+    this._systemThemeMql?.removeEventListener('change', this._onSystemThemeChange);
+    this._systemThemeMql = null;
   }
 
   /**
@@ -271,6 +322,13 @@ export class SettingsStore {
   destroy(): void {
     if (this.unsubscribe) {
       this.unsubscribe();
+      this.unsubscribe = null;
     }
+    this._detachSystemThemeListener();
+  }
+
+  /** Test-only cleanup for listener and IPC subscription state. */
+  _resetForTesting(): void {
+    this.destroy();
   }
 }

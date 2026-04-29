@@ -28,6 +28,7 @@ import { InputPanelComponent } from './input-panel.component';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { ActivityStatusComponent } from './activity-status.component';
 import { ChildInstancesPanelComponent } from './child-instances-panel.component';
+import { ChildDiagnosticBundleModalComponent } from '../orchestration/child-diagnostic-bundle.modal.component';
 import { TodoListComponent } from './todo-list.component';
 import { UserActionRequestComponent } from './user-action-request.component';
 import { InstanceHeaderComponent } from './instance-header.component';
@@ -35,10 +36,13 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
+import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
+import { QuickActionDispatcherService } from '../orchestration/quick-action-dispatcher.service';
 import { TodoStore } from '../../core/state/todo.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
+import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
 
 interface RestartToast {
   id: string;
@@ -62,7 +66,9 @@ interface RestartToast {
     InstanceWelcomeComponent,
     InstanceReviewPanelComponent,
     CrossModelReviewPanelComponent,
-    RemoteBrowseModalComponent
+    RemoteBrowseModalComponent,
+    OrchestrationHudComponent,
+    ChildDiagnosticBundleModalComponent
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',
@@ -77,6 +83,7 @@ export class InstanceDetailComponent {
   private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
+  private quickActionDispatcher = inject(QuickActionDispatcherService);
   readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
   private fileAttachment = inject(FileAttachmentService);
   todoStore = inject(TodoStore);
@@ -396,6 +403,9 @@ export class InstanceDetailComponent {
       const inst = this.instance();
       if (inst && (
         inst.status === 'busy'
+        || inst.status === 'processing'
+        || inst.status === 'thinking_deeply'
+        || inst.status === 'waiting_for_permission'
         || inst.status === 'respawning'
         || inst.status === 'interrupting'
         || inst.status === 'cancelling'
@@ -556,6 +566,18 @@ export class InstanceDetailComponent {
     const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
 
     this.store.sendInput(inst.id, finalMessage, this.pendingFiles());
+    this.draftService.clearPendingFiles(inst.id);
+    this.draftService.clearPendingFolders(inst.id);
+  }
+
+  onSteerMessage(message: string): void {
+    const inst = this.instance();
+    if (!inst) return;
+
+    const folders = this.pendingFolders();
+    const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
+
+    this.store.steerInput(inst.id, finalMessage, this.pendingFiles());
     this.draftService.clearPendingFiles(inst.id);
     this.draftService.clearPendingFolders(inst.id);
   }
@@ -782,6 +804,9 @@ export class InstanceDetailComponent {
 
     if (
       inst.status === 'busy'
+      || inst.status === 'processing'
+      || inst.status === 'thinking_deeply'
+      || inst.status === 'waiting_for_permission'
       || inst.status === 'respawning'
       || inst.status === 'interrupting'
       || inst.status === 'cancelling'
@@ -885,6 +910,13 @@ export class InstanceDetailComponent {
 
   onSelectChild(childId: string): void {
     this.store.setSelectedInstance(childId);
+  }
+
+  async onQuickAction(action: HudQuickAction): Promise<void> {
+    const result = await this.quickActionDispatcher.dispatch(action);
+    if (!result.ok) {
+      this.showRestartToast(result.reason ?? 'Quick action failed.', 'error');
+    }
   }
 
   onReviewStarted(): void {

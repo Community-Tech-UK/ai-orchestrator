@@ -7,7 +7,13 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { CommandIpcService } from '../services/ipc';
 import { SkillStore } from './skill.store';
 import { InstanceStore } from './instance.store';
-import type { CommandTemplate } from '../../../../shared/types/command.types';
+import { evaluateApplicability } from '../../../../shared/utils/command-applicability';
+import type {
+  CommandDiagnostic,
+  CommandRegistrySnapshot,
+  CommandResolutionResult,
+  CommandTemplate,
+} from '../../../../shared/types/command.types';
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 
 // Extended command type that includes skill commands
@@ -25,6 +31,7 @@ export class CommandStore {
 
   // State
   private _commands = signal<CommandTemplate[]>([]);
+  private _diagnostics = signal<CommandDiagnostic[]>([]);
   private _loading = signal(false);
   private _error = signal<string | null>(null);
   private _searchQuery = signal('');
@@ -34,6 +41,7 @@ export class CommandStore {
 
   // Selectors - raw commands without skills
   rawCommands = this._commands.asReadonly();
+  diagnostics = this._diagnostics.asReadonly();
   loading = this._loading.asReadonly();
   error = this._error.asReadonly();
   searchQuery = this._searchQuery.asReadonly();
@@ -52,6 +60,9 @@ export class CommandStore {
       description: skill.description,
       template: '', // Skills don't use templates - they're handled differently
       hint: `Skill: ${skill.category || 'General'}`,
+      aliases: skill.trigger ? [skill.trigger] : undefined,
+      category: 'skill',
+      usage: skill.trigger ? `/${skill.trigger}` : `/${skill.name}`,
       builtIn: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -82,7 +93,9 @@ export class CommandStore {
 
     return allCommands.filter(cmd =>
       cmd.name.toLowerCase().includes(query) ||
-      cmd.description.toLowerCase().includes(query)
+      cmd.description.toLowerCase().includes(query) ||
+      (cmd.aliases ?? []).some((alias) => alias.toLowerCase().includes(query)) ||
+      cmd.category?.toLowerCase().includes(query)
     );
   });
 
@@ -123,7 +136,14 @@ export class CommandStore {
       }
 
       if (commandResponse.success && 'data' in commandResponse && commandResponse.data) {
-        this._commands.set(commandResponse.data as CommandTemplate[]);
+        const data = commandResponse.data as CommandTemplate[] | CommandRegistrySnapshot;
+        if (Array.isArray(data)) {
+          this._commands.set(data);
+          this._diagnostics.set([]);
+        } else {
+          this._commands.set(data.commands);
+          this._diagnostics.set(data.diagnostics);
+        }
         this.lastLoadedWorkingDirectory = normalizedWorkingDirectory;
         this.skillsLoaded = true;
       } else {
@@ -161,6 +181,24 @@ export class CommandStore {
     } catch (err) {
       return { success: false, error: (err as Error).message };
     }
+  }
+
+  async resolveCommand(
+    input: string,
+    workingDirectory = this.instanceStore.selectedInstance()?.workingDirectory,
+  ): Promise<CommandResolutionResult | null> {
+    const response = await this.ipcService.resolveCommand(input, workingDirectory);
+    if (!response.success || !response.data) return null;
+    return response.data as CommandResolutionResult;
+  }
+
+  commandEligibility(command: CommandTemplate): { eligible: boolean; reason?: string } {
+    const selected = this.instanceStore.selectedInstance();
+    return evaluateApplicability(command, {
+      provider: selected?.provider === 'ollama' ? undefined : selected?.provider,
+      instanceStatus: selected?.status,
+      workingDirectory: selected?.workingDirectory,
+    });
   }
 
   /**
@@ -228,6 +266,10 @@ export class CommandStore {
    * Get a command by name
    */
   getCommandByName(name: string): CommandTemplate | undefined {
-    return this._commands().find(cmd => cmd.name === name);
+    const query = name.toLowerCase();
+    return this._commands().find(cmd =>
+      cmd.name.toLowerCase() === query ||
+      (cmd.aliases ?? []).some((alias) => alias.toLowerCase() === query)
+    );
   }
 }

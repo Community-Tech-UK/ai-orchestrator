@@ -52,4 +52,13 @@ export const SESSION_CHANNELS = {
   HISTORY_DELETE: 'history:delete',
   HISTORY_RESTORE: 'history:restore',
   HISTORY_CLEAR: 'history:clear',
+  HISTORY_SEARCH_ADVANCED: 'history:search-advanced',
+  HISTORY_EXPAND_SNIPPETS: 'history:expand-snippets',
+
+  // Resume picker operations
+  RESUME_LATEST: 'resume:latest',
+  RESUME_BY_ID: 'resume:by-id',
+  RESUME_SWITCH_TO_LIVE: 'resume:switch-to-live',
+  RESUME_FORK_NEW: 'resume:fork-new',
+  RESUME_RESTORE_FALLBACK: 'resume:restore-fallback',
 } as const;

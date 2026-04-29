@@ -99,6 +99,13 @@
             </div>
           }
 
+          @if (hasChildren()) {
+            <app-orchestration-hud
+              [parentInstanceId]="inst.id"
+              (quickAction)="onQuickAction($event)"
+            />
+          }
+
           <!-- Output stream (primary content) -->
           <div class="output-section">
             <app-output-stream
@@ -229,6 +236,7 @@
                 <app-child-instances-panel
                   [childrenIds]="inst.childrenIds"
                   (selectChild)="onSelectChild($event)"
+                  (quickAction)="onQuickAction($event)"
                 />
               }
             </div>
@@ -243,14 +251,16 @@
             [pendingFolders]="pendingFolders()"
             [queuedCount]="queuedMessageCount()"
             [queuedMessages]="queuedMessages()"
-            [isBusy]="inst.status === 'busy'"
+            [isBusy]="inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'waiting_for_permission'"
             [isRespawning]="inst.status === 'respawning' || inst.status === 'interrupting' || inst.status === 'cancelling' || inst.status === 'interrupt-escalating'"
             [outputMessages]="inst.outputBuffer"
             [instanceStatus]="inst.status"
             [provider]="inst.provider"
             [currentModel]="inst.currentModel"
+            [workingDirectory]="inst.workingDirectory"
             [isReplayFallback]="isReplayFallback()"
             (sendMessage)="onSendMessage($event)"
+            (steerMessage)="onSteerMessage($event)"
             (removeFile)="onRemoveFile($event)"
             (removeFolder)="onRemoveFolder($event)"
             (addFiles)="onAddFiles()"
@@ -296,3 +306,4 @@
       (folderSelected)="onRemoteFolderSelected($event)"
       (closed)="remoteBrowseOpen.set(false)"
     />
+    <app-child-diagnostic-bundle-modal />

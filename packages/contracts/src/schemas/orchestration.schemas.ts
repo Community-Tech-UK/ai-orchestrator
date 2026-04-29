@@ -28,6 +28,14 @@ export const MessageChildPayloadSchema = z.object({
 
 export type MessageChildPayload = z.infer<typeof MessageChildPayloadSchema>;
 
+export const GetChildDiagnosticBundlePayloadSchema = z.object({
+  childInstanceId: InstanceIdSchema,
+});
+
+export const SummarizeChildrenPayloadSchema = z.object({
+  parentInstanceId: InstanceIdSchema,
+});
+
 // ============ Debate Payloads ============
 
 const DebateConfigSchema = z.object({
@@ -165,6 +173,7 @@ export const WorkflowGetTemplatePayloadSchema = z.object({
 export const WorkflowStartPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   templateId: z.string().min(1).max(200),
+  source: z.enum(['slash-command', 'nl-suggestion', 'automation', 'manual-ui', 'restore']).optional(),
 });
 
 export const WorkflowGetExecutionPayloadSchema = z.object({

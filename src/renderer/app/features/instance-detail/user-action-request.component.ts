@@ -14,6 +14,13 @@ import {
 } from '@angular/core';
 import { ElectronIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
+import {
+  canResolveInputRequiredWithYolo,
+  defaultInputRequiredScope,
+  type InputRequiredScope,
+  shouldClearInputRequiredForYolo,
+  shouldClearRequestAfterYoloEnabled
+} from './user-action-request.rules';
 
 export interface UserActionRequest {
   id: string;
@@ -157,7 +164,7 @@ export interface UserActionRequest {
                 @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
                   <select
                     class="scope-select"
-                    [value]="getInputRequiredScope(request.id)"
+                    [value]="getInputRequiredScope(request)"
                     (change)="onInputRequiredScopeChange(request.id, $event)"
                     [disabled]="isResponding()"
                     [title]="isPermissionDenial(request) ? 'Remember this decision (Always writes an allow rule to ~/.claude/settings.json)' : 'Remember this decision'"
@@ -175,14 +182,16 @@ export interface UserActionRequest {
                   Reject
                 </button>
                 @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
-                  <button
-                    class="btn-yolo"
-                    (click)="onEnableYolo(request)"
-                    [disabled]="isResponding()"
-                    title="Enable YOLO mode to auto-approve all permissions for this session"
-                  >
-                    ⚡ YOLO
-                  </button>
+                  @if (canResolveWithYolo(request)) {
+                    <button
+                      class="btn-yolo"
+                      (click)="onEnableYolo(request)"
+                      [disabled]="isResponding()"
+                      title="Enable YOLO mode to auto-approve all permissions for this session"
+                    >
+                      ⚡ YOLO
+                    </button>
+                  }
                 }
                 <button
                   class="btn-approve"
@@ -465,7 +474,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   pendingRequests = signal<UserActionRequest[]>([]);
   isResponding = signal(false);
 
-  private inputRequiredScopes = new Map<string, 'once' | 'session' | 'always'>();
+  private inputRequiredScopes = new Map<string, InputRequiredScope>();
   private inputRequiredTexts = new Map<string, string>();
 
   /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
@@ -503,7 +512,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         if (instance?.yoloMode) {
           // YOLO mode enabled - clear any pending permission requests
           this.pendingRequests.update((requests) =>
-            requests.filter((r) => r.requestType !== 'input_required')
+            requests.filter((r) => !shouldClearInputRequiredForYolo(r))
           );
         }
       }
@@ -572,6 +581,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           createdAt: payload.timestamp,
           permissionMetadata: metadata // Store permission details for retry message
         };
+        if (!this.inputRequiredScopes.has(req.id)) {
+          this.inputRequiredScopes.set(req.id, defaultInputRequiredScope(metadata));
+        }
         this.pendingRequests.update((requests) => {
           if (requests.some((r) => r.id === req.id)) {
             console.log('[APPROVAL_TRACE][renderer:user-action] duplicate_request_skipped', {
@@ -675,13 +687,15 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     }
   }
 
-  getInputRequiredScope(requestId: string): 'once' | 'session' | 'always' {
-    return this.inputRequiredScopes.get(requestId) || 'once';
+  getInputRequiredScope(request: UserActionRequest | string): InputRequiredScope {
+    const requestId = typeof request === 'string' ? request : request.id;
+    const metadata = typeof request === 'string' ? undefined : request.permissionMetadata;
+    return this.inputRequiredScopes.get(requestId) || defaultInputRequiredScope(metadata);
   }
 
   onInputRequiredScopeChange(requestId: string, event: Event): void {
     const target = event.target as HTMLSelectElement;
-    const val = (target.value as 'once' | 'session' | 'always') || 'once';
+    const val = (target.value as InputRequiredScope) || 'once';
     this.inputRequiredScopes.set(requestId, val);
   }
 
@@ -707,6 +721,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     return request.permissionMetadata?.type === 'permission_denial';
   }
 
+  canResolveWithYolo(request: UserActionRequest): boolean {
+    return canResolveInputRequiredWithYolo(request);
+  }
+
   /**
    * Returns the scope choices to show in the scope selector for a given
    * request. `permission_denial` intentionally drops 'session' because
@@ -717,7 +735,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
    * prompts keep all three choices so users can opt into a session-scoped
    * grant via the hook bridge's in-memory resume flow.
    */
-  scopesFor(request: UserActionRequest): ('once' | 'session' | 'always')[] {
+  scopesFor(request: UserActionRequest): InputRequiredScope[] {
     return this.isPermissionDenial(request)
       ? ['once', 'always']
       : ['once', 'session', 'always'];
@@ -727,7 +745,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
    * Human-readable label for a scope choice. Kept inline so the template can
    * render the options without a pipe or nested switch.
    */
-  scopeLabel(scope: 'once' | 'session' | 'always'): string {
+  scopeLabel(scope: InputRequiredScope): string {
     switch (scope) {
       case 'once':
         return 'Once';
@@ -797,7 +815,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       if (result.success) {
         // Remove all pending permission requests for this instance since YOLO is now enabled
         this.pendingRequests.update((requests) =>
-          requests.filter((r) => r.instanceId !== request.instanceId || r.requestType !== 'input_required')
+          requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, request.instanceId))
         );
         this.instanceStore.clearPendingApprovals(request.instanceId);
       }
@@ -872,7 +890,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         const approvalTraceId = meta?.approvalTraceId || `approval-renderer-permission-${request.id}`;
         // Create permission key to clear pending permission tracking
         const permissionKey = meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
-        const decisionScope = this.getInputRequiredScope(request.id);
+        const decisionScope = this.getInputRequiredScope(request);
         const decisionAction = approved ? 'allow' : 'deny';
 
         if (approved) {

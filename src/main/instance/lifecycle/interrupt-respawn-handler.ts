@@ -39,6 +39,10 @@ import { getSessionMutex } from '../../session/session-mutex';
 import { planSessionRecovery } from './session-recovery';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
+import {
+  emitInterruptBoundaryDisplayMarker,
+  type InterruptBoundaryMarker,
+} from '../../display-items/interrupt-boundary-renderer';
 import type {
   ContextUsage,
   Instance,
@@ -113,10 +117,35 @@ export interface InterruptRespawnDeps {
 
   /** Forward an 'output' event onto the lifecycle EventEmitter. */
   emitOutput: (instanceId: string, message: OutputMessage) => void;
+
+  /** Optional marker bridge for transcript-visible recovery boundaries. */
+  emitDisplayMarker?: (instance: Instance, message: OutputMessage) => void;
 }
 
 export class InterruptRespawnHandler {
   constructor(private readonly deps: InterruptRespawnDeps) {}
+
+  private emitInterruptBoundary(instance: Instance, marker: InterruptBoundaryMarker): void {
+    const addToOutputBuffer = this.deps.addToOutputBuffer;
+    const emitOutput = this.deps.emitOutput;
+    if (this.deps.emitDisplayMarker) {
+      const captured: OutputMessage[] = [];
+      emitInterruptBoundaryDisplayMarker(instance, marker, {
+        addToOutputBuffer: (_instance, message) => captured.push(message),
+        emitOutput: () => undefined,
+      });
+      const [message] = captured;
+      if (message) {
+        this.deps.emitDisplayMarker(instance, message);
+      }
+      return;
+    }
+
+    emitInterruptBoundaryDisplayMarker(instance, marker, {
+      addToOutputBuffer,
+      emitOutput,
+    });
+  }
 
   private createRuntimeAdapter(
     cliType: CliType,
@@ -159,6 +188,12 @@ export class InterruptRespawnHandler {
 
       instance.interruptPhase = 'escalated';
       instance.lastTurnOutcome = 'cancelled';
+      this.emitInterruptBoundary(instance, {
+        phase: 'escalated',
+        requestId: instance.interruptRequestId ?? generateId(),
+        outcome: 'cancelled',
+        reason: 'second interrupt',
+      });
       this.deps.transitionState(instance, 'interrupt-escalating');
       this.deps.queueUpdate(instanceId, 'interrupt-escalating', instance.contextUsage, undefined, undefined, undefined, undefined, {
         activeTurnId: instance.activeTurnId,
@@ -226,6 +261,12 @@ export class InterruptRespawnHandler {
       instance.interruptRequestedAt = requestedAt;
       instance.interruptPhase = interruptResult.status === 'escalated' ? 'escalated' : 'accepted';
       instance.activeTurnId = interruptResult.turnId ?? instance.activeTurnId;
+      this.emitInterruptBoundary(instance, {
+        phase: 'requested',
+        requestId: instance.interruptRequestId,
+        outcome: 'unresolved',
+        at: requestedAt,
+      });
 
       this.deps.transitionState(instance, 'interrupting');
       instance.lastActivity = Date.now();
@@ -312,6 +353,11 @@ export class InterruptRespawnHandler {
 
     if (instance.status === 'interrupting') {
       this.deps.transitionState(instance, 'cancelling');
+      this.emitInterruptBoundary(instance, {
+        phase: 'cancelling',
+        requestId: instance.interruptRequestId ?? generateId(),
+        outcome: instance.cancelledForEdit ? 'cancelled-for-edit' : 'unresolved',
+      });
       this.deps.queueUpdate(instanceId, 'cancelling', instance.contextUsage, undefined, undefined, undefined, undefined, {
         activeTurnId: instance.activeTurnId,
         interruptRequestId: instance.interruptRequestId,
@@ -382,6 +428,11 @@ export class InterruptRespawnHandler {
     try {
       if (triggeredByInterrupt && instance.status !== 'respawning') {
         this.deps.transitionState(instance, 'respawning');
+        this.emitInterruptBoundary(instance, {
+          phase: 'respawning',
+          requestId: instance.interruptRequestId ?? generateId(),
+          outcome: 'unresolved',
+        });
         this.deps.queueUpdate(instanceId, 'respawning', instance.contextUsage, undefined, undefined, undefined, undefined, {
           activeTurnId: instance.activeTurnId,
           interruptRequestId: instance.interruptRequestId,
@@ -537,6 +588,12 @@ export class InterruptRespawnHandler {
         if (triggeredByInterrupt) {
           instance.interruptPhase = 'completed';
           instance.lastTurnOutcome = recoveryInputSent ? 'completed' : 'interrupted';
+          this.emitInterruptBoundary(instance, {
+            phase: 'completed',
+            requestId: instance.interruptRequestId ?? generateId(),
+            outcome: actuallyResumed ? 'respawn-success' : 'respawn-fallback',
+            fallbackMode: actuallyResumed ? 'native-resume' : 'replay-fallback',
+          });
         }
         instance.lastActivity = Date.now();
 

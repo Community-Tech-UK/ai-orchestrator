@@ -25,7 +25,9 @@ import type {
   HistoryIndex,
   HistoryLoadOptions,
   ConversationEndStatus,
+  HistorySearchSource,
 } from '../../shared/types/history.types';
+import { getTranscriptSnippetService } from './transcript-snippet-service';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -37,6 +39,29 @@ const MAX_PREVIEW_LENGTH = 150;
 const MAX_HISTORY_ENTRIES = 100; // Keep last 100 conversations
 const RESUME_FAILURE_MESSAGE = /no conversation found|session.*not.*found/i;
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
+const HISTORY_BACKED_SOURCES = new Set<HistorySearchSource>([
+  'history-transcript',
+  'archived_session',
+]);
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function includesHistoryBackedSource(source: HistorySearchSource | HistorySearchSource[]): boolean {
+  const sources = Array.isArray(source) ? source : [source];
+  return sources.some(item => HISTORY_BACKED_SOURCES.has(item));
+}
+
+function bestSnippetScore(entry: ConversationHistoryEntry, query: string): number {
+  let best = 0;
+  for (const snippet of entry.snippets ?? []) {
+    if (snippet.excerpt.toLowerCase().includes(query)) {
+      best = Math.max(best, snippet.score);
+    }
+  }
+  return best;
+}
 
 export class HistoryManager {
   private storageDir: string;
@@ -140,6 +165,7 @@ export class HistoryManager {
         previousEntries,
         unresolvedNativeResumeFailedAt
       );
+      const snippets = getTranscriptSnippetService().extractAtArchiveTime({ messages });
       const entry: ConversationHistoryEntry = {
         id: entryId,
         displayName: instance.displayName,
@@ -159,6 +185,7 @@ export class HistoryManager {
         provider: instance.provider,
         currentModel: instance.currentModel,
         executionLocation,
+        snippets,
       };
 
       // Create conversation data
@@ -213,30 +240,24 @@ export class HistoryManager {
    * Get all history entries (metadata only)
    */
   getEntries(options?: HistoryLoadOptions): ConversationHistoryEntry[] {
-    let entries = [...this.index.entries];
+    const entries = this.filterEntries(options);
 
-    // Apply search filter
-    if (options?.searchQuery) {
-      const query = options.searchQuery.toLowerCase();
-      entries = entries.filter(e =>
-        e.displayName.toLowerCase().includes(query) ||
-        e.firstUserMessage.toLowerCase().includes(query) ||
-        e.lastUserMessage.toLowerCase().includes(query) ||
-        e.workingDirectory.toLowerCase().includes(query)
-      );
+    if (options?.page) {
+      const pageSize = clamp(Math.floor(options.page.pageSize), 1, 100);
+      const pageNumber = Math.max(1, Math.floor(options.page.pageNumber));
+      const start = (pageNumber - 1) * pageSize;
+      return entries.slice(start, start + pageSize);
     }
 
-    // Apply working directory filter
-    if (options?.workingDirectory) {
-      entries = entries.filter(e => e.workingDirectory === options.workingDirectory);
-    }
-
-    // Apply limit
     if (options?.limit && options.limit > 0) {
-      entries = entries.slice(0, options.limit);
+      return entries.slice(0, options.limit);
     }
 
     return entries;
+  }
+
+  countEntries(options?: HistoryLoadOptions): number {
+    return this.filterEntries(options).length;
   }
 
   /**
@@ -435,6 +456,52 @@ export class HistoryManager {
       lastUpdated: Date.now(),
       entries: [],
     };
+  }
+
+  private filterEntries(options?: HistoryLoadOptions): ConversationHistoryEntry[] {
+    let entries = [...this.index.entries];
+
+    if (options?.source && !includesHistoryBackedSource(options.source)) {
+      return [];
+    }
+
+    if (options?.searchQuery) {
+      const query = options.searchQuery.toLowerCase();
+      entries = entries.filter(e =>
+        e.displayName.toLowerCase().includes(query) ||
+        e.firstUserMessage.toLowerCase().includes(query) ||
+        e.lastUserMessage.toLowerCase().includes(query) ||
+        e.workingDirectory.toLowerCase().includes(query)
+      );
+    }
+
+    const projectScope = options?.projectScope ?? (options?.workingDirectory ? 'current' : 'all');
+    if (projectScope === 'current' && options?.workingDirectory) {
+      entries = entries.filter(e => e.workingDirectory === options.workingDirectory);
+    } else if (projectScope === 'none') {
+      entries = entries.filter(e => !e.workingDirectory);
+    }
+
+    if (options?.timeRange) {
+      const { from, to } = options.timeRange;
+      if (from !== undefined) {
+        entries = entries.filter(e => e.endedAt >= from);
+      }
+      if (to !== undefined) {
+        entries = entries.filter(e => e.endedAt <= to);
+      }
+    }
+
+    if (options?.snippetQuery) {
+      const query = options.snippetQuery.toLowerCase();
+      entries = entries
+        .filter(e => (e.snippets ?? []).some(snippet =>
+          snippet.excerpt.toLowerCase().includes(query)
+        ))
+        .sort((a, b) => bestSnippetScore(b, query) - bestSnippetScore(a, query));
+    }
+
+    return entries;
   }
 
   /**

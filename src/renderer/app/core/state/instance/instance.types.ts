@@ -126,6 +126,8 @@ export interface Instance {
   pendingApprovalCount?: number;
   /** Where this instance is executing (local or remote node) */
   executionLocation?: ExecutionLocation;
+  /** Extensible backend metadata, including orchestration task/routing details for child instances. */
+  metadata?: Record<string, unknown>;
 }
 
 // ============================================
@@ -147,6 +149,9 @@ export interface QueuedMessage {
   message: string;
   files?: File[];
   retryCount?: number;
+  kind?: 'queue' | 'steer';
+  hadAttachmentsDropped?: boolean;
+  seededAlready?: boolean;
 }
 
 // ============================================

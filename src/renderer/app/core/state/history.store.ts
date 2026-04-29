@@ -5,8 +5,11 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { HistoryIpcService } from '../services/ipc/history-ipc.service';
 import type {
+  AdvancedHistorySearchInput,
+  AdvancedHistorySearchResult,
   ConversationHistoryEntry,
   ConversationData,
+  HistorySnippet,
   HistoryRestoreMode,
 } from '../../../../shared/types/history.types';
 import { normalizeConversationHistoryEntryProvider as normalizeHistoryEntryProvider } from '../../../../shared/types/history.types';
@@ -18,6 +21,10 @@ interface HistoryState {
   searchQuery: string;
   selectedEntryId: string | null;
   selectedConversation: ConversationData | null;
+  advancedSearchResult: AdvancedHistorySearchResult | null;
+  advancedSearchLoading: boolean;
+  advancedSearchError: string | null;
+  expandedSnippets: Record<string, HistorySnippet[]>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -32,6 +39,10 @@ export class HistoryStore {
     searchQuery: '',
     selectedEntryId: null,
     selectedConversation: null,
+    advancedSearchResult: null,
+    advancedSearchLoading: false,
+    advancedSearchError: null,
+    expandedSnippets: {},
   });
 
   // ============================================
@@ -55,6 +66,15 @@ export class HistoryStore {
 
   /** Selected conversation data */
   readonly selectedConversation = computed(() => this.state().selectedConversation);
+
+  /** Latest advanced history search result */
+  readonly advancedSearchResult = computed(() => this.state().advancedSearchResult);
+
+  readonly advancedSearchLoading = computed(() => this.state().advancedSearchLoading);
+
+  readonly advancedSearchError = computed(() => this.state().advancedSearchError);
+
+  readonly expandedSnippets = computed(() => this.state().expandedSnippets);
 
   /** Entry count */
   readonly entryCount = computed(() => this.state().entries.length);
@@ -273,6 +293,82 @@ export class HistoryStore {
         success: false,
         error: 'Failed to restore conversation',
       };
+    }
+  }
+
+  async searchAdvanced(input: AdvancedHistorySearchInput): Promise<AdvancedHistorySearchResult | null> {
+    this.state.update(s => ({
+      ...s,
+      advancedSearchLoading: true,
+      advancedSearchError: null,
+    }));
+
+    try {
+      const response = await this.ipc.searchHistoryAdvanced(input) as {
+        success: boolean;
+        data?: AdvancedHistorySearchResult;
+        error?: { message: string };
+      };
+
+      if (response.success && response.data) {
+        const normalized: AdvancedHistorySearchResult = {
+          ...response.data,
+          entries: response.data.entries.map(entry => normalizeHistoryEntryProvider(entry)),
+        };
+        this.state.update(s => ({
+          ...s,
+          advancedSearchResult: normalized,
+          advancedSearchLoading: false,
+        }));
+        return normalized;
+      }
+
+      this.state.update(s => ({
+        ...s,
+        advancedSearchLoading: false,
+        advancedSearchError: response.error?.message || 'Failed to search history',
+      }));
+      return null;
+    } catch {
+      this.state.update(s => ({
+        ...s,
+        advancedSearchLoading: false,
+        advancedSearchError: 'Failed to search history',
+      }));
+      return null;
+    }
+  }
+
+  async expandSnippets(entryId: string, query: string): Promise<HistorySnippet[]> {
+    try {
+      const response = await this.ipc.expandHistorySnippets(entryId, query) as {
+        success: boolean;
+        data?: HistorySnippet[];
+        error?: { message: string };
+      };
+
+      if (response.success && response.data) {
+        this.state.update(s => ({
+          ...s,
+          expandedSnippets: {
+            ...s.expandedSnippets,
+            [entryId]: response.data!,
+          },
+        }));
+        return response.data;
+      }
+
+      this.state.update(s => ({
+        ...s,
+        advancedSearchError: response.error?.message || 'Failed to expand snippets',
+      }));
+      return [];
+    } catch {
+      this.state.update(s => ({
+        ...s,
+        advancedSearchError: 'Failed to expand snippets',
+      }));
+      return [];
     }
   }
 

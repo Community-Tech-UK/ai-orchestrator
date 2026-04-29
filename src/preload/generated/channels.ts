@@ -39,6 +39,11 @@ export const IPC_CHANNELS = {
   INPUT_REQUIRED: 'instance:input-required',
   INPUT_REQUIRED_RESPOND: 'instance:input-required-respond',
 
+  // Queue persistence (Pause on VPN feature)
+  INSTANCE_QUEUE_SAVE: 'instance:queue-save',
+  INSTANCE_QUEUE_LOAD_ALL: 'instance:queue-load-all',
+  INSTANCE_QUEUE_INITIAL_PROMPT: 'instance:queue-initial-prompt',
+
   // File operations
   FILE_DROP: 'file:drop',
   FILE_READ_DIR: 'file:read-dir',
@@ -138,9 +143,20 @@ export const IPC_CHANNELS = {
   HISTORY_DELETE: 'history:delete',
   HISTORY_RESTORE: 'history:restore',
   HISTORY_CLEAR: 'history:clear',
+  HISTORY_SEARCH_ADVANCED: 'history:search-advanced',
+  HISTORY_EXPAND_SNIPPETS: 'history:expand-snippets',
+
+  // Resume picker operations
+  RESUME_LATEST: 'resume:latest',
+  RESUME_BY_ID: 'resume:by-id',
+  RESUME_SWITCH_TO_LIVE: 'resume:switch-to-live',
+  RESUME_FORK_NEW: 'resume:fork-new',
+  RESUME_RESTORE_FALLBACK: 'resume:restore-fallback',
 
   // Orchestration activity (real-time status updates)
   ORCHESTRATION_ACTIVITY: 'orchestration:activity',
+  ORCHESTRATION_GET_CHILD_DIAGNOSTIC_BUNDLE: 'orchestration:get-child-diagnostic-bundle',
+  ORCHESTRATION_SUMMARIZE_CHILDREN: 'orchestration:summarize-children',
   SUPERVISOR_STATUS: 'supervisor:status',
   SUPERVISOR_METRICS: 'supervisor:metrics',
 
@@ -171,6 +187,7 @@ export const IPC_CHANNELS = {
   VERIFICATION_CONSENSUS_UPDATE: 'verification:consensus-update',
   VERIFICATION_COMPLETE: 'verification:complete',
   VERIFICATION_ERROR: 'verification:error',
+  VERIFICATION_VERDICT_READY: 'verification:verdict-ready',
 
   // Verification event forwarding (main -> renderer)
   VERIFICATION_EVENT_STARTED: 'verification:event:started',
@@ -309,10 +326,20 @@ export const IPC_CHANNELS = {
 
   // Command operations
   COMMAND_LIST: 'command:list',
+  COMMAND_RESOLVE: 'command:resolve',
   COMMAND_EXECUTE: 'command:execute',
   COMMAND_CREATE: 'command:create',
   COMMAND_UPDATE: 'command:update',
   COMMAND_DELETE: 'command:delete',
+  USAGE_RECORD: 'usage:record',
+  USAGE_SNAPSHOT: 'usage:snapshot',
+  WORKSPACE_IS_GIT_REPO: 'workspace:is-git-repo',
+
+  // Prompt history operations
+  PROMPT_HISTORY_GET_SNAPSHOT: 'prompt-history:get-snapshot',
+  PROMPT_HISTORY_RECORD: 'prompt-history:record',
+  PROMPT_HISTORY_CLEAR_INSTANCE: 'prompt-history:clear-instance',
+  PROMPT_HISTORY_DELTA: 'prompt-history:delta',
 
   // Menu events (renderer-bound)
   MENU_NEW_INSTANCE: 'menu:new-instance',
@@ -931,6 +958,24 @@ export const IPC_CHANNELS = {
   WEBHOOK_LIST_ROUTES: 'webhook:list-routes',
   WEBHOOK_CREATE_ROUTE: 'webhook:create-route',
   WEBHOOK_LIST_DELIVERIES: 'webhook:list-deliveries',
+
+  PAUSE_STATE_CHANGED: 'pause:state-changed',
+  PAUSE_GET_STATE: 'pause:get-state',
+  PAUSE_SET_MANUAL: 'pause:set-manual',
+  PAUSE_DETECTOR_RECENT_EVENTS: 'pause:detector-recent-events',
+  PAUSE_DETECTOR_RESUME_AFTER_ERROR: 'pause:detector-resume-after-error',
+
+  WORKFLOW_CAN_TRANSITION: 'workflow:can-transition',
+  WORKFLOW_NL_SUGGEST: 'workflow:nl-suggest',
+
+  DIAGNOSTICS_GET_DOCTOR_REPORT: 'diagnostics:get-doctor-report',
+  DIAGNOSTICS_GET_SKILL_DIAGNOSTICS: 'diagnostics:get-skill-diagnostics',
+  DIAGNOSTICS_GET_INSTRUCTION_DIAGNOSTICS: 'diagnostics:get-instruction-diagnostics',
+  DIAGNOSTICS_EXPORT_ARTIFACT_BUNDLE: 'diagnostics:export-artifact-bundle',
+  DIAGNOSTICS_REVEAL_BUNDLE: 'diagnostics:reveal-bundle',
+  CLI_UPDATE_PILL_GET_STATE: 'cli-update-pill:get-state',
+  CLI_UPDATE_PILL_REFRESH: 'cli-update-pill:refresh',
+  CLI_UPDATE_PILL_DELTA: 'cli-update-pill:delta',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

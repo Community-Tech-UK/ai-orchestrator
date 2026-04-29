@@ -3,11 +3,14 @@ import { ORCHESTRATION_CHANNELS } from '../orchestration.channels';
 describe('ORCHESTRATION_CHANNELS', () => {
   it('has orchestration activity channel', () => {
     expect(ORCHESTRATION_CHANNELS.ORCHESTRATION_ACTIVITY).toBe('orchestration:activity');
+    expect(ORCHESTRATION_CHANNELS.ORCHESTRATION_GET_CHILD_DIAGNOSTIC_BUNDLE).toBe('orchestration:get-child-diagnostic-bundle');
+    expect(ORCHESTRATION_CHANNELS.ORCHESTRATION_SUMMARIZE_CHILDREN).toBe('orchestration:summarize-children');
   });
 
   it('has verification channels', () => {
     expect(ORCHESTRATION_CHANNELS.VERIFY_START).toBe('verify:start');
     expect(ORCHESTRATION_CHANNELS.VERIFICATION_COMPLETE).toBe('verification:complete');
+    expect(ORCHESTRATION_CHANNELS.VERIFICATION_VERDICT_READY).toBe('verification:verdict-ready');
   });
 
   it('has debate channels', () => {

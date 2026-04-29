@@ -491,7 +491,12 @@ export class InstanceListStore {
       diffStats: d['diffStats'] as Instance['diffStats'] | undefined,
       hasUnreadCompletion: false,
       pendingApprovalCount: 0,
+      metadata: this.isRecord(d['metadata']) ? d['metadata'] : undefined,
     };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
   private inferInstanceProvider(data: Record<string, unknown>): Instance['provider'] {

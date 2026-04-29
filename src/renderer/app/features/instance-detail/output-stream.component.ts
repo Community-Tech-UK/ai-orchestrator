@@ -36,6 +36,8 @@ import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/c
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import type { LinkKind } from '../../../../shared/utils/link-detection';
 
 type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 
@@ -138,6 +140,7 @@ export class OutputStreamComponent {
   private expansionState = inject(ExpansionStateService);
   private messageFormat = inject(MessageFormatService);
   private scrollService = inject(OutputScrollService);
+  private clipboard = inject(CLIPBOARD_SERVICE);
   private displayItemProcessor = new DisplayItemProcessor();
 
   /**
@@ -575,12 +578,12 @@ export class OutputStreamComponent {
         return;
       }
 
-      // Check for file path clicks
-      const filePathEl = target.closest('[data-file-path]') as HTMLElement | null;
-      if (filePathEl) {
+      const linkTarget = target.closest('[data-file-path], [data-link-kind]') as HTMLElement | null;
+      const linkKind = linkTarget ? this.classifyLinkTarget(linkTarget) : null;
+      if (linkKind === 'file-path' && linkTarget) {
         mouseEvent.preventDefault();
         mouseEvent.stopPropagation();
-        const filePath = filePathEl.getAttribute('data-file-path');
+        const filePath = linkTarget.getAttribute('data-file-path');
         if (filePath) {
           this.onFilePathClick(filePath);
         }
@@ -589,6 +592,19 @@ export class OutputStreamComponent {
 
     el.addEventListener('click', listener);
     return { element: el, listener };
+  }
+
+  private classifyLinkTarget(target: HTMLElement): LinkKind | null {
+    if (target.hasAttribute('data-file-path')) {
+      return 'file-path';
+    }
+    if (target.dataset['linkKind'] === 'url') {
+      return 'url';
+    }
+    if (target.dataset['linkKind'] === 'error-trace') {
+      return 'error-trace';
+    }
+    return null;
   }
 
   /**
@@ -602,23 +618,21 @@ export class OutputStreamComponent {
   /**
    * Copy message content to clipboard
    */
-  copyMessageContent(content: string, messageId: string): void {
+  async copyMessageContent(content: string, messageId: string): Promise<void> {
     if (!content) return;
 
-    navigator.clipboard
-      .writeText(content)
-      .then(() => {
-        this.copiedMessageId.set(messageId);
-        if (this.copyResetTimer) {
-          window.clearTimeout(this.copyResetTimer);
-        }
-        this.copyResetTimer = window.setTimeout(() => {
-          this.copiedMessageId.set(null);
-        }, 2000);
-      })
-      .catch((err) => {
-        console.error('Failed to copy message:', err);
-      });
+    const result = await this.clipboard.copyText(content, { silent: true, label: 'message' });
+    if (result.ok) {
+      this.copiedMessageId.set(messageId);
+      if (this.copyResetTimer) {
+        window.clearTimeout(this.copyResetTimer);
+      }
+      this.copyResetTimer = window.setTimeout(() => {
+        this.copiedMessageId.set(null);
+      }, 2000);
+    } else {
+      console.error('Failed to copy message:', result.reason, result.cause);
+    }
   }
 
   isMessageCopied(messageId: string): boolean {
@@ -700,7 +714,7 @@ export class OutputStreamComponent {
       items.push({
         label: 'Copy message',
         action: () => {
-          navigator.clipboard.writeText(content);
+          void this.copyMessageContent(content, forkableMessage?.id ?? item.id);
           this.contextMenuVisible.set(false);
         },
       });

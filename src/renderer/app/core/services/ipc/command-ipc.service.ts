@@ -5,6 +5,8 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 
+type UsageKind = 'command' | 'session' | 'model' | 'prompt' | 'resume';
+
 @Injectable({ providedIn: 'root' })
 export class CommandIpcService {
   private base = inject(ElectronIpcService);
@@ -25,12 +27,32 @@ export class CommandIpcService {
     return this.api.listCommands({ workingDirectory });
   }
 
+  async resolveCommand(input: string, workingDirectory?: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resolveCommand({ input, workingDirectory });
+  }
+
   /**
    * Execute a command
    */
   async executeCommand(commandId: string, instanceId: string, args?: string[]): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.executeCommand({ commandId, instanceId, args });
+  }
+
+  async recordUsage(kind: UsageKind, id: string, context?: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.recordUsage({ kind, id, context });
+  }
+
+  async getUsageSnapshot(kind?: UsageKind): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.getUsageSnapshot({ kind });
+  }
+
+  async isWorkspaceGitRepo(workingDirectory: string): Promise<IpcResponse<boolean>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.isWorkspaceGitRepo({ workingDirectory }) as Promise<IpcResponse<boolean>>;
   }
 
   /**

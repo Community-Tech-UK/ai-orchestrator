@@ -6,18 +6,32 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import {
-  WorkflowTemplate,
-  WorkflowExecution,
-  WorkflowPhase,
-  GateType,
-  PhaseData,
-  AgentResult,
   createWorkflowExecution,
+  type AgentResult,
+  type GateType,
+  type PhaseData,
+  type WorkflowExecution,
+  type WorkflowPhase,
+  type WorkflowStartSource,
+  type WorkflowTemplate,
+  type WorkflowTransitionPolicy,
 } from '../../shared/types/workflow.types';
 import { builtInTemplates } from './templates';
+import { evaluateTransition } from './workflow-transition-policy';
 import { WorkflowPersistence } from './workflow-persistence';
 
 const logger = getLogger('WorkflowManager');
+
+export class WorkflowTransitionDenied extends Error {
+  override readonly name = 'WorkflowTransitionDenied';
+
+  constructor(
+    message: string,
+    readonly policy: Extract<WorkflowTransitionPolicy, { kind: 'deny' }>,
+  ) {
+    super(message);
+  }
+}
 
 export class WorkflowManager extends EventEmitter {
   private static instance: WorkflowManager | null = null;
@@ -119,29 +133,60 @@ export class WorkflowManager extends EventEmitter {
 
   // ============ Execution Lifecycle ============
 
-  startWorkflow(instanceId: string, templateId: string): WorkflowExecution {
-    // Check if instance already has active workflow
-    const existing = this.instanceExecutions.get(instanceId);
-    if (existing) {
-      const exec = this.executions.get(existing);
-      if (exec && !exec.completedAt) {
-        throw new Error(`Instance ${instanceId} already has active workflow: ${exec.id}`);
-      }
+  startWorkflow(
+    instanceId: string,
+    templateId: string,
+    source: WorkflowStartSource = 'manual-ui',
+  ): WorkflowExecution {
+    const requested = this.templates.get(templateId);
+    if (!requested) throw new Error(`Template not found: ${templateId}`);
+
+    const currentId = this.instanceExecutions.get(instanceId);
+    const currentExecution = currentId ? this.executions.get(currentId) : undefined;
+    const currentTemplate = currentExecution
+      ? this.templates.get(currentExecution.templateId)
+      : undefined;
+
+    const policy = evaluateTransition({
+      current: currentExecution && currentTemplate
+        ? { execution: currentExecution, template: currentTemplate }
+        : null,
+      requested: { template: requested, instanceId },
+      source,
+    });
+
+    if (policy.kind === 'deny') {
+      this.emit('workflow:transition-denied', { policy, requested, source });
+      throw new WorkflowTransitionDenied(
+        `Cannot start ${requested.name}: ${policy.reason}`,
+        policy,
+      );
     }
 
-    const template = this.templates.get(templateId);
-    if (!template) throw new Error(`Template not found: ${templateId}`);
+    if (policy.kind === 'autoCompleteCurrent' && currentExecution && !currentExecution.completedAt) {
+      currentExecution.completedAt = Date.now();
+      currentExecution.transitionAutoCompletion = {
+        reason: 'superseded',
+        supersededBy: requested.id,
+      };
+      this.persistExecution(currentExecution);
+      this.emit('workflow:auto-completed', {
+        execution: currentExecution,
+        supersededBy: requested.id,
+      });
+      this.instanceExecutions.delete(instanceId);
+    }
 
-    const execution = createWorkflowExecution(instanceId, templateId, template);
+    const execution = createWorkflowExecution(instanceId, templateId, requested);
 
     this.executions.set(execution.id, execution);
     this.instanceExecutions.set(instanceId, execution.id);
     this.persistExecution(execution);
 
-    this.emit('workflow:started', { execution, template });
+    this.emit('workflow:started', { execution, template: requested, policy });
 
     // If first phase has agents, launch them
-    const firstPhase = template.phases[0];
+    const firstPhase = requested.phases[0];
     if (firstPhase.agents) {
       // Defer agent launch to allow event listeners to be set up
       setImmediate(() => {
@@ -413,6 +458,14 @@ export class WorkflowManager extends EventEmitter {
 
   getExecution(executionId: string): WorkflowExecution | undefined {
     return this.executions.get(executionId);
+  }
+
+  getActiveExecutionForInstance(instanceId: string): string | undefined {
+    const executionId = this.instanceExecutions.get(instanceId);
+    if (!executionId) return undefined;
+
+    const execution = this.executions.get(executionId);
+    return execution && !execution.completedAt ? executionId : undefined;
   }
 
   getExecutionByInstance(instanceId: string): WorkflowExecution | undefined {

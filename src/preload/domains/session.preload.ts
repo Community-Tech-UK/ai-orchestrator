@@ -175,6 +175,42 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       });
     },
 
+    searchHistoryAdvanced: (payload: {
+      searchQuery?: string;
+      snippetQuery?: string;
+      workingDirectory?: string;
+      projectScope?: 'current' | 'all' | 'none';
+      source?: string | string[];
+      timeRange?: { from?: number; to?: number };
+      page?: { pageSize: number; pageNumber: number };
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.HISTORY_SEARCH_ADVANCED, payload);
+    },
+
+    expandHistorySnippets: (entryId: string, query: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.HISTORY_EXPAND_SNIPPETS, { entryId, query });
+    },
+
+    resumeLatest: (workingDirectory?: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.RESUME_LATEST, { workingDirectory });
+    },
+
+    resumeById: (entryId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.RESUME_BY_ID, { entryId });
+    },
+
+    resumeSwitchToLive: (instanceId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.RESUME_SWITCH_TO_LIVE, { instanceId });
+    },
+
+    resumeForkNew: (entryId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.RESUME_FORK_NEW, { entryId });
+    },
+
+    resumeRestoreFallback: (entryId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.RESUME_RESTORE_FALLBACK, { entryId });
+    },
+
     /**
      * Clear all history
      */

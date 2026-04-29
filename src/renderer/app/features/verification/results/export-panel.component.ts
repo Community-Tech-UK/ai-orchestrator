@@ -15,9 +15,11 @@ import {
   signal,
   computed,
   ChangeDetectionStrategy,
+  inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
 
 export type ExportFormat = 'markdown' | 'json' | 'html' | 'pdf';
 
@@ -446,6 +448,8 @@ interface VerificationResultInput {
   `],
 })
 export class ExportPanelComponent {
+  private clipboard = inject(CLIPBOARD_SERVICE);
+
   // Use traditional @Input for better test compatibility
   private _result = signal<VerificationResultInput>({ id: '', prompt: '' });
 
@@ -714,9 +718,13 @@ export class ExportPanelComponent {
 
   async copyToClipboard(): Promise<void> {
     const content = this.generateExport();
-    await navigator.clipboard.writeText(content);
-    this.copied.set(true);
-    setTimeout(() => this.copied.set(false), 2000);
+    const result = await this.clipboard.copyText(content, { label: 'export' });
+    if (result.ok) {
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 2000);
+    } else {
+      console.error('Failed to copy export:', result.reason, result.cause);
+    }
   }
 
   async exportFile(): Promise<void> {

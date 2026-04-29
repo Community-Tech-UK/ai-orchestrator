@@ -1,4 +1,5 @@
 export type SessionRecallSource =
+  | 'history-transcript'
   | 'child_result'
   | 'child_diagnostic'
   | 'automation_run'
@@ -24,6 +25,10 @@ export interface SessionRecallQuery {
   repositoryPath?: string;
   sources?: SessionRecallSource[];
   limit?: number;
+  /** Opt in to scanning history-transcript snippets. Default false. */
+  includeHistoryTranscripts?: boolean;
+  /** Cap on history-transcript results merged. Default 25. */
+  maxHistoryTranscriptResults?: number;
 }
 
 export interface SessionRecallSourceLink {

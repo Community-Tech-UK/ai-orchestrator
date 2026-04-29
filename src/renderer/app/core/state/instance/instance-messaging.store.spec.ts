@@ -43,6 +43,7 @@ describe('InstanceMessagingStore', () => {
   const listStoreMock = {
     validateFiles: vi.fn(() => []),
     fileToAttachments: vi.fn(),
+    interruptInstance: vi.fn(),
   };
 
   beforeEach(() => {
@@ -51,6 +52,8 @@ describe('InstanceMessagingStore', () => {
     listStoreMock.validateFiles.mockReset();
     listStoreMock.validateFiles.mockReturnValue([]);
     listStoreMock.fileToAttachments.mockReset();
+    listStoreMock.interruptInstance.mockReset();
+    listStoreMock.interruptInstance.mockResolvedValue(true);
     TestBed.resetTestingModule();
 
     TestBed.configureTestingModule({
@@ -124,5 +127,36 @@ describe('InstanceMessagingStore', () => {
 
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+  });
+
+  it('queues steer messages ahead of passive queued messages and interrupts once', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+
+    await currentStore.sendInput('inst-1', 'later');
+    await currentStore.steerInput('inst-1', 'stop and do this');
+
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(listStoreMock.interruptInstance).toHaveBeenCalledTimes(1);
+    expect(listStoreMock.interruptInstance).toHaveBeenCalledWith('inst-1');
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'stop and do this', files: undefined, kind: 'steer' },
+      { message: 'later', files: undefined },
+    ]);
+  });
+
+  it('does not send a second interrupt when steering right after Escape', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+
+    currentStore.noteInterruptRequested('inst-1');
+    await currentStore.steerInput('inst-1', 'new direction');
+
+    expect(listStoreMock.interruptInstance).not.toHaveBeenCalled();
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'new direction', files: undefined, kind: 'steer' },
+    ]);
   });
 });

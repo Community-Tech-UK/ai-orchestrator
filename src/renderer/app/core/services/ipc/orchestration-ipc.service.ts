@@ -4,6 +4,11 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type {
+  NlWorkflowSuggestion,
+  WorkflowStartSource,
+  WorkflowTransitionPolicy,
+} from '../../../../../shared/types/workflow.types';
 
 const DEFAULT_SKILL_SEARCH_PATHS = ['.claude/skills', '.codex/skills', 'skills'];
 
@@ -112,11 +117,29 @@ export class OrchestrationIpcService {
     instanceId: string;
     templateId: string;
     config?: Record<string, unknown>;
+    source?: WorkflowStartSource;
   }): Promise<IpcResponse> {
     return this.invokeChannel('workflow:start', {
       instanceId: payload.instanceId,
       templateId: payload.templateId,
+      source: payload.source,
     });
+  }
+
+  async workflowCanTransition(payload: {
+    instanceId: string;
+    templateId: string;
+    source: WorkflowStartSource;
+  }): Promise<IpcResponse<{ policy: WorkflowTransitionPolicy; activeExecutionId: string | null; requestedTemplateId: string }>> {
+    return this.invokeChannel('workflow:can-transition', payload);
+  }
+
+  async workflowNlSuggest(payload: {
+    promptText: string;
+    provider?: string;
+    workingDirectory?: string;
+  }): Promise<IpcResponse<NlWorkflowSuggestion>> {
+    return this.invokeChannel('workflow:nl-suggest', payload);
   }
 
   /**

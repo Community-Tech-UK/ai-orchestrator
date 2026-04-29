@@ -77,6 +77,22 @@ export type KeybindingAction =
   | 'toggle-agent'
   | 'select-agent-build'
   | 'select-agent-plan'
+  // Wave 2 — navigation, pickers, and recall
+  | 'select-visible-instance-1'
+  | 'select-visible-instance-2'
+  | 'select-visible-instance-3'
+  | 'select-visible-instance-4'
+  | 'select-visible-instance-5'
+  | 'select-visible-instance-6'
+  | 'select-visible-instance-7'
+  | 'select-visible-instance-8'
+  | 'select-visible-instance-9'
+  | 'open-session-picker'
+  | 'resume.openPicker'
+  | 'open-model-picker'
+  | 'open-prompt-history-search'
+  | 'recall-prompt-prev'
+  | 'recall-prompt-next'
   // Custom command
   | `command:${string}`;
 
@@ -106,6 +122,24 @@ export const DEFAULT_KEYBINDING_ELIGIBILITY_STATE: KeybindingEligibilityState = 
   sidebarVisible: true,
 };
 
+const SELECT_VISIBLE_INSTANCE_BINDINGS: KeyBinding[] = Array.from({ length: 9 }, (_, index) => {
+  const slot = index + 1;
+  const action = `select-visible-instance-${slot}`;
+  const ordinal = slot === 1 ? '1st' : slot === 2 ? '2nd' : slot === 3 ? '3rd' : `${slot}th`;
+
+  return {
+    id: action,
+    name: `Select Visible Instance ${slot}`,
+    description: `Switch focus to the ${ordinal} visible instance in the project rail`,
+    keys: { key: String(slot), modifiers: ['meta'] },
+    action,
+    context: 'global',
+    when: ['multiple-instances'],
+    category: 'Navigation',
+    customizable: true,
+  };
+});
+
 /**
  * Default keybindings
  */
@@ -131,6 +165,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     category: 'Navigation',
     customizable: true,
   },
+  ...SELECT_VISIBLE_INSTANCE_BINDINGS,
 
   // Instance management
   {
@@ -321,6 +356,48 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'c', modifiers: ['meta', 'shift'] },
     action: 'copy-last-response',
     context: 'global',
+    category: 'Session',
+    customizable: true,
+  },
+  {
+    id: 'open-session-picker',
+    name: 'Open Session Picker',
+    description: 'Open the session picker',
+    keys: { key: 'o', modifiers: ['meta'] },
+    action: 'open-session-picker',
+    context: 'global',
+    category: 'Navigation',
+    customizable: true,
+  },
+  {
+    id: 'open-resume-picker',
+    name: 'Open Resume Picker',
+    description: 'Open resume actions for live and historical sessions',
+    keys: { key: 'r', modifiers: ['meta'] },
+    action: 'resume.openPicker',
+    context: 'global',
+    category: 'Navigation',
+    customizable: true,
+  },
+  {
+    id: 'open-model-picker',
+    name: 'Open Model Picker',
+    description: 'Open the active provider model picker',
+    keys: { key: 'm', modifiers: ['meta', 'shift'] },
+    action: 'open-model-picker',
+    context: 'global',
+    when: ['instance-selected'],
+    category: 'Session',
+    customizable: true,
+  },
+  {
+    id: 'open-prompt-history-search',
+    name: 'Prompt History Search',
+    description: 'Open reverse-search overlay for past prompts',
+    keys: { key: 'r', modifiers: ['ctrl'] },
+    action: 'open-prompt-history-search',
+    context: 'input',
+    when: ['instance-selected'],
     category: 'Session',
     customizable: true,
   },

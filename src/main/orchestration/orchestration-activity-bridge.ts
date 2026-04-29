@@ -15,9 +15,14 @@ import type { MultiVerifyCoordinator } from './multi-verify-coordinator';
 import type { OrchestrationActivityPayload } from '../../shared/types/ipc.types';
 import type { SpawnChildCommand, TerminateChildCommand } from './orchestration-protocol';
 import type { TaskExecution, TaskProgress, TaskError } from '../../shared/types/task.types';
-import type { VerificationProgress } from '../../shared/types/verification.types';
+import type {
+  VerificationProgress,
+  VerificationResult,
+  VerificationVerdictReadyPayload,
+} from '../../shared/types/verification.types';
 import type { DebateSessionRound } from '../../shared/types/debate.types';
 import { getLogger } from '../logging/logger';
+import { deriveVerdict } from './verification-verdict-deriver';
 
 const logger = getLogger('OrchestrationActivityBridge');
 
@@ -53,6 +58,7 @@ export class OrchestrationActivityBridge {
   private boundListeners: BoundListener[] = [];
   private debateInstanceMap = new Map<string, string>();
   private verificationInstanceMap = new Map<string, string>();
+  private derivedVerdictIds = new Set<string>();
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function -- singleton pattern
   private constructor() {}
@@ -88,6 +94,7 @@ export class OrchestrationActivityBridge {
     this.boundListeners = [];
     this.debateInstanceMap.clear();
     this.verificationInstanceMap.clear();
+    this.derivedVerdictIds.clear();
     this.windowManager = null;
   }
 
@@ -270,14 +277,15 @@ export class OrchestrationActivityBridge {
     });
 
     this.listen(verification, 'verification:completed', (...args: unknown[]) => {
-      const data = args[0] as { id: string };
-      const instanceId = this.verificationInstanceMap.get(data.id);
+      const data = args[0] as VerificationResult;
+      const instanceId = this.verificationInstanceMap.get(data.id) ?? data.request.instanceId;
       if (!instanceId) return;
       this.send({
         instanceId,
         activity: 'Verification complete',
         category: 'verification',
       });
+      this.emitVerdictReady(data, instanceId);
       this.verificationInstanceMap.delete(data.id);
     });
 
@@ -302,6 +310,33 @@ export class OrchestrationActivityBridge {
       });
       this.verificationInstanceMap.delete(data.verificationId);
     });
+  }
+
+  private emitVerdictReady(result: VerificationResult, instanceId: string): void {
+    if (this.derivedVerdictIds.has(result.id)) {
+      return;
+    }
+    try {
+      const { verdict, diagnostic } = deriveVerdict(result);
+      const payload: VerificationVerdictReadyPayload = {
+        resultId: result.id,
+        instanceId,
+        verdict,
+        diagnostic: diagnostic.reason === 'normal' ? undefined : diagnostic,
+      };
+      this.windowManager?.sendToRenderer('verification:verdict-ready', payload);
+      this.derivedVerdictIds.add(result.id);
+      logger.info('Derived verification verdict', {
+        resultId: result.id,
+        status: verdict.status,
+        diagnostic: diagnostic.reason,
+      });
+    } catch (error) {
+      logger.warn('Failed to derive verification verdict', {
+        resultId: result.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 

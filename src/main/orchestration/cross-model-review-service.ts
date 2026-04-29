@@ -5,6 +5,7 @@ import { registerCleanup } from '../util/cleanup-registry';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { getPauseCoordinator } from '../pause/pause-coordinator';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
@@ -57,6 +58,14 @@ export class CrossModelReviewService extends EventEmitter {
   private availabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
   private instanceManager: InstanceManager | null = null;
+  private isPaused = getPauseCoordinator().isPaused();
+  private readonly handlePause = (): void => {
+    this.isPaused = true;
+    this.cancelAllPendingReviews('orchestrator paused');
+  };
+  private readonly handleResume = (): void => {
+    this.isPaused = false;
+  };
 
   static getInstance(): CrossModelReviewService {
     if (!this.instance) {
@@ -74,6 +83,9 @@ export class CrossModelReviewService extends EventEmitter {
 
   private constructor() {
     super();
+    const pauseCoordinator = getPauseCoordinator();
+    pauseCoordinator.on('pause', this.handlePause);
+    pauseCoordinator.on('resume', this.handleResume);
     registerCleanup(() => this.shutdown());
   }
 
@@ -126,6 +138,8 @@ export class CrossModelReviewService extends EventEmitter {
   // === Trigger (called when instance goes idle) ===
 
   async onInstanceIdle(instanceId: string): Promise<void> {
+    if (this.isPaused || getPauseCoordinator().isPaused()) return;
+
     const settings = getSettingsManager().getAll();
     if (!settings.crossModelReviewEnabled) return;
 
@@ -275,6 +289,7 @@ export class CrossModelReviewService extends EventEmitter {
     try {
       const response = await breaker.execute(async () => {
         if (signal.aborted) throw new Error('Review cancelled');
+        if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
 
         const resolvedCli = await resolveCliType(cliType as SettingsCliType);
         const adapter = getProviderRuntimeService().createAdapter({
@@ -290,10 +305,17 @@ export class CrossModelReviewService extends EventEmitter {
           throw new Error(`CLI adapter "${cliType}" does not support sendMessage`);
         }
 
+        if (signal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
+          throw new Error('Review cancelled');
+        }
+
         const prompt = request.reviewDepth === 'tiered'
           ? buildTieredReviewPrompt(request.taskDescription, request.content)
           : buildStructuredReviewPrompt(request.taskDescription, request.content);
 
+        // sendMessage() does not currently expose a universal cancellation API
+        // across reviewer adapters, so an already-running provider call may run
+        // until its configured timeout even after the abort signal fires.
         return adapter.sendMessage({ role: 'user', content: prompt });
       });
 
@@ -582,8 +604,18 @@ export class CrossModelReviewService extends EventEmitter {
     this.reviewHistory.clear();
     this.reviewContexts.clear();
     this.lastReviewTime.clear();
+    const pauseCoordinator = getPauseCoordinator();
+    pauseCoordinator.removeListener('pause', this.handlePause);
+    pauseCoordinator.removeListener('resume', this.handleResume);
     this.removeAllListeners();
     this.initialized = false;
+  }
+
+  private cancelAllPendingReviews(reason: string): void {
+    for (const abort of this.pendingReviews.values()) abort.abort();
+    this.pendingReviews.clear();
+    this.pendingReviewInstances.clear();
+    logger.info('Cancelled pending cross-model reviews', { reason });
   }
 }
 

@@ -17,9 +17,14 @@ import {
   viewChild,
 } from '@angular/core';
 import { CommandStore } from '../../core/state/command.store';
+import type { ExtendedCommand } from '../../core/state/command.store';
+import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { DraftService } from '../../core/services/draft.service';
+import { KeybindingService } from '../../core/services/keybinding.service';
+import { OrchestrationIpcService } from '../../core/services/ipc';
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
+import { PromptHistoryStore } from '../../core/state/prompt-history.store';
 import {
   ProviderSelectorComponent,
   ProviderType
@@ -31,12 +36,22 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import { SettingsStore } from '../../core/state/settings.store';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { AgentProfile } from '../../../../shared/types/agent.types';
-import type { CommandTemplate } from '../../../../shared/types/command.types';
+import type { CommandResolutionResult } from '../../../../shared/types/command.types';
+import {
+  PROMPT_HISTORY_STASH_KEY_PREFIX,
+  createPromptHistoryEntryId,
+  type PromptHistoryEntry,
+} from '../../../../shared/types/prompt-history.types';
+import {
+  isCaretOnFirstVisualLine,
+  isCaretOnLastVisualLine,
+} from '../../core/services/textarea-caret-position.util';
 import type {
   InstanceProvider,
   InstanceStatus,
   OutputMessage
 } from '../../core/state/instance/instance.types';
+import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
 
 @Component({
   selector: 'app-input-panel',
@@ -47,13 +62,17 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InputPanelComponent implements OnDestroy {
-  private commandStore = inject(CommandStore);
+  protected commandStore = inject(CommandStore);
   private draftService = inject(DraftService);
   private suggestionService = inject(PromptSuggestionService);
   private perf = inject(PerfInstrumentationService);
   private providerState = inject(ProviderStateService);
   private newSessionDraft = inject(NewSessionDraftService);
   private settingsStore = inject(SettingsStore);
+  private actionDispatch = inject(ActionDispatchService);
+  private keybindingService = inject(KeybindingService);
+  private orchestrationIpc = inject(OrchestrationIpcService);
+  private promptHistoryStore = inject(PromptHistoryStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
 
@@ -63,13 +82,19 @@ export class InputPanelComponent implements OnDestroy {
   pendingFiles = input<File[]>([]);
   pendingFolders = input<string[]>([]);
   queuedCount = input<number>(0);
-  queuedMessages = input<{ message: string; files?: File[] }[]>([]);
+  queuedMessages = input<{
+    message: string;
+    files?: File[];
+    kind?: 'queue' | 'steer';
+    hadAttachmentsDropped?: boolean;
+  }[]>([]);
   isBusy = input<boolean>(false);
   isRespawning = input<boolean>(false);
   outputMessages = input<OutputMessage[]>([]);
   instanceStatus = input<InstanceStatus>('idle');
   provider = input<InstanceProvider>('claude');
   currentModel = input<string | undefined>(undefined);
+  workingDirectory = input<string | null>(null);
   isReplayFallback = input<boolean>(false);
 
   // Computed preview data for pending files
@@ -93,6 +118,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   sendMessage = output<string>();
+  steerMessage = output<string>();
   executeCommand = output<{ commandId: string; args: string[] }>();
   removeFile = output<File>();
   removeFolder = output<string>();
@@ -128,6 +154,12 @@ export class InputPanelComponent implements OnDestroy {
   message = signal('');
   showCommandSuggestions = signal(false);
   selectedCommandIndex = signal(0);
+  slashResolution = signal<CommandResolutionResult | null>(null);
+  private recallIndex = signal<number | null>(null);
+  private recalledEntryId = signal<string | null>(null);
+  private recallEntries = computed(() =>
+    this.promptHistoryStore.getEntriesForRecall(this.instanceId(), this.workingDirectory())
+  );
   // Computed: filter commands based on input
   filteredCommands = computed(() => {
     const msg = this.message();
@@ -136,11 +168,49 @@ export class InputPanelComponent implements OnDestroy {
     const query = msg.slice(1).toLowerCase().split(/\s/)[0];
     const commands = this.commandStore.commands();
 
-    if (!query) return commands.slice(0, 8); // Show first 8 commands when just "/" is typed
+    const visible = commands.filter((command) => {
+      const eligibility = this.commandStore.commandEligibility(command);
+      return eligibility.eligible || command.applicability?.hideWhenIneligible !== true;
+    });
 
-    return commands
-      .filter(cmd => cmd.name.toLowerCase().startsWith(query))
+    if (!query) return visible.slice(0, 8); // Show first 8 commands when just "/" is typed
+
+    return visible
+      .filter(cmd =>
+        cmd.name.toLowerCase().startsWith(query) ||
+        (cmd.aliases ?? []).some((alias) => alias.toLowerCase().startsWith(query))
+      )
       .slice(0, 8);
+  });
+  resolutionCommands = computed((): ExtendedCommand[] => {
+    const resolution = this.slashResolution();
+    if (!resolution) return [];
+    if (resolution.kind === 'fuzzy') {
+      return resolution.suggestions as ExtendedCommand[];
+    }
+    if (resolution.kind === 'ambiguous') {
+      return resolution.candidates as ExtendedCommand[];
+    }
+    return [];
+  });
+  visibleCommandSuggestions = computed(() => {
+    const resolution = this.resolutionCommands();
+    return resolution.length > 0 ? resolution : this.filteredCommands();
+  });
+
+  slashResolutionLabel = computed(() => {
+    const resolution = this.slashResolution();
+    if (!resolution) return null;
+    if (resolution.kind === 'fuzzy') {
+      return `Did you mean one of these commands for /${resolution.query}?`;
+    }
+    if (resolution.kind === 'ambiguous') {
+      return `/${resolution.query} matches more than one command`;
+    }
+    if (resolution.kind === 'none') {
+      return `No command found for /${resolution.query}`;
+    }
+    return null;
   });
 
   isDraftComposer = computed(() => this.instanceId() === 'new');
@@ -149,6 +219,17 @@ export class InputPanelComponent implements OnDestroy {
   readonly isInitializing = computed(() => {
     const status = this.instanceStatus();
     return status === 'initializing' || status === 'waking';
+  });
+  readonly isSteeringTarget = computed(() => {
+    const status = this.instanceStatus();
+    return status === 'busy'
+      || status === 'processing'
+      || status === 'thinking_deeply'
+      || status === 'waiting_for_permission'
+      || status === 'respawning'
+      || status === 'interrupting'
+      || status === 'cancelling'
+      || status === 'interrupt-escalating';
   });
   selectedProvider = computed(() =>
     this.isDraftComposer()
@@ -190,7 +271,10 @@ export class InputPanelComponent implements OnDestroy {
 
   // Ghost text suggestion state
   ghostSuggestion = signal<string | null>(null);
+  nlWorkflowSuggestion = signal<NlWorkflowSuggestion | null>(null);
+  nlWorkflowSuggestionError = signal<string | null>(null);
   private isFocused = signal(false);
+  private nlWorkflowSuggestionTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Computed: whether to show ghost text
   showGhostText = computed(() => {
@@ -237,6 +321,19 @@ export class InputPanelComponent implements OnDestroy {
           this.stashedDraft.set(null);
           this.editMessageIndex.set(null);
         }
+        this.resetPromptRecall({ restoreStash: false });
+      });
+    });
+
+    effect(() => {
+      const requested = this.promptHistoryStore.requestedRecallEntry();
+      if (!requested) {
+        return;
+      }
+
+      untracked(() => {
+        this.applyRecalledEntry(requested);
+        this.promptHistoryStore.clearRequestedRecallEntry(requested);
       });
     });
 
@@ -303,6 +400,10 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.nlWorkflowSuggestionTimer) {
+      clearTimeout(this.nlWorkflowSuggestionTimer);
+      this.nlWorkflowSuggestionTimer = null;
+    }
     // Clean up all preview URLs
     for (const url of this.filePreviewUrls.values()) {
       URL.revokeObjectURL(url);
@@ -327,21 +428,136 @@ export class InputPanelComponent implements OnDestroy {
     this.message.set(value);
     stopComposer(); // Measure composer latency
 
+    if (this.recallIndex() !== null && value !== this.currentRecalledText()) {
+      this.resetPromptRecall({ restoreStash: false });
+    }
+
     this.persistComposerText(value);
 
     // Show command suggestions when typing "/"
     if (value.startsWith('/') && !value.includes('\n')) {
       this.showCommandSuggestions.set(true);
       this.selectedCommandIndex.set(0);
+      void this.refreshSlashResolution(value);
     } else {
       this.showCommandSuggestions.set(false);
+      this.slashResolution.set(null);
     }
 
     // Update ghost text suggestion
     this.updateGhostSuggestion(value);
+    this.scheduleNlWorkflowSuggestion(value);
 
     // Auto-resize textarea - debounced via requestAnimationFrame to avoid blocking input
     this.scheduleTextareaResize(textarea);
+  }
+
+  private scheduleNlWorkflowSuggestion(value: string): void {
+    if (this.nlWorkflowSuggestionTimer) {
+      clearTimeout(this.nlWorkflowSuggestionTimer);
+      this.nlWorkflowSuggestionTimer = null;
+    }
+
+    const text = value.trim();
+    if (
+      text.length < 12 ||
+      text.startsWith('/') ||
+      this.showCommandSuggestions() ||
+      this.disabled() ||
+      this.isBusy() ||
+      this.isRespawning() ||
+      this.isInitializing()
+    ) {
+      this.nlWorkflowSuggestion.set(null);
+      this.nlWorkflowSuggestionError.set(null);
+      return;
+    }
+
+    this.nlWorkflowSuggestionTimer = setTimeout(() => {
+      void this.refreshNlWorkflowSuggestion(text);
+    }, 450);
+  }
+
+  private async refreshNlWorkflowSuggestion(text: string): Promise<void> {
+    if (this.message().trim() !== text) {
+      return;
+    }
+
+    const response = await this.orchestrationIpc.workflowNlSuggest({
+      promptText: text,
+      provider: this.provider(),
+      workingDirectory: this.workingDirectory() ?? undefined,
+    });
+
+    if (this.message().trim() !== text) {
+      return;
+    }
+
+    if (response.success && response.data) {
+      this.nlWorkflowSuggestion.set(response.data);
+      this.nlWorkflowSuggestionError.set(null);
+    }
+  }
+
+  async acceptNlWorkflowSuggestion(): Promise<void> {
+    const suggestion = this.nlWorkflowSuggestion();
+    if (!suggestion?.suggestedRef) {
+      return;
+    }
+
+    console.info('nl-classifier.acted-on', { classification: suggestion, action: 'accepted' });
+
+    if (suggestion.suggestedRef.startsWith('/')) {
+      const current = this.message().trim();
+      const next = `${suggestion.suggestedRef} ${current}`.trim();
+      this.message.set(next);
+      this.persistComposerText(next);
+      this.nlWorkflowSuggestion.set(null);
+      return;
+    }
+
+    const instanceId = this.instanceId();
+    if (instanceId === 'new') {
+      this.nlWorkflowSuggestionError.set('Start a session before launching a workflow.');
+      return;
+    }
+
+    const transition = await this.orchestrationIpc.workflowCanTransition({
+      instanceId,
+      templateId: suggestion.suggestedRef,
+      source: 'nl-suggestion',
+    });
+    const policy = transition.data?.policy;
+    if (!transition.success || policy?.kind === 'deny') {
+      this.nlWorkflowSuggestionError.set(
+        policy?.kind === 'deny'
+          ? policy.reason
+          : transition.error?.message || 'Workflow cannot start.',
+      );
+      return;
+    }
+
+    const started = await this.orchestrationIpc.workflowStart({
+      instanceId,
+      templateId: suggestion.suggestedRef,
+      source: 'nl-suggestion',
+    });
+    if (started.success) {
+      this.nlWorkflowSuggestion.set(null);
+      this.nlWorkflowSuggestionError.set(null);
+      return;
+    }
+
+    this.nlWorkflowSuggestionError.set(started.error?.message || 'Workflow start failed.');
+  }
+
+  dismissNlWorkflowSuggestion(): void {
+    const suggestion = this.nlWorkflowSuggestion();
+    if (suggestion) {
+      console.info('nl-classifier.acted-on', { classification: suggestion, action: 'dismissed' });
+    }
+    this.nlWorkflowSuggestion.set(null);
+    this.nlWorkflowSuggestionError.set(null);
   }
 
   private resizeScheduled = false;
@@ -362,8 +578,8 @@ export class InputPanelComponent implements OnDestroy {
 
   onKeyDown(event: KeyboardEvent): void {
     // Handle command suggestions navigation
-    if (this.showCommandSuggestions() && this.filteredCommands().length > 0) {
-      const commands = this.filteredCommands();
+    if (this.showCommandSuggestions() && this.visibleCommandSuggestions().length > 0) {
+      const commands = this.visibleCommandSuggestions();
 
       switch (event.key) {
         case 'ArrowDown':
@@ -395,6 +611,34 @@ export class InputPanelComponent implements OnDestroy {
           this.showCommandSuggestions.set(false);
           return;
       }
+    }
+
+    if (event.key.toLowerCase() === 'r' && event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      void this.actionDispatch.dispatch('open-prompt-history-search');
+      return;
+    }
+
+    if (event.key === 'ArrowUp' && !this.editMode()) {
+      const textarea = event.target as HTMLTextAreaElement;
+      if (isCaretOnFirstVisualLine(textarea) && this.recallPrompt(-1)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (event.key === 'ArrowDown' && !this.editMode()) {
+      const textarea = event.target as HTMLTextAreaElement;
+      if (isCaretOnLastVisualLine(textarea) && this.recallPrompt(1)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (event.key === 'Escape' && this.recallIndex() !== null && !this.editMode()) {
+      event.preventDefault();
+      this.resetPromptRecall({ restoreStash: true });
+      return;
     }
 
     // Ghost text acceptance
@@ -453,19 +697,37 @@ export class InputPanelComponent implements OnDestroy {
     }
   }
 
-  onSelectCommand(command: CommandTemplate): void {
+  onSelectCommand(command: ExtendedCommand): void {
+    const eligibility = this.commandStore.commandEligibility(command);
+    if (!eligibility.eligible) {
+      return;
+    }
+
     // Get any args after the command name in the current message
     const msg = this.message();
     const parts = msg.slice(1).split(/\s+/);
     const args = parts.slice(1).filter(Boolean);
 
+    if (command.execution?.type === 'ui') {
+      this.recordPromptHistory(msg.trim(), true);
+      void this.actionDispatch.dispatch(command.execution.actionId);
+      this.executeCommand.emit({ commandId: command.id, args });
+      this.message.set('');
+      this.showCommandSuggestions.set(false);
+      this.slashResolution.set(null);
+      this.clearComposerDraft();
+      return;
+    }
+
     // Execute the command
+    this.recordPromptHistory(msg.trim(), true);
     this.commandStore.executeCommand(command.id, this.instanceId(), args);
     this.executeCommand.emit({ commandId: command.id, args });
 
     // Clear input and draft
     this.message.set('');
     this.showCommandSuggestions.set(false);
+    this.slashResolution.set(null);
     if (!this.isDraftComposer()) {
       this.clearComposerDraft();
     }
@@ -477,8 +739,8 @@ export class InputPanelComponent implements OnDestroy {
     }
   }
 
-  onSend(): void {
-    if (!this.canSend() || this.disabled()) return;
+  async onSend(): Promise<void> {
+    if (!this.canSend() || this.disabled() || this.isInitializing()) return;
 
     const text = this.message().trim();
 
@@ -489,15 +751,32 @@ export class InputPanelComponent implements OnDestroy {
 
       const command = this.commandStore.getCommandByName(cmdName);
       if (command) {
-        this.onSelectCommand(command);
+        this.onSelectCommand(command as ExtendedCommand);
         return;
       }
-      // If no matching command, send as regular message
+
+      const resolved = await this.commandStore.resolveCommand(text);
+      if (resolved?.kind === 'exact' || resolved?.kind === 'alias') {
+        this.onSelectCommand(resolved.command as ExtendedCommand);
+        return;
+      }
+      if (resolved?.kind === 'fuzzy' || resolved?.kind === 'ambiguous' || resolved?.kind === 'none') {
+        this.slashResolution.set(resolved);
+        this.showCommandSuggestions.set(true);
+        return;
+      }
     }
 
-    this.sendMessage.emit(text);
+    if (this.isSteeringTarget()) {
+      this.recordPromptHistory(text, false);
+      this.steerMessage.emit(text);
+    } else {
+      this.recordPromptHistory(text, false);
+      this.sendMessage.emit(text);
+    }
     this.message.set('');
     this.showCommandSuggestions.set(false);
+    this.slashResolution.set(null);
     this.clearComposerDraft();
 
     // Reset textarea height
@@ -596,10 +875,12 @@ export class InputPanelComponent implements OnDestroy {
 
   onFocus(): void {
     this.isFocused.set(true);
+    this.keybindingService.setContext('input');
   }
 
   onBlur(): void {
     this.isFocused.set(false);
+    this.keybindingService.setContext('global');
   }
 
   private generateSuggestion(): void {
@@ -633,6 +914,23 @@ export class InputPanelComponent implements OnDestroy {
       // User typed something that doesn't match — dismiss
       this.ghostSuggestion.set(null);
     }
+  }
+
+  private async refreshSlashResolution(value: string): Promise<void> {
+    const query = value.slice(1).trim().split(/\s+/)[0] ?? '';
+    if (query.length < 2) {
+      this.slashResolution.set(null);
+      return;
+    }
+
+    const resolved = await this.commandStore.resolveCommand(value);
+    if (this.message() !== value) return;
+
+    if (resolved?.kind === 'fuzzy' || resolved?.kind === 'ambiguous') {
+      this.slashResolution.set(resolved);
+      return;
+    }
+    this.slashResolution.set(null);
   }
 
   private acceptGhostSuggestion(): void {
@@ -737,5 +1035,105 @@ export class InputPanelComponent implements OnDestroy {
     }
 
     this.draftService.clearDraft(this.instanceId());
+  }
+
+  private recallPrompt(direction: -1 | 1): boolean {
+    const entries = this.recallEntries();
+    if (entries.length === 0) {
+      return false;
+    }
+
+    const currentIndex = this.recallIndex();
+    if (direction === -1) {
+      const nextIndex = currentIndex === null
+        ? 0
+        : Math.min(currentIndex + 1, entries.length - 1);
+      if (currentIndex === nextIndex && this.recalledEntryId() === entries[nextIndex]?.id) {
+        return false;
+      }
+      this.applyRecalledEntry(entries[nextIndex], nextIndex);
+      return true;
+    }
+
+    if (currentIndex === null) {
+      return false;
+    }
+    if (currentIndex === 0) {
+      this.resetPromptRecall({ restoreStash: true });
+      return true;
+    }
+
+    this.applyRecalledEntry(entries[currentIndex - 1], currentIndex - 1);
+    return true;
+  }
+
+  private applyRecalledEntry(entry: PromptHistoryEntry, index?: number): void {
+    if (this.recallIndex() === null) {
+      this.draftService.setDraft(this.stashKey(), this.message());
+    }
+
+    this.recallIndex.set(index ?? Math.max(0, this.recallEntries().findIndex((candidate) => candidate.id === entry.id)));
+    this.recalledEntryId.set(entry.id);
+    this.message.set(entry.text);
+    this.persistComposerText(entry.text);
+    this.syncTextareaValue(entry.text);
+  }
+
+  private resetPromptRecall(options: { restoreStash: boolean }): void {
+    const stashKey = this.stashKey();
+    const stashed = this.draftService.getDraft(stashKey);
+    this.recallIndex.set(null);
+    this.recalledEntryId.set(null);
+    this.draftService.clearDraft(stashKey);
+
+    if (options.restoreStash) {
+      this.message.set(stashed);
+      this.persistComposerText(stashed);
+      this.syncTextareaValue(stashed);
+    }
+  }
+
+  private currentRecalledText(): string | null {
+    const entryId = this.recalledEntryId();
+    if (!entryId) {
+      return null;
+    }
+    return this.recallEntries().find((entry) => entry.id === entryId)?.text ?? null;
+  }
+
+  private stashKey(): string {
+    return `${PROMPT_HISTORY_STASH_KEY_PREFIX}${this.instanceId()}`;
+  }
+
+  private syncTextareaValue(value: string): void {
+    requestAnimationFrame(() => {
+      const textarea = this.textareaRef()?.nativeElement;
+      if (!textarea) {
+        return;
+      }
+      textarea.value = value;
+      textarea.selectionStart = value.length;
+      textarea.selectionEnd = value.length;
+      textarea.focus();
+      this.scheduleTextareaResize(textarea);
+    });
+  }
+
+  private recordPromptHistory(text: string, wasSlashCommand: boolean): void {
+    if (!text.trim() || this.isDraftComposer()) {
+      return;
+    }
+
+    this.promptHistoryStore.record({
+      instanceId: this.instanceId(),
+      id: createPromptHistoryEntryId(),
+      text,
+      createdAt: Date.now(),
+      projectPath: this.workingDirectory() ?? undefined,
+      provider: this.provider(),
+      model: this.currentModel(),
+      wasSlashCommand,
+    });
+    this.resetPromptRecall({ restoreStash: false });
   }
 }

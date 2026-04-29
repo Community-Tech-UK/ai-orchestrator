@@ -437,6 +437,65 @@ export const HistoryRestorePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema.optional(),
 });
 
+export const HistoryTimeRangeSchema = z.object({
+  from: z.number().int().nonnegative().optional(),
+  to: z.number().int().nonnegative().optional(),
+});
+
+export const HistoryProjectScopeSchema = z.enum(['current', 'all', 'none']);
+
+export const HistorySearchSourceSchema = z.enum([
+  'history-transcript',
+  'child_result',
+  'child_diagnostic',
+  'automation_run',
+  'agent_tree',
+  'archived_session',
+]);
+
+export const HistoryPageRequestSchema = z.object({
+  pageSize: z.number().int().min(1).max(100),
+  pageNumber: z.number().int().min(1),
+});
+
+export const HistorySearchAdvancedPayloadSchema = z.object({
+  searchQuery: z.string().max(1000).optional(),
+  snippetQuery: z.string().max(1000).optional(),
+  workingDirectory: WorkingDirectorySchema.optional(),
+  projectScope: HistoryProjectScopeSchema.optional(),
+  source: z.union([
+    HistorySearchSourceSchema,
+    z.array(HistorySearchSourceSchema).max(10),
+  ]).optional(),
+  timeRange: HistoryTimeRangeSchema.optional(),
+  page: HistoryPageRequestSchema.optional(),
+});
+
+export const HistoryExpandSnippetsPayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+  query: z.string().min(1).max(1000),
+});
+
+export const ResumeLatestPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema.optional(),
+});
+
+export const ResumeByIdPayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+});
+
+export const ResumeSwitchToLivePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+});
+
+export const ResumeForkNewPayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+});
+
+export const ResumeRestoreFallbackPayloadSchema = z.object({
+  entryId: z.string().min(1).max(200),
+});
+
 // ============ Stats schemas ============
 
 export const StatsRecordSessionStartPayloadSchema = z.object({

@@ -177,6 +177,7 @@ export class CopilotCliProvider extends BaseProvider {
           type: a.type,
           mimeType: a.mimeType,
           data: a.data,
+          size: a.data.length,
         })),
       );
     } catch (error) {

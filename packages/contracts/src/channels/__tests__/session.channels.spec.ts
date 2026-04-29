@@ -16,5 +16,15 @@ describe('SESSION_CHANNELS', () => {
   it('has correct history values', () => {
     expect(SESSION_CHANNELS.HISTORY_LIST).toBe('history:list');
     expect(SESSION_CHANNELS.HISTORY_RESTORE).toBe('history:restore');
+    expect(SESSION_CHANNELS.HISTORY_SEARCH_ADVANCED).toBe('history:search-advanced');
+    expect(SESSION_CHANNELS.HISTORY_EXPAND_SNIPPETS).toBe('history:expand-snippets');
+  });
+
+  it('has correct resume picker values', () => {
+    expect(SESSION_CHANNELS.RESUME_LATEST).toBe('resume:latest');
+    expect(SESSION_CHANNELS.RESUME_BY_ID).toBe('resume:by-id');
+    expect(SESSION_CHANNELS.RESUME_SWITCH_TO_LIVE).toBe('resume:switch-to-live');
+    expect(SESSION_CHANNELS.RESUME_FORK_NEW).toBe('resume:fork-new');
+    expect(SESSION_CHANNELS.RESUME_RESTORE_FALLBACK).toBe('resume:restore-fallback');
   });
 });

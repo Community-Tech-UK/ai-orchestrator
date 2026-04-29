@@ -39,6 +39,7 @@ import { OrchestrationEventStore } from '../orchestration/event-store/orchestrat
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
 import { getAutomationEvents } from '../automations/automation-events';
+import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 
 // Import extracted handlers
 import {
@@ -61,6 +62,13 @@ import {
   registerSearchHandlers,
   registerStatsHandlers,
   registerCommandHandlers,
+  registerPromptHistoryHandlers,
+  registerPauseHandlers,
+  registerHistorySearchHandlers,
+  registerResumeHandlers,
+  registerWorkflowHandlers,
+  registerDiagnosticsHandlers,
+  bridgeCliUpdatePillDeltaToWindow,
   registerAppHandlers,
   registerFileHandlers,
   registerCodebaseHandlers,
@@ -198,6 +206,7 @@ export class IpcMainHandler {
 
     // Settings, config, and remote config handlers
     registerSettingsHandlers({ windowManager: this.windowManager });
+    registerPauseHandlers({ windowManager: this.windowManager });
     registerInstructionHandlers();
 
     // Memory stats handlers (basic memory tracking)
@@ -217,6 +226,12 @@ export class IpcMainHandler {
 
     // Command and plan mode handlers
     registerCommandHandlers(this.instanceManager);
+    getPromptHistoryService().pruneOnStart();
+    registerPromptHistoryHandlers({ windowManager: this.windowManager });
+    registerHistorySearchHandlers();
+    registerResumeHandlers({ instanceManager: this.instanceManager });
+    registerWorkflowHandlers();
+    registerDiagnosticsHandlers();
 
     // VCS handlers (Git integration)
     registerVcsHandlers();
@@ -360,6 +375,7 @@ export class IpcMainHandler {
     this.setupReactionEventForwarding();
     this.setupKnowledgeEventForwarding();
     this.setupAutomationEventForwarding();
+    bridgeCliUpdatePillDeltaToWindow(this.windowManager);
 
     logger.info('IPC handlers registered');
   }

@@ -2,22 +2,43 @@
   <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
 
   <div class="title-bar-overlay" [class.macos]="isMacOS">
+    @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
+      <app-pause-toggle />
+    }
+    <app-cli-update-pill />
     <app-provider-quota-chip />
   </div>
 
   @if (startupCapabilities() && startupCapabilities()!.status !== 'ready') {
-    <div
+    <button
+      type="button"
       class="startup-banner"
       [class.failed]="startupCapabilities()!.status === 'failed'"
+      (click)="openDoctorForBanner()"
     >
       <span class="startup-banner-title">
         Startup checks: {{ startupCapabilities()!.status }}
       </span>
       <span class="startup-banner-body">{{ startupCapabilitySummary() }}</span>
-    </div>
+      <span class="startup-banner-cta">Open Doctor</span>
+    </button>
+  }
+
+  @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
+    <app-pause-banner />
   }
 
   <main class="app-main">
     <router-outlet />
   </main>
+
+  @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
+    <app-pause-detector-error-modal />
+  }
+
+  @if (resumeToast(); as toast) {
+    <div class="resume-toast" role="status">
+      Sending {{ toast.queuedTotal }} queued message{{ toast.queuedTotal === 1 ? '' : 's' }}
+    </div>
+  }
 </div>

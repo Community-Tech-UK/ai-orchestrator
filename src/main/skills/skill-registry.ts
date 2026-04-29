@@ -330,6 +330,15 @@ export class SkillRegistry extends EventEmitter {
     return Array.from(this.skills.values());
   }
 
+  getTriggerIndex(): Map<string, string[]> {
+    return new Map(
+      Array.from(this.triggerIndex.entries()).map(([trigger, skillIds]) => [
+        trigger,
+        [...skillIds],
+      ]),
+    );
+  }
+
   getSkill(skillId: string): SkillBundle | undefined {
     return this.skills.get(skillId);
   }

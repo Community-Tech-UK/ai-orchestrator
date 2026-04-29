@@ -15,6 +15,7 @@ import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService, RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
 import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 interface RegisteredNodeRecord {
   sessionId?: string;
@@ -54,6 +55,7 @@ interface NodeHealthEntry {
 export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly store = inject(SettingsStore);
   private readonly ipc = inject(RemoteNodeIpcService);
+  private readonly clipboard = inject(CLIPBOARD_SERVICE);
 
   protected readonly serverStatus = signal<RemoteNodeServerStatus>({ running: false });
 
@@ -488,10 +490,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   private async writeClipboard(text: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
+    const result = await this.clipboard.copyText(text, { label: 'remote node token' });
+    if (!result.ok) {
       // Clipboard access is not always available in the Electron sandbox.
+      console.error('Failed to copy remote node value:', result.reason, result.cause);
     }
   }
 }

@@ -1,0 +1,98 @@
+@if (snapshot(); as snap) {
+  @if (snap.totalChildren > 0) {
+    <section class="orchestration-hud" [class.collapsed]="isCollapsed()">
+      <button
+        class="hud-header"
+        type="button"
+        [attr.aria-expanded]="!isCollapsed()"
+        (click)="toggleCollapsed()"
+      >
+        <span class="chevron">{{ isCollapsed() ? '▸' : '▾' }}</span>
+        <span class="title">Orchestration</span>
+        <span class="count">{{ snap.totalChildren }} agents</span>
+        <span class="pill failed" [class.empty]="snap.countsByCategory.failed === 0">
+          {{ snap.countsByCategory.failed }} failed
+        </span>
+        <span class="pill waiting" [class.empty]="snap.countsByCategory.waiting === 0">
+          {{ snap.countsByCategory.waiting }} waiting
+        </span>
+        <span class="pill active" [class.empty]="snap.countsByCategory.active === 0">
+          {{ snap.countsByCategory.active }} active
+        </span>
+        <span class="pill stale" [class.empty]="snap.countsByCategory.stale === 0">
+          {{ snap.countsByCategory.stale }} stale
+        </span>
+        @if (snap.churningCount > 0) {
+          <span class="pill churn">{{ snap.churningCount }} churn</span>
+        }
+      </button>
+
+      @if (!isCollapsed()) {
+        <div class="hud-body">
+          <div class="hud-actions">
+            <button
+              type="button"
+              class="text-action"
+              (click)="emitAction({ kind: 'summarize-children', parentInstanceId: snap.parentInstanceId })"
+            >
+              Summarize children
+            </button>
+          </div>
+
+          @if (snap.attentionItems.length > 0) {
+            <div class="attention-list">
+              @for (item of snap.attentionItems; track item.instanceId) {
+                <article
+                  class="attention-item"
+                  [class.failed]="item.derived.category === 'failed'"
+                  [class.waiting]="item.derived.category === 'waiting'"
+                  [class.active]="item.derived.category === 'active'"
+                  [class.stale]="item.derived.category === 'stale'"
+                >
+                  <div class="attention-main">
+                    <span class="item-name">{{ item.displayName }}</span>
+                    <span class="role">{{ item.role || 'worker' }}</span>
+                    <span class="state">{{ item.derived.category }}</span>
+                    @if (item.derived.isChurning) {
+                      <span class="churn-label">churn ×{{ item.derived.churnCount }}</span>
+                    }
+                    @if (item.activity) {
+                      <span class="activity">{{ item.activity }}</span>
+                    }
+                  </div>
+                  <div class="item-actions">
+                    <button
+                      type="button"
+                      class="text-action"
+                      (click)="emitAction({ kind: 'focus-child', childInstanceId: item.instanceId })"
+                    >
+                      Focus
+                    </button>
+                    @if (item.spawnPromptHash) {
+                      <button
+                        type="button"
+                        class="text-action"
+                        (click)="emitAction({ kind: 'copy-prompt-hash', childInstanceId: item.instanceId, spawnPromptHash: item.spawnPromptHash })"
+                      >
+                        Copy hash
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="text-action"
+                      (click)="emitAction({ kind: 'open-diagnostic-bundle', childInstanceId: item.instanceId })"
+                    >
+                      Diagnostics
+                    </button>
+                  </div>
+                </article>
+              }
+            </div>
+          } @else {
+            <p class="quiet">No child agents need attention.</p>
+          }
+        </div>
+      }
+    </section>
+  }
+}

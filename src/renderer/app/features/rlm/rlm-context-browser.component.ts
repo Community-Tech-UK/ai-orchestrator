@@ -39,6 +39,7 @@ import {
 } from './context-browser/context-query-results.component';
 import { ContextSectionsPanelComponent } from './context-browser/context-sections-panel.component';
 import { ContextSectionDetailComponent } from './context-browser/context-section-detail.component';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 /** Toast notification interface */
 interface ToastNotification {
@@ -382,6 +383,7 @@ interface ToastNotification {
 })
 export class RlmContextBrowserComponent implements OnInit, OnDestroy {
   private readonly ipc = inject(ElectronIpcService);
+  private readonly clipboard = inject(CLIPBOARD_SERVICE);
   private subscriptions: (() => void)[] = [];
   private readonly TEMPLATES_STORAGE_KEY = 'rlm-query-templates';
 
@@ -533,11 +535,11 @@ export class RlmContextBrowserComponent implements OnInit, OnDestroy {
   }
 
   async copyToClipboard(content: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(content);
+    const result = await this.clipboard.copyText(content, { label: 'context' });
+    if (result.ok) {
       this.showToast('Copied to clipboard', 'success');
-    } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+    } else {
+      console.error('Failed to copy to clipboard:', result.reason, result.cause);
       this.showToast('Failed to copy to clipboard', 'error');
     }
   }

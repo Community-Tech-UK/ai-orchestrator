@@ -8,6 +8,7 @@ import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
+  GetChildDiagnosticBundlePayloadSchema,
   WorkflowGetTemplatePayloadSchema,
   WorkflowStartPayloadSchema,
   WorkflowGetExecutionPayloadSchema,
@@ -33,6 +34,7 @@ import {
   HookApprovalsListPayloadSchema,
   HookApprovalsUpdatePayloadSchema,
   HookApprovalsClearPayloadSchema,
+  SummarizeChildrenPayloadSchema,
 } from '@contracts/schemas/orchestration';
 import {
   SkillsDiscoverPayloadSchema,
@@ -44,7 +46,7 @@ import {
   SkillsMatchPayloadSchema,
 } from '@contracts/schemas/provider';
 import type { ReviewAgentConfig } from '../../shared/types/review-agent.types';
-import { getWorkflowManager } from '../workflows/workflow-manager';
+import { getWorkflowManager, WorkflowTransitionDenied } from '../workflows/workflow-manager';
 import { getHookEngine } from '../hooks/hook-engine';
 import { getHookManager } from '../hooks/hook-manager';
 import { getSkillRegistry } from '../skills/skill-registry';
@@ -59,8 +61,125 @@ import {
   HookRule
 } from '../../shared/types/hook.types';
 import { serializeLoadedSkill } from '../../shared/types/skill.types';
+import { buildChildDiagnosticBundle } from '../orchestration/child-diagnostics';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('OrchestrationIpcHandler');
 
 export function registerOrchestrationHandlers(instanceManager: InstanceManager): void {
+  // ============================================
+  // Orchestration Diagnostics / Quick Actions
+  // ============================================
+
+  ipcMain.handle(
+    IPC_CHANNELS.ORCHESTRATION_GET_CHILD_DIAGNOSTIC_BUNDLE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          GetChildDiagnosticBundlePayloadSchema,
+          payload,
+          'ORCHESTRATION_GET_CHILD_DIAGNOSTIC_BUNDLE',
+        );
+        const child = instanceManager.getInstance(validated.childInstanceId);
+        if (!child) {
+          return {
+            success: false,
+            error: {
+              code: 'CHILD_INSTANCE_NOT_FOUND',
+              message: `Child instance not found: ${validated.childInstanceId}`,
+              timestamp: Date.now(),
+            },
+          };
+        }
+        const bundle = await buildChildDiagnosticBundle(child);
+        return { success: true, data: { ok: true, bundle } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CHILD_DIAGNOSTIC_BUNDLE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.ORCHESTRATION_SUMMARIZE_CHILDREN,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          SummarizeChildrenPayloadSchema,
+          payload,
+          'ORCHESTRATION_SUMMARIZE_CHILDREN',
+        );
+        const parent = instanceManager.getInstance(validated.parentInstanceId);
+        if (!parent) {
+          return {
+            success: false,
+            error: {
+              code: 'PARENT_INSTANCE_NOT_FOUND',
+              message: `Parent instance not found: ${validated.parentInstanceId}`,
+              timestamp: Date.now(),
+            },
+          };
+        }
+
+        const prompt = [
+          'Summarize your current child-agent status for the parent orchestrator.',
+          'Include current progress, blockers, notable findings, and the next intended step in five concise bullets.',
+        ].join(' ');
+        const childIds = parent.childrenIds ?? [];
+        let sent = 0;
+        const failedChildIds: string[] = [];
+        for (const childId of childIds) {
+          const child = instanceManager.getInstance(childId);
+          if (!child || child.status === 'terminated') {
+            failedChildIds.push(childId);
+            continue;
+          }
+          try {
+            await instanceManager.sendInput(childId, prompt, undefined, { autoContinuation: true });
+            sent += 1;
+          } catch (error) {
+            failedChildIds.push(childId);
+            logger.warn('Failed to send summarize-children prompt to child', {
+              childId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        return {
+          success: true,
+          data: {
+            ok: true,
+            parentInstanceId: parent.id,
+            sent,
+            failedChildIds,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SUMMARIZE_CHILDREN_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
   // ============================================
   // Workflow Handlers (6.1)
   // ============================================
@@ -130,10 +249,22 @@ export function registerOrchestrationHandlers(instanceManager: InstanceManager):
         const validated = validateIpcPayload(WorkflowStartPayloadSchema, payload, 'WORKFLOW_START');
         const execution = getWorkflowManager().startWorkflow(
           validated.instanceId,
-          validated.templateId
+          validated.templateId,
+          validated.source ?? 'manual-ui'
         );
         return { success: true, data: execution };
       } catch (error) {
+        if (error instanceof WorkflowTransitionDenied) {
+          return {
+            success: false,
+            data: { policy: error.policy },
+            error: {
+              code: 'WORKFLOW_TRANSITION_DENIED',
+              message: error.message,
+              timestamp: Date.now()
+            }
+          };
+        }
         return {
           success: false,
           error: {

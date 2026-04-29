@@ -12,7 +12,7 @@
           type="text"
           class="filter-input"
           placeholder="Filter projects or sessions..."
-          [value]="filterText()"
+          [value]="filterInput()"
           (input)="onFilterChange($event)"
         />
         <div class="filters-anchor">
@@ -433,7 +433,7 @@
           </section>
         } @empty {
           <div class="empty-state">
-            @if (filterText() || statusFilter() !== 'all' || locationFilter() !== 'all') {
+            @if (filterInput() || statusFilter() !== 'all' || locationFilter() !== 'all') {
               <p>No projects match your filters</p>
             } @else {
               <p>No projects yet</p>

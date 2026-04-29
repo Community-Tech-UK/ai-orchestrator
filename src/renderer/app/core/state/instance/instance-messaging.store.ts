@@ -4,18 +4,22 @@
  * Handles message queuing when instance is busy and message sending.
  */
 
-import { Injectable, inject } from '@angular/core';
+import { effect, Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
 import { DraftService } from '../../services/draft.service';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
-import type { InstanceStatus, OutputMessage } from './instance.types';
+import type { InstanceStatus, OutputMessage, QueuedMessage } from './instance.types';
+import { PauseStore } from '../pause/pause.store';
 
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
 
 function isTransientQueueStatus(status: InstanceStatus): boolean {
   return status === 'busy'
+    || status === 'processing'
+    || status === 'thinking_deeply'
+    || status === 'waiting_for_permission'
     || status === 'respawning'
     || status === 'interrupting'
     || status === 'cancelling'
@@ -26,11 +30,32 @@ function isTransientQueueStatus(status: InstanceStatus): boolean {
     || status === 'degraded';
 }
 
+function isActiveTurnStatus(status: InstanceStatus | undefined): boolean {
+  return status === 'busy'
+    || status === 'processing'
+    || status === 'thinking_deeply'
+    || status === 'waiting_for_permission';
+}
+
 function isInterruptRecoveryStatus(status: InstanceStatus | undefined): boolean {
   return status === 'respawning'
     || status === 'interrupting'
     || status === 'cancelling'
     || status === 'interrupt-escalating';
+}
+
+function isReadyForInputStatus(status: InstanceStatus | undefined): boolean {
+  return status === 'idle'
+    || status === 'ready'
+    || status === 'waiting_for_input';
+}
+
+function isTerminalStatus(status: InstanceStatus | undefined): boolean {
+  return status === 'failed'
+    || status === 'error'
+    || status === 'terminated'
+    || status === 'cancelled'
+    || status === 'superseded';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -39,9 +64,20 @@ export class InstanceMessagingStore {
   private ipc = inject(ElectronIpcService);
   private listStore = inject(InstanceListStore);
   private draftService = inject(DraftService);
+  private pauseStore = inject(PauseStore);
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
+  private interruptRequests = new Map<string, number>();
+  private static readonly RECENT_INTERRUPT_MS = 5000;
 
   constructor() {
+    effect(() => {
+      let total = 0;
+      for (const queue of this.stateService.messageQueue().values()) {
+        total += queue.length;
+      }
+      this.pauseStore.queuedTotal.set(total);
+    });
+
     // Watchdog: periodically check for stuck queue items.
     // The primary drain trigger is applyBatchUpdates on idle transitions,
     // but timing/batching edge cases can leave messages stuck. This catches them.
@@ -94,7 +130,7 @@ export class InstanceMessagingStore {
   /**
    * Get the message queue for an instance (reactive)
    */
-  getMessageQueue(instanceId: string): { message: string; files?: File[] }[] {
+  getMessageQueue(instanceId: string): QueuedMessage[] {
     return this.stateService.messageQueue().get(instanceId) || [];
   }
 
@@ -149,7 +185,7 @@ export class InstanceMessagingStore {
   removeFromQueue(
     instanceId: string,
     index: number
-  ): { message: string; files?: File[] } | null {
+  ): QueuedMessage | null {
     const currentMap = this.stateService.messageQueue();
     const queue = currentMap.get(instanceId);
     if (!queue || index < 0 || index >= queue.length) return null;
@@ -196,13 +232,7 @@ export class InstanceMessagingStore {
 
     // Reject immediately if instance is in a terminal state — sending will fail
     // and the optimistic busy status would mask the real state from retry logic.
-    if (
-      instance.status === 'failed' ||
-      instance.status === 'error' ||
-      instance.status === 'terminated'
-      || instance.status === 'cancelled'
-      || instance.status === 'superseded'
-    ) {
+    if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot send to instance in terminal state', {
         instanceId,
         status: instance.status,
@@ -219,19 +249,79 @@ export class InstanceMessagingStore {
     // message can be delivered if/when the node reconnects and the instance is restored.
     if (
       isTransientQueueStatus(instance.status)
+      || this.pauseStore.isPaused()
     ) {
-      this.stateService.messageQueue.update((currentMap) => {
-        const newMap = new Map(currentMap);
-        const queue = newMap.get(instanceId) || [];
-        queue.push({ message, files });
-        newMap.set(instanceId, queue);
-        return newMap;
-      });
+      this.enqueueMessage(instanceId, { message, files });
       return;
     }
 
     // Send the message immediately
     await this.sendInputImmediate(instanceId, message, files);
+  }
+
+  /**
+   * Steer the active turn with the user's latest message.
+   *
+   * Native same-turn steering is provider-specific. The cross-provider fallback
+   * is to preserve the message at the front of the queue and request a single
+   * interrupt; the normal queue drain then delivers it as soon as the provider
+   * reaches a prompt again.
+   */
+  async steerInput(
+    instanceId: string,
+    message: string,
+    files?: File[]
+  ): Promise<void> {
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) return;
+
+    if (instance.restoreMode) {
+      this.stateService.updateInstance(instanceId, { restoreMode: undefined });
+    }
+
+    if (isTerminalStatus(instance.status)) {
+      console.warn('InstanceMessagingStore: Cannot steer instance in terminal state', {
+        instanceId,
+        status: instance.status,
+      });
+      this.addErrorToOutput(
+        instanceId,
+        `Cannot steer message — instance is ${instance.status}. Try restarting the instance.`
+      );
+      return;
+    }
+
+    if (isReadyForInputStatus(instance.status)) {
+      if (this.pauseStore.isPaused()) {
+        this.enqueueSteerMessage(instanceId, { message, files, kind: 'steer' });
+        return;
+      }
+      await this.sendInputImmediate(instanceId, message, files);
+      return;
+    }
+
+    this.enqueueSteerMessage(instanceId, { message, files, kind: 'steer' });
+
+    if (!isActiveTurnStatus(instance.status) || this.hasRecentInterruptRequest(instanceId)) {
+      return;
+    }
+
+    this.noteInterruptRequested(instanceId);
+    const interrupted = await this.listStore.interruptInstance(instanceId);
+    if (!interrupted) {
+      this.addErrorToOutput(
+        instanceId,
+        'Steer message queued, but the active turn did not accept an interrupt. It will send when the session is ready.'
+      );
+    }
+  }
+
+  /**
+   * Record a user interrupt request so a follow-up steer submitted immediately
+   * after Escape does not send a second interrupt and escalate cancellation.
+   */
+  noteInterruptRequested(instanceId: string): void {
+    this.interruptRequests.set(instanceId, Date.now());
   }
 
   /**
@@ -244,6 +334,11 @@ export class InstanceMessagingStore {
     retryCount = 0
   ): Promise<void> {
     const previousStatus = this.stateService.getInstance(instanceId)?.status;
+
+    if (this.pauseStore.isPaused()) {
+      this.enqueueMessageFront(instanceId, { message, files, retryCount });
+      return;
+    }
 
     // Drop truly empty messages (no text AND no files)
     if (!message && (!files || files.length === 0)) {
@@ -358,6 +453,8 @@ export class InstanceMessagingStore {
    * Called when instance becomes idle or waiting_for_input
    */
   processMessageQueue(instanceId: string): void {
+    if (this.pauseStore.isPaused()) return;
+
     // Double-check the instance is actually ready to receive input.
     // This guards against premature queue drains from stale or
     // optimistic status updates (e.g., during respawning).
@@ -441,6 +538,49 @@ export class InstanceMessagingStore {
     // correct the status if the instance is actually in a permanent state.
     // This prevents message loss from transient post-respawn timing issues.
     return { shouldRetry: true };
+  }
+
+  private enqueueMessage(instanceId: string, queuedMessage: QueuedMessage): void {
+    this.stateService.messageQueue.update((currentMap) => {
+      const newMap = new Map(currentMap);
+      const queue = newMap.get(instanceId) || [];
+      newMap.set(instanceId, [...queue, queuedMessage]);
+      return newMap;
+    });
+  }
+
+  private enqueueMessageFront(instanceId: string, queuedMessage: QueuedMessage): void {
+    this.stateService.messageQueue.update((currentMap) => {
+      const newMap = new Map(currentMap);
+      const queue = newMap.get(instanceId) || [];
+      newMap.set(instanceId, [queuedMessage, ...queue]);
+      return newMap;
+    });
+  }
+
+  private enqueueSteerMessage(instanceId: string, queuedMessage: QueuedMessage): void {
+    this.stateService.messageQueue.update((currentMap) => {
+      const newMap = new Map(currentMap);
+      const queue = newMap.get(instanceId) || [];
+      const firstPassiveIndex = queue.findIndex((item) => item.kind !== 'steer');
+      const insertAt = firstPassiveIndex === -1 ? queue.length : firstPassiveIndex;
+      newMap.set(instanceId, [
+        ...queue.slice(0, insertAt),
+        queuedMessage,
+        ...queue.slice(insertAt),
+      ]);
+      return newMap;
+    });
+  }
+
+  private hasRecentInterruptRequest(instanceId: string): boolean {
+    const requestedAt = this.interruptRequests.get(instanceId);
+    if (requestedAt === undefined) return false;
+    if (Date.now() - requestedAt <= InstanceMessagingStore.RECENT_INTERRUPT_MS) {
+      return true;
+    }
+    this.interruptRequests.delete(instanceId);
+    return false;
   }
 
   /**

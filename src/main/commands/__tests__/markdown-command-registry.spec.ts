@@ -182,4 +182,56 @@ describe('frontmatter parsing', () => {
     expect(command).toBeDefined();
     expect(command?.description).toBe('Numeric frontmatter name should not crash loading');
   });
+
+  it('parses aliases, category, usage, examples, applicability, and rank hints', async () => {
+    readdirResults.set(PROJECT_COMMANDS, [makeDirent('review.md')]);
+    fileContents.set(
+      `${PROJECT_COMMANDS}/review.md`,
+      [
+        '---',
+        'aliases: ["r", "rv"]',
+        'category: review',
+        'usage: /review [focus]',
+        'examples:',
+        '  - /review auth',
+        'applicability:',
+        '  requiresGitRepo: true',
+        'rankHints:',
+        '  pinned: true',
+        '  weight: 2',
+        '---',
+        '# Review',
+        'Body',
+      ].join('\n')
+    );
+
+    const reg = MarkdownCommandRegistry.getInstance();
+    const result = await reg.listCommands('/tmp/test-project');
+    const command = result.commands.find((item) => item.name === 'review');
+
+    expect(command?.aliases).toEqual(['r', 'rv']);
+    expect(command?.category).toBe('review');
+    expect(command?.usage).toBe('/review [focus]');
+    expect(command?.examples).toEqual(['/review auth']);
+    expect(command?.applicability?.requiresGitRepo).toBe(true);
+    expect(command?.rankHints).toEqual({ pinned: true, weight: 2 });
+  });
+
+  it('emits diagnostics for invalid metadata and alias collisions', async () => {
+    readdirResults.set(PROJECT_COMMANDS, [makeDirent('one.md'), makeDirent('two.md')]);
+    fileContents.set(
+      `${PROJECT_COMMANDS}/one.md`,
+      ['---', 'aliases: ["same"]', 'category: nope', '---', '# One', 'Body'].join('\n')
+    );
+    fileContents.set(
+      `${PROJECT_COMMANDS}/two.md`,
+      ['---', 'aliases: ["same"]', '---', '# Two', 'Body'].join('\n')
+    );
+
+    const reg = MarkdownCommandRegistry.getInstance();
+    const result = await reg.listCommands('/tmp/test-project');
+
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'unknown-category' }));
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'alias-collision' }));
+  });
 });

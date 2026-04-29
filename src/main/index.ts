@@ -53,7 +53,7 @@ class AIOrchestratorApp {
 
   constructor() {
     this.windowManager = new WindowManager();
-    this.instanceManager = new InstanceManager();
+    this.instanceManager = new InstanceManager(this.windowManager);
   }
 
   async initialize(): Promise<void> {

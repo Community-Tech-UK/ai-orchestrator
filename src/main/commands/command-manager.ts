@@ -8,12 +8,16 @@ import {
   CommandTemplate,
   ParsedCommand,
   BUILT_IN_COMMANDS,
+  CommandDiagnostic,
+  CommandRegistrySnapshot,
+  CommandResolutionResult,
   getCommandExecution,
   getMarkdownCommandNameFromId,
   isMarkdownCommandId,
   resolveTemplate,
   parseCommandString,
 } from '../../shared/types/command.types';
+import { parseArgsFromQuery } from '../../shared/utils/command-args';
 import { getMarkdownCommandRegistry } from './markdown-command-registry';
 
 interface CommandStoreSchema {
@@ -99,17 +103,36 @@ class CommandManager {
    * Local built-in/stored commands keep precedence over markdown commands with the same name.
    */
   async getAllCommands(workingDirectory?: string): Promise<CommandTemplate[]> {
+    return (await this.getAllCommandsSnapshot(workingDirectory)).commands;
+  }
+
+  async getAllCommandsSnapshot(workingDirectory?: string): Promise<CommandRegistrySnapshot> {
     const localCommands = this.getLocalCommands();
+    const localDiagnostics = this.computeCollisionDiagnostics(localCommands);
     if (!workingDirectory) {
-      return localCommands;
+      return {
+        commands: localCommands,
+        diagnostics: localDiagnostics,
+        scanDirs: [],
+      };
     }
 
-    const markdownCommands = (await getMarkdownCommandRegistry().listCommands(workingDirectory)).commands;
-    const localNames = new Set(localCommands.map((command) => command.name));
-    return [
+    const markdownSnapshot = await getMarkdownCommandRegistry().listCommands(workingDirectory);
+    const localNames = new Set(localCommands.map((command) => command.name.toLowerCase()));
+    const commands = [
       ...localCommands,
-      ...markdownCommands.filter((command) => !localNames.has(command.name)),
+      ...markdownSnapshot.commands.filter((command) => !localNames.has(command.name.toLowerCase())),
     ];
+
+    return {
+      commands,
+      diagnostics: [
+        ...localDiagnostics,
+        ...markdownSnapshot.diagnostics,
+        ...this.computeCollisionDiagnostics(commands),
+      ],
+      scanDirs: markdownSnapshot.scanDirs,
+    };
   }
 
   /**
@@ -149,6 +172,70 @@ class CommandManager {
     return getMarkdownCommandRegistry().getCommand(workingDirectory, name);
   }
 
+  async resolveCommand(input: string, workingDirectory?: string): Promise<CommandResolutionResult> {
+    const parsed = parseCommandString(input);
+    const query = parsed?.name || input.replace(/^\//, '').trim().split(/\s+/)[0] || '';
+    if (!query) {
+      return { kind: 'none', query };
+    }
+
+    const direct = await this.getCommandByName(query, workingDirectory);
+    if (direct) {
+      return {
+        kind: 'exact',
+        command: direct,
+        args: parseArgsFromQuery(input, query),
+        matchedBy: 'name',
+      };
+    }
+
+    const snapshot = await this.getAllCommandsSnapshot(workingDirectory);
+    const commands = snapshot.commands;
+    const lowerQuery = query.toLowerCase();
+
+    const exact = commands.filter((command) => command.name.toLowerCase() === lowerQuery);
+    if (exact.length === 1) {
+      return {
+        kind: 'exact',
+        command: exact[0],
+        args: parseArgsFromQuery(input, query),
+        matchedBy: 'name',
+      };
+    }
+    if (exact.length > 1) {
+      return { kind: 'ambiguous', query, candidates: exact };
+    }
+
+    const aliasMatches = commands.filter((command) =>
+      (command.aliases ?? []).some((alias) => alias.toLowerCase() === lowerQuery),
+    );
+    const uniqueAliasMatches = [...new Map(aliasMatches.map((command) => [command.id, command])).values()];
+    if (uniqueAliasMatches.length === 1) {
+      return {
+        kind: 'alias',
+        command: uniqueAliasMatches[0],
+        args: parseArgsFromQuery(input, query),
+        matchedBy: 'alias',
+        alias: query,
+      };
+    }
+    if (uniqueAliasMatches.length > 1) {
+      return {
+        kind: 'ambiguous',
+        query,
+        conflictingAlias: query,
+        candidates: uniqueAliasMatches,
+      };
+    }
+
+    const suggestions = fuzzySuggestions(query, commands);
+    if (suggestions.length > 0) {
+      return { kind: 'fuzzy', query, suggestions };
+    }
+
+    return { kind: 'none', query };
+  }
+
   /**
    * Execute a command with arguments
    */
@@ -172,17 +259,14 @@ class CommandManager {
    * Execute a command from a command string (e.g., "/review focus on errors")
    */
   async executeCommandString(input: string, workingDirectory?: string): Promise<ParsedCommand | null> {
-    const parsed = parseCommandString(input);
-    if (!parsed) return null;
-
-    const command = await this.getCommandByName(parsed.name, workingDirectory);
-    if (!command) return null;
+    const resolved = await this.resolveCommand(input, workingDirectory);
+    if (resolved.kind !== 'exact' && resolved.kind !== 'alias') return null;
 
     return {
-      command,
-      args: parsed.args,
-      resolvedPrompt: resolveTemplate(command.template, parsed.args),
-      execution: getCommandExecution(command),
+      command: resolved.command,
+      args: resolved.args,
+      resolvedPrompt: resolveTemplate(resolved.command.template, resolved.args),
+      execution: getCommandExecution(resolved.command),
     };
   }
 
@@ -289,6 +373,113 @@ class CommandManager {
   resetCustomCommands(): void {
     store.set('customCommands', []);
   }
+
+  private computeCollisionDiagnostics(commands: CommandTemplate[]): CommandDiagnostic[] {
+    const diagnostics: CommandDiagnostic[] = [];
+    const names = new Map<string, CommandTemplate[]>();
+    const aliases = new Map<string, CommandTemplate[]>();
+
+    for (const command of commands) {
+      const nameKey = command.name.toLowerCase();
+      const nameList = names.get(nameKey) ?? [];
+      nameList.push(command);
+      names.set(nameKey, nameList);
+
+      for (const alias of command.aliases ?? []) {
+        const aliasKey = alias.toLowerCase();
+        const aliasList = aliases.get(aliasKey) ?? [];
+        aliasList.push(command);
+        aliases.set(aliasKey, aliasList);
+      }
+    }
+
+    for (const [name, owners] of names.entries()) {
+      if (owners.length > 1) {
+        diagnostics.push({
+          code: 'name-collision',
+          severity: 'warn',
+          message: `Multiple commands define "/${name}"; the first visible command wins.`,
+          candidates: owners.map((owner) => owner.id),
+        });
+      }
+    }
+
+    for (const [alias, owners] of aliases.entries()) {
+      const uniqueOwners = [...new Map(owners.map((owner) => [owner.id, owner])).values()];
+      const nameOwners = names.get(alias) ?? [];
+      const shadowingOwners = nameOwners.filter((owner) =>
+        uniqueOwners.every((aliasOwner) => aliasOwner.id !== owner.id),
+      );
+      if (shadowingOwners.length > 0) {
+        diagnostics.push({
+          code: 'alias-shadowed-by-name',
+          severity: 'warn',
+          alias,
+          message: `Alias "${alias}" is shadowed by command "/${shadowingOwners[0].name}"`,
+          candidates: [...shadowingOwners, ...uniqueOwners].map((owner) => owner.id),
+        });
+      }
+      if (uniqueOwners.length > 1) {
+        diagnostics.push({
+          code: 'alias-collision',
+          severity: 'warn',
+          alias,
+          message: `Alias "${alias}" is defined by multiple commands`,
+          candidates: uniqueOwners.map((owner) => owner.id),
+        });
+      }
+    }
+
+    return diagnostics;
+  }
+}
+
+function fuzzySuggestions(query: string, commands: CommandTemplate[]): CommandTemplate[] {
+  const normalizedQuery = query.toLowerCase();
+  return commands
+    .map((command) => {
+      const name = command.name.toLowerCase();
+      const aliases = (command.aliases ?? []).map((alias) => alias.toLowerCase());
+      const tokens = [name, ...aliases];
+      const distance = Math.min(...tokens.map((token) => damerauLevenshtein(normalizedQuery, token)));
+      const prefix = tokens.some((token) => token.startsWith(normalizedQuery)) ? 1 : 0;
+      return { command, distance, prefix };
+    })
+    .filter((item) => item.prefix === 1 || item.distance <= 2)
+    .sort((a, b) => b.prefix - a.prefix || a.distance - b.distance || a.command.name.localeCompare(b.command.name))
+    .slice(0, 5)
+    .map((item) => item.command);
+}
+
+function damerauLevenshtein(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
+
+  for (let i = 0; i < rows; i++) matrix[i][0] = i;
+  for (let j = 0; j < cols; j++) matrix[0][j] = j;
+
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      );
+
+      if (
+        i > 1 &&
+        j > 1 &&
+        a[i - 1] === b[j - 2] &&
+        a[i - 2] === b[j - 1]
+      ) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+      }
+    }
+  }
+
+  return matrix[a.length][b.length];
 }
 
 // Singleton instance

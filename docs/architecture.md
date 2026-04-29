@@ -4,10 +4,10 @@ Read this file when you need to understand the codebase structure, domain locati
 
 ## Key Directories
 
-- `src/main/` - Electron main process (Node.js) — 325 source files across 37 domains
-- `src/renderer/` - Angular frontend — 262 source files, 48 feature modules
-- `src/shared/` - Shared types (47 files), constants, validation schemas
-- `src/preload/` - Electron preload bridge (~5,300 lines, 460+ IPC channels)
+- `src/main/` - Electron main process (Node.js) — about 975 TypeScript files across provider, orchestration, diagnostics, persistence, and workspace domains
+- `src/renderer/` - Angular frontend — about 410 TypeScript files under `src/renderer/app`, including overlay, picker, HUD, Doctor, and settings features
+- `src/shared/` - Shared types (about 125 TypeScript files), constants, validation schemas
+- `src/preload/` - Electron preload bridge with generated channel constants and typed domain factories (775 generated IPC channels)
 
 ## Main Process Domains
 
@@ -22,6 +22,9 @@ src/main/
 ├── communication/    # Cross-instance token-based messaging
 ├── context/          # Context compaction, JIT loading, window guards
 ├── core/             # Config, health monitoring, cost tracking
+├── diagnostics/      # Doctor reports, command/skill/instruction diagnostics, redacted artifact export
+├── display-items/    # Main-side display marker renderers for transcript events
+├── git/              # Git helpers used by workspace/session features
 ├── history/          # Conversation history tracking
 ├── hooks/            # Hook system (pre/post exec)
 ├── indexing/         # Code indexing and semantic search
@@ -35,9 +38,11 @@ src/main/
 ├── orchestration/    # Multi-agent coordination (see below)
 ├── persistence/      # Data persistence (RLM database)
 ├── plugins/          # Plugin system
+├── prompt-history/   # Prompt recall persistence and delta emission
 ├── process/          # Supervisor tree, resource governor, pool, hibernation
 ├── providers/        # Provider registry, failover, model discovery
 ├── remote/           # Remote observer server
+├── remote-node/      # Remote node pairing, service control, and filesystem bridge
 ├── repo-jobs/        # Repository job management
 ├── rlm/              # Reinforcement Learning from Memory
 ├── routing/          # Message routing
@@ -46,6 +51,7 @@ src/main/
 ├── skills/           # Extensible skills framework
 ├── tasks/            # Background tasks, todo management
 ├── tools/            # External tools integration
+├── usage/            # Command/session/model/prompt/resume usage and frecency tracking
 ├── util/             # Utilities
 ├── vcs/              # Version control integration
 ├── workflows/        # Workflow automation
@@ -81,6 +87,10 @@ Located in `src/main/orchestration/` (27 files):
 6. **Default Invokers** (`default-invokers.ts`)
    - Wires LLM invocation handlers to debate, verification, review, and workflow events
 
+7. **Orchestration HUD + verdicts**
+   - HUD state and quick-action bundles are derived in orchestration services and consumed by renderer orchestration components
+   - Verification verdicts are derived by `verification-verdict-deriver.ts` and pushed through `verification:verdict-ready` with raw responses preserved
+
 ## Provider System
 
 Located in `src/main/providers/`:
@@ -110,6 +120,26 @@ Located in `src/main/process/`:
 - **CircuitBreaker** — restart rate limiting and fault tolerance
 
 All wired into `index.ts` at startup and cleaned up on shutdown.
+
+## Command, Picker, And Usage Surfaces
+
+- **Command registry** (`src/main/commands/`, `src/renderer/app/features/commands/`) merges built-in, stored, markdown, and skill-derived commands. Registry diagnostics feed Doctor.
+- **Overlay shell** (`src/renderer/app/features/overlay/`) provides shared keyboard navigation and projection slots for command, session, model, agent, and resume pickers.
+- **UsageTracker / UsageStore** (`src/main/usage/`, `src/renderer/app/core/state/usage.store.ts`) provides frecency scoring for commands and downstream pickers.
+- **Prompt history** (`src/main/prompt-history/`, `src/renderer/app/core/state/prompt-history.store.ts`) persists per-instance prompt recall and reverse search.
+
+## Diagnostics And Support Artifacts
+
+- **DoctorService** (`src/main/diagnostics/doctor-service.ts`) composes startup, provider, CLI, browser automation, command, skill, and instruction diagnostics.
+- **OperatorArtifactExporter** writes local zip bundles with centralized redaction in `src/main/diagnostics/redaction.ts`.
+- **CLI update pill** state is polled in the main process and bridged to the renderer through diagnostics IPC.
+- **Runbooks** live in `docs/runbooks/` and are opened from Doctor with `app:open-docs`.
+
+## IPC And Contracts
+
+- IPC channel names are sourced from `packages/contracts/src/channels/*` and generated into `src/preload/generated/channels.ts`.
+- Schema subpath imports under `@contracts/schemas/*` must be synchronized across `tsconfig.json`, `tsconfig.electron.json`, `src/main/register-aliases.ts`, and `vitest.config.ts`.
+- `scripts/check-contracts-aliases.ts` is part of `prebuild` and `prestart` to catch missing runtime aliases before packaging.
 
 ## Session Recovery
 

@@ -38,6 +38,7 @@ describe('CommandManager', () => {
     mockListCommands.mockResolvedValue({
       commands: [],
       candidatesByName: {},
+      diagnostics: [],
       scanDirs: [],
     });
     mockGetCommand.mockResolvedValue(undefined);
@@ -68,6 +69,7 @@ describe('CommandManager', () => {
     mockListCommands.mockResolvedValue({
       commands: [markdownCommand],
       candidatesByName: { 'workspace:review': [markdownCommand] },
+      diagnostics: [],
       scanDirs: ['/tmp/project/.claude/commands'],
     });
 
@@ -135,6 +137,7 @@ describe('CommandManager', () => {
     mockListCommands.mockResolvedValue({
       commands: [markdownCommand],
       candidatesByName: { review: [markdownCommand] },
+      diagnostics: [],
       scanDirs: ['/tmp/project/.claude/commands'],
     });
 
@@ -143,5 +146,44 @@ describe('CommandManager', () => {
 
     expect(commands.filter((command) => command.name === 'review')).toHaveLength(1);
     expect(commands.find((command) => command.name === 'review')?.id).toBe('builtin-review');
+  });
+
+  it('returns a registry snapshot with diagnostics and scan directories', async () => {
+    mockListCommands.mockResolvedValue({
+      commands: [],
+      candidatesByName: {},
+      diagnostics: [{ code: 'alias-collision', severity: 'warn', message: 'Alias collision' }],
+      scanDirs: ['/tmp/project/.orchestrator/commands'],
+    });
+
+    const manager = new CommandManager();
+    const snapshot = await manager.getAllCommandsSnapshot('/tmp/project');
+
+    expect(snapshot.commands.some((command) => command.name === 'review')).toBe(true);
+    expect(snapshot.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'alias-collision' })
+    );
+    expect(snapshot.scanDirs).toEqual(['/tmp/project/.orchestrator/commands']);
+  });
+
+  it('resolves aliases with parsed args', async () => {
+    const manager = new CommandManager();
+    const resolved = await manager.resolveCommand('/r "auth flow"');
+
+    expect(resolved.kind).toBe('alias');
+    if (resolved.kind === 'alias') {
+      expect(resolved.command.name).toBe('review');
+      expect(resolved.args).toEqual(['auth flow']);
+    }
+  });
+
+  it('returns fuzzy suggestions for misspelled commands', async () => {
+    const manager = new CommandManager();
+    const resolved = await manager.resolveCommand('/reveiw');
+
+    expect(resolved.kind).toBe('fuzzy');
+    if (resolved.kind === 'fuzzy') {
+      expect(resolved.suggestions.map((command) => command.name)).toContain('review');
+    }
   });
 });

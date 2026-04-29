@@ -3,6 +3,7 @@
  */
 
 import type { InstanceProvider, OutputMessage } from './instance.types';
+import type { SessionRecallResult } from './session-recall.types';
 import type { ExecutionLocation } from './worker-node.types';
 
 /**
@@ -10,6 +11,41 @@ import type { ExecutionLocation } from './worker-node.types';
  */
 export type ConversationEndStatus = 'completed' | 'error' | 'terminated';
 export type HistoryRestoreMode = 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
+
+/**
+ * A precomputed transcript snippet attached to a `ConversationHistoryEntry`.
+ * `position` is the buffer index of the source message. `excerpt` is capped
+ * by the extractor, and `score` captures archive/search relevance.
+ */
+export interface HistorySnippet {
+  position: number;
+  excerpt: string;
+  score: number;
+}
+
+export type HistorySearchSource =
+  | 'history-transcript'
+  | 'child_result'
+  | 'child_diagnostic'
+  | 'automation_run'
+  | 'agent_tree'
+  | 'archived_session';
+
+export interface HistoryTimeRange {
+  /** ms epoch (inclusive). */
+  from?: number;
+  /** ms epoch (inclusive). */
+  to?: number;
+}
+
+export type HistoryProjectScope = 'current' | 'all' | 'none';
+
+export interface HistoryPageRequest {
+  /** Clamped to [1, 100] by handlers. */
+  pageSize: number;
+  /** 1-indexed. */
+  pageNumber: number;
+}
 
 /**
  * A single entry in the conversation history
@@ -77,6 +113,9 @@ export interface ConversationHistoryEntry {
 
   /** Where the instance ran (local or remote node) */
   executionLocation?: ExecutionLocation;
+
+  /** Precomputed transcript snippets for advanced search. Capped at 5 per entry. */
+  snippets?: HistorySnippet[];
 }
 
 /**
@@ -299,14 +338,50 @@ export interface HistoryIndex {
  * Options for loading history
  */
 export interface HistoryLoadOptions {
-  /** Maximum number of entries to return */
+  /** Maximum number of entries to return. Ignored when `page` is set. */
   limit?: number;
 
-  /** Search query to filter entries */
+  /** Search query (metadata: displayName, first/last user message, working directory). */
   searchQuery?: string;
 
-  /** Filter by working directory */
+  /** Filter by working directory. */
   workingDirectory?: string;
+
+  /** Plain-text query against transcript snippets. */
+  snippetQuery?: string;
+
+  /** Wall-clock filter applied to `endedAt`. */
+  timeRange?: HistoryTimeRange;
+
+  /** Restrict by source. Defaults to all when omitted. */
+  source?: HistorySearchSource | HistorySearchSource[];
+
+  /** Project scope filter. Defaults to `current` when `workingDirectory` is set, else `all`. */
+  projectScope?: HistoryProjectScope;
+
+  /** Pagination request. When omitted, `limit` semantics apply. */
+  page?: HistoryPageRequest;
+}
+
+export interface AdvancedHistorySearchInput {
+  searchQuery?: string;
+  snippetQuery?: string;
+  workingDirectory?: string;
+  projectScope?: HistoryProjectScope;
+  source?: HistorySearchSource | HistorySearchSource[];
+  timeRange?: HistoryTimeRange;
+  page?: HistoryPageRequest;
+}
+
+export interface AdvancedHistorySearchResult {
+  entries: ConversationHistoryEntry[];
+  recallResults: SessionRecallResult[];
+  page: {
+    pageNumber: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+  };
 }
 
 /**
@@ -318,6 +393,12 @@ export interface HistoryRestoreResult {
 
   /** The new instance ID if successful */
   instanceId?: string;
+
+  /** Provider/app session id for the restored or forked live instance */
+  sessionId?: string;
+
+  /** App-level history thread id for the restored or forked live instance */
+  historyThreadId?: string;
 
   /** Whether the original CLI session resumed or the transcript was replayed into a fresh session */
   restoreMode?: HistoryRestoreMode;

@@ -25,6 +25,8 @@ export { MemoryIpcService } from './memory-ipc.service';
 export { OrchestrationIpcService } from './orchestration-ipc.service';
 export { VerificationIpcService } from './verification-ipc.service';
 export { CommandIpcService } from './command-ipc.service';
+export { PromptHistoryIpcService } from './prompt-history-ipc.service';
+export { PauseIpcService } from './pause-ipc.service';
 export { LspIpcService } from './lsp-ipc.service';
 export { TaskIpcService } from './task-ipc.service';
 export { SecurityIpcService } from './security-ipc.service';
@@ -60,6 +62,7 @@ import { MemoryIpcService } from './memory-ipc.service';
 import { OrchestrationIpcService } from './orchestration-ipc.service';
 import { VerificationIpcService } from './verification-ipc.service';
 import { CommandIpcService } from './command-ipc.service';
+import { PauseIpcService } from './pause-ipc.service';
 import { LspIpcService } from './lsp-ipc.service';
 import { TaskIpcService } from './task-ipc.service';
 import { SecurityIpcService } from './security-ipc.service';
@@ -108,6 +111,7 @@ export class IpcFacadeService {
   readonly orchestration = inject(OrchestrationIpcService);
   readonly verification = inject(VerificationIpcService);
   readonly command = inject(CommandIpcService);
+  readonly pause = inject(PauseIpcService);
   readonly lsp = inject(LspIpcService);
   readonly task = inject(TaskIpcService);
   readonly security = inject(SecurityIpcService);
@@ -169,6 +173,19 @@ export class IpcFacadeService {
   onCompactStatus = this.instance.onCompactStatus.bind(this.instance);
   onContextWarning = this.instance.onContextWarning.bind(this.instance);
   onOrchestrationActivity = this.instance.onOrchestrationActivity.bind(this.instance);
+  instanceQueueSave = this.instance.instanceQueueSave.bind(this.instance);
+  instanceQueueLoadAll = this.instance.instanceQueueLoadAll.bind(this.instance);
+  onInstanceQueueInitialPrompt = this.instance.onInstanceQueueInitialPrompt.bind(this.instance);
+
+  // ============================================
+  // Pause Service Methods
+  // ============================================
+
+  pauseGetState = this.pause.pauseGetState.bind(this.pause);
+  pauseSetManual = this.pause.pauseSetManual.bind(this.pause);
+  pauseDetectorRecentEvents = this.pause.pauseDetectorRecentEvents.bind(this.pause);
+  pauseDetectorResumeAfterError = this.pause.pauseDetectorResumeAfterError.bind(this.pause);
+  onPauseStateChanged = this.pause.onPauseStateChanged.bind(this.pause);
 
   // ============================================
   // Provider Service Methods
@@ -247,6 +264,13 @@ export class IpcFacadeService {
   loadHistoryEntry = this.history.loadHistoryEntry.bind(this.history);
   deleteHistoryEntry = this.history.deleteHistoryEntry.bind(this.history);
   restoreHistory = this.history.restoreHistory.bind(this.history);
+  searchHistoryAdvanced = this.history.searchHistoryAdvanced.bind(this.history);
+  expandHistorySnippets = this.history.expandHistorySnippets.bind(this.history);
+  resumeLatest = this.history.resumeLatest.bind(this.history);
+  resumeById = this.history.resumeById.bind(this.history);
+  resumeSwitchToLive = this.history.resumeSwitchToLive.bind(this.history);
+  resumeForkNew = this.history.resumeForkNew.bind(this.history);
+  resumeRestoreFallback = this.history.resumeRestoreFallback.bind(this.history);
   clearHistory = this.history.clearHistory.bind(this.history);
   forkSession = this.history.forkSession.bind(this.history);
   exportSession = this.history.exportSession.bind(this.history);
@@ -352,7 +376,11 @@ export class IpcFacadeService {
   // ============================================
 
   listCommands = this.command.listCommands.bind(this.command);
+  resolveCommand = this.command.resolveCommand.bind(this.command);
   executeCommand = this.command.executeCommand.bind(this.command);
+  recordUsage = this.command.recordUsage.bind(this.command);
+  getUsageSnapshot = this.command.getUsageSnapshot.bind(this.command);
+  isWorkspaceGitRepo = this.command.isWorkspaceGitRepo.bind(this.command);
   createCommand = this.command.createCommand.bind(this.command);
   updateCommand = this.command.updateCommand.bind(this.command);
   deleteCommand = this.command.deleteCommand.bind(this.command);

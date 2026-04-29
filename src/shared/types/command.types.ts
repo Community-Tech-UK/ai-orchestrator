@@ -2,6 +2,8 @@
  * Command Types - Custom user-defined commands and templates
  */
 
+import type { InstanceProvider, InstanceStatus } from './instance.types';
+
 /**
  * A custom command template
  */
@@ -34,8 +36,88 @@ export interface CommandTemplate {
    * Defaults to `prompt`, which expands the template and sends it to the model.
    */
   execution?: CommandExecution;
+  aliases?: string[];
+  category?: CommandCategory;
+  usage?: string;
+  examples?: string[];
+  applicability?: CommandApplicability;
+  disabledReason?: string;
+  rankHints?: CommandRankHints;
   createdAt: number;
   updatedAt: number;
+}
+
+export type CommandCategory =
+  | 'review'
+  | 'navigation'
+  | 'workflow'
+  | 'session'
+  | 'orchestration'
+  | 'diagnostics'
+  | 'memory'
+  | 'settings'
+  | 'skill'
+  | 'custom';
+
+export const COMMAND_CATEGORIES: readonly CommandCategory[] = [
+  'review',
+  'navigation',
+  'workflow',
+  'session',
+  'orchestration',
+  'diagnostics',
+  'memory',
+  'settings',
+  'skill',
+  'custom',
+] as const;
+
+export interface CommandApplicability {
+  provider?: InstanceProvider | InstanceProvider[];
+  instanceStatus?: InstanceStatus | InstanceStatus[];
+  requiresWorkingDirectory?: boolean;
+  requiresGitRepo?: boolean;
+  featureFlag?: string;
+  hideWhenIneligible?: boolean;
+}
+
+export interface CommandRankHints {
+  pinned?: boolean;
+  providerAffinity?: InstanceProvider[];
+  weight?: number;
+}
+
+export type CommandResolutionResult =
+  | { kind: 'exact'; command: CommandTemplate; args: string[]; matchedBy: 'name' }
+  | { kind: 'alias'; command: CommandTemplate; args: string[]; matchedBy: 'alias'; alias: string }
+  | { kind: 'ambiguous'; query: string; candidates: CommandTemplate[]; conflictingAlias?: string }
+  | { kind: 'fuzzy'; query: string; suggestions: CommandTemplate[] }
+  | { kind: 'none'; query: string };
+
+export type CommandDiagnosticCode =
+  | 'alias-collision'
+  | 'alias-shadowed-by-name'
+  | 'name-collision'
+  | 'invalid-frontmatter-type'
+  | 'unknown-category'
+  | 'unknown-applicability-key'
+  | 'invalid-rank-hints'
+  | 'unknown-feature-flag';
+
+export interface CommandDiagnostic {
+  code: CommandDiagnosticCode;
+  message: string;
+  commandId?: string;
+  alias?: string;
+  filePath?: string;
+  candidates?: string[];
+  severity: 'warn' | 'error';
+}
+
+export interface CommandRegistrySnapshot {
+  commands: CommandTemplate[];
+  diagnostics: CommandDiagnostic[];
+  scanDirs: string[];
 }
 
 export type CommandExecution =
@@ -60,26 +142,14 @@ export const BUILT_IN_COMMANDS: Omit<CommandTemplate, 'id' | 'createdAt' | 'upda
   {
     name: 'help',
     description: 'Show all available commands',
-    template: `Please list all available commands in this application. Here are the built-in commands:
-
-**Available Commands:**
-- \`/help\` - Show this help message
-- \`/review\` - Review changes in the current branch
-- \`/commit\` - Create a git commit with a generated message
-- \`/explain <file or code>\` - Explain a file or code section
-- \`/fix <issue>\` - Fix an issue or bug
-- \`/test <file or function>\` - Generate tests for code
-- \`/refactor <file or code>\` - Refactor code for better quality
-- \`/pr\` - Create a pull request
-- \`/plan <feature>\` - Create a plan for implementing a feature
-
-**Tips:**
-- Press \`Cmd+K\` (Mac) or \`Ctrl+K\` (Windows/Linux) to open the command palette
-- Type \`/\` in the input box to see command suggestions
-- Commands can include arguments after the command name
-
-$ARGUMENTS`,
+    template: '',
     hint: 'Show available commands',
+    aliases: ['?'],
+    category: 'navigation',
+    usage: '/help',
+    examples: ['/help'],
+    execution: { type: 'ui', actionId: 'app.open-command-help' },
+    rankHints: { pinned: true },
     builtIn: true,
   },
   {
@@ -87,6 +157,11 @@ $ARGUMENTS`,
     description: 'Review changes in the current branch',
     template: 'Please review the changes in the current branch. Look at the git diff and provide feedback on:\n1. Code quality and best practices\n2. Potential bugs or issues\n3. Suggestions for improvement\n\n$ARGUMENTS',
     hint: 'Optional: specify what to focus on',
+    aliases: ['r'],
+    category: 'review',
+    usage: '/review [focus area]',
+    examples: ['/review staged changes', '/review auth flow'],
+    rankHints: { pinned: true, providerAffinity: ['claude', 'codex'] },
     builtIn: true,
   },
   {
@@ -94,6 +169,12 @@ $ARGUMENTS`,
     description: 'Create a git commit with a generated message',
     template: 'Please review the staged changes (git diff --staged) and create an appropriate commit. Follow conventional commit format. $ARGUMENTS',
     hint: 'Optional: add context for the commit',
+    aliases: ['ci'],
+    category: 'workflow',
+    usage: '/commit [context]',
+    examples: ['/commit auth refactor', '/commit'],
+    applicability: { requiresWorkingDirectory: true, requiresGitRepo: true },
+    disabledReason: 'Requires a git repository',
     builtIn: true,
   },
   {
@@ -101,6 +182,10 @@ $ARGUMENTS`,
     description: 'Explain a file or code section',
     template: 'Please explain the following in detail:\n\n$ARGUMENTS',
     hint: 'Specify file path or paste code',
+    aliases: ['why'],
+    category: 'review',
+    usage: '/explain <file or code>',
+    examples: ['/explain src/main/index.ts'],
     builtIn: true,
   },
   {
@@ -108,6 +193,10 @@ $ARGUMENTS`,
     description: 'Fix an issue or bug',
     template: 'Please fix the following issue:\n\n$ARGUMENTS\n\nAnalyze the problem, propose a solution, and implement the fix.',
     hint: 'Describe the issue',
+    aliases: ['bug'],
+    category: 'workflow',
+    usage: '/fix <issue>',
+    examples: ['/fix failing login test'],
     builtIn: true,
   },
   {
@@ -115,6 +204,10 @@ $ARGUMENTS`,
     description: 'Generate tests for code',
     template: 'Please generate comprehensive tests for:\n\n$ARGUMENTS\n\nInclude unit tests covering edge cases and error conditions.',
     hint: 'Specify file or function to test',
+    aliases: ['spec'],
+    category: 'workflow',
+    usage: '/test <file or function>',
+    examples: ['/test command-manager'],
     builtIn: true,
   },
   {
@@ -122,6 +215,10 @@ $ARGUMENTS`,
     description: 'Refactor code for better quality',
     template: 'Please refactor the following code to improve:\n- Readability\n- Maintainability\n- Performance (if applicable)\n\n$ARGUMENTS',
     hint: 'Specify file or paste code',
+    aliases: ['clean'],
+    category: 'workflow',
+    usage: '/refactor <file or code>',
+    examples: ['/refactor src/renderer/app/core/state/command.store.ts'],
     builtIn: true,
   },
   {
@@ -129,6 +226,12 @@ $ARGUMENTS`,
     description: 'Create a pull request',
     template: 'Please create a pull request for the current branch. Generate:\n1. A descriptive title\n2. A summary of changes\n3. Testing instructions\n\n$ARGUMENTS',
     hint: 'Optional: add context',
+    aliases: ['pull-request'],
+    category: 'workflow',
+    usage: '/pr [context]',
+    examples: ['/pr command overlay foundation'],
+    applicability: { requiresWorkingDirectory: true, requiresGitRepo: true },
+    disabledReason: 'Requires a git repository',
     builtIn: true,
   },
   {
@@ -136,6 +239,10 @@ $ARGUMENTS`,
     description: 'Create a plan for implementing a feature',
     template: 'Please create a detailed implementation plan for:\n\n$ARGUMENTS\n\nInclude:\n1. Steps to implement\n2. Files to modify/create\n3. Potential challenges\n4. Testing approach',
     hint: 'Describe the feature',
+    aliases: ['design'],
+    category: 'workflow',
+    usage: '/plan <feature>',
+    examples: ['/plan prompt history recall'],
     builtIn: true,
   },
   {
@@ -144,6 +251,10 @@ $ARGUMENTS`,
     template: '',
     hint: 'Compact the current conversation context',
     execution: { type: 'compact' },
+    category: 'memory',
+    usage: '/compact',
+    examples: ['/compact'],
+    applicability: { instanceStatus: ['idle', 'busy', 'processing', 'thinking_deeply'] },
     builtIn: true,
   },
   {
@@ -152,6 +263,9 @@ $ARGUMENTS`,
     template: '',
     hint: 'Open the RLM page',
     execution: { type: 'ui', actionId: 'app.open-rlm' },
+    category: 'memory',
+    usage: '/rlm',
+    examples: ['/rlm'],
     builtIn: true,
   },
 ];

@@ -11,7 +11,14 @@ import type { ThinkingContent } from '../../../../shared/types/instance.types';
 
 export interface DisplayItem {
   id: string;
-  type: 'message' | 'tool-group' | 'thought-group' | 'work-cycle' | 'system-event-group';
+  type:
+    | 'message'
+    | 'tool-group'
+    | 'thought-group'
+    | 'work-cycle'
+    | 'system-event-group'
+    | 'interrupt-boundary'
+    | 'compaction-summary';
   message?: OutputMessage;
   renderedMessage?: unknown;  // SafeHtml at runtime, set by consuming component
   toolMessages?: OutputMessage[];
@@ -33,6 +40,46 @@ export interface DisplayItem {
   groupLabel?: string;
   /** Single-line preview derived from the latest grouped event. */
   groupPreview?: string;
+  interruptBoundary?: InterruptBoundaryDisplay;
+  compactionSummary?: CompactionSummaryDisplay;
+}
+
+export type InterruptDisplayPhase =
+  | 'requested'
+  | 'cancelling'
+  | 'escalated'
+  | 'respawning'
+  | 'completed';
+
+export type InterruptDisplayOutcome =
+  | 'cancelled'
+  | 'cancelled-for-edit'
+  | 'respawn-success'
+  | 'respawn-fallback'
+  | 'unresolved';
+
+export interface InterruptBoundaryDisplay {
+  phase: InterruptDisplayPhase;
+  requestId: string;
+  outcome: InterruptDisplayOutcome;
+  at: number;
+  reason?: string;
+  fallbackMode?: 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
+}
+
+export type CompactionFallbackMode =
+  | 'in-place'
+  | 'snapshot-restore'
+  | 'native-resume'
+  | 'replay-fallback';
+
+export interface CompactionSummaryDisplay {
+  reason: string;
+  beforeCount: number;
+  afterCount: number;
+  tokensReclaimed?: number;
+  fallbackMode?: CompactionFallbackMode;
+  at: number;
 }
 
 const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // 2 minutes
@@ -82,6 +129,35 @@ export function buildSystemGroupPreview(content: string): string {
 
   if (cleaned.length <= SYSTEM_GROUP_PREVIEW_MAX_LEN) return cleaned;
   return `${cleaned.slice(0, SYSTEM_GROUP_PREVIEW_MAX_LEN - 3).trimEnd()}...`;
+}
+
+function isInterruptDisplayPhase(value: unknown): value is InterruptDisplayPhase {
+  return value === 'requested' ||
+    value === 'cancelling' ||
+    value === 'escalated' ||
+    value === 'respawning' ||
+    value === 'completed';
+}
+
+function isInterruptDisplayOutcome(value: unknown): value is InterruptDisplayOutcome {
+  return value === 'cancelled' ||
+    value === 'cancelled-for-edit' ||
+    value === 'respawn-success' ||
+    value === 'respawn-fallback' ||
+    value === 'unresolved';
+}
+
+function isInterruptFallbackMode(value: unknown): value is InterruptBoundaryDisplay['fallbackMode'] {
+  return value === 'native-resume' ||
+    value === 'resume-unconfirmed' ||
+    value === 'replay-fallback';
+}
+
+function isCompactionFallbackMode(value: unknown): value is CompactionFallbackMode {
+  return value === 'in-place' ||
+    value === 'snapshot-restore' ||
+    value === 'native-resume' ||
+    value === 'replay-fallback';
 }
 
 export class DisplayItemProcessor {
@@ -169,7 +245,27 @@ export class DisplayItemProcessor {
         'streaming' in msg.metadata &&
         msg.metadata['streaming'] === true;
 
-      if (isStreaming) {
+      const interruptBoundary = this.getInterruptBoundary(msg);
+      const compactionSummary = this.getCompactionSummary(msg);
+      if (interruptBoundary) {
+        items.push({
+          id: `interrupt-${msg.id}`,
+          type: 'interrupt-boundary',
+          message: msg,
+          interruptBoundary,
+          timestamp: interruptBoundary.at,
+          bufferIndex,
+        });
+      } else if (compactionSummary) {
+        items.push({
+          id: `compaction-${msg.id}`,
+          type: 'compaction-summary',
+          message: msg,
+          compactionSummary,
+          timestamp: compactionSummary.at,
+          bufferIndex,
+        });
+      } else if (isStreaming) {
         if (this.seenStreamingIds.has(msg.id)) {
           const existingIdx = items.findIndex(
             item => item.type === 'message' && item.message?.id === msg.id,
@@ -250,6 +346,63 @@ export class DisplayItemProcessor {
       message.content?.trim()
       || (message.attachments && message.attachments.length > 0),
     );
+  }
+
+  private getInterruptBoundary(message: OutputMessage): InterruptBoundaryDisplay | null {
+    if (message.type !== 'system' || message.metadata?.['kind'] !== 'interrupt-boundary') {
+      return null;
+    }
+
+    const phase = message.metadata['phase'];
+    const requestId = message.metadata['requestId'];
+    const outcome = message.metadata['outcome'];
+    const at = message.metadata['at'];
+    if (
+      !isInterruptDisplayPhase(phase) ||
+      typeof requestId !== 'string' ||
+      !isInterruptDisplayOutcome(outcome)
+    ) {
+      return null;
+    }
+
+    const fallbackMode = message.metadata['fallbackMode'];
+    return {
+      phase,
+      requestId,
+      outcome,
+      at: typeof at === 'number' ? at : message.timestamp,
+      reason: typeof message.metadata['reason'] === 'string' ? message.metadata['reason'] : undefined,
+      fallbackMode: isInterruptFallbackMode(fallbackMode) ? fallbackMode : undefined,
+    };
+  }
+
+  private getCompactionSummary(message: OutputMessage): CompactionSummaryDisplay | null {
+    if (message.type !== 'system' || message.metadata?.['kind'] !== 'compaction-summary') {
+      return null;
+    }
+
+    const reason = message.metadata['reason'];
+    const beforeCount = message.metadata['beforeCount'];
+    const afterCount = message.metadata['afterCount'];
+    const at = message.metadata['at'];
+    if (
+      typeof reason !== 'string' ||
+      typeof beforeCount !== 'number' ||
+      typeof afterCount !== 'number'
+    ) {
+      return null;
+    }
+
+    const fallbackMode = message.metadata['fallbackMode'];
+    const tokensReclaimed = message.metadata['tokensReclaimed'];
+    return {
+      reason,
+      beforeCount,
+      afterCount,
+      tokensReclaimed: typeof tokensReclaimed === 'number' ? tokensReclaimed : undefined,
+      fallbackMode: isCompactionFallbackMode(fallbackMode) ? fallbackMode : undefined,
+      at: typeof at === 'number' ? at : message.timestamp,
+    };
   }
 
   private mergeNewItems(newItems: DisplayItem[]): void {

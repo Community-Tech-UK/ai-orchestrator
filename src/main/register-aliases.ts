@@ -21,10 +21,15 @@ const baseShared = path.join(__dirname, '..', 'shared');
 
 const exactAliases: Record<string, string> = {
   '@contracts/schemas/common':                  path.join(baseContracts, 'schemas', 'common.schemas'),
+  '@contracts/schemas/command':                 path.join(baseContracts, 'schemas', 'command.schemas'),
+  '@contracts/schemas/prompt-history':          path.join(baseContracts, 'schemas', 'prompt-history.schemas'),
+  '@contracts/schemas/workflow':                path.join(baseContracts, 'schemas', 'workflow.schemas'),
+  '@contracts/schemas/pause':                   path.join(baseContracts, 'schemas', 'pause.schemas'),
   '@contracts/schemas/instance':                path.join(baseContracts, 'schemas', 'instance.schemas'),
   '@contracts/schemas/session':                 path.join(baseContracts, 'schemas', 'session.schemas'),
   '@contracts/schemas/provider':                path.join(baseContracts, 'schemas', 'provider.schemas'),
   '@contracts/schemas/orchestration':           path.join(baseContracts, 'schemas', 'orchestration.schemas'),
+  '@contracts/schemas/verification':            path.join(baseContracts, 'schemas', 'verification.schemas'),
   '@contracts/schemas/settings':                path.join(baseContracts, 'schemas', 'settings.schemas'),
   '@contracts/schemas/file-operations':         path.join(baseContracts, 'schemas', 'file-operations.schemas'),
   '@contracts/schemas/security':                path.join(baseContracts, 'schemas', 'security.schemas'),
@@ -39,6 +44,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/schemas/quota':                   path.join(baseContracts, 'schemas', 'quota.schemas'),
   '@contracts/schemas/provider-runtime-events': path.join(baseContracts, 'schemas', 'provider-runtime-events.schemas'),
   '@contracts/channels/automation':             path.join(baseContracts, 'channels', 'automation.channels'),
+  '@contracts/channels/pause':                  path.join(baseContracts, 'channels', 'pause.channels'),
   '@contracts/types/transport':                 path.join(baseContracts, 'types', 'transport.types'),
 };
 

@@ -20,6 +20,49 @@
           </div>
         </div>
 
+        @if (verdict(); as v) {
+          <section
+            class="verdict-banner"
+            [class.pass]="v.status === 'pass'"
+            [class.pass-with-notes]="v.status === 'pass-with-notes'"
+            [class.needs-changes]="v.status === 'needs-changes'"
+            [class.blocked]="v.status === 'blocked'"
+            [class.inconclusive]="v.status === 'inconclusive'"
+            aria-label="Verification verdict"
+          >
+            <div class="verdict-summary">
+              <span class="verdict-label">{{ getVerdictLabel(v.status) }}</span>
+              <span class="verdict-confidence">{{ (v.confidence * 100).toFixed(0) }}% confidence</span>
+            </div>
+            @if (v.headline) {
+              <p class="verdict-headline">{{ v.headline }}</p>
+            }
+            @if (v.requiredActions.length > 0) {
+              <div class="verdict-block">
+                <h3>Required Actions</h3>
+                <ul>
+                  @for (action of v.requiredActions; track action) {
+                    <li>{{ action }}</li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (v.riskAreas.length > 0) {
+              <div class="verdict-block">
+                <h3>Risk Areas</h3>
+                <ul>
+                  @for (risk of v.riskAreas; track risk.description) {
+                    <li>
+                      <span class="risk-severity">{{ risk.severity }}</span>
+                      <span>{{ risk.category }}: {{ risk.description }}</span>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+          </section>
+        }
+
         <!-- Tab Navigation -->
         <div class="tab-navigation">
           <button

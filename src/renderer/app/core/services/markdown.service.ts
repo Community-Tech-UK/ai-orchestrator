@@ -13,12 +13,15 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked, type Tokens } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
+import { detectLinks } from '../../../../shared/utils/link-detection';
+import { CLIPBOARD_SERVICE } from './clipboard.service';
 
 @Injectable({
   providedIn: 'root',
 })
 export class MarkdownService {
   private sanitizer = inject(DomSanitizer);
+  private clipboard = inject(CLIPBOARD_SERVICE);
   private initialized = false;
 
   constructor() {
@@ -71,10 +74,11 @@ export class MarkdownService {
     renderer.codespan = ({ text }: Tokens.Codespan): string => {
       const escapedText = this.escapeHtml(text);
 
-      // Detect absolute file paths (Unix/Mac style starting with /)
-      // Match paths that start with / and contain typical path characters
-      const isFilePath = /^\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+$/.test(text) ||
-                         /^\/[a-zA-Z0-9_\-./]+$/.test(text) && text.includes('/');
+      const ranges = detectLinks(text, { kinds: ['file-path'] });
+      const isFilePath =
+        ranges.length === 1 &&
+        ranges[0].start === 0 &&
+        ranges[0].end === text.length;
 
       if (isFilePath) {
         // Make file paths clickable
@@ -186,7 +190,7 @@ export class MarkdownService {
       ALLOWED_ATTR: [
         'href', 'title', 'target', 'rel',
         'class',
-        'data-copy-id', 'data-code-id', 'data-file-path',
+        'data-copy-id', 'data-code-id', 'data-file-path', 'data-link-kind',
         'src', 'alt', 'width', 'height',
         'viewBox', 'fill', 'stroke', 'stroke-width',
         'x', 'y', 'rx', 'ry', 'd', 'points',
@@ -232,13 +236,14 @@ export class MarkdownService {
   /**
    * Handle copy button click - call this when copy buttons are clicked
    */
-  handleCopyClick(copyId: string): void {
+  async handleCopyClick(copyId: string): Promise<void> {
     const codeElement = document.querySelector(`[data-code-id="${copyId}"] code`);
     const button = document.querySelector(`[data-copy-id="${copyId}"]`);
 
     if (codeElement && button) {
       const text = codeElement.textContent || '';
-      navigator.clipboard.writeText(text).then(() => {
+      const result = await this.clipboard.copyText(text, { label: 'code' });
+      if (result.ok) {
         const originalHtml = button.innerHTML;
         button.innerHTML = `
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -252,7 +257,9 @@ export class MarkdownService {
           button.innerHTML = originalHtml;
           button.classList.remove('copied');
         }, 2000);
-      });
+      } else {
+        console.error('Failed to copy code block:', result.reason, result.cause);
+      }
     }
   }
 
@@ -264,7 +271,7 @@ export class MarkdownService {
     buttons.forEach((button) => {
       const copyId = button.getAttribute('data-copy-id');
       if (copyId) {
-        button.addEventListener('click', () => this.handleCopyClick(copyId));
+        button.addEventListener('click', () => { void this.handleCopyClick(copyId); });
       }
     });
   }

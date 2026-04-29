@@ -746,7 +746,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
    * Send a message to Gemini via exec command.
    * Each call spawns a new process.
    */
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.isSpawned) {
       throw new Error('Adapter not spawned - call spawn() first');
     }

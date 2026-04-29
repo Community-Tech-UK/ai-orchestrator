@@ -853,7 +853,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /**
    * Send a message to the CLI (legacy API)
    */
-  async sendInput(message: string, attachments?: FileAttachment[]): Promise<void> {
+  protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     if (!this.formatter || !this.formatter.isWritable()) {
       throw new Error('CLI not ready for input');
     }
@@ -1232,7 +1232,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
               const inputRequestId = generateId();
               const approvalTraceId = this.createApprovalTraceId('permission');
-              const prompt = `Permission required: Claude wants to ${action} ${displayPath}. Enable YOLO mode to allow all tool use, or reject to continue with this action denied.`;
+              const prompt = `Permission required: Claude wants to ${action} ${displayPath}. Choose Always to add a Claude allow rule and restart the session, or reject to continue with this action denied.`;
               const timestamp = message.timestamp || Date.now();
 
               logger.debug('Emitting input_required for permission denial', {

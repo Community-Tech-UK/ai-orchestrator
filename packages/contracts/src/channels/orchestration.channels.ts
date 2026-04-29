@@ -5,6 +5,8 @@
 export const ORCHESTRATION_CHANNELS = {
   // Orchestration activity (real-time status updates)
   ORCHESTRATION_ACTIVITY: 'orchestration:activity',
+  ORCHESTRATION_GET_CHILD_DIAGNOSTIC_BUNDLE: 'orchestration:get-child-diagnostic-bundle',
+  ORCHESTRATION_SUMMARIZE_CHILDREN: 'orchestration:summarize-children',
   SUPERVISOR_STATUS: 'supervisor:status',
   SUPERVISOR_METRICS: 'supervisor:metrics',
 
@@ -35,6 +37,7 @@ export const ORCHESTRATION_CHANNELS = {
   VERIFICATION_CONSENSUS_UPDATE: 'verification:consensus-update',
   VERIFICATION_COMPLETE: 'verification:complete',
   VERIFICATION_ERROR: 'verification:error',
+  VERIFICATION_VERDICT_READY: 'verification:verdict-ready',
 
   // Verification event forwarding (main -> renderer)
   VERIFICATION_EVENT_STARTED: 'verification:event:started',
@@ -173,10 +176,20 @@ export const ORCHESTRATION_CHANNELS = {
 
   // Command operations
   COMMAND_LIST: 'command:list',
+  COMMAND_RESOLVE: 'command:resolve',
   COMMAND_EXECUTE: 'command:execute',
   COMMAND_CREATE: 'command:create',
   COMMAND_UPDATE: 'command:update',
   COMMAND_DELETE: 'command:delete',
+  USAGE_RECORD: 'usage:record',
+  USAGE_SNAPSHOT: 'usage:snapshot',
+  WORKSPACE_IS_GIT_REPO: 'workspace:is-git-repo',
+
+  // Prompt history operations
+  PROMPT_HISTORY_GET_SNAPSHOT: 'prompt-history:get-snapshot',
+  PROMPT_HISTORY_RECORD: 'prompt-history:record',
+  PROMPT_HISTORY_CLEAR_INSTANCE: 'prompt-history:clear-instance',
+  PROMPT_HISTORY_DELTA: 'prompt-history:delta',
 
   // Menu events (renderer-bound)
   MENU_NEW_INSTANCE: 'menu:new-instance',

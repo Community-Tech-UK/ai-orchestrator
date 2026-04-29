@@ -8,7 +8,7 @@
  * 4. Re-exports queries for consumers
  */
 
-import { Injectable, inject, OnDestroy } from '@angular/core';
+import { Injectable, inject, OnDestroy, computed, signal } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
 
 // Sub-stores
@@ -25,6 +25,8 @@ import type {
   VerificationSession,
   VerificationResult,
   AgentResponse,
+  VerificationVerdict,
+  VerificationVerdictReadyPayload,
 } from './verification.types';
 
 @Injectable({ providedIn: 'root' })
@@ -41,6 +43,7 @@ export class VerificationStore implements OnDestroy {
   // Infrastructure
   private ipc = inject(ElectronIpcService);
   private unsubscribes: (() => void)[] = [];
+  private _verdictsByResultId = signal(new Map<string, VerificationVerdict>());
 
   // ============================================
   // Re-export Queries for backwards compatibility
@@ -75,6 +78,13 @@ export class VerificationStore implements OnDestroy {
   // UI State
   readonly configPanelOpen = this.queries.configPanelOpen;
   readonly selectedTab = this.queries.selectedTab;
+  readonly currentVerdict = computed(() => {
+    const result = this.result();
+    if (!result) {
+      return null;
+    }
+    return this._verdictsByResultId().get(result.id) ?? null;
+  });
 
   // ============================================
   // Constructor & Lifecycle
@@ -173,6 +183,19 @@ export class VerificationStore implements OnDestroy {
       }
     ) ?? (() => { /* noop */ });
     this.unsubscribes.push(unsubComplete);
+
+    // Canonical verdict derived from the completed verification result.
+    const unsubVerdictReady = this.ipc.getApi()?.onVerificationVerdictReady(
+      (rawData: unknown) => {
+        const data = rawData as VerificationVerdictReadyPayload;
+        this._verdictsByResultId.update((current) => {
+          const next = new Map(current);
+          next.set(data.resultId, data.verdict);
+          return next;
+        });
+      }
+    ) ?? (() => { /* noop */ });
+    this.unsubscribes.push(unsubVerdictReady);
 
     // Verification error
     const unsubError = this.ipc.getApi()?.onVerificationError(

@@ -11,7 +11,13 @@ import {
   CommandDeletePayloadSchema,
   CommandExecutePayloadSchema,
   CommandListPayloadSchema,
+  CommandResolvePayloadSchema,
   CommandUpdatePayloadSchema,
+  UsageRecordPayloadSchema,
+  UsageSnapshotPayloadSchema,
+  WorkspaceIsGitRepoPayloadSchema,
+} from '@contracts/schemas/command';
+import {
   PlanModeApprovePayloadSchema,
   PlanModeEnterPayloadSchema,
   PlanModeExitPayloadSchema,
@@ -20,7 +26,10 @@ import {
 } from '@contracts/schemas/instance';
 import { getCommandManager } from '../../commands/command-manager';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
+import { isGitRepository } from '../../git/git-probe-service';
 import { InstanceManager } from '../../instance/instance-manager';
+import { getUsageTracker } from '../../usage/usage-tracker';
+import { evaluateApplicability } from '../../../shared/utils/command-applicability';
 
 export function registerCommandHandlers(
   instanceManager: InstanceManager
@@ -44,7 +53,7 @@ export function registerCommandHandlers(
           payload ?? {},
           'COMMAND_LIST'
         );
-        const allCommands = await commands.getAllCommands(validated.workingDirectory);
+        const allCommands = await commands.getAllCommandsSnapshot(validated.workingDirectory);
         return {
           success: true,
           data: allCommands
@@ -54,6 +63,33 @@ export function registerCommandHandlers(
           success: false,
           error: {
             code: 'COMMAND_LIST_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.COMMAND_RESOLVE,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          CommandResolvePayloadSchema,
+          payload,
+          'COMMAND_RESOLVE'
+        );
+        const resolved = await commands.resolveCommand(validated.input, validated.workingDirectory);
+        return { success: true, data: resolved };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'COMMAND_RESOLVE_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }
@@ -75,18 +111,44 @@ export function registerCommandHandlers(
           payload,
           'COMMAND_EXECUTE'
         );
+        const instance = instanceManager.getInstance(validated.instanceId);
+        const workingDirectory = instance?.workingDirectory;
         const resolved = commands.executeCommand(
           validated.commandId,
           validated.args || [],
-          instanceManager.getInstance(validated.instanceId)?.workingDirectory,
+          workingDirectory,
         );
         const executed = await resolved;
         if (!executed) {
+          const snapshot = await commands.getAllCommandsSnapshot(workingDirectory);
           return {
             success: false,
             error: {
               code: 'COMMAND_NOT_FOUND',
               message: `Command ${validated.commandId} not found`,
+              timestamp: Date.now(),
+              candidates: snapshot.commands.slice(0, 5).map((command) => command.name)
+            } as never
+          };
+        }
+
+        const gitStatus = validated.context?.isGitRepo ??
+          (executed.command.applicability?.requiresGitRepo && workingDirectory
+            ? await isGitRepository(workingDirectory)
+            : undefined);
+        const applicability = evaluateApplicability(executed.command, {
+          provider: instance?.provider,
+          instanceStatus: instance?.status,
+          workingDirectory,
+          isGitRepo: gitStatus,
+          featureFlags: validated.context?.featureFlags,
+        });
+        if (!applicability.eligible) {
+          return {
+            success: false,
+            error: {
+              code: 'COMMAND_INELIGIBLE',
+              message: applicability.reason || 'Command is not available in this context',
               timestamp: Date.now()
             }
           };
@@ -95,6 +157,9 @@ export function registerCommandHandlers(
         // Special handling for /compact command — route to compaction coordinator
         if (executed.execution.type === 'compact') {
           const result = await getCompactionCoordinator().compactInstance(validated.instanceId);
+          if (result.success) {
+            getUsageTracker().record('command', executed.command.id, workingDirectory);
+          }
           return {
             success: result.success,
             data: result,
@@ -107,6 +172,7 @@ export function registerCommandHandlers(
         }
 
         if (executed.execution.type === 'ui') {
+          getUsageTracker().record('command', executed.command.id, workingDirectory);
           return {
             success: true,
             data: executed
@@ -118,6 +184,7 @@ export function registerCommandHandlers(
           validated.instanceId,
           executed.resolvedPrompt
         );
+        getUsageTracker().record('command', executed.command.id, workingDirectory);
 
         return {
           success: true,
@@ -128,6 +195,85 @@ export function registerCommandHandlers(
           success: false,
           error: {
             code: 'COMMAND_EXECUTE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.USAGE_RECORD,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(UsageRecordPayloadSchema, payload, 'USAGE_RECORD');
+        const entry = getUsageTracker().record(
+          validated.kind,
+          validated.id,
+          validated.context,
+          validated.timestamp,
+        );
+        return { success: true, data: entry };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'USAGE_RECORD_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.USAGE_SNAPSHOT,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(UsageSnapshotPayloadSchema, payload ?? {}, 'USAGE_SNAPSHOT');
+        return { success: true, data: getUsageTracker().snapshot(validated.kind) };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'USAGE_SNAPSHOT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_IS_GIT_REPO,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          WorkspaceIsGitRepoPayloadSchema,
+          payload,
+          'WORKSPACE_IS_GIT_REPO'
+        );
+        return {
+          success: true,
+          data: await isGitRepository(validated.workingDirectory),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'WORKSPACE_IS_GIT_REPO_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

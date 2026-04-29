@@ -90,6 +90,16 @@ export interface WorkflowExecution {
   agentInvocations: number;
   totalTokens: number;
   totalCost: number;
+
+  /**
+   * Set when this execution was auto-completed by the transition policy
+   * (for example when another workflow superseded it). Additive; absent means
+   * manual completion or in-progress.
+   */
+  transitionAutoCompletion?: {
+    reason: 'superseded' | 'manual-cancel' | 'restore-cleanup';
+    supersededBy?: string;
+  };
 }
 
 export interface PhaseData {
@@ -172,4 +182,58 @@ export function getPhaseProgress(execution: WorkflowExecution, template: Workflo
     total,
     percentage: Math.round(((currentIndex + 1) / total) * 100),
   };
+}
+
+/**
+ * Source of a workflow start request. The transition policy uses this to apply
+ * stricter rules for suggestions and background automation than explicit user
+ * starts.
+ */
+export type WorkflowStartSource =
+  | 'slash-command'
+  | 'nl-suggestion'
+  | 'automation'
+  | 'manual-ui'
+  | 'restore';
+
+/**
+ * Outcome of evaluating a requested workflow start against current state.
+ */
+export type WorkflowTransitionPolicy =
+  | { kind: 'allow' }
+  | { kind: 'allowWithOverlap'; maxConcurrent?: number }
+  | { kind: 'autoCompleteCurrent' }
+  | { kind: 'deny'; reason: string; suggestedAction?: string };
+
+export interface WorkflowTransitionInputs {
+  current: {
+    execution: WorkflowExecution;
+    template: WorkflowTemplate;
+  } | null;
+  requested: {
+    template: WorkflowTemplate;
+    instanceId: string;
+  };
+  source: WorkflowStartSource;
+}
+
+export type NlWorkflowSize = 'small' | 'medium' | 'large';
+export type NlWorkflowSignal =
+  | 'mentions-multiple-files'
+  | 'mentions-three-or-more-children'
+  | 'workflow-keyword-review'
+  | 'workflow-keyword-audit'
+  | 'workflow-keyword-refactor'
+  | 'workflow-keyword-debug'
+  | 'workflow-keyword-feature'
+  | 'orchestration-mention'
+  | 'no-orchestration-mention';
+
+export interface NlWorkflowSuggestion {
+  size: NlWorkflowSize;
+  surface: 'slash-command' | 'template-confirm' | 'preflight-modal';
+  suggestedRef: string | null;
+  matchedSignals: NlWorkflowSignal[];
+  estimatedChildCount?: number;
+  estimatedProviderImpact?: 'none' | 'low' | 'medium' | 'high';
 }

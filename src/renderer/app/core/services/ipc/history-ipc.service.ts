@@ -61,6 +61,49 @@ export class HistoryIpcService {
     return this.api.restoreHistory(entryId, workingDirectory);
   }
 
+  async searchHistoryAdvanced(payload: {
+    searchQuery?: string;
+    snippetQuery?: string;
+    workingDirectory?: string;
+    projectScope?: 'current' | 'all' | 'none';
+    source?: string | string[];
+    timeRange?: { from?: number; to?: number };
+    page?: { pageSize: number; pageNumber: number };
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.searchHistoryAdvanced(payload);
+  }
+
+  async expandHistorySnippets(entryId: string, query: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.expandHistorySnippets(entryId, query);
+  }
+
+  async resumeLatest(workingDirectory?: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resumeLatest(workingDirectory);
+  }
+
+  async resumeById(entryId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resumeById(entryId);
+  }
+
+  async resumeSwitchToLive(instanceId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resumeSwitchToLive(instanceId);
+  }
+
+  async resumeForkNew(entryId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resumeForkNew(entryId);
+  }
+
+  async resumeRestoreFallback(entryId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resumeRestoreFallback(entryId);
+  }
+
   /**
    * Clear all history
    */

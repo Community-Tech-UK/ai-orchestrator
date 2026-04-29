@@ -18,6 +18,16 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
     },
 
     /**
+     * Resolve a slash command string into exact, alias, fuzzy, ambiguous, or none.
+     */
+    resolveCommand: (payload: {
+      input: string;
+      workingDirectory?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.COMMAND_RESOLVE, payload);
+    },
+
+    /**
      * Execute a command
      */
     executeCommand: (payload: {
@@ -60,6 +70,39 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
      */
     deleteCommand: (commandId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.COMMAND_DELETE, { commandId });
+    },
+
+    recordUsage: (payload: {
+      kind: 'command' | 'session' | 'model' | 'prompt' | 'resume';
+      id: string;
+      context?: string;
+      timestamp?: number;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.USAGE_RECORD, payload);
+    },
+
+    getUsageSnapshot: (payload?: {
+      kind?: 'command' | 'session' | 'model' | 'prompt' | 'resume';
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.USAGE_SNAPSHOT, payload);
+    },
+
+    isWorkspaceGitRepo: (payload: {
+      workingDirectory: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKSPACE_IS_GIT_REPO, payload);
+    },
+
+    orchestrationGetChildDiagnosticBundle: (payload: {
+      childInstanceId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.ORCHESTRATION_GET_CHILD_DIAGNOSTIC_BUNDLE, payload);
+    },
+
+    orchestrationSummarizeChildren: (payload: {
+      parentInstanceId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.ORCHESTRATION_SUMMARIZE_CHILDREN, payload);
     },
 
     // ============================================
@@ -223,6 +266,7 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
       instanceId: string;
       templateId: string;
       config?: Record<string, unknown>;
+      source?: 'slash-command' | 'nl-suggestion' | 'automation' | 'manual-ui' | 'restore';
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKFLOW_START, payload);
     },
@@ -741,6 +785,15 @@ export function createOrchestrationDomain(ipcRenderer: IpcRenderer, ch: typeof I
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.VERIFICATION_COMPLETE, handler);
       return () => ipcRenderer.removeListener(ch.VERIFICATION_COMPLETE, handler);
+    },
+
+    /**
+     * Listen for verification verdict-ready events
+     */
+    onVerificationVerdictReady: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.VERIFICATION_VERDICT_READY, handler);
+      return () => ipcRenderer.removeListener(ch.VERIFICATION_VERDICT_READY, handler);
     },
 
     /**

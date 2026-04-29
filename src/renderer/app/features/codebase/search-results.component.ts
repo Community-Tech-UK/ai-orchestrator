@@ -16,8 +16,10 @@ import {
   signal,
   computed,
   ChangeDetectionStrategy,
+  inject,
 } from '@angular/core';
 import type { HybridSearchResult } from '../../../../shared/types/codebase.types';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 @Component({
   selector: 'app-search-results',
@@ -354,6 +356,8 @@ import type { HybridSearchResult } from '../../../../shared/types/codebase.types
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchResultsComponent {
+  private clipboard = inject(CLIPBOARD_SERVICE);
+
   /** Search results to display */
   results = input<HybridSearchResult[]>([]);
 
@@ -397,11 +401,11 @@ export class SearchResultsComponent {
   }
 
   async copyContent(result: HybridSearchResult): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(result.content);
+    const copyResult = await this.clipboard.copyText(result.content, { label: 'search result' });
+    if (copyResult.ok) {
       this.copySuccess.emit('Copied to clipboard');
-    } catch {
-      console.error('Failed to copy to clipboard');
+    } else {
+      console.error('Failed to copy to clipboard:', copyResult.reason, copyResult.cause);
     }
   }
 

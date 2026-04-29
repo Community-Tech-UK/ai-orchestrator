@@ -17,6 +17,7 @@
 
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
+import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import type {
   ProviderId,
   ProviderQuotaAlert,
@@ -49,10 +50,22 @@ export class ProviderQuotaService extends EventEmitter {
   private alertedKeys = new Set<string>();
   /** Last `used` value seen per (provider, windowId), for window-reset detection. */
   private lastUsed = new Map<string, number>();
+  private isPaused = getPauseCoordinator().isPaused();
+  private activeAborters = new Set<AbortController>();
+  private readonly handlePause = (): void => {
+    this.isPaused = true;
+    for (const aborter of this.activeAborters) aborter.abort();
+  };
+  private readonly handleResume = (): void => {
+    this.isPaused = false;
+  };
 
   constructor() {
     super();
     for (const p of PROVIDERS) this.snapshots.set(p, null);
+    const pauseCoordinator = getPauseCoordinator();
+    pauseCoordinator.on('pause', this.handlePause);
+    pauseCoordinator.on('resume', this.handleResume);
   }
 
   registerProbe(probe: ProviderQuotaProbe): void {
@@ -94,12 +107,17 @@ export class ProviderQuotaService extends EventEmitter {
 
   /** Active path: invoke the registered probe. */
   async refresh(provider: ProviderId): Promise<ProviderQuotaSnapshot | null> {
+    if (this.isPaused || getPauseCoordinator().isPaused()) {
+      return null;
+    }
+
     const probe = this.probes.get(provider);
     if (!probe) {
       logger.debug(`No probe registered for ${provider}`);
       return null;
     }
     const ac = new AbortController();
+    this.activeAborters.add(ac);
     try {
       const result = await probe.probe({ signal: ac.signal });
       if (result == null) return null;
@@ -107,6 +125,10 @@ export class ProviderQuotaService extends EventEmitter {
       this.storeSnapshot(provider, full);
       return full;
     } catch (err) {
+      if (ac.signal.aborted && (this.isPaused || getPauseCoordinator().isPaused())) {
+        return null;
+      }
+
       const errSnap: ProviderQuotaSnapshot = {
         provider,
         takenAt: Date.now(),
@@ -118,6 +140,8 @@ export class ProviderQuotaService extends EventEmitter {
       this.storeSnapshot(provider, errSnap);
       logger.warn(`Quota probe for ${provider} failed: ${errSnap.error}`);
       return errSnap;
+    } finally {
+      this.activeAborters.delete(ac);
     }
   }
 
@@ -159,7 +183,12 @@ export class ProviderQuotaService extends EventEmitter {
     this.probes.clear();
     this.alertedKeys.clear();
     this.lastUsed.clear();
+    for (const aborter of this.activeAborters) aborter.abort();
+    this.activeAborters.clear();
     for (const p of PROVIDERS) this.snapshots.set(p, null);
+    const pauseCoordinator = getPauseCoordinator();
+    pauseCoordinator.removeListener('pause', this.handlePause);
+    pauseCoordinator.removeListener('resume', this.handleResume);
     this.removeAllListeners();
   }
 

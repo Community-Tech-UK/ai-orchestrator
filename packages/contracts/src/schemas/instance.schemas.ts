@@ -159,40 +159,17 @@ export const UserActionRequestPayloadSchema = z.object({
 
 // ============ Commands ============
 
-const CommandIdSchema = z.string().min(1).max(100);
-
-export const CommandListPayloadSchema = z.object({
-  workingDirectory: z.string().min(1).max(10000).optional(),
-});
-
-export const CommandExecutePayloadSchema = z.object({
-  instanceId: InstanceIdSchema,
-  commandId: CommandIdSchema,
-  args: z.array(z.string().max(10000)).max(50).optional(),
-});
-
-export const CommandCreatePayloadSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().min(1).max(1000),
-  template: z.string().min(1).max(100000),
-  hint: z.string().max(500).optional(),
-  shortcut: z.string().max(50).optional(),
-});
-
-export const CommandUpdatePayloadSchema = z.object({
-  commandId: CommandIdSchema,
-  updates: z.object({
-    name: z.string().min(1).max(200).optional(),
-    description: z.string().min(1).max(1000).optional(),
-    template: z.string().min(1).max(100000).optional(),
-    hint: z.string().max(500).optional(),
-    shortcut: z.string().max(50).optional(),
-  }),
-});
-
-export const CommandDeletePayloadSchema = z.object({
-  commandId: CommandIdSchema,
-});
+export {
+  CommandCreatePayloadSchema,
+  CommandDeletePayloadSchema,
+  CommandExecutePayloadSchema,
+  CommandListPayloadSchema,
+  CommandResolvePayloadSchema,
+  CommandUpdatePayloadSchema,
+  UsageRecordPayloadSchema,
+  UsageSnapshotPayloadSchema,
+  WorkspaceIsGitRepoPayloadSchema,
+} from './command.schemas';
 
 // ============ Plan Mode ============
 
@@ -225,3 +202,34 @@ export const MemoryLoadHistoryPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   limit: z.number().int().min(1).max(10000).optional(),
 });
+
+// ============ Queue Persistence ============
+
+export const PersistedQueuedMessageSchema = z.object({
+  message: z.string(),
+  hadAttachmentsDropped: z.boolean(),
+  retryCount: z.number().int().min(0).max(10).optional(),
+  seededAlready: z.boolean().optional(),
+  kind: z.enum(['queue', 'steer']).optional(),
+});
+
+export const InstanceQueueSavePayloadSchema = z.object({
+  instanceId: z.string(),
+  queue: z.array(PersistedQueuedMessageSchema),
+});
+
+export const InstanceQueueLoadAllResponseSchema = z.object({
+  queues: z.record(z.string(), z.array(PersistedQueuedMessageSchema)),
+});
+
+export const InstanceQueueInitialPromptPayloadSchema = z.object({
+  instanceId: z.string(),
+  message: z.string(),
+  attachments: z.array(FileAttachmentSchema).optional(),
+  seededAlready: z.literal(true),
+});
+
+export type PersistedQueuedMessage = z.infer<typeof PersistedQueuedMessageSchema>;
+export type InstanceQueueSavePayload = z.infer<typeof InstanceQueueSavePayloadSchema>;
+export type InstanceQueueLoadAllResponse = z.infer<typeof InstanceQueueLoadAllResponseSchema>;
+export type InstanceQueueInitialPromptPayload = z.infer<typeof InstanceQueueInitialPromptPayloadSchema>;

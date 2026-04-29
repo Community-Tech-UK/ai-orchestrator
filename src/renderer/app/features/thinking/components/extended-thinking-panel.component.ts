@@ -14,7 +14,9 @@ import {
   signal,
   computed,
   ChangeDetectionStrategy,
+  inject,
 } from '@angular/core';
+import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
 
 export interface ThinkingBlock {
   id: string;
@@ -512,6 +514,8 @@ export interface ThinkingSession {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExtendedThinkingPanelComponent {
+  private clipboard = inject(CLIPBOARD_SERVICE);
+
   /** Thinking session data */
   session = input<ThinkingSession | null>(null);
 
@@ -561,12 +565,15 @@ export class ExtendedThinkingPanelComponent {
     this.expandedBlocks.set(new Set());
   }
 
-  copyThinking(): void {
+  async copyThinking(): Promise<void> {
     const s = this.session();
     if (!s) return;
 
     const text = s.blocks.map(b => `[Block ${b.depth}]\n${b.content}`).join('\n\n');
-    navigator.clipboard.writeText(text);
+    const result = await this.clipboard.copyText(text, { label: 'thinking block' });
+    if (!result.ok) {
+      console.error('Failed to copy thinking blocks:', result.reason, result.cause);
+    }
   }
 
   getDepthHeight(depth: number): number {
