@@ -15,6 +15,11 @@ import { PauseStore } from '../pause/pause.store';
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
 
+interface SendInputImmediateOptions {
+  skipUserBubble?: boolean;
+  queuedMetadata?: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'>;
+}
+
 function isTransientQueueStatus(status: InstanceStatus): boolean {
   return status === 'busy'
     || status === 'processing'
@@ -331,12 +336,18 @@ export class InstanceMessagingStore {
     instanceId: string,
     message: string,
     files?: File[],
-    retryCount = 0
+    retryCount = 0,
+    options: SendInputImmediateOptions = {}
   ): Promise<void> {
     const previousStatus = this.stateService.getInstance(instanceId)?.status;
 
     if (this.pauseStore.isPaused()) {
-      this.enqueueMessageFront(instanceId, { message, files, retryCount });
+      this.enqueueMessageFront(instanceId, {
+        message,
+        files,
+        retryCount,
+        ...this.createQueuedMetadata(options),
+      });
       return;
     }
 
@@ -379,7 +390,12 @@ export class InstanceMessagingStore {
       });
     }
 
-    const result = await this.ipc.sendInput(instanceId, message, attachments, retryCount > 0);
+    const result = await this.ipc.sendInput(
+      instanceId,
+      message,
+      attachments,
+      retryCount > 0 || options.skipUserBubble === true
+    );
 
     // If send failed, decide whether to retry or drop
     if (!result.success) {
@@ -433,7 +449,15 @@ export class InstanceMessagingStore {
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
         const existingQueue = newMap.get(instanceId) || [];
-        newMap.set(instanceId, [{ message, files, retryCount: nextRetryCount }, ...existingQueue]);
+        newMap.set(instanceId, [
+          {
+            message,
+            files,
+            retryCount: nextRetryCount,
+            ...this.createQueuedMetadata(options),
+          },
+          ...existingQueue,
+        ]);
         return newMap;
       });
 
@@ -487,7 +511,10 @@ export class InstanceMessagingStore {
       // Use setTimeout to avoid state update conflicts
       const retryCount = nextMessage.retryCount ?? 0;
       setTimeout(() => {
-        this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, retryCount);
+        this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, retryCount, {
+          skipUserBubble: nextMessage.seededAlready === true,
+          queuedMetadata: this.pickQueuedMetadata(nextMessage),
+        });
       }, 100);
     }
   }
@@ -581,6 +608,42 @@ export class InstanceMessagingStore {
     }
     this.interruptRequests.delete(instanceId);
     return false;
+  }
+
+  private createQueuedMetadata(
+    options: SendInputImmediateOptions
+  ): Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> {
+    const metadata: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> = {};
+
+    if (options.queuedMetadata?.kind) {
+      metadata.kind = options.queuedMetadata.kind;
+    }
+    if (options.queuedMetadata?.hadAttachmentsDropped === true) {
+      metadata.hadAttachmentsDropped = true;
+    }
+    if (options.skipUserBubble === true || options.queuedMetadata?.seededAlready === true) {
+      metadata.seededAlready = true;
+    }
+
+    return metadata;
+  }
+
+  private pickQueuedMetadata(
+    message: QueuedMessage
+  ): Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> {
+    const metadata: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> = {};
+
+    if (message.kind) {
+      metadata.kind = message.kind;
+    }
+    if (message.hadAttachmentsDropped === true) {
+      metadata.hadAttachmentsDropped = true;
+    }
+    if (message.seededAlready === true) {
+      metadata.seededAlready = true;
+    }
+
+    return metadata;
   }
 
   /**

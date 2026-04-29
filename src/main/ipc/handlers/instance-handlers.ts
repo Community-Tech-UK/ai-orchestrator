@@ -922,6 +922,17 @@ export function registerInstanceHandlers(deps: {
           'INPUT_REQUIRED_RESPOND'
         );
 
+        if (getPauseCoordinator().isPaused()) {
+          return {
+            success: false,
+            error: {
+              code: 'ORCHESTRATOR_PAUSED',
+              message: 'Input response refused while orchestrator is paused',
+              timestamp: Date.now(),
+            },
+          };
+        }
+
         // Route deferred permission responses to the resume flow instead of stdin
         if (validatedPayload.metadata?.['type'] === 'deferred_permission') {
           const approved = validatedPayload.decisionAction === 'allow';
@@ -1060,17 +1071,6 @@ export function registerInstanceHandlers(deps: {
               rulePattern: grantResult.ok ? grantResult.rulePattern : undefined,
               alreadyExisted: grantResult.ok ? grantResult.alreadyExisted : undefined,
               respawned,
-            },
-          };
-        }
-
-        if (getPauseCoordinator().isPaused()) {
-          return {
-            success: false,
-            error: {
-              code: 'ORCHESTRATOR_PAUSED',
-              message: 'Input response refused while orchestrator is paused',
-              timestamp: Date.now(),
             },
           };
         }

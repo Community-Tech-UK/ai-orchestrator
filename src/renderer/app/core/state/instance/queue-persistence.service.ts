@@ -53,9 +53,9 @@ export class QueuePersistenceService {
   }
 
   subscribeToInitialPrompts(): void {
-    if (this.initialPromptUnsubscribe || !this.canPersist()) return;
+    if (this.initialPromptUnsubscribe || !this.isPauseFeatureEnabled()) return;
     this.initialPromptUnsubscribe = this.ipc.onInstanceQueueInitialPrompt((payload) => {
-      if (!this.canPersist()) return;
+      if (!this.isPauseFeatureEnabled()) return;
       this.stateService.messageQueue.update((current) => {
         const next = new Map(current);
         const queue = next.get(payload.instanceId) ?? [];
@@ -110,11 +110,11 @@ export class QueuePersistenceService {
   }
 
   private canPersist(): boolean {
-    return (
-      this.settings.isInitialized() &&
-      this.settings.get('pauseFeatureEnabled') &&
-      this.settings.get('persistSessionContent')
-    );
+    return this.isPauseFeatureEnabled() && this.settings.get('persistSessionContent');
+  }
+
+  private isPauseFeatureEnabled(): boolean {
+    return this.settings.isInitialized() && this.settings.get('pauseFeatureEnabled');
   }
 
   private toPersisted(entry: QueuedMessage): PersistedQueuedMessage {

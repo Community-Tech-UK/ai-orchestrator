@@ -5,6 +5,8 @@ import { InstanceListStore } from './instance-list.store';
 import { InstanceMessagingStore } from './instance-messaging.store';
 import { InstanceStateService } from './instance-state.service';
 import type { Instance } from './instance.types';
+import { PauseStore } from '../pause/pause.store';
+import type { PauseStatePayload } from '@contracts/schemas/pause';
 
 function createInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -127,6 +129,74 @@ describe('InstanceMessagingStore', () => {
 
     expect(ipcMock.sendInput).toHaveBeenCalledTimes(2);
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+  });
+
+  it('replays seeded queued initial prompts without adding a duplicate user bubble', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance());
+    currentStateService.messageQueue.set(
+      new Map([
+        [
+          'inst-1',
+          [
+            {
+              message: 'Seeded prompt',
+              seededAlready: true,
+            },
+          ],
+        ],
+      ])
+    );
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+
+    currentStore.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'Seeded prompt', undefined, true);
+  });
+
+  it('preserves seeded queued metadata when a replay races with a paused state', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    const pauseStore = TestBed.inject(PauseStore);
+    const pausedState: PauseStatePayload = {
+      isPaused: true,
+      reasons: ['user'],
+      pausedAt: Date.now(),
+      lastChange: Date.now(),
+    };
+    currentStateService.addInstance(createInstance());
+    currentStateService.messageQueue.set(
+      new Map([
+        [
+          'inst-1',
+          [
+            {
+              message: 'Seeded prompt',
+              seededAlready: true,
+              hadAttachmentsDropped: true,
+            },
+          ],
+        ],
+      ])
+    );
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+
+    currentStore.processMessageQueue('inst-1');
+    pauseStore.applyState(pausedState);
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      {
+        message: 'Seeded prompt',
+        files: undefined,
+        retryCount: 0,
+        hadAttachmentsDropped: true,
+        seededAlready: true,
+      },
+    ]);
   });
 
   it('queues steer messages ahead of passive queued messages and interrupts once', async () => {

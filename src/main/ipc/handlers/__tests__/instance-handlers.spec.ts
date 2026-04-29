@@ -47,6 +47,7 @@ vi.mock('../../../logging/logger', () => ({
 const mockSettingsGet = vi.fn().mockReturnValue(undefined);
 const mockClearPrompt = vi.fn();
 const mockGrant = vi.fn();
+const mockPauseIsPaused = vi.fn(() => false);
 
 vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
@@ -80,6 +81,12 @@ vi.mock('../../../remote/observer-server', () => ({
 vi.mock('../../../security/self-permission-granter', () => ({
   getSelfPermissionGranter: () => ({
     grant: mockGrant,
+  }),
+}));
+
+vi.mock('../../../pause/pause-coordinator', () => ({
+  getPauseCoordinator: () => ({
+    isPaused: mockPauseIsPaused,
   }),
 }));
 
@@ -156,6 +163,7 @@ describe('instance-handlers', () => {
     mockSettingsGet.mockReturnValue(undefined);
     mockGrant.mockReset();
     mockClearPrompt.mockReset();
+    mockPauseIsPaused.mockReturnValue(false);
 
     mockInstanceManager = makeMockInstanceManager();
 
@@ -644,6 +652,25 @@ describe('instance-handlers', () => {
       expect(mockClearPrompt).toHaveBeenCalledWith('req-defer-1');
     });
 
+    it('rejects deferred permission responses while paused', async () => {
+      mockPauseIsPaused.mockReturnValue(true);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-56',
+        requestId: 'req-defer-paused',
+        response: 'approved',
+        decisionAction: 'allow',
+        decisionScope: 'session',
+        metadata: { type: 'deferred_permission' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('ORCHESTRATOR_PAUSED');
+      expect(mockInstanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
+      expect(mockClearPrompt).not.toHaveBeenCalled();
+    });
+
     it('records allow/always only when the self-permission grant succeeds', async () => {
       mockGrant.mockReturnValue({
         ok: true,
@@ -731,6 +758,45 @@ describe('instance-handlers', () => {
       );
       expect(mockInstanceManager.respawnAfterUnexpectedExit).not.toHaveBeenCalled();
       expect(mockClearPrompt).toHaveBeenCalledWith('req-self-2');
+    });
+
+    it('rejects permission denial responses while paused before self-grant work', async () => {
+      mockPauseIsPaused.mockReturnValue(true);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-57',
+        requestId: 'req-self-paused',
+        response: 'allow',
+        decisionAction: 'allow',
+        decisionScope: 'always',
+        metadata: {
+          type: 'permission_denial',
+          tool_name: 'Edit',
+          full_path: '/Users/test/.claude/settings.json',
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('ORCHESTRATOR_PAUSED');
+      expect(mockGrant).not.toHaveBeenCalled();
+      expect(mockInstanceManager.respawnAfterUnexpectedExit).not.toHaveBeenCalled();
+      expect(mockClearPrompt).not.toHaveBeenCalled();
+    });
+
+    it('rejects plain input-required responses while paused', async () => {
+      mockPauseIsPaused.mockReturnValue(true);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-55',
+        requestId: 'req-input-paused',
+        response: 'y',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('ORCHESTRATOR_PAUSED');
+      expect(mockInstanceManager.sendInputResponse).not.toHaveBeenCalled();
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).not.toHaveBeenCalled();
+      expect(mockClearPrompt).not.toHaveBeenCalled();
     });
 
     it('rejects missing instanceId with structured error', async () => {

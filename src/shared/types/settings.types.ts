@@ -164,7 +164,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pauseFeatureEnabled: true,
   pauseOnVpnEnabled: true,
   pauseVpnInterfacePattern: '^(utun[0-9]+|ipsec[0-9]+|ppp[0-9]+|tap[0-9]+)$',
-  pauseTreatExistingVpnAsActive: false,
+  pauseTreatExistingVpnAsActive: true,
   pauseDetectorDiagnostics: false,
   pauseReachabilityProbeHost: '',
   pauseReachabilityProbeMode: 'disabled',
