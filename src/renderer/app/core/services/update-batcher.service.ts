@@ -21,6 +21,14 @@ export interface StateUpdate {
     files: Record<string, { path: string; status: 'added' | 'modified' | 'deleted'; added: number; deleted: number }>;
   } | null;
   displayName?: string;
+  /**
+   * Resolved model identifier emitted from the main process after the
+   * lifecycle's Phase 2 model resolution completes. The IPC response from
+   * `INSTANCE_CREATE` returns at Phase 1 with `currentModel: undefined`,
+   * so the renderer relies on this field to learn the resolved model
+   * without polling. Optional because most state updates don't change it.
+   */
+  currentModel?: string;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;
@@ -66,6 +74,10 @@ export class UpdateBatcherService {
       // Preserve executionLocation if the new update doesn't carry it
       executionLocation: update.executionLocation ?? existing?.executionLocation,
       activityState: update.activityState ?? existing?.activityState,
+      // Preserve currentModel if the new update doesn't carry it. Phase 2 of
+      // createInstance emits a single update with this field; intervening
+      // status-only updates must not wipe it out.
+      currentModel: update.currentModel ?? existing?.currentModel,
       providerSessionId: update.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: update.restartEpoch ?? existing?.restartEpoch,
       recoveryMethod: update.recoveryMethod ?? existing?.recoveryMethod,

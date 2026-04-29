@@ -225,6 +225,7 @@ export interface LifecycleDependencies {
       historyThreadId?: string;
     },
     activityState?: import('../../shared/types/activity.types').ActivityState,
+    currentModel?: string,
   ) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;
@@ -576,8 +577,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       getInstance: (id) => this.deps.getInstance(id),
       forEachInstance: (cb) => this.deps.forEachInstance(cb),
       getAdapter: (id) => this.deps.getAdapter(id),
-      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState) =>
-        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState),
+      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) =>
+        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel),
       deleteAdapter: (id) => { this.deps.deleteAdapter(id); },
       transitionState: (instance, newState) => this.transitionState(instance, newState),
       terminateInstance: (id, auto) => this.terminateInstance(id, auto),
@@ -590,8 +591,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       getAdapter: (id) => this.deps.getAdapter(id),
       setAdapter: (id, adapter) => this.deps.setAdapter(id, adapter),
       deleteAdapter: (id) => { this.deps.deleteAdapter(id); },
-      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState) =>
-        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState),
+      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) =>
+        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel),
       markInterrupted: (id) => this.deps.markInterrupted(id),
       clearInterrupted: (id) => this.deps.clearInterrupted(id),
       addToOutputBuffer: (instance, message) => this.deps.addToOutputBuffer(instance, message),
@@ -1303,7 +1304,21 @@ export class InstanceLifecycleManager extends EventEmitter {
 
           // The warm adapter is already spawned; mark the instance as idle.
           this.transitionState(instance, 'idle');
-          this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage);
+          // Phase 2 has now resolved the model. Announce it on the same
+          // update so the renderer can stop falling back to availableModels[0]
+          // (which is `auto` for Copilot's dynamic list).
+          this.deps.queueUpdate(
+            instance.id,
+            'idle',
+            instance.contextUsage,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            instance.currentModel,
+          );
           this.deps.startStuckTracking?.(instance.id);
           logger.info('Warm-start instance ready', { instanceId: instance.id });
 
@@ -1393,7 +1408,21 @@ export class InstanceLifecycleManager extends EventEmitter {
               adapterWithDetector.setActivityDetector(detector);
             }
             this.transitionState(instance, 'idle');
-            this.deps.queueUpdate(instance.id, 'idle', instance.contextUsage, undefined, undefined, undefined, instance.executionLocation);
+            // Phase 2 has now resolved the model. Announce it on the same
+            // update so the renderer can stop falling back to availableModels[0]
+            // (which is `auto` for Copilot's dynamic list).
+            this.deps.queueUpdate(
+              instance.id,
+              'idle',
+              instance.contextUsage,
+              undefined,
+              undefined,
+              undefined,
+              instance.executionLocation,
+              undefined,
+              undefined,
+              instance.currentModel,
+            );
             this.deps.startStuckTracking?.(instance.id);
             logger.info('CLI spawned successfully', { pid, instanceId: instance.id });
 
@@ -1795,8 +1824,22 @@ export class InstanceLifecycleManager extends EventEmitter {
         getHibernationManager().markAwoken(instanceId);
 
         this.transitionState(instance, 'ready');
-        // Include displayName so the renderer picks up any name restored from session state
-        this.deps.queueUpdate(instanceId, 'ready', instance.contextUsage, undefined, instance.displayName);
+        // Include displayName so the renderer picks up any name restored from session state.
+        // Also propagate currentModel — wake restores it from saved session state on
+        // line 1615 (instance.currentModel = sessionState.modelId), and like Phase 2 of
+        // createInstance, the renderer would otherwise miss the change.
+        this.deps.queueUpdate(
+          instanceId,
+          'ready',
+          instance.contextUsage,
+          undefined,
+          instance.displayName,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          instance.currentModel,
+        );
         logger.info('Instance woken successfully', { instanceId, pid });
       } catch (error) {
         this.transitionState(instance, 'failed');

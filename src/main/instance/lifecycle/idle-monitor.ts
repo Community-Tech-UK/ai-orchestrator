@@ -57,6 +57,7 @@ type QueueUpdate = (
     historyThreadId?: string;
   },
   activityState?: ActivityState,
+  currentModel?: string,
 ) => void;
 
 export interface IdleMonitorDeps {

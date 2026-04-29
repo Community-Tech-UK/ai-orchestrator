@@ -22,7 +22,22 @@ export interface AppSettings {
   defaultYoloMode: boolean;
   defaultWorkingDirectory: string;
   defaultCli: CliType;
-  defaultModel: string; // Model to use for all providers (passed via --model flag)
+  /**
+   * Last-selected model when no per-provider memory exists. Kept for
+   * backward compatibility with existing reads; the source of truth for
+   * "what model should this provider start with" is `defaultModelByProvider`.
+   * On changes, both fields are kept in sync for the currently-selected
+   * provider so older code paths that still read `defaultModel` keep working.
+   */
+  defaultModel: string;
+  /**
+   * Last-selected model per CLI provider, so switching from
+   * Claude → Copilot → Claude restores Claude's previous selection
+   * instead of forcing the user to re-pick. Keys are `CanonicalCliType`
+   * values minus 'auto' (auto has no concrete model). Missing entries
+   * fall back to `getPrimaryModelForProvider(provider)`.
+   */
+  defaultModelByProvider: Record<string, string>;
   theme: ThemeMode;
 
   // Orchestration
@@ -102,6 +117,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultWorkingDirectory: '',
   defaultCli: 'auto',
   defaultModel: 'opus',
+  defaultModelByProvider: {},
   theme: 'dark',
 
   // Orchestration

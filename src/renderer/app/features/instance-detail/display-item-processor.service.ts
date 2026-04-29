@@ -95,6 +95,7 @@ const ALWAYS_VISIBLE_SYSTEM_ACTIONS: ReadonlySet<string> = new Set([
   'unknown',
 ]);
 const SYSTEM_ACTION_LABELS: Readonly<Record<string, string>> = {
+  consensus_query: 'Consensus query',
   get_children: 'Active children polled',
   get_child_output: 'Child output fetched',
   get_child_summary: 'Child summary fetched',
@@ -478,17 +479,8 @@ export class DisplayItemProcessor {
           continue;
         }
 
-        if (
-          candidate?.type === 'message' &&
-          candidate.message?.type === 'system' &&
-          this.isGroupableOrchestration(candidate.message) &&
-          this.getOrchestrationAction(candidate.message) === action &&
-          item.message.timestamp - candidate.message.timestamp <= SYSTEM_GROUP_TIME_GAP_MS
-        ) {
-          this.dropTrailingEmptyMessages(candidateIdx);
-          this.promoteToSystemGroup(candidateIdx, candidate.message, item.message, item.bufferIndex);
-          continue;
-        }
+        this.items.push(this.createSystemEventGroup(item.message, item.bufferIndex));
+        continue;
       }
 
       this.items.push(item);
@@ -582,22 +574,20 @@ export class DisplayItemProcessor {
     group.bufferIndex = bufferIndex ?? group.bufferIndex;
   }
 
-  private promoteToSystemGroup(
-    indexToReplace: number,
-    firstMessage: OutputMessage,
-    secondMessage: OutputMessage,
+  private createSystemEventGroup(
+    message: OutputMessage,
     bufferIndex?: number,
-  ): void {
-    const action = this.getOrchestrationAction(firstMessage) ?? 'unknown';
+  ): DisplayItem {
+    const action = this.getOrchestrationAction(message) ?? 'unknown';
 
-    this.items[indexToReplace] = {
-      id: `sysgrp-${firstMessage.id}`,
+    return {
+      id: `sysgrp-${message.id}`,
       type: 'system-event-group',
-      systemEvents: [firstMessage, secondMessage],
+      systemEvents: [message],
       groupAction: action,
       groupLabel: resolveSystemActionLabel(action),
-      groupPreview: buildSystemGroupPreview(secondMessage.content),
-      timestamp: secondMessage.timestamp,
+      groupPreview: buildSystemGroupPreview(message.content),
+      timestamp: message.timestamp,
       bufferIndex,
     };
   }

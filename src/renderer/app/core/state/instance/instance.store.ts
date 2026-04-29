@@ -271,6 +271,10 @@ export class InstanceStore implements OnDestroy {
               : inst.metadata,
           diffStats:
             update.diffStats !== undefined ? update.diffStats ?? undefined : inst.diffStats,
+          // currentModel is populated by Phase 2 of createInstance (and any
+          // later lifecycle hop that resolves the model). Falls back to the
+          // existing value so status-only updates don't wipe it.
+          currentModel: update.currentModel ?? inst.currentModel,
           providerSessionId: update.providerSessionId ?? inst.providerSessionId,
           restartEpoch: update.restartEpoch ?? inst.restartEpoch,
           adapterGeneration: update.adapterGeneration ?? inst.adapterGeneration,
@@ -358,6 +362,8 @@ export class InstanceStore implements OnDestroy {
               : instance.metadata,
             diffStats:
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
+            // Same Phase 2 propagation rationale as in applyUpdate above.
+            currentModel: update.currentModel ?? instance.currentModel,
             providerSessionId: update.providerSessionId ?? instance.providerSessionId,
             restartEpoch: update.restartEpoch ?? instance.restartEpoch,
             adapterGeneration: update.adapterGeneration ?? instance.adapterGeneration,

@@ -220,6 +220,13 @@ export class InstanceStateManager extends EventEmitter {
       historyThreadId?: string;
     },
     activityState?: ActivityState,
+    /**
+     * Resolved model id from Phase 2 of `createInstance` (or any later
+     * lifecycle hop where the model changes). Most callers omit this; pass
+     * it explicitly when announcing a newly-resolved model so the renderer
+     * can stop falling back to `availableModels[0]?.id`.
+     */
+    currentModel?: string,
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
@@ -231,6 +238,7 @@ export class InstanceStateManager extends EventEmitter {
       displayName: displayName ?? existing?.displayName,
       error: error ?? existing?.error,
       executionLocation: executionLocation ?? existing?.executionLocation,
+      currentModel: currentModel ?? existing?.currentModel,
       providerSessionId: sessionState?.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: sessionState?.restartEpoch ?? existing?.restartEpoch,
       adapterGeneration: sessionState?.adapterGeneration ?? existing?.adapterGeneration,

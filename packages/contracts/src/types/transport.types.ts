@@ -69,6 +69,14 @@ export interface InstanceStateUpdatePayload {
   error?: ErrorInfo;
   diffStats?: SessionDiffStats | null;
   displayName?: string;
+  /**
+   * Resolved model identifier emitted from the main process after Phase 2 of
+   * `createInstance` finishes resolving the model. The IPC response from
+   * `INSTANCE_CREATE` returns at Phase 1 with `currentModel: undefined`,
+   * so the renderer relies on this field to learn the resolved model.
+   * Optional because most state updates don't change it.
+   */
+  currentModel?: string;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;

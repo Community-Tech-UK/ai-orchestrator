@@ -259,14 +259,15 @@ describe('DisplayItemProcessor', () => {
       expect(items[2].systemEvents?.map(message => message.id)).toEqual(['g3', 'g4']);
     });
 
-    it('leaves a single orchestration message ungrouped', () => {
+    it('collapses a single orchestration message into a system-event-group', () => {
       const items = processor.process([
         makeOrchMsg('get_children', 'lone poll', { id: 'g1', timestamp: 1_000 }),
       ]);
 
       expect(items).toHaveLength(1);
-      expect(items[0].type).toBe('message');
-      expect(items[0].message?.id).toBe('g1');
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].groupAction).toBe('get_children');
+      expect(items[0].systemEvents?.map(message => message.id)).toEqual(['g1']);
     });
 
     it('keeps different orchestration actions in separate groups', () => {
@@ -331,7 +332,25 @@ describe('DisplayItemProcessor', () => {
       const items = processor.process(msgs);
 
       expect(items).toHaveLength(3);
-      expect(items.every(item => item.type === 'message')).toBe(true);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[1].type).toBe('message');
+      expect(items[1].message?.id).toBe('a1');
+      expect(items[2].type).toBe('system-event-group');
+      expect(items[2].systemEvents?.map(message => message.id)).toEqual(['g2']);
+    });
+
+    it('labels consensus queries as collapsible system-event-groups', () => {
+      const items = processor.process([
+        makeOrchMsg('consensus_query', '**Consensus complete**\n\n2 providers responded, 0 failed.', {
+          id: 'cq1',
+          timestamp: 1_000,
+        }),
+      ]);
+
+      expect(items).toHaveLength(1);
+      expect(items[0].type).toBe('system-event-group');
+      expect(items[0].groupLabel).toBe('Consensus query');
+      expect(items[0].systemEvents?.map(message => message.id)).toEqual(['cq1']);
     });
   });
 

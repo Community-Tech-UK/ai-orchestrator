@@ -1,10 +1,11 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
-import type { ProviderType } from './provider-state.service';
+import { ProviderStateService, type ProviderType } from './provider-state.service';
 
 @Injectable({ providedIn: 'root' })
 export class NewSessionDraftService {
+  private readonly providerState = inject(ProviderStateService);
   private readonly storageKey = 'new-session-drafts:v1';
   private readonly defaultDraftKey = '__default__';
   private persistHandle: number | null = null;
@@ -121,9 +122,20 @@ export class NewSessionDraftService {
 
   setProvider(provider: ProviderType | null): void {
     this.updateActiveDraft((draft) => {
-      const nextModel = draft.provider === provider
-        ? this.normalizeDraftModel(provider, draft.model)
-        : this.normalizeDraftModel(provider, null);
+      // Same provider: keep model. Different provider: restore the user's
+      // last-used model for that provider (per-provider memory) before
+      // falling back to the provider's primary. This makes
+      // Copilot+Opus → Claude+Sonnet → Copilot restore Opus instead of
+      // resetting to gemini-3.1-pro-preview every time.
+      let nextModel: string | null;
+      if (draft.provider === provider) {
+        nextModel = this.normalizeDraftModel(provider, draft.model);
+      } else if (provider && provider !== 'auto') {
+        const remembered = this.providerState.getLastModelForProvider(provider);
+        nextModel = this.normalizeDraftModel(provider, remembered ?? null);
+      } else {
+        nextModel = this.normalizeDraftModel(provider, null);
+      }
 
       if (draft.provider === provider && draft.model === nextModel) {
         return draft;
@@ -143,6 +155,15 @@ export class NewSessionDraftService {
       const nextModel = this.normalizeDraftModel(draft.provider, model);
       if (draft.model === nextModel) {
         return draft;
+      }
+
+      // Mirror the choice into the global per-provider memory so future
+      // session drafts (any working directory) restore this model when
+      // the same provider is selected. Use `rememberModelForProvider`
+      // rather than `setModel` so we don't overwrite the dashboard's
+      // currently-selected provider.
+      if (draft.provider && draft.provider !== 'auto' && nextModel) {
+        this.providerState.rememberModelForProvider(draft.provider, nextModel);
       }
 
       return {

@@ -499,6 +499,17 @@ export class InputPanelComponent implements OnDestroy {
     }
 
     if (response.success && response.data) {
+      // The classifier always returns a suggestion for text ≥ 12 chars,
+      // falling back to a `small`/`slash-command` `/explain` default when no
+      // workflow signals are present. Per the spec, the slash-command surface
+      // was meant to surface in the `/` dropdown, not as an interrupting
+      // banner — so suppress it here and only show banners for medium
+      // (template-confirm) and large (preflight-modal) suggestions.
+      if (response.data.surface === 'slash-command') {
+        this.nlWorkflowSuggestion.set(null);
+        this.nlWorkflowSuggestionError.set(null);
+        return;
+      }
       this.nlWorkflowSuggestion.set(response.data);
       this.nlWorkflowSuggestionError.set(null);
     }

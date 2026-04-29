@@ -1,12 +1,41 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TestBed } from '@angular/core/testing';
 import { NewSessionDraftService } from './new-session-draft.service';
+import { ProviderStateService } from './provider-state.service';
+
+/**
+ * Lightweight stub of ProviderStateService so we don't have to spin up
+ * SettingsStore + SettingsIpcService for these draft-state-only tests.
+ * The real per-provider memory behavior is exercised in the
+ * ProviderStateService specs.
+ */
+class StubProviderStateService {
+  private remembered = new Map<string, string>();
+  getLastModelForProvider(): undefined {
+    return undefined;
+  }
+  rememberModelForProvider(provider: string, model: string): void {
+    this.remembered.set(provider, model);
+  }
+}
+
+function createService(): NewSessionDraftService {
+  return TestBed.inject(NewSessionDraftService);
+}
 
 describe('NewSessionDraftService', () => {
   let service: NewSessionDraftService;
 
   beforeEach(() => {
     window.localStorage.clear();
-    service = new NewSessionDraftService();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        NewSessionDraftService,
+        { provide: ProviderStateService, useClass: StubProviderStateService },
+      ],
+    });
+    service = createService();
   });
 
   it('moves the default draft into a project when the project draft is empty', () => {
@@ -79,7 +108,15 @@ describe('NewSessionDraftService', () => {
       service.setAgentId('review');
       vi.advanceTimersByTime(250);
 
-      const reloaded = new NewSessionDraftService();
+      // Re-instantiate via a fresh injector so the constructor reloads from localStorage.
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          NewSessionDraftService,
+          { provide: ProviderStateService, useClass: StubProviderStateService },
+        ],
+      });
+      const reloaded = createService();
       reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
       expect(reloaded.agentId()).toBe('review');
     } finally {
@@ -106,7 +143,14 @@ describe('NewSessionDraftService', () => {
       }),
     );
 
-    const reloaded = new NewSessionDraftService();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        NewSessionDraftService,
+        { provide: ProviderStateService, useClass: StubProviderStateService },
+      ],
+    });
+    const reloaded = createService();
     expect(reloaded.agentId()).toBe('build');
   });
 
@@ -130,7 +174,14 @@ describe('NewSessionDraftService', () => {
       }),
     );
 
-    const reloaded = new NewSessionDraftService();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        NewSessionDraftService,
+        { provide: ProviderStateService, useClass: StubProviderStateService },
+      ],
+    });
+    const reloaded = createService();
     expect(reloaded.agentId()).toBe('build');
   });
 });

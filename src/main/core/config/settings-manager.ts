@@ -86,6 +86,10 @@ export class SettingsManager extends EventEmitter {
     this.migrateModelNames();
     // Migrate legacy CLI alias to canonical provider key
     this.migrateCliProviderAlias();
+    // Seed per-provider model memory from existing defaultModel/defaultCli on
+    // first launch after this feature lands. This avoids an empty map showing
+    // 'opus' for Claude and nothing else.
+    this.seedDefaultModelByProvider();
   }
 
   /**
@@ -135,6 +139,40 @@ export class SettingsManager extends EventEmitter {
     if (currentCli === 'openai') {
       this.store.set('defaultCli', 'codex');
     }
+  }
+
+  /**
+   * Seed `defaultModelByProvider` from the legacy `defaultModel` + `defaultCli`
+   * on first launch after the per-provider memory feature lands. Subsequent
+   * writes are owned by the renderer (ProviderStateService).
+   *
+   * We do not try to invent values for providers the user has never touched —
+   * those fall back to `getPrimaryModelForProvider(provider)` at read time.
+   */
+  private seedDefaultModelByProvider(): void {
+    const existing = this.store.get('defaultModelByProvider');
+    if (existing && typeof existing === 'object' && Object.keys(existing).length > 0) {
+      return;
+    }
+
+    const defaultCli = this.store.get('defaultCli');
+    const defaultModel = this.store.get('defaultModel');
+    if (
+      typeof defaultCli !== 'string'
+      || defaultCli === 'auto'
+      || typeof defaultModel !== 'string'
+      || defaultModel.trim().length === 0
+    ) {
+      this.store.set('defaultModelByProvider', {});
+      return;
+    }
+
+    const seeded: Record<string, string> = { [defaultCli]: defaultModel };
+    logger.info('Seeding defaultModelByProvider from legacy defaultModel', {
+      defaultCli,
+      defaultModel,
+    });
+    this.store.set('defaultModelByProvider', seeded);
   }
 
   /**

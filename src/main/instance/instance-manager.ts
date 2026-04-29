@@ -216,7 +216,7 @@ export class InstanceManager extends EventEmitter {
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
       deleteAdapter: (id) => this.state.deleteAdapter(id),
       transitionState: (instance, status) => this.lifecycle.transitionStatePublic(instance, status),
-      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState) => (
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) => (
         this.state.queueUpdate(
           id,
           status,
@@ -227,6 +227,7 @@ export class InstanceManager extends EventEmitter {
           executionLocation,
           sessionState,
           activityState,
+          currentModel,
         )
       ),
       getDiffTracker: (id) => this.state.getDiffTracker(id),
@@ -294,7 +295,7 @@ export class InstanceManager extends EventEmitter {
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       forEachInstance: (cb) => this.state.forEachInstance(cb),
-      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState) => (
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) => (
         this.state.queueUpdate(
           id,
           status,
@@ -305,6 +306,7 @@ export class InstanceManager extends EventEmitter {
           executionLocation,
           sessionState,
           activityState,
+          currentModel,
         )
       ),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),

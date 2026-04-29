@@ -60,7 +60,15 @@ export class ImageAttachmentService {
 
       const results = await Promise.all(
         references.map(async (reference) => {
-          const response = await this.fileIpc.resolveImage(reference);
+          // `origin` is renderer-only metadata used to decide whether the UI
+          // surfaces a failure card. It is not part of the IPC schema; build
+          // the request payload explicitly so the call matches
+          // ImageResolveRequestSchema exactly.
+          const response = await this.fileIpc.resolveImage({
+            kind: reference.kind,
+            src: reference.src,
+            alt: reference.alt,
+          });
           return { reference, response };
         }),
       );
@@ -78,6 +86,7 @@ export class ImageAttachmentService {
             kind: reference.kind,
             reason: response?.reason ?? 'fetch_failed',
             message: response?.message ?? 'Image resolution IPC failed',
+            origin: reference.origin,
           });
         }
       }

@@ -71,6 +71,7 @@ export interface CommunicationDependencies {
       historyThreadId?: string;
     },
     activityState?: import('../../shared/types/activity.types').ActivityState,
+    currentModel?: string,
   ) => void;
   getDiffTracker?: (id: string) => SessionDiffTracker | undefined;
   processOrchestrationOutput: (instanceId: string, content: string) => void;

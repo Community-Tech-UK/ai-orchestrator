@@ -21,6 +21,7 @@ import {
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
+import type { FailedImageRef } from '../../../../shared/types/instance.types';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
@@ -694,6 +695,26 @@ export class OutputStreamComponent {
 
   formatContent(message: OutputMessage): string {
     return this.messageFormat.formatContent(message);
+  }
+
+  /**
+   * Filter the failed-image-card list shown under a message.
+   *
+   * `unsupported` failures from bare-URL inference (a URL that happens to
+   * end in `.png` etc. on its own line) are suppressed: the inference is
+   * best-effort, and showing a red error card for every such miss creates
+   * UI noise. Explicit `![](url)` markdown image failures are always
+   * surfaced — those represent a deliberate intent from the model that
+   * the user should see when it goes wrong.
+   *
+   * Older persisted messages may not carry `origin`; treat missing
+   * origin as `markdown` (the conservative choice — keep it visible).
+   */
+  protected visibleFailedImages(failures: readonly FailedImageRef[]): FailedImageRef[] {
+    return failures.filter((failure) => {
+      if (failure.reason !== 'unsupported') return true;
+      return failure.origin !== 'bare';
+    });
   }
 
   onContextMenu(event: MouseEvent, item: DisplayItem): void {

@@ -58,7 +58,7 @@
                         <app-message-attachments [attachments]="item.response.attachments" />
                       }
                       @if (item.response.failedImages && item.response.failedImages.length > 0) {
-                        @for (failure of item.response.failedImages; track $index) {
+                        @for (failure of visibleFailedImages(item.response.failedImages); track $index) {
                           <app-failed-image-card [failure]="failure" />
                         }
                       }
@@ -185,7 +185,7 @@
                     <app-message-attachments [attachments]="item.message.attachments" />
                   }
                   @if (item.message.failedImages && item.message.failedImages.length > 0) {
-                    @for (failure of item.message.failedImages; track $index) {
+                    @for (failure of visibleFailedImages(item.message.failedImages); track $index) {
                       <app-failed-image-card [failure]="failure" />
                     }
                   }

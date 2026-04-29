@@ -187,11 +187,26 @@ export type ImageResolveFailureReason =
   | 'timeout'
   | 'invalid_data_uri';
 
+/**
+ * Where an image reference was discovered in the assistant output.
+ * - `'markdown'`: explicit `![alt](url)` syntax — a deliberate signal from the
+ *   model. Failures are surfaced to the UI so misconfiguration stays visible.
+ * - `'bare'`: inferred from a bare URL/path on its own line. Best-effort
+ *   inference, so `unsupported` failures are silently dropped by the UI to
+ *   avoid noise from prose URLs the model name-drops.
+ */
+export type ImageReferenceOrigin = 'markdown' | 'bare';
+
 export interface FailedImageRef {
   src: string;
   kind: ImageResolveKind;
   reason: ImageResolveFailureReason;
   message: string;
+  /**
+   * How the reference was discovered. Optional for backwards compatibility
+   * with persisted output buffers from earlier builds; new code always sets it.
+   */
+  origin?: ImageReferenceOrigin;
 }
 
 export interface CommunicationToken {

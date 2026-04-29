@@ -71,7 +71,7 @@ describe('ImageAttachmentService', () => {
     expect(sink.markImagesResolved).toHaveBeenCalledWith('inst-1', 'msg-1');
   });
 
-  it('records failed resolutions', async () => {
+  it('records failed resolutions and propagates the bare-inference origin', async () => {
     fileIpc.resolveImage.mockResolvedValue({
       ok: false,
       reason: 'not_found',
@@ -94,10 +94,40 @@ describe('ImageAttachmentService', () => {
           kind: 'remote',
           reason: 'not_found',
           message: 'Image missing',
+          origin: 'bare',
         } satisfies FailedImageRef,
       ],
     );
     expect(sink.markImagesResolved).toHaveBeenCalledWith('inst-1', 'msg-1');
+  });
+
+  it('propagates markdown origin on explicit image syntax failures', async () => {
+    fileIpc.resolveImage.mockResolvedValue({
+      ok: false,
+      reason: 'unsupported',
+      message: 'Remote resource did not return an image content type',
+    });
+
+    await service.processMessage(
+      'inst-1',
+      assistantMessage('![generated](https://example.com/asset)'),
+      sink,
+    );
+
+    expect(sink.appendAttachmentsToMessage).toHaveBeenCalledWith(
+      'inst-1',
+      'msg-1',
+      [],
+      [
+        {
+          src: 'https://example.com/asset',
+          kind: 'remote',
+          reason: 'unsupported',
+          message: 'Remote resource did not return an image content type',
+          origin: 'markdown',
+        } satisfies FailedImageRef,
+      ],
+    );
   });
 
   it('marks messages without image references as resolved without IPC calls', async () => {

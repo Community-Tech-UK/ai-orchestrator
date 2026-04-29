@@ -1,9 +1,19 @@
-import type { ImageResolveKind } from '../../../../shared/types/instance.types';
+import type {
+  ImageReferenceOrigin,
+  ImageResolveKind,
+} from '../../../../shared/types/instance.types';
 
 export interface ExtractedImageReference {
   kind: ImageResolveKind;
   src: string;
   alt?: string;
+  /**
+   * Where the reference was discovered. `markdown` corresponds to explicit
+   * `![alt](url)` syntax (intentional image embed). `bare` corresponds to a
+   * bare URL/path on its own line that we inferred — those are gated more
+   * strictly because false positives are common in normal prose.
+   */
+  origin: ImageReferenceOrigin;
 }
 
 const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\((<[^>]+>|[^)\r\n]+)\)/g;
@@ -49,7 +59,7 @@ export function extractImageReferences(content: string): ExtractedImageReference
 
     const dedupeKey = `${kind}:${src}`;
     if (!seen.has(dedupeKey)) {
-      refs.push({ kind, src, alt });
+      refs.push({ kind, src, alt, origin: 'markdown' });
       seen.add(dedupeKey);
     }
 
@@ -70,9 +80,18 @@ export function extractImageReferences(content: string): ExtractedImageReference
       continue;
     }
 
+    // Bare-line inference is best-effort. We only treat a bare HTTP/S URL as a
+    // remote image when the parsed pathname ends in an allowed image
+    // extension. Without this gate, every prose URL the model emits would
+    // trigger an outbound fetch and a "REMOTE UNSUPPORTED" UI card.
+    // Use `![](url)` markdown syntax to embed extensionless image URLs.
+    if (kind === 'remote' && !isInferableRemoteImageUrl(candidate)) {
+      continue;
+    }
+
     const dedupeKey = `${kind}:${candidate}`;
     if (!seen.has(dedupeKey)) {
-      refs.push({ kind, src: candidate });
+      refs.push({ kind, src: candidate, origin: 'bare' });
       seen.add(dedupeKey);
     }
   }
@@ -125,13 +144,42 @@ function looksLikeLocalImagePath(src: string): boolean {
     return false;
   }
 
-  return ALLOWED_IMAGE_EXTENSIONS.has(extensionFromSource(src));
+  return ALLOWED_IMAGE_EXTENSIONS.has(extensionFromLocalSource(src));
 }
 
-function extensionFromSource(src: string): string {
+/**
+ * Returns true when a bare HTTP/S URL parses cleanly and has an allowed image
+ * extension on its pathname. Query strings and hash fragments are ignored.
+ *
+ * We deliberately do NOT keep a host allowlist (`fal.media`, S3, etc.):
+ * such lists are brittle, drift as new providers appear, and broad wildcards
+ * like `*.amazonaws.com` defeat the gate. If an extensionless image URL needs
+ * to render, it should use explicit markdown image syntax `![alt](url)`.
+ */
+function isInferableRemoteImageUrl(src: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return false;
+  }
+  return ALLOWED_IMAGE_EXTENSIONS.has(extensionFromPathname(url.pathname));
+}
+
+function extensionFromLocalSource(src: string): string {
   const normalized = src.split(/[?#]/, 1)[0];
   const lastSlash = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
   const basename = lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
+  const dotIndex = basename.lastIndexOf('.');
+  return dotIndex >= 0 ? basename.slice(dotIndex).toLowerCase() : '';
+}
+
+function extensionFromPathname(pathname: string): string {
+  const lastSlash = pathname.lastIndexOf('/');
+  const basename = lastSlash >= 0 ? pathname.slice(lastSlash + 1) : pathname;
   const dotIndex = basename.lastIndexOf('.');
   return dotIndex >= 0 ? basename.slice(dotIndex).toLowerCase() : '';
 }
