@@ -465,6 +465,7 @@ export class InstanceListComponent implements OnDestroy {
       clearTimeout(this.filterDebounceTimer);
       this.filterDebounceTimer = null;
     }
+    this.visibleInstanceResolver.clearProjectGroupsSource(this.projectGroups);
   }
 
   onStatusFilterChange(event: Event): void {

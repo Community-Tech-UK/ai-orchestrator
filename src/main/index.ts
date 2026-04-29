@@ -8,6 +8,7 @@
 require('./register-aliases');
 
 import { app, BrowserWindow } from 'electron';
+import * as fs from 'fs';
 import * as path from 'path';
 import { WindowManager } from './window-manager';
 import { InstanceManager } from './instance/instance-manager';
@@ -45,6 +46,49 @@ if (!app.isPackaged) {
 }
 
 const logger = getLogger('App');
+
+interface ShutdownAuditEntry {
+  event: string;
+  timestamp: number;
+  pid: number;
+  ppid: number;
+  platform: NodeJS.Platform;
+  isPackaged: boolean;
+  details?: Record<string, unknown>;
+}
+
+let shutdownTrigger: Record<string, unknown> | null = null;
+
+function writeShutdownAudit(event: string, details?: Record<string, unknown>): void {
+  const entry: ShutdownAuditEntry = {
+    event,
+    timestamp: Date.now(),
+    pid: process.pid,
+    ppid: process.ppid,
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    details,
+  };
+
+  try {
+    const logsDir = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    fs.appendFileSync(path.join(logsDir, 'shutdown.ndjson'), `${JSON.stringify(entry)}\n`, 'utf8');
+  } catch {
+    // Shutdown audit is best-effort; never block quit or startup on logging.
+  }
+}
+
+function recordShutdownTrigger(source: string, details: Record<string, unknown> = {}): void {
+  shutdownTrigger = {
+    source,
+    ...details,
+    observedAt: Date.now(),
+  };
+
+  logger.warn('Shutdown trigger observed', shutdownTrigger);
+  writeShutdownAudit('shutdown-trigger', shutdownTrigger);
+}
 
 class AIOrchestratorApp {
   private windowManager: WindowManager;
@@ -188,9 +232,17 @@ let orchestratorApp: AIOrchestratorApp | null = null;
 // exit this process.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
+  recordShutdownTrigger('single-instance-lock-failed', {
+    argv: process.argv,
+  });
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    logger.info('Second app instance requested focus', {
+      argv,
+      workingDirectory,
+    });
+
     const windows = BrowserWindow.getAllWindows();
     const mainWindow = windows[0];
     if (mainWindow) {
@@ -227,6 +279,9 @@ app.whenReady().then(async () => {
 // Quit when all windows are closed (except on macOS)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    recordShutdownTrigger('window-all-closed', {
+      windowCount: BrowserWindow.getAllWindows().length,
+    });
     app.quit();
   }
 });
@@ -239,6 +294,19 @@ const CLEANUP_TIMEOUT_MS = 10_000;
 app.on('before-quit', (event) => {
   if (cleanupDone || !orchestratorApp) return;
 
+  if (!shutdownTrigger) {
+    recordShutdownTrigger('electron-before-quit', {
+      windowCount: BrowserWindow.getAllWindows().length,
+      argv: process.argv,
+    });
+  }
+
+  writeShutdownAudit('before-quit', {
+    cleanupDone,
+    shutdownTrigger,
+    windowCount: BrowserWindow.getAllWindows().length,
+  });
+
   // Phase 1: Synchronous — guaranteed state save + process signaling
   orchestratorApp.cleanupSync();
 
@@ -248,6 +316,7 @@ app.on('before-quit', (event) => {
 
   const timeout = setTimeout(() => {
     logger.warn('Cleanup timed out — forcing quit');
+    writeShutdownAudit('cleanup-timeout', { shutdownTrigger });
     app.exit(0);
   }, CLEANUP_TIMEOUT_MS);
 
@@ -257,8 +326,21 @@ app.on('before-quit', (event) => {
     })
     .finally(() => {
       clearTimeout(timeout);
+      writeShutdownAudit('cleanup-finished', { shutdownTrigger });
       app.quit();
     });
+});
+
+app.on('will-quit', () => {
+  writeShutdownAudit('will-quit', { shutdownTrigger });
+});
+
+app.on('quit', (_event, exitCode) => {
+  writeShutdownAudit('quit', { exitCode, shutdownTrigger });
+});
+
+process.on('exit', (code) => {
+  writeShutdownAudit('process-exit', { code, shutdownTrigger });
 });
 
 // Handle uncaught exceptions

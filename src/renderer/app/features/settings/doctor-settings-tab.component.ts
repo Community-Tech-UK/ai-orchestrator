@@ -248,7 +248,13 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
   `,
   styles: [`
     :host { display: block; }
-    .doctor-tab { display: flex; flex-direction: column; gap: 1rem; }
+    .doctor-tab {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-height: 100%;
+      padding: var(--spacing-lg);
+    }
     .doctor-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
     .section-title { margin: 0 0 0.25rem; font-size: 1.1rem; font-weight: 600; }
     .section-desc, .muted { margin: 0; color: var(--text-muted, #888); font-size: 0.875rem; }

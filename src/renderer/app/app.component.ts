@@ -11,7 +11,6 @@ import { WorkspaceBenchService, type WorkspaceBenchmarkHarness, type BenchmarkPr
 import { UsageStore } from './core/state/usage.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
-import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
 import { SettingsStore } from './core/state/settings.store';
 import { PauseRendererController } from './core/state/pause/pause-renderer-controller.service';
 import { PauseStore, type ResumeEvent } from './core/state/pause/pause.store';
@@ -37,7 +36,6 @@ declare global {
   standalone: true,
   imports: [
     RouterOutlet,
-    CliUpdatePillComponent,
     ProviderQuotaChipComponent,
     PauseToggleComponent,
     PauseBannerComponent,

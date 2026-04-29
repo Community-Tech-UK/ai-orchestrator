@@ -15,7 +15,7 @@ import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
         (click)="openCliHealth()"
       >
         <span class="dot" aria-hidden="true"></span>
-        <span>{{ store.state().count }} update{{ store.state().count === 1 ? '' : 's' }}</span>
+        <span>{{ store.state().count }} updater{{ store.state().count === 1 ? '' : 's' }}</span>
       </button>
     }
   `,
@@ -63,7 +63,7 @@ export class CliUpdatePillComponent implements OnInit {
   tooltip(): string {
     return this.store.state().entries
       .map((entry) => {
-        const command = entry.updatePlan.displayCommand ?? entry.updatePlan.reason ?? 'Update available';
+        const command = entry.updatePlan.displayCommand ?? entry.updatePlan.reason ?? 'Updater configured';
         return `${entry.displayName} ${entry.currentVersion ?? ''}: ${command}`;
       })
       .join('\n');

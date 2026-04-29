@@ -4,7 +4,6 @@ import {
   CLI_REGISTRY,
   SUPPORTED_CLIS,
   getCliDetectionService,
-  type CliType,
 } from '../cli/cli-detection';
 import { getCliUpdateService } from '../cli/cli-update-service';
 import { getCommandManager } from '../commands/command-manager';
@@ -29,7 +28,7 @@ import { getSkillDiagnosticsService } from './skill-diagnostics-service';
 const logger = getLogger('DoctorService');
 
 const CACHE_TTL_MS = 30_000;
-const PROVIDERS: Array<{ id: string; doctorKey: string; label: string }> = [
+const PROVIDERS: { id: string; doctorKey: string; label: string }[] = [
   { id: 'claude', doctorKey: 'claude-cli', label: 'Claude Code' },
   { id: 'codex', doctorKey: 'codex-cli', label: 'OpenAI Codex' },
   { id: 'gemini', doctorKey: 'gemini-cli', label: 'Google Gemini' },
@@ -156,7 +155,7 @@ export class DoctorService {
     const providerFailures = report.providerDiagnoses.filter(
       (diagnosis) => diagnosis.error || diagnosis.overall === 'unhealthy' || diagnosis.overall === 'degraded',
     );
-    const updatable = report.cliHealth.updatePlans.filter((plan) => plan.supported);
+    const updaters = report.cliHealth.updatePlans.filter((plan) => plan.supported);
     const browserWarnings = report.browserAutomation?.warnings.length ?? 0;
     const commandCount = report.commandDiagnostics.available
       ? report.commandDiagnostics.diagnostics.length
@@ -187,10 +186,10 @@ export class DoctorService {
       {
         id: 'cli-health',
         label: SECTION_LABELS['cli-health'],
-        severity: updatable.length > 0 ? 'info' : 'ok',
-        headline: updatable.length === 0
-          ? 'No supported CLI updates detected'
-          : `${updatable.length} CLI update${updatable.length === 1 ? '' : 's'} available`,
+        severity: updaters.length > 0 ? 'info' : 'ok',
+        headline: updaters.length === 0
+          ? 'CLI updater status ready'
+          : `${updaters.length} automatic CLI updater${updaters.length === 1 ? '' : 's'} configured`,
       },
       {
         id: 'browser-automation',

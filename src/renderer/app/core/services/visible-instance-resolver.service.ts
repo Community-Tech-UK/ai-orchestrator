@@ -57,6 +57,12 @@ export class VisibleInstanceResolver {
     this.projectGroupsSource.set(source);
   }
 
+  clearProjectGroupsSource(source: Signal<readonly VisibleProjectGroupSource[]>): void {
+    if (this.projectGroupsSource() === source) {
+      this.projectGroupsSource.set(null);
+    }
+  }
+
   clearProjectGroupsSourceForTesting(): void {
     this.projectGroupsSource.set(null);
   }

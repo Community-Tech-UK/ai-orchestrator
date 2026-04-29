@@ -95,7 +95,7 @@ interface CliUpdateResult {
             (click)="updateAll()"
             [disabled]="loading() || anyUpdating()"
           >
-            {{ anyUpdating() ? 'Updating...' : 'Update installed CLIs' }}
+            {{ anyUpdating() ? 'Running updaters...' : 'Run installed CLI updaters' }}
           </button>
           <button
             type="button"
@@ -137,7 +137,7 @@ interface CliUpdateResult {
                   (click)="updateCli(entry.cli)"
                   [disabled]="isUpdating(entry.cli) || loading()"
                 >
-                  {{ isUpdating(entry.cli) ? 'Updating...' : 'Update' }}
+                  {{ isUpdating(entry.cli) ? 'Running...' : 'Run updater' }}
                 </button>
               }
               @if (entry.installs.length > 0) {
@@ -535,7 +535,7 @@ export class CliHealthSettingsTabComponent implements OnInit {
       .filter((entry) => entry.updatePlan?.supported)
       .map((entry) => entry.cli);
     if (updatable.length === 0) {
-      this.updateSummary.set('No installed CLIs have an automatic updater available.');
+      this.updateSummary.set('No installed CLIs have an automatic updater configured.');
       return;
     }
 
@@ -557,10 +557,14 @@ export class CliHealthSettingsTabComponent implements OnInit {
       }
       this.updateResults.set(nextResults);
 
-      const updated = results.filter((result) => result.status === 'updated').length;
+      const completed = results.filter((result) => result.status === 'updated').length;
+      const changed = results.filter((result) => this.versionChanged(result)).length;
       const failed = results.filter((result) => result.status === 'failed').length;
       const skipped = results.filter((result) => result.status === 'skipped').length;
-      this.updateSummary.set(`CLI updates complete: ${updated} updated, ${failed} failed, ${skipped} skipped.`);
+      this.updateSummary.set(
+        `CLI updater run complete: ${changed} version change${changed === 1 ? '' : 's'}, ` +
+        `${completed - changed} completed with no detected version change, ${failed} failed, ${skipped} skipped.`,
+      );
       await this.refresh();
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : String(err));
@@ -597,7 +601,7 @@ export class CliHealthSettingsTabComponent implements OnInit {
 
   updateStatusLabel(status: CliUpdateResult['status']): string {
     switch (status) {
-      case 'updated': return 'Updated';
+      case 'updated': return 'Updater completed';
       case 'failed': return 'Failed';
       case 'skipped': return 'Skipped';
     }
@@ -625,6 +629,13 @@ export class CliHealthSettingsTabComponent implements OnInit {
     if (entry.installs.length < 2) return false;
     const versions = new Set(entry.installs.map((i) => i.version ?? 'unknown'));
     return versions.size > 1;
+  }
+
+  private versionChanged(result: CliUpdateResult): boolean {
+    return result.status === 'updated' &&
+      Boolean(result.beforeVersion) &&
+      Boolean(result.afterVersion) &&
+      result.beforeVersion !== result.afterVersion;
   }
 
   private markUpdating(cli: string, isUpdating: boolean): void {
