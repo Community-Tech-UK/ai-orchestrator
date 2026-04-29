@@ -15,7 +15,8 @@ import {
   effect
 } from '@angular/core';
 import { ContextWarningComponent } from './context-warning.component';
-import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceStore, type InstanceProvider, type OutputMessage } from '../../core/state/instance.store';
+import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ElectronIpcService, RecentDirectoriesIpcService } from '../../core/services/ipc';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
@@ -43,11 +44,29 @@ import { RemoteBrowseModalComponent } from '../../shared/components/remote-brows
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
+import {
+  getConversationHistoryTitle,
+  inferConversationHistoryProvider,
+  type ConversationData,
+  type ConversationHistoryEntry,
+} from '../../../../shared/types/history.types';
 
 interface RestartToast {
   id: string;
   type: 'info' | 'error';
   message: string;
+}
+
+interface HistoryPreviewView {
+  id: string;
+  entry: ConversationHistoryEntry;
+  title: string;
+  subtitle: string;
+  provider: InstanceProvider;
+  currentModel?: string;
+  messages: OutputMessage[];
+  restoring: boolean;
+  error: string | null;
 }
 
 @Component({
@@ -76,6 +95,7 @@ interface RestartToast {
 })
 export class InstanceDetailComponent {
   private store = inject(InstanceStore);
+  private historyStore = inject(HistoryStore);
   private settingsStore = inject(SettingsStore);
   private ipc = inject(ElectronIpcService);
   private recentDirsService = inject(RecentDirectoriesIpcService);
@@ -95,6 +115,31 @@ export class InstanceDetailComponent {
   private inputPanel = viewChild(InputPanelComponent);
 
   instance = this.store.selectedInstance;
+  historyPreview = computed<HistoryPreviewView | null>(() => {
+    if (this.instance()) {
+      return null;
+    }
+
+    const conversation = this.historyStore.previewConversation();
+    if (!conversation) {
+      return null;
+    }
+
+    const entry = conversation.entry;
+    const provider = inferConversationHistoryProvider(entry) as InstanceProvider;
+
+    return {
+      id: this.getHistoryPreviewInstanceId(entry.id),
+      entry,
+      title: getConversationHistoryTitle(entry),
+      subtitle: this.getHistoryPreviewSubtitle(entry, provider),
+      provider,
+      currentModel: entry.currentModel,
+      messages: conversation.messages as OutputMessage[],
+      restoring: this.historyPreviewRestoringEntryId() === entry.id,
+      error: this.historyPreviewError(),
+    };
+  });
   currentActivity = this.store.selectedInstanceActivity;
   busySince = computed(() => this.store.getSelectedInstanceBusySince());
   currentReview = computed(() => {
@@ -218,6 +263,10 @@ export class InstanceDetailComponent {
   private lastDismissedPercentage = 0;
   private lastRecoveryBannerKey: string | null = null;
   private lastRestartToastKey: string | null = null;
+  private historyPreviewRestorePromise: Promise<string | null> | null = null;
+  private historyPreviewRestorePromiseEntryId: string | null = null;
+  private historyPreviewRestoringEntryId = signal<string | null>(null);
+  historyPreviewError = signal<string | null>(null);
 
   // Recovery detection: instance was restored but provider context is missing or unproven.
   isReplayFallback = computed(() => {
@@ -274,11 +323,25 @@ export class InstanceDetailComponent {
     return this.draftService.getPendingFiles(inst.id);
   });
 
+  historyPreviewPendingFiles = computed(() => {
+    const preview = this.historyPreview();
+    if (!preview) return [];
+    this.draftService.attachmentVersion();
+    return this.draftService.getPendingFiles(preview.id);
+  });
+
   pendingFolders = computed(() => {
     const inst = this.instance();
     if (!inst) return [];
     this.draftService.attachmentVersion();
     return this.draftService.getPendingFolders(inst.id);
+  });
+
+  historyPreviewPendingFolders = computed(() => {
+    const preview = this.historyPreview();
+    if (!preview) return [];
+    this.draftService.attachmentVersion();
+    return this.draftService.getPendingFolders(preview.id);
   });
 
   queuedMessageCount = computed(() => {
@@ -570,6 +633,30 @@ export class InstanceDetailComponent {
     this.draftService.clearPendingFolders(inst.id);
   }
 
+  onHistoryPreviewDraftStarted(): void {
+    void this.ensureHistoryPreviewRestored();
+  }
+
+  async onHistoryPreviewSendMessage(message: string): Promise<void> {
+    const preview = this.historyPreview();
+    if (!preview) return;
+
+    const folders = this.historyPreviewPendingFolders();
+    const files = this.historyPreviewPendingFiles();
+    const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
+    const instanceId = await this.ensureHistoryPreviewRestored();
+    if (!instanceId) {
+      return;
+    }
+
+    this.draftService.clearDraft(preview.id);
+    this.draftService.clearPendingFiles(preview.id);
+    this.draftService.clearPendingFolders(preview.id);
+    this.draftService.clearPendingFiles(instanceId);
+    this.draftService.clearPendingFolders(instanceId);
+    this.store.sendInput(instanceId, finalMessage, files);
+  }
+
   onSteerMessage(message: string): void {
     const inst = this.instance();
     if (!inst) return;
@@ -645,10 +732,20 @@ export class InstanceDetailComponent {
     this.draftService.addPendingFiles(inst.id, files);
   }
 
+  onHistoryPreviewFilesDropped(files: File[]): void {
+    const preview = this.historyPreview();
+    if (!preview) return;
+    this.draftService.addPendingFiles(preview.id, files);
+  }
+
   onImagesPasted(images: File[]): void {
     const inst = this.instance();
     if (!inst) return;
     this.draftService.addPendingFiles(inst.id, images);
+  }
+
+  onHistoryPreviewImagesPasted(images: File[]): void {
+    this.onHistoryPreviewFilesDropped(images);
   }
 
   onFolderDropped(folderPath: string): void {
@@ -657,12 +754,27 @@ export class InstanceDetailComponent {
     this.draftService.addPendingFolder(inst.id, folderPath);
   }
 
+  onHistoryPreviewFolderDropped(folderPath: string): void {
+    const preview = this.historyPreview();
+    if (!preview) return;
+    this.draftService.addPendingFolder(preview.id, folderPath);
+  }
+
   async onFilePathDropped(filePath: string): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
     const files = await this.fileAttachment.loadDroppedFilesFromPaths([filePath]);
     if (files.length > 0) {
       this.draftService.addPendingFiles(inst.id, files);
+    }
+  }
+
+  async onHistoryPreviewFilePathDropped(filePath: string): Promise<void> {
+    const preview = this.historyPreview();
+    if (!preview) return;
+    const files = await this.fileAttachment.loadDroppedFilesFromPaths([filePath]);
+    if (files.length > 0) {
+      this.draftService.addPendingFiles(preview.id, files);
     }
   }
 
@@ -676,16 +788,38 @@ export class InstanceDetailComponent {
     }
   }
 
+  async onHistoryPreviewFilePathsDropped(filePaths: string[]): Promise<void> {
+    const preview = this.historyPreview();
+    if (!preview) return;
+
+    const files = await this.fileAttachment.loadDroppedFilesFromPaths(filePaths);
+    if (files.length > 0) {
+      this.draftService.addPendingFiles(preview.id, files);
+    }
+  }
+
   onRemoveFile(file: File): void {
     const inst = this.instance();
     if (!inst) return;
     this.draftService.removePendingFile(inst.id, file);
   }
 
+  onRemoveHistoryPreviewFile(file: File): void {
+    const preview = this.historyPreview();
+    if (!preview) return;
+    this.draftService.removePendingFile(preview.id, file);
+  }
+
   onRemoveFolder(folder: string): void {
     const inst = this.instance();
     if (!inst) return;
     this.draftService.removePendingFolder(inst.id, folder);
+  }
+
+  onRemoveHistoryPreviewFolder(folder: string): void {
+    const preview = this.historyPreview();
+    if (!preview) return;
+    this.draftService.removePendingFolder(preview.id, folder);
   }
 
   onRestart(): void {
@@ -899,6 +1033,18 @@ export class InstanceDetailComponent {
     }
   }
 
+  async onHistoryPreviewAddFiles(): Promise<void> {
+    const preview = this.historyPreview();
+    if (!preview) return;
+
+    const files = await this.fileAttachment.selectAndLoadFiles(
+      preview.entry.workingDirectory,
+    );
+    if (files.length > 0) {
+      this.draftService.addPendingFiles(preview.id, files);
+    }
+  }
+
   async onWelcomeAddFiles(): Promise<void> {
     const files = await this.fileAttachment.selectAndLoadFiles(
       this.welcomeWorkingDirectory(),
@@ -927,6 +1073,103 @@ export class InstanceDetailComponent {
   onReviewCompleted(result: { issueCount: number; hasErrors: boolean }): void {
     this.reviewHasContent.set(true);
     this.reviewBadgeInfo.set(result);
+  }
+
+  private ensureHistoryPreviewRestored(): Promise<string | null> {
+    const conversation = this.historyStore.previewConversation();
+    if (!conversation) {
+      return Promise.resolve(null);
+    }
+
+    const entryId = conversation.entry.id;
+    if (
+      this.historyPreviewRestorePromise
+      && this.historyPreviewRestorePromiseEntryId === entryId
+    ) {
+      return this.historyPreviewRestorePromise;
+    }
+
+    this.historyPreviewError.set(null);
+    this.historyPreviewRestoringEntryId.set(entryId);
+    const previewId = this.getHistoryPreviewInstanceId(entryId);
+    const restorePromise = this.restoreHistoryPreview(conversation, previewId).finally(() => {
+      if (this.historyPreviewRestorePromiseEntryId !== entryId) {
+        return;
+      }
+
+      this.historyPreviewRestorePromise = null;
+      this.historyPreviewRestorePromiseEntryId = null;
+      this.historyPreviewRestoringEntryId.set(null);
+    });
+
+    this.historyPreviewRestorePromise = restorePromise;
+    this.historyPreviewRestorePromiseEntryId = entryId;
+    return restorePromise;
+  }
+
+  private async restoreHistoryPreview(
+    conversation: ConversationData,
+    previewId: string
+  ): Promise<string | null> {
+    const result = await this.historyStore.restoreEntry(
+      conversation.entry.id,
+      conversation.entry.workingDirectory
+    );
+
+    if (!result.success || !result.instanceId) {
+      this.historyPreviewError.set(result.error || 'Failed to restore history entry.');
+      return null;
+    }
+
+    if (result.restoredMessages && result.restoredMessages.length > 0) {
+      this.store.setInstanceMessages(result.instanceId, result.restoredMessages as OutputMessage[]);
+    }
+    if (result.restoreMode) {
+      this.store.setInstanceRestoreMode(result.instanceId, result.restoreMode);
+    }
+
+    this.migrateHistoryPreviewDraft(previewId, result.instanceId);
+    this.historyStore.clearSelection();
+    this.store.setSelectedInstance(result.instanceId);
+    return result.instanceId;
+  }
+
+  private migrateHistoryPreviewDraft(fromId: string, toId: string): void {
+    const draft = this.draftService.getDraft(fromId);
+    if (draft) {
+      this.draftService.setDraft(toId, draft);
+    }
+    this.draftService.clearDraft(fromId);
+
+    const files = this.draftService.getPendingFiles(fromId);
+    if (files.length > 0) {
+      this.draftService.setPendingFiles(toId, files);
+    }
+    this.draftService.clearPendingFiles(fromId);
+
+    const folders = this.draftService.getPendingFolders(fromId);
+    for (const folder of folders) {
+      this.draftService.addPendingFolder(toId, folder);
+    }
+    this.draftService.clearPendingFolders(fromId);
+  }
+
+  private getHistoryPreviewInstanceId(entryId: string): string {
+    return `history-preview:${entryId}`;
+  }
+
+  private getHistoryPreviewSubtitle(
+    entry: ConversationHistoryEntry,
+    provider: InstanceProvider
+  ): string {
+    const path = entry.workingDirectory.trim() || 'No workspace';
+    return `${this.getProviderDisplayName(provider)} history - ${this.shortenPath(path)}`;
+  }
+
+  private shortenPath(path: string): string {
+    return path
+      .replace(/^\/Users\/[^/]+/, '~')
+      .replace(/^\/home\/[^/]+/, '~');
   }
 
   private getEnteringInspectorToggle(): 'todo' | 'review' | 'children' | null {

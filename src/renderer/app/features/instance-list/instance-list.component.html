@@ -285,6 +285,7 @@
                     @for (entry of getVisibleHistoryItems(group); track entry.id) {
                       <div
                         class="history-entry"
+                        [class.selected]="isSelectedHistory(entry.id)"
                         [class.pinned]="isPinnedHistory(entry.id)"
                         [class.restoring]="isRestoringHistory(entry.id)"
                         (contextmenu)="onHistoryContextMenu($event, entry)"
@@ -306,8 +307,8 @@
                             type="button"
                             class="history-entry-main"
                             [disabled]="isRestoringHistory(entry.id)"
-                            [attr.aria-label]="'Restore ' + getHistoryTitle(entry)"
-                            (click)="onRestoreHistory(entry.id)"
+                            [attr.aria-label]="'View ' + getHistoryTitle(entry)"
+                            (click)="onPreviewHistory(entry.id)"
                           >
                             <span class="history-entry-title-row">
                               <span

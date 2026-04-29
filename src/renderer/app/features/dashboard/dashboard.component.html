@@ -67,7 +67,7 @@
 
     <!-- Main content area -->
     <main class="main-content">
-      <div class="workspace-shell" [class.empty]="!store.selectedInstance()">
+      <div class="workspace-shell" [class.empty]="!hasWorkspaceSelection()">
         <app-instance-detail
           [canShowFileExplorer]="canShowFileExplorer()"
           [isFileExplorerOpen]="showFileExplorer()"

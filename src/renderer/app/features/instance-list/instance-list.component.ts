@@ -488,6 +488,7 @@ export class InstanceListComponent implements OnDestroy {
 
   onSelectInstance(instanceId: string): void {
     this.closeProjectMenu({ restoreFocus: false });
+    this.historyStore.clearSelection();
     this.store.setSelectedInstance(instanceId);
   }
 
@@ -841,6 +842,7 @@ export class InstanceListComponent implements OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.closeProjectMenu({ restoreFocus: false });
+    this.historyStore.clearSelection();
     const nodeId = this.getProjectNodeId(group);
     this.newSessionDraft.open(group.path, nodeId);
     this.store.setSelectedInstance(null);
@@ -1003,6 +1005,7 @@ export class InstanceListComponent implements OnDestroy {
           this.store.setInstanceRestoreMode(result.instanceId, result.restoreMode);
         }
         if (this.shouldSelectRestoredHistory(requestId, selectedAtStart, result.instanceId)) {
+          this.historyStore.clearSelection();
           this.store.setSelectedInstance(result.instanceId);
         }
       } else if (result.error) {
@@ -1015,6 +1018,31 @@ export class InstanceListComponent implements OnDestroy {
         return next;
       });
     }
+  }
+
+  async onPreviewHistory(entryId: string): Promise<void> {
+    if (this.historyRail.restoringHistoryIds().has(entryId)) {
+      return;
+    }
+
+    this.closeProjectMenu({ restoreFocus: false });
+    this.pendingArchiveId.set(null);
+
+    const entry = this.historyStore.entries().find((item) => item.id === entryId);
+    const conversation = await this.historyStore.loadConversation(entryId, {
+      selectForPreview: true,
+    });
+    if (!conversation) {
+      console.error('Failed to load history entry for preview:', entryId);
+      return;
+    }
+
+    if (entry) {
+      this.historyRail.markHistoryEntriesSeen([entry]);
+      this.lastVisitedHistoryThreadId.set(this.historyRail.getHistoryThreadId(entry));
+    }
+
+    this.store.setSelectedInstance(null);
   }
 
   private shouldSelectRestoredHistory(
@@ -1295,6 +1323,10 @@ export class InstanceListComponent implements OnDestroy {
 
   isRestoringHistory(entryId: string): boolean {
     return this.historyRail.isRestoringHistory(entryId);
+  }
+
+  isSelectedHistory(entryId: string): boolean {
+    return this.selectedId() === null && this.historyStore.previewEntryId() === entryId;
   }
 
   getVisibleHistoryItems(group: ProjectGroup): ConversationHistoryEntry[] {

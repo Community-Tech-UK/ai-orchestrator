@@ -119,6 +119,7 @@ export class InputPanelComponent implements OnDestroy {
 
   sendMessage = output<string>();
   steerMessage = output<string>();
+  draftStarted = output<void>();
   executeCommand = output<{ commandId: string; args: string[] }>();
   removeFile = output<File>();
   removeFolder = output<string>();
@@ -427,6 +428,10 @@ export class InputPanelComponent implements OnDestroy {
     const value = textarea.value;
     this.message.set(value);
     stopComposer(); // Measure composer latency
+
+    if (value.trim().length > 0) {
+      this.draftStarted.emit();
+    }
 
     if (this.recallIndex() !== null && value !== this.currentRecalledText()) {
       this.resetPromptRecall({ restoreStash: false });

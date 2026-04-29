@@ -15,6 +15,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { InstanceStore } from '../../core/state/instance.store';
+import { HistoryStore } from '../../core/state/history.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
@@ -69,6 +70,7 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
 export class DashboardComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   store = inject(InstanceStore);
+  historyStore = inject(HistoryStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
   private remoteNodeStore = inject(RemoteNodeStore);
@@ -113,6 +115,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   canShowFileExplorer = computed(() =>
     !!this.store.selectedInstance() && !this.isBenchmarkMode()
+  );
+
+  hasWorkspaceSelection = computed(() =>
+    !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
   );
 
   showBrowserPreview = computed(() =>
@@ -379,6 +385,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   createInstance(): void {
     const workingDirectory = this.settingsStore.settings().defaultWorkingDirectory || null;
+    this.historyStore.clearSelection();
     this.newSessionDraft.open(workingDirectory);
     this.store.setSelectedInstance(null);
   }

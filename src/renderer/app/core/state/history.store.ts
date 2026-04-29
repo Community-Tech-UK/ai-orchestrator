@@ -21,6 +21,8 @@ interface HistoryState {
   searchQuery: string;
   selectedEntryId: string | null;
   selectedConversation: ConversationData | null;
+  previewEntryId: string | null;
+  previewConversation: ConversationData | null;
   advancedSearchResult: AdvancedHistorySearchResult | null;
   advancedSearchLoading: boolean;
   advancedSearchError: string | null;
@@ -39,6 +41,8 @@ export class HistoryStore {
     searchQuery: '',
     selectedEntryId: null,
     selectedConversation: null,
+    previewEntryId: null,
+    previewConversation: null,
     advancedSearchResult: null,
     advancedSearchLoading: false,
     advancedSearchError: null,
@@ -66,6 +70,19 @@ export class HistoryStore {
 
   /** Selected conversation data */
   readonly selectedConversation = computed(() => this.state().selectedConversation);
+
+  /** Entry currently previewed in the main workspace, if any */
+  readonly previewEntryId = computed(() => this.state().previewEntryId);
+
+  /** Conversation currently previewed in the main workspace, if any */
+  readonly previewConversation = computed(() => {
+    const state = this.state();
+    if (!state.previewEntryId || state.previewConversation?.entry.id !== state.previewEntryId) {
+      return null;
+    }
+
+    return state.previewConversation;
+  });
 
   /** Latest advanced history search result */
   readonly advancedSearchResult = computed(() => this.state().advancedSearchResult);
@@ -140,8 +157,24 @@ export class HistoryStore {
   /**
    * Load full conversation data for an entry
    */
-  async loadConversation(entryId: string): Promise<ConversationData | null> {
-    this.state.update(s => ({ ...s, loading: true, selectedEntryId: entryId }));
+  async loadConversation(
+    entryId: string,
+    options: { selectForPreview?: boolean } = {}
+  ): Promise<ConversationData | null> {
+    const selectForPreview = options.selectForPreview === true;
+
+    this.state.update(s => ({
+      ...s,
+      loading: true,
+      selectedEntryId: selectForPreview ? s.selectedEntryId : entryId,
+      selectedConversation: selectForPreview
+        ? s.selectedConversation
+        : s.selectedEntryId === entryId ? s.selectedConversation : null,
+      previewEntryId: selectForPreview ? entryId : s.previewEntryId,
+      previewConversation: selectForPreview
+        ? s.previewEntryId === entryId ? s.previewConversation : null
+        : s.previewConversation,
+    }));
 
     try {
       const response = await this.ipc.loadHistoryEntry(entryId) as {
@@ -158,7 +191,9 @@ export class HistoryStore {
         this.state.update(s => ({
           ...s,
           loading: false,
-          selectedConversation: normalizedConversation,
+          selectedConversation: selectForPreview ? s.selectedConversation : normalizedConversation,
+          previewEntryId: selectForPreview ? entryId : s.previewEntryId,
+          previewConversation: selectForPreview ? normalizedConversation : s.previewConversation,
         }));
         return normalizedConversation;
       } else {
@@ -166,6 +201,8 @@ export class HistoryStore {
           ...s,
           loading: false,
           error: response.error?.message || 'Failed to load conversation',
+          previewEntryId: selectForPreview ? null : s.previewEntryId,
+          previewConversation: selectForPreview ? null : s.previewConversation,
         }));
         return null;
       }
@@ -174,6 +211,8 @@ export class HistoryStore {
         ...s,
         loading: false,
         error: 'Failed to load conversation',
+        previewEntryId: selectForPreview ? null : s.previewEntryId,
+        previewConversation: selectForPreview ? null : s.previewConversation,
       }));
       return null;
     }
@@ -231,6 +270,8 @@ export class HistoryStore {
           entries: s.entries.filter(e => e.id !== entryId),
           selectedEntryId: s.selectedEntryId === entryId ? null : s.selectedEntryId,
           selectedConversation: s.selectedEntryId === entryId ? null : s.selectedConversation,
+          previewEntryId: s.previewEntryId === entryId ? null : s.previewEntryId,
+          previewConversation: s.previewEntryId === entryId ? null : s.previewConversation,
         }));
         return true;
       } else {
@@ -388,6 +429,8 @@ export class HistoryStore {
           entries: [],
           selectedEntryId: null,
           selectedConversation: null,
+          previewEntryId: null,
+          previewConversation: null,
         }));
         return true;
       } else {
@@ -428,6 +471,8 @@ export class HistoryStore {
       ...s,
       selectedEntryId: null,
       selectedConversation: null,
+      previewEntryId: null,
+      previewConversation: null,
     }));
   }
 

@@ -269,6 +269,81 @@
           />
         </div>
       </app-drop-zone>
+    } @else if (historyPreview(); as preview) {
+      <app-drop-zone
+        class="full-drop-zone"
+        (filesDropped)="onHistoryPreviewFilesDropped($event)"
+        (imagesPasted)="onHistoryPreviewImagesPasted($event)"
+        (filePathDropped)="onHistoryPreviewFilePathDropped($event)"
+        (filePathsDropped)="onHistoryPreviewFilePathsDropped($event)"
+        (folderDropped)="onHistoryPreviewFolderDropped($event)"
+      >
+        <div class="instance-detail history-preview-detail">
+          <div class="history-preview-header">
+            <div class="history-preview-copy">
+              <span class="history-preview-eyebrow">History preview</span>
+              <h2 class="history-preview-title">{{ preview.title }}</h2>
+              <span class="history-preview-subtitle">{{ preview.subtitle }}</span>
+            </div>
+            <div class="history-preview-meta">
+              <span class="history-preview-provider">{{ getProviderDisplayName(preview.provider) }}</span>
+              @if (preview.restoring) {
+                <span class="history-preview-status">Restoring</span>
+              }
+            </div>
+          </div>
+
+          @if (preview.error) {
+            <div class="recovery-banner recovery-banner-error">
+              <svg class="recovery-banner-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div class="recovery-banner-body">
+                <span class="recovery-banner-title">Restore failed</span>
+                <span class="recovery-banner-desc">{{ preview.error }}</span>
+              </div>
+            </div>
+          }
+
+          <div class="output-section">
+            <app-output-stream
+              [messages]="preview.messages"
+              [instanceId]="preview.id"
+              [provider]="preview.provider"
+              [showThinking]="showThinking()"
+              [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
+              [showToolMessages]="showToolMessages()"
+              [isChild]="false"
+              (editMessage)="onEditLastMessage()"
+            />
+          </div>
+
+          <app-input-panel
+            [instanceId]="preview.id"
+            [disabled]="false"
+            [placeholder]="preview.restoring ? 'Restoring session...' : 'Type to restore and continue...'"
+            [pendingFiles]="historyPreviewPendingFiles()"
+            [pendingFolders]="historyPreviewPendingFolders()"
+            [queuedCount]="0"
+            [queuedMessages]="[]"
+            [isBusy]="false"
+            [isRespawning]="false"
+            [outputMessages]="preview.messages"
+            [instanceStatus]="preview.restoring ? 'initializing' : 'idle'"
+            [provider]="preview.provider"
+            [currentModel]="preview.currentModel"
+            [workingDirectory]="preview.entry.workingDirectory"
+            [isReplayFallback]="false"
+            (draftStarted)="onHistoryPreviewDraftStarted()"
+            (sendMessage)="onHistoryPreviewSendMessage($event)"
+            (removeFile)="onRemoveHistoryPreviewFile($event)"
+            (removeFolder)="onRemoveHistoryPreviewFolder($event)"
+            (addFiles)="onHistoryPreviewAddFiles()"
+          />
+        </div>
+      </app-drop-zone>
     } @else if (isCreatingInstance()) {
       <div class="creating-view">
         <div class="creating-content">
