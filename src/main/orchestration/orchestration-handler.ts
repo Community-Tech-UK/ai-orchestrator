@@ -17,6 +17,7 @@ import {
   GetTaskStatusCommand,
   RequestUserActionCommand,
   ConsensusQueryCommand,
+  CreateAutomationCommand,
   parseOrchestratorCommands,
   ORCHESTRATION_MARKER_START,
   ORCHESTRATION_MARKER_END,
@@ -26,6 +27,7 @@ import {
 } from './orchestration-protocol';
 import { getConsensusCoordinator } from './consensus-coordinator';
 import type { ConsensusProviderSpec } from './consensus.types';
+import { AutomationCreatePayloadSchema } from '@contracts/schemas/automation';
 import { getToolRegistry } from '../tools/tool-registry';
 import { getTaskManager } from './task-manager';
 import { getPermissionManager, type PermissionRequest } from '../security/permission-manager';
@@ -47,6 +49,7 @@ import type {
 } from '../../shared/types/child-result.types';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { evaluateOrchestrationCapability, inferRoleFromContext } from './role-capability-policy';
+import { createAutomationWithScheduling } from '../automations/automation-create-service';
 
 export interface OrchestrationContext {
   instanceId: string;
@@ -441,6 +444,10 @@ export class OrchestrationHandler extends EventEmitter {
         this.handleRequestUserAction(instanceId, command);
         break;
 
+      case 'create_automation':
+        this.handleCreateAutomation(instanceId, command);
+        break;
+
       // New structured result commands
       case 'report_result':
         this.handleReportResult(instanceId, command);
@@ -480,6 +487,8 @@ export class OrchestrationHandler extends EventEmitter {
         return `consensus_query:${command.question.slice(0, 100)}:${(command.providers || []).join(',')}`;
       case 'request_user_action':
         return `request_user_action:${command.requestType}:${command.title}`;
+      case 'create_automation':
+        return `create_automation:${command.automation.name}:${JSON.stringify(command.automation.schedule)}:${command.automation.action.prompt.slice(0, 80)}`;
       case 'call_tool':
         return `call_tool:${command.toolId}:${JSON.stringify(command.args || '').slice(0, 80)}`;
       default:
@@ -873,6 +882,53 @@ export class OrchestrationHandler extends EventEmitter {
       this.injectResponse(instanceId, 'get_task_status', true, {
         tasks: tasks.map((t) => taskManager.serializeTask(t)),
         history: taskManager.getTaskHistory(instanceId)
+      });
+    }
+  }
+
+  private async handleCreateAutomation(
+    instanceId: string,
+    command: CreateAutomationCommand
+  ): Promise<void> {
+    const ctx = this.contexts.get(instanceId);
+    if (!ctx) return;
+
+    try {
+      const payload = {
+        ...command.automation,
+        action: {
+          ...command.automation.action,
+          workingDirectory: command.automation.action.workingDirectory?.trim() || ctx.workingDirectory,
+        },
+      };
+      const parsed = AutomationCreatePayloadSchema.safeParse(payload);
+      if (!parsed.success) {
+        this.injectResponse(instanceId, 'create_automation', false, {
+          error: 'Invalid automation payload',
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join('.'),
+            message: issue.message,
+          })),
+        });
+        return;
+      }
+
+      const automation = await createAutomationWithScheduling(parsed.data);
+      if (!automation) {
+        this.injectResponse(instanceId, 'create_automation', false, {
+          error: 'Automation was not created',
+        });
+        return;
+      }
+
+      this.injectResponse(instanceId, 'create_automation', true, {
+        automationId: automation.id,
+        automation,
+        message: `Saved automation "${automation.name}".`,
+      });
+    } catch (error) {
+      this.injectResponse(instanceId, 'create_automation', false, {
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }

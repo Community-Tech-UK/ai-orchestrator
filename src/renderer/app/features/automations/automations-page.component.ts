@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import type {
   Automation,
   AutomationAction,
@@ -75,9 +76,12 @@ function fromLocalDateInput(value: string): number {
   template: `
     <div class="page">
       <header class="toolbar">
-        <div>
-          <h1>Automations</h1>
-          <span class="muted">{{ store.automations().length }} schedules</span>
+        <div class="toolbar-title">
+          <button class="btn" type="button" (click)="goBack()">← Back</button>
+          <div>
+            <h1>Automations</h1>
+            <span class="muted">{{ store.automations().length }} schedules</span>
+          </div>
         </div>
         <div class="toolbar-actions">
           <button class="btn" type="button" (click)="store.refresh()">Refresh</button>
@@ -300,6 +304,7 @@ function fromLocalDateInput(value: string): number {
     :host { display: block; width: 100%; height: 100%; }
     .page { display: flex; flex-direction: column; height: 100%; padding: 16px; gap: 12px; color: var(--text-primary); background: var(--bg-primary); }
     .toolbar, .summary-header, .actions, .toolbar-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .toolbar-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
     h1, h2, h3 { margin: 0; letter-spacing: 0; }
     h1 { font-size: 20px; }
     h2 { font-size: 18px; }
@@ -347,6 +352,7 @@ function fromLocalDateInput(value: string): number {
   `],
 })
 export class AutomationsPageComponent {
+  private readonly router = inject(Router);
   store = inject(AutomationStore);
   selectedId = signal<string | null>(null);
   editing = signal(false);
@@ -363,6 +369,10 @@ export class AutomationsPageComponent {
     this.selectedId.set(null);
     this.form.set(emptyForm());
     this.editing.set(true);
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 
   patchForm(patch: Partial<AutomationFormModel>): void {

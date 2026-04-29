@@ -45,6 +45,7 @@ export interface RoleCapabilityProfile {
   canSpawnChildren: boolean;
   canRequestConsensus: boolean;
   canRequestUserAction: boolean;
+  canCreateAutomations: boolean;
   canReportResult: boolean;
   canMessageChildren: boolean;
   canTerminateChildren: boolean;

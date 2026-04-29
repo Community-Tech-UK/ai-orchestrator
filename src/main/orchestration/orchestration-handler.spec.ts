@@ -4,6 +4,10 @@ const consensusMocks = vi.hoisted(() => ({
   query: vi.fn(),
 }));
 
+const automationMocks = vi.hoisted(() => ({
+  createAutomationWithScheduling: vi.fn(),
+}));
+
 // Mock the logger before any imports that transitively pull in Electron's app.getPath
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
@@ -18,6 +22,10 @@ vi.mock('./consensus-coordinator', () => ({
   getConsensusCoordinator: () => ({
     query: consensusMocks.query,
   }),
+}));
+
+vi.mock('../automations/automation-create-service', () => ({
+  createAutomationWithScheduling: automationMocks.createAutomationWithScheduling,
 }));
 
 import { OrchestrationHandler } from './orchestration-handler';
@@ -41,6 +49,7 @@ function responseData(response: string): Record<string, unknown> {
 describe('OrchestrationHandler.processOutput (streaming markers)', () => {
   beforeEach(() => {
     consensusMocks.query.mockReset();
+    automationMocks.createAutomationWithScheduling.mockReset();
   });
 
   it('emits a user-action request when the marker block is split across chunks', () => {
@@ -207,6 +216,72 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       activeConsensusQueries: 0,
       successCount: 1,
       failureCount: 0,
+    });
+  });
+
+  it('creates a native automation from an orchestration command', async () => {
+    const orchestration = new OrchestrationHandler();
+    orchestration.registerInstance('i-auto', '/repo/current', null);
+
+    const injectedResponses: string[] = [];
+    orchestration.on('inject-response', (_instanceId, response) => {
+      injectedResponses.push(response);
+    });
+
+    automationMocks.createAutomationWithScheduling.mockResolvedValueOnce({
+      id: 'automation-1',
+      name: 'Daily repo check',
+      enabled: true,
+      active: true,
+      schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: {
+        prompt: 'Check the repo status and summarize issues.',
+        workingDirectory: '/repo/current',
+        provider: 'auto',
+      },
+      nextFireAt: 1_000,
+      lastFiredAt: null,
+      lastRunId: null,
+      createdAt: 100,
+      updatedAt: 100,
+      unreadRunCount: 0,
+    });
+
+    orchestration.processOutput('i-auto', commandBlock({
+      action: 'create_automation',
+      automation: {
+        name: 'Daily repo check',
+        schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: {
+          prompt: 'Check the repo status and summarize issues.',
+          provider: 'auto',
+        },
+      },
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(automationMocks.createAutomationWithScheduling).toHaveBeenCalledWith({
+      name: 'Daily repo check',
+      schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: {
+        prompt: 'Check the repo status and summarize issues.',
+        workingDirectory: '/repo/current',
+        provider: 'auto',
+      },
+    });
+
+    const response = injectedResponses.find((item) => item.includes('Action: create_automation'));
+    expect(response).toBeDefined();
+    expect(responseData(response!)).toMatchObject({
+      automationId: 'automation-1',
+      message: 'Saved automation "Daily repo check".',
     });
   });
 });

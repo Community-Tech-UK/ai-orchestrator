@@ -130,6 +130,17 @@ describe('generateOrchestrationPrompt', () => {
     });
   });
 
+  describe('saved automations guidance', () => {
+    it('documents create_automation for recurring and deferred work', () => {
+      expect(prompt).toContain('create_automation');
+      expect(prompt).toMatch(/every morning[\s\S]*daily[\s\S]*on repeat[\s\S]*on a loop/);
+    });
+
+    it('requires a clarifying question when loop cadence is ambiguous', () => {
+      expect(prompt).toMatch(/cadence is ambiguous[\s\S]*request_user_action/);
+    });
+  });
+
   describe('consensus guidance', () => {
     it('documents consensus_query as a high-confidence-validation tool', () => {
       expect(prompt).toMatch(/consensus_query[\s\S]*high-confidence/);
@@ -249,6 +260,16 @@ describe('parseOrchestratorCommands', () => {
       { action: 'report_error', code: 'E_X', message: 'm' },
       { action: 'get_task_status' },
       { action: 'request_user_action', requestType: 'confirm', title: 't', message: 'm' },
+      {
+        action: 'create_automation',
+        automation: {
+          name: 'Daily check',
+          schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+          missedRunPolicy: 'notify',
+          concurrencyPolicy: 'skip',
+          action: { prompt: 'Check the repo' },
+        },
+      },
       { action: 'report_result', summary: 's' },
       { action: 'get_child_summary', childId: 'c' },
       { action: 'get_child_artifacts', childId: 'c' },
@@ -374,6 +395,33 @@ describe('isValidCommand (via parser drop behavior)', () => {
   });
 
   rejects('consensus_query without a question', { action: 'consensus_query' });
+
+  describe('create_automation', () => {
+    rejects('without automation payload', { action: 'create_automation' });
+    rejects('without automation name', {
+      action: 'create_automation',
+      automation: {
+        schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+        action: { prompt: 'Check the repo' },
+      },
+    });
+    rejects('without automation prompt', {
+      action: 'create_automation',
+      automation: {
+        name: 'Daily check',
+        schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
+        action: {},
+      },
+    });
+    rejects('with ambiguous cron schedule', {
+      action: 'create_automation',
+      automation: {
+        name: 'Daily check',
+        schedule: { type: 'cron', timezone: 'UTC' },
+        action: { prompt: 'Check the repo' },
+      },
+    });
+  });
 });
 
 describe('stripOrchestrationMarkers', () => {

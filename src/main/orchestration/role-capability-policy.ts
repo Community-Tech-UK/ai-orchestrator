@@ -24,6 +24,7 @@ export const ROLE_CAPABILITY_PROFILES: Record<OrchestrationRole, RoleCapabilityP
     canSpawnChildren: true,
     canRequestConsensus: true,
     canRequestUserAction: true,
+    canCreateAutomations: true,
     canReportResult: false,
     canMessageChildren: true,
     canTerminateChildren: true,
@@ -41,6 +42,7 @@ export const ROLE_CAPABILITY_PROFILES: Record<OrchestrationRole, RoleCapabilityP
     canSpawnChildren: false,
     canRequestConsensus: false,
     canRequestUserAction: false,
+    canCreateAutomations: false,
     canReportResult: true,
     canMessageChildren: false,
     canTerminateChildren: false,
@@ -58,6 +60,7 @@ export const ROLE_CAPABILITY_PROFILES: Record<OrchestrationRole, RoleCapabilityP
     canSpawnChildren: false,
     canRequestConsensus: true,
     canRequestUserAction: false,
+    canCreateAutomations: false,
     canReportResult: true,
     canMessageChildren: false,
     canTerminateChildren: false,
@@ -75,6 +78,7 @@ export const ROLE_CAPABILITY_PROFILES: Record<OrchestrationRole, RoleCapabilityP
     canSpawnChildren: false,
     canRequestConsensus: false,
     canRequestUserAction: false,
+    canCreateAutomations: false,
     canReportResult: true,
     canMessageChildren: false,
     canTerminateChildren: false,
@@ -92,6 +96,7 @@ export const ROLE_CAPABILITY_PROFILES: Record<OrchestrationRole, RoleCapabilityP
     canSpawnChildren: false,
     canRequestConsensus: false,
     canRequestUserAction: false,
+    canCreateAutomations: false,
     canReportResult: true,
     canMessageChildren: false,
     canTerminateChildren: false,
@@ -109,6 +114,7 @@ export const ROLE_CAPABILITY_PROFILES: Record<OrchestrationRole, RoleCapabilityP
     canSpawnChildren: false,
     canRequestConsensus: false,
     canRequestUserAction: false,
+    canCreateAutomations: false,
     canReportResult: false,
     canMessageChildren: false,
     canTerminateChildren: false,
@@ -157,6 +163,8 @@ export function evaluateOrchestrationCapability(
       return { allowed: true, profile };
     case 'request_user_action':
       return profile.canRequestUserAction ? { allowed: true, profile } : denied(`${role} cannot request user action`);
+    case 'create_automation':
+      return profile.canCreateAutomations ? { allowed: true, profile } : denied(`${role} cannot create automations`);
     case 'message_child':
       return profile.canMessageChildren ? { allowed: true, profile } : denied(`${role} cannot message child instances`);
     case 'terminate_child':

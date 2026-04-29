@@ -12,8 +12,6 @@ import {
   AutomationUpdatePayloadSchema,
 } from '@contracts/schemas/automation';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
-import type { Automation } from '../../../shared/types/automation.types';
-import { getSettingsManager } from '../../core/config/settings-manager';
 import {
   computeNextFireAt,
   getAutomationRunner,
@@ -21,6 +19,10 @@ import {
   getAutomationStore,
 } from '../../automations';
 import { getAutomationEvents } from '../../automations/automation-events';
+import {
+  createAutomationWithScheduling,
+  handlePastOneTimeAutomation,
+} from '../../automations/automation-create-service';
 
 function responseError(code: string, error: unknown): IpcResponse {
   return {
@@ -31,33 +33,6 @@ function responseError(code: string, error: unknown): IpcResponse {
       timestamp: Date.now(),
     },
   };
-}
-
-async function handlePastOneTimeCreate(automation: Automation): Promise<void> {
-  if (automation.schedule.type !== 'oneTime' || automation.schedule.runAt > Date.now()) {
-    return;
-  }
-
-  const store = getAutomationStore();
-  const events = getAutomationEvents();
-  if (automation.missedRunPolicy === 'runOnce') {
-    await getAutomationRunner().fire(automation.id, {
-      trigger: 'catchUp',
-      scheduledAt: automation.schedule.runAt,
-    });
-    return;
-  }
-
-  const reason = automation.missedRunPolicy === 'notify'
-    ? 'One-time automation was already in the past when created'
-    : 'Past one-time automation skipped by missed-run policy';
-  const run = store.recordSkipped(automation, 'catchUp', automation.schedule.runAt, reason);
-  store.completeOneTime(automation.id);
-  const completed = await store.get(automation.id);
-  events.emitRunChanged({ automationId: automation.id, run });
-  events.emitRunTerminal({ automationId: automation.id, runId: run.id, status: 'skipped' });
-  events.emitChanged({ automation: completed, automationId: automation.id, type: 'updated' });
-  events.emitScheduleDeactivated({ automationId: automation.id });
 }
 
 export function registerAutomationHandlers(): void {
@@ -91,21 +66,7 @@ export function registerAutomationHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(AutomationCreatePayloadSchema, payload, 'AUTOMATION_CREATE');
-        const now = Date.now();
-        const missedRunPolicy =
-          validated.missedRunPolicy ?? getSettingsManager().get('defaultMissedRunPolicy');
-        const nextFireAt = validated.enabled === false
-          ? null
-          : computeNextFireAt(validated.schedule, now);
-        const automation = await store.create({
-          ...validated,
-          missedRunPolicy,
-          action: validated.action,
-        }, nextFireAt, now);
-
-        events.emitChanged({ automation, automationId: automation.id, type: 'created' });
-        await handlePastOneTimeCreate(automation);
-        return { success: true, data: await store.get(automation.id) };
+        return { success: true, data: await createAutomationWithScheduling(validated) };
       } catch (error) {
         return responseError('AUTOMATION_CREATE_FAILED', error);
       }
@@ -128,7 +89,7 @@ export function registerAutomationHandlers(): void {
         const automation = await store.update(validated.id, validated.updates, nextFireAt);
         scheduler.schedule(automation);
         events.emitChanged({ automation, automationId: automation.id, type: 'updated' });
-        await handlePastOneTimeCreate(automation);
+        await handlePastOneTimeAutomation(automation);
         return { success: true, data: await store.get(automation.id) };
       } catch (error) {
         return responseError('AUTOMATION_UPDATE_FAILED', error);

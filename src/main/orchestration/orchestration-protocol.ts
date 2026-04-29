@@ -11,6 +11,12 @@ import type {
 } from '../../shared/types/child-result.types';
 import type { ConsensusStrategy } from './consensus.types';
 import type { CanonicalCliType } from '../../shared/types/settings.types';
+import type {
+  AutomationAction,
+  AutomationConcurrencyPolicy,
+  AutomationMissedRunPolicy,
+  AutomationSchedule,
+} from '../../shared/types/automation.types';
 
 const logger = getLogger('OrchestrationProtocol');
 
@@ -29,6 +35,7 @@ export type OrchestratorAction =
   | 'report_error'
   | 'get_task_status'
   | 'request_user_action'
+  | 'create_automation'
   // Structured result commands
   | 'report_result'
   | 'get_child_summary'
@@ -166,6 +173,21 @@ export interface ConsensusQueryCommand {
   timeout?: number;
 }
 
+export interface CreateAutomationCommand {
+  action: 'create_automation';
+  automation: {
+    name: string;
+    description?: string;
+    enabled?: boolean;
+    schedule: AutomationSchedule;
+    missedRunPolicy?: AutomationMissedRunPolicy;
+    concurrencyPolicy?: AutomationConcurrencyPolicy;
+    action: Omit<AutomationAction, 'workingDirectory'> & {
+      workingDirectory?: string;
+    };
+  };
+}
+
 export type OrchestratorCommand =
   | SpawnChildCommand
   | MessageChildCommand
@@ -178,6 +200,7 @@ export type OrchestratorCommand =
   | ReportErrorCommand
   | GetTaskStatusCommand
   | RequestUserActionCommand
+  | CreateAutomationCommand
   // Structured result commands
   | ReportResultCommand
   | GetChildSummaryCommand
@@ -196,9 +219,14 @@ export function generateOrchestrationPrompt(
   const modelIdentity = currentModel
     ? `You are currently running as **${currentModel}**.\n\n`
     : '';
+  const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const currentTimeIso = new Date().toISOString();
   return `## You Are an Orchestrator
 
 ${modelIdentity}You are a **parent instance** in AI Orchestrator. You spawn and manage child AI instances for parallel work.
+
+**Current time:** ${currentTimeIso}
+**Local timezone:** ${localTimezone}
 
 ### Delegation Rules
 
@@ -242,6 +270,23 @@ ${ORCHESTRATION_MARKER_END}
 | get_children | (none) |
 | terminate_child | childId |
 | call_tool | toolId, args? |
+| create_automation | automation |
+
+### Saved Automations
+
+When the user asks for recurring or deferred work — for example "every morning", "daily", "weekly", "every 15 minutes", "on repeat", "on a loop", "tomorrow", or "next Friday" — create an AI Orchestrator native automation with \`create_automation\` instead of trying to run an infinite loop inside the current session.
+
+- Use \`schedule.type = "cron"\` for repeated work, with a concrete cron expression and IANA timezone.
+- Use \`schedule.type = "oneTime"\` for one future run, with \`runAt\` as a Unix timestamp in milliseconds.
+- If the cadence is ambiguous ("keep doing this", "on a loop" without an interval), ask a clarifying question with \`request_user_action\` before creating anything.
+- If \`automation.action.workingDirectory\` is omitted, the current session directory is used.
+- Keep the automation prompt self-contained: include exactly what should happen each run, how to report results, and any relevant project path.
+- Default to \`missedRunPolicy: "notify"\` and \`concurrencyPolicy: "skip"\` unless the user asks otherwise.
+
+Example:
+\`\`\`json
+{"action":"create_automation","automation":{"name":"Daily CI check","schedule":{"type":"cron","expression":"0 9 * * *","timezone":"Europe/London"},"missedRunPolicy":"notify","concurrencyPolicy":"skip","action":{"prompt":"Check the current repo CI status and summarize any failures for the user.","provider":"auto"}}}
+\`\`\`
 
 ### Retrieving Child Results
 
@@ -504,6 +549,8 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
 
       return true;
     }
+    case 'create_automation':
+      return isValidCreateAutomationCommand(cmd as CreateAutomationCommand);
     // New structured result commands
     case 'report_result':
       return typeof (cmd as ReportResultCommand).summary === 'string';
@@ -523,6 +570,47 @@ function isValidCommand(cmd: unknown): cmd is OrchestratorCommand {
     default:
       return false;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isValidCreateAutomationCommand(cmd: CreateAutomationCommand): boolean {
+  if (!isRecord(cmd.automation)) {
+    return false;
+  }
+
+  const automation = cmd.automation;
+  if (typeof automation.name !== 'string' || automation.name.trim().length === 0) {
+    return false;
+  }
+
+  if (!isRecord(automation.schedule)) {
+    return false;
+  }
+
+  const schedule = automation.schedule;
+  if (schedule['type'] === 'cron') {
+    if (typeof schedule['expression'] !== 'string' || schedule['expression'].trim().length === 0) {
+      return false;
+    }
+    if (typeof schedule['timezone'] !== 'string' || schedule['timezone'].trim().length === 0) {
+      return false;
+    }
+  } else if (schedule['type'] === 'oneTime') {
+    if (typeof schedule['runAt'] !== 'number' || !Number.isFinite(schedule['runAt'])) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  if (!isRecord(automation.action)) {
+    return false;
+  }
+
+  return typeof automation.action['prompt'] === 'string' && automation.action['prompt'].trim().length > 0;
 }
 
 /**
