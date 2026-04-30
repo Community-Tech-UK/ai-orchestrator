@@ -13,6 +13,9 @@ import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
+import { mkdirSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { CliDetectionService, CliType } from '../cli-detection';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
@@ -23,6 +26,9 @@ import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 
 const logger = getLogger('AdapterFactory');
+
+const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
+const COPILOT_ORCHESTRATOR_HOME_DIR = 'copilot-cli-home';
 
 /**
  * Unified spawn options that work across all adapters
@@ -109,6 +115,31 @@ function buildCopilotSpawnEnv(parent: NodeJS.ProcessEnv = process.env): Record<s
   }
   env['NODE_OPTIONS'] = merged;
   return env;
+}
+
+function getElectronUserDataPath(): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const electron = require('electron') as {
+      app?: { getPath?: (name: string) => string };
+    };
+    const userDataPath = electron.app?.getPath?.('userData');
+    return typeof userDataPath === 'string' && userDataPath.trim()
+      ? userDataPath
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getCopilotOrchestratorHome(parent: NodeJS.ProcessEnv = process.env): string {
+  const explicit = parent[COPILOT_ORCHESTRATOR_HOME_ENV]?.trim();
+  const homeDir = explicit || join(
+    getElectronUserDataPath() ?? join(tmpdir(), 'ai-orchestrator'),
+    COPILOT_ORCHESTRATOR_HOME_DIR
+  );
+  mkdirSync(homeDir, { recursive: true });
+  return homeDir;
 }
 
 /**
@@ -287,6 +318,18 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       requestedModel.toLowerCase() === 'auto' ? 'auto' : requestedModel;
     modelArgs.push('--model', normalizedModel);
   }
+  const isolateProviderState = options.ephemeral ?? true;
+  const copilotHomeDir = isolateProviderState ? getCopilotOrchestratorHome() : undefined;
+  const providerStateArgs = copilotHomeDir
+    ? ['--config-dir', copilotHomeDir, '--no-remote']
+    : [];
+  const env = buildCopilotSpawnEnv();
+  if (copilotHomeDir) {
+    // AI Orchestrator owns its own session/history surface. Copilot ACP
+    // sessions created here should not write into ~/.copilot, because VS
+    // Code's Copilot Chat session list indexes that state directory.
+    env['COPILOT_HOME'] = copilotHomeDir;
+  }
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     command: launch.command,
@@ -301,12 +344,13 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       '--allow-all-paths',
       '--allow-all-urls',
       '--no-ask-user',
+      ...providerStateArgs,
       ...modelArgs,
     ],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
-    env: buildCopilotSpawnEnv(),
+    env,
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,

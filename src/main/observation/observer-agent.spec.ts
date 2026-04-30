@@ -7,6 +7,10 @@ import { EventEmitter } from 'events';
 import { ObserverAgent, getObserverAgent } from './observer-agent';
 import type { RawObservation } from './observation.types';
 
+const mockMemoryState = vi.hoisted(() => ({
+  pressureLevel: 'normal' as 'normal' | 'warning' | 'critical',
+}));
+
 // Create mock EventEmitter for ingestor
 const mockIngestor = new EventEmitter();
 
@@ -20,6 +24,12 @@ vi.mock('./observation-store', () => ({
       id: 'test-id',
       ...obs,
     })),
+  }),
+}));
+
+vi.mock('../memory/memory-monitor', () => ({
+  getMemoryMonitor: () => ({
+    getPressureLevel: () => mockMemoryState.pressureLevel,
   }),
 }));
 
@@ -37,6 +47,7 @@ describe('ObserverAgent', () => {
 
   beforeEach(() => {
     ObserverAgent._resetForTesting();
+    mockMemoryState.pressureLevel = 'normal';
     mockIngestor.removeAllListeners();
     agent = getObserverAgent();
   });
@@ -96,6 +107,31 @@ describe('ObserverAgent', () => {
         call => call[0] === 'observer:observation-created'
       );
       expect(observationCalls.length).toBe(0);
+    });
+
+    it('should skip flush processing under critical memory pressure', () => {
+      mockMemoryState.pressureLevel = 'critical';
+      const emitSpy = vi.spyOn(agent, 'emit');
+
+      mockIngestor.emit('ingestor:flush-ready', [
+        {
+          id: 'obs-critical',
+          timestamp: Date.now(),
+          source: 'instance:output',
+          level: 'event',
+          content: 'This would normally create an observation',
+          metadata: {},
+          instanceId: 'inst-1',
+          tokenEstimate: 10,
+        },
+      ]);
+
+      expect(emitSpy.mock.calls.some(call => call[0] === 'observer:observation-created')).toBe(false);
+      expect(emitSpy).toHaveBeenCalledWith('observer:flush-skipped', expect.objectContaining({
+        reason: 'memory-critical',
+        rawCount: 1,
+      }));
+      expect(agent.getStats().skippedFlushCount).toBe(1);
     });
   });
 

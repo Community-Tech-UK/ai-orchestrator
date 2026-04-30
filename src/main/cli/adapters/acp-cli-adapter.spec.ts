@@ -409,6 +409,57 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('ignores malformed available command updates and keeps the ACP session usable', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'available_commands_update',
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'Still alive.' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
+    const errors: Error[] = [];
+    adapter.on('output', (message: { type: string; content: string; metadata?: Record<string, unknown> }) => {
+      outputs.push(message);
+    });
+    adapter.on('error', (error: Error) => errors.push(error));
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    expect(response.content).toBe('Still alive.');
+    expect(errors).toHaveLength(0);
+    expect(outputs).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        content: expect.stringContaining('Malformed ACP available commands update'),
+        metadata: expect.objectContaining({
+          source: 'acp-protocol-error',
+          recoverable: true,
+        }),
+      }),
+    );
+
+    proc.exit();
+  });
+
   it('keeps assistant chunks on a stable turn id when ACP messageId changes per chunk', async () => {
     const proc = createInitializedAgentHarness();
 

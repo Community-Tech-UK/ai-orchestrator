@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
+import { getMemoryMonitor } from '../memory/memory-monitor';
 import { getObservationIngestor } from './observation-ingestor';
 import { getObservationStore } from './observation-store';
 import type { RawObservation, Observation, ObservationConfig } from './observation.types';
@@ -15,6 +16,7 @@ const STOP_WORDS = new Set([
   'out', 'about', 'into', 'over', 'after', 'before', 'between', 'under',
 ]);
 const MAX_ANALYZED_EVENT_CONTENT_CHARS = 2_000;
+const BACKPRESSURE_LOG_INTERVAL_MS = 60_000;
 
 /**
  * ObserverAgent - Compresses raw observations into Observation summaries
@@ -28,6 +30,8 @@ export class ObserverAgent extends EventEmitter {
   private logger = getLogger('ObserverAgent');
   private config = { ...DEFAULT_OBSERVATION_CONFIG };
   private observationCount = 0;
+  private skippedFlushCount = 0;
+  private lastBackpressureLogAt = 0;
 
   static getInstance(): ObserverAgent {
     if (!this.instance) {
@@ -59,6 +63,10 @@ export class ObserverAgent extends EventEmitter {
    */
   private processFlush(rawObservations: RawObservation[]): void {
     if (rawObservations.length === 0) {
+      return;
+    }
+
+    if (this.shouldSkipFlushForBackpressure(rawObservations.length)) {
       return;
     }
 
@@ -111,7 +119,31 @@ export class ObserverAgent extends EventEmitter {
       this.observationCount = 0;
     }
 
-    this.logger.info('Flush processed', { created, totalObservations: this.observationCount });
+    this.logger.debug('Flush processed', { created, totalObservations: this.observationCount });
+  }
+
+  private shouldSkipFlushForBackpressure(rawCount: number): boolean {
+    const pressureLevel = getMemoryMonitor().getPressureLevel();
+    if (pressureLevel !== 'critical') {
+      return false;
+    }
+
+    this.skippedFlushCount++;
+    const now = Date.now();
+    if (now - this.lastBackpressureLogAt >= BACKPRESSURE_LOG_INTERVAL_MS) {
+      this.lastBackpressureLogAt = now;
+      this.logger.warn('Skipping observation flush under critical memory pressure', {
+        rawCount,
+        skippedFlushCount: this.skippedFlushCount,
+      });
+    }
+
+    this.emit('observer:flush-skipped', {
+      reason: 'memory-critical',
+      rawCount,
+      skippedFlushCount: this.skippedFlushCount,
+    });
+    return true;
   }
 
   /**
@@ -249,9 +281,10 @@ export class ObserverAgent extends EventEmitter {
   /**
    * Get current statistics
    */
-  getStats(): { observationCount: number } {
+  getStats(): { observationCount: number; skippedFlushCount: number } {
     return {
       observationCount: this.observationCount,
+      skippedFlushCount: this.skippedFlushCount,
     };
   }
 

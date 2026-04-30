@@ -3,7 +3,7 @@
  * actions to keep the process within safe memory bounds.
  *
  * Actions:
- *  - warning  → pause new instance creation, optionally request GC
+ *  - warning  → optionally pause new instance creation, request GC
  *  - critical → pause creation + terminate idle instances
  *  - normal   → resume creation
  */
@@ -17,11 +17,11 @@ import { registerCleanup } from '../util/cleanup-registry';
 export interface ResourceGovernorConfig {
   /** Per-instance soft memory cap in MB (default: 512) */
   maxInstanceMemoryMB: number;
-  /** Pause new instance creation when pressure reaches this level (default: 'warning') */
+  /** Pause new instance creation when pressure reaches this level (default: 'critical') */
   creationPausedAtPressure: MemoryPressureLevel;
   /** Automatically terminate idle instances at critical pressure (default: true) */
   terminateIdleAtCritical: boolean;
-  /** Minimum idle time before an instance is eligible for termination (default: 5 min) */
+  /** Legacy idle threshold retained for config compatibility; critical cleanup terminates all idle instances immediately. */
   idleThresholdMs: number;
   /** Request GC when memory warning fires (default: true) */
   gcOnWarning: boolean;
@@ -31,7 +31,7 @@ export interface ResourceGovernorConfig {
 
 const DEFAULT_CONFIG: ResourceGovernorConfig = {
   maxInstanceMemoryMB: 512,
-  creationPausedAtPressure: 'warning',
+  creationPausedAtPressure: 'critical',
   terminateIdleAtCritical: true,
   idleThresholdMs: 5 * 60 * 1000,
   gcOnWarning: true,
@@ -147,20 +147,31 @@ export class ResourceGovernor extends EventEmitter {
    * Checks memory pressure and the hard instance count cap.
    */
   isCreationAllowed(): boolean {
-    if (this.creationPaused) return false;
+    return this.getCreationBlockReason() === null;
+  }
 
+  /**
+   * Returns a stable machine-readable reason when instance creation is blocked.
+   */
+  getCreationBlockReason(): string | null {
     const level = this.deps.getMemoryMonitor().getPressureLevel();
-    if (level === 'critical') return false;
-    if (level === 'warning' && this.config.creationPausedAtPressure === 'warning') return false;
+    if (this.creationPaused) {
+      if (level === 'critical') return 'memory-critical';
+      if (level === 'warning') return 'memory-warning';
+      return 'creation-paused';
+    }
+
+    if (level === 'critical') return 'memory-critical';
+    if (level === 'warning' && this.config.creationPausedAtPressure === 'warning') return 'memory-warning';
 
     try {
       const instanceManager = this.deps.getInstanceManager();
-      if (instanceManager.getInstanceCount() >= this.config.maxTotalInstances) return false;
+      if (instanceManager.getInstanceCount() >= this.config.maxTotalInstances) return 'instance-limit';
     } catch {
       // InstanceManager may not be available in all test contexts — fail open
     }
 
-    return true;
+    return null;
   }
 
   /**
@@ -191,10 +202,11 @@ export class ResourceGovernor extends EventEmitter {
     this.emit('config:updated', this.getConfig());
   }
 
-  getStats(): { creationPaused: boolean; pressureLevel: MemoryPressureLevel } {
+  getStats(): { creationPaused: boolean; pressureLevel: MemoryPressureLevel; creationBlockReason: string | null } {
     return {
       creationPaused: this.creationPaused,
       pressureLevel: this.deps.getMemoryMonitor().getPressureLevel(),
+      creationBlockReason: this.getCreationBlockReason(),
     };
   }
 
@@ -203,14 +215,22 @@ export class ResourceGovernor extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private handleWarning(stats: MemoryStats): void {
-    this.logger.warn('Memory warning — pausing instance creation', { heapUsedMB: stats.heapUsedMB });
-    this.creationPaused = true;
+    const shouldPauseCreation = this.config.creationPausedAtPressure === 'warning';
+    this.logger.warn(
+      shouldPauseCreation
+        ? 'Memory warning — pausing instance creation'
+        : 'Memory warning — requesting garbage collection',
+      { heapUsedMB: stats.heapUsedMB }
+    );
 
     if (this.config.gcOnWarning) {
       this.deps.getMemoryMonitor().requestGC();
     }
 
-    this.emit('creation:paused', { reason: 'memory-warning', stats });
+    if (shouldPauseCreation) {
+      this.creationPaused = true;
+      this.emit('creation:paused', { reason: 'memory-warning', stats });
+    }
   }
 
   private handleCritical(stats: MemoryStats): void {
@@ -220,7 +240,7 @@ export class ResourceGovernor extends EventEmitter {
     if (this.config.terminateIdleAtCritical) {
       try {
         const instanceManager = this.deps.getInstanceManager();
-        const idle = instanceManager.getIdleInstances(this.config.idleThresholdMs);
+        const idle = instanceManager.getIdleInstances(0);
         for (const inst of idle) {
           this.logger.warn('Terminating idle instance due to memory pressure', { instanceId: inst.id });
           instanceManager.terminateInstance(inst.id, true).catch((err: unknown) => {

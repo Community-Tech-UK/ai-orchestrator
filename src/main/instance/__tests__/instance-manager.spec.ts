@@ -17,6 +17,7 @@ const {
   mockCreateCliAdapter,
   mockProjectMemoryBuildBrief,
   mockPromptHistoryRecord,
+  mockResourceGovernorGetCreationBlockReason,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
   mockProjectMemoryBuildBrief: vi.fn().mockResolvedValue({
@@ -31,6 +32,7 @@ const {
     },
   }),
   mockPromptHistoryRecord: vi.fn(),
+  mockResourceGovernorGetCreationBlockReason: vi.fn<() => string | null>(() => null),
 }));
 
 // ---------------------------------------------------------------------------
@@ -238,6 +240,12 @@ vi.mock('../../process/supervisor-tree', () => ({
     getInstance: vi.fn(() => mockSupervisorTree),
     _resetForTesting: vi.fn(),
   },
+}));
+
+vi.mock('../../process/resource-governor', () => ({
+  getResourceGovernor: vi.fn(() => ({
+    getCreationBlockReason: mockResourceGovernorGetCreationBlockReason,
+  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -719,6 +727,7 @@ describe('InstanceManager', () => {
 
     mockTaskManager.startTimeoutChecker.mockImplementation(() => undefined);
     mockSettingsGetAll.mockReturnValue({ ...mockSettingsData });
+    mockResourceGovernorGetCreationBlockReason.mockReturnValue(null);
 
     manager = createManager();
   });
@@ -793,6 +802,18 @@ describe('InstanceManager', () => {
       expect(instance).toBeDefined();
       expect(instance.workingDirectory).toBe(TEST_WORKING_DIR);
       expect(instance.displayName).toBe('My Instance');
+    });
+
+    it('refuses new instances while the resource governor blocks creation', async () => {
+      mockResourceGovernorGetCreationBlockReason.mockReturnValue('memory-critical');
+      mockAdapterSpawn.mockClear();
+
+      await expect(manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Blocked Instance',
+      })).rejects.toThrow(/resource governor \(memory-critical\)/);
+
+      expect(mockAdapterSpawn).not.toHaveBeenCalled();
     });
 
     it('assigns a unique ID to each instance', async () => {

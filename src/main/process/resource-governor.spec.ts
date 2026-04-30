@@ -55,6 +55,7 @@ describe('ResourceGovernor', () => {
     mockDeps.getMemoryMonitor().getPressureLevel.mockReturnValue('warning');
     governor = new ResourceGovernor(mockDeps as any);
     expect(governor.isCreationAllowed()).toBe(false);
+    expect(governor.getCreationBlockReason()).toBe('memory-warning');
   });
 
   it('should configure via configure()', () => {
@@ -70,12 +71,14 @@ describe('ResourceGovernor', () => {
     mockDeps.getMemoryMonitor().getPressureLevel.mockReturnValue('critical');
     governor = new ResourceGovernor(mockDeps as any);
     expect(governor.isCreationAllowed()).toBe(false);
+    expect(governor.getCreationBlockReason()).toBe('memory-critical');
   });
 
   it('should block creation when instance count reaches maxTotalInstances', () => {
     mockInstanceManager.getInstanceCount.mockReturnValue(50);
     governor = new ResourceGovernor(mockDeps as any);
     expect(governor.isCreationAllowed()).toBe(false);
+    expect(governor.getCreationBlockReason()).toBe('instance-limit');
   });
 
   it('should emit creation:paused on warning event', () => {
@@ -110,10 +113,12 @@ describe('ResourceGovernor', () => {
 
   it('should emit instances:terminated on critical event when idle instances exist', () => {
     const terminateInstance = vi.fn(() => Promise.resolve());
+    const getIdleInstances = vi.fn();
     const idleInstances = [
       { id: 'inst-1', lastActivity: Date.now() - 10 * 60 * 1000 },
       { id: 'inst-2', lastActivity: Date.now() - 6 * 60 * 1000 },
     ];
+    getIdleInstances.mockReturnValue(idleInstances);
 
     const capturedHandlers: Record<string, ((...args: unknown[]) => void)[]> = {};
     const capturingMonitor = {
@@ -131,7 +136,7 @@ describe('ResourceGovernor', () => {
       getInstanceManager: () => ({
         on: vi.fn(),
         getInstanceCount: vi.fn(() => 2),
-        getIdleInstances: vi.fn(() => idleInstances),
+        getIdleInstances,
         terminateInstance,
       }),
       getLogger: () => mockLogger,
@@ -145,6 +150,7 @@ describe('ResourceGovernor', () => {
     expect(criticalHandlers?.length).toBeGreaterThan(0);
     criticalHandlers[0]({ heapUsedMB: 1600, heapTotalMB: 2048, externalMB: 0, rssMB: 0, percentUsed: 78 });
 
+    expect(getIdleInstances).toHaveBeenCalledWith(0);
     expect(terminateInstance).toHaveBeenCalledWith('inst-1', true);
     expect(terminateInstance).toHaveBeenCalledWith('inst-2', true);
     expect(terminatedEvents.length).toBe(1);

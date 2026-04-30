@@ -72,6 +72,7 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { WindowManager } from '../window-manager';
+import { getResourceGovernor } from '../process/resource-governor';
 import {
   getHistoryRestoreCoordinator,
   type HistoryRestoreCoordinatorOptions,
@@ -114,6 +115,17 @@ function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<InstanceCre
         }))
       : undefined,
   };
+}
+
+function getResourceGovernorCreationBlockReason(): string | null {
+  try {
+    return getResourceGovernor().getCreationBlockReason();
+  } catch (error) {
+    logger.debug('Resource governor unavailable while checking instance creation gate', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 function summarizeInputRequiredPayload(payload: {
@@ -1025,6 +1037,15 @@ export class InstanceManager extends EventEmitter {
   // ============================================
 
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
+    const creationBlockReason = getResourceGovernorCreationBlockReason();
+    if (creationBlockReason) {
+      logger.warn('Refusing to create instance while resource governor blocks creation', {
+        reason: creationBlockReason,
+        config: sanitizeCreateConfig(config),
+      });
+      throw new Error(`Instance creation is paused by the resource governor (${creationBlockReason}).`);
+    }
+
     emitPluginHook('instance.spawn.before', {
       parentId: config.parentId ?? null,
       displayName: config.displayName,

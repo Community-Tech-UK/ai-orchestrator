@@ -1,8 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 import { PermissionRegistry } from '../../../orchestration/permission-registry';
 
 describe('adapter factory — copilot', () => {
+  const testCopilotHome = join(tmpdir(), 'ai-orchestrator-test-copilot-home');
+  const originalOrchestratorCopilotHome = process.env['AI_ORCHESTRATOR_COPILOT_HOME'];
+  const originalCopilotHome = process.env['COPILOT_HOME'];
+
+  beforeEach(() => {
+    process.env['AI_ORCHESTRATOR_COPILOT_HOME'] = testCopilotHome;
+    delete process.env['COPILOT_HOME'];
+  });
+
+  afterEach(() => {
+    if (originalOrchestratorCopilotHome === undefined) {
+      delete process.env['AI_ORCHESTRATOR_COPILOT_HOME'];
+    } else {
+      process.env['AI_ORCHESTRATOR_COPILOT_HOME'] = originalOrchestratorCopilotHome;
+    }
+
+    if (originalCopilotHome === undefined) {
+      delete process.env['COPILOT_HOME'];
+    } else {
+      process.env['COPILOT_HOME'] = originalCopilotHome;
+    }
+  });
+
   it('getCliDisplayName returns GitHub Copilot', () => {
     expect(getCliDisplayName('copilot')).toBe('GitHub Copilot');
   });
@@ -53,6 +78,30 @@ describe('adapter factory — copilot', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
     const args = adapter.getConfig().args ?? [];
     expect(args).toContain('--no-ask-user');
+  });
+
+  it('isolates Copilot CLI state from the default VS Code-visible Copilot home', () => {
+    const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
+    const args = adapter.getConfig().args ?? [];
+    const configDirIdx = args.indexOf('--config-dir');
+    expect(configDirIdx).toBeGreaterThanOrEqual(0);
+    expect(args[configDirIdx + 1]).toBe(testCopilotHome);
+    expect(args).toContain('--no-remote');
+
+    const env = adapter.getConfig().env ?? {};
+    expect(env['COPILOT_HOME']).toBe(testCopilotHome);
+  });
+
+  it('allows callers to opt back into normal Copilot persistence explicitly', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      ephemeral: false,
+    });
+    const args = adapter.getConfig().args ?? [];
+    const env = adapter.getConfig().env ?? {};
+    expect(args).not.toContain('--config-dir');
+    expect(args).not.toContain('--no-remote');
+    expect(env['COPILOT_HOME']).toBeUndefined();
   });
 
   it('omits --model when no model is specified so copilot uses its configured default', () => {

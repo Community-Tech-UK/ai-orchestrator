@@ -258,6 +258,8 @@ export class SessionContinuityManager extends EventEmitter {
   private config: ContinuityConfig;
   private sessionStates = new Map<string, SessionState>();
   private dirty = new Set<string>();
+  private dehydratedStateIds = new Set<string>();
+  private stateActivityTimestamps = new Map<string, number>();
   private readyPromise: Promise<void>;
   private readonly autoSave: SessionAutoSaveCoordinator;
   private snapshotIndex: SnapshotIndex;
@@ -367,6 +369,53 @@ export class SessionContinuityManager extends EventEmitter {
     return Array.from(keys);
   }
 
+  private getLastConversationTimestamp(state: SessionState): number {
+    let newest = 0;
+    for (const entry of state.conversationHistory) {
+      if (typeof entry.timestamp === 'number' && entry.timestamp > newest) {
+        newest = entry.timestamp;
+      }
+    }
+    return newest;
+  }
+
+  private getStateActivityTimestamp(state: SessionState): number {
+    return this.stateActivityTimestamps.get(state.instanceId)
+      ?? state.lastWriteTimestamp
+      ?? this.getLastConversationTimestamp(state);
+  }
+
+  private dehydrateLoadedState(state: SessionState): SessionState {
+    this.stateActivityTimestamps.set(
+      state.instanceId,
+      Math.max(state.lastWriteTimestamp ?? 0, this.getLastConversationTimestamp(state)),
+    );
+    return {
+      ...state,
+      conversationHistory: [],
+    };
+  }
+
+  private async hydrateTrackedState(instanceId: string, state: SessionState): Promise<SessionState> {
+    if (!this.dehydratedStateIds.has(instanceId)) {
+      return state;
+    }
+
+    const loaded = await this.loadStateFromDiskByIdentifier(instanceId);
+    if (!loaded) {
+      this.dehydratedStateIds.delete(instanceId);
+      return state;
+    }
+
+    this.sessionStates.delete(instanceId);
+    this.sessionStates.set(loaded.instanceId, loaded);
+    this.dehydratedStateIds.delete(instanceId);
+    this.dehydratedStateIds.delete(loaded.instanceId);
+    this.stateActivityTimestamps.delete(instanceId);
+    this.stateActivityTimestamps.delete(loaded.instanceId);
+    return loaded;
+  }
+
   private findTrackedStateByIdentifier(identifier: string): {
     instanceId: string;
     state: SessionState;
@@ -451,7 +500,8 @@ export class SessionContinuityManager extends EventEmitter {
       const filePath = path.join(this.stateDir, file);
       const data = await this.readPayload<SessionState>(filePath);
       if (data) {
-        this.sessionStates.set(data.instanceId, data);
+        this.sessionStates.set(data.instanceId, this.dehydrateLoadedState(data));
+        this.dehydratedStateIds.add(data.instanceId);
         loaded++;
 
         // Diagnostic: warn if last write was very recent (possible crash during save)
@@ -560,7 +610,8 @@ export class SessionContinuityManager extends EventEmitter {
     this.autoSave.clearPendingAutoSaveTimer(instanceId);
 
     // Run termination gates before teardown
-    const state = this.sessionStates.get(instanceId);
+    const trackedState = this.sessionStates.get(instanceId);
+    const state = trackedState ? await this.hydrateTrackedState(instanceId, trackedState) : undefined;
     if (state && this.gateManager.hasGates) {
       const gateResults = await this.runTerminationGates(state);
       const blocked = gateResults.filter((r) => !r.pass);
@@ -595,6 +646,8 @@ export class SessionContinuityManager extends EventEmitter {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       this.sessionStates.delete(instanceId);
+      this.dehydratedStateIds.delete(instanceId);
+      this.stateActivityTimestamps.delete(instanceId);
     }
 
     this.emit('tracking:stopped', { instanceId, archived: archive });
@@ -667,8 +720,9 @@ export class SessionContinuityManager extends EventEmitter {
    */
   async updateState(instanceId: string, updates: Partial<SessionState>): Promise<void> {
     await this.readyPromise;
-    const state = this.sessionStates.get(instanceId);
-    if (!state) return;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     const normalizedUpdates: Partial<SessionState> = { ...updates };
     const nextSessionId = this.normalizeLookupIdentifier(normalizedUpdates.sessionId);
@@ -721,10 +775,12 @@ export class SessionContinuityManager extends EventEmitter {
   async addConversationEntry(instanceId: string, entry: ConversationEntry): Promise<void> {
     await this.readyPromise;
     if (!this.config.persistSessionContent) return;
-    const state = this.sessionStates.get(instanceId);
-    if (!state) return;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     state.conversationHistory.push(entry);
+    this.stateActivityTimestamps.set(instanceId, entry.timestamp);
     await this.appendSessionEvent(instanceId, 'conversation_entry', {
       role: entry.role,
       timestamp: entry.timestamp,
@@ -779,8 +835,9 @@ export class SessionContinuityManager extends EventEmitter {
     trigger: 'auto' | 'manual' | 'checkpoint' = 'manual',
   ): Promise<SessionSnapshot | null> {
     await this.readyPromise;
-    const state = this.sessionStates.get(instanceId);
-    if (!state) return null;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return null;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
     const snapshot = await this.snapshots.createSnapshot(
       state, instanceId, name, description, trigger,
       (v) => this.normalizeLookupIdentifier(v),
@@ -807,11 +864,7 @@ export class SessionContinuityManager extends EventEmitter {
   async getResumableSessions(): Promise<SessionState[]> {
     await this.readyPromise;
     return Array.from(this.sessionStates.values()).sort(
-      (a, b) =>
-        (b.conversationHistory[b.conversationHistory.length - 1]?.timestamp ||
-          0) -
-        (a.conversationHistory[a.conversationHistory.length - 1]?.timestamp ||
-          0)
+      (a, b) => this.getStateActivityTimestamp(b) - this.getStateActivityTimestamp(a)
     );
   }
 
@@ -833,7 +886,8 @@ export class SessionContinuityManager extends EventEmitter {
       }
     } else {
       // Load from current state
-      state = this.findTrackedStateByIdentifier(identifier)?.state || null;
+      const tracked = this.findTrackedStateByIdentifier(identifier);
+      state = tracked ? await this.hydrateTrackedState(tracked.instanceId, tracked.state) : null;
 
       if (!state) {
         const loaded = await this.loadStateFromDiskByIdentifier(identifier);
@@ -909,7 +963,8 @@ export class SessionContinuityManager extends EventEmitter {
       return true;
     }
 
-    tracked.state.nativeResumeFailedAt = failedAt;
+    const state = await this.hydrateTrackedState(tracked.instanceId, tracked.state);
+    state.nativeResumeFailedAt = failedAt;
     this.dirty.add(tracked.instanceId);
     await this.saveStateAsync(tracked.instanceId);
     return true;
@@ -923,8 +978,9 @@ export class SessionContinuityManager extends EventEmitter {
     format: 'json' | 'markdown' | 'text' = 'markdown'
   ): Promise<string> {
     await this.readyPromise;
-    const state = this.sessionStates.get(instanceId);
-    if (!state) return '';
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return '';
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     switch (format) {
       case 'json':
@@ -978,8 +1034,9 @@ export class SessionContinuityManager extends EventEmitter {
     instanceId: string
   ): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null> {
     await this.readyPromise;
-    const state = this.sessionStates.get(instanceId);
-    if (!state) return null;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return null;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     let stateClone: SessionState;
     try {
@@ -1098,8 +1155,9 @@ export class SessionContinuityManager extends EventEmitter {
    * Async save with atomic write (tmp → fsync → rename → fsync parent)
    */
   private async saveStateAsync(instanceId: string): Promise<void> {
-    const state = this.sessionStates.get(instanceId);
-    if (!state) return;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     const mutex = getSessionMutex();
     const release = await mutex.acquire(instanceId, 'auto-save');
@@ -1367,7 +1425,17 @@ export class SessionContinuityManager extends EventEmitter {
         state.conversationHistory[state.conversationHistory.length - 1]
           ?.timestamp;
 
-      if (firstTimestamp) {
+      if (!firstTimestamp) {
+        const activityTimestamp = this.getStateActivityTimestamp(state);
+        if (activityTimestamp) {
+          if (oldestSession === null || activityTimestamp < oldestSession) {
+            oldestSession = activityTimestamp;
+          }
+          if (newestSession === null || activityTimestamp > newestSession) {
+            newestSession = activityTimestamp;
+          }
+        }
+      } else {
         if (oldestSession === null || firstTimestamp < oldestSession) {
           oldestSession = firstTimestamp;
         }

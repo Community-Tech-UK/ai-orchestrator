@@ -279,6 +279,14 @@ function buildAttachmentUri(name?: string): string {
   return `attachment://${normalizedName}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 export class AcpCliAdapter extends BaseCliAdapter {
   private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
 
@@ -306,6 +314,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   /** Whether a stall has already been reported for the current turn
    *  (prevents re-emitting on every missed update after the threshold). */
   private stallWarningEmitted = false;
+  private protocolErrorOutputCount = 0;
 
   constructor(config: AcpCliAdapterConfig) {
     super({
@@ -956,7 +965,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
         continue;
       }
 
-      this.handleMessageLine(rawLine);
+      try {
+        this.handleMessageLine(rawLine);
+      } catch (error) {
+        this.emitRecoverableProtocolError('ACP message handler failed', {
+          error: error instanceof Error ? error.message : String(error),
+          linePreview: rawLine.slice(0, 500),
+        });
+      }
     }
   }
 
@@ -966,7 +982,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
     try {
       parsed = JSON.parse(rawLine) as AcpJsonRpcMessage;
     } catch (error) {
-      this.emit('error', new Error(`Failed to parse ACP JSON-RPC line: ${(error as Error).message}`));
+      this.emitRecoverableProtocolError('Failed to parse ACP JSON-RPC line', {
+        error: error instanceof Error ? error.message : String(error),
+        linePreview: rawLine.slice(0, 500),
+      });
       return;
     }
 
@@ -981,7 +1000,14 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     if (isAcpJsonRpcRequest(parsed)) {
-      void this.handleInboundRequest(parsed);
+      void this.handleInboundRequest(parsed).catch((error) => {
+        this.emitRecoverableProtocolError('ACP request handler failed', {
+          id: parsed.id,
+          method: parsed.method,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        void this.sendErrorResponse(parsed.id, JSON_RPC_INVALID_REQUEST, 'Failed to handle ACP request.');
+      });
       return;
     }
 
@@ -1050,7 +1076,15 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleSessionUpdate(params: AcpSessionUpdateNotificationParams): void {
-    if (!this.sessionId || params.sessionId !== this.sessionId) {
+    if (!isRecord(params)) {
+      this.emitRecoverableProtocolError('Malformed ACP session/update params', {
+        expected: 'object',
+      });
+      return;
+    }
+
+    const sessionId = optionalString(params['sessionId']);
+    if (!this.sessionId || sessionId !== this.sessionId) {
       return;
     }
 
@@ -1060,37 +1094,61 @@ export class AcpCliAdapter extends BaseCliAdapter {
     // specific handler branch for below.
     this.resetStallWatchdog();
 
-    const update = params.update;
-    switch (update.sessionUpdate) {
+    const rawUpdate = params['update'];
+    if (!isRecord(rawUpdate)) {
+      this.emitRecoverableProtocolError('Malformed ACP session update payload', {
+        sessionId,
+        expected: 'object',
+      });
+      return;
+    }
+
+    const sessionUpdate = optionalString(rawUpdate['sessionUpdate']);
+    if (!sessionUpdate) {
+      this.emitRecoverableProtocolError('Malformed ACP session update payload', {
+        sessionId,
+        missing: 'sessionUpdate',
+      });
+      return;
+    }
+
+    const update = rawUpdate as unknown as AcpSessionUpdate;
+    switch (sessionUpdate) {
       case 'agent_message_chunk':
       case 'user_message_chunk':
-        this.handleMessageChunk(update);
+        this.handleMessageChunk(update as Extract<AcpSessionUpdate, { sessionUpdate: 'agent_message_chunk' | 'user_message_chunk' }>);
         break;
       case 'tool_call':
-        this.handleToolCallCreated(update);
+        this.handleToolCallCreated(update as Extract<AcpSessionUpdate, { sessionUpdate: 'tool_call' }>);
         break;
       case 'tool_call_update':
-        this.handleToolCallDelta(update);
+        this.handleToolCallDelta(update as AcpToolCallDeltaUpdate);
         break;
       case 'plan':
-        this.emitStructuredOutput('system', this.renderPlan(update), {
-          sessionUpdate: update.sessionUpdate,
-          entries: update.entries,
-        });
+        {
+          const entries = this.normalizePlanEntries(rawUpdate);
+          this.emitStructuredOutput('system', this.renderPlan(entries), {
+            sessionUpdate,
+            entries,
+          });
+        }
         break;
       case 'available_commands_update':
-        this.emitStructuredOutput('system', this.renderAvailableCommands(update), {
-          sessionUpdate: update.sessionUpdate,
-          commands: update.commands,
-        });
+        {
+          const commands = this.normalizeAvailableCommands(rawUpdate);
+          this.emitStructuredOutput('system', this.renderAvailableCommands(commands), {
+            sessionUpdate,
+            commands,
+          });
+        }
         break;
       case 'config_option_update':
       case 'session_info_update':
-        this.emitStructuredOutput('system', JSON.stringify(update), { sessionUpdate: update.sessionUpdate });
+        this.emitStructuredOutput('system', JSON.stringify(rawUpdate), { sessionUpdate });
         break;
       default:
         logger.debug('Ignoring ACP session update variant', {
-          sessionUpdate: (update as AcpSessionUpdate).sessionUpdate,
+          sessionUpdate,
         });
     }
   }
@@ -1174,18 +1232,29 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleToolCallCreated(update: Extract<AcpSessionUpdate, { sessionUpdate: 'tool_call' }>): void {
+    const toolCallId = optionalString((update as unknown as Record<string, unknown>)['toolCallId']) ?? generateId();
+    const title = optionalString((update as unknown as Record<string, unknown>)['title']) ?? toolCallId;
+    const kind = (optionalString((update as unknown as Record<string, unknown>)['kind']) as AcpToolKind | undefined) ?? 'other';
+    const status = (optionalString((update as unknown as Record<string, unknown>)['status']) as AcpToolCallStatus | undefined) ?? 'pending';
+    if (toolCallId !== update.toolCallId || title !== update.title) {
+      this.emitRecoverableProtocolError('Malformed ACP tool_call update', {
+        sessionUpdate: 'tool_call',
+        missing: !update.toolCallId ? 'toolCallId' : 'title',
+      });
+    }
+
     const observed: AcpObservedToolCall = {
-      id: update.toolCallId,
-      title: update.title,
-      kind: update.kind ?? 'other',
-      status: update.status ?? 'pending',
+      id: toolCallId,
+      title,
+      kind,
+      status,
       rawInput: update.rawInput,
     };
-    this.toolCalls.set(update.toolCallId, observed);
+    this.toolCalls.set(toolCallId, observed);
 
     const toolCall: CliToolCall = {
-      id: update.toolCallId,
-      name: update.title,
+      id: toolCallId,
+      name: title,
       arguments: {
         kind: observed.kind,
         ...(update.rawInput ? { rawInput: update.rawInput } : {}),
@@ -1196,9 +1265,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
       id: generateId(),
       timestamp: Date.now(),
       type: 'tool_use',
-      content: update.title,
+      content: title,
       metadata: {
-        toolCallId: update.toolCallId,
+        toolCallId,
         kind: observed.kind,
         // Expose `name` so the renderer's ActivityDebouncer
         // (instance.store.ts) picks up the tool and shows the "Searching the
@@ -1216,13 +1285,20 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleToolCallDelta(update: AcpToolCallDeltaUpdate): void {
-    const observed = this.toolCalls.get(update.toolCallId);
-    const title = update.title ?? observed?.title ?? update.toolCallId;
-    const kind = update.kind ?? observed?.kind ?? 'other';
-    const status = update.status ?? observed?.status ?? 'pending';
+    const toolCallId = optionalString((update as unknown as Record<string, unknown>)['toolCallId']) ?? generateId();
+    const observed = this.toolCalls.get(toolCallId);
+    const title = optionalString((update as unknown as Record<string, unknown>)['title']) ?? observed?.title ?? toolCallId;
+    const kind = (optionalString((update as unknown as Record<string, unknown>)['kind']) as AcpToolKind | undefined) ?? observed?.kind ?? 'other';
+    const status = (optionalString((update as unknown as Record<string, unknown>)['status']) as AcpToolCallStatus | undefined) ?? observed?.status ?? 'pending';
+    if (toolCallId !== update.toolCallId) {
+      this.emitRecoverableProtocolError('Malformed ACP tool_call_update update', {
+        sessionUpdate: 'tool_call_update',
+        missing: 'toolCallId',
+      });
+    }
 
-    this.toolCalls.set(update.toolCallId, {
-      id: update.toolCallId,
+    this.toolCalls.set(toolCallId, {
+      id: toolCallId,
       title,
       kind,
       status,
@@ -1238,7 +1314,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         content: renderedOutput,
         metadata: {
           sessionUpdate: update.sessionUpdate,
-          toolCallId: update.toolCallId,
+          toolCallId,
           title,
           status,
           transport: 'acp',
@@ -1248,7 +1324,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     if (status === 'completed' || status === 'failed' || status === 'cancelled') {
       const toolCall: CliToolCall = {
-        id: update.toolCallId,
+        id: toolCallId,
         name: title,
         arguments: {
           kind,
@@ -1264,20 +1340,33 @@ export class AcpCliAdapter extends BaseCliAdapter {
     request: AcpJsonRpcRequest<AcpSessionRequestPermissionParams>,
   ): Promise<void> {
     const params = request.params;
-    if (!params) {
+    if (!isRecord(params)) {
       await this.sendErrorResponse(request.id, JSON_RPC_INVALID_REQUEST, 'Missing params for session/request_permission.');
       return;
     }
 
+    const toolCall = params['toolCall'];
+    if (!isRecord(toolCall)) {
+      await this.sendErrorResponse(request.id, JSON_RPC_INVALID_REQUEST, 'Missing toolCall for session/request_permission.');
+      return;
+    }
+
+    const toolCallId = optionalString(toolCall['toolCallId']);
+    if (!toolCallId) {
+      await this.sendErrorResponse(request.id, JSON_RPC_INVALID_REQUEST, 'Missing toolCall.toolCallId for session/request_permission.');
+      return;
+    }
+
+    const options = this.normalizePermissionOptions(params['options']);
     const key = this.buildPermissionKey(request.id);
     const pending: AcpPendingPermissionRequest = {
       key,
       rpcId: request.id,
-      sessionId: params.sessionId,
-      toolCallId: params.toolCall.toolCallId,
-      title: params.toolCall.title ?? params.toolCall.toolCallId,
-      kind: params.toolCall.kind ?? 'other',
-      options: params.options,
+      sessionId: optionalString(params['sessionId']) ?? this.sessionId ?? '',
+      toolCallId,
+      title: optionalString(toolCall['title']) ?? toolCallId,
+      kind: (optionalString(toolCall['kind']) as AcpToolKind | undefined) ?? 'other',
+      options,
     };
     this.pendingPermissionRequests.set(key, pending);
 
@@ -1292,7 +1381,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         path: String(request.id),
         toolCallId: pending.toolCallId,
         toolName: pending.title,
-        options: params.options,
+        options: pending.options,
         transport: 'acp',
       },
     });
@@ -1361,9 +1450,17 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
 
   private handleElicitationComplete(params: AcpElicitationCompleteParams): void {
-    this.emitStructuredOutput('system', `ACP elicitation completed: ${params.elicitationId}`, {
+    if (!isRecord(params)) {
+      this.emitRecoverableProtocolError('Malformed ACP elicitation/complete params', {
+        expected: 'object',
+      });
+      return;
+    }
+
+    const elicitationId = optionalString(params['elicitationId']) ?? 'unknown';
+    this.emitStructuredOutput('system', `ACP elicitation completed: ${elicitationId}`, {
       transport: 'acp',
-      elicitationId: params.elicitationId,
+      elicitationId,
       type: 'acp_elicitation_complete',
     });
   }
@@ -1399,50 +1496,185 @@ export class AcpCliAdapter extends BaseCliAdapter {
     } satisfies OutputMessage);
   }
 
-  private extractContentText(content: AcpContentBlock): string {
-    if (content.type === 'text') {
-      return content.text;
+  private emitRecoverableProtocolError(reason: string, details: Record<string, unknown> = {}): void {
+    logger.warn(reason, details);
+
+    this.protocolErrorOutputCount += 1;
+    if (this.protocolErrorOutputCount > 3) {
+      if (this.protocolErrorOutputCount === 4) {
+        this.emitStructuredOutput('error', 'Additional malformed ACP protocol messages are being suppressed.', {
+          transport: 'acp',
+          source: 'acp-protocol-error',
+          recoverable: true,
+          suppressed: true,
+        });
+      }
+      return;
     }
 
-    if (content.type === 'image') {
-      return content.uri ? `[Image attachment: ${content.uri}]` : '[Image attachment]';
+    this.emitStructuredOutput('error', `${reason}. The malformed ACP message was ignored and the session remains active.`, {
+      ...details,
+      transport: 'acp',
+      source: 'acp-protocol-error',
+      recoverable: true,
+    });
+  }
+
+  private extractContentText(content: AcpContentBlock | undefined): string {
+    if (!isRecord(content)) {
+      return '';
     }
 
-    if (content.resource.text) {
-      return content.resource.text;
+    const type = content['type'];
+    if (type === 'text') {
+      return optionalString(content['text']) ?? '';
     }
 
-    return content.resource.title || content.resource.uri;
+    if (type === 'image') {
+      const uri = optionalString(content['uri']);
+      return uri ? `[Image attachment: ${uri}]` : '[Image attachment]';
+    }
+
+    const resource = content['resource'];
+    if (isRecord(resource)) {
+      return optionalString(resource['text'])
+        ?? optionalString(resource['title'])
+        ?? optionalString(resource['uri'])
+        ?? '';
+    }
+
+    return '';
   }
 
   private extractToolOutputText(items?: AcpToolCallOutputItem[]): string {
-    if (!items || items.length === 0) {
+    if (!Array.isArray(items) || items.length === 0) {
       return '';
     }
 
     return items
-      .map((item) => this.extractContentText(item.content))
+      .map((item) => isRecord(item) ? this.extractContentText(item['content'] as AcpContentBlock | undefined) : '')
       .filter(Boolean)
       .join('\n');
   }
 
-  private renderPlan(update: AcpPlanUpdate): string {
-    const lines = update.entries.map((entry) => {
+  private normalizePlanEntries(update: Record<string, unknown>): AcpPlanUpdate['entries'] {
+    const entries = update['entries'];
+    if (!Array.isArray(entries)) {
+      this.emitRecoverableProtocolError('Malformed ACP plan update', {
+        sessionUpdate: 'plan',
+        field: 'entries',
+        expected: 'array',
+      });
+      return [];
+    }
+
+    return entries.flatMap((entry) => {
+      if (!isRecord(entry)) {
+        return [];
+      }
+
+      const content = optionalString(entry['content']);
+      if (!content) {
+        return [];
+      }
+
+      return [{
+        content,
+        priority: optionalString(entry['priority']),
+        status: optionalString(entry['status']),
+      }];
+    });
+  }
+
+  private normalizeAvailableCommands(update: Record<string, unknown>): AcpAvailableCommandsUpdate['commands'] {
+    const commands = update['commands'];
+    if (!Array.isArray(commands)) {
+      this.emitRecoverableProtocolError('Malformed ACP available commands update', {
+        sessionUpdate: 'available_commands_update',
+        field: 'commands',
+        expected: 'array',
+      });
+      return [];
+    }
+
+    return commands.flatMap((command) => {
+      if (typeof command === 'string' && command.trim()) {
+        return [{ name: command.trim() }];
+      }
+
+      if (!isRecord(command)) {
+        return [];
+      }
+
+      const name = optionalString(command['name']);
+      if (!name) {
+        return [];
+      }
+
+      return [{
+        name,
+        description: optionalString(command['description']),
+      }];
+    });
+  }
+
+  private normalizePermissionOptions(options: unknown): AcpPermissionOption[] {
+    if (!Array.isArray(options)) {
+      this.emitRecoverableProtocolError('Malformed ACP permission request options', {
+        method: 'session/request_permission',
+        field: 'options',
+        expected: 'array',
+      });
+      return [];
+    }
+
+    return options.flatMap((option) => {
+      if (!isRecord(option)) {
+        return [];
+      }
+
+      const optionId = optionalString(option['optionId']);
+      const name = optionalString(option['name']);
+      const kind = optionalString(option['kind']);
+      if (!optionId || !name || !kind) {
+        return [];
+      }
+
+      return [{
+        optionId,
+        name,
+        kind: kind as AcpPermissionOption['kind'],
+      }];
+    });
+  }
+
+  private renderPlan(entries: AcpPlanUpdate['entries']): string {
+    if (entries.length === 0) {
+      return 'Plan: no entries advertised.';
+    }
+
+    const lines = entries.map((entry) => {
       const parts = [entry.status, entry.priority].filter(Boolean).join(' / ');
       return parts ? `- ${entry.content} (${parts})` : `- ${entry.content}`;
     });
     return ['Plan:', ...lines].join('\n');
   }
 
-  private renderAvailableCommands(update: AcpAvailableCommandsUpdate): string {
-    const lines = update.commands.map((command) =>
+  private renderAvailableCommands(commands: AcpAvailableCommandsUpdate['commands']): string {
+    if (commands.length === 0) {
+      return 'Available commands: none advertised.';
+    }
+
+    const lines = commands.map((command) =>
       command.description ? `- ${command.name}: ${command.description}` : `- ${command.name}`,
     );
     return ['Available commands:', ...lines].join('\n');
   }
 
   private buildPermissionPrompt(pending: AcpPendingPermissionRequest): string {
-    const lines = pending.options.map((option) => `- ${option.name}`);
+    const lines = pending.options.length > 0
+      ? pending.options.map((option) => `- ${option.name}`)
+      : ['- No explicit options advertised.'];
     return [
       `ACP agent requests permission to continue tool execution.`,
       `Tool: ${pending.title}`,
