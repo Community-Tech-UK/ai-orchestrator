@@ -130,3 +130,7 @@ export const FileWriteTextPayloadSchema = z.object({
 export const FileOpenPathPayloadSchema = z.object({
   path: z.string().min(1).max(4096),
 });
+
+export const FileCopyToClipboardPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+});

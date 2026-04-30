@@ -191,7 +191,7 @@
         } @else if (isRespawning()) {
           <span class="hint">Enter to send after interrupt, Shift+Enter for new line</span>
         } @else if (isSteeringTarget()) {
-          <span class="hint">Enter to steer, Shift+Enter for new line</span>
+          <span class="hint">Enter to queue, Shift+Enter for new line</span>
         } @else {
           <span class="hint">Press Enter to send, Shift+Enter for new line</span>
         }
@@ -209,11 +209,25 @@
       </div>
 
       <div class="composer-actions-right">
+        @if (canSteerActiveTurn()) {
+          <button
+            class="btn-steer"
+            [disabled]="disabled() || !canSend() || isInitializing()"
+            (click)="onSteer()"
+            title="Steer current turn now"
+          >
+            <svg class="steer-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 7h11a5 5 0 0 1 0 10H9"></path>
+              <path d="M9 12l-5 5 5 5"></path>
+            </svg>
+            <span class="steer-label">Steer</span>
+          </button>
+        }
         <button
           class="btn-send"
           [disabled]="disabled() || !canSend() || isInitializing()"
           (click)="onSend()"
-          [title]="isSteeringTarget() ? 'Steer current turn (Enter)' : 'Send message (Enter)'"
+          [title]="isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'"
         >
           <span class="send-icon">↑</span>
         </button>
@@ -245,6 +259,19 @@
               <span class="queued-drop-warning" title="Attachments could not be restored for this queued message">
                 attachments dropped
               </span>
+            }
+            @if (queuedMsg.kind !== 'steer' && canSteerActiveTurn()) {
+              <button
+                class="queued-steer-btn"
+                (click)="onSteerQueuedMessage(i)"
+                title="Steer this queued message now"
+              >
+                <svg class="queued-steer-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 7h11a5 5 0 0 1 0 10H9"></path>
+                  <path d="M9 12l-5 5 5 5"></path>
+                </svg>
+                <span>Steer</span>
+              </button>
             }
             <button
               class="queued-cancel-btn"

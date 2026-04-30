@@ -9,6 +9,7 @@
  * multi-edit and is tested separately.
  */
 
+import * as path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IpcResponse } from '../../../../shared/types/ipc.types';
 
@@ -18,6 +19,22 @@ import type { IpcResponse } from '../../../../shared/types/ipc.types';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<IpcResponse>;
 const handlers = new Map<string, IpcHandler>();
+
+const appHandlerMocks = vi.hoisted(() => ({
+  clipboard: {
+    writeText: vi.fn(),
+    writeBuffer: vi.fn(),
+  },
+  fsExistsSync: vi.fn().mockReturnValue(false),
+  shellOpenPath: vi.fn().mockResolvedValue(''),
+  execFile: vi.fn((...args: unknown[]) => {
+    const callback = args[args.length - 1];
+    if (typeof callback === 'function') {
+      callback(null, '', '');
+    }
+    return {};
+  }),
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -29,13 +46,38 @@ vi.mock('electron', () => ({
     showOpenDialog: vi.fn(),
   },
   shell: {
-    openPath: vi.fn().mockResolvedValue(''),
+    openPath: appHandlerMocks.shellOpenPath,
   },
+  clipboard: appHandlerMocks.clipboard,
   app: {
     getPath: () => '/tmp/test',
     getAppPath: () => '/tmp/test-app',
   },
 }));
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFile: appHandlerMocks.execFile,
+    default: {
+      ...actual,
+      execFile: appHandlerMocks.execFile,
+    },
+  };
+});
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    execFile: appHandlerMocks.execFile,
+    default: {
+      ...actual,
+      execFile: appHandlerMocks.execFile,
+    },
+  };
+});
 
 // ============================================================
 // 2. Logger mock
@@ -88,9 +130,9 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('fs', () => ({
-  existsSync: vi.fn().mockReturnValue(false),
+  existsSync: appHandlerMocks.fsExistsSync,
   default: {
-    existsSync: vi.fn().mockReturnValue(false),
+    existsSync: appHandlerMocks.fsExistsSync,
   },
 }));
 
@@ -131,6 +173,8 @@ describe('app-handlers (file IO security surface)', () => {
   beforeEach(() => {
     handlers.clear();
     vi.clearAllMocks();
+    appHandlerMocks.fsExistsSync.mockReturnValue(false);
+    appHandlerMocks.shellOpenPath.mockResolvedValue('');
     // Default: path validator accepts every path
     validatePathMock.mockImplementation((p: string) => ({
       valid: true,
@@ -140,6 +184,34 @@ describe('app-handlers (file IO security surface)', () => {
     registerAppHandlers({
       windowManager: makeMockWindowManager(),
       getIpcAuthToken: () => 'test-token',
+    });
+  });
+
+  // ----------------------------------------------------------
+  // APP_OPEN_DOCS
+  // ----------------------------------------------------------
+  describe('APP_OPEN_DOCS', () => {
+    it('opens nested runbooks from the docs directory', async () => {
+      const docsPath = path.join(process.cwd(), 'docs', 'runbooks', 'doctor-updates-and-artifacts.md');
+      appHandlerMocks.fsExistsSync.mockImplementation((candidate: string) => candidate === docsPath);
+
+      const res = await invoke(IPC_CHANNELS.APP_OPEN_DOCS, {
+        filename: 'runbooks/doctor-updates-and-artifacts.md',
+      });
+
+      expect(res.success).toBe(true);
+      expect(appHandlerMocks.shellOpenPath).toHaveBeenCalledWith(docsPath);
+    });
+
+    it('rejects traversal paths before opening a file', async () => {
+      const res = await invoke(IPC_CHANNELS.APP_OPEN_DOCS, {
+        filename: '../secrets.md',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('DOCS_PATH_INVALID');
+      expect(appHandlerMocks.fsExistsSync).not.toHaveBeenCalled();
+      expect(appHandlerMocks.shellOpenPath).not.toHaveBeenCalled();
     });
   });
 
@@ -370,6 +442,54 @@ describe('app-handlers (file IO security surface)', () => {
         '.hidden',
         'visible.txt',
       ]);
+    });
+  });
+
+  // ----------------------------------------------------------
+  // FILE_COPY_TO_CLIPBOARD
+  // ----------------------------------------------------------
+  describe('FILE_COPY_TO_CLIPBOARD', () => {
+    it('copies an existing file reference to the OS clipboard', async () => {
+      fsStat.mockResolvedValue({
+        isDirectory: () => false,
+      });
+
+      const res = await invoke(IPC_CHANNELS.FILE_COPY_TO_CLIPBOARD, {
+        path: '/tmp/test/file.txt',
+      });
+
+      expect(res.success).toBe(true);
+      expect(fsStat).toHaveBeenCalledWith('/tmp/test/file.txt');
+      expect(res.data).toMatchObject({
+        path: '/tmp/test/file.txt',
+        isDirectory: false,
+      });
+
+      if (process.platform === 'linux') {
+        expect(appHandlerMocks.clipboard.writeBuffer).toHaveBeenCalledWith(
+          'text/uri-list',
+          expect.any(Buffer)
+        );
+        expect(appHandlerMocks.clipboard.writeBuffer).toHaveBeenCalledWith(
+          'x-special/gnome-copied-files',
+          expect.any(Buffer)
+        );
+      } else {
+        expect(appHandlerMocks.execFile).toHaveBeenCalled();
+      }
+    });
+
+    it('rejects a missing file without writing to the clipboard', async () => {
+      fsStat.mockRejectedValue(new Error('missing'));
+
+      const res = await invoke(IPC_CHANNELS.FILE_COPY_TO_CLIPBOARD, {
+        path: '/tmp/test/missing.txt',
+      });
+
+      expect(res.success).toBe(false);
+      expect(appHandlerMocks.clipboard.writeText).not.toHaveBeenCalled();
+      expect(appHandlerMocks.clipboard.writeBuffer).not.toHaveBeenCalled();
+      expect(appHandlerMocks.execFile).not.toHaveBeenCalled();
     });
   });
 

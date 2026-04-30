@@ -6,6 +6,13 @@ export { OutputStorageManager, getOutputStorageManager } from './output-storage'
 export { MemoryMonitor, getMemoryMonitor } from './memory-monitor';
 export type { MemoryStats, MemoryPressureLevel, MemoryMonitorConfig } from './memory-monitor';
 export { UnifiedMemoryController, getUnifiedMemory } from './unified-controller';
+export { ProjectMemoryBriefService, getProjectMemoryBriefService } from './project-memory-brief';
+export type {
+  ProjectMemoryBrief,
+  ProjectMemoryBriefRequest,
+  ProjectMemoryBriefSection,
+  ProjectMemoryBriefSource,
+} from './project-memory-brief';
 
 // Phase 9: Memory-R1 Components
 export { AnswerAgent, getAnswerAgent } from './answer-agent';

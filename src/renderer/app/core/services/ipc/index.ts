@@ -241,6 +241,7 @@ export class IpcFacadeService {
   readDir = this.file.readDir.bind(this.file);
   getFileStats = this.file.getFileStats.bind(this.file);
   openPath = this.file.openPath.bind(this.file);
+  copyFileToClipboard = this.file.copyFileToClipboard.bind(this.file);
   revealFile = this.file.revealFile.bind(this.file);
   watcherWatch = this.file.watcherWatch.bind(this.file);
   watcherUnwatch = this.file.watcherUnwatch.bind(this.file);
@@ -333,6 +334,7 @@ export class IpcFacadeService {
 
   mcpGetState = this.mcp.mcpGetState.bind(this.mcp);
   mcpGetServers = this.mcp.mcpGetServers.bind(this.mcp);
+  mcpSetServerEnabled = this.mcp.mcpSetServerEnabled.bind(this.mcp);
   mcpAddServer = this.mcp.mcpAddServer.bind(this.mcp);
   mcpRemoveServer = this.mcp.mcpRemoveServer.bind(this.mcp);
   mcpConnect = this.mcp.mcpConnect.bind(this.mcp);

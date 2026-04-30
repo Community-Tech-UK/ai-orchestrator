@@ -12,6 +12,10 @@ import { AgentTreePersistence } from './agent-tree-persistence';
 import type { AgentTreeNode } from '../../shared/types/agent-tree.types';
 import { getSessionArchiveManager, type SessionArchiveManager } from './session-archive';
 import { getHistoryManager, type HistoryManager } from '../history/history-manager';
+import {
+  projectMemoryKeysEqual,
+  projectMemoryPathContains,
+} from '../memory/project-memory-key';
 
 function scoreText(queryTerms: string[], text: string): number {
   const haystack = text.toLowerCase();
@@ -194,7 +198,7 @@ export class SessionRecallService {
           searchTerm: query.query.trim() || query.repositoryPath,
         });
         for (const archive of archives.slice(0, 100)) {
-          if (query.repositoryPath && !archive.workingDirectory.includes(query.repositoryPath)) {
+          if (query.repositoryPath && !projectMemoryKeysEqual(archive.workingDirectory, query.repositoryPath)) {
             continue;
           }
           const text = `${archive.displayName} ${archive.workingDirectory} ${(archive.tags ?? []).join(' ')}`;
@@ -236,7 +240,8 @@ export class SessionRecallService {
       const cap = Math.max(0, query.maxHistoryTranscriptResults ?? 25);
       const historyEntries = this.historyProvider().getEntries({
         snippetQuery: query.query.trim() || undefined,
-        projectScope: 'all',
+        workingDirectory: query.repositoryPath,
+        projectScope: query.repositoryPath ? 'current' : 'all',
         source: 'history-transcript',
       });
       let added = 0;
@@ -246,7 +251,7 @@ export class SessionRecallService {
         if (added >= cap) {
           break;
         }
-        if (query.repositoryPath && !entry.workingDirectory.includes(query.repositoryPath)) {
+        if (query.repositoryPath && !projectMemoryKeysEqual(entry.workingDirectory, query.repositoryPath)) {
           continue;
         }
 
@@ -314,7 +319,7 @@ export class SessionRecallService {
         return result.success === false;
       case 'priorFixesByRepositoryPath':
         return !query.repositoryPath || result.artifacts.some((artifact) =>
-          artifact.file?.includes(query.repositoryPath!)
+          projectMemoryPathContains(artifact.file, query.repositoryPath!)
         );
       case 'priorDecisions':
         return result.keyDecisions.length > 0 || result.conclusions.length > 0;
@@ -337,7 +342,10 @@ export class SessionRecallService {
     if (query.model && run.configSnapshot?.action.model !== query.model) {
       return false;
     }
-    if (query.repositoryPath && !run.configSnapshot?.action.workingDirectory.includes(query.repositoryPath)) {
+    if (
+      query.repositoryPath
+      && !projectMemoryKeysEqual(run.configSnapshot?.action.workingDirectory, query.repositoryPath)
+    ) {
       return false;
     }
     switch (query.intent) {
@@ -366,7 +374,7 @@ export class SessionRecallService {
     if (query.model && node.model !== query.model) {
       return false;
     }
-    if (query.repositoryPath && !node.workingDirectory.includes(query.repositoryPath)) {
+    if (query.repositoryPath && !projectMemoryKeysEqual(node.workingDirectory, query.repositoryPath)) {
       return false;
     }
     switch (query.intent) {

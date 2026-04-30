@@ -125,6 +125,7 @@ export class InputPanelComponent implements OnDestroy {
   removeFolder = output<string>();
   addFiles = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
+  steerQueuedMessage = output<number>();
   resendEdited = output<{
     messageIndex: number;
     messageId?: string;
@@ -231,6 +232,13 @@ export class InputPanelComponent implements OnDestroy {
       || status === 'interrupting'
       || status === 'cancelling'
       || status === 'interrupt-escalating';
+  });
+  readonly canSteerActiveTurn = computed(() => {
+    const status = this.instanceStatus();
+    return status === 'busy'
+      || status === 'processing'
+      || status === 'thinking_deeply'
+      || status === 'waiting_for_permission';
   });
   readonly isTerminalTarget = computed(() => {
     const status = this.instanceStatus();
@@ -768,39 +776,64 @@ export class InputPanelComponent implements OnDestroy {
 
     const text = this.message().trim();
 
-    // Check if it's a command
-    if (text.startsWith('/')) {
-      const parts = text.slice(1).split(/\s+/);
-      const cmdName = parts[0];
-
-      const command = this.commandStore.getCommandByName(cmdName);
-      if (command) {
-        this.onSelectCommand(command as ExtendedCommand);
-        return;
-      }
-
-      const resolved = await this.commandStore.resolveCommand(text);
-      if (resolved?.kind === 'exact' || resolved?.kind === 'alias') {
-        this.onSelectCommand(resolved.command as ExtendedCommand);
-        return;
-      }
-      if (resolved?.kind === 'fuzzy' || resolved?.kind === 'ambiguous' || resolved?.kind === 'none') {
-        this.slashResolution.set(resolved);
-        this.showCommandSuggestions.set(true);
-        return;
-      }
+    if (await this.handleSlashCommand(text)) {
+      return;
     }
 
-    if (this.isSteeringTarget()) {
-      this.recordPromptHistory(text, false);
-      this.steerMessage.emit(text);
-    } else {
-      this.recordPromptHistory(text, false);
-      this.sendMessage.emit(text);
-    }
+    this.recordPromptHistory(text, false);
+    this.sendMessage.emit(text);
     if (this.isTerminalTarget()) {
       return;
     }
+    this.clearSubmittedMessage();
+  }
+
+  async onSteer(): Promise<void> {
+    if (!this.canSend() || this.disabled() || this.isInitializing()) return;
+
+    const text = this.message().trim();
+
+    if (await this.handleSlashCommand(text)) {
+      return;
+    }
+
+    this.recordPromptHistory(text, false);
+    this.steerMessage.emit(text);
+    if (this.isTerminalTarget()) {
+      return;
+    }
+    this.clearSubmittedMessage();
+  }
+
+  private async handleSlashCommand(text: string): Promise<boolean> {
+    if (!text.startsWith('/')) {
+      return false;
+    }
+
+    const parts = text.slice(1).split(/\s+/);
+    const cmdName = parts[0];
+
+    const command = this.commandStore.getCommandByName(cmdName);
+    if (command) {
+      this.onSelectCommand(command as ExtendedCommand);
+      return true;
+    }
+
+    const resolved = await this.commandStore.resolveCommand(text);
+    if (resolved?.kind === 'exact' || resolved?.kind === 'alias') {
+      this.onSelectCommand(resolved.command as ExtendedCommand);
+      return true;
+    }
+    if (resolved?.kind === 'fuzzy' || resolved?.kind === 'ambiguous' || resolved?.kind === 'none') {
+      this.slashResolution.set(resolved);
+      this.showCommandSuggestions.set(true);
+      return true;
+    }
+
+    return false;
+  }
+
+  private clearSubmittedMessage(): void {
     this.message.set('');
     this.showCommandSuggestions.set(false);
     this.slashResolution.set(null);
@@ -1023,6 +1056,10 @@ export class InputPanelComponent implements OnDestroy {
 
   onCancelQueuedMessage(index: number): void {
     this.cancelQueuedMessage.emit(index);
+  }
+
+  onSteerQueuedMessage(index: number): void {
+    this.steerQueuedMessage.emit(index);
   }
 
   onToggleYoloMode(): void {

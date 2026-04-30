@@ -200,6 +200,7 @@ export interface ContinuityConfig {
   compressOldSnapshots: boolean;
   resumeOnStartup: boolean;
   preserveToolResults: boolean;
+  /** Soft sizing hint for persisted history compaction, not a hard message cap. */
   maxConversationEntries: number;
   encryptOnDisk: boolean;
   persistSessionContent: boolean;

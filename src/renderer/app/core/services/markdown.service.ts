@@ -81,8 +81,7 @@ export class MarkdownService {
         ranges[0].end === text.length;
 
       if (isFilePath) {
-        // Make file paths clickable
-        return `<code class="inline-code file-path" data-file-path="${escapedText}" title="Click to open file">${escapedText}</code>`;
+        return `<code class="inline-code file-path"${this.buildFilePathAttributes(text)}>${escapedText}</code>`;
       }
 
       return `<code class="inline-code">${escapedText}</code>`;
@@ -93,7 +92,10 @@ export class MarkdownService {
       const isExternal = href.startsWith('http://') || href.startsWith('https://');
       const target = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
       const titleAttr = title ? ` title="${this.escapeHtml(title)}"` : '';
-      return `<a href="${this.escapeHtml(href)}"${titleAttr}${target}>${text}</a>`;
+      const fileAttributes = !isExternal && this.isFilePathHref(href)
+        ? ` class="file-path"${this.buildFilePathAttributes(href, title ?? 'Click to open file')}`
+        : titleAttr;
+      return `<a href="${this.escapeHtml(href)}"${fileAttributes}${target}>${text}</a>`;
     };
 
     // Custom blockquote rendering
@@ -144,6 +146,45 @@ export class MarkdownService {
     return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
   }
 
+  private isFilePathHref(href: string): boolean {
+    if (href.startsWith('file://')) {
+      return true;
+    }
+
+    const ranges = detectLinks(href, { kinds: ['file-path'] });
+    return ranges.length === 1 && ranges[0].start === 0 && ranges[0].end === href.length;
+  }
+
+  private buildFilePathAttributes(rawPath: string, title = 'Click to open file'): string {
+    const target = this.parseFilePathTarget(rawPath);
+    const lineAttr = target.line === undefined ? '' : ` data-file-line="${target.line}"`;
+    const columnAttr = target.column === undefined ? '' : ` data-file-column="${target.column}"`;
+    return [
+      ` data-file-path="${this.escapeHtml(target.path)}"`,
+      ` data-file-display-path="${this.escapeHtml(rawPath)}"`,
+      lineAttr,
+      columnAttr,
+      ` title="${this.escapeHtml(title)}"`,
+    ].join('');
+  }
+
+  private parseFilePathTarget(rawPath: string): { path: string; line?: number; column?: number } {
+    if (rawPath.startsWith('file://')) {
+      return { path: rawPath };
+    }
+
+    const match = /^(.*?)(?::(\d+)(?::(\d+))?)?$/.exec(rawPath);
+    if (!match || !match[1]) {
+      return { path: rawPath };
+    }
+
+    return {
+      path: match[1],
+      line: match[2] ? Number.parseInt(match[2], 10) : undefined,
+      column: match[3] ? Number.parseInt(match[3], 10) : undefined,
+    };
+  }
+
   /**
    * Strip orchestration command blocks from content
    */
@@ -190,7 +231,8 @@ export class MarkdownService {
       ALLOWED_ATTR: [
         'href', 'title', 'target', 'rel',
         'class',
-        'data-copy-id', 'data-code-id', 'data-file-path', 'data-link-kind',
+        'data-copy-id', 'data-code-id', 'data-file-path', 'data-file-display-path',
+        'data-file-line', 'data-file-column', 'data-link-kind',
         'src', 'alt', 'width', 'height',
         'viewBox', 'fill', 'stroke', 'stroke-width',
         'x', 'y', 'rx', 'ry', 'd', 'points',

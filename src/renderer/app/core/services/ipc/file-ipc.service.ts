@@ -81,6 +81,14 @@ export class FileIpcService {
   }
 
   /**
+   * Copy a file or folder reference to the system clipboard for paste in the OS file manager
+   */
+  async copyFileToClipboard(path: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.copyFileToClipboard(path);
+  }
+
+  /**
    * Resolve an inline image reference into a renderer attachment payload.
    */
   async resolveImage(payload: ImageResolveRequest): Promise<ImageResolveResponse | null> {

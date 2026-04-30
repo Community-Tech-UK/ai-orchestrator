@@ -311,8 +311,11 @@ export class DoctorService {
   private async getBrowserAutomationHealth(): Promise<BrowserAutomationHealthSnapshot | null> {
     try {
       const health = await getBrowserAutomationHealthService().diagnose();
+      const configured = health.configDetected || health.inAppConfigured;
       return {
-        status: health.status === 'ready'
+        status: !configured
+          ? 'ready'
+          : health.status === 'ready'
           ? 'ready'
           : health.status === 'partial' ? 'degraded' : 'unavailable',
         rawStatus: health.status,
@@ -326,7 +329,7 @@ export class DoctorService {
         inAppToolCount: health.inAppToolCount,
         configDetected: health.configDetected,
         browserToolNames: health.browserToolNames,
-        warnings: health.warnings,
+        warnings: configured ? health.warnings : [],
         suggestions: health.suggestions,
       };
     } catch (error) {

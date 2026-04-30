@@ -128,6 +128,31 @@ export class MessageFormatService {
     return `Context compacted ${methodLabel}`.trim();
   }
 
+  formatCompactionReason(reason: string): string {
+    const labels: Record<string, string> = {
+      hard_limit: 'history threshold',
+      background_threshold: 'context budget',
+      cooldown: 'cooldown',
+      none: 'context update',
+      'context-budget': 'context budget',
+    };
+    const label = labels[reason];
+    if (label) return label;
+
+    const fallback = reason.replace(/[_-]+/g, ' ').trim();
+    return fallback || 'context update';
+  }
+
+  formatCompactionFallbackMode(mode: string): string {
+    const labels: Record<string, string> = {
+      'in-place': 'in place',
+      'snapshot-restore': 'snapshot restore',
+      'native-resume': 'native resume',
+      'replay-fallback': 'replay fallback',
+    };
+    return labels[mode] ?? mode.replace(/[_-]+/g, ' ').trim();
+  }
+
   /**
    * Check if a thought-group has any content to display.
    * Returns false if thinking is hidden AND response is empty.

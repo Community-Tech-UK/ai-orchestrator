@@ -300,6 +300,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       '--allow-all-tools',
       '--allow-all-paths',
       '--allow-all-urls',
+      '--no-ask-user',
       ...modelArgs,
     ],
     workingDirectory: options.workingDirectory ?? process.cwd(),

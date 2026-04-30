@@ -174,23 +174,27 @@ export class DiscordAdapter extends BaseChannelAdapter {
       throw new Error('Discord bot token is required');
     }
 
-    this.lastConfig = {
+    const nextConfig = {
       ...config,
       allowedSenders: [...config.allowedSenders],
       allowedChats: [...config.allowedChats],
     };
+    const previousStatus = this.status;
+    const previousBotUsername = this.botUsername;
+    const hadExistingClient = this.client !== null;
+
     this.manualDisconnect = false;
     this.clearReconnectTimer();
     this.setStatus('connecting');
     logger.info('Connecting to Discord...');
 
-    try {
-      await this.destroyClient(false);
+    let nextClient: DiscordClient | null = null;
 
+    try {
       // Lazy import discord.js
       const { Client, GatewayIntentBits, Partials } = await import('discord.js');
 
-      this.client = new Client({
+      nextClient = new Client({
         intents: [
           GatewayIntentBits.Guilds,
           GatewayIntentBits.GuildMessages,
@@ -200,50 +204,18 @@ export class DiscordAdapter extends BaseChannelAdapter {
         partials: [Partials.Channel],
       });
 
-      this.client.on('messageCreate', (message: DiscordMessage) =>
-        this.handleMessage(message).catch((err: unknown) => {
-          logger.error('Error handling Discord message', err instanceof Error ? err : new Error(String(err)));
-        })
-      );
+      this.attachClientHandlers(nextClient);
+      await nextClient.login(config.token);
 
-      this.client.on('interactionCreate', (interaction: DiscordInteraction) =>
-        this.handleInteraction(interaction).catch((err: unknown) => {
-          logger.error('Error handling Discord interaction', err instanceof Error ? err : new Error(String(err)));
-        })
-      );
+      const botUserId = nextClient.user?.id ?? null;
+      const botUsername = nextClient.user?.tag ?? undefined;
 
-      this.client.on('ready', () => {
-        this.lastGatewayEventAt = Date.now();
-      });
-
-      this.client.on('shardResume', () => {
-        this.lastGatewayEventAt = Date.now();
-        this.lastError = undefined;
-      });
-
-      this.client.on('shardDisconnect', (event: { code?: number; reason?: string } | undefined) => {
-        const reason = event?.reason || `Gateway disconnected${event?.code ? ` (${event.code})` : ''}`;
-        this.scheduleReconnect(reason);
-      });
-
-      this.client.on('shardError', (err: Error) => {
-        this.lastError = err.message;
-        this.emitError(err.message, true);
-      });
-
-      this.client.on('invalidated', () => {
-        this.scheduleReconnect('Discord session invalidated');
-      });
-
-      this.client.on('error', (err: Error) => {
-        logger.error('Discord client error', err);
-        this.lastError = err.message;
-        this.emitError(err.message, true);
-      });
-
-      await this.client.login(config.token);
-      this.botUserId = this.client.user?.id ?? null;
-      this.botUsername = this.client.user?.tag ?? undefined;
+      await this.destroyClient(false);
+      this.client = nextClient;
+      nextClient = null;
+      this.botUserId = botUserId;
+      this.botUsername = botUsername;
+      this.lastConfig = nextConfig;
       this.connectedAt = Date.now();
       this.lastGatewayEventAt = this.connectedAt;
       this.lastError = undefined;
@@ -259,10 +231,59 @@ export class DiscordAdapter extends BaseChannelAdapter {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('Failed to connect to Discord', err instanceof Error ? err : new Error(message));
-      this.setStatus('error');
+      nextClient?.destroy();
+      this.lastError = message;
+      if (hadExistingClient) {
+        this.setStatus(previousStatus, { botUsername: previousBotUsername });
+      } else {
+        this.setStatus('error');
+      }
       this.emitError(`Failed to connect: ${message}`, true);
       throw err;
     }
+  }
+
+  private attachClientHandlers(client: DiscordClient): void {
+    client.on('messageCreate', (message: DiscordMessage) =>
+      this.handleMessage(message).catch((err: unknown) => {
+        logger.error('Error handling Discord message', err instanceof Error ? err : new Error(String(err)));
+      })
+    );
+
+    client.on('interactionCreate', (interaction: DiscordInteraction) =>
+      this.handleInteraction(interaction).catch((err: unknown) => {
+        logger.error('Error handling Discord interaction', err instanceof Error ? err : new Error(String(err)));
+      })
+    );
+
+    client.on('ready', () => {
+      this.lastGatewayEventAt = Date.now();
+    });
+
+    client.on('shardResume', () => {
+      this.lastGatewayEventAt = Date.now();
+      this.lastError = undefined;
+    });
+
+    client.on('shardDisconnect', (event: { code?: number; reason?: string } | undefined) => {
+      const reason = event?.reason || `Gateway disconnected${event?.code ? ` (${event.code})` : ''}`;
+      this.scheduleReconnect(reason);
+    });
+
+    client.on('shardError', (err: Error) => {
+      this.lastError = err.message;
+      this.emitError(err.message, true);
+    });
+
+    client.on('invalidated', () => {
+      this.scheduleReconnect('Discord session invalidated');
+    });
+
+    client.on('error', (err: Error) => {
+      logger.error('Discord client error', err);
+      this.lastError = err.message;
+      this.emitError(err.message, true);
+    });
   }
 
   async disconnect(): Promise<void> {

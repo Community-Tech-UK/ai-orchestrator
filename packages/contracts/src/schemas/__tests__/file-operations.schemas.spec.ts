@@ -20,6 +20,7 @@ import {
   FileReadTextPayloadSchema,
   FileWriteTextPayloadSchema,
   FileOpenPathPayloadSchema,
+  FileCopyToClipboardPayloadSchema,
 } from '../file-operations.schemas';
 
 describe('file-operations.schemas', () => {
@@ -55,7 +56,7 @@ describe('file-operations.schemas', () => {
       AppOpenDocsPayloadSchema, DialogSelectFilesPayloadSchema,
       FileReadDirPayloadSchema, FileGetStatsPayloadSchema,
       FileReadTextPayloadSchema, FileWriteTextPayloadSchema,
-      FileOpenPathPayloadSchema,
+      FileOpenPathPayloadSchema, FileCopyToClipboardPayloadSchema,
     ];
     for (const schema of schemas) {
       expect(typeof schema.parse).toBe('function');

@@ -13,6 +13,7 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { DoctorStore } from '../../core/state/doctor.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import type {
+  BrowserAutomationHealthSnapshot,
   DoctorSectionId,
   OperatorArtifactExportResult,
 } from '../../../../shared/types/diagnostics.types';
@@ -141,13 +142,14 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                 <h4>Browser Automation</h4>
                 @if (report.browserAutomation) {
                   <p class="status-line" [attr.data-status]="report.browserAutomation.status">
-                    {{ report.browserAutomation.status }} · {{ formatTime(report.browserAutomation.checkedAt) }}
+                    {{ browserAutomationStatusLabel(report.browserAutomation) }} · {{ formatTime(report.browserAutomation.checkedAt) }}
                   </p>
                   <dl class="facts">
                     <div><dt>Browser runtime</dt><dd>{{ report.browserAutomation.runtimeAvailable ? 'Ready' : 'Missing' }}</dd></div>
                     <div><dt>Node runtime</dt><dd>{{ report.browserAutomation.nodeAvailable ? 'Ready' : 'Missing' }}</dd></div>
+                    <div><dt>Claude settings</dt><dd>{{ report.browserAutomation.configDetected ? 'Configured' : 'Not configured' }}</dd></div>
                     <div><dt>In-app server</dt><dd>{{ report.browserAutomation.inAppConnected ? 'Connected' : 'Not connected' }}</dd></div>
-                    <div><dt>Tools</dt><dd>{{ report.browserAutomation.inAppToolCount }}</dd></div>
+                    <div><dt>In-app tools</dt><dd>{{ report.browserAutomation.inAppToolCount }}</dd></div>
                   </dl>
                   @if (report.browserAutomation.warnings.length > 0) {
                     <ul class="issue-list">
@@ -452,5 +454,12 @@ export class DoctorSettingsTabComponent implements OnInit {
 
   formatTime(timestamp: number): string {
     return new Date(timestamp).toLocaleString();
+  }
+
+  browserAutomationStatusLabel(snapshot: BrowserAutomationHealthSnapshot): string {
+    if (!snapshot.configDetected && !snapshot.inAppConfigured) {
+      return 'Optional';
+    }
+    return snapshot.status;
   }
 }

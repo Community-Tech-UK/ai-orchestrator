@@ -5,6 +5,7 @@ describe('FILE_CHANNELS', () => {
     expect(FILE_CHANNELS.FILE_DROP).toBe('file:drop');
     expect(FILE_CHANNELS.FILE_READ_DIR).toBe('file:read-dir');
     expect(FILE_CHANNELS.FILE_WRITE_TEXT).toBe('file:write-text');
+    expect(FILE_CHANNELS.FILE_COPY_TO_CLIPBOARD).toBe('file:copy-to-clipboard');
   });
 
   it('has correct values for editor operations', () => {

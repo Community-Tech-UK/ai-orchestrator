@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PromptHistoryStoreV1 } from '../../../shared/types/prompt-history.types';
 import {
   PROMPT_HISTORY_MAX,
@@ -30,8 +33,16 @@ class MemoryPromptHistoryStore implements PromptHistoryStoreBackend {
 }
 
 describe('PromptHistoryService', () => {
+  const cleanupPaths: string[] = [];
+
   beforeEach(() => {
     _resetPromptHistoryServiceForTesting();
+  });
+
+  afterEach(() => {
+    for (const cleanupPath of cleanupPaths.splice(0)) {
+      fs.rmSync(cleanupPath, { recursive: true, force: true });
+    }
   });
 
   it('records entries most-recent first for an instance', () => {
@@ -101,6 +112,28 @@ describe('PromptHistoryService', () => {
       'newer project prompt',
       'shared project prompt',
     ]);
+  });
+
+  it('normalizes project aliases while preserving raw lookup compatibility', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-history-project-'));
+    cleanupPaths.push(root);
+    const realProject = path.join(root, 'real');
+    const linkedProject = path.join(root, 'linked');
+    fs.mkdirSync(realProject);
+    fs.symlinkSync(realProject, linkedProject);
+
+    const svc = new PromptHistoryService(new MemoryPromptHistoryStore());
+    svc.record({
+      instanceId: 'inst-1',
+      id: 'a',
+      text: 'from symlink',
+      createdAt: 1,
+      projectPath: linkedProject,
+    });
+
+    expect(svc.getForProject(realProject).entries.map((entry) => entry.text)).toEqual(['from symlink']);
+    expect(svc.getForProject(`${realProject}/`).entries.map((entry) => entry.text)).toEqual(['from symlink']);
+    expect(svc.getForProject(linkedProject).entries.map((entry) => entry.text)).toEqual(['from symlink']);
   });
 
   it('clears one instance and updates aliases', () => {

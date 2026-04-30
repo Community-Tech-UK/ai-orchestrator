@@ -254,11 +254,75 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 30%, transparent);
 }
 
+.server-card.disabled {
+  border-style: dashed;
+}
+
 .server-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-xs);
+}
+
+.server-card-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.server-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 28px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.server-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-track {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.12s, background 0.12s;
+}
+
+.server-toggle input:checked + .toggle-track {
+  border-color: var(--success-color);
+  background: color-mix(in srgb, var(--success-color) 24%, var(--bg-primary));
+}
+
+.server-toggle input:checked + .toggle-track::after {
+  transform: translateX(12px);
+  background: var(--success-color);
+}
+
+.server-toggle input:disabled + .toggle-track {
+  opacity: 0.6;
 }
 
 .server-name {
@@ -274,6 +338,15 @@
   color: var(--text-muted);
 }
 
+.server-scope {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-family-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .server-error {
   font-size: 11px;
   color: var(--error-color);
@@ -284,6 +357,12 @@
   display: flex;
   gap: var(--spacing-xs);
   flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.read-only-note {
+  font-size: 11px;
+  color: var(--text-muted);
   margin-top: 2px;
 }
 
@@ -306,9 +385,15 @@
 }
 
 .status-disconnected,
-.status-idle {
+.status-idle,
+.status-configured {
   color: var(--text-muted);
   background: transparent;
+}
+
+.status-disabled {
+  color: var(--warning-color);
+  background: color-mix(in srgb, var(--warning-color) 12%, transparent);
 }
 
 .status-connecting {

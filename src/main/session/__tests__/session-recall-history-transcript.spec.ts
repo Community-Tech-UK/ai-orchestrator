@@ -96,4 +96,21 @@ describe('SessionRecallService history-transcript source', () => {
 
     expect(results).toHaveLength(10);
   });
+
+  it('filters history transcript results with normalized repository paths', async () => {
+    const service = makeService([
+      makeEntry({ id: 'same', workingDirectory: '/tmp/repo' }),
+      makeEntry({ id: 'other', workingDirectory: '/tmp/repo-other' }),
+    ]);
+
+    const results = await service.search({
+      query: 'auth',
+      repositoryPath: '/tmp/repo/',
+      sources: ['history-transcript'],
+      includeHistoryTranscripts: true,
+      limit: 10,
+    });
+
+    expect(results.map(result => result.metadata?.['entryId'])).toEqual(['same']);
+  });
 });

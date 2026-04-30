@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DisplayItemProcessor } from './display-item-processor.service';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 
-describe('DisplayItemProcessor interrupt boundary items', () => {
-  it('projects interrupt boundary markers as top-level items', () => {
+describe('DisplayItemProcessor interrupt noise', () => {
+  it('suppresses interrupt boundary markers from the transcript', () => {
     const processor = new DisplayItemProcessor();
     const messages: OutputMessage[] = [
       {
@@ -23,14 +23,46 @@ describe('DisplayItemProcessor interrupt boundary items', () => {
 
     const items = processor.process(messages);
 
+    expect(items).toEqual([]);
+  });
+
+  it('suppresses interruption wait notices from the transcript', () => {
+    const processor = new DisplayItemProcessor();
+    const messages: OutputMessage[] = [
+      {
+        id: 'm1',
+        type: 'system',
+        content: 'Interrupted — waiting for input',
+        timestamp: 10,
+        metadata: {
+          interruptStatus: 'interrupted',
+        },
+      },
+    ];
+
+    const items = processor.process(messages);
+
+    expect(items).toEqual([]);
+  });
+
+  it('still displays unrelated system messages', () => {
+    const processor = new DisplayItemProcessor();
+    const messages: OutputMessage[] = [
+      {
+        id: 'm1',
+        type: 'system',
+        content: 'Memory saved.',
+        timestamp: 10,
+      },
+    ];
+
+    const items = processor.process(messages);
+
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
-      type: 'interrupt-boundary',
-      interruptBoundary: {
-        phase: 'requested',
-        requestId: 'req-1',
-        outcome: 'unresolved',
-        at: 10,
+      type: 'message',
+      message: {
+        content: 'Memory saved.',
       },
     });
   });

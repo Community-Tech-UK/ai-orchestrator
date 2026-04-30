@@ -7,6 +7,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
+import { HistoryStore } from '../history.store';
 import { InstanceStateService } from './instance-state.service';
 import type {
   Instance,
@@ -34,6 +35,7 @@ function supportsResumeRestart(provider: Instance['provider']): boolean {
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(ElectronIpcService);
+  private historyStore = inject(HistoryStore);
 
   // File size limits (Anthropic API limits)
   private static readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024;     // 5MB for images
@@ -53,7 +55,9 @@ export class InstanceListStore {
     // Passive backend events must not steal focus from a user's current session.
     // Explicit create/restore flows select their returned instance themselves.
     const shouldAutoSelect =
-      !instance.parentId && !this.stateService.state().selectedInstanceId;
+      !instance.parentId
+      && !this.stateService.state().selectedInstanceId
+      && !this.historyStore.previewEntryId();
 
     this.stateService.addInstance(instance, shouldAutoSelect);
   }

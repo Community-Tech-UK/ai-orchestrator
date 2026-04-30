@@ -119,6 +119,22 @@ describe('HistoryManager.getEntries advanced options', () => {
       .toEqual(['a']);
   });
 
+  it('filters current project with normalized path aliases', async () => {
+    const realProject = path.join(userDataDir, 'real-project');
+    const linkedProject = path.join(userDataDir, 'linked-project');
+    fs.mkdirSync(realProject);
+    fs.symlinkSync(realProject, linkedProject);
+    seedIndex(userDataDir, [
+      entry({ id: 'same-project', workingDirectory: realProject }),
+      entry({ id: 'other-project', workingDirectory: path.join(userDataDir, 'other-project') }),
+    ]);
+    const { HistoryManager } = await import('../history-manager');
+    const manager = new HistoryManager();
+
+    expect(manager.getEntries({ workingDirectory: `${linkedProject}/`, projectScope: 'current' }).map(item => item.id))
+      .toEqual(['same-project']);
+  });
+
   it('projectScope=all ignores the workingDirectory filter', async () => {
     seedIndex(userDataDir, [
       entry({ id: 'a', workingDirectory: '/tmp/a' }),

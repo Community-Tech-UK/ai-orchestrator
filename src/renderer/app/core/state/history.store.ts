@@ -380,6 +380,21 @@ export class HistoryStore {
     }
   }
 
+  async searchCurrentProjectOldChats(
+    workingDirectory: string,
+    query = '',
+    page: AdvancedHistorySearchInput['page'] = { pageNumber: 1, pageSize: 10 },
+  ): Promise<AdvancedHistorySearchResult | null> {
+    const trimmedQuery = query.trim();
+    return this.searchAdvanced({
+      snippetQuery: trimmedQuery || undefined,
+      workingDirectory,
+      projectScope: 'current',
+      source: 'history-transcript',
+      page,
+    });
+  }
+
   async expandSnippets(entryId: string, query: string): Promise<HistorySnippet[]> {
     try {
       const response = await this.ipc.expandHistorySnippets(entryId, query) as {

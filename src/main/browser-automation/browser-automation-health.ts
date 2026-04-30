@@ -35,6 +35,13 @@ interface ClaudeSettingsFile {
     args?: string[];
     url?: string;
   }>;
+  projects?: Record<string, {
+    mcpServers?: Record<string, {
+      command?: string;
+      args?: string[];
+      url?: string;
+    }>;
+  }>;
 }
 
 const KNOWN_BROWSER_KEYWORDS = ['chrome', 'devtools', 'playwright', 'browser', 'puppeteer'];
@@ -81,9 +88,21 @@ function resolveClaudeSettingsPaths(): string[] {
   }
 
   return [
+    path.join(home, '.claude.json'),
     path.join(home, '.claude', 'settings.json'),
     path.join(home, '.config', 'claude', 'settings.json'),
   ];
+}
+
+function findBrowserServerNames(mcpServers: ClaudeSettingsFile['mcpServers'] | undefined): string[] {
+  return Object.entries(mcpServers || {})
+    .filter(([id, server]) =>
+      stringContainsBrowserKeyword(id) ||
+      stringContainsBrowserKeyword(server.command) ||
+      stringContainsBrowserKeyword(server.url) ||
+      (server.args || []).some((arg) => stringContainsBrowserKeyword(arg)),
+    )
+    .map(([id]) => id);
 }
 
 async function readClaudeSettingsSources(): Promise<BrowserAutomationHealthSource[]> {
@@ -92,20 +111,17 @@ async function readClaudeSettingsSources(): Promise<BrowserAutomationHealthSourc
     try {
       const content = await fsp.readFile(filePath, 'utf-8');
       const parsed = JSON.parse(content) as ClaudeSettingsFile;
-      const mcpServers = parsed.mcpServers || {};
-      const serverNames = Object.entries(mcpServers)
-        .filter(([id, server]) =>
-          stringContainsBrowserKeyword(id) ||
-          stringContainsBrowserKeyword(server.command) ||
-          stringContainsBrowserKeyword(server.url) ||
-          (server.args || []).some((arg) => stringContainsBrowserKeyword(arg)),
-        )
-        .map(([id]) => id);
+      const serverNames = new Set(findBrowserServerNames(parsed.mcpServers));
+      for (const project of Object.values(parsed.projects || {})) {
+        for (const serverName of findBrowserServerNames(project.mcpServers)) {
+          serverNames.add(serverName);
+        }
+      }
 
       results.push({
         path: filePath,
-        detected: serverNames.length > 0,
-        serverNames,
+        detected: serverNames.size > 0,
+        serverNames: Array.from(serverNames),
       });
     } catch {
       results.push({
@@ -214,7 +230,11 @@ export class BrowserAutomationHealthService {
     const mcp = getMcpManager();
     const servers = mcp.getServers().filter((server) => serverLooksLikeBrowserAutomation(server));
     const tools = mcp.getTools().filter((tool) => toolLooksLikeBrowserAutomation(tool));
+    const inAppConfigured = servers.length > 0;
     const inAppConnected = servers.some((server) => server.status === 'connected');
+    const inAppReady = inAppConnected && tools.length > 0;
+    const inAppIssue = inAppConfigured && !inAppReady;
+    const externalReady = configDetected && runtime.available && nodeAvailable;
 
     const warnings: string[] = [];
     const suggestions: string[] = [];
@@ -229,12 +249,12 @@ export class BrowserAutomationHealthService {
       suggestions.push('Install Node.js and verify `node --version` succeeds.');
     }
 
-    if (!configDetected && servers.length === 0) {
+    if (!configDetected && !inAppConfigured) {
       warnings.push('No browser automation MCP configuration was found in Claude settings or the in-app MCP registry.');
       suggestions.push('Add the Chrome DevTools MCP server from the MCP page or via `claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest`.');
     }
 
-    if (servers.length > 0 && !inAppConnected) {
+    if (inAppConfigured && !inAppConnected) {
       warnings.push('A browser automation server is configured in-app but is not currently connected.');
       suggestions.push('Connect the browser MCP server from the MCP page and rerun the health check.');
     }
@@ -245,9 +265,9 @@ export class BrowserAutomationHealthService {
     }
 
     const status: BrowserAutomationHealthStatus =
-      runtime.available && nodeAvailable && (configDetected || inAppConnected) && tools.length > 0
+      runtime.available && nodeAvailable && !inAppIssue && (externalReady || inAppReady)
         ? 'ready'
-        : runtime.available || nodeAvailable || configDetected || servers.length > 0
+        : configDetected || inAppConfigured
           ? 'partial'
           : 'missing';
 
@@ -262,7 +282,7 @@ export class BrowserAutomationHealthService {
       runtimeAvailable: runtime.available,
       runtimeCommand: runtime.command,
       nodeAvailable,
-      inAppConfigured: servers.length > 0,
+      inAppConfigured,
       inAppConnected,
       inAppToolCount: tools.length,
       configDetected,

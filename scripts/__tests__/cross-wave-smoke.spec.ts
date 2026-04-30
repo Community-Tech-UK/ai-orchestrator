@@ -307,7 +307,7 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(controller.groups()[0].items.map((item) => item.value.id)).toEqual(['inst-b', 'inst-a']);
   });
 
-  it('keeps interrupt-boundary and compaction-summary items out of system-event grouping', () => {
+  it('keeps compaction summaries out of system-event grouping and suppresses interrupt boundaries', () => {
     const processor = new DisplayItemProcessor();
     const messages: OutputMessage[] = [
       {
@@ -357,7 +357,6 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(items.map((item) => item.type)).toEqual([
       'system-event-group',
       'compaction-summary',
-      'interrupt-boundary',
     ]);
     const groupedIds = items
       .filter((item) => item.type === 'system-event-group')

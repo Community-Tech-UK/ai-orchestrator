@@ -22,6 +22,11 @@
       "filter": ["**/*"]
     },
     {
+      "from": "docs",
+      "to": "docs",
+      "filter": ["BROWSER_AUTOMATION_SETUP.md", "runbooks/**/*"]
+    },
+    {
       "from": "src/main/cli/hooks",
       "to": "hooks",
       "filter": ["*.mjs"]

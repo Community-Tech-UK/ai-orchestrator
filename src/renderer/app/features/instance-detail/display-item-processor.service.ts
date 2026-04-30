@@ -107,6 +107,10 @@ const SYSTEM_ACTION_LABELS: Readonly<Record<string, string>> = {
   spawn_child: 'Child spawned',
   terminate_child: 'Children terminated',
 };
+const QUIET_INTERRUPT_SYSTEM_MESSAGES = new Set<string>([
+  'Interrupted — waiting for input',
+  'Interrupted — session restarted (resume failed)',
+]);
 
 export function resolveSystemActionLabel(action: string): string {
   const knownLabel = SYSTEM_ACTION_LABELS[action];
@@ -240,6 +244,10 @@ export class DisplayItemProcessor {
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
+      if (this.shouldSuppressInterruptNoise(msg)) {
+        continue;
+      }
+
       const bufferIndex = bufferOffset + i;
       const isStreaming =
         msg.metadata != null &&
@@ -325,6 +333,18 @@ export class DisplayItemProcessor {
     }
 
     return items;
+  }
+
+  private shouldSuppressInterruptNoise(message: OutputMessage): boolean {
+    if (message.type !== 'system') {
+      return false;
+    }
+
+    if (message.metadata?.['kind'] === 'interrupt-boundary') {
+      return true;
+    }
+
+    return QUIET_INTERRUPT_SYSTEM_MESSAGES.has(message.content.trim());
   }
 
   private haveProcessedMessagesChanged(messages: readonly OutputMessage[]): boolean {

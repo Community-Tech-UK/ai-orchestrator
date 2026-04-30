@@ -49,6 +49,12 @@ describe('adapter factory — copilot', () => {
     expect(args).toContain('--stdio');
   });
 
+  it('disables Copilot ask_user in ACP mode so prompt turns stay autonomous', () => {
+    const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
+    const args = adapter.getConfig().args ?? [];
+    expect(args).toContain('--no-ask-user');
+  });
+
   it('omits --model when no model is specified so copilot uses its configured default', () => {
     const adapter = createCliAdapter('copilot', { workingDirectory: '/tmp' });
     const args = adapter.getConfig().args ?? [];

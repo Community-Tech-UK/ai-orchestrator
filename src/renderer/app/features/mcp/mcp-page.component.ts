@@ -25,6 +25,27 @@ interface McpServer {
   id: string;
   name: string;
   description?: string;
+  source?: string;
+  sourceProvider?: string;
+  sourceLabel?: string;
+  sourcePath?: string;
+  scope?: string;
+  readOnly?: boolean;
+  toggleable?: boolean;
+  enabled?: boolean;
+  sourceEntries?: {
+    id: string;
+    name: string;
+    sourceProvider?: string;
+    sourceLabel?: string;
+    sourcePath?: string;
+    scope?: string;
+    enabled: boolean;
+    readOnly?: boolean;
+  }[];
+  sourceCount?: number;
+  enabledSourceCount?: number;
+  sourceSummary?: string;
   transport: string;
   status: string;
   error?: string;
@@ -164,8 +185,52 @@ export class McpPageComponent implements OnInit, OnDestroy {
   readonly selectedServerJson = computed(() => {
     const srv = this.selectedServer();
     if (!srv) return '';
-    const { id, name, description, transport, command, args, env, url, autoConnect } = srv;
-    return JSON.stringify({ id, name, description, transport, command, args, env, url, autoConnect }, null, 2);
+    const {
+      id,
+      name,
+      description,
+      source,
+      sourceProvider,
+      sourceLabel,
+      sourcePath,
+      scope,
+      readOnly,
+      toggleable,
+      enabled,
+      sourceEntries,
+      sourceCount,
+      enabledSourceCount,
+      sourceSummary,
+      transport,
+      command,
+      args,
+      env,
+      url,
+      autoConnect,
+    } = srv;
+    return JSON.stringify({
+      id,
+      name,
+      description,
+      source,
+      sourceProvider,
+      sourceLabel,
+      sourcePath,
+      scope,
+      readOnly,
+      toggleable,
+      enabled,
+      sourceEntries,
+      sourceCount,
+      enabledSourceCount,
+      sourceSummary,
+      transport,
+      command,
+      args,
+      env,
+      url,
+      autoConnect,
+    }, null, 2);
   });
 
   // ── Tab definitions ───────────────────────────────────────────────────────
@@ -184,6 +249,24 @@ export class McpPageComponent implements OnInit, OnDestroy {
       case 'prompts': return this.selectedPrompts().length;
       default: return 0;
     }
+  }
+
+  serverStatusClass(server: McpServer): string {
+    if (server.enabled === false) {
+      return 'disabled';
+    }
+    return server.readOnly ? 'configured' : server.status;
+  }
+
+  serverStatusLabel(server: McpServer): string {
+    if (server.enabled === false) {
+      return 'disabled';
+    }
+    return server.readOnly ? 'configured' : server.status;
+  }
+
+  serverMeta(server: McpServer): string {
+    return [server.transport, server.sourceSummary ?? server.sourceLabel].filter(Boolean).join(' - ');
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -332,6 +415,17 @@ export class McpPageComponent implements OnInit, OnDestroy {
     if (this.selectedServerId() === serverId) {
       this.selectedServerId.set(null);
     }
+  }
+
+  async toggleServerEnabled(event: Event, server: McpServer): Promise<void> {
+    event.stopPropagation();
+    const target = event.target as HTMLInputElement;
+    const enabled = target.checked;
+    await this.runServerOp(
+      () => this.mcpIpc.mcpSetServerEnabled(server.id, enabled),
+      `${server.name} ${enabled ? 'enabled' : 'disabled'}.`,
+      'Failed to update server.'
+    );
   }
 
   // ── Tool call ─────────────────────────────────────────────────────────────
@@ -512,7 +606,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
   }
 
   private async loadServers(): Promise<void> {
-    const response = await this.mcpIpc.mcpGetServers();
+    const response = await this.mcpIpc.mcpGetServers({ includeExternal: true });
     if (!response.success) {
       this.errorMessage.set(response.error?.message ?? 'Failed to load servers.');
       return;

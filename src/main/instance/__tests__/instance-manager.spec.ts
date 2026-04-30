@@ -13,6 +13,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 
+const {
+  mockCreateCliAdapter,
+  mockProjectMemoryBuildBrief,
+  mockPromptHistoryRecord,
+} = vi.hoisted(() => ({
+  mockCreateCliAdapter: vi.fn(),
+  mockProjectMemoryBuildBrief: vi.fn().mockResolvedValue({
+    text: '',
+    sections: [],
+    sources: [],
+    stats: {
+      projectKey: '/tmp/test-project',
+      candidatesScanned: 0,
+      candidatesIncluded: 0,
+      truncated: false,
+    },
+  }),
+  mockPromptHistoryRecord: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Module-level mocks
 // ---------------------------------------------------------------------------
@@ -164,7 +184,7 @@ function makeMockAdapter() {
 }
 
 vi.mock('../../cli/adapters/adapter-factory', () => ({
-  createCliAdapter: vi.fn(() => makeMockAdapter()),
+  createCliAdapter: mockCreateCliAdapter,
   resolveCliType: vi.fn().mockResolvedValue('claude'),
   getCliDisplayName: vi.fn(() => 'Claude Code'),
 }));
@@ -389,6 +409,18 @@ vi.mock('../../observation/policy-adapter', () => ({
 vi.mock('../../memory/wake-context-builder', () => ({
   getWakeContextBuilder: vi.fn(() => ({
     getWakeUpText: vi.fn(() => ''),
+  })),
+}));
+
+vi.mock('../../memory/project-memory-brief', () => ({
+  getProjectMemoryBriefService: vi.fn(() => ({
+    buildBrief: mockProjectMemoryBuildBrief,
+  })),
+}));
+
+vi.mock('../../prompt-history/prompt-history-service', () => ({
+  getPromptHistoryService: vi.fn(() => ({
+    record: mockPromptHistoryRecord,
   })),
 }));
 
@@ -654,8 +686,21 @@ describe('InstanceManager', () => {
     mockAdapterSpawn.mockResolvedValue(12345);
     mockAdapterSendInput.mockResolvedValue(undefined);
     mockAdapterTerminate.mockResolvedValue(undefined);
+    mockCreateCliAdapter.mockImplementation(() => makeMockAdapter());
     mockAutoTitleMaybeGenerate.mockResolvedValue(undefined);
     mockAutoTitleClearInstance.mockReset();
+    mockProjectMemoryBuildBrief.mockResolvedValue({
+      text: '',
+      sections: [],
+      sources: [],
+      stats: {
+        projectKey: TEST_WORKING_DIR,
+        candidatesScanned: 0,
+        candidatesIncluded: 0,
+        truncated: false,
+      },
+    });
+    mockPromptHistoryRecord.mockReset();
     mockAdapterName = 'claude-cli';
 
     mockResolveAgent.mockResolvedValue({
@@ -909,6 +954,108 @@ describe('InstanceManager', () => {
       expect(instance.outputBuffer.some((message) => message.type === 'error')).toBe(false);
       expect(instance.status).toBe('idle');
     });
+
+    it('injects the project memory brief into fresh root system prompts', async () => {
+      mockProjectMemoryBuildBrief.mockResolvedValue({
+        text: '## Project Memory Brief\n\nRelevant prior chat excerpts:\n- [2026-04-28 Claude] auth middleware fix',
+        sections: [],
+        sources: [{ id: 'history:1', type: 'history-transcript', projectPath: TEST_WORKING_DIR }],
+        stats: {
+          projectKey: TEST_WORKING_DIR,
+          candidatesScanned: 1,
+          candidatesIncluded: 1,
+          truncated: false,
+        },
+      });
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'Check auth middleware',
+      });
+      await instance.readyPromise;
+
+      const spawnCall = mockCreateCliAdapter.mock.calls.find((call) => {
+        const options = call[1] as { systemPrompt?: string } | undefined;
+        return typeof options?.systemPrompt === 'string';
+      });
+      const spawnOptions = spawnCall?.[1] as { systemPrompt?: string } | undefined;
+      expect(spawnOptions?.systemPrompt).toContain('## Project Memory Brief');
+      expect(spawnOptions?.systemPrompt).toContain('auth middleware fix');
+      expect(mockAdapterSendInput).toHaveBeenCalledWith('Check auth middleware', undefined);
+    });
+
+    it('skips project memory brief for child instances, resumed sessions, and restore continuity', async () => {
+      const parent = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Parent',
+      });
+      await parent.readyPromise;
+      mockProjectMemoryBuildBrief.mockClear();
+
+      const child = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Child',
+        parentId: parent.id,
+        initialPrompt: 'child task',
+      });
+      await child.readyPromise;
+      expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
+
+      const resumed = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        resume: true,
+        sessionId: 'session-resume',
+      });
+      await resumed.readyPromise;
+      expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
+
+      const restored = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialOutputBuffer: [
+          { id: 'restored-user', timestamp: 1, type: 'user', content: 'old message' },
+        ],
+      });
+      await restored.readyPromise;
+      expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
+    });
+
+    it('continues spawning when project memory brief retrieval fails', async () => {
+      mockProjectMemoryBuildBrief.mockRejectedValueOnce(new Error('memory unavailable'));
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'Start even if memory is unavailable',
+      });
+      await instance.readyPromise;
+
+      const spawnCall = mockCreateCliAdapter.mock.calls.find((call) => {
+        const options = call[1] as { systemPrompt?: string } | undefined;
+        return typeof options?.systemPrompt === 'string';
+      });
+      const spawnOptions = spawnCall?.[1] as { systemPrompt?: string } | undefined;
+      expect(spawnOptions?.systemPrompt).not.toContain('## Project Memory Brief');
+      expect(mockAdapterSendInput).toHaveBeenCalledWith('Start even if memory is unavailable', undefined);
+      expect(instance.status).toBe('idle');
+    });
+
+    it('records initial prompts in main-process prompt history', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'Remember this startup prompt',
+        provider: 'claude',
+        modelOverride: 'opus',
+      });
+      await instance.readyPromise;
+
+      expect(mockPromptHistoryRecord).toHaveBeenCalledWith(expect.objectContaining({
+        instanceId: instance.id,
+        text: 'Remember this startup prompt',
+        projectPath: TEST_WORKING_DIR,
+        provider: 'claude',
+        model: 'opus',
+        wasSlashCommand: false,
+      }));
+    });
   });
 
   // =========================================================================
@@ -1055,6 +1202,24 @@ describe('InstanceManager', () => {
 
       const updated = manager.getInstance(instance.id);
       expect(updated?.lastActivity).toBeGreaterThanOrEqual(before);
+    });
+
+    it('records sent prompts in main-process prompt history', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Prompt History Test',
+      });
+
+      await manager.sendInput(instance.id, 'remember this normal prompt');
+
+      expect(mockPromptHistoryRecord).toHaveBeenCalledWith(expect.objectContaining({
+        instanceId: instance.id,
+        text: 'remember this normal prompt',
+        projectPath: TEST_WORKING_DIR,
+        provider: 'claude',
+        model: 'opus',
+        wasSlashCommand: false,
+      }));
     });
 
     it('emits provider:normalized-event for the user message', async () => {

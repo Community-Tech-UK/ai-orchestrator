@@ -11,13 +11,19 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   McpAddServerPayloadSchema,
   McpCallToolPayloadSchema,
+  McpGetServersPayloadSchema,
   McpGetPromptPayloadSchema,
   McpReadResourcePayloadSchema,
   McpServerPayloadSchema,
+  McpSetServerEnabledPayloadSchema,
 } from '@contracts/schemas/provider';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
 import { WindowManager } from '../../window-manager';
 import { getBrowserAutomationHealthService } from '../../browser-automation/browser-automation-health';
+import {
+  discoverProviderMcpServers,
+  setProviderMcpServerEnabled,
+} from '../../mcp/provider-mcp-config-discovery';
 
 export function registerMcpHandlers(deps: {
   windowManager: WindowManager;
@@ -117,18 +123,57 @@ export function registerMcpHandlers(deps: {
   // Get all servers
   ipcMain.handle(
     IPC_CHANNELS.MCP_GET_SERVERS,
-    async (): Promise<IpcResponse> => {
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse> => {
       try {
+        const options = validateIpcPayload(
+          McpGetServersPayloadSchema,
+          payload,
+          'MCP_GET_SERVERS',
+        );
         const servers = lifecycle.getServers();
+        const externalServers = options?.includeExternal
+          ? await discoverProviderMcpServers()
+          : [];
         return {
           success: true,
-          data: servers
+          data: [...servers, ...externalServers]
         };
       } catch (error) {
         return {
           success: false,
           error: {
             code: 'MCP_GET_SERVERS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Enable or disable a provider-configured server
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_SET_SERVER_ENABLED,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          McpSetServerEnabledPayloadSchema,
+          payload,
+          'MCP_SET_SERVER_ENABLED',
+        );
+        await setProviderMcpServerEnabled(validated.serverId, validated.enabled);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_SET_SERVER_ENABLED_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

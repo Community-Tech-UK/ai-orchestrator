@@ -30,6 +30,7 @@ import type {
   ForkConfig,
   OutputMessage
 } from '../../shared/types/instance.types';
+import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { generateId, generateInstanceId } from '../../shared/utils/id-generator';
 import {
   resolveCliType,
@@ -76,6 +77,7 @@ import {
   type HistoryRestoreCoordinatorOptions,
   type HistoryRestoreCoordinatorResult,
 } from '../history/history-restore-coordinator';
+import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -1251,6 +1253,26 @@ export class InstanceManager extends EventEmitter {
           ? resolvedCommand.execution.actionId
           : undefined,
       };
+    }
+
+    if (!options?.isRetry && message.trim()) {
+      try {
+        getPromptHistoryService().record({
+          instanceId,
+          id: createPromptHistoryEntryId(),
+          text: message.trim(),
+          createdAt: Date.now(),
+          projectPath: instance.workingDirectory,
+          provider: instance.provider,
+          model: instance.currentModel,
+          wasSlashCommand: Boolean(resolvedCommandName),
+        });
+      } catch (error) {
+        logger.warn('Failed to record prompt history in main process', {
+          instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     // Update activity and request count

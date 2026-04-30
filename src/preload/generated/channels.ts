@@ -51,6 +51,7 @@ export const IPC_CHANNELS = {
   FILE_READ_TEXT: 'file:read-text',
   FILE_WRITE_TEXT: 'file:write-text',
   FILE_OPEN_PATH: 'file:open-path',
+  FILE_COPY_TO_CLIPBOARD: 'file:copy-to-clipboard',
 
   // Ecosystem operations (file-based extensibility)
   ECOSYSTEM_LIST: 'ecosystem:list',
@@ -891,6 +892,7 @@ export const IPC_CHANNELS = {
   // MCP operations
   MCP_GET_STATE: 'mcp:get-state',
   MCP_GET_SERVERS: 'mcp:get-servers',
+  MCP_SET_SERVER_ENABLED: 'mcp:set-server-enabled',
   MCP_ADD_SERVER: 'mcp:add-server',
   MCP_REMOVE_SERVER: 'mcp:remove-server',
   MCP_CONNECT: 'mcp:connect',

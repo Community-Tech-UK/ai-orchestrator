@@ -409,6 +409,85 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('keeps assistant chunks on a stable turn id when ACP messageId changes per chunk', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'agent-fragment-1',
+          content: { type: 'text', text: 'I' },
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'agent-fragment-2',
+          content: { type: 'text', text: "'m " },
+        },
+      });
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'agent-fragment-3',
+          content: { type: 'text', text: 'ready' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const outputs: Array<{
+      id: string;
+      type: string;
+      content: string;
+      metadata?: Record<string, unknown>;
+    }> = [];
+    adapter.on('output', (message: {
+      id: string;
+      type: string;
+      content: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      outputs.push(message);
+    });
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'hello' });
+
+    const assistantOutputs = outputs.filter((message) => message.type === 'assistant');
+    const streamingOutputs = assistantOutputs.filter((message) => message.metadata?.['streaming'] === true);
+    const finalOutput = assistantOutputs.find((message) => message.metadata?.['streaming'] === false);
+
+    expect(response.content).toBe("I'm ready");
+    expect(streamingOutputs.map((message) => message.content)).toEqual([
+      'I',
+      "I'm ",
+      "I'm ready",
+    ]);
+    expect(new Set(streamingOutputs.map((message) => message.id)).size).toBe(1);
+    expect(finalOutput).toMatchObject({
+      id: streamingOutputs[0]?.id,
+      content: "I'm ready",
+      metadata: expect.objectContaining({ streaming: false }),
+    });
+    expect(streamingOutputs.map((message) => message.metadata?.['acpMessageId'])).toEqual([
+      'agent-fragment-1',
+      'agent-fragment-2',
+      'agent-fragment-3',
+    ]);
+
+    proc.exit();
+  });
+
   it('round-trips ACP permission requests through sendRaw responses', async () => {
     const proc = createInitializedAgentHarness();
 
@@ -469,6 +548,75 @@ describe('AcpCliAdapter', () => {
       }),
     );
     expect(response.content).toBe('Permission granted.');
+
+    proc.exit();
+  });
+
+  it('round-trips ACP elicitation requests through sendRaw responses', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', async (message) => {
+      proc.request('ask-1', 'elicitation/create', {
+        sessionId: 'sess-acp-1',
+        mode: 'form',
+        message: 'Choose a strategy',
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            strategy: { type: 'string', title: 'Strategy' },
+          },
+          required: ['strategy'],
+        },
+      });
+
+      const elicitationResponse = await proc.waitForMessage((incoming) =>
+        'id' in incoming
+        && incoming.id === 'ask-1'
+        && 'result' in incoming,
+      ) as AcpJsonRpcSuccessResponse;
+
+      expect(elicitationResponse.result).toEqual({
+        action: 'accept',
+        content: {
+          strategy: 'balanced',
+        },
+      });
+
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'Using balanced.' },
+        },
+      });
+      proc.respond(message.id, { stopReason: 'end_turn' });
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+    });
+    await adapter.spawn();
+
+    const inputRequiredHandler = vi.fn(async (payload: { id: string }) => {
+      await adapter.sendRaw('balanced', payload.id);
+    });
+    adapter.on('input_required', inputRequiredHandler);
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'choose' });
+
+    expect(inputRequiredHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'acp_elicitation:ask-1',
+        metadata: expect.objectContaining({
+          type: 'acp_elicitation',
+          schema: expect.objectContaining({
+            type: 'object',
+          }),
+        }),
+      }),
+    );
+    expect(response.content).toBe('Using balanced.');
 
     proc.exit();
   });

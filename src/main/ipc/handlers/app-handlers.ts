@@ -3,7 +3,10 @@
  * Handles app readiness, version info, dialogs, and file system operations
  */
 
-import { ipcMain, dialog, shell } from 'electron';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
+import { ipcMain, dialog, shell, clipboard } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { WindowManager } from '../../window-manager';
 import { validatedHandler } from '../validated-handler';
@@ -11,6 +14,7 @@ import { validatePath } from '../../security/path-validator';
 import {
   AppOpenDocsPayloadSchema,
   DialogSelectFilesPayloadSchema,
+  FileCopyToClipboardPayloadSchema,
   FileGetStatsPayloadSchema,
   FileOpenPathPayloadSchema,
   FileReadDirPayloadSchema,
@@ -19,9 +23,82 @@ import {
 } from '@contracts/schemas/file-operations';
 import { getCapabilityProbe } from '../../bootstrap/capability-probe';
 
+const execFileAsync = promisify(execFile);
+
 interface AppHandlerDependencies {
   windowManager: WindowManager;
   getIpcAuthToken: () => string;
+}
+
+function isPathInside(parentPath: string, childPath: string, nodePath: typeof import('path')): boolean {
+  const relative = nodePath.relative(parentPath, childPath);
+  return relative === '' || (!relative.startsWith('..') && !nodePath.isAbsolute(relative));
+}
+
+function normalizeDocsFilename(filename: string, nodePath: typeof import('path')): string | null {
+  const normalized = filename.replace(/\\/g, '/');
+  if (nodePath.isAbsolute(normalized)) {
+    return null;
+  }
+
+  const segments = normalized.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return null;
+  }
+
+  return segments.join(nodePath.sep);
+}
+
+function docsRootCandidates(
+  nodePath: typeof import('path'),
+  appPath: string,
+): string[] {
+  const roots = [
+    nodePath.join(process.cwd(), 'docs'),
+    ...(process.resourcesPath ? [nodePath.join(process.resourcesPath, 'docs')] : []),
+    nodePath.join(appPath, 'docs'),
+    nodePath.resolve(__dirname, '../../../../docs'),
+    nodePath.resolve(__dirname, '../../../docs'),
+  ];
+  return Array.from(new Set(roots.map((root) => nodePath.resolve(root))));
+}
+
+async function copyFileReferenceToClipboard(filePath: string): Promise<'native' | 'uri-list'> {
+  if (process.platform === 'darwin') {
+    await execFileAsync('/usr/bin/osascript', [
+      '-e',
+      'on run argv',
+      '-e',
+      'set the clipboard to (POSIX file (item 1 of argv) as alias)',
+      '-e',
+      'end run',
+      filePath,
+    ]);
+    return 'native';
+  }
+
+  if (process.platform === 'win32') {
+    await execFileAsync('powershell.exe', [
+      '-STA',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      [
+        'Add-Type -AssemblyName System.Windows.Forms;',
+        '$paths = New-Object System.Collections.Specialized.StringCollection;',
+        '[void]$paths.Add($args[0]);',
+        '[System.Windows.Forms.Clipboard]::SetFileDropList($paths);',
+      ].join(' '),
+      filePath,
+    ]);
+    return 'native';
+  }
+
+  const fileUrl = pathToFileURL(filePath).href;
+  clipboard.writeText(filePath);
+  clipboard.writeBuffer('text/uri-list', Buffer.from(`${fileUrl}\n`, 'utf8'));
+  clipboard.writeBuffer('x-special/gnome-copied-files', Buffer.from(`copy\n${fileUrl}\n`, 'utf8'));
+  return 'uri-list';
 }
 
 export function registerAppHandlers(deps: AppHandlerDependencies): void {
@@ -89,21 +166,24 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
         const nodePath = await import('path');
         const { app } = await import('electron');
         const fs = await import('fs');
+        const relativeDocsPath = normalizeDocsFilename(payload.filename, nodePath);
 
-        // Try multiple possible locations for docs
-        const possiblePaths = [
-          // Development: relative to project root
-          nodePath.join(process.cwd(), 'docs', payload.filename),
-          // Packaged app: in resources
-          nodePath.join(app.getAppPath(), 'docs', payload.filename),
-          // Alternative packaged location
-          nodePath.join(__dirname, '../../docs', payload.filename)
-        ];
+        if (!relativeDocsPath) {
+          return {
+            success: false,
+            error: {
+              code: 'DOCS_PATH_INVALID',
+              message: `Documentation path is invalid: ${payload.filename}`,
+              timestamp: Date.now()
+            }
+          };
+        }
 
         // Find first existing path
         let docsPath: string | null = null;
-        for (const p of possiblePaths) {
-          if (fs.existsSync(p)) {
+        for (const root of docsRootCandidates(nodePath, app.getAppPath())) {
+          const p = nodePath.resolve(root, relativeDocsPath);
+          if (isPathInside(root, p, nodePath) && fs.existsSync(p)) {
             docsPath = p;
             break;
           }
@@ -424,6 +504,31 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
           };
         }
         return { success: true };
+      }
+    )
+  );
+
+  // Copy file or folder reference to the system clipboard for pasting in Finder/Explorer/files.
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_COPY_TO_CLIPBOARD,
+    validatedHandler(
+      IPC_CHANNELS.FILE_COPY_TO_CLIPBOARD,
+      FileCopyToClipboardPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        const fs = await import('fs/promises');
+        const nodePath = await import('path');
+        const resolvedPath = nodePath.resolve(payload.path);
+        const stats = await fs.stat(resolvedPath);
+        const mode = await copyFileReferenceToClipboard(resolvedPath);
+
+        return {
+          success: true,
+          data: {
+            path: resolvedPath,
+            isDirectory: stats.isDirectory(),
+            mode,
+          },
+        };
       }
     )
   );

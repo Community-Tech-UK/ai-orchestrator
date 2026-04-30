@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compaction-policy';
 
 describe('SessionCompactionPolicy', () => {
-  it('compacts when the hard message limit is exceeded', () => {
+  it('does not compact solely because the message count exceeds the history sizing hint', () => {
     const policy = new SessionCompactionPolicy();
     const decision = policy.evaluate({
       messageCount: 1200,
@@ -10,8 +10,20 @@ describe('SessionCompactionPolicy', () => {
       contextUsagePercent: 40,
     });
 
+    expect(decision.shouldCompact).toBe(false);
+    expect(decision.reason).toBe('none');
+  });
+
+  it('compacts when the context budget threshold is reached', () => {
+    const policy = new SessionCompactionPolicy();
+    const decision = policy.evaluate({
+      messageCount: 1200,
+      maxConversationEntries: 1000,
+      contextUsagePercent: 85,
+    });
+
     expect(decision.shouldCompact).toBe(true);
-    expect(decision.reason).toBe('hard_limit');
+    expect(decision.reason).toBe('background_threshold');
   });
 
   it('respects cooldown for background compaction', () => {
@@ -48,7 +60,7 @@ describe('ConversationHistoryCompactor', () => {
       })),
       {
         shouldCompact: true,
-        reason: 'hard_limit',
+        reason: 'background_threshold',
         preserveRecentMessages: 4,
       },
     );

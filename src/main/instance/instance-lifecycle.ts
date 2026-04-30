@@ -28,6 +28,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
 import { getCodebaseMiner } from '../memory/codebase-miner';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
@@ -43,6 +44,7 @@ import type {
   OutputMessage,
   SessionDiffStats
 } from '../../shared/types/instance.types';
+import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { getLogger } from '../logging/logger';
 import type { CoreDeps } from './instance-deps';
 import { getPolicyAdapter } from '../observation/policy-adapter';
@@ -93,6 +95,7 @@ import {
   buildToolPermissionConfig,
 } from './lifecycle/tool-permission-config';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -187,6 +190,17 @@ function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Record<str
     forceNodeId: config.forceNodeId ?? null,
     hasNodePlacement: Boolean(config.nodePlacement),
   };
+}
+
+function isRestoreOrReplayContinuity(config: InstanceCreateConfig): boolean {
+  const hasInitialPrompt =
+    typeof config.initialPrompt === 'string'
+    && config.initialPrompt.trim().length > 0;
+  const hasSeededConversation = config.initialOutputBuffer?.some(
+    (message) => message.type === 'user' || message.type === 'assistant'
+  ) ?? false;
+
+  return Boolean(config.resume || (hasSeededConversation && !hasInitialPrompt));
 }
 
 /**
@@ -1065,6 +1079,23 @@ export class InstanceLifecycleManager extends EventEmitter {
     // off title generation here before the background spawn/send pipeline.
     if (typeof config.initialPrompt === 'string' && config.initialPrompt.trim().length > 0) {
       this.triggerAutoTitle(instance, config.initialPrompt);
+      try {
+        getPromptHistoryService().record({
+          instanceId: instance.id,
+          id: createPromptHistoryEntryId(),
+          text: config.initialPrompt.trim(),
+          createdAt: Date.now(),
+          projectPath: instance.workingDirectory,
+          provider: config.provider,
+          model: config.modelOverride || resolvedAgent.modelOverride,
+          wasSlashCommand: false,
+        });
+      } catch (error) {
+        logger.warn('Failed to record initial prompt history in main process', {
+          instanceId: instance.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     // Restored sessions (history-restore, etc.) arrive with a populated
@@ -1139,11 +1170,42 @@ export class InstanceLifecycleManager extends EventEmitter {
             config.initialPrompt
           );
           if (observationContext) {
-            systemPrompt = `${observationContext}\n\n---\n\n${systemPrompt}`;
+            systemPrompt = `${systemPrompt}\n\n---\n\n${observationContext}`;
             logger.info('Injected observation memory context into system prompt');
           }
         } catch (err) {
           logger.warn('Failed to inject observation context', { error: err instanceof Error ? err.message : String(err) });
+        }
+
+        // Inject a compact, project-scoped memory brief for fresh root sessions.
+        if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
+          try {
+            const projectBrief = await getProjectMemoryBriefService().buildBrief({
+              projectPath: instance.workingDirectory,
+              instanceId: instance.id,
+              initialPrompt: config.initialPrompt,
+              provider: config.provider,
+              model: config.modelOverride || resolvedAgent.modelOverride || this.settings.getAll().defaultModel,
+            });
+            if (projectBrief.text.trim()) {
+              systemPrompt = `${systemPrompt}\n\n---\n\n${projectBrief.text}`;
+              logger.info('Injected project memory brief into system prompt', {
+                projectKey: projectBrief.stats.projectKey,
+                candidatesScanned: projectBrief.stats.candidatesScanned,
+                candidatesIncluded: projectBrief.stats.candidatesIncluded,
+                sourceCounts: projectBrief.sources.reduce<Record<string, number>>((counts, source) => {
+                  counts[source.type] = (counts[source.type] ?? 0) + 1;
+                  return counts;
+                }, {}),
+                truncated: projectBrief.stats.truncated,
+              });
+            }
+          } catch (err) {
+            logger.warn('Failed to inject project memory brief', {
+              error: err instanceof Error ? err.message : String(err),
+              instanceId: instance.id,
+            });
+          }
         }
 
         // Inject wake-up context (mempalace L0 identity + L1 essential story)
@@ -1151,7 +1213,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           try {
             const wakeText = getWakeContextBuilder().getWakeUpText(instance.workingDirectory);
             if (wakeText && wakeText.trim().length > 30) {
-              systemPrompt = `${wakeText}\n\n---\n\n${systemPrompt}`;
+              systemPrompt = `${systemPrompt}\n\n---\n\n${wakeText}`;
               logger.info('Injected wake-up context into system prompt', {
                 tokenEstimate: Math.ceil(wakeText.length / 4),
               });

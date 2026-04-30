@@ -164,6 +164,17 @@ interface AcpPendingPermissionRequest {
   options: AcpPermissionOption[];
 }
 
+interface AcpPendingElicitationRequest {
+  key: string;
+  rpcId: AcpJsonRpcId;
+  params?: AcpElicitationCreateParams;
+}
+
+type AcpElicitationResponse =
+  | { action: 'accept'; content?: Record<string, unknown> }
+  | { action: 'decline' }
+  | { action: 'cancel' };
+
 export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 'cwd'> {
   adapterName?: string;
   command?: string;
@@ -275,6 +286,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private readonly pendingRequests = new Map<string, AcpPendingRequest>();
   private readonly toolCalls = new Map<string, AcpObservedToolCall>();
   private readonly pendingPermissionRequests = new Map<string, AcpPendingPermissionRequest>();
+  private readonly pendingElicitationRequests = new Map<string, AcpPendingElicitationRequest>();
   private stdoutBuffer = '';
   private requestCounter = 0;
   private initialized = false;
@@ -581,6 +593,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     await this.cancelPendingPermissionRequests();
+    await this.cancelPendingElicitationRequests();
     this.rejectPendingRequests(new Error('ACP adapter terminated before the request completed.'));
     this.clearStallWatchdog();
     this.initialized = false;
@@ -726,13 +739,24 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   async sendRaw(response: string, permissionKey?: string): Promise<void> {
     const pending = this.resolvePendingPermissionRequest(permissionKey);
-    if (!pending) {
-      throw new Error('No pending ACP permission request is waiting for a response.');
+    if (pending) {
+      const outcome = this.selectPermissionOutcome(pending, response, permissionKey);
+      await this.sendResponse(pending.rpcId, { outcome });
+      this.pendingPermissionRequests.delete(pending.key);
+      this.emit('status', 'busy');
+      return;
     }
 
-    const outcome = this.selectPermissionOutcome(pending, response, permissionKey);
-    await this.sendResponse(pending.rpcId, { outcome });
-    this.pendingPermissionRequests.delete(pending.key);
+    const pendingElicitation = this.resolvePendingElicitationRequest(permissionKey);
+    if (!pendingElicitation) {
+      throw new Error('No pending ACP permission or elicitation request is waiting for a response.');
+    }
+
+    await this.sendResponse(
+      pendingElicitation.rpcId,
+      this.buildElicitationResponse(pendingElicitation, response),
+    );
+    this.pendingElicitationRequests.delete(pendingElicitation.key);
     this.emit('status', 'busy');
   }
 
@@ -858,6 +882,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     await this.cancelPendingPermissionRequests();
+    await this.cancelPendingElicitationRequests();
 
     // Locally reject the in-flight session/prompt promise and purge it from
     // pendingRequests. Previously cancel was a fire-and-forget notification —
@@ -888,6 +913,23 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }),
     );
     this.pendingPermissionRequests.clear();
+  }
+
+  private async cancelPendingElicitationRequests(): Promise<void> {
+    const pending = [...this.pendingElicitationRequests.values()];
+    await Promise.all(
+      pending.map(async (request) => {
+        try {
+          await this.sendResponse(request.rpcId, { action: 'cancel' });
+        } catch (error) {
+          logger.debug('Failed to cancel ACP elicitation request during cleanup', {
+            key: request.key,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
+    );
+    this.pendingElicitationRequests.clear();
   }
 
   private rejectPendingRequests(error: Error): void {
@@ -1061,7 +1103,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
     const messageType = update.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'user';
     const turn = this.currentPrompt;
-    const messageId = update.messageId ?? turn?.responseId ?? generateId();
+    const rawMessageId = update.messageId;
+    const messageId = update.sessionUpdate === 'agent_message_chunk'
+      ? (turn?.responseId ?? rawMessageId ?? generateId())
+      : (rawMessageId ?? turn?.responseId ?? generateId());
     let accumulatedContent = content;
 
     if (turn) {
@@ -1086,11 +1131,28 @@ export class AcpCliAdapter extends BaseCliAdapter {
         transport: 'acp',
         streaming: true,
         accumulatedContent,
+        ...(rawMessageId && rawMessageId !== messageId ? { acpMessageId: rawMessageId } : {}),
       },
     } satisfies OutputMessage);
   }
 
   private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
+    const canonicalContent = turn.chunks.join('');
+    if (canonicalContent.trim()) {
+      this.emit('output', {
+        id: turn.responseId,
+        timestamp: Date.now(),
+        type: 'assistant',
+        content: canonicalContent,
+        metadata: {
+          transport: 'acp',
+          streaming: false,
+          accumulatedContent: canonicalContent,
+        },
+      } satisfies OutputMessage);
+      return;
+    }
+
     for (const messageId of turn.agentMessageIds) {
       const accumulatedContent = (turn.messageChunksById.get(messageId) ?? []).join('');
       if (!accumulatedContent.trim()) {
@@ -1267,22 +1329,31 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   private handleElicitationRequest(request: AcpJsonRpcRequest<AcpElicitationCreateParams>): void {
     const params = request.params;
+    const key = this.buildElicitationKey(request.id);
+    this.pendingElicitationRequests.set(key, {
+      key,
+      rpcId: request.id,
+      params,
+    });
     const prompt = [
+      params?.message,
       params?.title,
       params?.description,
       params?.url ? `Open in browser: ${params.url}` : undefined,
-      params?.schema ? `Schema: ${JSON.stringify(params.schema)}` : undefined,
+      params?.requestedSchema || params?.schema
+        ? `Schema: ${JSON.stringify(params.requestedSchema ?? params.schema)}`
+        : undefined,
     ].filter(Boolean).join('\n\n');
 
     this.emit('input_required', {
-      id: `acp_elicitation:${String(request.id)}`,
+      id: key,
       prompt: prompt || 'ACP elicitation request received.',
       timestamp: Date.now(),
       metadata: {
         type: 'acp_elicitation',
         transport: 'acp',
         mode: params?.mode,
-        schema: params?.schema,
+        schema: params?.requestedSchema ?? params?.schema,
         url: params?.url,
         elicitationId: params?.elicitationId,
       },
@@ -1464,6 +1535,106 @@ export class AcpCliAdapter extends BaseCliAdapter {
 
   private buildPermissionKey(id: AcpJsonRpcId | string): string {
     return `acp_permission:${String(id)}`;
+  }
+
+  private buildElicitationKey(id: AcpJsonRpcId | string): string {
+    return `acp_elicitation:${String(id)}`;
+  }
+
+  private resolvePendingElicitationRequest(permissionKey?: string): AcpPendingElicitationRequest | undefined {
+    if (permissionKey) {
+      if (this.pendingElicitationRequests.has(permissionKey)) {
+        return this.pendingElicitationRequests.get(permissionKey);
+      }
+
+      const derived = this.buildElicitationKey(permissionKey);
+      if (this.pendingElicitationRequests.has(derived)) {
+        return this.pendingElicitationRequests.get(derived);
+      }
+    }
+
+    if (this.pendingElicitationRequests.size === 1) {
+      return this.pendingElicitationRequests.values().next().value;
+    }
+
+    return undefined;
+  }
+
+  private buildElicitationResponse(
+    pending: AcpPendingElicitationRequest,
+    responseText: string,
+  ): AcpElicitationResponse {
+    const normalized = slug(responseText);
+    if (!normalized || normalized === 'cancel') {
+      return { action: 'cancel' };
+    }
+    if (normalized === 'decline' || normalized === 'deny' || normalized === 'reject' || normalized === 'no') {
+      return { action: 'decline' };
+    }
+
+    return {
+      action: 'accept',
+      content: this.buildElicitationContent(pending.params, responseText),
+    };
+  }
+
+  private buildElicitationContent(
+    params: AcpElicitationCreateParams | undefined,
+    responseText: string,
+  ): Record<string, unknown> {
+    const trimmed = responseText.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Fall through to schema-guided wrapping below.
+      }
+    }
+
+    const schema = params?.requestedSchema ?? params?.schema;
+    const properties = schema && typeof schema === 'object' && !Array.isArray(schema)
+      ? schema['properties']
+      : undefined;
+    if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+      const keys = Object.keys(properties);
+      if (keys.length === 1 && keys[0]) {
+        const propertySchema = (properties as Record<string, unknown>)[keys[0]];
+        return {
+          [keys[0]]: this.coerceElicitationValue(trimmed, propertySchema),
+        };
+      }
+    }
+
+    return { response: trimmed };
+  }
+
+  private coerceElicitationValue(value: string, schema: unknown): unknown {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+      return value;
+    }
+
+    const type = (schema as Record<string, unknown>)['type'];
+    if (type === 'boolean') {
+      const normalized = slug(value);
+      if (['true', 'yes', 'y', '1', 'approve', 'accept'].includes(normalized)) {
+        return true;
+      }
+      if (['false', 'no', 'n', '0', 'deny', 'decline', 'reject'].includes(normalized)) {
+        return false;
+      }
+    }
+    if (type === 'integer') {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isNaN(parsed) ? value : parsed;
+    }
+    if (type === 'number') {
+      const parsed = Number(value);
+      return Number.isNaN(parsed) ? value : parsed;
+    }
+    return value;
   }
 
   private toPromptBlocks(message: CliMessage): AcpContentBlock[] {

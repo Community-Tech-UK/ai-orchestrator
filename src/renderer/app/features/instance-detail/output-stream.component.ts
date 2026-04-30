@@ -38,6 +38,7 @@ import { InstanceStore } from '../../core/state/instance/instance.store';
 import { MessageFormatService } from './message-format.service';
 import { OutputScrollService } from './output-scroll.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage } from './output-stream-message-collapse';
 
@@ -47,6 +48,13 @@ type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 interface RenderedDisplayItem extends DisplayItem {
   renderedMessage?: RenderedMarkdown;
   renderedResponse?: RenderedMarkdown;
+}
+
+interface LinkedFileTarget {
+  rawPath: string;
+  resolvedPath: string;
+  displayPath: string;
+  canUseLocalFileActions: boolean;
 }
 
 @Component({
@@ -144,6 +152,7 @@ export class OutputStreamComponent {
   private messageFormat = inject(MessageFormatService);
   private scrollService = inject(OutputScrollService);
   private clipboard = inject(CLIPBOARD_SERVICE);
+  private fileIpc = inject(FileIpcService);
   private displayItemProcessor = new DisplayItemProcessor();
 
   /**
@@ -611,11 +620,14 @@ export class OutputStreamComponent {
   }
 
   /**
-   * Handle click on a file path - open the file in the system's default editor
+   * Handle click on a file path - open the file with the system default app.
    */
   private onFilePathClick(filePath: string): void {
-    console.log('Opening file:', filePath);
-    this.ipc.openPath(filePath);
+    const target = this.buildLinkedFileTarget(filePath);
+    if (!target.canUseLocalFileActions) {
+      return;
+    }
+    void this.fileIpc.openPath(target.resolvedPath);
   }
 
   /**
@@ -686,6 +698,14 @@ export class OutputStreamComponent {
     return this.messageFormat.getCompactionLabel(message);
   }
 
+  formatCompactionReason(reason: string): string {
+    return this.messageFormat.formatCompactionReason(reason);
+  }
+
+  formatCompactionFallbackMode(mode: string): string {
+    return this.messageFormat.formatCompactionFallbackMode(mode);
+  }
+
   /** Returns false if thinking is hidden AND response is empty. */
   hasThoughtGroupContent(item: DisplayItem, showThinking: boolean): boolean {
     return this.messageFormat.hasThoughtGroupContent(item, showThinking);
@@ -741,12 +761,64 @@ export class OutputStreamComponent {
 
   onContextMenu(event: MouseEvent, item: DisplayItem): void {
     event.preventDefault();
+    event.stopPropagation();
+    const linkedFileTarget = this.getLinkedFileTargetFromEvent(event);
+    if (linkedFileTarget) {
+      this.showContextMenu(event, this.buildFileContextMenuItems(linkedFileTarget));
+      return;
+    }
+
     const menuItems = this.buildContextMenuItems(item);
-    if (menuItems.length === 0) return;
+    this.showContextMenu(event, menuItems);
+  }
+
+  private showContextMenu(event: MouseEvent, items: ContextMenuItem[]): void {
+    if (items.length === 0) {
+      this.closeContextMenu();
+      return;
+    }
+
     this.contextMenuX.set(event.clientX);
     this.contextMenuY.set(event.clientY);
-    this.contextMenuItems.set(menuItems);
+    this.contextMenuItems.set(items);
     this.contextMenuVisible.set(true);
+  }
+
+  protected closeContextMenu(): void {
+    this.contextMenuVisible.set(false);
+    this.contextMenuItems.set([]);
+  }
+
+  private getLinkedFileTargetFromEvent(event: MouseEvent): LinkedFileTarget | null {
+    const target = event.target as HTMLElement | null;
+    const linkTarget = target?.closest('[data-file-path]') as HTMLElement | null;
+    const rawPath = linkTarget?.getAttribute('data-file-path')?.trim();
+    if (!rawPath) {
+      return null;
+    }
+    return this.buildLinkedFileTarget(rawPath);
+  }
+
+  private buildFileContextMenuItems(target: LinkedFileTarget): ContextMenuItem[] {
+    return [
+      {
+        id: 'copy-file-path',
+        label: 'Copy path',
+        action: () => void this.copyLinkedFilePath(target),
+      },
+      {
+        id: 'copy-file',
+        label: 'Copy file',
+        disabled: !target.canUseLocalFileActions,
+        action: () => void this.copyLinkedFile(target),
+      },
+      {
+        id: 'open-file-manager',
+        label: `Open in ${this.getSystemFileManagerLabel()}`,
+        disabled: !target.canUseLocalFileActions,
+        action: () => void this.openLinkedFileInFileManager(target),
+      },
+    ];
   }
 
   private buildContextMenuItems(item: DisplayItem): ContextMenuItem[] {
@@ -758,7 +830,7 @@ export class OutputStreamComponent {
         label: 'Copy message',
         action: () => {
           void this.copyMessageContent(content, forkableMessage?.id ?? item.id);
-          this.contextMenuVisible.set(false);
+          this.closeContextMenu();
         },
       });
     }
@@ -780,7 +852,7 @@ export class OutputStreamComponent {
     const instanceId = this.instanceId();
     const bufferIndex = item.bufferIndex;
     if (!instanceId || bufferIndex === undefined) return;
-    this.contextMenuVisible.set(false);
+    this.closeContextMenu();
 
     const result = await this.ipc.forkSession(instanceId, bufferIndex + 1, `Fork at message ${bufferIndex + 1}`);
 
@@ -790,6 +862,149 @@ export class OutputStreamComponent {
         this.instanceStore.setSelectedInstance(data.id);
       }
     }
+  }
+
+  private buildLinkedFileTarget(rawPath: string): LinkedFileTarget {
+    const path = this.fileUrlToPath(rawPath.trim());
+    const resolvedPath = this.resolvePathAgainstWorkingDirectory(path);
+    return {
+      rawPath: path,
+      resolvedPath,
+      displayPath: resolvedPath,
+      canUseLocalFileActions: this.canUseLocalFileActions(path),
+    };
+  }
+
+  private async copyLinkedFilePath(target: LinkedFileTarget): Promise<void> {
+    const result = await this.clipboard.copyText(target.displayPath, { label: 'path' });
+    if (!result.ok) {
+      console.error('Failed to copy linked file path:', result.reason, result.cause);
+    }
+  }
+
+  private async copyLinkedFile(target: LinkedFileTarget): Promise<void> {
+    if (!target.canUseLocalFileActions) {
+      return;
+    }
+
+    const response = await this.fileIpc.copyFileToClipboard(target.resolvedPath);
+    if (!response.success) {
+      console.error('Failed to copy linked file:', response.error?.message ?? 'Unknown error');
+    }
+  }
+
+  private async openLinkedFileInFileManager(target: LinkedFileTarget): Promise<void> {
+    if (!target.canUseLocalFileActions) {
+      return;
+    }
+
+    const response = await this.fileIpc.revealFile(target.resolvedPath);
+    if (!response.success) {
+      console.error('Failed to reveal linked file:', response.error?.message ?? 'Unknown error');
+    }
+  }
+
+  private canUseLocalFileActions(path: string): boolean {
+    const instance = this.instanceStore.getInstance(this.instanceId());
+    if (instance?.executionLocation?.type === 'remote') {
+      return false;
+    }
+
+    return this.isAbsoluteFilePath(path) || Boolean(instance?.workingDirectory?.trim());
+  }
+
+  private resolvePathAgainstWorkingDirectory(path: string): string {
+    if (!path || this.isAbsoluteFilePath(path)) {
+      return path;
+    }
+
+    const workingDirectory = this.instanceStore.getInstance(this.instanceId())?.workingDirectory?.trim();
+    if (!workingDirectory) {
+      return path;
+    }
+
+    return this.joinAndNormalizePath(workingDirectory, path);
+  }
+
+  private fileUrlToPath(path: string): string {
+    if (!path.startsWith('file://')) {
+      return path;
+    }
+
+    try {
+      const url = new URL(path);
+      if (url.protocol !== 'file:') {
+        return path;
+      }
+      return decodeURIComponent(url.pathname);
+    } catch {
+      return path;
+    }
+  }
+
+  private isAbsoluteFilePath(path: string): boolean {
+    return path.startsWith('/')
+      || path.startsWith('\\\\')
+      || path.startsWith('//')
+      || /^[A-Za-z]:[\\/]/.test(path);
+  }
+
+  private joinAndNormalizePath(base: string, relative: string): string {
+    const separator = this.pathSeparatorFor(base);
+    const joined = `${base.replace(/[\\/]+$/, '')}${separator}${relative}`;
+    return this.normalizePathLike(joined, separator);
+  }
+
+  private pathSeparatorFor(path: string): '/' | '\\' {
+    return /^[A-Za-z]:[\\/]/.test(path) || (path.includes('\\') && !path.includes('/'))
+      ? '\\'
+      : '/';
+  }
+
+  private normalizePathLike(path: string, separator: '/' | '\\'): string {
+    const driveMatch = /^([A-Za-z]:)[\\/](.*)$/.exec(path);
+    let prefix = '';
+    let rest = path;
+    const absolute = this.isAbsoluteFilePath(path);
+
+    if (driveMatch) {
+      prefix = `${driveMatch[1]}${separator}`;
+      rest = driveMatch[2];
+    } else if (path.startsWith('\\\\') || path.startsWith('//')) {
+      prefix = `${separator}${separator}`;
+      rest = path.replace(/^[\\/]+/, '');
+    } else if (path.startsWith('/')) {
+      prefix = separator;
+      rest = path.replace(/^[\\/]+/, '');
+    }
+
+    const segments: string[] = [];
+    for (const segment of rest.split(/[\\/]+/)) {
+      if (!segment || segment === '.') {
+        continue;
+      }
+      if (segment === '..') {
+        if (segments.length > 0 && segments[segments.length - 1] !== '..') {
+          segments.pop();
+        } else if (!absolute) {
+          segments.push(segment);
+        }
+        continue;
+      }
+      segments.push(segment);
+    }
+
+    return `${prefix}${segments.join(separator)}`;
+  }
+
+  private getSystemFileManagerLabel(): string {
+    if (navigator.userAgent.includes('Windows')) {
+      return 'Explorer';
+    }
+    if (navigator.userAgent.includes('Linux')) {
+      return 'Files';
+    }
+    return 'Finder';
   }
 
   private renderItemMarkdown(item: DisplayItem): void {

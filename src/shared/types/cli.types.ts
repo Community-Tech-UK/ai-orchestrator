@@ -546,11 +546,14 @@ export interface AcpSessionRequestPermissionResult {
 export interface AcpElicitationCreateParams {
   sessionId?: string;
   requestId?: AcpJsonRpcId;
+  toolCallId?: string;
   elicitationId?: string;
   mode?: 'form' | 'url';
+  message?: string;
   title?: string;
   description?: string;
   url?: string;
+  requestedSchema?: Record<string, unknown>;
   schema?: Record<string, unknown>;
 }
 

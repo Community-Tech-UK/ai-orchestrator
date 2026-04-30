@@ -12,6 +12,19 @@ export interface McpServerConfig {
   id: string;
   name: string;
   description?: string;
+  // Where this server configuration came from.
+  source?: 'orchestrator' | 'provider-config' | 'orchestrator-bootstrap';
+  sourceProvider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'orchestrator';
+  sourceLabel?: string;
+  sourcePath?: string;
+  scope?: string;
+  readOnly?: boolean;
+  toggleable?: boolean;
+  enabled?: boolean;
+  sourceEntries?: McpServerSourceEntry[];
+  sourceCount?: number;
+  enabledSourceCount?: number;
+  sourceSummary?: string;
   // Server transport type
   transport: 'stdio' | 'http' | 'sse';
   // For stdio transport
@@ -31,6 +44,17 @@ export interface McpServerConfig {
   status?: 'disconnected' | 'connecting' | 'connected' | 'error';
   error?: string;
   lifecycle?: McpServerLifecycleReport;
+}
+
+export interface McpServerSourceEntry {
+  id: string;
+  name: string;
+  sourceProvider?: McpServerConfig['sourceProvider'];
+  sourceLabel?: string;
+  sourcePath?: string;
+  scope?: string;
+  enabled: boolean;
+  readOnly?: boolean;
 }
 
 /**

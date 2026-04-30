@@ -134,6 +134,7 @@
           <div
             class="server-card"
             [class.selected]="selectedServerId() === srv.id"
+            [class.disabled]="srv.enabled === false"
             (click)="selectServer(srv.id)"
             role="button"
             tabindex="0"
@@ -141,30 +142,53 @@
           >
             <div class="server-card-top">
               <span class="server-name">{{ srv.name }}</span>
-              <span class="status-badge" [class]="'status-' + srv.status">{{ srv.status }}</span>
+              <div class="server-card-controls">
+                @if (srv.toggleable) {
+                  <label class="server-toggle" title="Enable or disable this MCP server">
+                    <input
+                      type="checkbox"
+                      [checked]="srv.enabled !== false"
+                      [disabled]="working()"
+                      (click)="$event.stopPropagation()"
+                      (change)="toggleServerEnabled($event, srv)"
+                    />
+                    <span class="toggle-track" aria-hidden="true"></span>
+                  </label>
+                }
+                <span class="status-badge" [class]="'status-' + serverStatusClass(srv)">
+                  {{ serverStatusLabel(srv) }}
+                </span>
+              </div>
             </div>
-            <div class="server-meta">{{ srv.transport }}</div>
+            <div class="server-meta">{{ serverMeta(srv) }}</div>
+            @if (srv.scope) {
+              <div class="server-scope">{{ srv.scope }}</div>
+            }
             @if (srv.error) {
               <div class="server-error">{{ srv.error }}</div>
             }
-            <div class="server-actions">
-              @if (srv.status !== 'connected') {
-                <button class="btn small" type="button" [disabled]="working()" (click)="connectServer($event, srv.id)">
-                  Connect
+            @if (!srv.readOnly) {
+              <div class="server-actions">
+                @if (srv.status !== 'connected') {
+                  <button class="btn small" type="button" [disabled]="working()" (click)="connectServer($event, srv.id)">
+                    Connect
+                  </button>
+                }
+                @if (srv.status === 'connected') {
+                  <button class="btn small" type="button" [disabled]="working()" (click)="disconnectServer($event, srv.id)">
+                    Disconnect
+                  </button>
+                  <button class="btn small" type="button" [disabled]="working()" (click)="restartServer($event, srv.id)">
+                    Restart
+                  </button>
+                }
+                <button class="btn small danger" type="button" [disabled]="working()" (click)="removeServer($event, srv.id)">
+                  Remove
                 </button>
-              }
-              @if (srv.status === 'connected') {
-                <button class="btn small" type="button" [disabled]="working()" (click)="disconnectServer($event, srv.id)">
-                  Disconnect
-                </button>
-                <button class="btn small" type="button" [disabled]="working()" (click)="restartServer($event, srv.id)">
-                  Restart
-                </button>
-              }
-              <button class="btn small danger" type="button" [disabled]="working()" (click)="removeServer($event, srv.id)">
-                Remove
-              </button>
-            </div>
+              </div>
+            } @else {
+              <div class="read-only-note">Managed by provider config</div>
+            }
           </div>
         }
       </div>
@@ -195,7 +219,9 @@
         @if (activeTab() === 'tools') {
           <div class="tab-content">
             @if (selectedTools().length === 0) {
-              <div class="empty-hint">No tools from this server.</div>
+              <div class="empty-hint">
+                {{ selectedServer()?.readOnly ? 'Tools are loaded by the owning CLI when it starts.' : 'No tools from this server.' }}
+              </div>
             }
             @for (tool of selectedTools(); track tool.name) {
               <div class="item-card">
@@ -243,7 +269,9 @@
         @if (activeTab() === 'resources') {
           <div class="tab-content">
             @if (selectedResources().length === 0) {
-              <div class="empty-hint">No resources from this server.</div>
+              <div class="empty-hint">
+                {{ selectedServer()?.readOnly ? 'Resources are loaded by the owning CLI when it starts.' : 'No resources from this server.' }}
+              </div>
             }
             @for (res of selectedResources(); track res.uri) {
               <div class="item-card">
@@ -272,7 +300,9 @@
         @if (activeTab() === 'prompts') {
           <div class="tab-content">
             @if (selectedPrompts().length === 0) {
-              <div class="empty-hint">No prompts from this server.</div>
+              <div class="empty-hint">
+                {{ selectedServer()?.readOnly ? 'Prompts are loaded by the owning CLI when it starts.' : 'No prompts from this server.' }}
+              </div>
             }
             @for (prompt of selectedPrompts(); track prompt.name) {
               <div class="item-card">

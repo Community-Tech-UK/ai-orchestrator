@@ -11,6 +11,10 @@ import {
   createPromptHistoryElectronStore,
   type PromptHistoryStoreBackend,
 } from './prompt-history-store';
+import {
+  getProjectMemoryLookupKeys,
+  normalizeProjectMemoryKey,
+} from '../memory/project-memory-key';
 
 const logger = getLogger('PromptHistoryService');
 
@@ -58,6 +62,10 @@ function dedupeByText(entries: PromptHistoryEntry[]): PromptHistoryEntry[] {
   return deduped;
 }
 
+function sortByCreatedAtDesc(entries: PromptHistoryEntry[]): PromptHistoryEntry[] {
+  return entries.sort((left, right) => right.createdAt - left.createdAt);
+}
+
 export class PromptHistoryService {
   private readonly store: PromptHistoryStoreBackend;
   private readonly listeners = new Set<(delta: PromptHistoryDelta) => void>();
@@ -80,10 +88,41 @@ export class PromptHistoryService {
   }
 
   getForProject(projectPath: string): PromptHistoryProjectAlias {
-    const alias = this.store.get('byProject')[projectPath];
-    return alias
-      ? cloneAlias(alias)
-      : { projectPath, entries: [], updatedAt: 0 };
+    const byProject = this.store.get('byProject');
+    const lookupKeys = getProjectMemoryLookupKeys(projectPath);
+    const entries: PromptHistoryEntry[] = [];
+    let updatedAt = 0;
+
+    for (const key of lookupKeys) {
+      const alias = byProject[key];
+      if (!alias) {
+        continue;
+      }
+      entries.push(...alias.entries.map(cloneEntry));
+      updatedAt = Math.max(updatedAt, alias.updatedAt);
+    }
+
+    if (entries.length === 0) {
+      const normalized = normalizeProjectMemoryKey(projectPath);
+      for (const record of Object.values(this.store.get('byInstance'))) {
+        for (const entry of record.entries) {
+          if (
+            entry.projectPath
+            && normalizeProjectMemoryKey(entry.projectPath) === normalized
+          ) {
+            entries.push(cloneEntry(entry));
+            updatedAt = Math.max(updatedAt, record.updatedAt);
+          }
+        }
+      }
+    }
+
+    const normalizedProjectPath = normalizeProjectMemoryKey(projectPath) || projectPath;
+    return {
+      projectPath: normalizedProjectPath,
+      entries: dedupeByText(sortByCreatedAtDesc(entries)).slice(0, PROMPT_HISTORY_MAX),
+      updatedAt,
+    };
   }
 
   getSnapshot(): PromptHistorySnapshot {
@@ -191,7 +230,7 @@ export class PromptHistoryService {
 
     for (const record of Object.values(byInstance)) {
       for (const entry of record.entries) {
-        const projectPath = entry.projectPath?.trim();
+        const projectPath = normalizeProjectMemoryKey(entry.projectPath);
         if (!projectPath) {
           continue;
         }

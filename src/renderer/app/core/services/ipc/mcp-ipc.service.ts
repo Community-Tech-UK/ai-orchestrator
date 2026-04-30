@@ -32,9 +32,17 @@ export class McpIpcService {
   /**
    * Get all MCP servers
    */
-  async mcpGetServers(): Promise<IpcResponse> {
+  async mcpGetServers(options?: { includeExternal?: boolean }): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.mcpGetServers();
+    return this.api.mcpGetServers(options);
+  }
+
+  /**
+   * Enable or disable a provider-configured MCP server
+   */
+  async mcpSetServerEnabled(serverId: string, enabled: boolean): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpSetServerEnabled({ serverId, enabled });
   }
 
   /**

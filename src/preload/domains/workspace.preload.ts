@@ -265,8 +265,15 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     /**
      * Get all MCP servers
      */
-    mcpGetServers: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.MCP_GET_SERVERS);
+    mcpGetServers: (payload?: { includeExternal?: boolean }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_GET_SERVERS, payload);
+    },
+
+    /**
+     * Enable or disable a provider-configured MCP server
+     */
+    mcpSetServerEnabled: (payload: { serverId: string; enabled: boolean }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_SET_SERVER_ENABLED, payload);
     },
 
     /**

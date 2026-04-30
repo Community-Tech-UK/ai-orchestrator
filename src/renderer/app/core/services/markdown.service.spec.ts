@@ -100,6 +100,23 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(service.renderSync('`./src/foo.ts`')).toContain('data-file-path="./src/foo.ts"');
   });
 
+  it('uses the file path without line and column suffixes for file actions', () => {
+    const html = service.renderSync('`src/app.ts:42:7`');
+
+    expect(html).toContain('data-file-path="src/app.ts"');
+    expect(html).toContain('data-file-display-path="src/app.ts:42:7"');
+    expect(html).toContain('data-file-line="42"');
+    expect(html).toContain('data-file-column="7"');
+  });
+
+  it('marks markdown links that point to files as file paths', () => {
+    const html = service.renderSync('[myplan.md](myplan.md)');
+
+    expect(html).toContain('class="file-path"');
+    expect(html).toContain('data-file-path="myplan.md"');
+    expect(html).toContain('href="myplan.md"');
+  });
+
   it('does not mark plain codespan text as a file path', () => {
     expect(service.renderSync('`hello`')).not.toContain('data-file-path');
   });

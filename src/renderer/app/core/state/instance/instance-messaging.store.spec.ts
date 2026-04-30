@@ -216,6 +216,58 @@ describe('InstanceMessagingStore', () => {
     ]);
   });
 
+  it('promotes a passive queued message to steer and interrupts once', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+
+    await currentStore.sendInput('inst-1', 'first passive');
+    await currentStore.sendInput('inst-1', 'second passive');
+    await currentStore.steerQueuedMessage('inst-1', 1);
+
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(listStoreMock.interruptInstance).toHaveBeenCalledTimes(1);
+    expect(listStoreMock.interruptInstance).toHaveBeenCalledWith('inst-1');
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'second passive', files: undefined, kind: 'steer' },
+      { message: 'first passive', files: undefined },
+    ]);
+  });
+
+  it('preserves queued metadata when promoting a queued message to steer', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'busy' }));
+    currentStateService.messageQueue.set(
+      new Map([
+        [
+          'inst-1',
+          [
+            {
+              message: 'Seeded prompt',
+              retryCount: 2,
+              seededAlready: true,
+              hadAttachmentsDropped: true,
+            },
+          ],
+        ],
+      ])
+    );
+
+    await currentStore.steerQueuedMessage('inst-1', 0);
+
+    expect(listStoreMock.interruptInstance).toHaveBeenCalledTimes(1);
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      {
+        message: 'Seeded prompt',
+        retryCount: 2,
+        seededAlready: true,
+        hadAttachmentsDropped: true,
+        kind: 'steer',
+      },
+    ]);
+  });
+
   it('does not send a second interrupt when steering right after Escape', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

@@ -11,6 +11,7 @@ import { getLogger } from '../../logging/logger';
 import type { ConversationEndStatus } from '../../../shared/types/history.types';
 import type { Instance, InstanceStatus } from '../../../shared/types/instance.types';
 import { emitPluginHook } from '../../plugins/hook-emitter';
+import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 
 const logger = getLogger('InstanceTermination');
 
@@ -98,7 +99,7 @@ export class InstanceTerminationCoordinator {
       }
 
       this.deps.importTranscript(transcript, {
-        wing: instance.workingDirectory || 'default',
+        wing: normalizeProjectMemoryKey(instance.workingDirectory) || instance.workingDirectory || 'default',
         sourceFile: `session://${instanceId}/${source}`,
       });
 

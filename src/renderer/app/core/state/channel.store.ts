@@ -146,15 +146,19 @@ export class ChannelStore implements OnDestroy {
 
   // Actions
   async connectDiscord(token: string): Promise<void> {
+    const trimmedToken = token.trim();
+    const previous = this._discord();
     this._loading.set(true);
     this._discord.update(prev => ({ ...prev, status: 'connecting', error: undefined }));
     try {
-      const res = await this.ipcService.connect('discord', token);
+      const res = await this.ipcService.connect('discord', trimmedToken);
       if (res.success === false) {
-        this._discord.update(prev => ({ ...prev, status: 'error', error: res.error?.message ?? 'Connection failed' }));
+        const status = previous.status === 'connected' ? 'connected' : 'error';
+        this._discord.set({ ...previous, status, error: res.error?.message ?? 'Connection failed' });
       }
     } catch (err) {
-      this._discord.update(prev => ({ ...prev, status: 'error', error: String(err) }));
+      const status = previous.status === 'connected' ? 'connected' : 'error';
+      this._discord.set({ ...previous, status, error: String(err) });
     } finally {
       this._loading.set(false);
     }

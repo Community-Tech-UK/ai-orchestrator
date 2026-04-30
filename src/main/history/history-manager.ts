@@ -28,6 +28,7 @@ import type {
   HistorySearchSource,
 } from '../../shared/types/history.types';
 import { getTranscriptSnippetService } from './transcript-snippet-service';
+import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -477,7 +478,7 @@ export class HistoryManager {
 
     const projectScope = options?.projectScope ?? (options?.workingDirectory ? 'current' : 'all');
     if (projectScope === 'current' && options?.workingDirectory) {
-      entries = entries.filter(e => e.workingDirectory === options.workingDirectory);
+      entries = entries.filter(e => projectMemoryKeysEqual(e.workingDirectory, options.workingDirectory));
     } else if (projectScope === 'none') {
       entries = entries.filter(e => !e.workingDirectory);
     }

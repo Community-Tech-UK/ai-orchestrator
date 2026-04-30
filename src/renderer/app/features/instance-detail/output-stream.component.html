@@ -93,10 +93,10 @@
                 <span class="compaction-summary-time">{{ item.compactionSummary.at | date: 'HH:mm:ss' }}</span>
               </div>
               <div class="compaction-summary-body">
-                <span>{{ item.compactionSummary.reason }}</span>
+                <span>{{ formatCompactionReason(item.compactionSummary.reason) }}</span>
                 <span>{{ item.compactionSummary.beforeCount }} -> {{ item.compactionSummary.afterCount }} messages</span>
                 @if (item.compactionSummary.fallbackMode) {
-                  <span>{{ item.compactionSummary.fallbackMode }}</span>
+                  <span>{{ formatCompactionFallbackMode(item.compactionSummary.fallbackMode) }}</span>
                 }
               </div>
             </div>
@@ -253,5 +253,5 @@
       [x]="contextMenuX()"
       [y]="contextMenuY()"
       [visible]="contextMenuVisible()"
-      (closed)="contextMenuVisible.set(false)"
+      (closed)="closeContextMenu()"
     />

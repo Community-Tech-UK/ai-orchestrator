@@ -266,6 +266,8 @@ export class InstanceDetailComponent {
   private historyPreviewRestorePromise: Promise<string | null> | null = null;
   private historyPreviewRestorePromiseEntryId: string | null = null;
   private historyPreviewRestoringEntryId = signal<string | null>(null);
+  private historyPreviewRestoredEntryId: string | null = null;
+  private historyPreviewRestoredInstanceId: string | null = null;
   historyPreviewError = signal<string | null>(null);
 
   // Recovery detection: instance was restored but provider context is missing or unproven.
@@ -653,12 +655,16 @@ export class InstanceDetailComponent {
       return;
     }
 
-    this.draftService.clearDraft(preview.id);
-    this.draftService.clearPendingFiles(preview.id);
-    this.draftService.clearPendingFolders(preview.id);
+    for (const file of files) {
+      this.draftService.removePendingFile(preview.id, file);
+    }
+    for (const folder of folders) {
+      this.draftService.removePendingFolder(preview.id, folder);
+    }
     this.draftService.clearPendingFiles(instanceId);
     this.draftService.clearPendingFolders(instanceId);
     this.store.sendInput(instanceId, finalMessage, files);
+    this.selectRestoredHistoryPreview(preview.id, instanceId);
   }
 
   onSteerMessage(message: string): void {
@@ -728,6 +734,13 @@ export class InstanceDetailComponent {
         this.draftService.addPendingFiles(inst.id, removedMessage.files);
       }
     }
+  }
+
+  onSteerQueuedMessage(index: number): void {
+    const inst = this.instance();
+    if (!inst) return;
+
+    void this.store.steerQueuedMessage(inst.id, index);
   }
 
   onFilesDropped(files: File[]): void {
@@ -1087,6 +1100,17 @@ export class InstanceDetailComponent {
 
     const entryId = conversation.entry.id;
     if (
+      this.historyPreviewRestoredEntryId === entryId
+      && this.historyPreviewRestoredInstanceId
+    ) {
+      if (this.store.getInstance(this.historyPreviewRestoredInstanceId)) {
+        return Promise.resolve(this.historyPreviewRestoredInstanceId);
+      }
+      this.historyPreviewRestoredEntryId = null;
+      this.historyPreviewRestoredInstanceId = null;
+    }
+
+    if (
       this.historyPreviewRestorePromise
       && this.historyPreviewRestorePromiseEntryId === entryId
     ) {
@@ -1095,8 +1119,7 @@ export class InstanceDetailComponent {
 
     this.historyPreviewError.set(null);
     this.historyPreviewRestoringEntryId.set(entryId);
-    const previewId = this.getHistoryPreviewInstanceId(entryId);
-    const restorePromise = this.restoreHistoryPreview(conversation, previewId).finally(() => {
+    const restorePromise = this.restoreHistoryPreview(conversation).finally(() => {
       if (this.historyPreviewRestorePromiseEntryId !== entryId) {
         return;
       }
@@ -1112,8 +1135,7 @@ export class InstanceDetailComponent {
   }
 
   private async restoreHistoryPreview(
-    conversation: ConversationData,
-    previewId: string
+    conversation: ConversationData
   ): Promise<string | null> {
     const result = await this.historyStore.restoreEntry(
       conversation.entry.id,
@@ -1132,30 +1154,28 @@ export class InstanceDetailComponent {
       this.store.setInstanceRestoreMode(result.instanceId, result.restoreMode);
     }
 
-    this.migrateHistoryPreviewDraft(previewId, result.instanceId);
-    this.historyStore.clearSelection();
-    this.store.setSelectedInstance(result.instanceId);
+    this.historyPreviewRestoredEntryId = conversation.entry.id;
+    this.historyPreviewRestoredInstanceId = result.instanceId;
     return result.instanceId;
   }
 
-  private migrateHistoryPreviewDraft(fromId: string, toId: string): void {
-    const draft = this.draftService.getDraft(fromId);
-    if (draft) {
-      this.draftService.setDraft(toId, draft);
+  private selectRestoredHistoryPreview(previewId: string, instanceId: string): void {
+    const preview = this.historyPreview();
+    if (!preview || preview.id !== previewId) {
+      return;
     }
-    this.draftService.clearDraft(fromId);
+    if (
+      this.draftService.hasDraft(previewId)
+      || this.draftService.hasPendingFiles(previewId)
+      || this.draftService.hasPendingFolders(previewId)
+    ) {
+      return;
+    }
 
-    const files = this.draftService.getPendingFiles(fromId);
-    if (files.length > 0) {
-      this.draftService.setPendingFiles(toId, files);
-    }
-    this.draftService.clearPendingFiles(fromId);
-
-    const folders = this.draftService.getPendingFolders(fromId);
-    for (const folder of folders) {
-      this.draftService.addPendingFolder(toId, folder);
-    }
-    this.draftService.clearPendingFolders(fromId);
+    this.historyPreviewRestoredEntryId = null;
+    this.historyPreviewRestoredInstanceId = null;
+    this.historyStore.clearSelection();
+    this.store.setSelectedInstance(instanceId);
   }
 
   private getHistoryPreviewInstanceId(entryId: string): string {

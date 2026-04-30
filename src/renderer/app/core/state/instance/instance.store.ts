@@ -581,6 +581,11 @@ export class InstanceStore implements OnDestroy {
     return this.messagingStore.steerInput(instanceId, message, files);
   }
 
+  /** Promote an existing queued message into a steer request. */
+  async steerQueuedMessage(instanceId: string, index: number): Promise<void> {
+    return this.messagingStore.steerQueuedMessage(instanceId, index);
+  }
+
   /** Terminate an instance */
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
     return this.listStore.terminateInstance(instanceId, graceful);

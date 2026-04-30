@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronIpcService } from '../../services/ipc';
+import { HistoryStore } from '../history.store';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
 
@@ -11,11 +12,17 @@ describe('InstanceListStore', () => {
     restartInstance: ReturnType<typeof vi.fn>;
     restartFreshInstance: ReturnType<typeof vi.fn>;
   };
+  let historyStore: {
+    previewEntryId: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     ipc = {
       restartInstance: vi.fn().mockResolvedValue({ success: true }),
       restartFreshInstance: vi.fn().mockResolvedValue({ success: true }),
+    };
+    historyStore = {
+      previewEntryId: vi.fn(() => null),
     };
 
     TestBed.resetTestingModule();
@@ -24,6 +31,7 @@ describe('InstanceListStore', () => {
         InstanceListStore,
         InstanceStateService,
         { provide: ElectronIpcService, useValue: ipc },
+        { provide: HistoryStore, useValue: historyStore },
       ],
     });
 
@@ -103,6 +111,28 @@ describe('InstanceListStore', () => {
     });
 
     expect(instance.activityState).toBe('blocked');
+  });
+
+  it('does not auto-select passive instance events while a history preview is open', () => {
+    historyStore.previewEntryId.mockReturnValue('history-entry-1');
+
+    store.addInstance({
+      id: 'restored-instance',
+      displayName: 'Restored thread',
+      createdAt: 1,
+      historyThreadId: 'thread-restored',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 2,
+      sessionId: 'session-restored',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [],
+    });
+
+    expect(stateService.getInstance('restored-instance')).toBeDefined();
+    expect(stateService.state().selectedInstanceId).toBeNull();
   });
 
   it('preserves transcript and diff stats on resume restart', async () => {

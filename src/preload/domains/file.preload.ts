@@ -107,6 +107,13 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     },
 
     /**
+     * Copy a file or folder reference to the system clipboard
+     */
+    copyFileToClipboard: (path: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.FILE_COPY_TO_CLIPBOARD, { path });
+    },
+
+    /**
      * Read a text file
      */
     readTextFile: (path: string): Promise<IpcResponse> => {

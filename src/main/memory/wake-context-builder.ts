@@ -22,6 +22,7 @@ import type {
 } from '../../shared/types/wake-context.types';
 import { DEFAULT_WAKE_CONTEXT_CONFIG } from '../../shared/types/wake-context.types';
 import type { WakeHintRow } from '../persistence/rlm-database.types';
+import { normalizeProjectMemoryKey } from './project-memory-key';
 
 const logger = getLogger('WakeContextBuilder');
 
@@ -152,13 +153,14 @@ export class WakeContextBuilder extends EventEmitter {
   private generateL1(wing?: string): ContextLayer {
     // Fetch top hints by importance, optionally filtered by wing (room match or 'general')
     const limit = this.config.l1MaxHints;
-    const rows = wing
+    const rooms = getWakeRoomsForWing(wing);
+    const rows = rooms.length > 0
       ? this.db.prepare(`
           SELECT * FROM wake_hints
-          WHERE room = ? OR room = 'general'
+          WHERE room IN (${rooms.map(() => '?').join(', ')}) OR room = 'general'
           ORDER BY importance DESC, created_at DESC
           LIMIT ?
-        `).all(wing, limit) as WakeHintRow[]
+        `).all(...rooms, limit) as WakeHintRow[]
       : this.db.prepare(`
           SELECT * FROM wake_hints
           ORDER BY importance DESC, created_at DESC
@@ -237,7 +239,7 @@ export class WakeContextBuilder extends EventEmitter {
   generateWakeContext(wing?: string): WakeContext {
     // Check cache (keyed by wing to avoid cross-project contamination)
     const now = Date.now();
-    const cacheKey = wing ?? '__global__';
+    const cacheKey = getWakeCacheKey(wing);
     const cached = this.contextCache.get(cacheKey);
     if (cached && (now - cached.generatedAt) < this.config.regenerateIntervalMs) {
       return cached;
@@ -282,6 +284,37 @@ export function getWakeContextBuilder(): WakeContextBuilder {
 function estimateTokens(text: string): number {
   // Rough estimate: ~4 characters per token
   return Math.ceil(text.length / 4);
+}
+
+function looksProjectLikeWing(wing: string): boolean {
+  return (
+    wing.startsWith('.')
+    || wing.startsWith('/')
+    || wing.includes('\\')
+    || /^[A-Za-z]:[\\/]/.test(wing)
+  );
+}
+
+function getWakeRoomsForWing(wing?: string): string[] {
+  const raw = wing?.trim();
+  if (!raw) {
+    return [];
+  }
+
+  const values = looksProjectLikeWing(raw)
+    ? [normalizeProjectMemoryKey(raw), raw]
+    : [raw];
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getWakeCacheKey(wing?: string): string {
+  const raw = wing?.trim();
+  if (!raw) {
+    return '__global__';
+  }
+  return looksProjectLikeWing(raw)
+    ? normalizeProjectMemoryKey(raw) || raw
+    : raw;
 }
 
 function rowToHint(row: WakeHintRow): WakeHint {

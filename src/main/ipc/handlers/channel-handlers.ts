@@ -33,6 +33,10 @@ function getAccessPolicyStore(): ChannelAccessPolicyStore {
   return new ChannelAccessPolicyStore(getRLMDatabase().getRawDb());
 }
 
+function looksLikePairingCode(token: string | undefined): boolean {
+  return /^[0-9a-fA-F]{6}$/.test(token?.trim() ?? '');
+}
+
 export function registerChannelHandlers(): void {
   const manager = getChannelManager();
 
@@ -47,6 +51,16 @@ export function registerChannelHandlers(): void {
           return {
             success: false,
             error: { code: 'CHANNEL_ADAPTER_UNAVAILABLE', message: `No adapter registered for ${validated.platform}`, timestamp: Date.now() },
+          };
+        }
+        if (validated.platform === 'discord' && looksLikePairingCode(validated.token)) {
+          return {
+            success: false,
+            error: {
+              code: 'CHANNEL_PAIRING_CODE_USED_AS_TOKEN',
+              message: 'That looks like a pairing code. Enter it in the Pairing Code field.',
+              timestamp: Date.now(),
+            },
           };
         }
         const allowedSenders = restoreSavedAccessPolicy(

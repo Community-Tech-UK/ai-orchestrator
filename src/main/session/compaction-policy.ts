@@ -10,7 +10,7 @@ export interface CompactionInputs {
 
 export interface CompactionDecision {
   shouldCompact: boolean;
-  reason: 'hard_limit' | 'background_threshold' | 'cooldown' | 'none';
+  reason: 'background_threshold' | 'cooldown' | 'none';
   preserveRecentMessages: number;
 }
 
@@ -33,15 +33,8 @@ export class SessionCompactionPolicy {
   evaluate(inputs: CompactionInputs): CompactionDecision {
     const now = inputs.now ?? Date.now();
     const lastCompactedAt = inputs.lastCompactedAt ?? 0;
-    const compactableMessages = Math.max(0, inputs.messageCount - Math.min(inputs.maxConversationEntries, 50));
-
-    if (inputs.messageCount > inputs.maxConversationEntries) {
-      return {
-        shouldCompact: true,
-        reason: 'hard_limit',
-        preserveRecentMessages: Math.min(inputs.maxConversationEntries, 50),
-      };
-    }
+    const preserveRecentMessages = Math.min(inputs.maxConversationEntries, 50);
+    const compactableMessages = Math.max(0, inputs.messageCount - preserveRecentMessages);
 
     if (
       compactableMessages > 0
@@ -51,7 +44,7 @@ export class SessionCompactionPolicy {
       return {
         shouldCompact: true,
         reason: 'background_threshold',
-        preserveRecentMessages: 50,
+        preserveRecentMessages,
       };
     }
 
@@ -62,14 +55,14 @@ export class SessionCompactionPolicy {
       return {
         shouldCompact: false,
         reason: 'cooldown',
-        preserveRecentMessages: 50,
+        preserveRecentMessages,
       };
     }
 
     return {
       shouldCompact: false,
       reason: 'none',
-      preserveRecentMessages: Math.min(inputs.maxConversationEntries, 50),
+      preserveRecentMessages,
     };
   }
 }

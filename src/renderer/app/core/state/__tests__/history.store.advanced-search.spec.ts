@@ -82,4 +82,18 @@ describe('HistoryStore advanced search', () => {
     expect(store.expandedSnippets()['entry-1']).toEqual(snippets);
     expect(ipc.expandHistorySnippets).toHaveBeenCalledWith('entry-1', 'auth');
   });
+
+  it('provides current-project old-chat search defaults', async () => {
+    const store = TestBed.inject(HistoryStore);
+
+    await store.searchCurrentProjectOldChats('/repo', 'auth');
+
+    expect(ipc.searchHistoryAdvanced).toHaveBeenCalledWith({
+      snippetQuery: 'auth',
+      workingDirectory: '/repo',
+      projectScope: 'current',
+      source: 'history-transcript',
+      page: { pageNumber: 1, pageSize: 10 },
+    });
+  });
 });

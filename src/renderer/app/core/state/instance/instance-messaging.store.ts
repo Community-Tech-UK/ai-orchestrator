@@ -307,7 +307,60 @@ export class InstanceMessagingStore {
 
     this.enqueueSteerMessage(instanceId, { message, files, kind: 'steer' });
 
-    if (!isActiveTurnStatus(instance.status) || this.hasRecentInterruptRequest(instanceId)) {
+    await this.requestInterruptForSteer(instanceId, instance.status);
+  }
+
+  async steerQueuedMessage(instanceId: string, index: number): Promise<void> {
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) return;
+
+    if (instance.restoreMode) {
+      this.stateService.updateInstance(instanceId, { restoreMode: undefined });
+    }
+
+    if (isTerminalStatus(instance.status)) {
+      console.warn('InstanceMessagingStore: Cannot steer queued message for instance in terminal state', {
+        instanceId,
+        status: instance.status,
+      });
+      this.addErrorToOutput(
+        instanceId,
+        `Cannot steer queued message — instance is ${instance.status}. Try restarting the instance.`
+      );
+      return;
+    }
+
+    const queuedMessage = this.removeFromQueue(instanceId, index);
+    if (!queuedMessage) return;
+
+    const steerMessage: QueuedMessage = {
+      ...queuedMessage,
+      kind: 'steer',
+    };
+
+    if (isReadyForInputStatus(instance.status) && !this.pauseStore.isPaused()) {
+      await this.sendInputImmediate(
+        instanceId,
+        steerMessage.message,
+        steerMessage.files,
+        steerMessage.retryCount ?? 0,
+        {
+          skipUserBubble: steerMessage.seededAlready === true,
+          queuedMetadata: this.pickQueuedMetadata(steerMessage),
+        }
+      );
+      return;
+    }
+
+    this.enqueueSteerMessage(instanceId, steerMessage);
+    await this.requestInterruptForSteer(instanceId, instance.status);
+  }
+
+  private async requestInterruptForSteer(
+    instanceId: string,
+    status: InstanceStatus | undefined
+  ): Promise<void> {
+    if (!isActiveTurnStatus(status) || this.hasRecentInterruptRequest(instanceId)) {
       return;
     }
 

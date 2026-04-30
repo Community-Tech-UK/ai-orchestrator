@@ -53,6 +53,15 @@ export const McpServerPayloadSchema = z.object({
   serverId: z.string().min(1).max(200),
 });
 
+export const McpGetServersPayloadSchema = z.object({
+  includeExternal: z.boolean().optional(),
+}).optional();
+
+export const McpSetServerEnabledPayloadSchema = z.object({
+  serverId: z.string().min(1).max(200),
+  enabled: z.boolean(),
+});
+
 export const McpAddServerPayloadSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().min(1).max(200),
