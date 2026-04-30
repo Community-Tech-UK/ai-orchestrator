@@ -1102,6 +1102,27 @@ describe('AcpCliAdapter', () => {
     expect(releaseCalls).toEqual(['released']);
   });
 
+  it('refuses to spawn when the provider concurrency slot cannot be acquired', async () => {
+    const proc = createInitializedAgentHarness();
+    const acquireError = new Error('Timed out waiting 30ms for copilot slot');
+    const fakeLimiter = {
+      acquire: vi.fn(async () => {
+        throw acquireError;
+      }),
+    };
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      concurrencyLimiter: fakeLimiter,
+      concurrencyKey: 'copilot',
+      concurrencyAcquireTimeoutMs: 30,
+    });
+
+    await expect(adapter.spawn()).rejects.toThrow(/copilot slot/);
+    expect(proc.receivedMessages).toHaveLength(0);
+  });
+
   it('releases the concurrency slot on terminate (and is idempotent)', async () => {
     const proc = createInitializedAgentHarness();
 

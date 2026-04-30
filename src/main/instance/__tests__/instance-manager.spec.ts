@@ -804,14 +804,14 @@ describe('InstanceManager', () => {
       expect(instance.displayName).toBe('My Instance');
     });
 
-    it('refuses new instances while the resource governor blocks creation', async () => {
-      mockResourceGovernorGetCreationBlockReason.mockReturnValue('memory-critical');
+    it('refuses new instances while the resource governor reports an explicit creation limit', async () => {
+      mockResourceGovernorGetCreationBlockReason.mockReturnValue('instance-limit');
       mockAdapterSpawn.mockClear();
 
       await expect(manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         displayName: 'Blocked Instance',
-      })).rejects.toThrow(/resource governor \(memory-critical\)/);
+      })).rejects.toThrow(/resource governor \(instance-limit\)/);
 
       expect(mockAdapterSpawn).not.toHaveBeenCalled();
     });

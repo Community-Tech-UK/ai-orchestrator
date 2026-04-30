@@ -88,6 +88,8 @@ interface RailChangeSummary {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InstanceListComponent implements OnDestroy {
+  private static readonly MIN_VISIBLE_HISTORY_THREADS = 5;
+
   private host = inject(ElementRef<HTMLElement>);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
@@ -141,7 +143,7 @@ export class InstanceListComponent implements OnDestroy {
   projectGroups = computed(() => {
     this.newSessionDraft.revision();
     const instances = this.store.instances();
-    const historyEntries = this.historyStore.entries().filter((entry) => !entry.archivedAt);
+    const historyEntries = this.historyStore.entries();
     const recentDirectories = this.recentDirectories();
     const filter = this.filterText().trim().toLowerCase();
     const status = this.statusFilter();
@@ -380,7 +382,7 @@ export class InstanceListComponent implements OnDestroy {
       const currentRootIds = new Set(this.store.rootInstances().map((instance) => instance.id));
       const removedRoot = previousRootIds.size > 0 &&
         Array.from(previousRootIds).some((id) => !currentRootIds.has(id));
-      const historyEntries = this.historyStore.entries().filter((entry) => !entry.archivedAt);
+      const historyEntries = this.historyStore.entries();
       const knownRecentDirectories = new Set(
         untracked(() => this.recentDirectories()).map((entry) => this.getProjectKey(entry.path))
       );
@@ -422,7 +424,7 @@ export class InstanceListComponent implements OnDestroy {
     });
 
     effect(() => {
-      const historyEntries = this.historyStore.entries().filter((entry) => !entry.archivedAt);
+      const historyEntries = this.historyStore.entries();
       if (historyEntries.length === 0) {
         return;
       }
@@ -1240,8 +1242,19 @@ export class InstanceListComponent implements OnDestroy {
         dedupedEntries.push(entry);
       }
 
+      const activeEntries = dedupedEntries.filter((entry) => !entry.archivedAt);
+      const archivedFallbackIds = new Set(
+        dedupedEntries
+          .filter((entry) => !!entry.archivedAt)
+          .slice(0, Math.max(0, InstanceListComponent.MIN_VISIBLE_HISTORY_THREADS - activeEntries.length))
+          .map((entry) => entry.id)
+      );
+      const visibleEntries = dedupedEntries.filter(
+        (entry) => !entry.archivedAt || archivedFallbackIds.has(entry.id)
+      );
+
       projectEntries.length = 0;
-      projectEntries.push(...dedupedEntries);
+      projectEntries.push(...visibleEntries);
     }
 
     return groups;

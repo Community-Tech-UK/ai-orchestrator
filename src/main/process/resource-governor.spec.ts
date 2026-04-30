@@ -44,18 +44,18 @@ describe('ResourceGovernor', () => {
 
   it('should initialize with default config', () => {
     expect(governor.getConfig().maxInstanceMemoryMB).toBe(512);
-    expect(governor.getConfig().creationPausedAtPressure).toBe('warning');
+    expect(governor.getConfig().creationPausedAtPressure).toBe('critical');
   });
 
   it('should report creation allowed at normal pressure', () => {
     expect(governor.isCreationAllowed()).toBe(true);
   });
 
-  it('should block creation at warning pressure', () => {
+  it('should allow creation at warning pressure', () => {
     mockDeps.getMemoryMonitor().getPressureLevel.mockReturnValue('warning');
     governor = new ResourceGovernor(mockDeps as any);
-    expect(governor.isCreationAllowed()).toBe(false);
-    expect(governor.getCreationBlockReason()).toBe('memory-warning');
+    expect(governor.isCreationAllowed()).toBe(true);
+    expect(governor.getCreationBlockReason()).toBeNull();
   });
 
   it('should configure via configure()', () => {
@@ -67,11 +67,11 @@ describe('ResourceGovernor', () => {
   // Additional coverage
   // ---------------------------------------------------------------------------
 
-  it('should block creation at critical pressure', () => {
+  it('should allow creation at critical pressure', () => {
     mockDeps.getMemoryMonitor().getPressureLevel.mockReturnValue('critical');
     governor = new ResourceGovernor(mockDeps as any);
-    expect(governor.isCreationAllowed()).toBe(false);
-    expect(governor.getCreationBlockReason()).toBe('memory-critical');
+    expect(governor.isCreationAllowed()).toBe(true);
+    expect(governor.getCreationBlockReason()).toBeNull();
   });
 
   it('should block creation when instance count reaches maxTotalInstances', () => {
@@ -81,7 +81,14 @@ describe('ResourceGovernor', () => {
     expect(governor.getCreationBlockReason()).toBe('instance-limit');
   });
 
-  it('should emit creation:paused on warning event', () => {
+  it('should treat maxTotalInstances=0 as unlimited', () => {
+    mockInstanceManager.getInstanceCount.mockReturnValue(50);
+    governor = new ResourceGovernor(mockDeps as any, { maxTotalInstances: 0 });
+    expect(governor.isCreationAllowed()).toBe(true);
+    expect(governor.getCreationBlockReason()).toBeNull();
+  });
+
+  it('should request GC but not pause creation on warning event', () => {
     // Use a fresh monitor that captures registered handlers
     const capturedHandlers: Record<string, ((...args: unknown[]) => void)[]> = {};
     const capturingMonitor = {
@@ -107,8 +114,9 @@ describe('ResourceGovernor', () => {
     expect(warningHandlers?.length).toBeGreaterThan(0);
     warningHandlers[0]({ heapUsedMB: 1100, heapTotalMB: 2048, externalMB: 0, rssMB: 0, percentUsed: 54 });
 
-    expect(emitted.length).toBe(1);
-    expect((emitted[0] as any).reason).toBe('memory-warning');
+    expect(capturingMonitor.requestGC).toHaveBeenCalled();
+    expect(emitted).toHaveLength(0);
+    expect(g.isCreationAllowed()).toBe(true);
   });
 
   it('should emit instances:terminated on critical event when idle instances exist', () => {
@@ -157,7 +165,7 @@ describe('ResourceGovernor', () => {
     expect((terminatedEvents[0] as any).count).toBe(2);
   });
 
-  it('should resume creation when normal event fires after warning', () => {
+  it('should not emit creation:resumed after advisory warning pressure', () => {
     const capturedHandlers: Record<string, ((...args: unknown[]) => void)[]> = {};
     const capturingMonitor = {
       on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
@@ -175,16 +183,14 @@ describe('ResourceGovernor', () => {
     } as any);
     g.start();
 
-    // Trigger warning to pause
     capturedHandlers['warning'][0]({ heapUsedMB: 1100, heapTotalMB: 2048, externalMB: 0, rssMB: 0, percentUsed: 54 });
-    expect(g.isCreationAllowed()).toBe(false);
+    expect(g.isCreationAllowed()).toBe(true);
 
-    // Trigger normal to resume
     const resumedEvents: unknown[] = [];
     g.on('creation:resumed', () => resumedEvents.push(true));
     capturedHandlers['normal'][0]();
     expect(g.isCreationAllowed()).toBe(true);
-    expect(resumedEvents.length).toBe(1);
+    expect(resumedEvents.length).toBe(0);
   });
 
   it('getStats() returns current pressure level and paused state', () => {

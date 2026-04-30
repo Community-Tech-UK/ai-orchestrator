@@ -3,9 +3,8 @@
  * actions to keep the process within safe memory bounds.
  *
  * Actions:
- *  - warning  → optionally pause new instance creation, request GC
- *  - critical → pause creation + terminate idle instances
- *  - normal   → resume creation
+ *  - warning  → request GC
+ *  - critical → terminate idle instances
  */
 
 import { EventEmitter } from 'events';
@@ -17,7 +16,7 @@ import { registerCleanup } from '../util/cleanup-registry';
 export interface ResourceGovernorConfig {
   /** Per-instance soft memory cap in MB (default: 512) */
   maxInstanceMemoryMB: number;
-  /** Pause new instance creation when pressure reaches this level (default: 'critical') */
+  /** Legacy setting retained for config compatibility. Memory pressure no longer blocks instance creation. */
   creationPausedAtPressure: MemoryPressureLevel;
   /** Automatically terminate idle instances at critical pressure (default: true) */
   terminateIdleAtCritical: boolean;
@@ -144,7 +143,8 @@ export class ResourceGovernor extends EventEmitter {
 
   /**
    * Returns true when it is safe to create a new instance.
-   * Checks memory pressure and the hard instance count cap.
+   * Memory pressure is intentionally advisory; the only hard creation gate is
+   * the explicit instance count cap.
    */
   isCreationAllowed(): boolean {
     return this.getCreationBlockReason() === null;
@@ -152,21 +152,18 @@ export class ResourceGovernor extends EventEmitter {
 
   /**
    * Returns a stable machine-readable reason when instance creation is blocked.
+   * Memory pressure is not a creation block reason; high-memory machines should
+   * be allowed to keep working while the governor performs recovery actions.
    */
   getCreationBlockReason(): string | null {
-    const level = this.deps.getMemoryMonitor().getPressureLevel();
-    if (this.creationPaused) {
-      if (level === 'critical') return 'memory-critical';
-      if (level === 'warning') return 'memory-warning';
-      return 'creation-paused';
-    }
-
-    if (level === 'critical') return 'memory-critical';
-    if (level === 'warning' && this.config.creationPausedAtPressure === 'warning') return 'memory-warning';
-
     try {
       const instanceManager = this.deps.getInstanceManager();
-      if (instanceManager.getInstanceCount() >= this.config.maxTotalInstances) return 'instance-limit';
+      if (
+        this.config.maxTotalInstances > 0
+        && instanceManager.getInstanceCount() >= this.config.maxTotalInstances
+      ) {
+        return 'instance-limit';
+      }
     } catch {
       // InstanceManager may not be available in all test contexts — fail open
     }
@@ -215,27 +212,15 @@ export class ResourceGovernor extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private handleWarning(stats: MemoryStats): void {
-    const shouldPauseCreation = this.config.creationPausedAtPressure === 'warning';
-    this.logger.warn(
-      shouldPauseCreation
-        ? 'Memory warning — pausing instance creation'
-        : 'Memory warning — requesting garbage collection',
-      { heapUsedMB: stats.heapUsedMB }
-    );
+    this.logger.warn('Memory warning — requesting garbage collection', { heapUsedMB: stats.heapUsedMB });
 
     if (this.config.gcOnWarning) {
       this.deps.getMemoryMonitor().requestGC();
-    }
-
-    if (shouldPauseCreation) {
-      this.creationPaused = true;
-      this.emit('creation:paused', { reason: 'memory-warning', stats });
     }
   }
 
   private handleCritical(stats: MemoryStats): void {
     this.logger.error('Memory critical — terminating idle instances', undefined, { heapUsedMB: stats.heapUsedMB });
-    this.creationPaused = true;
 
     if (this.config.terminateIdleAtCritical) {
       try {
@@ -257,7 +242,7 @@ export class ResourceGovernor extends EventEmitter {
       }
     }
 
-    this.emit('creation:paused', { reason: 'memory-critical', stats });
+    this.emit('memory:critical-recovery', { stats });
   }
 
   private handleNormal(): void {

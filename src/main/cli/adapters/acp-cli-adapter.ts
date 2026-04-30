@@ -408,11 +408,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
           timeoutMs: this.acpConfig.concurrencyAcquireTimeoutMs,
         });
       } catch (error) {
-        logger.warn('ACP concurrency acquire failed; spawning without gate', {
+        logger.warn('ACP concurrency acquire failed; refusing ungated spawn', {
           adapter: this.getName(),
           key,
           error: error instanceof Error ? error.message : String(error),
         });
+        throw error;
       }
     }
 

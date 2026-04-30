@@ -3,6 +3,8 @@
  */
 
 import { EventEmitter } from 'events';
+import * as os from 'node:os';
+import * as v8 from 'node:v8';
 
 export interface MemoryStats {
   heapUsedMB: number;
@@ -20,11 +22,44 @@ export interface MemoryMonitorConfig {
   checkIntervalMs: number;
 }
 
+const BYTES_PER_MB = 1024 * 1024;
+const MIN_WARNING_THRESHOLD_MB = 1024;
+const MIN_CRITICAL_THRESHOLD_MB = 1536;
+const SYSTEM_MEMORY_BUDGET_RATIO = 0.25;
+const WARNING_BUDGET_RATIO = 0.7;
+const CRITICAL_BUDGET_RATIO = 0.85;
+
 const DEFAULT_CONFIG: MemoryMonitorConfig = {
-  warningThresholdMB: 1024, // 1GB
-  criticalThresholdMB: 1536, // 1.5GB
+  ...getDefaultMemoryThresholds(),
   checkIntervalMs: 10000, // 10 seconds
 };
+
+function toMB(bytes: number): number {
+  return bytes / BYTES_PER_MB;
+}
+
+function getDefaultMemoryThresholds(): Pick<MemoryMonitorConfig, 'warningThresholdMB' | 'criticalThresholdMB'> {
+  const heapLimitMB = toMB(v8.getHeapStatistics().heap_size_limit);
+  const systemBudgetMB = toMB(os.totalmem()) * SYSTEM_MEMORY_BUDGET_RATIO;
+  const effectiveBudgetMB = Math.max(
+    MIN_CRITICAL_THRESHOLD_MB,
+    Math.min(heapLimitMB, systemBudgetMB),
+  );
+  const warningThresholdMB = Math.round(Math.max(
+    MIN_WARNING_THRESHOLD_MB,
+    effectiveBudgetMB * WARNING_BUDGET_RATIO,
+  ));
+  const criticalThresholdMB = Math.round(Math.max(
+    MIN_CRITICAL_THRESHOLD_MB,
+    warningThresholdMB + 256,
+    effectiveBudgetMB * CRITICAL_BUDGET_RATIO,
+  ));
+
+  return {
+    warningThresholdMB,
+    criticalThresholdMB,
+  };
+}
 
 export class MemoryMonitor extends EventEmitter {
   private config: MemoryMonitorConfig;
