@@ -245,6 +245,8 @@ export interface RetrievalOptions {
   maxTokens?: number;
   sessionId?: string;
   instanceId?: string;
+  includeWakeContext?: boolean;
+  wakeContextWing?: string;
 }
 
 // ============ Statistics ============

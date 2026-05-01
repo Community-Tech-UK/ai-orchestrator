@@ -496,7 +496,7 @@ export class InstanceContextManager {
     );
     if (effectiveMaxTokens <= 0) return null;
 
-    const types: MemoryType[] = ['procedural', 'long_term'];
+    const types: MemoryType[] = ['long_term'];
     const startTime = Date.now();
 
     try {
@@ -505,7 +505,8 @@ export class InstanceContextManager {
           types,
           maxTokens: effectiveMaxTokens,
           sessionId: instance.sessionId,
-          instanceId: instance.id
+          instanceId: instance.id,
+          includeWakeContext: false
         }),
         this.config.unifiedMemoryQueryTimeoutMs
       );
@@ -540,10 +541,15 @@ export class InstanceContextManager {
     if (!context) return null;
 
     return [
-      '[Unified Memory Context]',
-      'Source: Unified Memory',
+      '[Orchestrator Memory Context]',
+      'Source: AI Orchestrator memory retrieval',
+      [
+        'This context was added by the app, not typed by the user.',
+        'Treat it as non-authoritative background and do not mention this block',
+        'unless directly asked about injected context.'
+      ].join(' '),
       context.context,
-      '[End Unified Memory Context]'
+      '[End Orchestrator Memory Context]'
     ].join('\n');
   }
 

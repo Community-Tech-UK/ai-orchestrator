@@ -400,9 +400,15 @@ export class UnifiedMemoryController extends EventEmitter {
       results.skills = await this.fetchSkills(query);
     }
 
-    if (options?.sessionId || options?.instanceId) {
+    const includeWakeContext =
+      options?.includeWakeContext ??
+      Boolean(options?.sessionId || options?.instanceId);
+
+    if (includeWakeContext) {
       try {
-        results.wakeContext = getWakeContextBuilder().getWakeUpText();
+        results.wakeContext = getWakeContextBuilder().getWakeUpText(
+          options?.wakeContextWing
+        );
       } catch (error) {
         this.emit('retrieve:sourceError', {
           source: 'wake_context',
@@ -863,6 +869,8 @@ export class UnifiedMemoryController extends EventEmitter {
       maxTokens: options?.maxTokens || this.config.shortTermMaxTokens,
       sessionId: options?.sessionId || null,
       instanceId: options?.instanceId || null,
+      includeWakeContext: options?.includeWakeContext ?? null,
+      wakeContextWing: options?.wakeContextWing || null,
       revision
     };
 

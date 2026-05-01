@@ -61,7 +61,13 @@ const DISCORD_COMMANDS = [
       { name: 'project', description: 'Project name or path', type: DISCORD_OPTION_STRING, required: false, autocomplete: true },
     ],
   },
-  { name: 'pick', description: 'Pick from active sessions' },
+  {
+    name: 'pick',
+    description: 'Pick from active sessions',
+    options: [
+      { name: 'selection', description: 'Session number from the last pick list', type: DISCORD_OPTION_STRING, required: false },
+    ],
+  },
   {
     name: 'select',
     description: 'Pin this Discord channel or DM to a project/session',
@@ -717,7 +723,6 @@ export class DiscordAdapter extends BaseChannelAdapter {
 
     switch (command) {
       case 'help':
-      case 'pick':
       case 'whereami':
       case 'status':
       case 'clear':
@@ -727,6 +732,8 @@ export class DiscordAdapter extends BaseChannelAdapter {
       case 'reset-discord':
       case 'nodes':
         return `/${command}`;
+      case 'pick':
+        return this.withArg('/pick', getString('selection'));
       case 'list':
         return this.withArg('/list', getString('project'));
       case 'select': {

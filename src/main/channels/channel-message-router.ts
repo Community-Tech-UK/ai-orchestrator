@@ -330,6 +330,48 @@ export class ChannelMessageRouter {
     }
   }
 
+  private getPendingKey(msg: Pick<InboundChannelMessage, 'chatId' | 'senderId'>): string {
+    return `${msg.chatId}:${msg.senderId}`;
+  }
+
+  private clearPendingSelections(pendingKey: string): void {
+    this.pendingPicks.delete(pendingKey);
+    this.pendingProjectPicks.delete(pendingKey);
+    this.pendingRevivePicks.delete(pendingKey);
+  }
+
+  private setPendingPickSelection(pendingKey: string, instances: KnownChannelInstance[]): void {
+    this.clearPendingSelections(pendingKey);
+    this.pendingPicks.set(pendingKey, instances);
+  }
+
+  private setPendingProjectSelection(pendingKey: string, projects: ProjectDescriptor[]): void {
+    this.clearPendingSelections(pendingKey);
+    this.pendingProjectPicks.set(pendingKey, projects);
+  }
+
+  private setPendingReviveSelection(pendingKey: string, instances: KnownChannelInstance[]): void {
+    this.clearPendingSelections(pendingKey);
+    this.pendingRevivePicks.set(pendingKey, instances);
+  }
+
+  private normalizePendingNumericSelection(msg: InboundChannelMessage): InboundChannelMessage {
+    const trimmed = msg.content.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      return msg;
+    }
+
+    const pendingKey = this.getPendingKey(msg);
+    if (this.pendingPicks.has(pendingKey)) {
+      return { ...msg, content: `/pick ${trimmed}` };
+    }
+    if (this.pendingRevivePicks.has(pendingKey)) {
+      return { ...msg, content: `/revive ${trimmed}` };
+    }
+
+    return msg;
+  }
+
   // ============ Instance helpers ============
 
   /**
@@ -827,7 +869,7 @@ export class ChannelMessageRouter {
       lines.push(
         `Use \`/select ${project.label}\` to pin this project, \`/select ${project.label}/<session>\` to pin a session, or \`/new ${project.label} -- <prompt>\` to start a new session.`,
       );
-      this.pendingRevivePicks.set(`${msg.chatId}:${msg.senderId}`, revivableInstances);
+      this.setPendingReviveSelection(this.getPendingKey(msg), revivableInstances);
       await adapter.sendMessage(msg.chatId, lines.join('\n'), {
         replyTo: msg.messageId,
         actions: this.buildReviveActions(revivableInstances),
@@ -840,8 +882,8 @@ export class ChannelMessageRouter {
     );
 
     // Store numbered project list for numeric selection
-    const pickKey = `${msg.chatId}:${msg.senderId}`;
-    this.pendingProjectPicks.set(pickKey, projects);
+    const pickKey = this.getPendingKey(msg);
+    this.setPendingProjectSelection(pickKey, projects);
 
     lines.push('**Projects**');
     for (let i = 0; i < projects.length; i++) {
@@ -903,7 +945,7 @@ export class ChannelMessageRouter {
     const parts = args.trim().split('/');
     const projectName = parts[0].trim();
     const instanceName = parts.length > 1 ? parts.slice(1).join('/').trim() : undefined;
-    const pickKey = `${msg.chatId}:${msg.senderId}`;
+    const pickKey = this.getPendingKey(msg);
 
     const target = await this.resolveNamedTarget(projectName, instanceName, true);
     if (!instanceName) {
@@ -1034,7 +1076,7 @@ export class ChannelMessageRouter {
     args: string,
     adapter: BaseChannelAdapter,
   ): Promise<void> {
-    const pickKey = `${msg.chatId}:${msg.senderId}`;
+    const pickKey = this.getPendingKey(msg);
     const trimmed = args.trim();
     const numericPick = parseInt(trimmed, 10);
     if (!Number.isNaN(numericPick) && String(numericPick) === trimmed && this.pendingRevivePicks.has(pickKey)) {
@@ -1043,6 +1085,7 @@ export class ChannelMessageRouter {
         await adapter.sendMessage(msg.chatId, `Pick a number between 1 and ${candidates.length}.`, { replyTo: msg.messageId });
         return;
       }
+      this.pendingRevivePicks.delete(pickKey);
       await this.reviveInstance(msg, candidates[numericPick - 1], adapter);
       return;
     }
@@ -1058,7 +1101,7 @@ export class ChannelMessageRouter {
     }
 
     if (candidates.length > 1) {
-      this.pendingRevivePicks.set(pickKey, candidates);
+      this.setPendingReviveSelection(pickKey, candidates);
       const lines = ['**Revivable sessions** (reply with `/revive <number>`):'];
       for (let i = 0; i < candidates.length; i++) {
         const instance = candidates[i];
@@ -1584,7 +1627,7 @@ export class ChannelMessageRouter {
       return;
     }
 
-    this.pendingPicks.set(pickKey, active);
+    this.setPendingPickSelection(pickKey, active);
 
     const lines = ['**Pick an instance** (reply with `/pick <number>`):'];
     for (let i = 0; i < active.length; i++) {
@@ -1652,108 +1695,111 @@ export class ChannelMessageRouter {
     }
 
     // 3. Parse intent
-    const intent = this.parseIntent(msg.content, msg.threadId, msg.chatId, msg.platform);
+    const effectiveMsg = this.normalizePendingNumericSelection(msg);
+    const intent = this.parseIntent(effectiveMsg.content, effectiveMsg.threadId, effectiveMsg.chatId, effectiveMsg.platform);
 
     // 4. Handle commands (no persistence needed for these)
     if (intent.type === 'command') {
       switch (intent.command) {
         case 'help':
-          await this.handleHelpCommand(msg, adapter);
+          await this.handleHelpCommand(effectiveMsg, adapter);
           return;
         case 'list':
-          await this.handleListCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleListCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'select':
-          await this.handleSelectCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleSelectCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'whereami':
-          await this.handleWhereAmICommand(msg, adapter);
+          await this.handleWhereAmICommand(effectiveMsg, adapter);
           return;
         case 'status':
-          await this.handleStatusCommand(msg, adapter);
+          await this.handleStatusCommand(effectiveMsg, adapter);
           return;
         case 'revive':
-          await this.handleReviveCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleReviveCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'stop':
-          await this.handleStopCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleStopCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'continue':
-          await this.handleContinueCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleContinueCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'pair':
-          await this.handlePairCommand(msg, adapter);
+          await this.handlePairCommand(effectiveMsg, adapter);
           return;
         case 'whoami':
-          await this.handleWhoAmICommand(msg, adapter);
+          await this.handleWhoAmICommand(effectiveMsg, adapter);
           return;
         case 'allow':
-          await this.handleAllowCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleAllowCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'deny':
-          await this.handleDenyCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleDenyCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'unpair':
-          await this.handleUnpairCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleUnpairCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'reset-discord':
-          await this.handleResetDiscordCommand(msg, adapter);
+          await this.handleResetDiscordCommand(effectiveMsg, adapter);
           return;
         case 'new':
-          await this.handleNewCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleNewCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'clear':
-          await this.handleClearCommand(msg, adapter);
+          await this.handleClearCommand(effectiveMsg, adapter);
           return;
         case 'pick':
-          await this.handlePickCommand(msg, intent.commandArgs || '', adapter);
+          await this.handlePickCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'switch':
-          await this.handleSwitchCommand(msg, adapter);
+          await this.handleSwitchCommand(effectiveMsg, adapter);
           return;
         case 'nodes':
-          await this.handleNodesCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleNodesCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'run-on':
-          await this.handleRunOnCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleRunOnCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         case 'offload':
-          await this.handleOffloadCommand(msg, intent.commandArgs || '', adapter);
+          await this.handleOffloadCommand(effectiveMsg, intent.commandArgs || '', adapter);
           return;
         default:
           await adapter.sendMessage(
-            msg.chatId,
+            effectiveMsg.chatId,
             `Unknown command: \`/${intent.command}\`. Try \`/help\` to see available commands.`,
-            { replyTo: msg.messageId },
+            { replyTo: effectiveMsg.messageId },
           );
           return;
       }
     }
 
+    this.clearPendingSelections(this.getPendingKey(effectiveMsg));
+
     // 5. Save inbound message to persistence
     this.persistence.saveMessage({
-      id: msg.id,
-      platform: msg.platform,
-      chat_id: msg.chatId,
-      message_id: msg.messageId,
-      thread_id: msg.threadId ?? null,
-      sender_id: msg.senderId,
-      sender_name: msg.senderName,
-      content: msg.content,
+      id: effectiveMsg.id,
+      platform: effectiveMsg.platform,
+      chat_id: effectiveMsg.chatId,
+      message_id: effectiveMsg.messageId,
+      thread_id: effectiveMsg.threadId ?? null,
+      sender_id: effectiveMsg.senderId,
+      sender_name: effectiveMsg.senderName,
+      content: effectiveMsg.content,
       direction: 'inbound',
       instance_id: null,
-      reply_to_message_id: msg.replyTo ?? null,
-      timestamp: msg.timestamp,
+      reply_to_message_id: effectiveMsg.replyTo ?? null,
+      timestamp: effectiveMsg.timestamp,
     });
 
     // 6. Acknowledge receipt
     try {
-      await adapter.addReaction(msg.chatId, msg.messageId, '👀');
+      await adapter.addReaction(effectiveMsg.chatId, effectiveMsg.messageId, '👀');
     } catch {
       // Ignore reaction failures
     }
 
-    const inputAttachments = await this.resolveInputAttachments(msg, adapter);
+    const inputAttachments = await this.resolveInputAttachments(effectiveMsg, adapter);
 
     // 7. Route based on intent
     try {
@@ -1762,12 +1808,12 @@ export class ChannelMessageRouter {
       switch (intent.type) {
         case 'thread':
           instanceId = intent.instanceId!;
-          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
+          await this.routeToInstance(effectiveMsg, instanceId, intent.cleanContent, adapter, inputAttachments);
           break;
 
         case 'explicit':
           instanceId = intent.instanceId!;
-          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
+          await this.routeToInstance(effectiveMsg, instanceId, intent.cleanContent, adapter, inputAttachments);
           break;
 
         case 'named': {
@@ -1778,25 +1824,25 @@ export class ChannelMessageRouter {
 
           if (target.kind === 'instance') {
             instanceId = target.instance.id;
-            await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
+            await this.routeToInstance(effectiveMsg, instanceId, intent.cleanContent, adapter, inputAttachments);
           } else {
-            instanceId = await this.routeToProject(msg, intent.cleanContent, adapter, target.project, inputAttachments);
+            instanceId = await this.routeToProject(effectiveMsg, intent.cleanContent, adapter, target.project, inputAttachments);
           }
           break;
         }
 
         case 'broadcast':
-          await this.routeBroadcast(msg, intent.cleanContent, adapter, inputAttachments);
+          await this.routeBroadcast(effectiveMsg, intent.cleanContent, adapter, inputAttachments);
           return; // broadcast handles its own completion
 
         case 'pinned-instance':
           instanceId = intent.instanceId!;
-          await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
+          await this.routeToInstance(effectiveMsg, instanceId, intent.cleanContent, adapter, inputAttachments);
           break;
 
         case 'pinned-project':
           instanceId = await this.routeToProject(
-            msg,
+            effectiveMsg,
             intent.cleanContent,
             adapter,
             {
@@ -1815,38 +1861,38 @@ export class ChannelMessageRouter {
         case 'default':
         default: {
           // Check DM pin before creating a new instance
-          const dmPinId = this.getDmPin(msg.platform, msg.senderId);
+          const dmPinId = this.getDmPin(effectiveMsg.platform, effectiveMsg.senderId);
           if (dmPinId) {
             const im = this.getInstanceManager();
             const pinned = im.getInstance?.(dmPinId);
             if (pinned) {
               instanceId = dmPinId;
-              await this.routeToInstance(msg, instanceId, intent.cleanContent, adapter, inputAttachments);
+              await this.routeToInstance(effectiveMsg, instanceId, intent.cleanContent, adapter, inputAttachments);
               break;
             }
             // Stale pin — instance gone
-            this.clearDmPin(msg.platform, msg.senderId);
+            this.clearDmPin(effectiveMsg.platform, effectiveMsg.senderId);
           }
-          instanceId = await this.routeDefault(msg, intent.cleanContent, adapter, process.cwd(), inputAttachments);
+          instanceId = await this.routeDefault(effectiveMsg, intent.cleanContent, adapter, process.cwd(), inputAttachments);
           break;
         }
       }
 
       // Update instance_id in persistence
-      this.persistence.updateInstanceId(msg.id, instanceId);
+      this.persistence.updateInstanceId(effectiveMsg.id, instanceId);
 
       // React with completion
       try {
-        await adapter.addReaction(msg.chatId, msg.messageId, '✅');
+        await adapter.addReaction(effectiveMsg.chatId, effectiveMsg.messageId, '✅');
       } catch {
         // Ignore
       }
     } catch (err) {
       logger.error('Error routing message', err instanceof Error ? err : new Error(String(err)));
       try {
-        await adapter.addReaction(msg.chatId, msg.messageId, '❌');
-        await adapter.sendMessage(msg.chatId, `Error: ${err instanceof Error ? err.message : String(err)}`, {
-          replyTo: msg.messageId,
+        await adapter.addReaction(effectiveMsg.chatId, effectiveMsg.messageId, '❌');
+        await adapter.sendMessage(effectiveMsg.chatId, `Error: ${err instanceof Error ? err.message : String(err)}`, {
+          replyTo: effectiveMsg.messageId,
         });
       } catch {
         // Ignore send failures
