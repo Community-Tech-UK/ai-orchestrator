@@ -724,12 +724,25 @@ export class InstanceDetailComponent {
   }
 
   onCancelQueuedMessage(index: number): void {
+    this.restoreQueuedMessageToComposer(index);
+  }
+
+  onEditQueuedMessage(index: number): void {
+    this.restoreQueuedMessageToComposer(index);
+  }
+
+  private restoreQueuedMessageToComposer(index: number): void {
     const inst = this.instance();
     if (!inst) return;
 
     const removedMessage = this.store.removeFromQueue(inst.id, index);
     if (removedMessage) {
-      this.draftService.setDraft(inst.id, removedMessage.message);
+      const inputPanel = this.inputPanel();
+      if (inputPanel) {
+        inputPanel.restoreTextToComposer(removedMessage.message);
+      } else {
+        this.draftService.setDraft(inst.id, removedMessage.message);
+      }
       if (removedMessage.files && removedMessage.files.length > 0) {
         this.draftService.addPendingFiles(inst.id, removedMessage.files);
       }

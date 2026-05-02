@@ -31,11 +31,20 @@ import type { RecentDirectoryEntry } from '../../../../shared/types/recent-direc
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { ProjectGroupComputationService } from './project-group-computation.service';
 import { HistoryRailService } from './history-rail.service';
+import {
+  getHistoryTimeWindowCutoff,
+  type HistoryTimeWindow,
+  type HistoryVisibilityMode,
+  isNativeImportedHistoryEntry,
+  shouldShowHistoryOnlyProject,
+} from './history-rail-filtering';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 
 const ORDER_STORAGE_KEY = 'instance-list-order';
 const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
+const HISTORY_VISIBILITY_STORAGE_KEY = 'instance-list-history-visibility';
+const HISTORY_TIME_WINDOW_STORAGE_KEY = 'instance-list-history-time-window';
 const NO_WORKSPACE_KEY = '__no_workspace__';
 type HistorySortMode = 'last-interacted' | 'created';
 
@@ -114,6 +123,8 @@ export class InstanceListComponent implements OnDestroy {
   rootInstanceOrder = signal<string[]>(this.loadOrder());
   recentDirectories = signal<RecentDirectoryEntry[]>([]);
   historySortMode = signal<HistorySortMode>(this.loadSortMode());
+  historyVisibilityMode = signal<HistoryVisibilityMode>(this.loadHistoryVisibilityMode());
+  historyTimeWindow = signal<HistoryTimeWindow>(this.loadHistoryTimeWindow());
   openProjectMenuKey = signal<string | null>(null);
   preferredEditorLabel = signal('Editor');
   lastVisitedHistoryThreadId = signal<string | null>(null);
@@ -126,6 +137,8 @@ export class InstanceListComponent implements OnDestroy {
     this.statusFilter() !== 'all'
       || this.locationFilter() !== 'all'
       || this.historySortMode() !== 'last-interacted'
+      || this.historyVisibilityMode() !== 'relevant'
+      || this.historyTimeWindow() !== 'all'
   );
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
@@ -134,10 +147,19 @@ export class InstanceListComponent implements OnDestroy {
   private static readonly FILTER_DEBOUNCE_MS = 250;
 
   isDragDisabled = computed(() =>
-    this.filterInput().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all'
+    this.filterInput().length > 0 ||
+      this.statusFilter() !== 'all' ||
+      this.locationFilter() !== 'all' ||
+      this.historyVisibilityMode() !== 'relevant' ||
+      this.historyTimeWindow() !== 'all'
   );
   isProjectDragDisabled = computed(() =>
-    this.filterInput().length > 0 || this.statusFilter() !== 'all' || this.locationFilter() !== 'all' || this.openProjectMenuKey() !== null
+    this.filterInput().length > 0 ||
+      this.statusFilter() !== 'all' ||
+      this.locationFilter() !== 'all' ||
+      this.historyVisibilityMode() !== 'relevant' ||
+      this.historyTimeWindow() !== 'all' ||
+      this.openProjectMenuKey() !== null
   );
 
   projectGroups = computed(() => {
@@ -148,12 +170,20 @@ export class InstanceListComponent implements OnDestroy {
     const filter = this.filterText().trim().toLowerCase();
     const status = this.statusFilter();
     const location = this.locationFilter();
+    const historyVisibility = this.historyVisibilityMode();
+    const activityCutoff = getHistoryTimeWindowCutoff(this.historyTimeWindow());
     const childrenByParent = this.projectGroupComputation.buildChildrenMap(instances);
     const instanceMap = new Map(instances.map((instance) => [instance.id, instance]));
     const selectedId = this.selectedId();
     const collapsed = this.collapsedIds();
     const collapsedProjects = this.collapsedProjectKeys();
-    const historyByProject = this.buildHistoryEntriesByProject(historyEntries, filter, status, location);
+    const historyByProject = this.buildHistoryEntriesByProject(
+      historyEntries,
+      filter,
+      status,
+      location,
+      activityCutoff
+    );
     const recentDirectoriesByKey = new Map(
       recentDirectories.map((entry) => [this.getProjectKey(entry.path), entry])
     );
@@ -183,6 +213,7 @@ export class InstanceListComponent implements OnDestroy {
           collapsed,
           childrenByParent,
           instanceMap,
+          activityCutoff,
         },
         0,
         [],
@@ -259,6 +290,19 @@ export class InstanceListComponent implements OnDestroy {
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
       const workingDirectory = recentDirectory?.path || historyItems[0].workingDirectory || null;
       const draftInfo = this.projectGroupComputation.getProjectDraftInfo(workingDirectory);
+      if (!shouldShowHistoryOnlyProject({
+        mode: historyVisibility,
+        hasTextFilter: filter.length > 0,
+        hasDraft: draftInfo.hasDraft,
+        isPinnedProject: recentDirectory?.isPinned ?? false,
+        selectedHistoryEntryId: this.historyStore.previewEntryId(),
+        pinnedHistoryIds: this.historyRail.pinnedHistoryIds(),
+        historyItems,
+      })) {
+        recentDirectoriesByKey.delete(projectKey);
+        continue;
+      }
+
       groups.set(projectKey, {
         key: projectKey,
         path: workingDirectory,
@@ -293,6 +337,14 @@ export class InstanceListComponent implements OnDestroy {
 
         const projectKey = this.getProjectKey(recentDirectory.path);
         const draftInfo = this.projectGroupComputation.getProjectDraftInfo(recentDirectory.path);
+        const recentActivity = Math.max(
+          recentDirectory.lastAccessed,
+          draftInfo.draftUpdatedAt ?? 0
+        );
+        if (activityCutoff !== null && recentActivity < activityCutoff) {
+          continue;
+        }
+
         groups.set(projectKey, {
           key: projectKey,
           path: recentDirectory.path || null,
@@ -403,6 +455,10 @@ export class InstanceListComponent implements OnDestroy {
         }
       }
       for (const entry of historyEntries) {
+        if (isNativeImportedHistoryEntry(entry)) {
+          continue;
+        }
+
         const workingDirectory = entry.workingDirectory?.trim();
         if (workingDirectory && !knownRecentDirectories.has(this.getProjectKey(workingDirectory))) {
           knownRecentDirectories.add(this.getProjectKey(workingDirectory));
@@ -485,6 +541,22 @@ export class InstanceListComponent implements OnDestroy {
     const value = select.value === 'created' ? 'created' : 'last-interacted';
     this.historySortMode.set(value);
     this.saveSortMode(value);
+    this.closeProjectMenu({ restoreFocus: false });
+  }
+
+  onHistoryVisibilityModeChange(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const value: HistoryVisibilityMode = select.value === 'all' ? 'all' : 'relevant';
+    this.historyVisibilityMode.set(value);
+    this.saveHistoryVisibilityMode(value);
+    this.closeProjectMenu({ restoreFocus: false });
+  }
+
+  onHistoryTimeWindowChange(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const value = this.parseHistoryTimeWindow(select.value);
+    this.historyTimeWindow.set(value);
+    this.saveHistoryTimeWindow(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
@@ -1184,7 +1256,8 @@ export class InstanceListComponent implements OnDestroy {
     entries: ConversationHistoryEntry[],
     filter: string,
     status: string,
-    location: 'all' | 'local' | 'remote' = 'all'
+    location: 'all' | 'local' | 'remote' = 'all',
+    activityCutoff: number | null = null
   ): Map<string, ConversationHistoryEntry[]> {
     const groups = new Map<string, ConversationHistoryEntry[]>();
     if (status !== 'all') {
@@ -1198,6 +1271,9 @@ export class InstanceListComponent implements OnDestroy {
         continue;
       }
       if (location === 'local' && entry.executionLocation?.type === 'remote') {
+        continue;
+      }
+      if (activityCutoff !== null && entry.endedAt < activityCutoff) {
         continue;
       }
 
@@ -1243,11 +1319,16 @@ export class InstanceListComponent implements OnDestroy {
       }
 
       const activeEntries = dedupedEntries.filter((entry) => !entry.archivedAt);
+      // Fallback is meant to keep "thin" projects from looking empty — only
+      // surface archived entries when the project has at least one active one.
+      // If every entry is archived, the project group is fully removed.
       const archivedFallbackIds = new Set(
-        dedupedEntries
-          .filter((entry) => !!entry.archivedAt)
-          .slice(0, Math.max(0, InstanceListComponent.MIN_VISIBLE_HISTORY_THREADS - activeEntries.length))
-          .map((entry) => entry.id)
+        activeEntries.length === 0
+          ? []
+          : dedupedEntries
+              .filter((entry) => !!entry.archivedAt)
+              .slice(0, Math.max(0, InstanceListComponent.MIN_VISIBLE_HISTORY_THREADS - activeEntries.length))
+              .map((entry) => entry.id)
       );
       const visibleEntries = dedupedEntries.filter(
         (entry) => !entry.archivedAt || archivedFallbackIds.has(entry.id)
@@ -1544,6 +1625,52 @@ export class InstanceListComponent implements OnDestroy {
       localStorage.setItem(SORT_MODE_STORAGE_KEY, mode);
     } catch {
       // Ignore storage errors.
+    }
+  }
+
+  private loadHistoryVisibilityMode(): HistoryVisibilityMode {
+    try {
+      const saved = localStorage.getItem(HISTORY_VISIBILITY_STORAGE_KEY);
+      return saved === 'all' ? 'all' : 'relevant';
+    } catch {
+      return 'relevant';
+    }
+  }
+
+  private saveHistoryVisibilityMode(mode: HistoryVisibilityMode): void {
+    try {
+      localStorage.setItem(HISTORY_VISIBILITY_STORAGE_KEY, mode);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private loadHistoryTimeWindow(): HistoryTimeWindow {
+    try {
+      return this.parseHistoryTimeWindow(localStorage.getItem(HISTORY_TIME_WINDOW_STORAGE_KEY));
+    } catch {
+      return 'all';
+    }
+  }
+
+  private saveHistoryTimeWindow(mode: HistoryTimeWindow): void {
+    try {
+      localStorage.setItem(HISTORY_TIME_WINDOW_STORAGE_KEY, mode);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private parseHistoryTimeWindow(value: string | null): HistoryTimeWindow {
+    switch (value) {
+      case 'day':
+      case '3-days':
+      case 'week':
+      case '2-weeks':
+      case 'month':
+        return value;
+      default:
+        return 'all';
     }
   }
 

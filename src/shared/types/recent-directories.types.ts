@@ -51,7 +51,7 @@ export interface RecentDirectoriesStore {
  */
 export const RECENT_DIRECTORIES_DEFAULTS = {
   /** Maximum entries to keep */
-  maxEntries: 15,
+  maxEntries: 200,
   /** Current storage version */
   storeVersion: 1,
   /** Default sort order */

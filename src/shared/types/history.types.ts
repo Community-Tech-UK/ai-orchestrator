@@ -23,6 +23,8 @@ export interface HistorySnippet {
   score: number;
 }
 
+export type HistoryImportSource = 'native-claude';
+
 export type HistorySearchSource =
   | 'history-transcript'
   | 'child_result'
@@ -116,6 +118,9 @@ export interface ConversationHistoryEntry {
 
   /** Precomputed transcript snippets for advanced search. Capped at 5 per entry. */
   snippets?: HistorySnippet[];
+
+  /** External transcript source, when this row was imported rather than archived by Orchestrator. */
+  importSource?: HistoryImportSource;
 }
 
 /**
@@ -332,6 +337,14 @@ export interface HistoryIndex {
 
   /** All history entries (sorted by endedAt descending) */
   entries: ConversationHistoryEntry[];
+
+  /**
+   * Tombstones of sessionIds the user has explicitly deleted.
+   * The native-Claude transcript importer skips these on subsequent startups,
+   * preventing deleted entries from being silently re-imported from
+   * `~/.claude/projects/<cwd>/<sessionId>.jsonl`.
+   */
+  deletedSessionIds?: string[];
 }
 
 /**

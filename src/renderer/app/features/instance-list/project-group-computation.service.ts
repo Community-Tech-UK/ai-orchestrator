@@ -37,6 +37,7 @@ export class ProjectGroupComputationService {
       collapsed: Set<string>;
       childrenByParent: Map<string, string[]>;
       instanceMap: Map<string, Instance>;
+      activityCutoff: number | null;
     },
     depth: number,
     parentChain: boolean[],
@@ -61,14 +62,16 @@ export class ProjectGroupComputationService {
 
     const textMatches = !context.filter ||
       context.projectMatches ||
-      instance.displayName.toLowerCase().includes(context.filter) ||
-      instance.id.toLowerCase().includes(context.filter);
+      this.matchesInstanceText(instance, context.filter);
     const statusMatches = context.status === 'all' || instance.status === context.status;
     const locationMatches =
       context.location === 'all' ||
       (context.location === 'remote' && instance.executionLocation?.type === 'remote') ||
       (context.location === 'local' && (instance.executionLocation === undefined || instance.executionLocation.type === 'local'));
-    const selfVisible = textMatches && statusMatches && locationMatches;
+    const activityMatches =
+      context.activityCutoff === null ||
+      Math.max(instance.lastActivity, instance.createdAt) >= context.activityCutoff;
+    const selfVisible = textMatches && statusMatches && locationMatches && activityMatches;
 
     if (!selfVisible && visibleChildren.length === 0) {
       return [];
@@ -177,14 +180,64 @@ export class ProjectGroupComputationService {
   }
 
   matchesProjectText(title: string, subtitle: string, filter: string): boolean {
-    return title.toLowerCase().includes(filter) || subtitle.toLowerCase().includes(filter);
+    return this.matchesFilterTerms(filter, title, subtitle);
+  }
+
+  matchesInstanceText(instance: Instance, filter: string): boolean {
+    return this.matchesFilterTerms(
+      filter,
+      instance.displayName,
+      instance.id,
+      instance.historyThreadId,
+      instance.sessionId,
+      instance.providerSessionId,
+      instance.provider,
+      instance.currentModel,
+      instance.agentId,
+      instance.status,
+      instance.workingDirectory
+    );
   }
 
   matchesHistoryText(entry: ConversationHistoryEntry, filter: string): boolean {
-    return (
-      entry.displayName.toLowerCase().includes(filter) ||
-      entry.firstUserMessage.toLowerCase().includes(filter) ||
-      entry.lastUserMessage.toLowerCase().includes(filter)
+    return this.matchesFilterTerms(
+      filter,
+      entry.displayName,
+      entry.firstUserMessage,
+      entry.lastUserMessage,
+      entry.workingDirectory,
+      entry.id,
+      entry.historyThreadId,
+      entry.sessionId,
+      entry.originalInstanceId,
+      entry.provider,
+      entry.currentModel,
+      entry.status
     );
+  }
+
+  private matchesFilterTerms(
+    filter: string,
+    ...fields: readonly (string | null | undefined)[]
+  ): boolean {
+    const terms = this.getFilterTerms(filter);
+    if (terms.length === 0) {
+      return true;
+    }
+
+    const haystack = fields
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join('\n')
+      .toLowerCase();
+
+    return terms.every((term) => haystack.includes(term));
+  }
+
+  private getFilterTerms(filter: string): string[] {
+    return filter
+      .toLowerCase()
+      .split(/\s+/)
+      .map((term) => term.trim())
+      .filter(Boolean);
   }
 }

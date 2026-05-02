@@ -46,7 +46,7 @@ function resolveDefaultModel(cliType: CliType, payloadModel?: string): string | 
 }
 
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
-  return typeof (adapter as any).sendMessage === 'function';
+  return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
 }
 
 function buildUserPrompt(userPrompt: string, context?: string): string {
@@ -66,7 +66,7 @@ function parseInvocationPayload<T>(
   return result.data;
 }
 
-function getCallbackFromPayload<T extends (...args: any[]) => unknown>(
+function getCallbackFromPayload<T extends (...args: never[]) => unknown>(
   payload: unknown,
 ): T | undefined {
   const callback = (payload as { callback?: unknown } | null | undefined)?.callback;
@@ -91,7 +91,7 @@ async function invokeCliTextResponse(params: {
   const fallbackProvider = instance?.provider as string | undefined;
   const requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
   const defaultCli = getSettingsManager().getAll().defaultCli;
-  const cliType = await resolveCliType(requestedProvider as any, defaultCli);
+  const cliType = await resolveCliType(requestedProvider as Parameters<typeof resolveCliType>[0], defaultCli);
   const model = resolveDefaultModel(cliType, params.payloadModel);
 
   const spawnOptions: UnifiedSpawnOptions = {
@@ -110,10 +110,23 @@ async function invokeCliTextResponse(params: {
   const prompt = buildUserPrompt(params.prompt, params.context);
   const response = await breaker.execute(async () => {
     const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
-    if (!isBaseCliAdapterLike(adapter)) {
-      throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+    try {
+      if (!isBaseCliAdapterLike(adapter)) {
+        throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
+      }
+      return await adapter.sendMessage({ role: 'user', content: prompt });
+    } finally {
+      const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
+      if (typeof terminator === 'function') {
+        await terminator.call(adapter, false).catch((cleanupError: unknown) => {
+          logger.warn('One-shot invocation adapter cleanup failed', {
+            correlationId: params.correlationId,
+            cliType,
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        });
+      }
     }
-    return adapter.sendMessage({ role: 'user', content: prompt });
   });
 
   const normalized = normalizeInvocationTextResult({

@@ -63,7 +63,7 @@ export interface AppSettings {
   thinkingDefaultExpanded: boolean; // Show thinking panels expanded instead of collapsed
 
   // Recent Directories
-  maxRecentDirectories: number; // 5-50, max directories to remember
+  maxRecentDirectories: number; // 5-500, max directories to remember
 
   // Advanced
   customModelOverride: string; // empty = use default
@@ -143,7 +143,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   thinkingDefaultExpanded: false,
 
   // Recent Directories
-  maxRecentDirectories: 15,
+  maxRecentDirectories: 200,
 
   // Advanced
   customModelOverride: '',
@@ -392,7 +392,7 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     type: 'number',
     category: 'display',
     min: 5,
-    max: 50
+    max: 500
   },
 
   // Memory Management

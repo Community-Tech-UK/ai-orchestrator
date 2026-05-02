@@ -10,6 +10,7 @@ let workflowManager: EventEmitter & {
 
 const hoisted = vi.hoisted(() => ({
   sendMessage: vi.fn(),
+  terminate: vi.fn(),
   createCliAdapter: vi.fn(),
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
@@ -86,7 +87,9 @@ describe('default orchestration invokers', () => {
       )),
     });
     hoisted.sendMessage.mockReset();
-    hoisted.createCliAdapter.mockImplementation(() => ({ sendMessage: hoisted.sendMessage }));
+    hoisted.terminate.mockReset();
+    hoisted.terminate.mockResolvedValue(undefined);
+    hoisted.createCliAdapter.mockImplementation(() => ({ sendMessage: hoisted.sendMessage, terminate: hoisted.terminate }));
     hoisted.resolveCliType.mockResolvedValue('claude');
     hoisted.getBreaker.mockImplementation(() => ({
       execute: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
@@ -143,6 +146,7 @@ describe('default orchestration invokers', () => {
     expect(hoisted.resolveCliType).toHaveBeenCalled();
     expect(hoisted.createCliAdapter).toHaveBeenCalled();
     expect(callback).toHaveBeenCalledWith(null, 'verified', 42, 0);
+    expect(hoisted.terminate).toHaveBeenCalledWith(false);
   });
 
   it('rejects invalid review payloads at the listener boundary', async () => {

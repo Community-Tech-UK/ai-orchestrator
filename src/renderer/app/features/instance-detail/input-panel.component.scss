@@ -690,6 +690,31 @@ app-copilot-model-selector {
   flex-shrink: 0;
 }
 
+.queued-edit-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--primary-rgb), 0.22);
+  background: rgba(var(--primary-rgb), 0.08);
+  color: rgba(243, 239, 229, 0.76);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: rgba(var(--primary-rgb), 0.15);
+    border-color: rgba(var(--primary-rgb), 0.36);
+    color: var(--text-primary);
+  }
+}
+
+.queued-edit-icon {
+  flex-shrink: 0;
+}
+
 .queued-cancel-btn {
   width: 20px;
   height: 20px;

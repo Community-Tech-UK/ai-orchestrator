@@ -125,6 +125,7 @@ export class InputPanelComponent implements OnDestroy {
   removeFolder = output<string>();
   addFiles = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
+  editQueuedMessage = output<number>();
   steerQueuedMessage = output<number>();
   resendEdited = output<{
     messageIndex: number;
@@ -1058,6 +1059,10 @@ export class InputPanelComponent implements OnDestroy {
     this.cancelQueuedMessage.emit(index);
   }
 
+  onEditQueuedMessage(index: number): void {
+    this.editQueuedMessage.emit(index);
+  }
+
   onSteerQueuedMessage(index: number): void {
     this.steerQueuedMessage.emit(index);
   }
@@ -1181,6 +1186,18 @@ export class InputPanelComponent implements OnDestroy {
       textarea.focus();
       this.scheduleTextareaResize(textarea);
     });
+  }
+
+  restoreTextToComposer(value: string): void {
+    this.editMode.set(false);
+    this.stashedDraft.set(null);
+    this.editMessageIndex.set(null);
+    this.message.set(value);
+    this.showCommandSuggestions.set(false);
+    this.slashResolution.set(null);
+    this.persistComposerText(value);
+    this.resetPromptRecall({ restoreStash: false });
+    this.syncTextareaValue(value);
   }
 
   private recordPromptHistory(text: string, wasSlashCommand: boolean): void {

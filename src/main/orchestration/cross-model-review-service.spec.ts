@@ -11,9 +11,33 @@ type TestReviewService = CrossModelReviewService & {
   reviewerPool: ReviewerPool;
   parseReviewResponse: (reviewerId: string, rawResponse: string, reviewDepth: 'structured' | 'tiered', durationMs: number) => ReviewResult | null;
   collectSuccessfulReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult[]>;
+  executeOneReview: (request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal) => Promise<ReviewResult | null>;
   executeReviews: (request: ReviewDispatchRequest, reviewerClis: string[], timeoutSeconds: number) => Promise<void>;
   detectDisagreement: (reviews: ReviewResult[]) => boolean;
 };
+
+function makeRequest(overrides: Partial<ReviewDispatchRequest> = {}): ReviewDispatchRequest {
+  return {
+    id: 'review-1',
+    instanceId: 'inst-1',
+    primaryProvider: 'claude',
+    workingDirectory: '/tmp/review-context',
+    content: '```ts\nconst x = 1;\n```',
+    taskDescription: 'Implement the review service carefully.',
+    classification: {
+      type: 'code',
+      shouldReview: true,
+      isComplex: false,
+      complexityReasons: [],
+      codeLineCount: 1,
+      fileCount: 1,
+      stepCount: 0,
+    },
+    reviewDepth: 'structured',
+    timestamp: Date.now(),
+    ...overrides,
+  };
+}
 
 function makeReview(overrides: Partial<ReviewResult> = {}): ReviewResult {
   return {
@@ -199,20 +223,53 @@ describe('CrossModelReviewService', () => {
       },
     }));
 
-    const results = await service.collectSuccessfulReviews({
-      id: 'review-1',
-      instanceId: 'inst-1',
-      primaryProvider: 'claude',
-      workingDirectory: '/tmp/review-context',
-      content: '```ts\nconst x = 1;\n```',
-      taskDescription: 'Implement the review service carefully.',
-      classification: { type: 'code', shouldReview: true, isComplex: false, complexityReasons: [], codeLineCount: 1, fileCount: 1, stepCount: 0 },
-      reviewDepth: 'structured',
-      timestamp: Date.now(),
-    }, ['gemini', 'codex'], 30, new AbortController().signal);
+    const results = await service.collectSuccessfulReviews(makeRequest(), ['gemini', 'codex'], 30, new AbortController().signal);
 
     expect(results).toHaveLength(2);
     expect(results.map((result) => result.reviewerId)).toEqual(expect.arrayContaining(['codex', 'copilot']));
+  });
+
+  it('terminates one-shot reviewer adapters after successful reviews', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const terminate = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      sendMessage: async () => ({
+        content: JSON.stringify({
+          correctness: { reasoning: 'ok', score: 4, issues: [] },
+          completeness: { reasoning: 'ok', score: 4, issues: [] },
+          security: { reasoning: 'ok', score: 4, issues: [] },
+          consistency: { reasoning: 'ok', score: 4, issues: [] },
+          overall_verdict: 'APPROVE',
+          summary: 'approved',
+        }),
+      }),
+      terminate,
+    }));
+
+    await expect(
+      service.executeOneReview(makeRequest(), 'copilot', 30, new AbortController().signal)
+    ).resolves.toMatchObject({ reviewerId: 'copilot' });
+
+    expect(terminate).toHaveBeenCalledWith(false);
+  });
+
+  it('terminates one-shot reviewer adapters when reviews fail', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    const terminate = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => ({
+      sendMessage: async () => {
+        throw new Error('review failed');
+      },
+      terminate,
+    }));
+
+    await expect(
+      service.executeOneReview(makeRequest(), 'copilot', 30, new AbortController().signal)
+    ).rejects.toThrow('review failed');
+
+    expect(terminate).toHaveBeenCalledWith(false);
   });
 
   it('emits all-unavailable when every reviewer response is unusable', async () => {
@@ -226,17 +283,10 @@ describe('CrossModelReviewService', () => {
       sendMessage: async () => ({ content: 'not valid json' }),
     }));
 
-    await service.executeReviews({
+    await service.executeReviews(makeRequest({
       id: 'review-2',
       instanceId: 'inst-2',
-      primaryProvider: 'claude',
-      workingDirectory: '/tmp/review-context',
-      content: '```ts\nconst x = 1;\n```',
-      taskDescription: 'Implement the review service carefully.',
-      classification: { type: 'code', shouldReview: true, isComplex: false, complexityReasons: [], codeLineCount: 1, fileCount: 1, stepCount: 0 },
-      reviewDepth: 'structured',
-      timestamp: Date.now(),
-    }, ['gemini'], 30);
+    }), ['gemini'], 30);
 
     expect(allUnavailable).toHaveBeenCalledWith({ instanceId: 'inst-2' });
     expect(result).not.toHaveBeenCalled();

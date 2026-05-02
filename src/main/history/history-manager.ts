@@ -28,6 +28,12 @@ import type {
   HistorySearchSource,
 } from '../../shared/types/history.types';
 import { getTranscriptSnippetService } from './transcript-snippet-service';
+import {
+  findClaudeJsonlFiles,
+  getDefaultClaudeProjectsDir,
+  parseClaudeJsonlTranscript,
+  type ImportedTranscript,
+} from './native-claude-importer';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 
 const gzip = promisify(zlib.gzip);
@@ -37,7 +43,7 @@ const logger = getLogger('HistoryManager');
 
 const HISTORY_INDEX_VERSION = 1;
 const MAX_PREVIEW_LENGTH = 150;
-const MAX_HISTORY_ENTRIES = 100; // Keep last 100 conversations
+const MAX_HISTORY_ENTRIES = 2000; // Keep last 2000 conversations (raised from 1000 to fit native Claude transcript imports)
 const RESUME_FAILURE_MESSAGE = /no conversation found|session.*not.*found/i;
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 const HISTORY_BACKED_SOURCES = new Set<HistorySearchSource>([
@@ -75,15 +81,25 @@ export class HistoryManager {
   // Lock to prevent concurrent archiveInstance() calls for the same instance
   private archivingInstances = new Set<string>();
 
+  /** Resolves once startup recovery + native transcript import have run. */
+  readonly startupTasks: Promise<void>;
+
   constructor() {
     this.storageDir = path.join(app.getPath('userData'), 'conversation-history');
     this.indexPath = path.join(this.storageDir, 'index.json');
     this.index = this.loadIndex();
 
-    // Recover orphaned .gz files that were saved but never indexed
-    this.recoverOrphans().catch((err) => {
-      logger.error('Failed to recover orphaned history files', err instanceof Error ? err : undefined);
-    });
+    // Recover orphaned .gz files, then import any native Claude transcripts
+    // that aren't already in the index. Run sequentially to avoid index races.
+    // Auto-import is skipped under Vitest so unrelated test fixtures don't
+    // race with the user's real `~/.claude/projects/` on disk; tests that
+    // exercise the importer call it explicitly via `importNativeClaudeTranscripts`.
+    const skipAutoImport = process.env['VITEST'] === 'true';
+    this.startupTasks = this.recoverOrphans()
+      .then(() => (skipAutoImport ? undefined : this.importNativeClaudeTranscripts()))
+      .catch((err) => {
+        logger.error('History startup tasks failed', err instanceof Error ? err : undefined);
+      });
   }
 
   /**
@@ -289,6 +305,15 @@ export class HistoryManager {
     const index = this.index.entries.findIndex(e => e.id === entryId);
     if (index === -1) {
       return false;
+    }
+
+    // Tombstone the sessionId so the native-transcript importer doesn't
+    // resurrect it from `~/.claude/projects/` on next startup.
+    const sessionId = this.index.entries[index].sessionId?.trim();
+    if (sessionId) {
+      const tombstones = new Set(this.index.deletedSessionIds ?? []);
+      tombstones.add(sessionId);
+      this.index.deletedSessionIds = Array.from(tombstones);
     }
 
     // Remove from index
@@ -577,6 +602,113 @@ export class HistoryManager {
       await this.saveIndex();
       logger.info('Orphan recovery complete', { recovered });
     }
+  }
+
+  /**
+   * Import native Claude Code transcripts (`~/.claude/projects/<cwd>/<sessionId>.jsonl`)
+   * that aren't already represented in the index. This recovers history that
+   * predates the orchestrator archive (or was evicted by the old 100-entry cap).
+   *
+   * Runs once on startup after `recoverOrphans`. Subsequent runs are cheap because
+   * known sessionIds are skipped before parsing.
+   */
+  private async importNativeClaudeTranscripts(
+    projectsDir: string = getDefaultClaudeProjectsDir()
+  ): Promise<void> {
+    const files = await findClaudeJsonlFiles(projectsDir);
+    if (files.length === 0) {
+      return;
+    }
+
+    const knownSessionIds = new Set<string>();
+    for (const entry of this.index.entries) {
+      const sid = entry.sessionId?.trim();
+      if (sid) knownSessionIds.add(sid);
+    }
+    const tombstonedSessionIds = new Set(
+      (this.index.deletedSessionIds ?? []).map((s) => s.trim()).filter(Boolean)
+    );
+
+    let imported = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const filePath of files) {
+      const stem = path.basename(filePath, '.jsonl');
+      if (knownSessionIds.has(stem) || tombstonedSessionIds.has(stem)) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const parsed = await parseClaudeJsonlTranscript(filePath);
+        if (!parsed) {
+          skipped++;
+          continue;
+        }
+        if (knownSessionIds.has(parsed.sessionId) || tombstonedSessionIds.has(parsed.sessionId)) {
+          skipped++;
+          continue;
+        }
+
+        const entry = this.buildImportedEntry(parsed);
+        const conversationData: ConversationData = {
+          entry,
+          messages: parsed.messages,
+        };
+
+        await this.saveConversation(entry.id, conversationData);
+        this.index.entries.push(entry);
+        knownSessionIds.add(parsed.sessionId);
+        imported++;
+      } catch (error) {
+        failed++;
+        logger.error(
+          'Failed to import native Claude transcript',
+          error instanceof Error ? error : undefined,
+          { filePath }
+        );
+      }
+    }
+
+    if (imported > 0) {
+      this.index.entries.sort((a, b) => b.endedAt - a.endedAt);
+      this.index.lastUpdated = Date.now();
+      await this.enforceLimit();
+      await this.saveIndex();
+    }
+
+    logger.info('Native Claude transcript import complete', {
+      imported,
+      skipped,
+      failed,
+      total: files.length,
+    });
+  }
+
+  private buildImportedEntry(parsed: ImportedTranscript): ConversationHistoryEntry {
+    const projectName = parsed.workingDirectory
+      ? path.basename(parsed.workingDirectory) || parsed.workingDirectory
+      : 'unknown';
+    const summary = parsed.firstUserMessage.replace(/\s+/g, ' ').trim().slice(0, 60)
+      || 'Imported session';
+
+    return {
+      id: parsed.sessionId,
+      displayName: `[${projectName}] ${summary}`,
+      createdAt: parsed.createdAt,
+      endedAt: parsed.endedAt,
+      workingDirectory: parsed.workingDirectory,
+      messageCount: parsed.messages.length,
+      firstUserMessage: this.truncatePreview(parsed.firstUserMessage),
+      lastUserMessage: this.truncatePreview(parsed.lastUserMessage),
+      status: 'completed',
+      originalInstanceId: `imported-${parsed.sessionId}`,
+      parentId: null,
+      sessionId: parsed.sessionId,
+      provider: 'claude',
+      importSource: 'native-claude',
+    };
   }
 
   private migrateIndex(oldIndex: HistoryIndex): HistoryIndex {

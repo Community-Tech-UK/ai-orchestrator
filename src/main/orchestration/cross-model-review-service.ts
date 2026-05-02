@@ -43,6 +43,10 @@ function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMe
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
 }
 
+function isTerminableAdapter(adapter: unknown): adapter is { terminate: (graceful?: boolean) => Promise<void> } {
+  return typeof (adapter as Record<string, unknown>)?.['terminate'] === 'function';
+}
+
 export class CrossModelReviewService extends EventEmitter {
   private static instance: CrossModelReviewService | null = null;
 
@@ -295,28 +299,39 @@ export class CrossModelReviewService extends EventEmitter {
         const adapter = getProviderRuntimeService().createAdapter({
           cliType: resolvedCli,
           options: {
-          workingDirectory: request.workingDirectory,
-          timeout: timeoutSeconds * 1000,
-          yoloMode: false,
+            workingDirectory: request.workingDirectory,
+            timeout: timeoutSeconds * 1000,
+            yoloMode: false,
           },
         });
 
-        if (!isCliAdapterLike(adapter)) {
-          throw new Error(`CLI adapter "${cliType}" does not support sendMessage`);
+        try {
+          if (!isCliAdapterLike(adapter)) {
+            throw new Error(`CLI adapter "${cliType}" does not support sendMessage`);
+          }
+
+          if (signal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
+            throw new Error('Review cancelled');
+          }
+
+          const prompt = request.reviewDepth === 'tiered'
+            ? buildTieredReviewPrompt(request.taskDescription, request.content)
+            : buildStructuredReviewPrompt(request.taskDescription, request.content);
+
+          // sendMessage() does not currently expose a universal cancellation API
+          // across reviewer adapters, so an already-running provider call may run
+          // until its configured timeout even after the abort signal fires.
+          return await adapter.sendMessage({ role: 'user', content: prompt });
+        } finally {
+          if (isTerminableAdapter(adapter)) {
+            await adapter.terminate(false).catch((cleanupError: unknown) => {
+              logger.warn('Review adapter cleanup failed', {
+                cliType,
+                error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              });
+            });
+          }
         }
-
-        if (signal.aborted || this.isPaused || getPauseCoordinator().isPaused()) {
-          throw new Error('Review cancelled');
-        }
-
-        const prompt = request.reviewDepth === 'tiered'
-          ? buildTieredReviewPrompt(request.taskDescription, request.content)
-          : buildStructuredReviewPrompt(request.taskDescription, request.content);
-
-        // sendMessage() does not currently expose a universal cancellation API
-        // across reviewer adapters, so an already-running provider call may run
-        // until its configured timeout even after the abort signal fires.
-        return adapter.sendMessage({ role: 'user', content: prompt });
       });
 
       const parsed = this.parseReviewResponse(cliType, response.content, request.reviewDepth, Date.now() - startTime);

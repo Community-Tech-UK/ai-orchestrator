@@ -52,6 +52,34 @@
                 </select>
               </label>
               <label class="filter-select-group">
+                <span class="filter-select-label">History</span>
+                <select
+                  class="status-filter"
+                  [value]="historyVisibilityMode()"
+                  (change)="onHistoryVisibilityModeChange($event)"
+                  title="Choose how much imported history appears in the project rail"
+                >
+                  <option value="relevant">Relevant</option>
+                  <option value="all">All history</option>
+                </select>
+              </label>
+              <label class="filter-select-group">
+                <span class="filter-select-label">Activity</span>
+                <select
+                  class="status-filter"
+                  [value]="historyTimeWindow()"
+                  (change)="onHistoryTimeWindowChange($event)"
+                  title="Limit projects and threads by recent activity"
+                >
+                  <option value="all">Any time</option>
+                  <option value="day">Last day</option>
+                  <option value="3-days">Last 3 days</option>
+                  <option value="week">Last week</option>
+                  <option value="2-weeks">Last 2 weeks</option>
+                  <option value="month">Last month</option>
+                </select>
+              </label>
+              <label class="filter-select-group">
                 <span class="filter-select-label">State</span>
                 <select
                   class="status-filter"
