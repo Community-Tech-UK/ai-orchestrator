@@ -28,6 +28,7 @@ import { createCommunicationDomain } from './domains/communication.preload';
 import { createLearningDomain } from './domains/learning.preload';
 import { createWorkspaceDomain } from './domains/workspace.preload';
 import { createAutomationDomain } from './domains/automation.preload';
+import { createVoiceDomain } from './domains/voice.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -59,6 +60,7 @@ const electronAPI = {
   ...createLearningDomain(ipcRenderer, IPC_CHANNELS),
   ...createWorkspaceDomain(ipcRenderer, IPC_CHANNELS),
   ...createAutomationDomain(ipcRenderer, IPC_CHANNELS),
+  ...createVoiceDomain(ipcRenderer, IPC_CHANNELS, withAuth),
 
   /**
    * Get current platform

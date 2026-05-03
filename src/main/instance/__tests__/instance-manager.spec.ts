@@ -432,9 +432,9 @@ vi.mock('../../prompt-history/prompt-history-service', () => ({
   })),
 }));
 
-vi.mock('../../memory/codebase-miner', () => ({
-  getCodebaseMiner: vi.fn(() => ({
-    mineDirectory: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../memory/project-knowledge-coordinator', () => ({
+  getProjectKnowledgeCoordinator: vi.fn(() => ({
+    ensureProjectKnown: vi.fn().mockResolvedValue(undefined),
   })),
 }));
 
@@ -1002,6 +1002,11 @@ describe('InstanceManager', () => {
       const spawnOptions = spawnCall?.[1] as { systemPrompt?: string } | undefined;
       expect(spawnOptions?.systemPrompt).toContain('## Project Memory Brief');
       expect(spawnOptions?.systemPrompt).toContain('auth middleware fix');
+      expect(mockProjectMemoryBuildBrief).toHaveBeenCalledWith(expect.objectContaining({
+        projectPath: TEST_WORKING_DIR,
+        instanceId: instance.id,
+        initialPrompt: 'Check auth middleware',
+      }));
       expect(mockAdapterSendInput).toHaveBeenCalledWith('Check auth middleware', undefined);
     });
 

@@ -2042,6 +2042,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // the user's wait before they see the failure.
     const maxAttempts = 2;
     let lastError: Error | null = null;
+    const resumeCommandAtStart = this.shouldUseResumeCommand();
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -2079,6 +2080,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
             networkErrorCount: lastError.networkErrorCount,
             lastNetworkError: lastError.lastNetworkError,
             attempt,
+          });
+          throw lastError;
+        }
+
+        if (resumeCommandAtStart && this.isRecoverableThreadResumeError(lastError)) {
+          logger.info('Codex exec resume failed with a stale thread/session id - skipping same-command retry', {
+            attempt,
+            maxAttempts,
+            errorMessage: lastError.message,
           });
           throw lastError;
         }
@@ -2126,13 +2136,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     if (!useResume) {
-      if (this.cliConfig.approvalMode === 'full-auto') {
-        args.push('--full-auto');
-      } else if (this.cliConfig.sandboxMode) {
-        args.push('--sandbox', this.cliConfig.sandboxMode);
+      const sandboxMode = this.resolveExecSandboxMode();
+      if (sandboxMode) {
+        args.push('--sandbox', sandboxMode);
       }
-    } else if (this.cliConfig.approvalMode === 'full-auto') {
-      args.push('--full-auto');
     }
 
     if (!useResume) {
@@ -2575,6 +2582,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return Boolean(this.shouldResumeNextTurn && this.sessionId);
   }
 
+  private resolveExecSandboxMode(): CodexSandboxMode | null {
+    if (this.cliConfig.approvalMode === 'full-auto') {
+      return 'workspace-write';
+    }
+    return this.cliConfig.sandboxMode ?? null;
+  }
+
   /**
    * Whether the adapter can use `codex exec resume` for subsequent turns.
    * Thread resumption is a Codex thread-continuity feature and is independent
@@ -2729,7 +2743,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private isRecoverableThreadResumeError(error: unknown): boolean {
     const msg = String(error instanceof Error ? error.message : error).toLowerCase();
     if (!/thread|session/.test(msg)) return false;
-    return /not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
+    return /not found|no rollout found|rollout not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
   }
 
   getResumeCursor(): ResumeCursor | null {

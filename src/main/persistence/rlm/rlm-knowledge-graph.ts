@@ -118,6 +118,7 @@ export function queryEntity(db: SqliteDriver, name: string, options: QueryEntity
 
     for (const row of rows) {
       results.push({
+        id: row.id,
         direction: 'outgoing',
         subject: row.subject_name,
         predicate: row.predicate,
@@ -126,6 +127,7 @@ export function queryEntity(db: SqliteDriver, name: string, options: QueryEntity
         validTo: row.valid_to,
         confidence: row.confidence,
         sourceCloset: row.source_closet,
+        sourceFile: row.source_file,
         current: row.valid_to === null,
       });
     }
@@ -142,6 +144,7 @@ export function queryEntity(db: SqliteDriver, name: string, options: QueryEntity
 
     for (const row of rows) {
       results.push({
+        id: row.id,
         direction: 'incoming',
         subject: row.subject_name,
         predicate: row.predicate,
@@ -150,6 +153,7 @@ export function queryEntity(db: SqliteDriver, name: string, options: QueryEntity
         validTo: row.valid_to,
         confidence: row.confidence,
         sourceCloset: row.source_closet,
+        sourceFile: row.source_file,
         current: row.valid_to === null,
       });
     }
@@ -174,6 +178,7 @@ export function queryRelationship(db: SqliteDriver, predicate: string, asOf?: st
   `).all(pred, ...temporalParams) as (KGTripleRow & { subject_name: string; object_name: string })[];
 
   return rows.map(row => ({
+    id: row.id,
     direction: 'outgoing' as KGDirection,
     subject: row.subject_name,
     predicate: row.predicate,
@@ -182,6 +187,7 @@ export function queryRelationship(db: SqliteDriver, predicate: string, asOf?: st
     validTo: row.valid_to,
     confidence: row.confidence,
     sourceCloset: row.source_closet,
+    sourceFile: row.source_file,
     current: row.valid_to === null,
   }));
 }
@@ -213,6 +219,7 @@ export function timeline(db: SqliteDriver, entityName?: string, limit = 100): KG
   }
 
   return rows.map(row => ({
+    id: row.id,
     direction: 'outgoing' as KGDirection,
     subject: row.subject_name,
     predicate: row.predicate,
@@ -221,6 +228,7 @@ export function timeline(db: SqliteDriver, entityName?: string, limit = 100): KG
     validTo: row.valid_to,
     confidence: row.confidence,
     sourceCloset: row.source_closet,
+    sourceFile: row.source_file,
     current: row.valid_to === null,
   }));
 }

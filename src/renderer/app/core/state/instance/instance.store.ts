@@ -550,6 +550,13 @@ export class InstanceStore implements OnDestroy {
     return this.listStore.createInstanceWithMessage(options);
   }
 
+  /** Create instance and immediately send a message, returning the new instance ID. */
+  async createInstanceWithMessageAndReturnId(
+    options: CreateInstanceWithMessageOptions,
+  ): Promise<string | null> {
+    return this.listStore.createInstanceWithMessageAndReturnId(options);
+  }
+
   /** Set an error message */
   setError(error: string | null): void {
     this.stateService.setError(error);

@@ -50,6 +50,7 @@ export interface KGTimelineQuery {
 }
 
 export interface KGQueryResult {
+  id: string;
   direction: KGDirection;
   subject: string;
   predicate: string;
@@ -58,6 +59,7 @@ export interface KGQueryResult {
   validTo: string | null;
   confidence: number;
   sourceCloset: string | null;
+  sourceFile: string | null;
   current: boolean;
 }
 
@@ -67,6 +69,250 @@ export interface KGStats {
   currentFacts: number;
   expiredFacts: number;
   relationshipTypes: string[];
+}
+
+export type CodebaseMiningRunStatus = 'never' | 'running' | 'completed' | 'failed';
+
+export type ProjectDiscoverySource =
+  | 'manual'
+  | 'manual-browse'
+  | 'default-working-directory'
+  | 'instance-working-directory';
+
+export interface CodebaseMiningFileSnapshot {
+  relativePath: string;
+  hash: string;
+  size: number;
+}
+
+export interface CodebaseMiningStatus {
+  normalizedPath: string;
+  rootPath?: string;
+  projectKey?: string;
+  displayName?: string;
+  discoverySource?: ProjectDiscoverySource;
+  autoMine?: boolean;
+  isPaused?: boolean;
+  isExcluded?: boolean;
+  mined: boolean;
+  status: CodebaseMiningRunStatus;
+  contentFingerprint?: string;
+  filesRead?: number;
+  factsExtracted?: number;
+  hintsCreated?: number;
+  errors?: string[];
+  startedAt?: number;
+  completedAt?: number;
+  lastActiveAt?: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface CodebaseMiningResult {
+  normalizedPath: string;
+  rootPath?: string;
+  projectKey?: string;
+  displayName?: string;
+  discoverySource?: ProjectDiscoverySource;
+  autoMine?: boolean;
+  isPaused?: boolean;
+  isExcluded?: boolean;
+  status: CodebaseMiningRunStatus;
+  factsExtracted: number;
+  hintsCreated: number;
+  filesRead: number;
+  errors: string[];
+  skipped?: boolean;
+  skipReason?: 'unchanged' | 'in-flight' | 'paused' | 'excluded';
+  contentFingerprint?: string;
+  lastMinedAt?: number;
+  sourcesProcessed?: number;
+  sourcesCreated?: number;
+  sourcesChanged?: number;
+  sourcesDeleted?: number;
+  sourceLinksCreated?: number;
+  sourceLinksPruned?: number;
+}
+
+export type ProjectKnowledgeSourceKind =
+  | 'manifest'
+  | 'readme'
+  | 'instruction_doc'
+  | 'config'
+  | 'code_file';
+
+export type ProjectKnowledgeTargetKind = 'kg_triple' | 'wake_hint' | 'code_symbol';
+
+export type ProjectSourceSpan =
+  | {
+      kind: 'file_lines';
+      path: string;
+      startLine: number;
+      endLine: number;
+      startColumn?: number;
+      endColumn?: number;
+    }
+  | { kind: 'whole_source' };
+
+export interface ProjectKnowledgeSource {
+  id: string;
+  projectKey: string;
+  sourceKind: ProjectKnowledgeSourceKind;
+  sourceUri: string;
+  sourceTitle?: string;
+  contentFingerprint: string;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface ProjectKnowledgeSourceDescriptor {
+  sourceKind: ProjectKnowledgeSourceKind;
+  sourceUri: string;
+  contentFingerprint: string;
+}
+
+export interface ProjectKnowledgeSourceUpsertResult {
+  source: ProjectKnowledgeSource;
+  created: boolean;
+  changed: boolean;
+}
+
+export interface ProjectKnowledgeSourceLink {
+  id: string;
+  projectKey: string;
+  sourceId: string;
+  targetKind: ProjectKnowledgeTargetKind;
+  targetId: string;
+  sourceSpan: ProjectSourceSpan;
+  evidenceStrength: number;
+  createdAt: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface ProjectKnowledgeSourceLinkResult {
+  link: ProjectKnowledgeSourceLink;
+  created: boolean;
+}
+
+export interface ProjectKnowledgeEvidence {
+  link: ProjectKnowledgeSourceLink;
+  source: ProjectKnowledgeSource;
+}
+
+export type ProjectCodeIndexRunStatus =
+  | 'never'
+  | 'indexing'
+  | 'ready'
+  | 'failed'
+  | 'disabled'
+  | 'paused'
+  | 'excluded';
+
+export interface ProjectCodeIndexStatus {
+  projectKey: string;
+  workspaceHash?: string;
+  status: ProjectCodeIndexRunStatus;
+  fileCount: number;
+  symbolCount: number;
+  syncStartedAt?: number;
+  lastIndexedAt?: number;
+  lastSyncedAt?: number;
+  updatedAt: number;
+  error?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ProjectCodeSymbol {
+  targetKind: 'code_symbol';
+  targetId: string;
+  id: string;
+  projectKey: string;
+  sourceId: string;
+  workspaceHash: string;
+  symbolId: string;
+  pathFromRoot: string;
+  name: string;
+  kind: string;
+  containerName?: string;
+  startLine: number;
+  startCharacter: number;
+  endLine: number;
+  endCharacter: number;
+  signature?: string;
+  docComment?: string;
+  createdAt: number;
+  updatedAt: number;
+  metadata: Record<string, unknown>;
+  evidenceCount: number;
+}
+
+export interface ProjectKnowledgeSourceInventory {
+  totalSources: number;
+  totalLinks: number;
+  totalKgLinks: number;
+  totalWakeLinks: number;
+  totalCodeSymbols: number;
+  byKind: Partial<Record<ProjectKnowledgeSourceKind, number>>;
+}
+
+export interface ProjectKnowledgeProjectSummary {
+  projectKey: string;
+  rootPath: string;
+  displayName: string;
+  miningStatus: CodebaseMiningStatus;
+  inventory: ProjectKnowledgeSourceInventory;
+}
+
+export interface ProjectKnowledgeFact {
+  targetKind: 'kg_triple';
+  targetId: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+  validFrom: string | null;
+  validTo: string | null;
+  sourceFile: string | null;
+  evidenceCount: number;
+}
+
+export interface ProjectKnowledgeWakeHintItem {
+  targetKind: 'wake_hint';
+  targetId: string;
+  content: string;
+  importance: number;
+  room: string;
+  createdAt: number;
+  evidenceCount: number;
+}
+
+export interface ProjectKnowledgeReadModel {
+  project: ProjectKnowledgeProjectSummary;
+  sources: ProjectKnowledgeSource[];
+  facts: ProjectKnowledgeFact[];
+  wakeHints: ProjectKnowledgeWakeHintItem[];
+  codeIndex: ProjectCodeIndexStatus;
+  codeSymbols: ProjectCodeSymbol[];
+}
+
+export interface ProjectKnowledgeListProjectsResult {
+  projects: ProjectKnowledgeProjectSummary[];
+}
+
+export interface ProjectKnowledgeReadModelRequest {
+  projectKey: string;
+}
+
+export interface ProjectKnowledgeEvidenceRequest {
+  projectKey: string;
+  targetKind: ProjectKnowledgeTargetKind;
+  targetId: string;
+}
+
+export interface ProjectCodeIndexRefreshRequest {
+  projectKey: string;
 }
 
 export interface KnowledgeGraphConfig {

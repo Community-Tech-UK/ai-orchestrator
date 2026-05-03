@@ -19,6 +19,9 @@ export function registerMemoryBootstrap(): void {
       const { getConversationMiner } = require('../memory/conversation-miner') as typeof import('../memory/conversation-miner');
       const { getWakeContextBuilder } = require('../memory/wake-context-builder') as typeof import('../memory/wake-context-builder');
       const { getCodebaseMiner } = require('../memory/codebase-miner') as typeof import('../memory/codebase-miner');
+      const { getProjectCodeIndexBridge } = require('../memory/project-code-index-bridge') as typeof import('../memory/project-code-index-bridge');
+      const { getProjectKnowledgeCoordinator } = require('../memory/project-knowledge-coordinator') as typeof import('../memory/project-knowledge-coordinator');
+      const { getProjectKnowledgeReadModelService } = require('../memory/project-knowledge-read-model') as typeof import('../memory/project-knowledge-read-model');
 
       getAnswerAgent();
       getCritiqueAgent();
@@ -26,6 +29,9 @@ export function registerMemoryBootstrap(): void {
       getConversationMiner();
       getWakeContextBuilder();
       getCodebaseMiner();
+      getProjectCodeIndexBridge();
+      getProjectKnowledgeCoordinator();
+      getProjectKnowledgeReadModelService();
     },
   });
 

@@ -3,16 +3,23 @@ import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLogger } from '../../logging/logger';
 import { getKnowledgeGraphService } from '../../memory/knowledge-graph-service';
-import { getCodebaseMiner } from '../../memory/codebase-miner';
+import { getProjectKnowledgeCoordinator } from '../../memory/project-knowledge-coordinator';
+import { getProjectKnowledgeReadModelService } from '../../memory/project-knowledge-read-model';
 import {
+  CodebaseExcludeProjectPayloadSchema,
   CodebaseGetStatusPayloadSchema,
   CodebaseMineDirectoryPayloadSchema,
+  CodebasePauseProjectPayloadSchema,
+  CodebaseResumeProjectPayloadSchema,
   KgAddEntityPayloadSchema,
   KgAddFactPayloadSchema,
   KgInvalidateFactPayloadSchema,
   KgQueryEntityPayloadSchema,
   KgQueryRelationshipPayloadSchema,
   KgTimelinePayloadSchema,
+  ProjectKnowledgeGetEvidencePayloadSchema,
+  ProjectKnowledgeGetReadModelPayloadSchema,
+  ProjectKnowledgeRefreshCodeIndexPayloadSchema,
 } from '@contracts/schemas/knowledge';
 
 const logger = getLogger('KnowledgeGraphHandlers');
@@ -177,7 +184,7 @@ export function registerKnowledgeGraphHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const data = CodebaseMineDirectoryPayloadSchema.parse(payload);
-        const result = await getCodebaseMiner().mineDirectory(data.dirPath);
+        const result = await getProjectKnowledgeCoordinator().refreshProject(data.dirPath, 'manual-browse');
         return { success: true, data: result };
       } catch (error) {
         logger.error('CODEBASE_MINE_DIRECTORY failed', error as Error);
@@ -198,7 +205,7 @@ export function registerKnowledgeGraphHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const data = CodebaseGetStatusPayloadSchema.parse(payload);
-        const result = getCodebaseMiner().getStatus(data.dirPath);
+        const result = getProjectKnowledgeCoordinator().getProjectStatus(data.dirPath);
         return { success: true, data: result };
       } catch (error) {
         logger.error('CODEBASE_GET_STATUS failed', error as Error);
@@ -206,6 +213,152 @@ export function registerKnowledgeGraphHandlers(): void {
           success: false,
           error: {
             code: 'CODEBASE_GET_STATUS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_PAUSE_PROJECT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = CodebasePauseProjectPayloadSchema.parse(payload);
+        const result = getProjectKnowledgeCoordinator().pauseProject(data.dirPath);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('CODEBASE_PAUSE_PROJECT failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_PAUSE_PROJECT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_RESUME_PROJECT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = CodebaseResumeProjectPayloadSchema.parse(payload);
+        const result = getProjectKnowledgeCoordinator().resumeProject(data.dirPath);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('CODEBASE_RESUME_PROJECT failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_RESUME_PROJECT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_EXCLUDE_PROJECT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = CodebaseExcludeProjectPayloadSchema.parse(payload);
+        const result = getProjectKnowledgeCoordinator().excludeProject(data.dirPath);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('CODEBASE_EXCLUDE_PROJECT failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_EXCLUDE_PROJECT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PROJECT_KNOWLEDGE_LIST_PROJECTS,
+    async (): Promise<IpcResponse> => {
+      try {
+        const result = getProjectKnowledgeReadModelService().listProjects();
+        return { success: true, data: { projects: result } };
+      } catch (error) {
+        logger.error('PROJECT_KNOWLEDGE_LIST_PROJECTS failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'PROJECT_KNOWLEDGE_LIST_PROJECTS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PROJECT_KNOWLEDGE_GET_READ_MODEL,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = ProjectKnowledgeGetReadModelPayloadSchema.parse(payload);
+        const result = getProjectKnowledgeReadModelService().getReadModel(data.projectKey);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('PROJECT_KNOWLEDGE_GET_READ_MODEL failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'PROJECT_KNOWLEDGE_GET_READ_MODEL_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PROJECT_KNOWLEDGE_GET_EVIDENCE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = ProjectKnowledgeGetEvidencePayloadSchema.parse(payload);
+        const result = getProjectKnowledgeReadModelService().getEvidence(data.projectKey, data.targetKind, data.targetId);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('PROJECT_KNOWLEDGE_GET_EVIDENCE failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'PROJECT_KNOWLEDGE_GET_EVIDENCE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.PROJECT_KNOWLEDGE_REFRESH_CODE_INDEX,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const data = ProjectKnowledgeRefreshCodeIndexPayloadSchema.parse(payload);
+        const result = await getProjectKnowledgeCoordinator().refreshProjectCodeIndex(data.projectKey);
+        return { success: true, data: result };
+      } catch (error) {
+        logger.error('PROJECT_KNOWLEDGE_REFRESH_CODE_INDEX failed', error as Error);
+        return {
+          success: false,
+          error: {
+            code: 'PROJECT_KNOWLEDGE_REFRESH_CODE_INDEX_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

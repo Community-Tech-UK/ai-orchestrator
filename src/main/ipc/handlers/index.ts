@@ -50,3 +50,4 @@ export { registerConversationMiningHandlers } from './conversation-mining-handle
 export { registerWakeContextHandlers } from './wake-context-handlers';
 export { registerAutomationHandlers } from './automation-handlers';
 export { registerWebhookHandlers } from './webhook-handlers';
+export { registerVoiceHandlers } from './voice-handlers';

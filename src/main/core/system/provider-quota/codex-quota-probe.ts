@@ -28,6 +28,7 @@ import * as childProc from 'child_process';
 import type { ProviderQuotaSnapshot } from '../../../../shared/types/provider-quota.types';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import { getLogger } from '../../../logging/logger';
+import { buildCliEnv } from '../../../cli/cli-environment';
 
 const logger = getLogger('CodexQuotaProbe');
 
@@ -41,7 +42,7 @@ export interface ExecResult {
 export type CodexLoginStatusExec = (
   command: string,
   args: string[],
-  opts: { signal: AbortSignal; timeoutMs: number },
+  opts: { signal: AbortSignal; timeoutMs: number; env: NodeJS.ProcessEnv },
 ) => Promise<ExecResult>;
 
 export interface CodexQuotaProbeOptions {
@@ -51,6 +52,10 @@ export interface CodexQuotaProbeOptions {
   timeoutMs?: number;
   /** Injected exec for testability. */
   exec?: CodexLoginStatusExec;
+  /** Injected environment for testability. Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** Injected platform for testability. Defaults to process.platform. */
+  platform?: NodeJS.Platform;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -61,11 +66,15 @@ export class CodexQuotaProbe implements ProviderQuotaProbe {
   private readonly cliCommand: string;
   private readonly timeoutMs: number;
   private readonly exec: CodexLoginStatusExec;
+  private readonly env: NodeJS.ProcessEnv;
+  private readonly platform: NodeJS.Platform;
 
   constructor(opts: CodexQuotaProbeOptions = {}) {
     this.cliCommand = opts.cliCommand ?? 'codex';
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.exec = opts.exec ?? defaultExec;
+    this.env = opts.env ?? process.env;
+    this.platform = opts.platform ?? process.platform;
   }
 
   async probe({ signal }: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
@@ -75,6 +84,7 @@ export class CodexQuotaProbe implements ProviderQuotaProbe {
       result = await this.exec(this.cliCommand, ['login', 'status'], {
         signal,
         timeoutMs: this.timeoutMs,
+        env: buildCliEnv(this.env, this.platform),
       });
     } catch (err) {
       return failedSnapshot(takenAt, classifyExecError(err));
@@ -168,13 +178,13 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + '…';
 }
 
-const defaultExec: CodexLoginStatusExec = (command, args, { signal, timeoutMs }) => {
+const defaultExec: CodexLoginStatusExec = (command, args, { signal, timeoutMs, env }) => {
   return new Promise((resolve, reject) => {
     let settled = false;
     const child = childProc.execFile(
       command,
       args,
-      { signal, timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      { env, signal, timeout: timeoutMs, maxBuffer: 1024 * 1024 },
       (err, stdout, stderr) => {
         if (settled) return;
         settled = true;

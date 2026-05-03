@@ -1,7 +1,11 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
-import { RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
+import {
+  OrchestrationIpcService,
+  RecentDirectoriesIpcService,
+  VcsIpcService,
+} from '../../core/services/ipc';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { FileAttachmentService } from './file-attachment.service';
@@ -17,12 +21,29 @@ export interface WelcomeProjectContext {
   hasDraft: boolean;
 }
 
+interface WelcomeLaunchConfig {
+  message: string;
+  files: File[];
+  workingDirectory: string;
+  agentId: string;
+  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
+  model?: string;
+  forceNodeId?: string;
+}
+
+interface WelcomeLaunchPlan {
+  config: WelcomeLaunchConfig;
+  effectiveWorkingDir: string;
+  forceNodeId?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WelcomeCoordinatorService {
   private store = inject(InstanceStore);
   private remoteNodeStore = inject(RemoteNodeStore);
   private recentDirsService = inject(RecentDirectoriesIpcService);
   private vcsIpc = inject(VcsIpcService);
+  private orchestrationIpc = inject(OrchestrationIpcService);
   private providerState = inject(ProviderStateService);
   private newSessionDraft = inject(NewSessionDraftService);
   private fileAttachment = inject(FileAttachmentService);
@@ -135,6 +156,70 @@ export class WelcomeCoordinatorService {
     message: string,
     onCreatingChange: (creating: boolean) => void,
   ): Promise<boolean> {
+    const plan = this.prepareWelcomeLaunch(message);
+    if (!plan) return false;
+
+    onCreatingChange(true);
+    const launched = await this.store.createInstanceWithMessage(plan.config);
+
+    if (!launched) {
+      onCreatingChange(false);
+      // Clear node selection so it doesn't leak into the next attempt
+      this.clearWelcomeNodeSelection();
+      return false;
+    }
+
+    await this.finalizeWelcomeLaunch(plan);
+    return true;
+  }
+
+  async onWelcomeStartSessionWithWorkflow(
+    message: string,
+    templateId: string,
+    onCreatingChange: (creating: boolean) => void,
+  ): Promise<boolean> {
+    const plan = this.prepareWelcomeLaunch(message);
+    if (!plan) return false;
+
+    onCreatingChange(true);
+    const instanceId = await this.store.createInstanceWithMessageAndReturnId(plan.config);
+    if (!instanceId) {
+      onCreatingChange(false);
+      this.clearWelcomeNodeSelection();
+      return false;
+    }
+
+    await this.finalizeWelcomeLaunch(plan);
+
+    const transition = await this.orchestrationIpc.workflowCanTransition({
+      instanceId,
+      templateId,
+      source: 'nl-suggestion',
+    });
+    const policy = transition.data?.policy;
+    if (!transition.success || policy?.kind === 'deny') {
+      this.store.setError(
+        policy?.kind === 'deny'
+          ? policy.reason
+          : transition.error?.message || 'Workflow cannot start.',
+      );
+      return false;
+    }
+
+    const started = await this.orchestrationIpc.workflowStart({
+      instanceId,
+      templateId,
+      source: 'nl-suggestion',
+    });
+    if (!started.success) {
+      this.store.setError(started.error?.message || 'Workflow start failed.');
+      return false;
+    }
+
+    return true;
+  }
+
+  private prepareWelcomeLaunch(message: string): WelcomeLaunchPlan | null {
     const workingDir = this.workingDirectory() || '.';
     const selectedProvider =
       this.newSessionDraft.provider() ??
@@ -153,7 +238,6 @@ export class WelcomeCoordinatorService {
     );
     const forceNodeId = this.welcomeSelectedNodeId() ?? undefined;
 
-    // Validate selected remote node is still reachable
     let effectiveWorkingDir = workingDir;
     if (forceNodeId) {
       const node = this.remoteNodeStore.nodeById(forceNodeId);
@@ -161,7 +245,7 @@ export class WelcomeCoordinatorService {
         this.store.setError(
           'Selected remote node is no longer connected. Please choose another node or use Local.',
         );
-        return false;
+        return null;
       }
 
       // If the working directory is a local path that doesn't exist on the
@@ -179,37 +263,37 @@ export class WelcomeCoordinatorService {
         this.store.setError(
           'The current working directory is not available on the remote node. Please browse and select a remote folder first.',
         );
-        return false;
+        return null;
       }
     }
 
-    onCreatingChange(true);
-    const launched = await this.store.createInstanceWithMessage({
-      message: finalMessage,
-      files: this.pendingFiles(),
-      workingDirectory: effectiveWorkingDir,
-      agentId: this.newSessionDraft.agentId(),
-      provider,
-      model,
+    return {
+      config: {
+        message: finalMessage,
+        files: this.pendingFiles(),
+        workingDirectory: effectiveWorkingDir,
+        agentId: this.newSessionDraft.agentId(),
+        provider,
+        model,
+        forceNodeId,
+      },
+      effectiveWorkingDir,
       forceNodeId,
-    });
+    };
+  }
 
-    if (!launched) {
-      onCreatingChange(false);
-      // Clear node selection so it doesn't leak into the next attempt
-      this.welcomeSelectedNodeId.set(null);
-      this.newSessionDraft.setNodeId(null);
-      return false;
-    }
-
-    this.welcomeSelectedNodeId.set(null);
-    this.newSessionDraft.setNodeId(null);
+  private async finalizeWelcomeLaunch(plan: WelcomeLaunchPlan): Promise<void> {
+    this.clearWelcomeNodeSelection();
     this.newSessionDraft.clearActiveComposer();
     await this.recentDirsService.addDirectory(
-      effectiveWorkingDir,
-      forceNodeId ? { nodeId: forceNodeId } : undefined,
+      plan.effectiveWorkingDir,
+      plan.forceNodeId ? { nodeId: plan.forceNodeId } : undefined,
     );
-    return true;
+  }
+
+  private clearWelcomeNodeSelection(): void {
+    this.welcomeSelectedNodeId.set(null);
+    this.newSessionDraft.setNodeId(null);
   }
 
   // ---------------------------------------------------------------------------

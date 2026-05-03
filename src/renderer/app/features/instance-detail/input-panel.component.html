@@ -209,6 +209,28 @@
       </div>
 
       <div class="composer-actions-right">
+        <button
+          class="btn-voice"
+          [class.active]="isVoiceActive()"
+          [class.error]="voiceMode() === 'error'"
+          [disabled]="!isVoiceActive() && !canUseVoice()"
+          (click)="onToggleVoice()"
+          [title]="voiceButtonTitle()"
+          type="button"
+        >
+          <span class="voice-meter-ring" [style.transform]="'scale(' + voiceMeterStyle() + ')'"></span>
+          @if (isVoiceActive()) {
+            <svg class="voice-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="2"></rect>
+            </svg>
+          } @else {
+            <svg class="voice-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <path d="M12 19v3"></path>
+            </svg>
+          }
+        </button>
         @if (canSteerActiveTurn()) {
           <button
             class="btn-steer"
@@ -233,6 +255,45 @@
         </button>
       </div>
     </div>
+
+    @if (voiceStatusLabel(); as label) {
+      <div
+        class="voice-status-row"
+        [class.error]="voiceMode() === 'error'"
+        [class.detached]="voice.transcriptDetached()"
+      >
+        <span class="voice-status-dot" [style.opacity]="voiceMeterStyle()"></span>
+        <span class="voice-status-text">{{ label }}</span>
+        @if (voice.transcriptDetached()) {
+          <span class="voice-status-badge">Detached</span>
+        }
+        @if (voice.errorCode() === 'missing-api-key') {
+          <button type="button" class="voice-inline-action" (click)="showVoiceKeyInput.set(true)">
+            Key
+          </button>
+        }
+      </div>
+    }
+
+    @if (showVoiceKeyInput()) {
+      <form class="voice-key-form" (submit)="$event.preventDefault(); onSubmitVoiceKey()">
+        <input
+          class="voice-key-input"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="OpenAI API key"
+          [value]="temporaryVoiceKey()"
+          (input)="temporaryVoiceKey.set($any($event.target).value)"
+        >
+        <button type="submit" class="voice-key-btn" [disabled]="!temporaryVoiceKey().trim()">
+          Save
+        </button>
+        <button type="button" class="voice-key-btn secondary" (click)="onCancelVoiceKey()">
+          Cancel
+        </button>
+      </form>
+    }
   </div>
 
   @if (queuedMessages().length > 0) {

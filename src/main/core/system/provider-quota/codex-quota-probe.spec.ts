@@ -152,6 +152,22 @@ describe('CodexQuotaProbe', () => {
       expect(received).toBe(ac.signal);
     });
 
+    it('passes the expanded CLI PATH to exec', async () => {
+      let pathEnv = '';
+      const probe = new CodexQuotaProbe({
+        env: { HOME: '/Users/alice', PATH: '/usr/bin:/bin' } as NodeJS.ProcessEnv,
+        platform: 'darwin',
+        exec: async (_c, _a, { env }) => {
+          pathEnv = env['PATH'] ?? '';
+          return { stdout: 'Logged in using ChatGPT', stderr: '', exitCode: 0 };
+        },
+      });
+      await probe.probe({ signal: new AbortController().signal });
+      expect(pathEnv).toContain('/Users/alice/.local/bin');
+      expect(pathEnv).toContain('/Users/alice/.nvm/versions/node/current/bin');
+      expect(pathEnv).toContain('/usr/bin:/bin');
+    });
+
     it('returns provider id "codex"', () => {
       const probe = new CodexQuotaProbe({
         exec: fakeExec({ stdout: 'Logged in using ChatGPT' }),

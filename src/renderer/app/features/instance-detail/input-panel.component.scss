@@ -444,6 +444,67 @@ app-copilot-model-selector {
   transform: translateY(-2px);
 }
 
+.btn-voice {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: rgba(243, 239, 229, 0.78);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--text-primary);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  &.active {
+    border-color: rgba(74, 222, 128, 0.32);
+    color: rgb(187, 247, 208);
+    background: rgba(34, 197, 94, 0.1);
+  }
+
+  &.error {
+    border-color: rgba(var(--error-rgb), 0.3);
+    color: var(--error-color);
+    background: rgba(var(--error-rgb), 0.08);
+  }
+}
+
+.voice-meter-ring {
+  position: absolute;
+  inset: 6px;
+  border-radius: inherit;
+  background: rgba(74, 222, 128, 0.18);
+  opacity: 0;
+  transition:
+    opacity var(--transition-fast),
+    transform 70ms linear;
+  pointer-events: none;
+}
+
+.btn-voice.active .voice-meter-ring {
+  opacity: 1;
+}
+
+.voice-icon {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
 .btn-send {
   width: 34px;
   height: 34px;
@@ -557,6 +618,117 @@ app-copilot-model-selector {
 .hint-recovery {
   color: rgba(245, 158, 11, 0.7);
   font-weight: 600;
+}
+
+.voice-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.voice-status-row.error {
+  color: var(--error-color);
+}
+
+.voice-status-row.detached {
+  color: rgba(245, 158, 11, 0.86);
+}
+
+.voice-status-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgb(74, 222, 128);
+  box-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
+}
+
+.voice-status-row.error .voice-status-dot {
+  background: var(--error-color);
+  box-shadow: 0 0 12px rgba(var(--error-rgb), 0.35);
+}
+
+.voice-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-status-badge {
+  flex-shrink: 0;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  color: rgba(253, 230, 138, 0.9);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.voice-inline-action,
+.voice-key-btn {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(var(--primary-rgb), 0.24);
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--primary-rgb), 0.16);
+    border-color: rgba(var(--primary-rgb), 0.34);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.voice-key-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 0;
+  min-width: 0;
+}
+
+.voice-key-input {
+  flex: 1;
+  min-width: 180px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+
+  &:focus {
+    border-color: rgba(var(--primary-rgb), 0.34);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08);
+  }
+}
+
+.voice-key-btn.secondary {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
 }
 
 /* Queue Section - Message queue display */
@@ -745,6 +917,15 @@ app-copilot-model-selector {
 
   .steer-label {
     display: none;
+  }
+
+  .voice-key-form {
+    flex-wrap: wrap;
+  }
+
+  .voice-key-input {
+    flex-basis: 100%;
+    min-width: 0;
   }
 }
 

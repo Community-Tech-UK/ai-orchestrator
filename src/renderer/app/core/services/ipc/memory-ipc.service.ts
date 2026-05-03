@@ -4,6 +4,11 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type {
+  ProjectCodeIndexRefreshRequest,
+  ProjectKnowledgeEvidenceRequest,
+  ProjectKnowledgeReadModelRequest,
+} from '../../../../../shared/types/knowledge-graph.types';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-function
 const noop = (): void => {};
@@ -622,6 +627,41 @@ export class MemoryIpcService {
   async codebaseGetStatus(payload: { dirPath: string }): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.codebaseGetStatus(payload);
+  }
+
+  async codebasePauseProject(payload: { dirPath: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.codebasePauseProject(payload);
+  }
+
+  async codebaseResumeProject(payload: { dirPath: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.codebaseResumeProject(payload);
+  }
+
+  async codebaseExcludeProject(payload: { dirPath: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.codebaseExcludeProject(payload);
+  }
+
+  async projectKnowledgeListProjects(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectKnowledgeListProjects();
+  }
+
+  async projectKnowledgeGetReadModel(payload: ProjectKnowledgeReadModelRequest): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectKnowledgeGetReadModel(payload);
+  }
+
+  async projectKnowledgeGetEvidence(payload: ProjectKnowledgeEvidenceRequest): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectKnowledgeGetEvidence(payload);
+  }
+
+  async projectKnowledgeRefreshCodeIndex(payload: ProjectCodeIndexRefreshRequest): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.projectKnowledgeRefreshCodeIndex(payload);
   }
 
   // ============================================

@@ -34,6 +34,7 @@ import type {
 } from '../../../../shared/types/provider-quota.types';
 import type { ProviderQuotaProbe } from '../provider-quota-service';
 import { getLogger } from '../../../logging/logger';
+import { buildCliEnv } from '../../../cli/cli-environment';
 
 const logger = getLogger('ClaudeQuotaProbe');
 
@@ -51,7 +52,7 @@ export interface ExecResult {
 export type ClaudeAuthStatusExec = (
   command: string,
   args: string[],
-  opts: { signal: AbortSignal; timeoutMs: number },
+  opts: { signal: AbortSignal; timeoutMs: number; env: NodeJS.ProcessEnv },
 ) => Promise<ExecResult>;
 
 export interface ClaudeQuotaProbeOptions {
@@ -61,6 +62,10 @@ export interface ClaudeQuotaProbeOptions {
   timeoutMs?: number;
   /** Injected exec for testability. Defaults to a real execFile wrapper. */
   exec?: ClaudeAuthStatusExec;
+  /** Injected environment for testability. Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** Injected platform for testability. Defaults to process.platform. */
+  platform?: NodeJS.Platform;
 }
 
 /** Shape of a successful `claude auth status --json` payload. */
@@ -82,11 +87,15 @@ export class ClaudeQuotaProbe implements ProviderQuotaProbe {
   private readonly cliCommand: string;
   private readonly timeoutMs: number;
   private readonly exec: ClaudeAuthStatusExec;
+  private readonly env: NodeJS.ProcessEnv;
+  private readonly platform: NodeJS.Platform;
 
   constructor(opts: ClaudeQuotaProbeOptions = {}) {
     this.cliCommand = opts.cliCommand ?? 'claude';
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.exec = opts.exec ?? defaultExec;
+    this.env = opts.env ?? process.env;
+    this.platform = opts.platform ?? process.platform;
   }
 
   async probe({ signal }: { signal: AbortSignal }): Promise<ProviderQuotaSnapshot | null> {
@@ -96,6 +105,7 @@ export class ClaudeQuotaProbe implements ProviderQuotaProbe {
       result = await this.exec(this.cliCommand, ['auth', 'status', '--json'], {
         signal,
         timeoutMs: this.timeoutMs,
+        env: buildCliEnv(this.env, this.platform),
       });
     } catch (err) {
       return failedSnapshot(takenAt, classifyExecError(err));
@@ -188,7 +198,7 @@ function parseAuthStatus(json: AuthStatusJson, takenAt: number): ProviderQuotaSn
  * stdout/stderr/exitCode rather than throwing on non-zero exit (the probe
  * needs to inspect both). Uses no shell — args are passed as an array.
  */
-const defaultExec: ClaudeAuthStatusExec = (command, args, { signal, timeoutMs }) => {
+const defaultExec: ClaudeAuthStatusExec = (command, args, { signal, timeoutMs, env }) => {
   return new Promise((resolve, reject) => {
     let settled = false;
 
@@ -196,6 +206,7 @@ const defaultExec: ClaudeAuthStatusExec = (command, args, { signal, timeoutMs })
       command,
       args,
       {
+        env,
         signal,
         timeout: timeoutMs,
         maxBuffer: 1024 * 1024,

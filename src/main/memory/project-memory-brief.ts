@@ -6,7 +6,22 @@ import { getPromptHistoryService, type PromptHistoryService } from '../prompt-hi
 import { getHistoryManager, type HistoryManager } from '../history/history-manager';
 import { getTranscriptSnippetService, type TranscriptSnippetService } from '../history/transcript-snippet-service';
 import { getSessionRecallService, type SessionRecallService } from '../session/session-recall-service';
+import { getRLMDatabase } from '../persistence/rlm-database';
+import {
+  recordProjectMemoryStartupBrief,
+  type RecordProjectMemoryStartupBriefParams,
+} from '../persistence/rlm/rlm-project-memory-briefs';
+import {
+  getProjectKnowledgeReadModelService,
+  type ProjectKnowledgeReadModelService,
+} from './project-knowledge-read-model';
 import { normalizeProjectMemoryKey, projectMemoryKeysEqual } from './project-memory-key';
+import type {
+  ProjectCodeSymbol,
+  ProjectKnowledgeFact,
+  ProjectKnowledgeReadModel,
+  ProjectKnowledgeWakeHintItem,
+} from '../../shared/types/knowledge-graph.types';
 
 const logger = getLogger('ProjectMemoryBriefService');
 
@@ -17,6 +32,9 @@ const HISTORY_EXPAND_LIMIT = 6;
 const HISTORY_SNIPPETS_PER_ENTRY = 2;
 const SNIPPET_CHARS = 260;
 const MIN_TOKEN_LENGTH = 3;
+const SOURCE_BACKED_RESERVED_RATIO = 0.5;
+const CODE_SYMBOL_FALLBACK_LIMIT = 12;
+const PROJECT_KNOWLEDGE_READ_WARN_MS = 250;
 
 export interface ProjectMemoryBriefRequest {
   projectPath: string;
@@ -29,7 +47,13 @@ export interface ProjectMemoryBriefRequest {
   includeMinedMemory?: boolean;
 }
 
-export type ProjectMemoryBriefSourceType = 'prompt-history' | 'history-transcript';
+export type ProjectMemoryBriefSourceType =
+  | 'prompt-history'
+  | 'history-transcript'
+  | 'project-fact'
+  | 'project-wake-hint'
+  | 'code-index-status'
+  | 'code-symbol';
 
 export interface ProjectMemoryBriefSource {
   id: string;
@@ -45,6 +69,7 @@ export interface ProjectMemoryBriefSource {
 export interface ProjectMemoryBriefSectionItem {
   sourceId: string;
   text: string;
+  label?: string;
   timestamp?: number;
   provider?: string;
   model?: string;
@@ -71,19 +96,26 @@ type ProjectMemoryPromptHistoryDep = Pick<PromptHistoryService, 'getForProject'>
 type ProjectMemoryHistoryDep = Pick<HistoryManager, 'getEntries'>;
 type ProjectMemorySnippetDep = Pick<TranscriptSnippetService, 'expandSnippetsOnDemand'>;
 type ProjectMemoryRecallDep = Pick<SessionRecallService, 'search'>;
+type ProjectMemoryKnowledgeDep = Pick<ProjectKnowledgeReadModelService, 'getReadModel'>;
+export type ProjectMemoryBriefRecorder = (params: RecordProjectMemoryStartupBriefParams) => void;
 
 interface ProjectMemoryBriefDeps {
   promptHistory?: ProjectMemoryPromptHistoryDep;
   history?: ProjectMemoryHistoryDep;
   snippets?: ProjectMemorySnippetDep;
   recall?: ProjectMemoryRecallDep;
+  projectKnowledge?: ProjectMemoryKnowledgeDep;
+  recorder?: ProjectMemoryBriefRecorder;
 }
+
+type BriefSectionKey = 'facts' | 'codeIndex' | 'codeSymbols' | 'wakeHints' | 'prompts' | 'history';
 
 interface BriefCandidate {
   sourceId: string;
   sourceType: ProjectMemoryBriefSourceType;
-  section: 'prompts' | 'history';
+  section: BriefSectionKey;
   text: string;
+  label?: string;
   timestamp: number;
   provider?: string;
   model?: string;
@@ -92,6 +124,10 @@ interface BriefCandidate {
   score: number;
   sourceRank: number;
   metadata?: Record<string, unknown>;
+}
+
+function defaultRecordProjectMemoryStartupBrief(params: RecordProjectMemoryStartupBriefParams): void {
+  recordProjectMemoryStartupBrief(getRLMDatabase().getRawDb(), params);
 }
 
 export class ProjectMemoryBriefService {
@@ -108,18 +144,13 @@ export class ProjectMemoryBriefService {
     const queryTokens = tokenize(request.initialPrompt ?? '');
     const candidates: BriefCandidate[] = [];
 
+    candidates.push(...this.collectProjectKnowledgeCandidates(request, projectKey, queryTokens));
     candidates.push(...this.collectPromptCandidates(request, projectKey, queryTokens));
     candidates.push(...await this.collectHistoryCandidates(request, projectKey, queryTokens, maxResults));
     candidates.push(...await this.collectRecallCandidates(request, projectKey, queryTokens, maxResults));
 
     const deduped = dedupeCandidates(candidates);
-    deduped.sort((left, right) => (
-      right.score - left.score
-      || right.sourceRank - left.sourceRank
-      || right.timestamp - left.timestamp
-    ));
-
-    const selected = deduped.slice(0, maxResults);
+    const selected = selectCandidates(deduped, maxResults);
     const { sections, sources } = buildStructuredBrief(selected);
     const rendered = renderBrief({
       projectKey,
@@ -127,12 +158,42 @@ export class ProjectMemoryBriefService {
       sources,
       maxChars,
     });
+    const sourceCounts = countSources(sources);
+
+    if (request.instanceId) {
+      try {
+        const recorder = this.deps.recorder ?? defaultRecordProjectMemoryStartupBrief;
+        recorder({
+          instanceId: request.instanceId,
+          projectKey,
+          renderedText: rendered.text,
+          sections,
+          sources,
+          maxChars,
+          truncated: rendered.truncated,
+          provider: request.provider,
+          model: request.model,
+          metadata: {
+            candidatesScanned: candidates.length,
+            candidatesDeduped: deduped.length,
+            candidatesIncluded: selected.length,
+            sourceCounts,
+          },
+        });
+      } catch (error) {
+        logger.warn('Failed to record project memory startup brief', {
+          projectKey,
+          instanceId: request.instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     logger.debug('Built project memory brief', {
       projectKey,
       candidatesScanned: candidates.length,
       candidatesIncluded: selected.length,
-      sourceCounts: countSources(sources),
+      sourceCounts,
       truncated: rendered.truncated,
     });
 
@@ -147,6 +208,44 @@ export class ProjectMemoryBriefService {
         truncated: rendered.truncated,
       },
     };
+  }
+
+  private collectProjectKnowledgeCandidates(
+    request: ProjectMemoryBriefRequest,
+    projectKey: string,
+    queryTokens: Set<string>,
+  ): BriefCandidate[] {
+    if (request.includeMinedMemory === false) {
+      return [];
+    }
+
+    const projectKnowledge = this.deps.projectKnowledge ?? getProjectKnowledgeReadModelService();
+    const startedAt = Date.now();
+    let readModel: ProjectKnowledgeReadModel;
+    try {
+      readModel = projectKnowledge.getReadModel(projectKey);
+    } catch (error) {
+      logger.warn('Failed to collect source-backed project memory candidates', {
+        projectKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    } finally {
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs > PROJECT_KNOWLEDGE_READ_WARN_MS) {
+        logger.warn('Project knowledge read model was slow during startup brief packing', {
+          projectKey,
+          elapsedMs,
+        });
+      }
+    }
+
+    return [
+      ...codeIndexStatusToCandidates(readModel, projectKey),
+      ...readModel.facts.map((fact) => factToCandidate(fact, projectKey, queryTokens)),
+      ...readModel.wakeHints.map((hint) => wakeHintToCandidate(hint, projectKey, queryTokens)),
+      ...codeSymbolCandidates(readModel, projectKey, queryTokens),
+    ];
   }
 
   private collectPromptCandidates(
@@ -394,17 +493,176 @@ function recallResultToCandidate(
   };
 }
 
+function codeIndexStatusToCandidates(
+  readModel: ProjectKnowledgeReadModel,
+  projectKey: string,
+): BriefCandidate[] {
+  const status = readModel.codeIndex;
+  if (status.status === 'never') {
+    return [];
+  }
+
+  const indexedDate = status.lastSyncedAt
+    ? new Date(status.lastSyncedAt).toISOString().slice(0, 10)
+    : 'not synced yet';
+  const text = cleanSnippet(
+    `${status.fileCount} files, ${status.symbolCount} symbols indexed ${indexedDate}.`,
+    SNIPPET_CHARS,
+  );
+
+  return [{
+    sourceId: `code-index:${projectKey}`,
+    sourceType: 'code-index-status',
+    section: 'codeIndex',
+    text,
+    label: `code-index ${status.status}`,
+    timestamp: status.lastSyncedAt ?? status.updatedAt,
+    projectPath: projectKey,
+    score: 88,
+    sourceRank: 5,
+    metadata: {
+      status: status.status,
+      fileCount: status.fileCount,
+      symbolCount: status.symbolCount,
+      lastSyncedAt: status.lastSyncedAt,
+      workspaceHash: status.workspaceHash,
+      error: status.error,
+    },
+  }];
+}
+
+function factToCandidate(
+  fact: ProjectKnowledgeFact,
+  projectKey: string,
+  queryTokens: Set<string>,
+): BriefCandidate {
+  const factText = cleanSnippet(
+    `${fact.subject} ${formatPredicate(fact.predicate)} ${fact.object}.`,
+    SNIPPET_CHARS,
+  );
+  const overlap = countTokenOverlap(queryTokens, factText);
+  const confidencePercent = Math.round(fact.confidence * 100);
+
+  return {
+    sourceId: `fact:${fact.targetId}`,
+    sourceType: 'project-fact',
+    section: 'facts',
+    text: factText,
+    label: `fact src:${fact.evidenceCount} conf:${confidencePercent}%`,
+    timestamp: Date.parse(fact.validFrom ?? '') || 0,
+    projectPath: projectKey,
+    score: 100 + overlap * 15 + fact.confidence * 10 + Math.min(fact.evidenceCount, 5),
+    sourceRank: 6,
+    metadata: {
+      targetKind: 'kg_triple',
+      targetId: fact.targetId,
+      evidenceCount: fact.evidenceCount,
+      confidence: fact.confidence,
+      sourceFile: fact.sourceFile,
+      subject: fact.subject,
+      predicate: fact.predicate,
+      object: fact.object,
+    },
+  };
+}
+
+function wakeHintToCandidate(
+  hint: ProjectKnowledgeWakeHintItem,
+  projectKey: string,
+  queryTokens: Set<string>,
+): BriefCandidate {
+  const text = cleanSnippet(hint.content, SNIPPET_CHARS);
+  const overlap = countTokenOverlap(queryTokens, text);
+
+  return {
+    sourceId: `wake:${hint.targetId}`,
+    sourceType: 'project-wake-hint',
+    section: 'wakeHints',
+    text,
+    label: `wake src:${hint.evidenceCount} imp:${hint.importance}`,
+    timestamp: hint.createdAt,
+    projectPath: projectKey,
+    score: 72 + hint.importance + overlap * 12 + Math.min(hint.evidenceCount, 5),
+    sourceRank: 4,
+    metadata: {
+      targetKind: 'wake_hint',
+      targetId: hint.targetId,
+      evidenceCount: hint.evidenceCount,
+      importance: hint.importance,
+      room: hint.room,
+    },
+  };
+}
+
+function codeSymbolCandidates(
+  readModel: ProjectKnowledgeReadModel,
+  projectKey: string,
+  queryTokens: Set<string>,
+): BriefCandidate[] {
+  const statusAllowsSymbols = readModel.codeIndex.status === 'ready'
+    || (readModel.codeIndex.status === 'indexing' && readModel.codeSymbols.length > 0);
+  if (!statusAllowsSymbols) {
+    return [];
+  }
+
+  const includeFallback = readModel.codeSymbols.length <= CODE_SYMBOL_FALLBACK_LIMIT;
+  return readModel.codeSymbols.flatMap((symbol) => {
+    const searchableText = [
+      symbol.name,
+      symbol.kind,
+      symbol.containerName,
+      symbol.pathFromRoot,
+      symbol.signature,
+      symbol.docComment,
+    ].filter(Boolean).join(' ');
+    const overlap = countTokenOverlap(queryTokens, searchableText);
+    if (overlap === 0 && !includeFallback) {
+      return [];
+    }
+    return [codeSymbolToCandidate(symbol, projectKey, overlap)];
+  });
+}
+
+function codeSymbolToCandidate(
+  symbol: ProjectCodeSymbol,
+  projectKey: string,
+  overlap: number,
+): BriefCandidate {
+  const location = `${symbol.pathFromRoot}:${symbol.startLine}`;
+  const container = symbol.containerName ? ` in ${symbol.containerName}` : '';
+  const text = cleanSnippet(`${symbol.name}${container} at ${location}`, SNIPPET_CHARS);
+
+  return {
+    sourceId: `symbol:${symbol.symbolId}`,
+    sourceType: 'code-symbol',
+    section: 'codeSymbols',
+    text,
+    label: `symbol ${symbol.kind} src:${symbol.evidenceCount}`,
+    timestamp: symbol.updatedAt,
+    projectPath: projectKey,
+    score: 82 + overlap * 20,
+    sourceRank: 5,
+    metadata: {
+      targetKind: 'code_symbol',
+      targetId: symbol.targetId,
+      workspaceHash: symbol.workspaceHash,
+      pathFromRoot: symbol.pathFromRoot,
+      symbolKind: symbol.kind,
+      line: symbol.startLine,
+      containerName: symbol.containerName,
+    },
+  };
+}
+
 function buildStructuredBrief(candidates: BriefCandidate[]): {
   sections: ProjectMemoryBriefSection[];
   sources: ProjectMemoryBriefSource[];
 } {
-  const sectionsByKey = new Map<BriefCandidate['section'], ProjectMemoryBriefSection>();
+  const sectionsByKey = new Map<BriefSectionKey, ProjectMemoryBriefSection>();
   const sources: ProjectMemoryBriefSource[] = [];
 
   for (const candidate of candidates) {
-    const sectionTitle = candidate.section === 'prompts'
-      ? 'Recent relevant prompts'
-      : 'Relevant prior chat excerpts';
+    const sectionTitle = sectionTitleForKey(candidate.section);
     const section = sectionsByKey.get(candidate.section) ?? {
       title: sectionTitle,
       items: [],
@@ -412,6 +670,7 @@ function buildStructuredBrief(candidates: BriefCandidate[]): {
     section.items.push({
       sourceId: candidate.sourceId,
       text: candidate.text,
+      label: candidate.label,
       timestamp: candidate.timestamp,
       provider: candidate.provider,
       model: candidate.model,
@@ -431,11 +690,28 @@ function buildStructuredBrief(candidates: BriefCandidate[]): {
   }
 
   return {
-    sections: ['prompts', 'history']
-      .map(key => sectionsByKey.get(key as BriefCandidate['section']))
+    sections: ['facts', 'codeIndex', 'codeSymbols', 'wakeHints', 'prompts', 'history']
+      .map(key => sectionsByKey.get(key as BriefSectionKey))
       .filter((section): section is ProjectMemoryBriefSection => Boolean(section)),
     sources,
   };
+}
+
+function sectionTitleForKey(key: BriefSectionKey): string {
+  switch (key) {
+    case 'facts':
+      return 'Current source-backed facts';
+    case 'codeIndex':
+      return 'Current code index';
+    case 'codeSymbols':
+      return 'Relevant code symbols';
+    case 'wakeHints':
+      return 'Project wake hints';
+    case 'prompts':
+      return 'Recent relevant prompts';
+    case 'history':
+      return 'Relevant prior chat excerpts';
+  }
 }
 
 function renderBrief(input: {
@@ -452,7 +728,7 @@ function renderBrief(input: {
     '## Project Memory Brief',
     '',
     `Project: ${input.projectKey}`,
-    'Scope: prior local chats and prompts for this project only',
+    'Scope: current source-backed project memory plus prior local chats/prompts for this project only',
     '',
   ];
   let truncated = false;
@@ -481,10 +757,10 @@ function renderBrief(input: {
   }
 
   lines.push(
-    'Use this as recall context. Prefer current repository files and direct user instructions when they conflict with old memory.',
+    'Use this as recall context. Prefer current repository files and direct user instructions when they conflict with memory. Verify important details against source files before editing.',
   );
 
-  const text = lines.join('\n').trim();
+  const text = redactProjectMemoryBriefText(lines.join('\n').trim());
   if (text.length <= input.maxChars) {
     return { text, truncated };
   }
@@ -501,7 +777,7 @@ function renderBrief(input: {
 
 function finalizeRenderedLines(lines: string[], maxChars: number): string {
   const marker = '... (more project memory available via old-chat search)';
-  let text = lines.join('\n').trim();
+  let text = redactProjectMemoryBriefText(lines.join('\n').trim());
   if (text.length <= maxChars) {
     return text;
   }
@@ -512,6 +788,9 @@ function finalizeRenderedLines(lines: string[], maxChars: number): string {
 }
 
 function formatSourceLabel(item: ProjectMemoryBriefSectionItem): string {
+  if (item.label) {
+    return `[${item.label}]`;
+  }
   const date = item.timestamp ? new Date(item.timestamp).toISOString().slice(0, 10) : 'unknown date';
   const provider = formatProvider(item.provider);
   const model = item.model ? `/${item.model}` : '';
@@ -525,6 +804,10 @@ function formatProvider(provider: string | undefined): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
+function formatPredicate(predicate: string): string {
+  return predicate.replace(/[_-]+/g, ' ');
+}
+
 function dedupeCandidates(candidates: BriefCandidate[]): BriefCandidate[] {
   const byText = new Map<string, BriefCandidate>();
   for (const candidate of candidates) {
@@ -536,11 +819,7 @@ function dedupeCandidates(candidates: BriefCandidate[]): BriefCandidate[] {
     const previous = byText.get(key);
     if (
       !previous
-      || candidate.sourceRank > previous.sourceRank
-      || (
-        candidate.sourceRank === previous.sourceRank
-        && candidate.score > previous.score
-      )
+      || compareDuplicatePreference(candidate, previous) < 0
     ) {
       byText.set(key, candidate);
     }
@@ -548,16 +827,94 @@ function dedupeCandidates(candidates: BriefCandidate[]): BriefCandidate[] {
   return [...byText.values()];
 }
 
+function selectCandidates(candidates: BriefCandidate[], maxResults: number): BriefCandidate[] {
+  const sorted = [...candidates].sort(compareCandidates);
+  const sourceBacked = sorted.filter(isSourceBackedCandidate);
+  const reservedCount = sourceBacked.length > 0
+    ? Math.min(sourceBacked.length, Math.ceil(maxResults * SOURCE_BACKED_RESERVED_RATIO))
+    : 0;
+  const selected = new Map<string, BriefCandidate>();
+
+  for (const candidate of sourceBacked.slice(0, reservedCount)) {
+    selected.set(candidate.sourceId, candidate);
+  }
+  for (const candidate of sorted) {
+    if (selected.size >= maxResults) {
+      break;
+    }
+    selected.set(candidate.sourceId, candidate);
+  }
+
+  return [...selected.values()].sort(compareCandidates);
+}
+
+function compareDuplicatePreference(left: BriefCandidate, right: BriefCandidate): number {
+  return sourceTypePriority(right.sourceType) - sourceTypePriority(left.sourceType)
+    || compareCandidates(left, right);
+}
+
+function compareCandidates(left: BriefCandidate, right: BriefCandidate): number {
+  return right.score - left.score
+    || right.sourceRank - left.sourceRank
+    || right.timestamp - left.timestamp
+    || left.sourceId.localeCompare(right.sourceId);
+}
+
+function sourceTypePriority(type: ProjectMemoryBriefSourceType): number {
+  if (type === 'project-fact' || type === 'project-wake-hint' || type === 'code-index-status' || type === 'code-symbol') {
+    return 3;
+  }
+  if (type === 'history-transcript') {
+    return 2;
+  }
+  return 1;
+}
+
+function isSourceBackedCandidate(candidate: BriefCandidate): boolean {
+  return sourceTypePriority(candidate.sourceType) === 3;
+}
+
 function normalizeCandidateText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return redactProjectMemoryBriefText(text).replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function cleanSnippet(text: string, maxChars: number): string {
-  const cleaned = text.replace(/\s+/g, ' ').trim();
+  const cleaned = redactProjectMemoryBriefText(text).replace(/\s+/g, ' ').trim();
   if (cleaned.length <= maxChars) {
     return cleaned;
   }
   return `${cleaned.slice(0, maxChars - 3).trim()}...`;
+}
+
+export function redactProjectMemoryBriefText(text: string): string {
+  let redacted = text
+    .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
+    .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY_MARKER]')
+    .replace(/-----END [A-Z0-9 ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY_MARKER]')
+    .replace(/\b(AKIA|ASIA)[0-9A-Z]{16}\b/g, '[REDACTED_AWS_KEY]')
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:@]+):([^@\s]+)@/gi, '$1[REDACTED_CREDENTIALS]@')
+    .replace(/\b(api[_-]?key|access[_-]?key|secret|token|password|passwd|pwd|private[_-]?key)\b\s*[:=]\s*["']?([^\s"']{3,})/gi, (_match, key: string) => `${key}=[REDACTED_SECRET]`);
+
+  redacted = redacted.replace(
+    /(^|[^A-Za-z0-9+/_=-])([A-Za-z0-9+/_=-]{32,})(?=$|[^A-Za-z0-9+/_=-])/g,
+    (_match, prefix: string, value: string) => (
+      `${prefix}${hasAtLeastThreeTokenClasses(value) ? '[REDACTED_TOKEN]' : value}`
+    ),
+  );
+  return redacted;
+}
+
+function hasAtLeastThreeTokenClasses(value: string): boolean {
+  if (value.includes('/') && value.split('/').length > 2) {
+    return false;
+  }
+  const classes = [
+    /[a-z]/.test(value),
+    /[A-Z]/.test(value),
+    /\d/.test(value),
+    /[+/_=-]/.test(value),
+  ];
+  return classes.filter(Boolean).length >= 3;
 }
 
 function tokenize(value: string): Set<string> {
@@ -619,6 +976,10 @@ function countSources(sources: ProjectMemoryBriefSource[]): Record<ProjectMemory
     {
       'prompt-history': 0,
       'history-transcript': 0,
+      'project-fact': 0,
+      'project-wake-hint': 0,
+      'code-index-status': 0,
+      'code-symbol': 0,
     },
   );
 }

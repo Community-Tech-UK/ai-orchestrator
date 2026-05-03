@@ -29,7 +29,7 @@ import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
-import { getCodebaseMiner } from '../memory/codebase-miner';
+import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
 import { getDefaultAgent, getAgentById } from '../../shared/types/agent.types';
@@ -1225,9 +1225,13 @@ export class InstanceLifecycleManager extends EventEmitter {
           }
         }
 
-        // Trigger codebase mining for the working directory (async, fire-and-forget)
+        // Register and refresh project knowledge for the working directory (async, fire-and-forget).
         if (instance.depth === 0 && instance.workingDirectory) {
-          getCodebaseMiner().mineDirectory(instance.workingDirectory).catch((err) => {
+          getProjectKnowledgeCoordinator().ensureProjectKnown(
+            instance.workingDirectory,
+            'instance-working-directory',
+            { autoRefresh: true },
+          ).catch((err) => {
             logger.warn('Codebase mining failed', {
               error: err instanceof Error ? err.message : String(err),
               workingDirectory: instance.workingDirectory,

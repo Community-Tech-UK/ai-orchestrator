@@ -20,6 +20,7 @@ import { AUTOMATION_CHANNELS } from './automation.channels';
 import { PAUSE_CHANNELS } from './pause.channels';
 import { WORKFLOW_CHANNELS } from './workflow.channels';
 import { DIAGNOSTICS_CHANNELS } from './diagnostics.channels';
+import { VOICE_CHANNELS } from './voice.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -36,6 +37,7 @@ export {
   PAUSE_CHANNELS,
   WORKFLOW_CHANNELS,
   DIAGNOSTICS_CHANNELS,
+  VOICE_CHANNELS,
 };
 
 /**
@@ -57,6 +59,7 @@ export const IPC_CHANNELS = {
   ...PAUSE_CHANNELS,
   ...WORKFLOW_CHANNELS,
   ...DIAGNOSTICS_CHANNELS,
+  ...VOICE_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

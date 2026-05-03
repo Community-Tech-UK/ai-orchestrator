@@ -449,6 +449,15 @@ export const IPC_CHANNELS = {
   // Codebase Mining operations
   CODEBASE_MINE_DIRECTORY: 'codebase:mine-directory',
   CODEBASE_GET_STATUS: 'codebase:get-status',
+  CODEBASE_PAUSE_PROJECT: 'codebase:pause-project',
+  CODEBASE_RESUME_PROJECT: 'codebase:resume-project',
+  CODEBASE_EXCLUDE_PROJECT: 'codebase:exclude-project',
+
+  // Project Knowledge read model
+  PROJECT_KNOWLEDGE_LIST_PROJECTS: 'project-knowledge:list-projects',
+  PROJECT_KNOWLEDGE_GET_READ_MODEL: 'project-knowledge:get-read-model',
+  PROJECT_KNOWLEDGE_GET_EVIDENCE: 'project-knowledge:get-evidence',
+  PROJECT_KNOWLEDGE_REFRESH_CODE_INDEX: 'project-knowledge:refresh-code-index',
 
   // Knowledge event forwarding (main -> renderer)
   KG_EVENT_FACT_ADDED: 'kg:event:fact-added',
@@ -978,6 +987,14 @@ export const IPC_CHANNELS = {
   CLI_UPDATE_PILL_GET_STATE: 'cli-update-pill:get-state',
   CLI_UPDATE_PILL_REFRESH: 'cli-update-pill:refresh',
   CLI_UPDATE_PILL_DELTA: 'cli-update-pill:delta',
+
+  VOICE_STATUS_GET: 'voice:status:get',
+  VOICE_OPENAI_TEMP_KEY_SET: 'voice:openai-temp-key:set',
+  VOICE_OPENAI_TEMP_KEY_CLEAR: 'voice:openai-temp-key:clear',
+  VOICE_TRANSCRIPTION_SESSION_CREATE: 'voice:transcription-session:create',
+  VOICE_TRANSCRIPTION_SESSION_CLOSE: 'voice:transcription-session:close',
+  VOICE_TTS_SYNTHESIZE: 'voice:tts:synthesize',
+  VOICE_TTS_CANCEL: 'voice:tts:cancel',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

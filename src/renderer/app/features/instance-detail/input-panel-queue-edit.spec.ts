@@ -23,6 +23,7 @@ import { ProviderStateService } from '../../core/services/provider-state.service
 import { CommandStore } from '../../core/state/command.store';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { VoiceConversationStore } from '../../core/voice/voice-conversation.store';
 import { InputPanelComponent } from './input-panel.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -111,6 +112,7 @@ describe('InputPanelComponent queued message editing', () => {
         { provide: KeybindingService, useValue: { setContext: vi.fn() } },
         { provide: OrchestrationIpcService, useValue: createOrchestrationIpcMock() },
         { provide: PromptHistoryStore, useValue: createPromptHistoryStoreMock() },
+        { provide: VoiceConversationStore, useValue: createVoiceConversationStoreMock() },
       ],
     }).compileComponents();
 
@@ -148,6 +150,42 @@ describe('InputPanelComponent queued message editing', () => {
     (editButtons[1] as HTMLButtonElement).click();
 
     expect(emitted).toEqual([1]);
+  });
+
+  it('emits a draft workflow launch instead of showing a start-session error', async () => {
+    const component = fixture.componentInstance;
+    (component as unknown as { instanceId: () => string }).instanceId = () => 'new';
+    component.message.set('plans/2026-05-03-browser-gateway-first-milestone.md\n\nPlease review this plan');
+    component.nlWorkflowSuggestion.set({
+      size: 'medium',
+      surface: 'template-confirm',
+      suggestedRef: 'pr-review',
+      matchedSignals: ['workflow-keyword-review'],
+      estimatedProviderImpact: 'low',
+    });
+
+    const emitted: { message: string; templateId: string }[] = [];
+    (component as unknown as {
+      startSessionWithWorkflow: {
+        subscribe(callback: (event: { message: string; templateId: string }) => void): void;
+      };
+    }).startSessionWithWorkflow.subscribe((event) => emitted.push(event));
+    const orchestration = TestBed.inject(OrchestrationIpcService) as unknown as {
+      workflowCanTransition: ReturnType<typeof vi.fn>;
+      workflowStart: ReturnType<typeof vi.fn>;
+    };
+
+    await component.acceptNlWorkflowSuggestion();
+
+    expect(emitted).toEqual([
+      {
+        message: 'plans/2026-05-03-browser-gateway-first-milestone.md\n\nPlease review this plan',
+        templateId: 'pr-review',
+      },
+    ]);
+    expect(component.nlWorkflowSuggestionError()).toBeNull();
+    expect(orchestration.workflowCanTransition).not.toHaveBeenCalled();
+    expect(orchestration.workflowStart).not.toHaveBeenCalled();
   });
 });
 
@@ -212,5 +250,21 @@ function createPromptHistoryStoreMock(): Partial<PromptHistoryStore> {
     getEntriesForRecall: vi.fn(() => []),
     clearRequestedRecallEntry: vi.fn(),
     record: vi.fn(),
+  };
+}
+
+function createVoiceConversationStoreMock(): Partial<VoiceConversationStore> {
+  return {
+    mode: signal('off') as VoiceConversationStore['mode'],
+    partialTranscript: signal('') as VoiceConversationStore['partialTranscript'],
+    error: signal(null) as VoiceConversationStore['error'],
+    errorCode: signal(null) as VoiceConversationStore['errorCode'],
+    transcriptDetached: signal(false) as VoiceConversationStore['transcriptDetached'],
+    audioLevel: signal(0) as VoiceConversationStore['audioLevel'],
+    updateContext: vi.fn(),
+    stop: vi.fn(),
+    detachTranscript: vi.fn(),
+    start: vi.fn(),
+    setTemporaryOpenAiKey: vi.fn(),
   };
 }

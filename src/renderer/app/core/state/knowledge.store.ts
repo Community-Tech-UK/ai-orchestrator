@@ -1,15 +1,17 @@
 import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import { MemoryIpcService } from '../services/ipc/memory-ipc.service';
 import type {
+  CodebaseMiningResult,
+  CodebaseMiningStatus,
   KGQueryResult,
   KGStats,
+  ProjectKnowledgeEvidence,
+  ProjectKnowledgeListProjectsResult,
+  ProjectKnowledgeProjectSummary,
+  ProjectKnowledgeReadModel,
+  ProjectKnowledgeTargetKind,
 } from '../../../../shared/types/knowledge-graph.types';
 import type { WakeContext, WakeHint } from '../../../../shared/types/wake-context.types';
-
-interface MiningStatus {
-  mined: boolean;
-  normalizedPath: string;
-}
 
 interface ImportEvent {
   sourceFile: string;
@@ -44,7 +46,11 @@ export class KnowledgeStore implements OnDestroy {
   private _selectedEntity = signal('');
   private _recentFacts = signal<RecentFactEvent[]>([]);
   private _wakeContext = signal<WakeContext | null>(null);
-  private _miningStatus = signal<MiningStatus | null>(null);
+  private _miningStatus = signal<CodebaseMiningStatus | null>(null);
+  private _projectSummaries = signal<ProjectKnowledgeProjectSummary[]>([]);
+  private _selectedProjectKey = signal('');
+  private _projectReadModel = signal<ProjectKnowledgeReadModel | null>(null);
+  private _selectedEvidence = signal<ProjectKnowledgeEvidence[]>([]);
   private _importEvents = signal<ImportEvent[]>([]);
   private _wakeHints = signal<WakeHint[]>([]);
   private _wakeIdentity = signal('');
@@ -60,6 +66,10 @@ export class KnowledgeStore implements OnDestroy {
   readonly recentFacts = this._recentFacts.asReadonly();
   readonly wakeContext = this._wakeContext.asReadonly();
   readonly miningStatus = this._miningStatus.asReadonly();
+  readonly projectSummaries = this._projectSummaries.asReadonly();
+  readonly selectedProjectKey = this._selectedProjectKey.asReadonly();
+  readonly projectReadModel = this._projectReadModel.asReadonly();
+  readonly selectedEvidence = this._selectedEvidence.asReadonly();
   readonly importEvents = this._importEvents.asReadonly();
   readonly wakeHints = this._wakeHints.asReadonly();
   readonly wakeIdentity = this._wakeIdentity.asReadonly();
@@ -76,6 +86,10 @@ export class KnowledgeStore implements OnDestroy {
   readonly factCount = computed(() => this._stats()?.triples ?? 0);
   readonly entityCount = computed(() => this._stats()?.entities ?? 0);
   readonly hintCount = computed(() => this._wakeHints().length);
+  readonly selectedProjectSummary = computed(() => {
+    const selectedKey = this._selectedProjectKey();
+    return this._projectSummaries().find((project) => project.projectKey === selectedKey) ?? null;
+  });
 
   constructor() {
     this.subscribeToEvents();
@@ -135,7 +149,7 @@ export class KnowledgeStore implements OnDestroy {
   async checkMiningStatus(dirPath: string): Promise<void> {
     const response = await this.memoryIpc.codebaseGetStatus({ dirPath });
     if (response.success) {
-      this._miningStatus.set(response.data as MiningStatus);
+      this._miningStatus.set(response.data as CodebaseMiningStatus);
       return;
     }
     this._error.set(response.error?.message ?? 'Failed to get mining status');
@@ -152,17 +166,166 @@ export class KnowledgeStore implements OnDestroy {
         return;
       }
 
+      const result = response.data as CodebaseMiningResult;
+      this._miningStatus.set({
+        normalizedPath: result.normalizedPath,
+        rootPath: result.rootPath,
+        projectKey: result.projectKey,
+        displayName: result.displayName,
+        discoverySource: result.discoverySource,
+        autoMine: result.autoMine,
+        isPaused: result.isPaused,
+        isExcluded: result.isExcluded,
+        mined: result.status === 'completed',
+        status: result.status,
+        contentFingerprint: result.contentFingerprint,
+        filesRead: result.filesRead,
+        factsExtracted: result.factsExtracted,
+        hintsCreated: result.hintsCreated,
+        errors: result.errors,
+        completedAt: result.lastMinedAt,
+        updatedAt: result.lastMinedAt,
+      });
+
       await Promise.all([
         this.loadStats(),
         this.checkMiningStatus(dirPath),
+        this.loadProjectKnowledgeProjects(),
       ]);
+      if (result.projectKey) {
+        await this.selectProject(result.projectKey);
+      }
     } finally {
       this._loading.set(false);
     }
   }
 
+  async pauseMining(dirPath: string): Promise<void> {
+    const response = await this.memoryIpc.codebasePauseProject({ dirPath });
+    if (response.success) {
+      this._miningStatus.set(response.data as CodebaseMiningStatus);
+      await this.loadProjectKnowledgeProjects();
+      return;
+    }
+    this._error.set(response.error?.message ?? 'Failed to pause mining');
+  }
+
+  async resumeMining(dirPath: string): Promise<void> {
+    const response = await this.memoryIpc.codebaseResumeProject({ dirPath });
+    if (response.success) {
+      this._miningStatus.set(response.data as CodebaseMiningStatus);
+      await this.loadProjectKnowledgeProjects();
+      return;
+    }
+    this._error.set(response.error?.message ?? 'Failed to resume mining');
+  }
+
+  async excludeMining(dirPath: string): Promise<void> {
+    const response = await this.memoryIpc.codebaseExcludeProject({ dirPath });
+    if (response.success) {
+      this._miningStatus.set(response.data as CodebaseMiningStatus);
+      await this.loadProjectKnowledgeProjects();
+      return;
+    }
+    this._error.set(response.error?.message ?? 'Failed to exclude project');
+  }
+
   clearError(): void {
     this._error.set(null);
+  }
+
+  setError(message: string): void {
+    this._error.set(message);
+  }
+
+  async loadProjectKnowledgeProjects(): Promise<void> {
+    const response = await this.memoryIpc.projectKnowledgeListProjects();
+    if (!response.success) {
+      this._error.set(response.error?.message ?? 'Failed to load project knowledge');
+      return;
+    }
+
+    const data = response.data as ProjectKnowledgeListProjectsResult;
+    const projects = data.projects ?? [];
+    this._projectSummaries.set(projects);
+
+    const selectedKey = this._selectedProjectKey();
+    if (selectedKey && projects.some((project) => project.projectKey === selectedKey)) {
+      return;
+    }
+
+    const firstProject = projects[0];
+    if (firstProject) {
+      this._selectedProjectKey.set(firstProject.projectKey);
+      await this.refreshProjectKnowledgeReadModel(firstProject.projectKey);
+    } else {
+      this._selectedProjectKey.set('');
+      this._projectReadModel.set(null);
+      this._selectedEvidence.set([]);
+    }
+  }
+
+  async selectProject(projectKey: string): Promise<void> {
+    const trimmed = projectKey.trim();
+    if (!trimmed) {
+      return;
+    }
+    this._selectedProjectKey.set(trimmed);
+    this._selectedEvidence.set([]);
+    await this.refreshProjectKnowledgeReadModel(trimmed);
+  }
+
+  async refreshProjectKnowledgeReadModel(projectKey = this._selectedProjectKey()): Promise<void> {
+    if (!projectKey) {
+      this._projectReadModel.set(null);
+      return;
+    }
+
+    const response = await this.memoryIpc.projectKnowledgeGetReadModel({ projectKey });
+    if (response.success) {
+      this._projectReadModel.set(response.data as ProjectKnowledgeReadModel);
+      return;
+    }
+
+    this._error.set(response.error?.message ?? 'Failed to load project memory');
+  }
+
+  async loadProjectEvidence(targetKind: ProjectKnowledgeTargetKind, targetId: string, projectKey = this._selectedProjectKey()): Promise<void> {
+    if (!projectKey || !targetId) {
+      this._selectedEvidence.set([]);
+      return;
+    }
+
+    const response = await this.memoryIpc.projectKnowledgeGetEvidence({ projectKey, targetKind, targetId });
+    if (response.success) {
+      this._selectedEvidence.set(response.data as ProjectKnowledgeEvidence[]);
+      return;
+    }
+
+    this._error.set(response.error?.message ?? 'Failed to load source evidence');
+  }
+
+  async refreshProjectCodeIndex(projectKey = this._selectedProjectKey()): Promise<void> {
+    if (!projectKey) {
+      return;
+    }
+
+    this._loading.set(true);
+    this._error.set(null);
+    try {
+      const response = await this.memoryIpc.projectKnowledgeRefreshCodeIndex({ projectKey });
+      if (!response.success) {
+        this._error.set(response.error?.message ?? 'Code re-index failed');
+        return;
+      }
+
+      await Promise.all([
+        this.loadProjectKnowledgeProjects(),
+        this.refreshProjectKnowledgeReadModel(projectKey),
+      ]);
+    } finally {
+      this._loading.set(false);
+    }
   }
 
   // --- Write Actions ---

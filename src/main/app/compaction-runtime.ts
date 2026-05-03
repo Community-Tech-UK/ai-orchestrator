@@ -6,6 +6,11 @@ import type { WindowManager } from '../window-manager';
 
 const logger = getLogger('CompactionRuntime');
 
+interface NativeCompactionAdapter {
+  compactContext?: () => Promise<boolean>;
+  sendInput?: (message: string) => Promise<void>;
+}
+
 export function setupCompactionCoordinator(
   instanceManager: InstanceManager,
   windowManager: WindowManager,
@@ -14,10 +19,27 @@ export function setupCompactionCoordinator(
 
   coordinator.configure({
     nativeCompact: async (instanceId: string) => {
+      const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
+      if (!adapter) {
+        return false;
+      }
+
       try {
-        await instanceManager.sendInput(instanceId, '/compact');
-        return true;
-      } catch {
+        if (typeof adapter.compactContext === 'function') {
+          return await adapter.compactContext();
+        }
+
+        if (typeof adapter.sendInput === 'function') {
+          await adapter.sendInput('/compact');
+          return true;
+        }
+
+        return false;
+      } catch (error) {
+        logger.warn('Native compaction strategy failed', {
+          instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return false;
       }
     },

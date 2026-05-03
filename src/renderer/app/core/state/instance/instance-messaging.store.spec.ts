@@ -7,6 +7,7 @@ import { InstanceStateService } from './instance-state.service';
 import type { Instance } from './instance.types';
 import { PauseStore } from '../pause/pause.store';
 import type { PauseStatePayload } from '@contracts/schemas/pause';
+import { DraftService } from '../../services/draft.service';
 
 function createInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -154,6 +155,37 @@ describe('InstanceMessagingStore', () => {
     await vi.advanceTimersByTimeAsync(150);
 
     expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'Seeded prompt', undefined, true);
+  });
+
+  it('restores terminal queued messages as a system notice instead of an error', () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    const draftService = TestBed.inject(DraftService);
+    currentStateService.addInstance(createInstance({ status: 'error' }));
+    currentStateService.messageQueue.set(
+      new Map([
+        [
+          'inst-1',
+          [
+            {
+              message: 'Edit this queued message',
+            },
+          ],
+        ],
+      ])
+    );
+
+    currentStore.clearQueueWithNotification('inst-1');
+
+    const instance = currentStateService.getInstance('inst-1');
+    expect(draftService.getDraft('inst-1')).toBe('Edit this queued message');
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
+    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
+      type: 'system',
+      metadata: {
+        systemMessageKind: 'queue-restore',
+      },
+    });
   });
 
   it('preserves seeded queued metadata when a replay races with a paused state', async () => {

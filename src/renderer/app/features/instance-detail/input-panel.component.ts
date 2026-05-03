@@ -22,6 +22,10 @@ import { ActionDispatchService } from '../../core/services/action-dispatch.servi
 import { DraftService } from '../../core/services/draft.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
+import {
+  VoiceConversationSessionContext,
+  VoiceConversationStore,
+} from '../../core/voice/voice-conversation.store';
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
@@ -73,6 +77,7 @@ export class InputPanelComponent implements OnDestroy {
   private keybindingService = inject(KeybindingService);
   private orchestrationIpc = inject(OrchestrationIpcService);
   private promptHistoryStore = inject(PromptHistoryStore);
+  protected voice = inject(VoiceConversationStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
 
@@ -119,6 +124,7 @@ export class InputPanelComponent implements OnDestroy {
 
   sendMessage = output<string>();
   steerMessage = output<string>();
+  startSessionWithWorkflow = output<{ message: string; templateId: string }>();
   draftStarted = output<void>();
   executeCommand = output<{ commandId: string; args: string[] }>();
   removeFile = output<File>();
@@ -291,6 +297,8 @@ export class InputPanelComponent implements OnDestroy {
   ghostSuggestion = signal<string | null>(null);
   nlWorkflowSuggestion = signal<NlWorkflowSuggestion | null>(null);
   nlWorkflowSuggestionError = signal<string | null>(null);
+  showVoiceKeyInput = signal(false);
+  temporaryVoiceKey = signal('');
   private isFocused = signal(false);
   private nlWorkflowSuggestionTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -317,6 +325,47 @@ export class InputPanelComponent implements OnDestroy {
     if (!msg) return suggestion;
     return suggestion.slice(msg.length);
   });
+  voiceMode = computed(() => this.voice.mode());
+  isVoiceActive = computed(() => {
+    const mode = this.voiceMode();
+    return mode !== 'off' && mode !== 'error';
+  });
+  canUseVoice = computed(() =>
+    !this.disabled()
+    && !this.isDraftComposer()
+    && !this.isInitializing()
+  );
+  voiceButtonTitle = computed(() => {
+    if (this.isDraftComposer()) return 'Start a session before using voice';
+    if (this.isInitializing()) return 'Voice is available after the session starts';
+    if (this.disabled()) return 'Voice is unavailable right now';
+    if (this.isVoiceActive()) return 'Stop voice conversation';
+    return 'Start voice conversation';
+  });
+  voiceStatusLabel = computed(() => {
+    const error = this.voice.error();
+    if (error) return error;
+
+    switch (this.voiceMode()) {
+      case 'connecting':
+        return 'Connecting voice...';
+      case 'listening':
+        return 'Listening';
+      case 'transcribing':
+        return this.voice.partialTranscript() || 'Listening';
+      case 'sending':
+        return 'Sending voice message...';
+      case 'waiting-for-session':
+        return 'Waiting for response...';
+      case 'speaking':
+        return 'Speaking';
+      case 'stopping':
+        return 'Stopping voice...';
+      default:
+        return null;
+    }
+  });
+  voiceMeterStyle = computed(() => `${Math.max(0.12, this.voice.audioLevel()).toFixed(3)}`);
 
   // ViewChild for textarea
   private textareaEl = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
@@ -415,6 +464,20 @@ export class InputPanelComponent implements OnDestroy {
 
       this.generateSuggestion();
     });
+
+    effect(() => {
+      const context = this.buildVoiceContext();
+      untracked(() => this.voice.updateContext(context));
+    });
+
+    effect(() => {
+      const canUseVoice = this.canUseVoice();
+      untracked(() => {
+        if (!canUseVoice && this.voice.mode() !== 'off') {
+          this.voice.stop();
+        }
+      });
+    });
   }
 
   ngOnDestroy(): void {
@@ -427,6 +490,7 @@ export class InputPanelComponent implements OnDestroy {
       URL.revokeObjectURL(url);
     }
     this.filePreviewUrls.clear();
+    this.voice.stop();
   }
 
   canSend(): boolean {
@@ -444,6 +508,7 @@ export class InputPanelComponent implements OnDestroy {
     const textarea = event.target as HTMLTextAreaElement;
     const value = textarea.value;
     this.message.set(value);
+    this.voice.detachTranscript();
     stopComposer(); // Measure composer latency
 
     if (value.trim().length > 0) {
@@ -551,7 +616,18 @@ export class InputPanelComponent implements OnDestroy {
 
     const instanceId = this.instanceId();
     if (instanceId === 'new') {
-      this.nlWorkflowSuggestionError.set('Start a session before launching a workflow.');
+      const message = this.message().trim();
+      if (!message) {
+        this.nlWorkflowSuggestionError.set('Describe the session before launching a workflow.');
+        return;
+      }
+
+      this.startSessionWithWorkflow.emit({
+        message,
+        templateId: suggestion.suggestedRef,
+      });
+      this.nlWorkflowSuggestion.set(null);
+      this.nlWorkflowSuggestionError.set(null);
       return;
     }
 
@@ -1043,6 +1119,41 @@ export class InputPanelComponent implements OnDestroy {
     this.addFiles.emit();
   }
 
+  async onToggleVoice(): Promise<void> {
+    if (this.isVoiceActive()) {
+      this.voice.stop();
+      return;
+    }
+
+    if (!this.canUseVoice()) {
+      return;
+    }
+
+    await this.voice.start(this.buildVoiceContext());
+    if (this.voice.errorCode() === 'missing-api-key') {
+      this.showVoiceKeyInput.set(true);
+    }
+  }
+
+  async onSubmitVoiceKey(): Promise<void> {
+    const apiKey = this.temporaryVoiceKey().trim();
+    if (!apiKey) {
+      return;
+    }
+
+    await this.voice.setTemporaryOpenAiKey(apiKey);
+    this.temporaryVoiceKey.set('');
+    this.showVoiceKeyInput.set(false);
+    if (this.canUseVoice()) {
+      await this.voice.start(this.buildVoiceContext());
+    }
+  }
+
+  onCancelVoiceKey(): void {
+    this.temporaryVoiceKey.set('');
+    this.showVoiceKeyInput.set(false);
+  }
+
   onRemoveFolder(folder: string): void {
     this.removeFolder.emit(folder);
   }
@@ -1198,6 +1309,22 @@ export class InputPanelComponent implements OnDestroy {
     this.persistComposerText(value);
     this.resetPromptRecall({ restoreStash: false });
     this.syncTextareaValue(value);
+  }
+
+  private buildVoiceContext(): VoiceConversationSessionContext {
+    return {
+      instanceId: this.instanceId(),
+      status: this.instanceStatus(),
+      messages: this.outputMessages(),
+      sendInput: (message) => {
+        this.recordPromptHistory(message, false);
+        this.sendMessage.emit(message);
+      },
+      steerInput: (message) => {
+        this.recordPromptHistory(message, false);
+        this.steerMessage.emit(message);
+      },
+    };
   }
 
   private recordPromptHistory(text: string, wasSlashCommand: boolean): void {

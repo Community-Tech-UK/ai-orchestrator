@@ -327,8 +327,8 @@ vi.mock('../../memory/wake-context-builder', () => ({
   getWakeContextBuilder: vi.fn(() => ({ getWakeUpText: vi.fn(() => '') })),
 }));
 
-vi.mock('../../memory/codebase-miner', () => ({
-  getCodebaseMiner: vi.fn(() => ({ mineDirectory: vi.fn().mockResolvedValue(undefined) })),
+vi.mock('../../memory/project-knowledge-coordinator', () => ({
+  getProjectKnowledgeCoordinator: vi.fn(() => ({ ensureProjectKnown: vi.fn().mockResolvedValue(undefined) })),
 }));
 
 vi.mock('../../context/jit-loader', () => {

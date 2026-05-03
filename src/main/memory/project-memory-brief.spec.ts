@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PromptHistoryProjectAlias } from '../../shared/types/prompt-history.types';
 import type { ConversationHistoryEntry, HistorySnippet } from '../../shared/types/history.types';
-import { ProjectMemoryBriefService } from './project-memory-brief';
+import type { ProjectKnowledgeReadModel } from '../../shared/types/knowledge-graph.types';
+import { ProjectMemoryBriefService, redactProjectMemoryBriefText } from './project-memory-brief';
 
 const now = Date.now();
 
@@ -43,6 +44,50 @@ function emptyRecall() {
   };
 }
 
+function emptyProjectKnowledge() {
+  return {
+    getReadModel: vi.fn(() => projectReadModel()),
+  };
+}
+
+function projectReadModel(overrides: Partial<ProjectKnowledgeReadModel> = {}): ProjectKnowledgeReadModel {
+  return {
+    project: {
+      projectKey: '/repo',
+      rootPath: '/repo',
+      displayName: 'repo',
+      miningStatus: {
+        normalizedPath: '/repo',
+        rootPath: '/repo',
+        projectKey: '/repo',
+        mined: true,
+        status: 'completed',
+      },
+      inventory: {
+        totalSources: 0,
+        totalLinks: 0,
+        totalKgLinks: 0,
+        totalWakeLinks: 0,
+        totalCodeSymbols: 0,
+        byKind: {},
+      },
+    },
+    sources: [],
+    facts: [],
+    wakeHints: [],
+    codeIndex: {
+      projectKey: '/repo',
+      status: 'never',
+      fileCount: 0,
+      symbolCount: 0,
+      updatedAt: 0,
+      metadata: {},
+    },
+    codeSymbols: [],
+    ...overrides,
+  };
+}
+
 describe('ProjectMemoryBriefService', () => {
   it('returns an empty valid brief when no project history exists', async () => {
     const service = new ProjectMemoryBriefService({
@@ -56,6 +101,7 @@ describe('ProjectMemoryBriefService', () => {
         expandSnippetsOnDemand: vi.fn(async () => []),
       },
       recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
     });
 
     const brief = await service.buildBrief({ projectPath: '/repo' });
@@ -99,6 +145,7 @@ describe('ProjectMemoryBriefService', () => {
       history: { getEntries },
       snippets: { expandSnippetsOnDemand },
       recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
     });
 
     const brief = await service.buildBrief({
@@ -154,6 +201,7 @@ describe('ProjectMemoryBriefService', () => {
       recall: {
         search: recallSearch,
       },
+      projectKnowledge: emptyProjectKnowledge(),
     });
 
     const brief = await service.buildBrief({
@@ -198,6 +246,7 @@ describe('ProjectMemoryBriefService', () => {
         ]),
       },
       recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
     });
 
     const brief = await service.buildBrief({
@@ -231,6 +280,7 @@ describe('ProjectMemoryBriefService', () => {
         ]),
       },
       recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
     });
 
     const brief = await service.buildBrief({
@@ -262,6 +312,7 @@ describe('ProjectMemoryBriefService', () => {
         expandSnippetsOnDemand: vi.fn(async () => []),
       },
       recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
     });
 
     const brief = await service.buildBrief({
@@ -273,5 +324,308 @@ describe('ProjectMemoryBriefService', () => {
     expect(brief.text.length).toBeLessThanOrEqual(500);
     expect(brief.text).toContain('more project memory available');
     expect(brief.stats.truncated).toBe(true);
+  });
+
+  it('includes source-backed facts, wake hints, code index status, and matching symbols', async () => {
+    const projectKnowledge = {
+      getReadModel: vi.fn(() => projectReadModel({
+        facts: [
+          {
+            targetKind: 'kg_triple',
+            targetId: 'triple-1',
+            subject: 'AI Orchestrator',
+            predicate: 'uses_frontend',
+            object: 'Angular 21 zoneless signals',
+            confidence: 0.9,
+            validFrom: '2026-05-03T00:00:00.000Z',
+            validTo: null,
+            sourceFile: '/repo/package.json',
+            evidenceCount: 2,
+          },
+        ],
+        wakeHints: [
+          {
+            targetKind: 'wake_hint',
+            targetId: 'hint-1',
+            content: 'Prefer source-backed project memory over stale chat recollection.',
+            importance: 8,
+            room: '/repo',
+            createdAt: now - 100,
+            evidenceCount: 1,
+          },
+        ],
+        codeIndex: {
+          projectKey: '/repo',
+          workspaceHash: 'workspace-1',
+          status: 'ready',
+          fileCount: 12,
+          symbolCount: 3,
+          lastSyncedAt: now,
+          updatedAt: now,
+          metadata: {},
+        },
+        codeSymbols: [
+          {
+            targetKind: 'code_symbol',
+            targetId: 'symbol-1',
+            id: 'pcs_1',
+            projectKey: '/repo',
+            sourceId: 'source-1',
+            workspaceHash: 'workspace-1',
+            symbolId: 'symbol-1',
+            pathFromRoot: 'src/main/memory/project-memory-brief.ts',
+            name: 'ProjectMemoryBriefService',
+            kind: 'class',
+            startLine: 97,
+            startCharacter: 0,
+            endLine: 220,
+            endCharacter: 1,
+            createdAt: now,
+            updatedAt: now,
+            metadata: {},
+            evidenceCount: 1,
+          },
+        ],
+      })),
+    };
+    const service = new ProjectMemoryBriefService({
+      promptHistory: { getForProject: vi.fn(() => promptAlias([])) },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge,
+    });
+
+    const brief = await service.buildBrief({
+      projectPath: '/repo',
+      initialPrompt: 'update project memory brief service',
+    });
+
+    expect(projectKnowledge.getReadModel).toHaveBeenCalledWith('/repo');
+    expect(brief.text).toContain('Current source-backed facts');
+    expect(brief.text).toContain('[fact src:2 conf:90%]');
+    expect(brief.text).toContain('AI Orchestrator uses frontend Angular 21 zoneless signals.');
+    expect(brief.text).toContain('[code-index ready]');
+    expect(brief.text).toContain('12 files, 3 symbols indexed');
+    expect(brief.text).toContain('ProjectMemoryBriefService at src/main/memory/project-memory-brief.ts:97');
+    expect(brief.text).toContain('Project wake hints');
+    expect(brief.sources.map(source => source.type)).toEqual(expect.arrayContaining([
+      'project-fact',
+      'code-index-status',
+      'code-symbol',
+      'project-wake-hint',
+    ]));
+    expect(brief.sources).toHaveLength(4);
+  });
+
+  it('can disable mined memory and continue when project knowledge reads fail', async () => {
+    const projectKnowledge = { getReadModel: vi.fn(() => projectReadModel()) };
+    const service = new ProjectMemoryBriefService({
+      promptHistory: {
+        getForProject: vi.fn(() => promptAlias([
+          { id: 'prompt-1', text: 'plain prompt memory', createdAt: now, projectPath: '/repo' },
+        ])),
+      },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge,
+    });
+
+    const brief = await service.buildBrief({
+      projectPath: '/repo',
+      includeMinedMemory: false,
+    });
+
+    expect(projectKnowledge.getReadModel).not.toHaveBeenCalled();
+    expect(brief.text).toContain('plain prompt memory');
+
+    const failingService = new ProjectMemoryBriefService({
+      promptHistory: { getForProject: vi.fn(() => promptAlias([])) },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge: { getReadModel: vi.fn(() => { throw new Error('read failed'); }) },
+    });
+
+    await expect(failingService.buildBrief({ projectPath: '/repo' })).resolves.toMatchObject({
+      text: '',
+      sources: [],
+    });
+  });
+
+  it('uses the explicit code-symbol fallback threshold', async () => {
+    const manySymbols = Array.from({ length: 13 }, (_, index) => ({
+      targetKind: 'code_symbol' as const,
+      targetId: `symbol-${index}`,
+      id: `pcs_${index}`,
+      projectKey: '/repo',
+      sourceId: `source-${index}`,
+      workspaceHash: 'workspace-1',
+      symbolId: `symbol-${index}`,
+      pathFromRoot: `src/file-${index}.ts`,
+      name: `Unrelated${index}`,
+      kind: 'function',
+      startLine: index + 1,
+      startCharacter: 0,
+      endLine: index + 1,
+      endCharacter: 1,
+      createdAt: now,
+      updatedAt: now,
+      metadata: {},
+      evidenceCount: 1,
+    }));
+    const codeIndex = {
+      projectKey: '/repo',
+      workspaceHash: 'workspace-1',
+      status: 'ready' as const,
+      fileCount: 13,
+      symbolCount: 13,
+      lastSyncedAt: now,
+      updatedAt: now,
+      metadata: {},
+    };
+
+    const service = new ProjectMemoryBriefService({
+      promptHistory: { getForProject: vi.fn(() => promptAlias([])) },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge: { getReadModel: vi.fn(() => projectReadModel({ codeIndex, codeSymbols: manySymbols })) },
+    });
+
+    const omitted = await service.buildBrief({ projectPath: '/repo', initialPrompt: 'auth middleware' });
+    expect(omitted.sources.some(source => source.type === 'code-symbol')).toBe(false);
+
+    const includedService = new ProjectMemoryBriefService({
+      promptHistory: { getForProject: vi.fn(() => promptAlias([])) },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge: { getReadModel: vi.fn(() => projectReadModel({ codeIndex, codeSymbols: manySymbols.slice(0, 12) })) },
+    });
+
+    const included = await includedService.buildBrief({ projectPath: '/repo', initialPrompt: 'auth middleware' });
+    expect(included.sources.filter(source => source.type === 'code-symbol')).toHaveLength(7);
+  });
+
+  it('reserves source-backed candidates and dedupes using source-backed priority', async () => {
+    const sourceFacts = Array.from({ length: 4 }, (_, index) => ({
+      targetKind: 'kg_triple' as const,
+      targetId: `triple-${index}`,
+      subject: `Fact${index}`,
+      predicate: 'uses',
+      object: `Source${index}`,
+      confidence: 0.9,
+      validFrom: null,
+      validTo: null,
+      sourceFile: '/repo/package.json',
+      evidenceCount: 1,
+    }));
+    sourceFacts[0] = {
+      ...sourceFacts[0],
+      subject: 'duplicate',
+      predicate: 'says',
+      object: 'same detail',
+    };
+    const service = new ProjectMemoryBriefService({
+      promptHistory: {
+        getForProject: vi.fn(() => promptAlias([
+          { id: 'prompt-dup', text: 'duplicate says same detail.', createdAt: now + 1000, projectPath: '/repo' },
+          ...Array.from({ length: 8 }, (_, index) => ({
+            id: `prompt-${index}`,
+            text: `prompt ${index} old chat context`,
+            createdAt: now - index,
+            projectPath: '/repo',
+          })),
+        ])),
+      },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge: { getReadModel: vi.fn(() => projectReadModel({ facts: sourceFacts })) },
+    });
+
+    const brief = await service.buildBrief({ projectPath: '/repo', maxResults: 6 });
+
+    expect(brief.sources.filter(source => source.type === 'project-fact')).toHaveLength(4);
+    expect(brief.sources.some(source => source.id === 'prompt:prompt-dup')).toBe(false);
+  });
+
+  it('records exact redacted rendered text and ignores recorder failures', async () => {
+    const recorder = vi.fn();
+    const service = new ProjectMemoryBriefService({
+      promptHistory: {
+        getForProject: vi.fn(() => promptAlias([
+          { id: 'prompt-1', text: 'api_key=sk-test-abc123 should not leak', createdAt: now, projectPath: '/repo' },
+        ])),
+      },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
+      recorder,
+    });
+
+    const brief = await service.buildBrief({ projectPath: '/repo', instanceId: 'instance-1' });
+
+    expect(brief.text).toContain('api_key=[REDACTED_SECRET]');
+    expect(brief.text).not.toContain('sk-test-abc123');
+    expect(recorder).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-1',
+      projectKey: '/repo',
+      renderedText: brief.text,
+      metadata: expect.objectContaining({
+        candidatesScanned: 1,
+        candidatesDeduped: 1,
+        candidatesIncluded: 1,
+        sourceCounts: expect.objectContaining({ 'prompt-history': 1 }),
+      }),
+    }));
+
+    const failingService = new ProjectMemoryBriefService({
+      promptHistory: {
+        getForProject: vi.fn(() => promptAlias([
+          { id: 'prompt-1', text: 'still builds', createdAt: now, projectPath: '/repo' },
+        ])),
+      },
+      history: { getEntries: vi.fn(() => []) },
+      snippets: { expandSnippetsOnDemand: vi.fn(async () => []) },
+      recall: emptyRecall(),
+      projectKnowledge: emptyProjectKnowledge(),
+      recorder: vi.fn(() => { throw new Error('record failed'); }),
+    });
+
+    await expect(failingService.buildBrief({ projectPath: '/repo', instanceId: 'instance-2' })).resolves.toMatchObject({
+      text: expect.stringContaining('still builds'),
+    });
+  });
+
+  it('redacts common secret shapes without redacting normal project text', () => {
+    const token = 'abcdEFGH1234abcdEFGH1234abcdEFGH1234+/';
+    const redacted = redactProjectMemoryBriefText([
+      'api_key=sk-test-abc123',
+      'password: hunter2',
+      'AKIA1234567890ABCDEF',
+      'https://user:pass@example.com/repo.git',
+      '-----BEGIN OPENSSH PRIVATE KEY-----',
+      token,
+      '/Users/suas/work/orchestrat0r/ai-orchestrator',
+      'ProjectMemoryBriefService',
+      'package.json',
+    ].join('\n'));
+
+    expect(redacted).toContain('api_key=[REDACTED_SECRET]');
+    expect(redacted).toContain('password=[REDACTED_SECRET]');
+    expect(redacted).toContain('[REDACTED_AWS_KEY]');
+    expect(redacted).toContain('https://[REDACTED_CREDENTIALS]@example.com/repo.git');
+    expect(redacted).toContain('[REDACTED_PRIVATE_KEY_MARKER]');
+    expect(redacted).toContain('[REDACTED_TOKEN]');
+    expect(redacted).not.toContain('sk-test-abc123');
+    expect(redacted).not.toContain('hunter2');
+    expect(redacted).not.toContain(token);
+    expect(redacted).toContain('/Users/suas/work/orchestrat0r/ai-orchestrator');
+    expect(redacted).toContain('ProjectMemoryBriefService');
+    expect(redacted).toContain('package.json');
   });
 });

@@ -4,7 +4,8 @@
 
 import { execFile } from 'child_process';
 import * as fs from 'fs';
-import { app, BrowserWindow, screen, Menu, Notification, shell, clipboard, nativeImage } from 'electron';
+import { app, BrowserWindow, screen, Menu, Notification, shell, clipboard, nativeImage, session } from 'electron';
+import type { WebContents } from 'electron';
 import * as path from 'path';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from './logging/logger';
@@ -68,6 +69,7 @@ export class WindowManager {
     });
 
     this.attachWindowDiagnostics(this.mainWindow);
+    this.configurePermissions();
 
     // Remove menu bar entirely on Windows/Linux for cleaner look
     if (!isMac) {
@@ -149,6 +151,45 @@ export class WindowManager {
     });
 
     return this.mainWindow;
+  }
+
+  private configurePermissions(): void {
+    const isAllowedAppOrigin = (url: string): boolean =>
+      url.startsWith('file://') || url.startsWith('http://localhost:');
+    const isMainWindowContents = (webContents: WebContents | null): boolean =>
+      Boolean(webContents && this.mainWindow?.webContents.id === webContents.id);
+    const allowsSanitizedClipboardWrite = (permission: string): boolean =>
+      permission === 'clipboard-sanitized-write';
+
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+      return Boolean(
+        isMainWindowContents(webContents)
+        && isAllowedAppOrigin(requestingOrigin)
+        && allowsSanitizedClipboardWrite(permission)
+      );
+    });
+
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      const isMainWindow = this.mainWindow?.webContents.id === webContents.id;
+      const url = details.requestingUrl || webContents.getURL();
+      const isAllowedOrigin =
+        isAllowedAppOrigin(url);
+      if (isMainWindow && isAllowedOrigin && allowsSanitizedClipboardWrite(permission)) {
+        callback(true);
+        return;
+      }
+
+      const mediaTypes =
+        permission === 'media' && 'mediaTypes' in details && Array.isArray(details.mediaTypes)
+          ? details.mediaTypes
+          : [];
+      const wantsAudioOnly =
+        permission === 'media' &&
+        (mediaTypes.length === 0 || mediaTypes.includes('audio')) &&
+        !mediaTypes.includes('video');
+
+      callback(Boolean(isMainWindow && isAllowedOrigin && wantsAudioOnly));
+    });
   }
 
   private attachWindowDiagnostics(window: BrowserWindow): void {

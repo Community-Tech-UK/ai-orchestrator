@@ -47,7 +47,8 @@
     "entitlementsInherit": "build/entitlements.mac.plist",
     "notarize": false,
     "extendInfo": {
-      "NSLocalNetworkUsageDescription": "AI Orchestrator uses your local network to discover and connect to worker nodes on other machines."
+      "NSLocalNetworkUsageDescription": "AI Orchestrator uses your local network to discover and connect to worker nodes on other machines.",
+      "NSMicrophoneUsageDescription": "AI Orchestrator uses the microphone only when you enable voice conversation for a session."
     }
   },
   "linux": {

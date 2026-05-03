@@ -111,6 +111,7 @@ interface WelcomeProjectContext {
                 [pendingFiles]="pendingFiles()"
                 [pendingFolders]="pendingFolders()"
                 (sendMessage)="sendMessage.emit($event)"
+                (startSessionWithWorkflow)="startSessionWithWorkflow.emit($event)"
                 (removeFile)="removeFile.emit($event)"
                 (removeFolder)="removeFolder.emit($event)"
                 (addFiles)="addFiles.emit()"
@@ -367,6 +368,7 @@ export class InstanceWelcomeComponent {
   // Actions
   selectFolder = output<string>();
   sendMessage = output<string>();
+  startSessionWithWorkflow = output<{ message: string; templateId: string }>();
   nodeChange = output<string | null>();
   filesDropped = output<File[]>();
   imagesPasted = output<File[]>();

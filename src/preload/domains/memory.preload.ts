@@ -637,6 +637,22 @@ export function createMemoryDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHAN
       ipcRenderer.invoke(ch.CODEBASE_MINE_DIRECTORY, payload),
     codebaseGetStatus: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CODEBASE_GET_STATUS, payload),
+    codebasePauseProject: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CODEBASE_PAUSE_PROJECT, payload),
+    codebaseResumeProject: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CODEBASE_RESUME_PROJECT, payload),
+    codebaseExcludeProject: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CODEBASE_EXCLUDE_PROJECT, payload),
+
+    // Project Knowledge read model
+    projectKnowledgeListProjects: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_KNOWLEDGE_LIST_PROJECTS),
+    projectKnowledgeGetReadModel: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_KNOWLEDGE_GET_READ_MODEL, payload),
+    projectKnowledgeGetEvidence: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_KNOWLEDGE_GET_EVIDENCE, payload),
+    projectKnowledgeRefreshCodeIndex: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_KNOWLEDGE_REFRESH_CODE_INDEX, payload),
 
     // ============================================
     // Knowledge Event Listeners (main -> renderer)

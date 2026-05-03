@@ -1009,6 +1009,17 @@ export class InstanceDetailComponent {
     );
   }
 
+  async onWelcomeStartSessionWithWorkflow(event: {
+    message: string;
+    templateId: string;
+  }): Promise<void> {
+    await this.welcomeCoordinator.onWelcomeStartSessionWithWorkflow(
+      event.message,
+      event.templateId,
+      (creating) => this.isCreatingInstance.set(creating),
+    );
+  }
+
   onSelectWelcomeFolder(folder: string): void {
     this.welcomeCoordinator.onSelectWelcomeFolder(folder);
   }

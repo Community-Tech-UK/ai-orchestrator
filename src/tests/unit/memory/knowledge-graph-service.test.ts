@@ -71,7 +71,10 @@ describe('KnowledgeGraphService', () => {
   describe('addFact + queryEntity', () => {
     it('adds a fact and retrieves it via queryEntity', () => {
       const svc = KnowledgeGraphService.getInstance();
-      const id = svc.addFact('Alice', 'works_at', 'Acme Corp', { validFrom: '2020-01-01' });
+      const id = svc.addFact('Alice', 'works_at', 'Acme Corp', {
+        validFrom: '2020-01-01',
+        sourceFile: '/fake/project/package.json',
+      });
 
       expect(id).toMatch(/^t_alice_works_at_acme_corp_/);
 
@@ -80,6 +83,8 @@ describe('KnowledgeGraphService', () => {
       expect(results[0].subject).toBe('Alice');
       expect(results[0].predicate).toBe('works_at');
       expect(results[0].object).toBe('Acme Corp');
+      expect(results[0].id).toBe(id);
+      expect(results[0].sourceFile).toBe('/fake/project/package.json');
       expect(results[0].current).toBe(true);
     });
 

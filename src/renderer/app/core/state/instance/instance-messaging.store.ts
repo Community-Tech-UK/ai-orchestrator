@@ -172,12 +172,12 @@ export class InstanceMessagingStore {
     this.clearMessageQueue(instanceId);
 
     if (count === 1) {
-      this.addErrorToOutput(
+      this.addQueueRestoreNoticeToOutput(
         instanceId,
         'Your message was restored to the input — restart the instance to send it.'
       );
     } else {
-      this.addErrorToOutput(
+      this.addQueueRestoreNoticeToOutput(
         instanceId,
         `Your message was restored to the input. ${count - 1} additional queued message${count > 1 ? 's were' : ' was'} discarded. Restart the instance to continue.`
       );
@@ -715,6 +715,25 @@ export class InstanceMessagingStore {
 
     this.stateService.updateInstance(instanceId, {
       outputBuffer: [...instance.outputBuffer, errorOutput],
+    });
+  }
+
+  private addQueueRestoreNoticeToOutput(instanceId: string, content: string): void {
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) return;
+
+    const noticeOutput: OutputMessage = {
+      id: `system-${Date.now()}`,
+      timestamp: Date.now(),
+      type: 'system',
+      content,
+      metadata: {
+        systemMessageKind: 'queue-restore',
+      },
+    };
+
+    this.stateService.updateInstance(instanceId, {
+      outputBuffer: [...instance.outputBuffer, noticeOutput],
     });
   }
 }

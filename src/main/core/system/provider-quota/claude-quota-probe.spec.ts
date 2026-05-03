@@ -160,6 +160,22 @@ describe('ClaudeQuotaProbe', () => {
       expect(received).toBe(ac.signal);
     });
 
+    it('passes the expanded CLI PATH to exec', async () => {
+      let pathEnv = '';
+      const probe = new ClaudeQuotaProbe({
+        env: { HOME: '/Users/alice', PATH: '/usr/bin:/bin' } as NodeJS.ProcessEnv,
+        platform: 'darwin',
+        exec: async (_c, _a, { env }) => {
+          pathEnv = env['PATH'] ?? '';
+          return { stdout: LOGGED_IN_MAX, stderr: '', exitCode: 0 };
+        },
+      });
+      await probe.probe({ signal: new AbortController().signal });
+      expect(pathEnv).toContain('/Users/alice/.local/bin');
+      expect(pathEnv).toContain('/Users/alice/.nvm/versions/node/current/bin');
+      expect(pathEnv).toContain('/usr/bin:/bin');
+    });
+
     it('returns the provider id "claude"', () => {
       const probe = new ClaudeQuotaProbe({ exec: fakeExec({ stdout: LOGGED_IN_MAX }) });
       expect(probe.provider).toBe('claude');

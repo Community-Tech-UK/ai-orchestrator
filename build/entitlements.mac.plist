@@ -11,5 +11,8 @@
     <!-- Required for loading Electron framework dylibs -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Required for session voice conversation microphone access -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>

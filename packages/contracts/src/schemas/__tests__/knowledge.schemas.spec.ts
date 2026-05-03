@@ -16,6 +16,8 @@ import {
   WakeListHintsPayloadSchema,
   CodebaseMineDirectoryPayloadSchema,
   CodebaseGetStatusPayloadSchema,
+  ProjectKnowledgeGetEvidencePayloadSchema,
+  ProjectKnowledgeRefreshCodeIndexPayloadSchema,
 } from '../knowledge.schemas';
 
 describe('knowledge.schemas', () => {
@@ -34,6 +36,7 @@ describe('knowledge.schemas', () => {
       WakeRemoveHintPayloadSchema, WakeSetIdentityPayloadSchema,
       WakeListHintsPayloadSchema,
       CodebaseMineDirectoryPayloadSchema, CodebaseGetStatusPayloadSchema,
+      ProjectKnowledgeGetEvidencePayloadSchema, ProjectKnowledgeRefreshCodeIndexPayloadSchema,
     ];
     for (const schema of schemas) {
       expect(typeof schema.parse).toBe('function');

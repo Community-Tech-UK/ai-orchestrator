@@ -149,16 +149,12 @@ export class InstanceListComponent implements OnDestroy {
   isDragDisabled = computed(() =>
     this.filterInput().length > 0 ||
       this.statusFilter() !== 'all' ||
-      this.locationFilter() !== 'all' ||
-      this.historyVisibilityMode() !== 'relevant' ||
-      this.historyTimeWindow() !== 'all'
+      this.locationFilter() !== 'all'
   );
   isProjectDragDisabled = computed(() =>
     this.filterInput().length > 0 ||
       this.statusFilter() !== 'all' ||
       this.locationFilter() !== 'all' ||
-      this.historyVisibilityMode() !== 'relevant' ||
-      this.historyTimeWindow() !== 'all' ||
       this.openProjectMenuKey() !== null
   );
 
@@ -1038,8 +1034,7 @@ export class InstanceListComponent implements OnDestroy {
       await this.loadRecentDirectories();
     }
 
-    const nextOrder = pathGroups.map(({ group }) => group.path!);
-    moveItemInArray(nextOrder, fromIndex, toIndex);
+    const nextOrder = this.getNextProjectPathOrder(pathGroups, fromIndex, toIndex);
     const updated = await this.recentDirectoriesService.reorderDirectories(nextOrder);
     if (updated) {
       await this.loadRecentDirectories();
@@ -1685,6 +1680,35 @@ export class InstanceListComponent implements OnDestroy {
         (item): item is ProjectPathGroupIndex =>
           !!item.group.path && this.canDragProject(item.group)
       );
+  }
+
+  private getNextProjectPathOrder(
+    pathGroups: readonly ProjectPathGroupIndex[],
+    fromIndex: number,
+    toIndex: number
+  ): string[] {
+    const visiblePaths = pathGroups.map(({ group }) => group.path!);
+    const reorderedVisiblePaths = [...visiblePaths];
+    moveItemInArray(reorderedVisiblePaths, fromIndex, toIndex);
+
+    const visiblePathKeys = new Set(visiblePaths.map((dirPath) => this.getProjectKey(dirPath)));
+    const recentDirectoryPaths = this.recentDirectories().map((entry) => entry.path);
+    const recentDirectoryKeys = new Set(
+      recentDirectoryPaths.map((dirPath) => this.getProjectKey(dirPath))
+    );
+    const completeOrder = [
+      ...recentDirectoryPaths,
+      ...visiblePaths.filter((dirPath) =>
+        !recentDirectoryKeys.has(this.getProjectKey(dirPath))
+      ),
+    ];
+    const replacementQueue = [...reorderedVisiblePaths];
+
+    return completeOrder.map((dirPath) =>
+      visiblePathKeys.has(this.getProjectKey(dirPath))
+        ? replacementQueue.shift() ?? dirPath
+        : dirPath
+    );
   }
 
   private closeProjectMenu(options: { restoreFocus?: boolean } = {}): void {

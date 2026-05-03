@@ -1,0 +1,253 @@
+import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { VoiceIpcService } from '../services/ipc/voice-ipc.service';
+import type { OutputMessage } from '../state/instance/instance.types';
+import {
+  RealtimeTranscriptionService,
+  type VoiceTranscriptEvent,
+  type VoiceTranscriptionConnection,
+} from './realtime-transcription.service';
+import { VoiceConversationStore } from './voice-conversation.store';
+import { VoicePlaybackService } from './voice-playback.service';
+
+class FakeAudioContext {
+  resume = vi.fn(async () => undefined);
+  close = vi.fn(async () => undefined);
+}
+
+interface StoreHarness {
+  store: VoiceConversationStore;
+  events: Subject<VoiceTranscriptEvent>;
+  sendInput: ReturnType<typeof vi.fn>;
+  steerInput: ReturnType<typeof vi.fn>;
+  closeConnection: ReturnType<typeof vi.fn>;
+  voiceIpc: {
+    getStatus: ReturnType<typeof vi.fn>;
+    createTranscriptionSession: ReturnType<typeof vi.fn>;
+    closeTranscriptionSession: ReturnType<typeof vi.fn>;
+    synthesizeSpeech: ReturnType<typeof vi.fn>;
+    cancelSpeech: ReturnType<typeof vi.fn>;
+  };
+}
+
+function message(
+  id: string,
+  type: OutputMessage['type'],
+  content: string
+): OutputMessage {
+  return {
+    id,
+    timestamp: 1,
+    type,
+    content,
+  };
+}
+
+function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness {
+  const events = new Subject<VoiceTranscriptEvent>();
+  const closeConnection = vi.fn();
+  const connection: VoiceTranscriptionConnection = {
+    events: events.asObservable(),
+    level: signal(0),
+    close: closeConnection,
+  };
+  const voiceIpc = {
+    getStatus: vi.fn(async () => ({
+      available: true,
+      keySource: 'temporary' as const,
+      canConfigureTemporaryKey: true,
+    })),
+    createTranscriptionSession: vi.fn(async () => ({
+      sessionId: 'voice-session-1',
+      clientSecret: 'ephemeral-client-secret',
+      model: 'gpt-4o-transcribe',
+    })),
+    closeTranscriptionSession: vi.fn(async () => true),
+    synthesizeSpeech: vi.fn(async () => ({
+      requestId: 'tts-1',
+      audioBase64: 'AA==',
+      mimeType: 'audio/mpeg',
+      format: 'mp3' as const,
+    })),
+    cancelSpeech: vi.fn(async () => true),
+  };
+  const transcription = {
+    connect: vi.fn(async () => connection),
+  };
+  const playback = {
+    stop: vi.fn(),
+    play: vi.fn(async () => undefined),
+  };
+
+  TestBed.configureTestingModule({
+    providers: [
+      VoiceConversationStore,
+      { provide: VoiceIpcService, useValue: voiceIpc },
+      { provide: RealtimeTranscriptionService, useValue: transcription },
+      { provide: VoicePlaybackService, useValue: playback },
+    ],
+  });
+
+  const sendInput = vi.fn();
+  const steerInput = vi.fn();
+  const store = TestBed.inject(VoiceConversationStore);
+  store.updateContext({
+    instanceId: 'instance-1',
+    status,
+    messages: [],
+    sendInput,
+    steerInput,
+  });
+
+  return {
+    store,
+    events,
+    sendInput,
+    steerInput,
+    closeConnection,
+    voiceIpc,
+  };
+}
+
+type StoreHarnessContextStatus =
+  | 'idle'
+  | 'ready'
+  | 'waiting_for_input'
+  | 'busy'
+  | 'failed';
+
+describe('VoiceConversationStore', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: FakeAudioContext,
+    });
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('sends final voice transcripts to idle sessions', async () => {
+    const harness = createHarness('idle');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.events.next({ kind: 'final', text: '  hello session  ' });
+
+    expect(harness.sendInput).toHaveBeenCalledWith('hello session');
+    expect(harness.steerInput).not.toHaveBeenCalled();
+    expect(harness.store.mode()).toBe('waiting-for-session');
+  });
+
+  it('steers final voice transcripts while a session is actively working', async () => {
+    const harness = createHarness('busy');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'busy',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.events.next({ kind: 'final', text: 'take a narrower path' });
+
+    expect(harness.steerInput).toHaveBeenCalledWith('take a narrower path');
+    expect(harness.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('does not send detached transcripts after manual composer edits', async () => {
+    const harness = createHarness('idle');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.events.next({ kind: 'partial', text: 'voice draft' });
+    harness.store.detachTranscript();
+    harness.events.next({ kind: 'final', text: 'voice draft' });
+
+    expect(harness.sendInput).not.toHaveBeenCalled();
+    expect(harness.steerInput).not.toHaveBeenCalled();
+    expect(harness.store.mode()).toBe('listening');
+  });
+
+  it('fails closed instead of routing voice transcripts into terminal sessions', async () => {
+    const harness = createHarness('failed');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'failed',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.events.next({ kind: 'final', text: 'are you there' });
+
+    expect(harness.sendInput).not.toHaveBeenCalled();
+    expect(harness.steerInput).not.toHaveBeenCalled();
+    expect(harness.store.mode()).toBe('error');
+    expect(harness.store.errorCode()).toBe('session-unavailable');
+  });
+
+  it('releases the main-process transcription session on stop', async () => {
+    const harness = createHarness('idle');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.store.stop();
+    await Promise.resolve();
+
+    expect(harness.closeConnection).toHaveBeenCalled();
+    expect(harness.voiceIpc.closeTranscriptionSession).toHaveBeenCalledWith('voice-session-1');
+  });
+
+  it('speaks the latest assistant message after the session returns to idle', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness('idle');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+
+    harness.store.updateContext({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [message('assistant-1', 'assistant', 'Done with the task.')],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    await vi.advanceTimersByTimeAsync(701);
+
+    expect(harness.voiceIpc.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: 'Done with the task.',
+        model: 'gpt-4o-mini-tts',
+      }),
+    );
+  });
+});

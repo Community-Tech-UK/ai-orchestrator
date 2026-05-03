@@ -133,6 +133,15 @@ export class InstanceListStore {
   async createInstanceWithMessage(
     options: CreateInstanceWithMessageOptions,
   ): Promise<boolean> {
+    return (await this.createInstanceWithMessageAndReturnId(options)) !== null;
+  }
+
+  /**
+   * Create instance and immediately send a message, returning the new instance ID.
+   */
+  async createInstanceWithMessageAndReturnId(
+    options: CreateInstanceWithMessageOptions,
+  ): Promise<string | null> {
     const { message, files, workingDirectory, agentId, provider, model, forceNodeId } = options;
 
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
@@ -150,7 +159,7 @@ export class InstanceListStore {
         const errorMessage = validationErrors.join('\n');
         console.error('InstanceListStore: File validation failed:', errorMessage);
         this.stateService.setError(`Cannot create instance:\n${errorMessage}`);
-        return false;
+        return null;
       }
     }
 
@@ -176,14 +185,14 @@ export class InstanceListStore {
       if (!result.success) {
         this.stateService.setError(result.error?.message || 'Failed to create instance');
       } else {
-        this.syncInstanceFromResponse(result.data, true);
+        return this.syncInstanceFromResponse(result.data, true);
       }
-      return result.success;
+      return null;
     } catch (error) {
       console.error('InstanceListStore: createInstanceWithMessage error:', error);
       this.stateService.setLoading(false);
       this.stateService.setError(`Failed to create instance: ${(error as Error).message}`);
-      return false;
+      return null;
     }
   }
 

@@ -98,3 +98,31 @@ export const CodebaseMineDirectoryPayloadSchema = z.object({
 export const CodebaseGetStatusPayloadSchema = z.object({
   dirPath: z.string().min(1),
 });
+
+export const CodebasePauseProjectPayloadSchema = z.object({
+  dirPath: z.string().min(1),
+});
+
+export const CodebaseResumeProjectPayloadSchema = z.object({
+  dirPath: z.string().min(1),
+});
+
+export const CodebaseExcludeProjectPayloadSchema = z.object({
+  dirPath: z.string().min(1),
+});
+
+// ============ Project Knowledge Payloads ============
+
+export const ProjectKnowledgeGetReadModelPayloadSchema = z.object({
+  projectKey: z.string().min(1),
+});
+
+export const ProjectKnowledgeGetEvidencePayloadSchema = z.object({
+  projectKey: z.string().min(1),
+  targetKind: z.enum(['kg_triple', 'wake_hint', 'code_symbol']),
+  targetId: z.string().min(1),
+});
+
+export const ProjectKnowledgeRefreshCodeIndexPayloadSchema = z.object({
+  projectKey: z.string().min(1),
+});

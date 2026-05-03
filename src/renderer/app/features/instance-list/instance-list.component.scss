@@ -241,6 +241,14 @@
       background: transparent;
     }
 
+    .project-group.project-draggable .project-header {
+      cursor: grab;
+    }
+
+    .project-group.project-draggable .project-header:active {
+      cursor: grabbing;
+    }
+
     .project-header-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;

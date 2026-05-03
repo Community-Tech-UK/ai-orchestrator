@@ -595,16 +595,24 @@ Hey! I'm here. What do you want to tackle?`;
       const adapter = new CodexCliAdapter();
 
       // Mock checkStatus to report app-server available
-      vi.spyOn(adapter as any, 'checkStatus').mockResolvedValue({
+      vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
         available: true,
         metadata: { appServerAvailable: true },
       });
 
       // Mock initAppServerMode to hang forever (never resolve)
-      vi.spyOn(adapter as any, 'initAppServerMode').mockReturnValue(new Promise(() => {}));
+      vi.spyOn(
+        adapter as unknown as { initAppServerMode(): Promise<void> },
+        'initAppServerMode'
+      ).mockReturnValue(new Promise<void>(() => {
+        // Intentionally pending.
+      }));
 
       // Mock prepareCleanCodexHome for exec fallback
-      vi.spyOn(adapter as any, 'prepareCleanCodexHome').mockReturnValue(undefined);
+      vi.spyOn(
+        adapter as unknown as { prepareCleanCodexHome(): void },
+        'prepareCleanCodexHome'
+      ).mockReturnValue(undefined);
 
       // Use fake timers to advance past the 30s timeout
       vi.useFakeTimers();
@@ -614,7 +622,7 @@ Hey! I'm here. What do you want to tackle?`;
       vi.useRealTimers();
 
       expect(pid).toBeGreaterThan(0);
-      expect((adapter as any).useAppServer).toBe(false);
+      expect((adapter as unknown as { useAppServer: boolean }).useAppServer).toBe(false);
     });
   });
 
@@ -789,6 +797,7 @@ Hey! I'm here. What do you want to tackle?`;
         expect(classify('session expired')).toBe(true);
         expect(classify('invalid thread id')).toBe(true);
         expect(classify('missing thread')).toBe(true);
+        expect(classify('thread/resume failed: no rollout found for thread id 019de664-fb9c-7ae3-b91c-0893e58c0b10')).toBe(true);
       });
 
       it('ignores loss phrases that lack thread/session context', () => {
@@ -949,7 +958,9 @@ Hey! I'm here. What do you want to tackle?`;
           }
           return Promise.resolve({});
         });
-        const neverExits = new Promise<void>(() => {});
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
         vi.spyOn(
           adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
           'connectAppServer',
@@ -971,6 +982,84 @@ Hey! I'm here. What do you want to tackle?`;
     });
 
     describe('exec mode', () => {
+      it('maps full-auto fresh exec to workspace-write sandbox and omits deprecated full-auto on resume', async () => {
+        const adapter = new CodexCliAdapter({
+          approvalMode: 'full-auto',
+          sandboxMode: 'workspace-write',
+          workingDir: '/tmp/project',
+        });
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        queueCodexRun(spawnSpy, {
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-full-auto"}',
+            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"first"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}',
+          ],
+        });
+
+        await adapter.sendMessage({ role: 'user', content: 'first' });
+
+        queueCodexRun(spawnSpy, {
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-full-auto"}',
+            '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"second"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":6}}',
+          ],
+        });
+
+        await adapter.sendMessage({ role: 'user', content: 'second' });
+
+        const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+        const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+
+        expect(firstArgs).not.toContain('--full-auto');
+        expect(firstArgs).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write']));
+        expect(secondArgs.slice(0, 2)).toEqual(['exec', 'resume']);
+        expect(secondArgs).toContain('thread-full-auto');
+        expect(secondArgs).not.toContain('--full-auto');
+        expect(secondArgs).not.toContain('--sandbox');
+      });
+
+      it('does not retry the same stale resume command when Codex reports no rollout found', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { sessionId: string }).sessionId = '019de664-fb9c-7ae3-b91c-0893e58c0b10';
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        queueCodexRun(spawnSpy, {
+          code: 1,
+          stderrLines: [
+            'Error: thread/resume failed: no rollout found for thread id 019de664-fb9c-7ae3-b91c-0893e58c0b10',
+          ],
+        });
+        queueCodexRun(spawnSpy, {
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-fresh-after-rollout"}',
+            '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"recovered"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":6}}',
+          ],
+        });
+
+        const outputs: { content: string; type: string }[] = [];
+        adapter.on('output', (msg: { content: string; type: string }) => {
+          outputs.push({ content: msg.content, type: msg.type });
+        });
+
+        await adapter.sendInput('retry me');
+
+        const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+        const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+        expect(spawnSpy).toHaveBeenCalledTimes(2);
+        expect(firstArgs.slice(0, 2)).toEqual(['exec', 'resume']);
+        expect(firstArgs).toContain('019de664-fb9c-7ae3-b91c-0893e58c0b10');
+        expect(secondArgs.slice(0, 2)).toEqual(['exec', '--json']);
+        expect(secondArgs).not.toContain('resume');
+        expect(secondArgs).not.toContain('019de664-fb9c-7ae3-b91c-0893e58c0b10');
+        expect(outputs.some((output) => output.type === 'assistant' && output.content === 'recovered')).toBe(true);
+      });
+
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {
         const adapter = await spawnExecAdapter();
         (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';

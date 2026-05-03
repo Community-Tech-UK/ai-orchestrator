@@ -106,6 +106,15 @@ export const MEMORY_CHANNELS = {
   // Codebase Mining operations
   CODEBASE_MINE_DIRECTORY: 'codebase:mine-directory',
   CODEBASE_GET_STATUS: 'codebase:get-status',
+  CODEBASE_PAUSE_PROJECT: 'codebase:pause-project',
+  CODEBASE_RESUME_PROJECT: 'codebase:resume-project',
+  CODEBASE_EXCLUDE_PROJECT: 'codebase:exclude-project',
+
+  // Project Knowledge read model
+  PROJECT_KNOWLEDGE_LIST_PROJECTS: 'project-knowledge:list-projects',
+  PROJECT_KNOWLEDGE_GET_READ_MODEL: 'project-knowledge:get-read-model',
+  PROJECT_KNOWLEDGE_GET_EVIDENCE: 'project-knowledge:get-evidence',
+  PROJECT_KNOWLEDGE_REFRESH_CODE_INDEX: 'project-knowledge:refresh-code-index',
 
   // Knowledge event forwarding (main -> renderer)
   KG_EVENT_FACT_ADDED: 'kg:event:fact-added',

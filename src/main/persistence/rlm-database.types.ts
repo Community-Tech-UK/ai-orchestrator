@@ -209,6 +209,99 @@ export interface KGTripleRow {
   extracted_at: number;
 }
 
+export interface CodebaseMiningStatusRow {
+  normalized_path: string;
+  root_path: string;
+  project_key: string;
+  display_name: string;
+  discovery_source: string;
+  auto_mine: number;
+  is_paused: number;
+  is_excluded: number;
+  status: string;
+  content_fingerprint: string | null;
+  files_json: string;
+  facts_extracted: number;
+  hints_created: number;
+  files_read: number;
+  errors_json: string;
+  started_at: number | null;
+  completed_at: number | null;
+  last_active_at: number | null;
+  created_at: number;
+  updated_at: number;
+  metadata_json: string;
+}
+
+export interface ProjectKnowledgeSourceRow {
+  id: string;
+  project_key: string;
+  source_kind: string;
+  source_uri: string;
+  source_title: string | null;
+  content_fingerprint: string;
+  created_at: number;
+  updated_at: number;
+  last_seen_at: number;
+  metadata_json: string;
+}
+
+export interface ProjectKnowledgeKgLinkRow {
+  id: string;
+  project_key: string;
+  source_id: string;
+  triple_id: string;
+  source_span_json: string;
+  evidence_strength: number;
+  created_at: number;
+  metadata_json: string;
+}
+export interface ProjectKnowledgeWakeLinkRow {
+  id: string;
+  project_key: string;
+  source_id: string;
+  hint_id: string;
+  source_span_json: string;
+  evidence_strength: number;
+  created_at: number;
+  metadata_json: string;
+}
+
+export interface ProjectCodeIndexStatusRow {
+  project_key: string;
+  workspace_hash: string | null;
+  status: string;
+  file_count: number;
+  symbol_count: number;
+  sync_started_at: number | null;
+  last_indexed_at: number | null;
+  last_synced_at: number | null;
+  updated_at: number;
+  error: string | null;
+  metadata_json: string;
+}
+
+export interface ProjectCodeSymbolRow {
+  id: string;
+  project_key: string;
+  source_id: string;
+  workspace_hash: string;
+  symbol_id: string;
+  path_from_root: string;
+  name: string;
+  kind: string;
+  container_name: string | null;
+  start_line: number;
+  start_character: number;
+  end_line: number | null;
+  end_character: number | null;
+  signature: string | null;
+  doc_comment: string | null;
+  created_at: number;
+  updated_at: number;
+  metadata_json: string;
+}
+
 // Verbatim segment rows
 export interface VerbatimSegmentRow {
   id: string;
@@ -245,4 +338,21 @@ export interface WakeHintRow {
   created_at: number;
   last_used: number;
   usage_count: number;
+}
+
+export interface ProjectMemoryStartupBriefRow {
+  id: string;
+  instance_id: string;
+  project_key: string;
+  rendered_text: string;
+  sections_json: string;
+  sources_json: string;
+  max_chars: number;
+  rendered_chars: number;
+  source_count: number;
+  truncated: number;
+  provider: string | null;
+  model: string | null;
+  created_at: number;
+  metadata_json: string;
 }

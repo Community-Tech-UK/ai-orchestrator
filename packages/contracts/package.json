@@ -26,6 +26,7 @@
     "./schemas/automation":       { "types": "./src/schemas/automation.schemas.ts",    "default": "./src/schemas/automation.schemas.ts" },
     "./schemas/webhook":          { "types": "./src/schemas/webhook.schemas.ts",       "default": "./src/schemas/webhook.schemas.ts" },
     "./schemas/provider-runtime-events": { "types": "./src/schemas/provider-runtime-events.schemas.ts", "default": "./src/schemas/provider-runtime-events.schemas.ts" },
+    "./schemas/voice":           { "types": "./src/schemas/voice.schemas.ts",           "default": "./src/schemas/voice.schemas.ts" },
     "./channels/instance":        { "types": "./src/channels/instance.channels.ts",        "default": "./src/channels/instance.channels.ts" },
     "./channels/file":            { "types": "./src/channels/file.channels.ts",            "default": "./src/channels/file.channels.ts" },
     "./channels/session":         { "types": "./src/channels/session.channels.ts",         "default": "./src/channels/session.channels.ts" },
@@ -40,6 +41,7 @@
     "./channels/learning":        { "types": "./src/channels/learning.channels.ts",        "default": "./src/channels/learning.channels.ts" },
     "./channels/workspace":       { "types": "./src/channels/workspace.channels.ts",       "default": "./src/channels/workspace.channels.ts" },
     "./channels/automation":      { "types": "./src/channels/automation.channels.ts",      "default": "./src/channels/automation.channels.ts" },
+    "./channels/voice":           { "types": "./src/channels/voice.channels.ts",           "default": "./src/channels/voice.channels.ts" },
     "./types/instance-events":    { "types": "./src/types/instance-events.ts",             "default": "./src/types/instance-events.ts" },
     "./types/provider-runtime-events": { "types": "./src/types/provider-runtime-events.ts", "default": "./src/types/provider-runtime-events.ts" },
     "./types/transport":          { "types": "./src/types/transport.types.ts",             "default": "./src/types/transport.types.ts" }
