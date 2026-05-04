@@ -83,6 +83,11 @@ import { InstanceTerminationCoordinator } from './lifecycle/instance-termination
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
+import {
+  buildBrowserGatewayMcpConfigJson,
+  getBrowserGatewayRpcSocketPath,
+  type BrowserGatewayMcpConfigOptions,
+} from '../browser-gateway';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
@@ -339,7 +344,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   /** Returns MCP config paths to pass to spawned CLI instances.
    *  Returns empty for remote instances — local filesystem paths don't exist on the worker. */
-  private getMcpConfig(executionLocation?: ExecutionLocation): string[] {
+  private getMcpConfig(executionLocation?: ExecutionLocation, instanceId?: string): string[] {
     // MCP config paths are local filesystem paths. Remote workers have their
     // own MCP config on their filesystem; passing ours would cause invalid
     // --mcp-config arguments that may crash the CLI on the worker.
@@ -377,6 +382,19 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
     }
 
+    const browserGatewayOptions = this.getBrowserGatewayMcpOptions(executionLocation, instanceId);
+    if (browserGatewayOptions) {
+      const browserGatewayConfig = buildBrowserGatewayMcpConfigJson(browserGatewayOptions);
+      if (browserGatewayConfig) {
+        configs.push(browserGatewayConfig);
+      } else {
+        logger.warn('Browser Gateway MCP bridge entrypoint not found — child sessions will not expose browser.* tools', {
+          currentDir: __dirname,
+          isPackaged: app.isPackaged,
+        });
+      }
+    }
+
     if (configs.length === 0) {
       logger.warn('No MCP configs resolved — spawned instances will not have custom MCP servers', {
         expectedPath: MCP_CONFIG_PATH,
@@ -385,6 +403,27 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     return configs;
+  }
+
+  private getBrowserGatewayMcpOptions(
+    executionLocation?: ExecutionLocation,
+    instanceId?: string,
+  ): BrowserGatewayMcpConfigOptions | null {
+    if (executionLocation?.type === 'remote' || !instanceId) {
+      return null;
+    }
+    const socketPath = getBrowserGatewayRpcSocketPath();
+    if (!socketPath) {
+      return null;
+    }
+    return {
+      currentDir: __dirname,
+      execPath: process.execPath,
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      socketPath,
+      instanceId,
+    };
   }
 
   /** Returns the defer permission hook path for non-YOLO instances, undefined for YOLO.
@@ -551,7 +590,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       {
         transitionState: (instance, newState) => this.transitionState(instance, newState),
         resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance) as Promise<string>,
-        getMcpConfig: (loc) => this.getMcpConfig(loc),
+        getMcpConfig: (loc, instanceId) => this.getMcpConfig(loc, instanceId),
+        getBrowserGatewayMcpOptions: (loc, instanceId) => this.getBrowserGatewayMcpOptions(loc, instanceId),
         getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
         waitForResumeHealth: (id) => this.waitForResumeHealth(id),
         createCliAdapter: (cliType, options, loc) => this.createRuntimeAdapter(cliType as CliType, options, loc),
@@ -615,7 +655,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       transitionState: (instance, newState) => this.transitionState(instance, newState),
       getAdapterRuntimeCapabilities: (adapter) => this.getAdapterRuntimeCapabilities(adapter),
       resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance),
-      getMcpConfig: (loc) => this.getMcpConfig(loc),
+      getMcpConfig: (loc, instanceId) => this.getMcpConfig(loc, instanceId),
+      getBrowserGatewayMcpOptions: (loc, instanceId) => this.getBrowserGatewayMcpOptions(loc, instanceId),
       getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
       waitForResumeHealth: (id, timeoutMs) => this.waitForResumeHealth(id, timeoutMs),
       waitForAdapterWritable: (id, timeoutMs) => this.waitForAdapterWritable(id, timeoutMs),
@@ -1336,7 +1377,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,
-          mcpConfig: this.getMcpConfig(instance.executionLocation),
+          mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+          browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
         };
 
@@ -1426,6 +1468,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           // Clear local MCP config for remote instances — paths don't exist on workers
           if (executionLocation.type === 'remote') {
             spawnOptions.mcpConfig = [];
+            spawnOptions.browserGatewayMcp = undefined;
           } else {
             await this.warmCodememWorkspace(instance.workingDirectory);
           }
@@ -1787,7 +1830,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           yoloMode: instance.yoloMode,
           model: instance.currentModel,
           resume: canAttemptNativeResume,
-          mcpConfig: this.getMcpConfig(instance.executionLocation),
+          mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+          browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
         };
 
@@ -1968,7 +2012,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         model: instance.currentModel,
         resume: true,
         forkSession: false,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       },
       instance.executionLocation
@@ -2034,7 +2079,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         model: instance.currentModel,
         resume: false,
         forkSession: false,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       },
       instance.executionLocation
@@ -2268,7 +2314,8 @@ export class InstanceLifecycleManager extends EventEmitter {
           model: instance.currentModel,
           resume: false,
           forkSession: false,
-          mcpConfig: this.getMcpConfig(instance.executionLocation),
+          mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+          browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
         },
         instance.executionLocation
@@ -2418,7 +2465,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
 
@@ -2589,7 +2637,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(newYoloMode),
       };
       logger.debug('Spawn options configured', {
@@ -2802,7 +2851,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
       };
 

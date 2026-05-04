@@ -170,6 +170,70 @@ describe('adapter factory — copilot', () => {
     expect(env['NODE_OPTIONS']).toMatch(/--use-openssl-ca/);
   });
 
+  it('passes Browser Gateway MCP servers to Copilot ACP with array env entries', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      browserGatewayMcp: {
+        currentDir: '/tmp/dist/main/instance',
+        execPath: '/Applications/App.app/Contents/MacOS/App',
+        isPackaged: false,
+        resourcesPath: '/tmp/resources',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+    });
+
+    const mcpServers = (adapter as unknown as {
+      acpConfig: {
+        mcpServers?: Array<{
+          name: string;
+          command: string;
+          args?: string[];
+          env?: Array<{ name: string; value: string }>;
+        }>;
+      };
+    }).acpConfig.mcpServers ?? [];
+
+    const browserGateway = mcpServers.find((server) => server.name === 'browser-gateway');
+    expect(browserGateway).toBeTruthy();
+    expect(browserGateway?.env).toEqual(
+      expect.arrayContaining([
+        { name: 'AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET', value: '/tmp/browser-gateway.sock' },
+        { name: 'AI_ORCHESTRATOR_BROWSER_INSTANCE_ID', value: 'instance-browser' },
+      ]),
+    );
+  });
+
+  it('merges caller-provided ACP MCP servers with Browser Gateway', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      mcpServers: [
+        {
+          name: 'existing',
+          command: 'node',
+          args: ['existing.js'],
+        },
+      ],
+      browserGatewayMcp: {
+        currentDir: '/tmp/dist/main/instance',
+        execPath: '/Applications/App.app/Contents/MacOS/App',
+        isPackaged: false,
+        resourcesPath: '/tmp/resources',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+    });
+
+    const names = ((adapter as unknown as {
+      acpConfig: { mcpServers?: Array<{ name: string }> };
+    }).acpConfig.mcpServers ?? []).map((server) => server.name);
+
+    expect(names).toEqual(['existing', 'browser-gateway']);
+  });
+
   it('preserves pre-existing NODE_OPTIONS and does not duplicate the flag', () => {
     const originalNodeOptions = process.env['NODE_OPTIONS'];
     process.env['NODE_OPTIONS'] = '--max-old-space-size=4096';

@@ -52,6 +52,7 @@ import {
   registerLspHandlers,
   registerSnapshotHandlers,
   registerMcpHandlers,
+  registerBrowserGatewayHandlers,
   registerTodoHandlers,
   registerSecurityHandlers,
   registerDebugHandlers,
@@ -245,6 +246,9 @@ export class IpcMainHandler {
 
     // MCP handlers
     registerMcpHandlers({ windowManager: this.windowManager });
+    registerBrowserGatewayHandlers({
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
 
     // LSP handlers
     registerLspHandlers();

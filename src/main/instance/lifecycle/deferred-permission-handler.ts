@@ -13,6 +13,7 @@ import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { ClaudeCliAdapter } from '../../cli/adapters/claude-cli-adapter';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
+import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import { getLogger } from '../../logging/logger';
 import { planSessionRecovery } from './session-recovery';
 
@@ -34,7 +35,11 @@ export interface DeferredPermissionDeps {
 export interface DeferredPermissionLifecycleOps {
   transitionState: (instance: Instance, newState: InstanceStatus) => void;
   resolveCliTypeForInstance: (instance: Instance) => Promise<string>;
-  getMcpConfig: (executionLocation?: ExecutionLocation) => string[];
+  getMcpConfig: (executionLocation?: ExecutionLocation, instanceId?: string) => string[];
+  getBrowserGatewayMcpOptions?: (
+    executionLocation?: ExecutionLocation,
+    instanceId?: string,
+  ) => BrowserGatewayMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string) => Promise<boolean>;
   createCliAdapter: (cliType: string, options: UnifiedSpawnOptions, executionLocation?: ExecutionLocation) => CliAdapter;
@@ -149,7 +154,8 @@ export class DeferredPermissionHandler {
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
         resume: true,
-        mcpConfig: this.ops.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.ops.getBrowserGatewayMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.ops.getPermissionHookPath(instance.yoloMode),
       };
 

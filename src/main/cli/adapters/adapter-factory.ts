@@ -24,6 +24,11 @@ import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-con
 import { getLogger } from '../../logging/logger';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
+import {
+  buildBrowserGatewayAcpMcpServers,
+  type BrowserGatewayMcpConfigOptions,
+} from '../../browser-gateway/browser-mcp-config';
+import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 
 const logger = getLogger('AdapterFactory');
 
@@ -47,8 +52,12 @@ export interface UnifiedSpawnOptions {
   resume?: boolean;  // Resume an existing session (requires sessionId)
   forkSession?: boolean; // Fork a resumed session into a new session ID (Claude CLI)
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
+  /** ACP-native MCP server configs supplied by the caller. */
+  mcpServers?: AcpMcpServerConfig[];
+  /** Browser Gateway bridge options used to build provider-specific MCP config. */
+  browserGatewayMcp?: BrowserGatewayMcpConfigOptions;
   /** Enable Chrome extension integration (Claude CLI only).
-   *  Defaults to true when omitted — the factory sets this for Claude adapters. */
+   *  Defaults to false; managed browser access is exposed through Browser Gateway MCP. */
   chrome?: boolean;
   /** JSON Schema object for structured output (Codex app-server mode). */
   outputSchema?: Record<string, unknown>;
@@ -249,10 +258,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     // Default prompt-section exclusion to true for orchestrated instances —
     // they share similar prompts and benefit from cross-instance cache hits.
     excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
-    // Default Chrome integration to true — matches standalone Claude CLI behavior.
-    // The Chrome extension connects via native messaging, so spawned instances
-    // can use browser tools if the extension is installed and connected.
-    chrome: options.chrome ?? true,
+    chrome: options.chrome,
     permissionHookPath: options.permissionHookPath,
   };
   return new ClaudeCliAdapter(claudeOptions);
@@ -330,6 +336,9 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // Code's Copilot Chat session list indexes that state directory.
     env['COPILOT_HOME'] = copilotHomeDir;
   }
+  const browserGatewayMcpServers = options.browserGatewayMcp
+    ? buildBrowserGatewayAcpMcpServers(options.browserGatewayMcp)
+    : [];
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     command: launch.command,
@@ -351,6 +360,10 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     sessionId: options.sessionId,
     resume: options.resume,
     env,
+    mcpServers: [
+      ...(options.mcpServers ?? []),
+      ...browserGatewayMcpServers,
+    ],
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,

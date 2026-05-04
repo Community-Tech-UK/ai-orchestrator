@@ -47,6 +47,9 @@
       <div>
         <span class="panel-heading">Browser Automation</span>
         <div class="panel-subtitle">Health check for Chrome DevTools and browser MCP readiness.</div>
+        <div class="legacy-browser-note">
+          Legacy raw browser automation. Use <code>/browser</code> for managed Browser Gateway sessions.
+        </div>
       </div>
       <div class="server-actions">
         <button class="btn small" type="button" [disabled]="working()" (click)="runBrowserHealthCheck()">

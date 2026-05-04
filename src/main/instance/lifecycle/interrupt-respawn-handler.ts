@@ -53,6 +53,7 @@ import type {
 import type { ActivityState } from '../../../shared/types/activity.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { ErrorInfo } from '../../../shared/types/ipc.types';
+import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import { getProviderRuntimeService } from '../../providers/provider-runtime-service';
 
 const logger = getLogger('InterruptRespawn');
@@ -109,7 +110,11 @@ export interface InterruptRespawnDeps {
   transitionState: (instance: Instance, newState: InstanceStatus) => void;
   getAdapterRuntimeCapabilities: (adapter?: CliAdapter) => AdapterRuntimeCapabilities;
   resolveCliTypeForInstance: (instance: Instance) => Promise<CliType>;
-  getMcpConfig: (location?: ExecutionLocation) => string[];
+  getMcpConfig: (location?: ExecutionLocation, instanceId?: string) => string[];
+  getBrowserGatewayMcpOptions?: (
+    location?: ExecutionLocation,
+    instanceId?: string,
+  ) => BrowserGatewayMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string, timeoutMs?: number) => Promise<boolean>;
   waitForAdapterWritable: (instanceId: string, timeoutMs: number) => Promise<boolean>;
@@ -502,7 +507,8 @@ export class InterruptRespawnHandler {
         model: instance.currentModel,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.deps.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
       };
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -773,7 +779,8 @@ export class InterruptRespawnHandler {
         model: instance.currentModel,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.deps.getMcpConfig(instance.executionLocation),
+        mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id),
+        browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         permissionHookPath: this.deps.getPermissionHookPath(instance.yoloMode),
       };
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);

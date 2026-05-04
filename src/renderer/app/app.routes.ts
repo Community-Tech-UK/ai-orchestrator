@@ -191,6 +191,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Managed Browser Gateway
+  {
+    path: 'browser',
+    loadComponent: () =>
+      import('./features/browser/browser-page.component').then(
+        (m) => m.BrowserPageComponent
+      ),
+  },
+
   // Sprint 2: VCS/Git Operations
   {
     path: 'vcs',

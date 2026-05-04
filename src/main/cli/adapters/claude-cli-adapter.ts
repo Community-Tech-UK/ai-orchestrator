@@ -166,8 +166,7 @@ export interface ClaudeCliSpawnOptions {
   systemPrompt?: string;
   mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
   /** Enable Claude in Chrome extension integration (--chrome flag).
-   *  Allows spawned instances to use browser tools via the Chrome extension's
-   *  native messaging bridge. Defaults to true in the adapter factory. */
+   *  This exposes legacy raw browser automation and must be explicitly requested. */
   chrome?: boolean;
   /** Beta headers for API requests (API key users only).
    *  e.g. ['context-1m-2025-08-07'] to enable 1M context on eligible models. */
@@ -762,9 +761,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--betas', ...this.spawnOptions.betas);
     }
 
-    // Chrome extension integration — always enabled so spawned instances can
-    // use browser tools via the native messaging bridge to Claude in Chrome.
-    args.push('--chrome');
+    if (this.spawnOptions.chrome === true) {
+      args.push('--chrome');
+    }
 
     logger.debug('buildArgs complete', {
       yoloMode: this.spawnOptions.yoloMode,

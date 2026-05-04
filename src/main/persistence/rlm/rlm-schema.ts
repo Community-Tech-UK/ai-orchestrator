@@ -1270,6 +1270,136 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS project_memory_startup_briefs;
     `,
   },
+  // Migration 023: Browser Gateway managed profiles and audit log.
+  {
+    name: '023_browser_gateway',
+    up: `
+      CREATE TABLE IF NOT EXISTS browser_profiles (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('session', 'isolated')),
+        -- Milestone 1 only launches Google Chrome. Future Chromium/Edge/extension
+        -- support must widen this CHECK in a new migration before storing those values.
+        browser TEXT NOT NULL CHECK (browser = 'chrome'),
+        user_data_dir TEXT,
+        allowed_origins_json TEXT NOT NULL,
+        default_url TEXT,
+        status TEXT NOT NULL CHECK (status IN ('stopped', 'starting', 'running', 'stopping', 'locked', 'error')),
+        debug_port INTEGER,
+        debug_endpoint TEXT,
+        process_id INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_launched_at INTEGER,
+        last_used_at INTEGER,
+        last_login_check_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS browser_audit_entries (
+        id TEXT PRIMARY KEY,
+        instance_id TEXT,
+        provider TEXT NOT NULL,
+        profile_id TEXT,
+        target_id TEXT,
+        action TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        action_class TEXT NOT NULL,
+        origin TEXT,
+        url TEXT,
+        decision TEXT NOT NULL CHECK (decision IN ('allowed', 'denied', 'requires_user')),
+        outcome TEXT NOT NULL CHECK (outcome IN ('not_run', 'succeeded', 'failed')),
+        summary TEXT NOT NULL,
+        redaction_applied INTEGER NOT NULL DEFAULT 1,
+        screenshot_artifact_id TEXT,
+        request_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_browser_profiles_status ON browser_profiles(status);
+      CREATE INDEX IF NOT EXISTS idx_browser_audit_created ON browser_audit_entries(created_at);
+      CREATE INDEX IF NOT EXISTS idx_browser_audit_profile ON browser_audit_entries(profile_id);
+      CREATE INDEX IF NOT EXISTS idx_browser_audit_instance ON browser_audit_entries(instance_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_browser_audit_instance;
+      DROP INDEX IF EXISTS idx_browser_audit_profile;
+      DROP INDEX IF EXISTS idx_browser_audit_created;
+      DROP INDEX IF EXISTS idx_browser_profiles_status;
+      DROP TABLE IF EXISTS browser_audit_entries;
+      DROP TABLE IF EXISTS browser_profiles;
+    `,
+  },
+  // Migration 024: Browser Gateway grants and approval requests.
+  {
+    name: '024_browser_gateway_grants_and_approvals',
+    up: `
+      CREATE TABLE IF NOT EXISTS browser_permission_grants (
+        id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL CHECK (mode IN ('per_action', 'session', 'autonomous')),
+        instance_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        profile_id TEXT,
+        target_id TEXT,
+        allowed_origins_json TEXT NOT NULL,
+        allowed_action_classes_json TEXT NOT NULL,
+        allow_external_navigation INTEGER NOT NULL DEFAULT 0,
+        upload_roots_json TEXT,
+        autonomous INTEGER NOT NULL DEFAULT 0,
+        requested_by TEXT NOT NULL,
+        decided_by TEXT NOT NULL CHECK (decided_by IN ('user', 'timeout', 'revoked')),
+        decision TEXT NOT NULL CHECK (decision IN ('allow', 'deny')),
+        reason TEXT,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        revoked_at INTEGER,
+        consumed_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS browser_approval_requests (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL UNIQUE,
+        instance_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        target_id TEXT,
+        tool_name TEXT NOT NULL,
+        action TEXT NOT NULL,
+        action_class TEXT NOT NULL,
+        origin TEXT,
+        url TEXT,
+        selector TEXT,
+        element_context_json TEXT,
+        file_path TEXT,
+        detected_file_type TEXT,
+        proposed_grant_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'expired')),
+        grant_id TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        decided_at INTEGER
+      );
+
+      ALTER TABLE browser_audit_entries ADD COLUMN grant_id TEXT;
+      ALTER TABLE browser_audit_entries ADD COLUMN autonomous INTEGER;
+
+      CREATE INDEX IF NOT EXISTS idx_browser_grants_instance_profile_expiry
+        ON browser_permission_grants(instance_id, profile_id, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_browser_grants_target
+        ON browser_permission_grants(target_id);
+      CREATE INDEX IF NOT EXISTS idx_browser_approvals_status_created
+        ON browser_approval_requests(status, created_at);
+      CREATE INDEX IF NOT EXISTS idx_browser_approvals_instance
+        ON browser_approval_requests(instance_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_browser_approvals_instance;
+      DROP INDEX IF EXISTS idx_browser_approvals_status_created;
+      DROP INDEX IF EXISTS idx_browser_grants_target;
+      DROP INDEX IF EXISTS idx_browser_grants_instance_profile_expiry;
+      DROP TABLE IF EXISTS browser_approval_requests;
+      DROP TABLE IF EXISTS browser_permission_grants;
+    `,
+  },
 ];
 
 /**

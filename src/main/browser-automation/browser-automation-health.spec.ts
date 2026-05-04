@@ -74,6 +74,7 @@ describe('BrowserAutomationHealthService', () => {
     const report = await BrowserAutomationHealthService.getInstance().diagnose();
 
     expect(report.status).toBe('ready');
+    expect(report.surface).toBe('legacy_raw_browser_automation');
     expect(report.configDetected).toBe(true);
     expect(report.inAppConnected).toBe(false);
     expect(report.inAppToolCount).toBe(0);

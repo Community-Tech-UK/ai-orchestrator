@@ -56,6 +56,7 @@ import { PermissionDecisionStore } from '../security/permission-decision-store';
 import { WorkflowPersistence } from '../workflows/workflow-persistence';
 import { initializeCodemem } from '../codemem';
 import { initializeAutomations } from '../automations';
+import { initializeBrowserGatewayRuntime } from '../browser-gateway';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
@@ -344,6 +345,13 @@ export function createInitializationSteps(
       },
     },
     { name: 'Codemem', fn: () => initializeCodemem() },
+    {
+      name: 'Browser Gateway',
+      fn: () =>
+        initializeBrowserGatewayRuntime({
+          isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        }),
+    },
     {
       name: 'Cross-project patterns',
       fn: () => {

@@ -13,6 +13,7 @@ export interface BrowserAutomationHealthSource {
 }
 
 export interface BrowserAutomationHealthReport {
+  surface: 'legacy_raw_browser_automation';
   status: BrowserAutomationHealthStatus;
   checkedAt: number;
   lastSuccessfulCheckAt?: number;
@@ -276,6 +277,7 @@ export class BrowserAutomationHealthService {
     }
 
     const report: BrowserAutomationHealthReport = {
+      surface: 'legacy_raw_browser_automation',
       status,
       checkedAt,
       lastSuccessfulCheckAt: this.lastSuccessfulCheckAt,
