@@ -51,6 +51,7 @@ describe('BrowserGatewayRpcClient', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
       },
     });
 
@@ -58,6 +59,7 @@ describe('BrowserGatewayRpcClient', () => {
       method: 'browser.navigate',
       params: {
         instanceId: 'instance-1',
+        provider: 'copilot',
         payload: {
           profileId: 'profile-1',
         },

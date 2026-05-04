@@ -41,6 +41,46 @@ describe('CodexSessionScanner', () => {
     expect(result!.model).toBe('gpt-5.5');
   });
 
+  it('finds current nested-shape Codex sessions by workspace and thread id', async () => {
+    createRolloutFile('2026/05/02', 'rollout-current.jsonl', [
+      {
+        type: 'session_meta',
+        payload: {
+          id: 'thread_current',
+          cwd: '/projects/my-app',
+          model_provider: 'openai',
+          source: 'appServer',
+        },
+      },
+      {
+        type: 'turn_context',
+        payload: {
+          turn_id: 'turn_1',
+          cwd: '/projects/my-app',
+          model: 'gpt-5.4',
+        },
+      },
+      {
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: { total_token_usage: { input_tokens: 10, output_tokens: 4 } },
+        },
+      },
+    ]);
+
+    const byWorkspace = await scanner.findSessionForWorkspace('/projects/my-app');
+    const byThread = await scanner.findSessionByThreadId('thread_current');
+
+    expect(byWorkspace).toMatchObject({
+      threadId: 'thread_current',
+      model: 'gpt-5.4',
+      nativeSourceKind: 'appServer',
+      tokenUsage: { input: 10, output: 4, cached: 0, reasoning: 0 },
+    });
+    expect(byThread?.workspacePath).toBe('/projects/my-app');
+  });
+
   it('should return null when no session matches', async () => {
     createRolloutFile('2026/04/09', 'rollout-abc123.jsonl', [
       { type: 'session_meta', cwd: '/projects/other-app' },

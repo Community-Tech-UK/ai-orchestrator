@@ -88,6 +88,20 @@ export function createInitializationSteps(
 
   return [
     {
+      name: 'Conversation ledger',
+      fn: () => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getConversationLedgerService } = require('../conversation-ledger') as typeof import('../conversation-ledger');
+          getConversationLedgerService();
+        } catch (error) {
+          logger.warn('Conversation ledger initialization failed; IPC handlers will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
       name: 'IPC handlers',
       critical: true,
       fn: () => {

@@ -1027,6 +1027,13 @@ export const IPC_CHANNELS = {
   BROWSER_GET_AUDIT_LOG: 'browser:get-audit-log',
   BROWSER_GET_HEALTH: 'browser:get-health',
   BROWSER_CHANGED: 'browser:changed',
+
+  CONVERSATION_LEDGER_LIST: 'conversation-ledger:list',
+  CONVERSATION_LEDGER_GET: 'conversation-ledger:get',
+  CONVERSATION_LEDGER_DISCOVER: 'conversation-ledger:discover',
+  CONVERSATION_LEDGER_RECONCILE: 'conversation-ledger:reconcile',
+  CONVERSATION_LEDGER_START: 'conversation-ledger:start',
+  CONVERSATION_LEDGER_SEND_TURN: 'conversation-ledger:send-turn',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -44,11 +44,13 @@ const exactAliases: Record<string, string> = {
   '@contracts/schemas/quota':                   path.join(baseContracts, 'schemas', 'quota.schemas'),
   '@contracts/schemas/voice':                   path.join(baseContracts, 'schemas', 'voice.schemas'),
   '@contracts/schemas/browser':                 path.join(baseContracts, 'schemas', 'browser.schemas'),
+  '@contracts/schemas/conversation-ledger':      path.join(baseContracts, 'schemas', 'conversation-ledger.schemas'),
   '@contracts/schemas/provider-runtime-events': path.join(baseContracts, 'schemas', 'provider-runtime-events.schemas'),
   '@contracts/channels/automation':             path.join(baseContracts, 'channels', 'automation.channels'),
   '@contracts/channels/pause':                  path.join(baseContracts, 'channels', 'pause.channels'),
   '@contracts/channels/voice':                  path.join(baseContracts, 'channels', 'voice.channels'),
   '@contracts/channels/browser':                path.join(baseContracts, 'channels', 'browser.channels'),
+  '@contracts/channels/conversation-ledger':     path.join(baseContracts, 'channels', 'conversation-ledger.channels'),
   '@contracts/types/transport':                 path.join(baseContracts, 'types', 'transport.types'),
   '@contracts/types/browser':                   path.join(baseContracts, 'types', 'browser.types'),
 };

@@ -279,7 +279,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     model: options.model,
     systemPrompt: options.systemPrompt,
     approvalMode: options.yoloMode ? 'full-auto' : 'suggest',
-    sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
+    sandboxMode: options.yoloMode ? 'danger-full-access' : 'read-only',
     timeout: options.timeout,
     outputSchema: options.outputSchema,
     reasoningEffort: options.reasoningEffort,

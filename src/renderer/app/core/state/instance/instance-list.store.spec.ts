@@ -11,6 +11,7 @@ describe('InstanceListStore', () => {
   let ipc: {
     restartInstance: ReturnType<typeof vi.fn>;
     restartFreshInstance: ReturnType<typeof vi.fn>;
+    changeModel: ReturnType<typeof vi.fn>;
   };
   let historyStore: {
     previewEntryId: ReturnType<typeof vi.fn>;
@@ -20,6 +21,7 @@ describe('InstanceListStore', () => {
     ipc = {
       restartInstance: vi.fn().mockResolvedValue({ success: true }),
       restartFreshInstance: vi.fn().mockResolvedValue({ success: true }),
+      changeModel: vi.fn().mockResolvedValue({ success: true }),
     };
     historyStore = {
       previewEntryId: vi.fn(() => null),
@@ -227,5 +229,35 @@ describe('InstanceListStore', () => {
     expect(stateService.getInstance(instance.id)?.outputBuffer).toEqual(
       instance.outputBuffer
     );
+  });
+
+  it('does not request a model change while an instance is not waiting for user input', async () => {
+    const instance = store.deserializeInstance({
+      id: 'instance-model-blocked',
+      displayName: 'Blocked model switch',
+      createdAt: 1,
+      historyThreadId: 'thread-model-blocked',
+      parentId: null,
+      childrenIds: [],
+      status: 'processing',
+      contextUsage: {
+        used: 0,
+        total: 200000,
+        percentage: 0,
+      },
+      lastActivity: 2,
+      sessionId: 'session-model-blocked',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      currentModel: 'sonnet',
+      outputBuffer: [],
+    });
+    stateService.addInstance(instance);
+
+    await store.changeModel(instance.id, 'sonnet[1m]');
+
+    expect(ipc.changeModel).not.toHaveBeenCalled();
+    expect(stateService.getInstance(instance.id)?.currentModel).toBe('sonnet');
+    expect(stateService.state().error).toContain('waiting for user input');
   });
 });

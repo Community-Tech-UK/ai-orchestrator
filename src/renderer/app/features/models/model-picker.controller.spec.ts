@@ -10,6 +10,7 @@ describe('ModelPickerController', () => {
   const selectedInstance = signal({
     id: 'inst-1',
     provider: 'claude',
+    status: 'idle',
     currentModel: 'sonnet',
     agentId: 'build',
     workingDirectory: '/repo',
@@ -28,6 +29,14 @@ describe('ModelPickerController', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    selectedInstance.set({
+      id: 'inst-1',
+      provider: 'claude',
+      status: 'idle',
+      currentModel: 'sonnet',
+      agentId: 'build',
+      workingDirectory: '/repo',
+    });
     TestBed.configureTestingModule({
       providers: [
         ModelPickerController,
@@ -54,5 +63,18 @@ describe('ModelPickerController', () => {
     await controller.run(item);
 
     expect(instanceStore.changeModel).toHaveBeenCalledWith('inst-1', item.value.id);
+  });
+
+  it('disables model changes while the selected session is not waiting for user input', () => {
+    selectedInstance.update((instance) => ({
+      ...instance,
+      status: 'waiting_for_permission',
+    }));
+
+    const controller = TestBed.inject(ModelPickerController);
+    const claudeGroup = controller.groups().find((group) => group.id === 'Claude');
+
+    expect(claudeGroup?.items.every((item) => item.disabled)).toBe(true);
+    expect(claudeGroup?.items[0].disabledReason).toContain('waiting for user input');
   });
 });

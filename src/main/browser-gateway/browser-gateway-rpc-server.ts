@@ -37,6 +37,7 @@ interface BrowserGatewayRpcRequest {
 
 interface BrowserGatewayRpcParams {
   instanceId: string;
+  provider?: string;
   payload: Record<string, unknown>;
 }
 
@@ -126,6 +127,7 @@ export class BrowserGatewayRpcServer {
     const withContext = {
       ...payload,
       instanceId: params.instanceId,
+      ...(params.provider ? { provider: params.provider } : {}),
     };
 
     switch (request.method) {
@@ -246,10 +248,13 @@ export class BrowserGatewayRpcServer {
     if (!value.payload || typeof value.payload !== 'object' || Array.isArray(value.payload)) {
       throw new Error('Browser Gateway RPC payload is required');
     }
-    return {
+    const parsed = {
       instanceId: value.instanceId,
       payload: value.payload,
     };
+    return typeof value.provider === 'string' && value.provider
+      ? { ...parsed, provider: value.provider }
+      : parsed;
   }
 
   private enforcePayloadSize(payload: Record<string, unknown>): void {

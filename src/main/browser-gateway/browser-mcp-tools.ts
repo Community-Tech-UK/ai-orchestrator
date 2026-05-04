@@ -29,13 +29,190 @@ const TOOL_NAMES = [
   'browser.get_audit_log',
 ] as const;
 
-function schema(): Record<string, unknown> {
+type BrowserMcpToolName = typeof TOOL_NAMES[number];
+
+const stringProp = {
+  type: 'string',
+};
+const booleanProp = {
+  type: 'boolean',
+};
+const numberProp = {
+  type: 'number',
+};
+const profileIdProp = {
+  ...stringProp,
+  description: 'Browser Gateway profile id.',
+};
+const targetIdProp = {
+  ...stringProp,
+  description: 'Browser Gateway target id.',
+};
+const selectorProp = {
+  ...stringProp,
+  description: 'CSS selector for the target page element.',
+};
+const requestIdProp = {
+  ...stringProp,
+  description: 'Browser Gateway approval request id.',
+};
+
+function objectSchema(
+  properties: Record<string, unknown>,
+  required: string[] = [],
+): Record<string, unknown> {
   return {
     type: 'object',
-    properties: {},
-    additionalProperties: true,
+    properties,
+    required,
+    additionalProperties: false,
   };
 }
+
+const targetSchema = objectSchema({
+  profileId: profileIdProp,
+  targetId: targetIdProp,
+}, ['profileId', 'targetId']);
+
+const grantProposalSchema = objectSchema({
+  mode: { type: 'string', enum: ['per_action', 'session', 'autonomous'] },
+  allowedOrigins: {
+    type: 'array',
+    items: objectSchema({
+      scheme: { type: 'string', enum: ['http', 'https'] },
+      hostPattern: stringProp,
+      port: numberProp,
+      includeSubdomains: booleanProp,
+    }, ['scheme', 'hostPattern', 'includeSubdomains']),
+  },
+  allowedActionClasses: {
+    type: 'array',
+    items: {
+      type: 'string',
+      enum: [
+        'read',
+        'navigate',
+        'input',
+        'credential',
+        'file-upload',
+        'submit',
+        'destructive',
+        'unknown',
+      ],
+    },
+  },
+  allowExternalNavigation: booleanProp,
+  uploadRoots: {
+    type: 'array',
+    items: stringProp,
+  },
+  autonomous: booleanProp,
+}, [
+  'mode',
+  'allowedOrigins',
+  'allowedActionClasses',
+  'allowExternalNavigation',
+  'autonomous',
+]);
+
+const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
+  'browser.list_profiles': objectSchema({}),
+  'browser.open_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
+  'browser.close_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
+  'browser.list_targets': objectSchema({ profileId: profileIdProp }),
+  'browser.select_target': targetSchema,
+  'browser.navigate': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    url: {
+      ...stringProp,
+      description: 'Destination URL. The Browser Gateway enforces profile origin policy.',
+    },
+  }, ['profileId', 'targetId', 'url']),
+  'browser.click': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    selector: selectorProp,
+    actionHint: stringProp,
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId', 'selector']),
+  'browser.type': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    selector: selectorProp,
+    value: stringProp,
+    actionHint: stringProp,
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId', 'selector', 'value']),
+  'browser.fill_form': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    fields: {
+      type: 'array',
+      items: objectSchema({
+        selector: selectorProp,
+        value: stringProp,
+        actionHint: stringProp,
+      }, ['selector', 'value']),
+    },
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId', 'fields']),
+  'browser.select': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    selector: selectorProp,
+    value: stringProp,
+    actionHint: stringProp,
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId', 'selector', 'value']),
+  'browser.upload_file': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    selector: selectorProp,
+    filePath: stringProp,
+    actionHint: stringProp,
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId', 'selector', 'filePath']),
+  'browser.request_grant': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    proposedGrant: grantProposalSchema,
+    reason: stringProp,
+  }, ['profileId', 'targetId', 'proposedGrant']),
+  'browser.get_approval_status': objectSchema({ requestId: requestIdProp }, ['requestId']),
+  'browser.list_grants': objectSchema({
+    instanceId: stringProp,
+    profileId: profileIdProp,
+    includeExpired: booleanProp,
+    limit: numberProp,
+  }),
+  'browser.revoke_grant': objectSchema({
+    grantId: stringProp,
+    reason: stringProp,
+  }, ['grantId']),
+  'browser.snapshot': targetSchema,
+  'browser.screenshot': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    maxWidth: numberProp,
+    maxHeight: numberProp,
+    fullPage: booleanProp,
+  }, ['profileId', 'targetId']),
+  'browser.console_messages': targetSchema,
+  'browser.network_requests': targetSchema,
+  'browser.wait_for': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    selector: selectorProp,
+    timeoutMs: numberProp,
+  }, ['profileId', 'targetId']),
+  'browser.health': objectSchema({}),
+  'browser.get_audit_log': objectSchema({
+    profileId: profileIdProp,
+    instanceId: stringProp,
+    limit: numberProp,
+  }),
+};
 
 export function createBrowserMcpTools(
   client: BrowserGatewayRpcClientLike,
@@ -43,7 +220,7 @@ export function createBrowserMcpTools(
   return TOOL_NAMES.map((name) => ({
     name,
     description: `${UNTRUSTED_WARNING} Calls the managed Browser Gateway tool ${name}.`,
-    inputSchema: schema(),
+    inputSchema: TOOL_SCHEMAS[name],
     handler: async (args) => client.call(name, args),
   }));
 }

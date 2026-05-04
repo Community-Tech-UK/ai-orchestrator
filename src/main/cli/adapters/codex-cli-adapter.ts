@@ -1840,7 +1840,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * Maps the adapter's sandbox mode to the app-server format.
    */
   private mapSandboxMode(): 'read-only' | 'workspace-write' | 'danger-full-access' {
-    if (this.cliConfig.approvalMode === 'full-auto') return 'workspace-write';
+    if (this.cliConfig.approvalMode === 'full-auto') return 'danger-full-access';
     return this.cliConfig.sandboxMode || 'read-only';
   }
 
@@ -2584,7 +2584,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   private resolveExecSandboxMode(): CodexSandboxMode | null {
     if (this.cliConfig.approvalMode === 'full-auto') {
-      return 'workspace-write';
+      return 'danger-full-access';
     }
     return this.cliConfig.sandboxMode ?? null;
   }

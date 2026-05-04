@@ -136,6 +136,8 @@ export interface BrowserGatewayServiceOptions {
     PuppeteerBrowserDriver,
     | 'openProfile'
     | 'closeProfile'
+    | 'listTargets'
+    | 'refreshTarget'
     | 'navigate'
     | 'snapshot'
     | 'screenshot'
@@ -167,6 +169,8 @@ export class BrowserGatewayService {
     PuppeteerBrowserDriver,
     | 'openProfile'
     | 'closeProfile'
+    | 'listTargets'
+    | 'refreshTarget'
     | 'navigate'
     | 'snapshot'
     | 'screenshot'
@@ -370,8 +374,10 @@ export class BrowserGatewayService {
   async listTargets(
     request: BrowserGatewayListTargetsRequest = {},
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget>[]>> {
-    const targets = this.targetRegistry
-      .listTargets(request.profileId)
+    const liveTargets = request.profileId
+      ? await this.driver.listTargets(request.profileId).catch(() => null)
+      : null;
+    const targets = (liveTargets ?? this.targetRegistry.listTargets(request.profileId))
       .map((target) => toAgentSafeTarget(target));
     return this.result({
       context: request,
@@ -553,7 +559,9 @@ export class BrowserGatewayService {
     request: BrowserGatewayTargetRequest,
   ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
     const profile = this.profileStore.getProfile(request.profileId);
-    const target = this.getTarget(request.profileId, request.targetId);
+    const { target, error } = profile
+      ? await this.getLiveTarget(request.profileId, request.targetId)
+      : { target: null, error: undefined };
     const currentUrl = target?.url;
     if (!profile || !target || !currentUrl) {
       return this.result({
@@ -565,8 +573,10 @@ export class BrowserGatewayService {
         actionClass: 'read',
         decision: 'denied',
         outcome: 'not_run',
-        reason: 'profile_target_or_url_not_found',
-        summary: 'Snapshot denied because the profile, target, or URL was not found',
+        reason: error ?? 'profile_target_or_url_not_found',
+        summary: error
+          ? `Snapshot denied because the live browser target could not be refreshed: ${error}`
+          : 'Snapshot denied because the profile, target, or URL was not found',
         data: null,
       });
     }
@@ -632,7 +642,9 @@ export class BrowserGatewayService {
     request: BrowserGatewayScreenshotRequest,
   ): Promise<BrowserGatewayResult<string | null>> {
     const profile = this.profileStore.getProfile(request.profileId);
-    const target = this.getTarget(request.profileId, request.targetId);
+    const { target, error } = profile
+      ? await this.getLiveTarget(request.profileId, request.targetId)
+      : { target: null, error: undefined };
     const currentUrl = target?.url;
     if (!profile || !target || !currentUrl) {
       return this.result({
@@ -644,8 +656,10 @@ export class BrowserGatewayService {
         actionClass: 'read',
         decision: 'denied',
         outcome: 'not_run',
-        reason: 'profile_target_or_url_not_found',
-        summary: 'Screenshot denied because the profile, target, or URL was not found',
+        reason: error ?? 'profile_target_or_url_not_found',
+        summary: error
+          ? `Screenshot denied because the live browser target could not be refreshed: ${error}`
+          : 'Screenshot denied because the profile, target, or URL was not found',
         data: null,
       });
     }
@@ -845,8 +859,12 @@ export class BrowserGatewayService {
     if (recheck) {
       return recheck;
     }
-    await this.driver.type(request.profileId, request.targetId, request.selector, request.value);
-    return this.mutationSucceeded(request, 'type', 'browser.type', prepared);
+    try {
+      await this.driver.type(request.profileId, request.targetId, request.selector, request.value);
+      return this.mutationSucceeded(request, 'type', 'browser.type', prepared);
+    } catch (error) {
+      return this.mutationFailed(request, 'type', 'browser.type', prepared, error);
+    }
   }
 
   async select(
@@ -866,8 +884,12 @@ export class BrowserGatewayService {
     if (recheck) {
       return recheck;
     }
-    await this.driver.select(request.profileId, request.targetId, request.selector, request.value);
-    return this.mutationSucceeded(request, 'select', 'browser.select', prepared);
+    try {
+      await this.driver.select(request.profileId, request.targetId, request.selector, request.value);
+      return this.mutationSucceeded(request, 'select', 'browser.select', prepared);
+    } catch (error) {
+      return this.mutationFailed(request, 'select', 'browser.select', prepared, error);
+    }
   }
 
   async uploadFile(
@@ -958,33 +980,71 @@ export class BrowserGatewayService {
         data: null,
       });
     }
-    await this.driver.uploadFile(
-      request.profileId,
-      request.targetId,
-      request.selector,
-      uploadDecision.resolvedPath ?? request.filePath,
-    );
-    return this.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
+    try {
+      await this.driver.uploadFile(
+        request.profileId,
+        request.targetId,
+        request.selector,
+        uploadDecision.resolvedPath ?? request.filePath,
+      );
+      return this.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
+    } catch (error) {
+      return this.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
+    }
   }
 
   async fillForm(
     request: BrowserGatewayContext & BrowserFillFormRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    const firstField = request.fields[0]!;
+    const gate = await this.prepareMutatingAction(
+      request,
+      'fill_form',
+      'browser.fill_form',
+      firstField.selector,
+      firstField.actionHint,
+      {
+        actionClass: 'input',
+        hardStop: false,
+      },
+    );
+    if (gate.result) {
+      return gate.result;
+    }
+
     const inspectedFields = [];
     for (const field of request.fields) {
-      inspectedFields.push({
-        selector: field.selector,
-        actionHint: field.actionHint,
-        elementContext: await this.driver.inspectElement(
-          request.profileId,
-          request.targetId,
+      try {
+        inspectedFields.push({
+          selector: field.selector,
+          actionHint: field.actionHint,
+          elementContext: await this.driver.inspectElement(
+            request.profileId,
+            request.targetId,
+            field.selector,
+          ),
+        });
+      } catch {
+        const prepared = await this.prepareMutatingAction(
+          request,
+          'fill_form',
+          'browser.fill_form',
           field.selector,
-        ),
-      });
+          field.actionHint,
+          {
+            actionClass: 'unknown',
+            hardStop: true,
+            reason: 'element_context_unavailable',
+          },
+        );
+        if (prepared.result) {
+          return prepared.result;
+        }
+        throw new Error('Browser fill_form element inspection failed without producing an approval request');
+      }
     }
     const classification = classifyBrowserFillForm(inspectedFields);
     if (classification.actionClass === 'credential' || classification.actionClass === 'unknown') {
-      const firstField = request.fields[0]!;
       const prepared = await this.prepareMutatingAction(
         request,
         'fill_form',
@@ -1029,18 +1089,24 @@ export class BrowserGatewayService {
     if (recheck) {
       return recheck;
     }
-    await this.driver.fillForm(request.profileId, request.targetId, request.fields.map((field) => ({
-      selector: field.selector,
-      value: field.value,
-    })));
-    return this.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
+    try {
+      await this.driver.fillForm(request.profileId, request.targetId, request.fields.map((field) => ({
+        selector: field.selector,
+        value: field.value,
+      })));
+      return this.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
+    } catch (error) {
+      return this.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
+    }
   }
 
   async requestGrant(
     request: BrowserGatewayContext & BrowserRequestGrantRequest,
   ): Promise<BrowserGatewayResult<null>> {
     const profile = this.profileStore.getProfile(request.profileId);
-    const target = this.getTarget(request.profileId, request.targetId);
+    const { target, error } = profile
+      ? await this.getLiveTarget(request.profileId, request.targetId)
+      : { target: null, error: undefined };
     const currentUrl = target?.url;
     if (!profile || !target || !currentUrl) {
       return this.result({
@@ -1052,8 +1118,10 @@ export class BrowserGatewayService {
         actionClass: 'unknown',
         decision: 'denied',
         outcome: 'not_run',
-        reason: 'profile_target_or_url_not_found',
-        summary: 'Browser grant request denied because the profile, target, or URL was not found',
+        reason: error ?? 'profile_target_or_url_not_found',
+        summary: error
+          ? `Browser grant request denied because the live browser target could not be refreshed: ${error}`
+          : 'Browser grant request denied because the profile, target, or URL was not found',
         data: null,
       });
     }
@@ -1410,6 +1478,27 @@ export class BrowserGatewayService {
     );
   }
 
+  private async getLiveTarget(
+    profileId: string,
+    targetId: string,
+  ): Promise<{ target: BrowserTarget | null; error?: string }> {
+    const target = this.getTarget(profileId, targetId);
+    if (!target) {
+      return { target: null };
+    }
+
+    try {
+      return {
+        target: await this.driver.refreshTarget(profileId, targetId),
+      };
+    } catch (error) {
+      return {
+        target: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   private async prepareMutatingAction(
     request: BrowserGatewayContext & { profileId: string; targetId: string },
     action: string,
@@ -1430,7 +1519,9 @@ export class BrowserGatewayService {
       }
   > {
     const profile = this.profileStore.getProfile(request.profileId);
-    const target = this.getTarget(request.profileId, request.targetId);
+    const { target, error } = profile
+      ? await this.getLiveTarget(request.profileId, request.targetId)
+      : { target: null, error: undefined };
     const currentUrl = target?.url;
     if (!profile || !target || !currentUrl) {
       return {
@@ -1443,8 +1534,10 @@ export class BrowserGatewayService {
           actionClass: 'unknown',
           decision: 'denied',
           outcome: 'not_run',
-          reason: 'profile_target_or_url_not_found',
-          summary: `${toolName} denied because the profile, target, or URL was not found`,
+          reason: error ?? 'profile_target_or_url_not_found',
+          summary: error
+            ? `${toolName} denied because the live browser target could not be refreshed: ${error}`
+            : `${toolName} denied because the profile, target, or URL was not found`,
           data: null,
         }),
       };
@@ -1470,7 +1563,50 @@ export class BrowserGatewayService {
       };
     }
 
-    const elementContext = await this.driver.inspectElement(profile.id, target.id, selector);
+    let elementContext: Awaited<ReturnType<PuppeteerBrowserDriver['inspectElement']>>;
+    try {
+      elementContext = await this.driver.inspectElement(profile.id, target.id, selector);
+    } catch (inspectError) {
+      const message = inspectError instanceof Error ? inspectError.message : String(inspectError);
+      const approval = this.approvalStore.createRequest({
+        instanceId: request.instanceId ?? 'unknown',
+        provider: this.providerFromContext(request.provider),
+        profileId: profile.id,
+        targetId: target.id,
+        toolName,
+        action,
+        actionClass: 'unknown',
+        origin: originDecision.origin,
+        url: currentUrl,
+        selector,
+        proposedGrant: {
+          mode: 'per_action',
+          allowedOrigins: [originDecision.matchedOrigin],
+          allowedActionClasses: ['unknown'],
+          allowExternalNavigation: false,
+          autonomous: false,
+        },
+        expiresAt: Date.now() + 30 * 60 * 1000,
+      });
+      return {
+        result: this.result({
+          context: request,
+          profileId: profile.id,
+          targetId: target.id,
+          action,
+          toolName,
+          actionClass: 'unknown',
+          decision: 'requires_user',
+          outcome: 'not_run',
+          requestId: approval.requestId,
+          reason: 'element_context_unavailable',
+          summary: `${toolName} requires user approval because element context could not be inspected: ${message}`,
+          origin: originDecision.origin,
+          url: currentUrl,
+          data: null,
+        }),
+      };
+    }
     const classification = classificationOverride ?? classifyBrowserAction({
       toolName,
       actionHint,
@@ -1555,7 +1691,6 @@ export class BrowserGatewayService {
       url: string;
     },
   ): BrowserGatewayResult<null> | null {
-    const target = this.getTarget(request.profileId, request.targetId);
     const grants = this.grantStore.listGrants({
       instanceId: request.instanceId,
       profileId: request.profileId,
@@ -1567,7 +1702,7 @@ export class BrowserGatewayService {
       profileId: request.profileId,
       targetId: request.targetId,
       origin: prepared.origin,
-      liveOrigin: target?.origin ?? prepared.origin,
+      liveOrigin: prepared.origin,
       actionClass: prepared.actionClass,
       autonomousRequired:
         prepared.actionClass === 'submit' ||
@@ -1647,6 +1782,38 @@ export class BrowserGatewayService {
     });
   }
 
+  private mutationFailed(
+    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    action: string,
+    toolName: string,
+    prepared: {
+      grant: ReturnType<BrowserGrantStore['listGrants']>[number];
+      actionClass: BrowserActionClass;
+      origin: string;
+      url: string;
+    },
+    error: unknown,
+  ): BrowserGatewayResult<null> {
+    const message = error instanceof Error ? error.message : String(error);
+    return this.result({
+      context: request,
+      profileId: request.profileId,
+      targetId: request.targetId,
+      action,
+      toolName,
+      actionClass: prepared.actionClass,
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: message,
+      summary: `${toolName} failed: ${message}`,
+      origin: prepared.origin,
+      url: prepared.url,
+      grantId: prepared.grant.id,
+      autonomous: prepared.grant.autonomous,
+      data: null,
+    });
+  }
+
   private async readTargetData<T>(
     request: BrowserGatewayTargetRequest,
     action: string,
@@ -1655,7 +1822,9 @@ export class BrowserGatewayService {
     read: (profileId: string, targetId: string) => Promise<T>,
   ): Promise<BrowserGatewayResult<T | null>> {
     const profile = this.profileStore.getProfile(request.profileId);
-    const target = this.getTarget(request.profileId, request.targetId);
+    const { target, error } = profile
+      ? await this.getLiveTarget(request.profileId, request.targetId)
+      : { target: null, error: undefined };
     const currentUrl = target?.url;
     if (!profile || !target || !currentUrl) {
       return this.result({
@@ -1667,8 +1836,10 @@ export class BrowserGatewayService {
         actionClass: 'read',
         decision: 'denied',
         outcome: 'not_run',
-        reason: 'profile_target_or_url_not_found',
-        summary: `${label} denied because the profile, target, or URL was not found`,
+        reason: error ?? 'profile_target_or_url_not_found',
+        summary: error
+          ? `${label} denied because the live browser target could not be refreshed: ${error}`
+          : `${label} denied because the profile, target, or URL was not found`,
         data: null,
       });
     }

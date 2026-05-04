@@ -95,6 +95,21 @@ describe('CodexCliProvider inline translation', () => {
     }));
   });
 
+  it('configures YOLO Codex sessions with danger-full-access sandbox', async () => {
+    const yoloProvider = new CodexCliProvider({ type: 'openai', name: 'test', enabled: true });
+
+    await yoloProvider.initialize({
+      workingDirectory: '/tmp',
+      instanceId: 'i-yolo',
+      yoloMode: true,
+    });
+
+    expect(vi.mocked(CodexCliAdapter)).toHaveBeenLastCalledWith(expect.objectContaining({
+      approvalMode: 'full-auto',
+      sandboxMode: 'danger-full-access',
+    }));
+  });
+
   it('context usage becomes a context envelope', () => {
     adapter.emit('context', { used: 10, total: 100, percentage: 10 });
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'context', used: 10, total: 100, percentage: 10 });

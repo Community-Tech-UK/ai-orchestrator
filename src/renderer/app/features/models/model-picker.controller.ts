@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { BUILTIN_AGENTS } from '../../../../shared/types/agent.types';
 import { getModelsForProvider } from '../../../../shared/types/provider.types';
+import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { UsageStore } from '../../core/state/usage.store';
@@ -41,6 +42,10 @@ export class ModelPickerController implements OverlayController<ModelPickerItem>
 
   private readonly items = computed<ModelPickerItem[]>(() => {
     const activeProvider = this.activeProvider();
+    const selected = this.instanceStore.selectedInstance();
+    const modelSwitchUnavailableReason = selected
+      ? getModelSwitchUnavailableReason(selected.status)
+      : undefined;
     const modelItems = PROVIDERS.flatMap((provider) => {
       const seen = new Set<string>();
       return getModelsForProvider(provider)
@@ -54,9 +59,9 @@ export class ModelPickerController implements OverlayController<ModelPickerItem>
           label: model.name,
           group: PROVIDER_LABELS[provider],
           kind: 'model',
-          available: provider === activeProvider,
+          available: provider === activeProvider && !modelSwitchUnavailableReason,
           disabledReason: provider === activeProvider
-            ? undefined
+            ? modelSwitchUnavailableReason
             : `Requires ${PROVIDER_LABELS[provider]} provider`,
           tags: [model.tier],
         }));

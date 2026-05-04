@@ -817,6 +817,33 @@ Hey! I'm here. What do you want to tackle?`;
     });
 
     describe('app-server mode', () => {
+      it('maps full-auto app-server threads to danger-full-access sandbox', async () => {
+        const adapter = new CodexCliAdapter({
+          approvalMode: 'full-auto',
+          sandboxMode: 'workspace-write',
+          workingDir: '/tmp/project',
+        });
+        const request = vi.fn().mockResolvedValue({ threadId: 'thread-full-auto' });
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
+        vi.spyOn(
+          adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+          'connectAppServer',
+        ).mockResolvedValue({
+          request,
+          exitPromise: neverExits,
+          getExitError: () => null,
+        });
+
+        await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
+
+        expect(request).toHaveBeenCalledWith('thread/start', expect.objectContaining({
+          approvalPolicy: 'never',
+          sandbox: 'danger-full-access',
+        }));
+      });
+
       async function prepareAppServerAdapter(): Promise<CodexCliAdapter> {
         const adapter = await spawnExecAdapter();
         (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
@@ -982,7 +1009,7 @@ Hey! I'm here. What do you want to tackle?`;
     });
 
     describe('exec mode', () => {
-      it('maps full-auto fresh exec to workspace-write sandbox and omits deprecated full-auto on resume', async () => {
+      it('maps full-auto fresh exec to danger-full-access sandbox and omits deprecated full-auto on resume', async () => {
         const adapter = new CodexCliAdapter({
           approvalMode: 'full-auto',
           sandboxMode: 'workspace-write',
@@ -1014,7 +1041,7 @@ Hey! I'm here. What do you want to tackle?`;
         const secondArgs = spawnSpy.mock.calls[1][0] as string[];
 
         expect(firstArgs).not.toContain('--full-auto');
-        expect(firstArgs).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write']));
+        expect(firstArgs).toEqual(expect.arrayContaining(['--sandbox', 'danger-full-access']));
         expect(secondArgs.slice(0, 2)).toEqual(['exec', 'resume']);
         expect(secondArgs).toContain('thread-full-auto');
         expect(secondArgs).not.toContain('--full-auto');

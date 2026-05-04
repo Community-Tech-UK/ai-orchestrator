@@ -48,6 +48,7 @@ describe('BrowserGatewayRpcServer', () => {
         method: 'browser.navigate',
         params: {
           instanceId: 'instance-1',
+          provider: 'copilot',
           payload: {
             profileId: 'profile-1',
             targetId: 'target-1',
@@ -75,6 +76,7 @@ describe('BrowserGatewayRpcServer', () => {
         method: 'browser.navigate',
         params: {
           instanceId: 'instance-1',
+          provider: 'copilot',
           payload: {
             profileId: 'profile-1',
             targetId: 'target-1',
@@ -115,6 +117,7 @@ describe('BrowserGatewayRpcServer', () => {
         method: 'browser.navigate',
         params: {
           instanceId: 'instance-1',
+          provider: 'copilot',
           payload: {
             profileId: 'profile-1',
             targetId: 'target-1',
@@ -125,6 +128,7 @@ describe('BrowserGatewayRpcServer', () => {
     ).resolves.toEqual({ decision: 'allowed' });
     expect(navigate).toHaveBeenCalledWith({
       instanceId: 'instance-1',
+      provider: 'copilot',
       profileId: 'profile-1',
       targetId: 'target-1',
       url: 'http://localhost:4567',

@@ -22,6 +22,7 @@ import { WORKFLOW_CHANNELS } from './workflow.channels';
 import { DIAGNOSTICS_CHANNELS } from './diagnostics.channels';
 import { VOICE_CHANNELS } from './voice.channels';
 import { BROWSER_CHANNELS } from './browser.channels';
+import { CONVERSATION_LEDGER_CHANNELS } from './conversation-ledger.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -40,6 +41,7 @@ export {
   DIAGNOSTICS_CHANNELS,
   VOICE_CHANNELS,
   BROWSER_CHANNELS,
+  CONVERSATION_LEDGER_CHANNELS,
 };
 
 /**
@@ -63,6 +65,7 @@ export const IPC_CHANNELS = {
   ...DIAGNOSTICS_CHANNELS,
   ...VOICE_CHANNELS,
   ...BROWSER_CHANNELS,
+  ...CONVERSATION_LEDGER_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

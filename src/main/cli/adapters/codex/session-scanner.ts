@@ -10,6 +10,7 @@ const logger = getLogger('CodexSessionScanner');
 export interface CodexSessionScanResult {
   threadId: string;
   model: string | null;
+  nativeSourceKind: string | null;
   sessionFilePath: string;
   workspacePath: string;
   tokenUsage: { input: number; output: number; cached: number; reasoning: number };
@@ -44,6 +45,17 @@ export class CodexSessionScanner {
     }
 
     this.cache.set(workspacePath, null);
+    return null;
+  }
+
+  async findSessionByThreadId(threadId: string): Promise<CodexSessionScanResult | null> {
+    const files = this.collectJsonlFiles();
+    for (const filePath of files) {
+      const result = await this.streamParseJsonl(filePath, null, threadId);
+      if (result) {
+        return result;
+      }
+    }
     return null;
   }
 
@@ -94,11 +106,9 @@ export class CodexSessionScanner {
         if (!line.trim()) continue;
         try {
           const entry = JSON.parse(line);
-          if (
-            entry.type === 'session_meta'
-            && typeof entry.cwd === 'string'
-            && crossPlatformPathsEqual(entry.cwd, targetCwd)
-          ) {
+          const payload = asRecord(entry.payload) ?? entry;
+          const cwd = typeof payload.cwd === 'string' ? payload.cwd : null;
+          if (entry.type === 'session_meta' && cwd && crossPlatformPathsEqual(cwd, targetCwd)) {
             return true;
           }
         } catch {
@@ -115,10 +125,16 @@ export class CodexSessionScanner {
     }
   }
 
-  private async streamParseJsonl(filePath: string, targetCwd: string): Promise<CodexSessionScanResult | null> {
+  private async streamParseJsonl(
+    filePath: string,
+    targetCwd: string | null,
+    targetThreadId?: string
+  ): Promise<CodexSessionScanResult | null> {
     return new Promise((resolve) => {
       let threadId: string | null = null;
       let model: string | null = null;
+      let nativeSourceKind: string | null = null;
+      let workspacePath: string | null = null;
       let matchesCwd = false;
       const tokenUsage = { input: 0, output: 0, cached: 0, reasoning: 0 };
       let lastModified = 0;
@@ -139,23 +155,41 @@ export class CodexSessionScanner {
         if (!line.trim()) return;
         try {
           const entry = JSON.parse(line);
+          const payload = asRecord(entry.payload) ?? entry;
           if (entry.type === 'session_meta') {
-            if (
-              typeof entry.cwd === 'string'
-              && crossPlatformPathsEqual(entry.cwd, targetCwd)
-            ) {
-              matchesCwd = true;
-              model = entry.model ?? null;
+            const cwd = typeof payload.cwd === 'string' ? payload.cwd : null;
+            if (cwd) {
+              workspacePath = cwd;
             }
+            if (targetCwd === null || (cwd && crossPlatformPathsEqual(cwd, targetCwd))) {
+              matchesCwd = true;
+              model = (typeof payload.model === 'string' ? payload.model : null)
+                ?? (typeof payload.model_provider === 'string' ? payload.model_provider : null);
+            }
+            nativeSourceKind = normalizeSourceKind(payload.source) ?? nativeSourceKind;
+            threadId = (typeof payload.id === 'string' ? payload.id : null) ?? threadId;
+          }
+          if (entry.type === 'turn_context') {
+            model = (typeof payload.model === 'string' ? payload.model : null) ?? model;
+            workspacePath = (typeof payload.cwd === 'string' ? payload.cwd : null) ?? workspacePath;
+          }
+          if (typeof payload.thread_id === 'string' && !threadId) {
+            threadId = payload.thread_id;
           }
           if (entry.threadId && !threadId) {
             threadId = entry.threadId;
           }
-          if (entry.type === 'event_msg' && entry.subtype === 'token_count') {
-            tokenUsage.input += entry.input_tokens ?? entry.inputTokens ?? 0;
-            tokenUsage.output += entry.output_tokens ?? entry.outputTokens ?? 0;
-            tokenUsage.cached += entry.cached_tokens ?? entry.cachedTokens ?? 0;
-            tokenUsage.reasoning += entry.reasoning_tokens ?? entry.reasoningTokens ?? 0;
+          const hasNestedPayload = asRecord(entry.payload) !== null;
+          const eventType = hasNestedPayload && typeof payload.type === 'string'
+            ? payload.type
+            : entry.subtype;
+          if (entry.type === 'event_msg' && eventType === 'token_count') {
+            const info = asRecord(payload.info);
+            const total = asRecord(info?.['total_token_usage']) ?? payload;
+            tokenUsage.input += numeric(total.input_tokens) ?? numeric(total.inputTokens) ?? 0;
+            tokenUsage.output += numeric(total.output_tokens) ?? numeric(total.outputTokens) ?? 0;
+            tokenUsage.cached += numeric(total.cached_tokens) ?? numeric(total.cachedTokens) ?? 0;
+            tokenUsage.reasoning += numeric(total.reasoning_tokens) ?? numeric(total.reasoningTokens) ?? 0;
           }
         } catch {
           // Skip malformed lines
@@ -163,8 +197,17 @@ export class CodexSessionScanner {
       });
 
       rl.on('close', () => {
-        if (matchesCwd && threadId) {
-          resolve({ threadId, model, sessionFilePath: filePath, workspacePath: targetCwd, tokenUsage, lastModified });
+        const matchesThread = !targetThreadId || threadId === targetThreadId;
+        if (matchesCwd && matchesThread && threadId) {
+          resolve({
+            threadId,
+            model,
+            nativeSourceKind,
+            sessionFilePath: filePath,
+            workspacePath: workspacePath ?? targetCwd ?? '',
+            tokenUsage,
+            lastModified,
+          });
         } else {
           resolve(null);
         }
@@ -176,4 +219,20 @@ export class CodexSessionScanner {
       });
     });
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function numeric(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeSourceKind(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && 'subAgent' in value) return 'subAgent';
+  return null;
 }

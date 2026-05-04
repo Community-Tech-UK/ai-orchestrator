@@ -63,42 +63,68 @@ export interface InitializeResponse {
 // ─── Thread Management ──────────────────────────────────────────────────────
 
 export type CodexApprovalPolicy = 'never' | 'unless-allow-listed' | 'always';
+export type CodexAskForApproval = 'untrusted' | 'on-failure' | 'on-request' | 'never' | { granular: Record<string, boolean> };
 export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+export type CodexSandboxPolicy =
+  | { type: 'dangerFullAccess' }
+  | { type: 'readOnly'; networkAccess: boolean }
+  | { type: 'workspaceWrite'; writableRoots: string[]; networkAccess: boolean; excludeTmpdirEnvVar: boolean; excludeSlashTmp: boolean }
+  | { type: 'externalSandbox'; networkAccess: unknown };
 export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type SortDirection = 'asc' | 'desc';
+export type ThreadSortKey = 'created_at' | 'updated_at';
+export type ThreadSourceKind =
+  | 'cli'
+  | 'vscode'
+  | 'exec'
+  | 'appServer'
+  | 'subAgent'
+  | 'subAgentReview'
+  | 'subAgentCompact'
+  | 'subAgentThreadSpawn'
+  | 'subAgentOther'
+  | 'unknown';
+export type SessionSource = ThreadSourceKind | { custom: string } | { subAgent: unknown };
+export type ThreadStatus = 'running' | 'ready' | 'idle' | 'failed' | 'closed' | 'archived' | string;
 
 export interface ThreadStartParams {
-  cwd: string;
+  cwd?: string | null;
   model?: string | null;
-  approvalPolicy?: CodexApprovalPolicy;
+  modelProvider?: string | null;
+  serviceTier?: string | null;
+  approvalPolicy?: CodexApprovalPolicy | CodexAskForApproval | null;
+  approvalsReviewer?: unknown;
   sandbox?: CodexSandboxMode;
   serviceName?: string;
+  baseInstructions?: string | null;
+  developerInstructions?: string | null;
+  personality?: string | null;
   ephemeral?: boolean;
   experimentalRawEvents?: boolean;
+  /** Legacy name accepted by older Codex app-server builds. */
   reasoningEffort?: CodexReasoningEffort | null;
+  /** Generated 0.128.x name for turn-level reasoning. */
+  effort?: CodexReasoningEffort | null;
+  sessionStartSource?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface ThreadStartResponse {
   threadId: string;
-  thread?: {
-    id: string;
-    name?: string;
-  };
+  thread?: ThreadInfo;
 }
 
 export interface ThreadResumeParams {
   threadId: string;
-  cwd: string;
+  cwd?: string | null;
   model?: string | null;
-  approvalPolicy?: CodexApprovalPolicy;
+  approvalPolicy?: CodexApprovalPolicy | CodexAskForApproval | null;
   sandbox?: CodexSandboxMode;
 }
 
 export interface ThreadResumeResponse {
   threadId: string;
-  thread?: {
-    id: string;
-    name?: string;
-  };
+  thread?: ThreadInfo;
 }
 
 export interface ThreadSetNameParams {
@@ -111,19 +137,65 @@ export interface ThreadSetNameResponse {
 }
 
 export interface ThreadListParams {
-  searchTerm?: string;
+  cursor?: string | null;
   limit?: number;
+  sortKey?: ThreadSortKey | null;
+  sortDirection?: SortDirection | null;
+  modelProviders?: string[] | null;
+  sourceKinds?: ThreadSourceKind[] | null;
+  archived?: boolean | null;
+  cwd?: string | string[] | null;
+  useStateDbOnly?: boolean;
+  searchTerm?: string | null;
 }
 
 export interface ThreadListResponse {
-  threads: ThreadInfo[];
+  data: ThreadInfo[];
+  nextCursor: string | null;
+  backwardsCursor: string | null;
 }
 
 export interface ThreadInfo {
   id: string;
-  name?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  forkedFromId?: string | null;
+  preview?: string;
+  ephemeral?: boolean;
+  modelProvider?: string;
+  createdAt?: number | string;
+  updatedAt?: number | string;
+  status?: ThreadStatus;
+  path?: string | null;
+  cwd?: string;
+  cliVersion?: string;
+  source?: SessionSource;
+  agentNickname?: string | null;
+  agentRole?: string | null;
+  gitInfo?: Record<string, unknown> | null;
+  name?: string | null;
+  turns?: Turn[];
+  [key: string]: unknown;
+}
+
+export interface ThreadReadParams {
+  threadId: string;
+  includeTurns: boolean;
+}
+
+export interface ThreadReadResponse {
+  thread: ThreadInfo;
+}
+
+export interface ThreadTurnsListParams {
+  threadId: string;
+  cursor?: string | null;
+  limit?: number | null;
+  sortDirection?: SortDirection | null;
+}
+
+export interface ThreadTurnsListResponse {
+  data: Turn[];
+  nextCursor: string | null;
+  backwardsCursor: string | null;
 }
 
 // ─── Thread Compaction ──────────────────────────────────────────────────────
@@ -176,9 +248,20 @@ export type UserInput =
 export interface TurnStartParams {
   threadId: string;
   input: UserInput[];
+  cwd?: string | null;
+  approvalPolicy?: CodexApprovalPolicy | CodexAskForApproval | null;
+  approvalsReviewer?: unknown;
+  sandboxPolicy?: CodexSandboxPolicy | null;
+  model?: string | null;
+  serviceTier?: string | null;
   /** JSON Schema for structured output. */
   outputSchema?: Record<string, unknown>;
+  /** Legacy name accepted by older Codex app-server builds. */
   reasoningEffort?: CodexReasoningEffort | null;
+  /** Generated 0.128.x reasoning field names. */
+  effort?: CodexReasoningEffort | null;
+  summary?: unknown;
+  personality?: string | null;
 }
 
 export interface TurnStartResponse {
@@ -197,9 +280,13 @@ export interface TurnInterruptResponse {
 
 export interface Turn {
   id: string;
-  status: 'inProgress' | 'completed' | 'interrupted' | 'failed';
+  status: 'inProgress' | 'completed' | 'interrupted' | 'failed' | string;
+  items?: ThreadItem[];
   error?: unknown;
   usage?: TurnUsage;
+  startedAt?: number | null;
+  completedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export interface TurnUsage {
@@ -253,6 +340,11 @@ export interface ThreadItem {
   // Collaboration / subagent fields
   tool?: string;
   receiverThreadIds?: string[];
+  senderThreadId?: string;
+  prompt?: string | null;
+  model?: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
+  agentsStates?: Record<string, unknown>;
   // Review mode fields
   review?: string;
   // MCP tool call fields
@@ -262,6 +354,8 @@ export interface ThreadItem {
   // Reasoning fields
   summary?: unknown;
   summaryText?: string;
+  // Generated 0.128.x escape hatch for version-specific item fields.
+  [key: string]: unknown;
 }
 
 // ─── Notification Types ─────────────────────────────────────────────────────
@@ -294,6 +388,8 @@ export interface AppServerMethodMap {
   'thread/resume': { params: ThreadResumeParams; result: ThreadResumeResponse };
   'thread/name/set': { params: ThreadSetNameParams; result: ThreadSetNameResponse };
   'thread/list': { params: ThreadListParams; result: ThreadListResponse };
+  'thread/read': { params: ThreadReadParams; result: ThreadReadResponse };
+  'thread/turns/list': { params: ThreadTurnsListParams; result: ThreadTurnsListResponse };
   'thread/compact/start': { params: ThreadCompactStartParams; result: ThreadCompactStartResponse };
   'review/start': { params: ReviewStartParams; result: ReviewStartResponse };
   'turn/start': { params: TurnStartParams; result: TurnStartResponse };

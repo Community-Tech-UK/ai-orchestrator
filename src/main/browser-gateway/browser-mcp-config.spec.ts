@@ -54,4 +54,15 @@ describe('browser-mcp-config', () => {
       { name: 'AI_ORCHESTRATOR_BROWSER_INSTANCE_ID', value: 'instance-1' },
     ]);
   });
+
+  it('passes provider identity through the bridge environment when supplied', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec({
+      ...options,
+      provider: 'copilot',
+    });
+
+    expect(bridge?.env).toMatchObject({
+      AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
+    });
+  });
 });

@@ -9,6 +9,7 @@ export interface BrowserGatewayMcpConfigOptions {
   resourcesPath: string;
   socketPath: string;
   instanceId: string;
+  provider?: string;
   exists?: (candidatePath: string) => boolean;
 }
 
@@ -37,14 +38,17 @@ export function resolveBrowserGatewayBridgeSpec(
     return null;
   }
 
+  const env = {
+    ELECTRON_RUN_AS_NODE: '1',
+    AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
+    AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
+    ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
+  };
+
   return {
     command: options.execPath,
     args: [scriptPath],
-    env: {
-      ELECTRON_RUN_AS_NODE: '1',
-      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
-      AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
-    },
+    env,
   };
 }
 

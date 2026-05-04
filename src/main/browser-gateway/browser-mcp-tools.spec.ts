@@ -45,6 +45,33 @@ describe('browser-mcp-tools', () => {
     expect(call).toHaveBeenCalledWith('browser.list_profiles', { profileId: 'profile-1' });
   });
 
+  it('exposes concrete input schemas for provider-facing browser tools', () => {
+    const tools = createBrowserMcpTools({ call: vi.fn() });
+    const navigate = tools.find((tool) => tool.name === 'browser.navigate');
+    const click = tools.find((tool) => tool.name === 'browser.click');
+
+    expect(navigate?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId', 'targetId', 'url'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        url: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(click?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId', 'targetId', 'selector'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        selector: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+  });
+
   it('keeps the stdio bridge free of privileged browser/database imports', () => {
     const source = [
       'src/main/browser-gateway/browser-mcp-stdio-server.ts',

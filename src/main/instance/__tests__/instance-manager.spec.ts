@@ -1389,6 +1389,7 @@ describe('InstanceManager', () => {
         workingDirectory: TEST_WORKING_DIR,
         modelOverride: 'sonnet',
       });
+      await instance.readyPromise;
 
       expect(instance.contextUsage.total).toBe(1000000);
 
@@ -1396,6 +1397,29 @@ describe('InstanceManager', () => {
 
       expect(updated.currentModel).toBe('sonnet[1m]');
       expect(updated.contextUsage.total).toBe(1000000);
+    });
+
+    it.each([
+      'processing',
+      'thinking_deeply',
+      'waiting_for_permission',
+      'respawning',
+    ] as const)('rejects model changes while the instance status is %s', async (status) => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      instance.status = status;
+      mockAdapterTerminate.mockClear();
+
+      await expect(manager.changeModel(instance.id, 'sonnet[1m]')).rejects.toThrow(
+        'Model changes are only available while the instance is waiting for user input.'
+      );
+
+      expect(instance.status).toBe(status);
+      expect(instance.currentModel).toBe('sonnet');
+      expect(mockAdapterTerminate).not.toHaveBeenCalled();
     });
   });
 

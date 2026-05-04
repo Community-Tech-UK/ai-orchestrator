@@ -3,16 +3,18 @@ export const DEFAULT_TTS_TARGET_CHARS = 3500;
 
 export function toSpeakableText(markdown: string): string {
   return markdown
-    .replace(/```[\s\S]*?```/g, ' Code block omitted from speech. ')
+    .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]*`/g, ' ')
-    .replace(/https?:\/\/\S+/g, ' link omitted ')
     .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' link omitted ')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[>\-*+]\s+/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/_{1,2}([^_]+)_{1,2}/g, '$1')
+    .replace(/\s+(and|or)\s*([.?!])/gi, '$2')
+    .replace(/\s+([.,!?;:])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
 }

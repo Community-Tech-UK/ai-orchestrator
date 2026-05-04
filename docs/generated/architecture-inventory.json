@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 791,
+    "channelCount": 828,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -3958,14 +3958,201 @@
         "name": "VOICE_TTS_CANCEL",
         "value": "voice:tts:cancel",
         "line": 992
+      },
+      {
+        "name": "BROWSER_LIST_PROFILES",
+        "value": "browser:list-profiles",
+        "line": 994
+      },
+      {
+        "name": "BROWSER_CREATE_PROFILE",
+        "value": "browser:create-profile",
+        "line": 995
+      },
+      {
+        "name": "BROWSER_UPDATE_PROFILE",
+        "value": "browser:update-profile",
+        "line": 996
+      },
+      {
+        "name": "BROWSER_DELETE_PROFILE",
+        "value": "browser:delete-profile",
+        "line": 997
+      },
+      {
+        "name": "BROWSER_OPEN_PROFILE",
+        "value": "browser:open-profile",
+        "line": 998
+      },
+      {
+        "name": "BROWSER_CLOSE_PROFILE",
+        "value": "browser:close-profile",
+        "line": 999
+      },
+      {
+        "name": "BROWSER_LIST_TARGETS",
+        "value": "browser:list-targets",
+        "line": 1000
+      },
+      {
+        "name": "BROWSER_SELECT_TARGET",
+        "value": "browser:select-target",
+        "line": 1001
+      },
+      {
+        "name": "BROWSER_NAVIGATE",
+        "value": "browser:navigate",
+        "line": 1002
+      },
+      {
+        "name": "BROWSER_CLICK",
+        "value": "browser:click",
+        "line": 1003
+      },
+      {
+        "name": "BROWSER_TYPE",
+        "value": "browser:type",
+        "line": 1004
+      },
+      {
+        "name": "BROWSER_FILL_FORM",
+        "value": "browser:fill-form",
+        "line": 1005
+      },
+      {
+        "name": "BROWSER_SELECT",
+        "value": "browser:select",
+        "line": 1006
+      },
+      {
+        "name": "BROWSER_UPLOAD_FILE",
+        "value": "browser:upload-file",
+        "line": 1007
+      },
+      {
+        "name": "BROWSER_REQUEST_GRANT",
+        "value": "browser:request-grant",
+        "line": 1008
+      },
+      {
+        "name": "BROWSER_GET_APPROVAL_STATUS",
+        "value": "browser:get-approval-status",
+        "line": 1009
+      },
+      {
+        "name": "BROWSER_LIST_APPROVAL_REQUESTS",
+        "value": "browser:list-approval-requests",
+        "line": 1010
+      },
+      {
+        "name": "BROWSER_GET_APPROVAL_REQUEST",
+        "value": "browser:get-approval-request",
+        "line": 1011
+      },
+      {
+        "name": "BROWSER_APPROVE_REQUEST",
+        "value": "browser:approve-request",
+        "line": 1012
+      },
+      {
+        "name": "BROWSER_DENY_REQUEST",
+        "value": "browser:deny-request",
+        "line": 1013
+      },
+      {
+        "name": "BROWSER_CREATE_GRANT",
+        "value": "browser:create-grant",
+        "line": 1014
+      },
+      {
+        "name": "BROWSER_LIST_GRANTS",
+        "value": "browser:list-grants",
+        "line": 1015
+      },
+      {
+        "name": "BROWSER_REVOKE_GRANT",
+        "value": "browser:revoke-grant",
+        "line": 1016
+      },
+      {
+        "name": "BROWSER_SNAPSHOT",
+        "value": "browser:snapshot",
+        "line": 1017
+      },
+      {
+        "name": "BROWSER_SCREENSHOT",
+        "value": "browser:screenshot",
+        "line": 1018
+      },
+      {
+        "name": "BROWSER_CONSOLE_MESSAGES",
+        "value": "browser:console-messages",
+        "line": 1019
+      },
+      {
+        "name": "BROWSER_NETWORK_REQUESTS",
+        "value": "browser:network-requests",
+        "line": 1020
+      },
+      {
+        "name": "BROWSER_WAIT_FOR",
+        "value": "browser:wait-for",
+        "line": 1021
+      },
+      {
+        "name": "BROWSER_GET_AUDIT_LOG",
+        "value": "browser:get-audit-log",
+        "line": 1022
+      },
+      {
+        "name": "BROWSER_GET_HEALTH",
+        "value": "browser:get-health",
+        "line": 1023
+      },
+      {
+        "name": "BROWSER_CHANGED",
+        "value": "browser:changed",
+        "line": 1024
+      },
+      {
+        "name": "CONVERSATION_LEDGER_LIST",
+        "value": "conversation-ledger:list",
+        "line": 1026
+      },
+      {
+        "name": "CONVERSATION_LEDGER_GET",
+        "value": "conversation-ledger:get",
+        "line": 1027
+      },
+      {
+        "name": "CONVERSATION_LEDGER_DISCOVER",
+        "value": "conversation-ledger:discover",
+        "line": 1028
+      },
+      {
+        "name": "CONVERSATION_LEDGER_RECONCILE",
+        "value": "conversation-ledger:reconcile",
+        "line": 1029
+      },
+      {
+        "name": "CONVERSATION_LEDGER_START",
+        "value": "conversation-ledger:start",
+        "line": 1030
+      },
+      {
+        "name": "CONVERSATION_LEDGER_SEND_TURN",
+        "value": "conversation-ledger:send-turn",
+        "line": 1031
       }
     ]
   },
   "preload": {
-    "domainCount": 16,
+    "domainCount": 18,
     "domains": [
       "automation.preload.ts",
+      "browser.preload.ts",
       "communication.preload.ts",
+      "conversation-ledger.preload.ts",
       "diagnostics.preload.ts",
       "file.preload.ts",
       "infrastructure.preload.ts",
@@ -4187,7 +4374,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3077
+      "lines": 3127
     },
     {
       "path": ".claude-attachments/5270c026-b638-4e5a-a17e-74ae91d1e303/2026-02-25-prod-server-migration.md",
@@ -4219,7 +4406,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 2747
+      "lines": 2761
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -4331,7 +4518,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 1963
+      "lines": 1962
     },
     {
       "path": "archive/PHASE_7A_VALIDATED_PLAN.md",
@@ -4344,6 +4531,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 1855
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
@@ -4382,6 +4573,10 @@
       "lines": 1732
     },
     {
+      "path": "src/main/persistence/rlm/rlm-schema.ts",
+      "lines": 1731
+    },
+    {
       "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-SKJHEC3Z.js",
       "lines": 1700
     },
@@ -4394,15 +4589,11 @@
       "lines": 1613
     },
     {
-      "path": "src/main/persistence/rlm/rlm-schema.ts",
-      "lines": 1601
-    },
-    {
       "path": "src/main/session/session-continuity.ts",
       "lines": 1594
     },
     {
-      "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation.md",
+      "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
     },
     {
@@ -4462,12 +4653,12 @@
       "lines": 1394
     },
     {
-      "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
-      "lines": 1344
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1355
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1336
+      "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
+      "lines": 1344
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-d-architecture-state.md",
@@ -4511,7 +4702,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1277
+      "lines": 1288
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
@@ -4598,6 +4789,10 @@
       "lines": 1139
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 1129
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
       "lines": 1127
     },
@@ -4650,15 +4845,15 @@
       "lines": 1069
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1068
+    },
+    {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
       "lines": 1066
     },
     {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
-      "lines": 1059
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1059
     },
     {
@@ -4674,7 +4869,7 @@
       "lines": 1042
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "path": "src/preload/generated/channels.ts",
       "lines": 1040
     },
     {
@@ -4716,10 +4911,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 1003
-    },
-    {
-      "path": "src/preload/generated/channels.ts",
-      "lines": 1001
     },
     {
       "path": "src/renderer/app/features/settings/ecosystem-settings-tab.component.ts",
@@ -4766,8 +4957,16 @@
       "lines": 963
     },
     {
+      "path": "src/renderer/app/features/browser/browser-page.component.ts",
+      "lines": 961
+    },
+    {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 957
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone.md",
+      "lines": 954
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
@@ -4787,7 +4986,7 @@
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 918
+      "lines": 925
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
@@ -4894,6 +5093,10 @@
       "lines": 841
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 836
+    },
+    {
       "path": "src/main/orchestration/child-result-storage.ts",
       "lines": 836
     },
@@ -4910,6 +5113,10 @@
       "lines": 830
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 828
+    },
+    {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 823
     },
@@ -4920,10 +5127,6 @@
     {
       "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
       "lines": 820
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 819
     },
     {
       "path": "src/main/mcp/mcp-tool-search.ts",
@@ -4950,7 +5153,7 @@
       "lines": 806
     },
     {
-      "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter.md",
+      "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",
       "lines": 805
     },
     {

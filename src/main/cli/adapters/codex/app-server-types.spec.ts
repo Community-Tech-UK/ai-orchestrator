@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type AppServerRequestParams,
+  type AppServerResponseResult,
   BROKER_BUSY_RPC_CODE,
   BROKER_ENDPOINT_ENV,
   DEFAULT_OPT_OUT_NOTIFICATIONS,
@@ -36,5 +38,33 @@ describe('app-server-types constants', () => {
 
   it('exports TASK_THREAD_PREFIX', () => {
     expect(TASK_THREAD_PREFIX).toBe('AI Orchestrator Task');
+  });
+
+  it('types current durable thread read and list methods', () => {
+    const listParams: AppServerRequestParams<'thread/list'> = {
+      sourceKinds: ['cli', 'vscode', 'appServer'],
+      limit: 25,
+      sortDirection: 'desc',
+      useStateDbOnly: true,
+    };
+    const listResponse: AppServerResponseResult<'thread/list'> = {
+      data: [],
+      nextCursor: null,
+      backwardsCursor: null,
+    };
+    const readParams: AppServerRequestParams<'thread/read'> = {
+      threadId: 'thr_1',
+      includeTurns: true,
+    };
+    const turnsParams: AppServerRequestParams<'thread/turns/list'> = {
+      threadId: 'thr_1',
+      limit: 50,
+      sortDirection: 'desc',
+    };
+
+    expect(listParams.sourceKinds).toContain('appServer');
+    expect(listResponse.data).toEqual([]);
+    expect(readParams.includeTurns).toBe(true);
+    expect(turnsParams.limit).toBe(50);
   });
 });

@@ -1,0 +1,9 @@
+{"timestamp":"2026-05-02T10:00:00.000Z","type":"session_meta","payload":{"id":"thread_fixture_1","timestamp":"2026-05-02T10:00:00.000Z","cwd":"/tmp/ai-orchestrator-fixture","model_provider":"openai","originator":"codex_cli","source":"vscode"}}
+{"timestamp":"2026-05-02T10:00:01.000Z","type":"turn_context","payload":{"turn_id":"turn_fixture_1","cwd":"/tmp/ai-orchestrator-fixture","model":"gpt-5.4","effort":"medium","approval_policy":"never"}}
+{"timestamp":"2026-05-02T10:00:02.000Z","type":"event_msg","payload":{"type":"thread_name_updated","thread_id":"thread_fixture_1","thread_name":"Ledger planning"}}
+{"timestamp":"2026-05-02T10:00:03.000Z","type":"event_msg","payload":{"type":"user_message","message":"Plan the conversation ledger.","images":[],"local_images":[],"text_elements":[]}}
+{"timestamp":"2026-05-02T10:00:04.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"cmd\":\"pwd\"}"}}
+{"timestamp":"2026-05-02T10:00:05.000Z","type":"event_msg","payload":{"type":"exec_command_end","exit_code":0,"aggregated_output":"/tmp/ai-orchestrator-fixture"}}
+{"timestamp":"2026-05-02T10:00:06.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Use an Orchestrator-owned ledger first.","phase":"final"}}
+{"timestamp":"2026-05-02T10:00:07.000Z","type":"response_item","payload":{"type":"message","role":"assistant","phase":"final","content":[{"type":"output_text","text":"Use an Orchestrator-owned ledger first."}]}}
+{"timestamp":"2026-05-02T10:00:08.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":12,"output_tokens":8,"total_tokens":20}}}}

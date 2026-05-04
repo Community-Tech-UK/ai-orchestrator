@@ -101,13 +101,18 @@ export class PuppeteerBrowserDriver {
     return this.targetRegistry.listTargets(profileId);
   }
 
+  async refreshTarget(profileId: string, targetId: string): Promise<BrowserTarget> {
+    const page = this.getPage(profileId, targetId);
+    return this.refreshPageTarget(profileId, targetId, page);
+  }
+
   async navigate(profileId: string, targetId: string, url: string): Promise<void> {
     const page = this.getPage(profileId, targetId);
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 30_000,
     });
-    await this.refreshTarget(profileId, targetId, page);
+    await this.refreshPageTarget(profileId, targetId, page);
   }
 
   async snapshot(profileId: string, targetId: string): Promise<BrowserSnapshot> {
@@ -218,7 +223,7 @@ export class PuppeteerBrowserDriver {
   async click(profileId: string, targetId: string, selector: string): Promise<void> {
     const page = this.getPage(profileId, targetId);
     await page.click(selector);
-    await this.refreshTarget(profileId, targetId, page);
+    await this.refreshPageTarget(profileId, targetId, page);
   }
 
   async type(
@@ -229,7 +234,7 @@ export class PuppeteerBrowserDriver {
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
     await page.type(selector, value);
-    await this.refreshTarget(profileId, targetId, page);
+    await this.refreshPageTarget(profileId, targetId, page);
   }
 
   async fillForm(
@@ -241,7 +246,7 @@ export class PuppeteerBrowserDriver {
     for (const field of fields) {
       await page.type(field.selector, field.value);
     }
-    await this.refreshTarget(profileId, targetId, page);
+    await this.refreshPageTarget(profileId, targetId, page);
   }
 
   async select(
@@ -252,7 +257,7 @@ export class PuppeteerBrowserDriver {
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
     await page.select(selector, value);
-    await this.refreshTarget(profileId, targetId, page);
+    await this.refreshPageTarget(profileId, targetId, page);
   }
 
   async uploadFile(
@@ -267,7 +272,7 @@ export class PuppeteerBrowserDriver {
       throw new Error(`Browser upload target ${selector} not found`);
     }
     await handle.uploadFile(filePath);
-    await this.refreshTarget(profileId, targetId, page);
+    await this.refreshPageTarget(profileId, targetId, page);
   }
 
   private async indexPages(profileId: string): Promise<BrowserTarget[]> {
@@ -280,14 +285,14 @@ export class PuppeteerBrowserDriver {
       const targetId = `${profileId}:${index}`;
       this.pagesByTargetId.set(targetId, page);
       this.instrumentPage(targetId, page);
-      const target = await this.refreshTarget(profileId, targetId, page);
+      const target = await this.refreshPageTarget(profileId, targetId, page);
       targets.push(target);
     }
 
     return targets;
   }
 
-  private async refreshTarget(
+  private async refreshPageTarget(
     profileId: string,
     targetId: string,
     page: Page,

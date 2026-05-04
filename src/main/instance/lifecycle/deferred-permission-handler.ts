@@ -35,10 +35,15 @@ export interface DeferredPermissionDeps {
 export interface DeferredPermissionLifecycleOps {
   transitionState: (instance: Instance, newState: InstanceStatus) => void;
   resolveCliTypeForInstance: (instance: Instance) => Promise<string>;
-  getMcpConfig: (executionLocation?: ExecutionLocation, instanceId?: string) => string[];
+  getMcpConfig: (
+    executionLocation?: ExecutionLocation,
+    instanceId?: string,
+    provider?: string,
+  ) => string[];
   getBrowserGatewayMcpOptions?: (
     executionLocation?: ExecutionLocation,
     instanceId?: string,
+    provider?: string,
   ) => BrowserGatewayMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string) => Promise<boolean>;
@@ -154,8 +159,12 @@ export class DeferredPermissionHandler {
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
         resume: true,
-        mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id),
-        browserGatewayMcp: this.ops.getBrowserGatewayMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
+        mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        browserGatewayMcp: this.ops.getBrowserGatewayMcpOptions?.(
+          instance.executionLocation,
+          instance.id,
+          cliType,
+        ) ?? undefined,
         permissionHookPath: this.ops.getPermissionHookPath(instance.yoloMode),
       };
 

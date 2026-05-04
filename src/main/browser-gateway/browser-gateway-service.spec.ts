@@ -57,6 +57,7 @@ function makeService(overrides: {
   navigate?: () => Promise<void>;
   screenshot?: () => Promise<string>;
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
+  refreshTarget?: () => Promise<BrowserTarget>;
   grants?: BrowserPermissionGrant[];
 } = {}) {
   const audits: BrowserAuditEntry[] = [];
@@ -67,6 +68,8 @@ function makeService(overrides: {
   const driver = {
     openProfile: vi.fn(async () => [target]),
     closeProfile: vi.fn(async () => undefined),
+    listTargets: vi.fn(async () => [target]),
+    refreshTarget: vi.fn(overrides.refreshTarget ?? (async () => target)),
     navigate: vi.fn(overrides.navigate ?? (async () => undefined)),
     snapshot: vi.fn(overrides.snapshot ?? (async () => ({
       title: 'Local',
@@ -285,6 +288,34 @@ describe('BrowserGatewayService', () => {
     expect(driver.screenshot).not.toHaveBeenCalled();
   });
 
+  it('refreshes live target state before read operations so stale allowed URLs cannot leak blocked pages', async () => {
+    const { service, driver } = makeService({
+      target: makeTarget({
+        url: 'http://localhost:4567/stale',
+        origin: 'http://localhost:4567',
+      }),
+      refreshTarget: async () => makeTarget({
+        url: 'https://example.com/live',
+        origin: 'https://example.com',
+      }),
+    });
+
+    const result = await service.screenshot({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'host_not_allowed',
+    });
+    expect(driver.refreshTarget).toHaveBeenCalledWith('profile-1', 'target-1');
+    expect(driver.screenshot).not.toHaveBeenCalled();
+  });
+
   it('records requires_user for mutating browser actions', async () => {
     const { service, audits } = makeService();
 
@@ -448,6 +479,79 @@ describe('BrowserGatewayService', () => {
       decision: 'requires_user',
       outcome: 'not_run',
       reason: 'no_matching_grant',
+    });
+    expect(driver.click).not.toHaveBeenCalled();
+  });
+
+  it('refreshes live target state before mutating actions so stale allowed URLs cannot authorize blocked pages', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant()],
+      refreshTarget: async () => makeTarget({
+        url: 'https://example.com/live',
+        origin: 'https://example.com',
+      }),
+    });
+
+    await expect(service.type({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'input[name="title"]',
+      value: 'Release notes',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    })).resolves.toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'host_not_allowed',
+    });
+    expect(driver.type).not.toHaveBeenCalled();
+  });
+
+  it('audits mutating driver failures as failed Browser Gateway results', async () => {
+    const { service, driver, audits } = makeService({
+      grants: [makeGrant()],
+    });
+    driver.type.mockRejectedValueOnce(new Error('type failed'));
+
+    const result = await service.type({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'input[name="title"]',
+      value: 'Release notes',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'type failed',
+    });
+    expect(audits.at(-1)).toMatchObject({
+      action: 'type',
+      toolName: 'browser.type',
+      decision: 'allowed',
+      outcome: 'failed',
+      grantId: 'grant-1',
+    });
+  });
+
+  it('turns element inspection failures into requires_user instead of raw driver errors', async () => {
+    const { service, driver } = makeService({
+      grants: [makeGrant()],
+    });
+    driver.inspectElement.mockRejectedValueOnce(new Error('selector missing'));
+
+    await expect(service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.missing',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    })).resolves.toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      reason: 'element_context_unavailable',
     });
     expect(driver.click).not.toHaveBeenCalled();
   });

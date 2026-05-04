@@ -16,6 +16,7 @@ import type {
   CreateInstanceConfig,
 } from './instance.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
+import { getModelSwitchUnavailableReason } from '../../../../../shared/types/instance-status-policy';
 
 export interface CreateInstanceWithMessageOptions {
   message: string;
@@ -322,6 +323,12 @@ export class InstanceListStore {
   async changeModel(instanceId: string, newModel: string): Promise<void> {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance || instance.currentModel === newModel) return;
+
+    const unavailableReason = getModelSwitchUnavailableReason(instance.status);
+    if (unavailableReason) {
+      this.stateService.setError(unavailableReason);
+      return;
+    }
 
     const response = await this.ipc.changeModel(instanceId, newModel);
 

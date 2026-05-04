@@ -35,6 +35,7 @@ describe('Browser Gateway RPC integration', () => {
       env: {
         AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: server.getSocketPath()!,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
       },
       timeoutMs: 1_000,
     });
@@ -45,10 +46,12 @@ describe('Browser Gateway RPC integration', () => {
       auditId: 'audit-1',
       data: {
         instanceId: 'instance-1',
+        provider: 'copilot',
       },
     });
     expect(getHealth).toHaveBeenCalledWith({
       instanceId: 'instance-1',
+      provider: 'copilot',
     });
   });
 

@@ -110,7 +110,7 @@ export class CodexCliProvider extends BaseProvider {
       resume: options.resume,
       model: options.model || this.config.defaultModel, // undefined is OK - Codex will use its default
       approvalMode: options.yoloMode ? 'full-auto' : 'suggest',
-      sandboxMode: options.yoloMode ? 'workspace-write' : 'read-only',
+      sandboxMode: options.yoloMode ? 'danger-full-access' : 'read-only',
       workingDir: options.workingDirectory,
       systemPrompt: options.systemPrompt,
       timeout: DEFAULT_CODEX_TURN_TIMEOUT_MS,

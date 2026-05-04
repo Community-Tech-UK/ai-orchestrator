@@ -31,6 +31,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
   async call(method: string, payload: Record<string, unknown>): Promise<unknown> {
     const socketPath = this.env['AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET'];
     const instanceId = this.env['AI_ORCHESTRATOR_BROWSER_INSTANCE_ID'];
+    const provider = this.env['AI_ORCHESTRATOR_BROWSER_PROVIDER'];
     if (!socketPath || !instanceId) {
       return unavailable();
     }
@@ -42,6 +43,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
         method,
         params: {
           instanceId,
+          ...(provider ? { provider } : {}),
           payload,
         },
       });

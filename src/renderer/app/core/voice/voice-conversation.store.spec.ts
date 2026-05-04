@@ -250,4 +250,91 @@ describe('VoiceConversationStore', () => {
       }),
     );
   });
+
+  it('does not speak assistant messages that existed before voice started', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness('idle');
+    const existing = [message('assistant-before', 'assistant', 'Already said.')];
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: existing,
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.store.updateContext({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: existing,
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    await vi.advanceTimersByTimeAsync(701);
+
+    expect(harness.voiceIpc.synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it('does not speak code-only assistant output and speaks each message once', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness('idle');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    const messages = [
+      message('assistant-code', 'assistant', '```ts\nconsole.log("skip");\n```'),
+      message('assistant-final', 'assistant', 'Plain answer.'),
+    ];
+    harness.store.updateContext({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages,
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    await vi.advanceTimersByTimeAsync(701);
+    harness.store.updateContext({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages,
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    await vi.advanceTimersByTimeAsync(701);
+
+    expect(harness.voiceIpc.synthesizeSpeech).toHaveBeenCalledTimes(1);
+    expect(harness.voiceIpc.synthesizeSpeech).toHaveBeenCalledWith(expect.objectContaining({
+      input: 'Plain answer.',
+    }));
+  });
+
+  it('credential expiry reconnects once and connection loss stops capture with a recoverable error', async () => {
+    const harness = createHarness('idle');
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+    harness.events.next({ kind: 'partial', text: 'unsent' });
+    harness.events.next({ kind: 'credential-expired' });
+    for (let index = 0; index < 5; index += 1) {
+      await Promise.resolve();
+    }
+
+    expect(harness.voiceIpc.createTranscriptionSession).toHaveBeenCalledTimes(2);
+    expect(harness.store.partialTranscript()).toBe('unsent');
+
+    harness.events.next({ kind: 'connection-lost', error: 'network down' });
+    expect(harness.store.mode()).toBe('error');
+    expect(harness.store.errorCode()).toBe('voice-connection-lost');
+    expect(harness.closeConnection).toHaveBeenCalled();
+  });
 });

@@ -172,7 +172,7 @@ abstract class AppServerClientBase {
    * turn/start has no timeout (0) — it's governed by the turn-level timeout and idle watchdog.
    */
   private resolveDefaultTimeout(method: string): number {
-    const controlMethods = ['initialize', 'thread/start', 'thread/resume', 'thread/compact/start'];
+    const controlMethods = ['initialize', 'thread/start', 'thread/resume', 'thread/read', 'thread/list', 'thread/turns/list', 'thread/compact/start'];
     if (controlMethods.includes(method)) {
       return CODEX_TIMEOUTS.RPC_CONTROL_MS;
     }
