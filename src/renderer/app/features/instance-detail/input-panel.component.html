@@ -173,6 +173,10 @@
       ></textarea>
     </div>
 
+    @if (slashCommandError(); as error) {
+      <div class="composer-inline-error" role="alert">{{ error }}</div>
+    }
+
     <div class="composer-footer">
       <div class="composer-actions-left">
         <button

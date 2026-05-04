@@ -221,6 +221,13 @@ export class InputPanelComponent implements OnDestroy {
     }
     return null;
   });
+  slashCommandError = computed(() => {
+    const resolution = this.slashResolution();
+    if (!this.showCommandSuggestions() || resolution?.kind !== 'none') return null;
+
+    const commandText = resolution.query ? `/${resolution.query}` : '/';
+    return `No slash command found for ${commandText}. Messages that start with / are treated as commands; start with regular text if you meant to send a path.`;
+  });
 
   isDraftComposer = computed(() => this.instanceId() === 'new');
 

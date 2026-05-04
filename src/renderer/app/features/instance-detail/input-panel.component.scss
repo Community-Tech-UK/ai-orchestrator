@@ -392,6 +392,15 @@ app-copilot-model-selector {
   opacity: 0.7;
 }
 
+.composer-inline-error {
+  padding: 0 4px;
+  color: var(--error-color, #ef4444);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 /* Action Buttons - Attach and Send */
 .composer-footer {
   display: flex;

@@ -187,6 +187,36 @@ describe('InputPanelComponent queued message editing', () => {
     expect(orchestration.workflowCanTransition).not.toHaveBeenCalled();
     expect(orchestration.workflowStart).not.toHaveBeenCalled();
   });
+
+  it('shows an error when sending text that starts with an unknown slash command', async () => {
+    const component = fixture.componentInstance;
+    const commandStore = TestBed.inject(CommandStore) as unknown as {
+      resolveCommand: ReturnType<typeof vi.fn>;
+      executeCommand: ReturnType<typeof vi.fn>;
+    };
+    const sent: string[] = [];
+    (component as unknown as {
+      sendMessage: { subscribe(callback: (text: string) => void): void };
+    }).sendMessage.subscribe((text) => sent.push(text));
+
+    commandStore.resolveCommand.mockResolvedValue({
+      kind: 'none',
+      query: 'Users/suas/work/Dingley/auth.md',
+    });
+    component.message.set('/Users/suas/work/Dingley/auth.md\n\nplease review this');
+
+    await component.onSend();
+    fixture.detectChanges();
+
+    const error = fixture.nativeElement.querySelector('.composer-inline-error');
+    expect(sent).toEqual([]);
+    expect(commandStore.executeCommand).not.toHaveBeenCalled();
+    expect(component.message()).toBe('/Users/suas/work/Dingley/auth.md\n\nplease review this');
+    if (!error) {
+      throw new Error('Expected slash command error to render');
+    }
+    expect(error.textContent).toContain('No slash command found for /Users/suas/work/Dingley/auth.md');
+  });
 });
 
 function createCommandStoreMock(): Partial<CommandStore> {
