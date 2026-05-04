@@ -30,7 +30,7 @@ export class VoiceIpcService extends ElectronIpcService {
   }
 
   async createTranscriptionSession(
-    payload: { model?: string; language?: string } = {}
+    payload: { model?: string; language?: string; providerId?: string } = {}
   ): Promise<VoiceTranscriptionSession> {
     return this.unwrap<VoiceTranscriptionSession>(
       await this.requireApi().createVoiceTranscriptionSession(payload) as IpcResponse<VoiceTranscriptionSession>
@@ -50,6 +50,7 @@ export class VoiceIpcService extends ElectronIpcService {
     model?: string;
     voice?: string;
     format?: 'mp3' | 'wav' | 'opus';
+    providerId?: string;
   }): Promise<VoiceTtsResult> {
     return this.unwrap<VoiceTtsResult>(
       await this.requireApi().synthesizeVoiceSpeech(payload) as IpcResponse<VoiceTtsResult>

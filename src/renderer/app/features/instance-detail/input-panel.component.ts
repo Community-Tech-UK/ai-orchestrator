@@ -372,6 +372,7 @@ export class InputPanelComponent implements OnDestroy {
         return null;
     }
   });
+  voiceProviderSummary = computed(() => this.voice.providerSummary());
   voiceMeterStyle = computed(() => `${Math.max(0.12, this.voice.audioLevel()).toFixed(3)}`);
 
   // ViewChild for textarea
@@ -1323,6 +1324,7 @@ export class InputPanelComponent implements OnDestroy {
       instanceId: this.instanceId(),
       status: this.instanceStatus(),
       messages: this.outputMessages(),
+      provider: this.provider(),
       sendInput: (message) => {
         this.recordPromptHistory(message, false);
         this.sendMessage.emit(message);

@@ -3,6 +3,14 @@ import { z } from 'zod';
 const idSchema = z.string().min(1).max(200);
 const urlSchema = z.string().min(1).max(2000);
 const optionalUrlSchema = urlSchema.optional();
+const webUrlSchema = urlSchema.refine((value) => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}, 'Browser Gateway existing tabs must use http or https URLs.');
 
 export const BrowserActionClassSchema = z.enum([
   'read',
@@ -304,6 +312,33 @@ export const BrowserCreateProfileRequestSchema = z
   .strict();
 export type BrowserCreateProfileRequest = z.infer<
   typeof BrowserCreateProfileRequestSchema
+>;
+
+export const BrowserAttachExistingTabRequestSchema = z
+  .object({
+    tabId: z.number().int().nonnegative(),
+    windowId: z.number().int(),
+    url: webUrlSchema,
+    title: z.string().min(1).max(500).optional(),
+    text: z.string().max(120_000).optional(),
+    screenshotBase64: z.string().max(2_000_000).optional(),
+    capturedAt: z.number().int().nonnegative().optional(),
+    allowedOrigins: z.array(BrowserAllowedOriginSchema).optional(),
+    extensionOrigin: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type BrowserAttachExistingTabRequest = z.infer<
+  typeof BrowserAttachExistingTabRequestSchema
+>;
+
+export const BrowserDetachExistingTabRequestSchema = z
+  .object({
+    profileId: idSchema,
+    targetId: idSchema,
+  })
+  .strict();
+export type BrowserDetachExistingTabRequest = z.infer<
+  typeof BrowserDetachExistingTabRequestSchema
 >;
 
 export const BrowserUpdateProfileRequestSchema = z

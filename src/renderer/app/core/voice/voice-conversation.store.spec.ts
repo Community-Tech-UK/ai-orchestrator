@@ -58,6 +58,30 @@ function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness
       available: true,
       keySource: 'temporary' as const,
       canConfigureTemporaryKey: true,
+      activeTranscriptionProviderId: 'openai-realtime',
+      activeTtsProviderId: 'local-macos-say',
+      providers: [
+        {
+          id: 'openai-realtime',
+          label: 'OpenAI Realtime STT',
+          source: 'cloud' as const,
+          capabilities: ['stt' as const],
+          available: true,
+          configured: true,
+          active: true,
+          privacy: 'provider-cloud' as const,
+        },
+        {
+          id: 'local-macos-say',
+          label: 'macOS Local Voice',
+          source: 'local' as const,
+          capabilities: ['tts' as const],
+          available: true,
+          configured: true,
+          active: true,
+          privacy: 'local' as const,
+        },
+      ],
     })),
     createTranscriptionSession: vi.fn(async () => ({
       sessionId: 'voice-session-1',
@@ -68,8 +92,10 @@ function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness
     synthesizeSpeech: vi.fn(async () => ({
       requestId: 'tts-1',
       audioBase64: 'AA==',
-      mimeType: 'audio/mpeg',
-      format: 'mp3' as const,
+      mimeType: 'audio/wav',
+      format: 'wav' as const,
+      providerId: 'local-macos-say',
+      local: true,
     })),
     cancelSpeech: vi.fn(async () => true),
   };
@@ -97,6 +123,7 @@ function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness
     instanceId: 'instance-1',
     status,
     messages: [],
+    provider: 'claude',
     sendInput,
     steerInput,
   });
@@ -142,6 +169,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -159,6 +187,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'busy',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -175,6 +204,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -194,6 +224,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'failed',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -212,6 +243,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -230,6 +262,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -238,6 +271,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [message('assistant-1', 'assistant', 'Done with the task.')],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -247,6 +281,8 @@ describe('VoiceConversationStore', () => {
       expect.objectContaining({
         input: 'Done with the task.',
         model: 'gpt-4o-mini-tts',
+        providerId: 'local-macos-say',
+        format: 'wav',
       }),
     );
   });
@@ -260,6 +296,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: existing,
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -267,6 +304,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: existing,
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -283,6 +321,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -294,6 +333,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages,
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -302,6 +342,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages,
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -320,6 +361,7 @@ describe('VoiceConversationStore', () => {
       instanceId: 'instance-1',
       status: 'idle',
       messages: [],
+      provider: 'claude',
       sendInput: harness.sendInput,
       steerInput: harness.steerInput,
     });
@@ -330,6 +372,10 @@ describe('VoiceConversationStore', () => {
     }
 
     expect(harness.voiceIpc.createTranscriptionSession).toHaveBeenCalledTimes(2);
+    expect(harness.voiceIpc.createTranscriptionSession).toHaveBeenCalledWith({
+      model: 'gpt-4o-transcribe',
+      providerId: 'openai-realtime',
+    });
     expect(harness.store.partialTranscript()).toBe('unsent');
 
     harness.events.next({ kind: 'connection-lost', error: 'network down' });

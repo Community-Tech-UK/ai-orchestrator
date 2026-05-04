@@ -22,7 +22,7 @@ export function createVoiceDomain(
       ipcRenderer.invoke(ch.VOICE_OPENAI_TEMP_KEY_CLEAR, withAuth({})),
 
     createVoiceTranscriptionSession: (
-      payload: { model?: string; language?: string } = {}
+      payload: { model?: string; language?: string; providerId?: string } = {}
     ): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.VOICE_TRANSCRIPTION_SESSION_CREATE, withAuth(payload)),
 
@@ -35,6 +35,7 @@ export function createVoiceDomain(
       model?: string;
       voice?: string;
       format?: 'mp3' | 'wav' | 'opus';
+      providerId?: string;
     }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.VOICE_TTS_SYNTHESIZE, withAuth(payload)),
 

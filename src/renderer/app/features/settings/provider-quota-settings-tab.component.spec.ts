@@ -17,6 +17,7 @@ import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import type {
   ProviderId,
   ProviderQuotaSnapshot,
+  ProviderQuotaWindow,
 } from '../../../../shared/types/provider-quota.types';
 
 class FakeStore {
@@ -38,6 +39,20 @@ class FakeStore {
   setSnapshot(p: ProviderId, snap: ProviderQuotaSnapshot | null): void {
     this.snaps.update((s) => ({ ...s, [p]: snap }));
   }
+}
+
+function makeWindow(overrides: Partial<ProviderQuotaWindow> = {}): ProviderQuotaWindow {
+  return {
+    kind: 'rolling-window',
+    id: 'claude.5h-messages',
+    label: '5-hour messages',
+    unit: 'messages',
+    used: 12,
+    limit: 40,
+    remaining: 28,
+    resetsAt: Date.now() + 90 * 60 * 1000,
+    ...overrides,
+  };
 }
 
 describe('ProviderQuotaSettingsTabComponent', () => {
@@ -81,6 +96,37 @@ describe('ProviderQuotaSettingsTabComponent', () => {
       fixture.detectChanges();
       const text = fixture.nativeElement.textContent ?? '';
       expect(text.toLowerCase()).toContain('max');
+    });
+
+    it('explains when a provider has no numeric limit data', () => {
+      store.setSnapshot('codex', {
+        provider: 'codex',
+        takenAt: Date.now(),
+        source: 'cli-result',
+        ok: true,
+        plan: 'chatgpt',
+        windows: [],
+      });
+      fixture.detectChanges();
+      const text = fixture.nativeElement.textContent ?? '';
+      expect(text).toContain('Numeric limits unavailable');
+      expect(text).toContain('account limits are not available headlessly');
+    });
+
+    it('renders numeric quota windows when a snapshot provides them', () => {
+      store.setSnapshot('claude', {
+        provider: 'claude',
+        takenAt: Date.now(),
+        source: 'cli-result',
+        ok: true,
+        plan: 'max',
+        windows: [makeWindow()],
+      });
+      fixture.detectChanges();
+      const text = fixture.nativeElement.textContent ?? '';
+      expect(text).toContain('5-hour messages');
+      expect(text).toContain('12/40 messages');
+      expect(text).toContain('resets in');
     });
 
     it('shows error message when snapshot is not ok', () => {

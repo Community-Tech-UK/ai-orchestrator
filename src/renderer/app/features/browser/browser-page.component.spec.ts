@@ -217,6 +217,28 @@ describe('BrowserPageComponent', () => {
     expect(button.disabled).toBe(true);
   });
 
+  it('keeps navigation disabled for read-only extension targets', () => {
+    fixture.componentInstance.targets.set([
+      {
+        id: 'existing-tab:7:42:target',
+        profileId: 'existing-tab:7:42',
+        mode: 'existing-tab',
+        title: 'Google Play Console',
+        url: 'https://play.google.com/console',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1,
+      },
+    ]);
+    fixture.componentInstance.selectedProfileId.set('existing-tab:7:42');
+    fixture.componentInstance.selectedTargetId.set('existing-tab:7:42:target');
+    fixture.componentInstance.navigateUrl.set('https://play.google.com/console');
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('[data-testid="navigate-button"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
   it('renders screenshot base64 with a data URL prefix', async () => {
     await fixture.componentInstance.captureScreenshot();
     fixture.detectChanges();

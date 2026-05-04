@@ -26,6 +26,19 @@ describe('SessionCompactionPolicy', () => {
     expect(decision.reason).toBe('background_threshold');
   });
 
+  it('does not recompact a tiny overflow above the preserved tail', () => {
+    const policy = new SessionCompactionPolicy();
+    const decision = policy.evaluate({
+      messageCount: 55,
+      maxConversationEntries: 1000,
+      contextUsagePercent: 85,
+    });
+
+    expect(decision.shouldCompact).toBe(false);
+    expect(decision.reason).toBe('none');
+    expect(decision.preserveRecentMessages).toBe(50);
+  });
+
   it('respects cooldown for background compaction', () => {
     const policy = new SessionCompactionPolicy();
     const now = Date.now();

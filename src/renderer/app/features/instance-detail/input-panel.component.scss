@@ -672,6 +672,7 @@ app-copilot-model-selector {
 
 .voice-status-badge {
   flex-shrink: 0;
+  max-width: 180px;
   padding: 3px 6px;
   border-radius: 999px;
   background: rgba(245, 158, 11, 0.12);
@@ -679,7 +680,10 @@ app-copilot-model-selector {
   color: rgba(253, 230, 138, 0.9);
   font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .voice-inline-action,

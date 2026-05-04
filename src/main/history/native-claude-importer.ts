@@ -14,6 +14,15 @@ export interface ImportedTranscript {
   lastUserMessage: string;
 }
 
+export type ClaudeJsonlTranscriptSkipReason = 'empty' | 'non-main-entrypoint';
+
+export interface ClaudeJsonlTranscriptParseResult {
+  transcript: ImportedTranscript | null;
+  sessionId: string;
+  entrypoints: string[];
+  skipReason?: ClaudeJsonlTranscriptSkipReason;
+}
+
 interface ClaudeJsonlContentBlock {
   type?: string;
   text?: string;
@@ -27,6 +36,7 @@ interface ClaudeJsonlLine {
   timestamp?: string;
   cwd?: string;
   sessionId?: string;
+  entrypoint?: string;
   isSidechain?: boolean;
   message?: {
     role?: string;
@@ -92,11 +102,18 @@ function extractTextFromContentBlocks(content: unknown): string {
 }
 
 export async function parseClaudeJsonlTranscript(filePath: string): Promise<ImportedTranscript | null> {
+  return (await parseClaudeJsonlTranscriptDetailed(filePath)).transcript;
+}
+
+export async function parseClaudeJsonlTranscriptDetailed(
+  filePath: string
+): Promise<ClaudeJsonlTranscriptParseResult> {
   let sessionId = '';
   let workingDirectory = '';
   let createdAt = 0;
   let endedAt = 0;
   const messages: OutputMessage[] = [];
+  const entrypoints = new Set<string>();
   let firstUserMessage = '';
   let lastUserMessage = '';
 
@@ -120,6 +137,7 @@ export async function parseClaudeJsonlTranscript(filePath: string): Promise<Impo
 
       if (parsed.sessionId && !sessionId) sessionId = parsed.sessionId;
       if (parsed.cwd && !workingDirectory) workingDirectory = parsed.cwd;
+      if (parsed.entrypoint?.trim()) entrypoints.add(parsed.entrypoint.trim());
 
       if (Number.isFinite(ts)) {
         if (createdAt === 0 || ts < createdAt) createdAt = ts;
@@ -148,17 +166,35 @@ export async function parseClaudeJsonlTranscript(filePath: string): Promise<Impo
     stream.close();
   }
 
+  const sortedEntryPoints = Array.from(entrypoints).sort();
+  if (entrypoints.size > 0 && !entrypoints.has('cli')) {
+    return {
+      transcript: null,
+      sessionId,
+      entrypoints: sortedEntryPoints,
+      skipReason: 'non-main-entrypoint',
+    };
+  }
   if (!sessionId || messages.length === 0 || !firstUserMessage) {
-    return null;
+    return {
+      transcript: null,
+      sessionId,
+      entrypoints: sortedEntryPoints,
+      skipReason: 'empty',
+    };
   }
 
   return {
+    transcript: {
+      sessionId,
+      workingDirectory,
+      createdAt: createdAt || Date.now(),
+      endedAt: endedAt || Date.now(),
+      messages,
+      firstUserMessage,
+      lastUserMessage,
+    },
     sessionId,
-    workingDirectory,
-    createdAt: createdAt || Date.now(),
-    endedAt: endedAt || Date.now(),
-    messages,
-    firstUserMessage,
-    lastUserMessage,
+    entrypoints: sortedEntryPoints,
   };
 }

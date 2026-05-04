@@ -5,7 +5,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   BrowserApprovalStatusRequestSchema,
+  BrowserAttachExistingTabRequestSchema,
   BrowserClickRequestSchema,
+  BrowserCreateProfileRequestSchema,
   BrowserFillFormRequestSchema,
   BrowserListAuditLogRequestSchema,
   BrowserListGrantsRequestSchema,
@@ -27,6 +29,7 @@ import {
   BrowserGatewayService,
   getBrowserGatewayService,
 } from './browser-gateway-service';
+import { z } from 'zod';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -41,10 +44,17 @@ interface BrowserGatewayRpcParams {
   payload: Record<string, unknown>;
 }
 
+interface BrowserGatewayExtensionRpcParams {
+  extensionToken: string;
+  extensionOrigin?: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BrowserGatewayRpcServerOptions {
   service?: Partial<BrowserGatewayService>;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
+  extensionToken?: string;
   registerCleanup?: (cleanup: () => void | Promise<void>) => void | (() => void);
   maxPayloadBytes?: number;
   rateLimit?: {
@@ -56,11 +66,26 @@ export interface BrowserGatewayRpcServerOptions {
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
+const browserExtensionCommandTargetSchema = z
+  .object({
+    profileId: z.string().min(1).max(200),
+    targetId: z.string().min(1).max(200),
+    tabId: z.number().int().nonnegative(),
+    windowId: z.number().int(),
+  })
+  .strict();
+const browserExtensionCompleteCommandSchema = browserExtensionCommandTargetSchema.extend({
+  commandId: z.string().min(1).max(200),
+  status: z.enum(['succeeded', 'failed']),
+  error: z.string().min(1).max(1000).optional(),
+  tab: BrowserAttachExistingTabRequestSchema.optional(),
+}).strict();
 
 export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
+  private readonly extensionToken: string;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; windowMs: number };
   private readonly buckets = new Map<string, number[]>();
@@ -72,6 +97,7 @@ export class BrowserGatewayRpcServer {
     this.service = options.service ?? getBrowserGatewayService();
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
+    this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -116,7 +142,21 @@ export class BrowserGatewayRpcServer {
     return this.socketPath;
   }
 
+  getExtensionToken(): string {
+    return this.extensionToken;
+  }
+
   async handleRequest(request: BrowserGatewayRpcRequest): Promise<unknown> {
+    if (request.method === 'browser.extension_attach_tab') {
+      return this.handleExtensionAttachTab(request);
+    }
+    if (request.method === 'browser.extension_poll_commands') {
+      return this.handleExtensionPollCommands(request);
+    }
+    if (request.method === 'browser.extension_complete_command') {
+      return this.handleExtensionCompleteCommand(request);
+    }
+
     const params = this.parseParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
       throw new Error('unknown browser gateway instance');
@@ -133,6 +173,8 @@ export class BrowserGatewayRpcServer {
     switch (request.method) {
       case 'browser.list_profiles':
         return this.requireMethod('listProfiles')(withContext);
+      case 'browser.create_profile':
+        return this.requireMethod('createProfile')(withContext);
       case 'browser.list_targets':
         return this.requireMethod('listTargets')(withContext);
       case 'browser.open_profile':
@@ -141,6 +183,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('closeProfile')(withContext);
       case 'browser.select_target':
         return this.requireMethod('selectTarget')(withContext);
+      case 'browser.refresh_existing_tab':
+        return this.requireMethod('refreshExistingTab')(withContext);
       case 'browser.navigate':
         return this.requireMethod('navigate')(withContext);
       case 'browser.click':
@@ -178,6 +222,42 @@ export class BrowserGatewayRpcServer {
       default:
         throw new Error(`Unknown Browser Gateway RPC method: ${request.method}`);
     }
+  }
+
+  private handleExtensionAttachTab(request: BrowserGatewayRpcRequest): unknown {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    const result = BrowserAttachExistingTabRequestSchema.safeParse(params.payload);
+    if (!result.success) {
+      throw new Error('Invalid browser gateway RPC payload');
+    }
+    return this.requireMethod('attachExistingTab')({
+      ...result.data,
+      provider: 'orchestrator',
+      ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
+    });
+  }
+
+  private handleExtensionPollCommands(request: BrowserGatewayRpcRequest): unknown {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    const result = browserExtensionCommandTargetSchema.safeParse(params.payload);
+    if (!result.success) {
+      throw new Error('Invalid browser gateway RPC payload');
+    }
+    return this.requireMethod('pollExistingTabCommand')(result.data);
+  }
+
+  private handleExtensionCompleteCommand(request: BrowserGatewayRpcRequest): unknown {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    const result = browserExtensionCompleteCommandSchema.safeParse(params.payload);
+    if (!result.success) {
+      throw new Error('Invalid browser gateway RPC payload');
+    }
+    const data = result.data;
+    return this.requireMethod('completeExistingTabCommand')(
+      data.tab && params.extensionOrigin
+        ? { ...data, tab: { ...data.tab, extensionOrigin: params.extensionOrigin } }
+        : data,
+    );
   }
 
   private handleSocket(socket: net.Socket): void {
@@ -257,6 +337,36 @@ export class BrowserGatewayRpcServer {
       : parsed;
   }
 
+  private parseExtensionParams(params: unknown): BrowserGatewayExtensionRpcParams {
+    if (!params || typeof params !== 'object') {
+      throw new Error('Browser Gateway extension RPC params are required');
+    }
+    const value = params as Partial<BrowserGatewayExtensionRpcParams>;
+    if (typeof value.extensionToken !== 'string' || !value.extensionToken) {
+      throw new Error('Browser Gateway extension token is required');
+    }
+    if (!value.payload || typeof value.payload !== 'object' || Array.isArray(value.payload)) {
+      throw new Error('Browser Gateway RPC payload is required');
+    }
+    return {
+      extensionToken: value.extensionToken,
+      ...(typeof value.extensionOrigin === 'string' && value.extensionOrigin
+        ? { extensionOrigin: value.extensionOrigin }
+        : {}),
+      payload: value.payload,
+    };
+  }
+
+  private parseAuthorizedExtensionParams(params: unknown): BrowserGatewayExtensionRpcParams {
+    const parsed = this.parseExtensionParams(params);
+    if (parsed.extensionToken !== this.extensionToken) {
+      throw new Error('invalid browser extension host token');
+    }
+    this.enforceRateLimit(`extension:${parsed.extensionOrigin ?? 'unknown'}`);
+    this.enforcePayloadSize(parsed.payload);
+    return parsed;
+  }
+
   private enforcePayloadSize(payload: Record<string, unknown>): void {
     if (Buffer.byteLength(JSON.stringify(payload), 'utf-8') > this.maxPayloadBytes) {
       throw new Error('Browser Gateway RPC payload too large');
@@ -299,6 +409,8 @@ export class BrowserGatewayRpcServer {
   private validatePayload(method: string, payload: Record<string, unknown>): Record<string, unknown> {
     const schema = (() => {
       switch (method) {
+        case 'browser.create_profile':
+          return BrowserCreateProfileRequestSchema;
         case 'browser.navigate':
           return BrowserNavigateRequestSchema;
         case 'browser.click':
@@ -327,6 +439,7 @@ export class BrowserGatewayRpcServer {
         case 'browser.list_targets':
           return BrowserListTargetsRequestSchema;
         case 'browser.select_target':
+        case 'browser.refresh_existing_tab':
         case 'browser.snapshot':
         case 'browser.console_messages':
         case 'browser.network_requests':

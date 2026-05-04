@@ -86,6 +86,33 @@ describe('native-claude-importer', () => {
       expect(result).toBeNull();
     });
 
+    it('returns null for transcripts from non-interactive Claude entrypoints', async () => {
+      const filePath = path.join(tmpDir, 'sdk-child.jsonl');
+      writeJsonl(filePath, [
+        {
+          type: 'user',
+          uuid: 'u1',
+          entrypoint: 'sdk-cli',
+          timestamp: '2026-04-10T09:00:00.000Z',
+          cwd: '/p',
+          sessionId: 'sdk-child',
+          message: { role: 'user', content: 'child helper prompt' },
+        },
+        {
+          type: 'assistant',
+          uuid: 'a1',
+          entrypoint: 'sdk-cli',
+          timestamp: '2026-04-10T09:00:05.000Z',
+          cwd: '/p',
+          sessionId: 'sdk-child',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'helper reply' }] },
+        },
+      ]);
+
+      const result = await parseClaudeJsonlTranscript(filePath);
+      expect(result).toBeNull();
+    });
+
     it('skips sidechain messages', async () => {
       const filePath = path.join(tmpDir, 'sidechain.jsonl');
       writeJsonl(filePath, [

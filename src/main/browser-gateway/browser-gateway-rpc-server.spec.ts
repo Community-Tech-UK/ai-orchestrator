@@ -135,6 +135,253 @@ describe('BrowserGatewayRpcServer', () => {
     });
   });
 
+  it('validates and forwards managed profile creation calls', async () => {
+    const createProfile = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = new BrowserGatewayRpcServer({
+      service: { createProfile },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.create_profile',
+        params: {
+          instanceId: 'instance-1',
+          provider: 'claude',
+          payload: {
+            label: 'Google Play',
+            mode: 'session',
+            browser: 'chrome',
+            allowedOrigins: [
+              {
+                scheme: 'https',
+                hostPattern: 'play.google.com',
+                includeSubdomains: true,
+              },
+            ],
+            defaultUrl: 'https://play.google.com/console',
+          },
+        },
+      }),
+    ).resolves.toEqual({ decision: 'allowed' });
+    expect(createProfile).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      label: 'Google Play',
+      mode: 'session',
+      browser: 'chrome',
+      allowedOrigins: [
+        {
+          scheme: 'https',
+          hostPattern: 'play.google.com',
+          includeSubdomains: true,
+        },
+      ],
+      defaultUrl: 'https://play.google.com/console',
+    });
+  });
+
+  it('validates native-host token and forwards existing-tab attachment calls without a provider instance id', async () => {
+    const attachExistingTab = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = new BrowserGatewayRpcServer({
+      service: { attachExistingTab },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.extension_attach_tab',
+        params: {
+          extensionToken: 'native-token',
+          extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+          payload: {
+            tabId: 42,
+            windowId: 7,
+            url: 'https://play.google.com/console',
+            title: 'Google Play Console',
+            text: 'Release dashboard',
+            screenshotBase64: 'cG5n',
+            capturedAt: 1000,
+          },
+        },
+      }),
+    ).resolves.toEqual({ decision: 'allowed' });
+    expect(attachExistingTab).toHaveBeenCalledWith({
+      provider: 'orchestrator',
+      extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Google Play Console',
+      text: 'Release dashboard',
+      screenshotBase64: 'cG5n',
+      capturedAt: 1000,
+    });
+  });
+
+  it('validates and forwards provider refresh requests for existing Chrome tabs', async () => {
+    const refreshExistingTab = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = new BrowserGatewayRpcServer({
+      service: { refreshExistingTab },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.refresh_existing_tab',
+        params: {
+          instanceId: 'instance-1',
+          provider: 'claude',
+          payload: {
+            profileId: 'existing-tab:7:42',
+            targetId: 'existing-tab:7:42:target',
+          },
+        },
+      }),
+    ).resolves.toEqual({ decision: 'allowed' });
+    expect(refreshExistingTab).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+    });
+  });
+
+  it('validates native-host token and forwards extension command polling/completion without a provider instance id', async () => {
+    const pollExistingTabCommand = vi.fn().mockReturnValue({
+      id: 'command-1',
+      kind: 'refresh_tab',
+      status: 'sent',
+    });
+    const completeExistingTabCommand = vi.fn().mockResolvedValue({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    const server = new BrowserGatewayRpcServer({
+      service: { pollExistingTabCommand, completeExistingTabCommand },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.extension_poll_commands',
+        params: {
+          extensionToken: 'native-token',
+          extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+          payload: {
+            profileId: 'existing-tab:7:42',
+            targetId: 'existing-tab:7:42:target',
+            tabId: 42,
+            windowId: 7,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      id: 'command-1',
+      kind: 'refresh_tab',
+      status: 'sent',
+    });
+    expect(pollExistingTabCommand).toHaveBeenCalledWith({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'browser.extension_complete_command',
+        params: {
+          extensionToken: 'native-token',
+          extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+          payload: {
+            commandId: 'command-1',
+            profileId: 'existing-tab:7:42',
+            targetId: 'existing-tab:7:42:target',
+            tabId: 42,
+            windowId: 7,
+            status: 'succeeded',
+            tab: {
+              tabId: 42,
+              windowId: 7,
+              url: 'https://play.google.com/console',
+              title: 'Google Play Console',
+              text: 'Updated release dashboard',
+              screenshotBase64: 'cG5n',
+              capturedAt: 1000,
+            },
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(completeExistingTabCommand).toHaveBeenCalledWith({
+      commandId: 'command-1',
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      status: 'succeeded',
+      tab: {
+        tabId: 42,
+        windowId: 7,
+        url: 'https://play.google.com/console',
+        title: 'Google Play Console',
+        text: 'Updated release dashboard',
+        screenshotBase64: 'cG5n',
+        capturedAt: 1000,
+        extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+      },
+    });
+  });
+
+  it('rejects extension RPC calls with an invalid native-host token', async () => {
+    const attachExistingTab = vi.fn();
+    const server = new BrowserGatewayRpcServer({
+      service: { attachExistingTab },
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.extension_attach_tab',
+        params: {
+          extensionToken: 'wrong-token',
+          payload: {
+            tabId: 42,
+            windowId: 7,
+            url: 'https://play.google.com/console',
+          },
+        },
+      }),
+    ).rejects.toThrow(/invalid browser extension host token/);
+    expect(attachExistingTab).not.toHaveBeenCalled();
+  });
+
   it('validates and forwards mutating browser gateway calls', async () => {
     const click = vi.fn().mockResolvedValue({ decision: 'requires_user', requestId: 'request-1' });
     const server = new BrowserGatewayRpcServer({

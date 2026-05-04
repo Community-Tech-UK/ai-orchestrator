@@ -35,9 +35,11 @@ export class SessionCompactionPolicy {
     const lastCompactedAt = inputs.lastCompactedAt ?? 0;
     const preserveRecentMessages = Math.min(inputs.maxConversationEntries, 50);
     const compactableMessages = Math.max(0, inputs.messageCount - preserveRecentMessages);
+    const minimumCompactableMessages = Math.max(1, preserveRecentMessages);
+    const hasUsefulCompactionBatch = compactableMessages >= minimumCompactableMessages;
 
     if (
-      compactableMessages > 0
+      hasUsefulCompactionBatch
       && inputs.contextUsagePercent >= LIMITS.COMPACTION_BACKGROUND_THRESHOLD
       && now - lastCompactedAt >= LIMITS.COMPACTION_COOLDOWN_MS
     ) {
@@ -49,7 +51,7 @@ export class SessionCompactionPolicy {
     }
 
     if (
-      compactableMessages > 0
+      hasUsefulCompactionBatch
       && inputs.contextUsagePercent >= LIMITS.COMPACTION_BACKGROUND_THRESHOLD
     ) {
       return {

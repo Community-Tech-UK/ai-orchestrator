@@ -208,6 +208,23 @@ export interface BrowserCreateProfileRequest {
   defaultUrl?: string;
 }
 
+export interface BrowserAttachExistingTabRequest {
+  tabId: number;
+  windowId: number;
+  url: string;
+  title?: string;
+  text?: string;
+  screenshotBase64?: string;
+  capturedAt?: number;
+  allowedOrigins?: BrowserAllowedOrigin[];
+  extensionOrigin?: string;
+}
+
+export interface BrowserDetachExistingTabRequest {
+  profileId: string;
+  targetId: string;
+}
+
 export interface BrowserUpdateProfileRequest {
   label?: string;
   allowedOrigins?: BrowserAllowedOrigin[];

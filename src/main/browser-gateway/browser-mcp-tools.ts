@@ -6,10 +6,12 @@ const UNTRUSTED_WARNING =
 
 const TOOL_NAMES = [
   'browser.list_profiles',
+  'browser.create_profile',
   'browser.open_profile',
   'browser.close_profile',
   'browser.list_targets',
   'browser.select_target',
+  'browser.refresh_existing_tab',
   'browser.navigate',
   'browser.click',
   'browser.type',
@@ -74,16 +76,18 @@ const targetSchema = objectSchema({
   targetId: targetIdProp,
 }, ['profileId', 'targetId']);
 
+const allowedOriginSchema = objectSchema({
+  scheme: { type: 'string', enum: ['http', 'https'] },
+  hostPattern: stringProp,
+  port: numberProp,
+  includeSubdomains: booleanProp,
+}, ['scheme', 'hostPattern', 'includeSubdomains']);
+
 const grantProposalSchema = objectSchema({
   mode: { type: 'string', enum: ['per_action', 'session', 'autonomous'] },
   allowedOrigins: {
     type: 'array',
-    items: objectSchema({
-      scheme: { type: 'string', enum: ['http', 'https'] },
-      hostPattern: stringProp,
-      port: numberProp,
-      includeSubdomains: booleanProp,
-    }, ['scheme', 'hostPattern', 'includeSubdomains']),
+    items: allowedOriginSchema,
   },
   allowedActionClasses: {
     type: 'array',
@@ -117,10 +121,28 @@ const grantProposalSchema = objectSchema({
 
 const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.list_profiles': objectSchema({}),
+  'browser.create_profile': objectSchema({
+    label: {
+      ...stringProp,
+      description: 'Human-readable label for the managed Browser Gateway profile.',
+    },
+    mode: { type: 'string', enum: ['session', 'isolated'] },
+    browser: { type: 'string', enum: ['chrome'] },
+    allowedOrigins: {
+      type: 'array',
+      items: allowedOriginSchema,
+      description: 'Origins this managed profile may navigate/read through Browser Gateway.',
+    },
+    defaultUrl: {
+      ...stringProp,
+      description: 'Optional URL to open when the profile is launched.',
+    },
+  }, ['label', 'mode', 'browser', 'allowedOrigins']),
   'browser.open_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
   'browser.close_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
   'browser.list_targets': objectSchema({ profileId: profileIdProp }),
   'browser.select_target': targetSchema,
+  'browser.refresh_existing_tab': targetSchema,
   'browser.navigate': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,

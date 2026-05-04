@@ -52,18 +52,32 @@ function makeTarget(overrides: Partial<BrowserTarget> = {}): BrowserTarget {
 }
 
 function makeService(overrides: {
-  profile?: BrowserProfile;
+  profile?: BrowserProfile | null;
+  profiles?: BrowserProfile[];
   target?: BrowserTarget;
   navigate?: () => Promise<void>;
   screenshot?: () => Promise<string>;
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
   refreshTarget?: () => Promise<BrowserTarget>;
   grants?: BrowserPermissionGrant[];
+  existingTab?: {
+    profileId: string;
+    targetId: string;
+    title: string;
+    url: string;
+    origin: string;
+    text?: string;
+    screenshotBase64?: string;
+    allowedOrigins: BrowserProfile['allowedOrigins'];
+  };
 } = {}) {
   const audits: BrowserAuditEntry[] = [];
   const approvalRequests: BrowserApprovalRequest[] = [];
   const grants = [...(overrides.grants ?? [])];
-  const profile = overrides.profile ?? makeProfile();
+  const profile = overrides.profile === null
+    ? null
+    : (overrides.profile ?? makeProfile());
+  const profiles = overrides.profiles ?? (profile ? [profile] : []);
   const target = overrides.target ?? makeTarget();
   const driver = {
     openProfile: vi.fn(async () => [target]),
@@ -152,23 +166,69 @@ function makeService(overrides: {
     listRequests: vi.fn(() => approvalRequests),
     resolveRequest: vi.fn(),
   };
+  const profileRegistry = {
+    createProfile: vi.fn((input) => ({ ...(profile ?? makeProfile()), ...input })),
+    resolveProfileDir: vi.fn((profileId) => `/tmp/browser-profiles/${profileId}`),
+  };
+  const extensionTabStore = {
+    attachTab: vi.fn((input) => ({
+      profileId: `existing-tab:${input.windowId}:${input.tabId}`,
+      targetId: `existing-tab:${input.windowId}:${input.tabId}:target`,
+      title: input.title,
+      url: input.url,
+      origin: new URL(input.url).origin,
+      allowedOrigins: input.allowedOrigins ?? [
+        {
+          scheme: new URL(input.url).protocol === 'http:' ? 'http' : 'https',
+          hostPattern: new URL(input.url).hostname,
+          includeSubdomains: false,
+        },
+      ],
+      text: input.text,
+      screenshotBase64: input.screenshotBase64,
+      attachedAt: Date.now(),
+      updatedAt: Date.now(),
+    })),
+    getTab: vi.fn((profileId: string, targetId: string) =>
+      overrides.existingTab &&
+        overrides.existingTab.profileId === profileId &&
+        overrides.existingTab.targetId === targetId
+        ? overrides.existingTab
+        : null,
+    ),
+    queueRefresh: vi.fn((profileId: string, targetId: string) =>
+      overrides.existingTab &&
+        overrides.existingTab.profileId === profileId &&
+        overrides.existingTab.targetId === targetId
+        ? {
+          id: 'command-1',
+          kind: 'refresh_tab',
+          status: 'queued',
+          profileId,
+          targetId,
+          tabId: 42,
+          windowId: 7,
+          createdAt: 100,
+          updatedAt: 100,
+        }
+        : null,
+    ),
+  };
   const service = new BrowserGatewayService({
     profileStore: {
-      listProfiles: () => [profile],
-      getProfile: (profileId) => (profileId === profile.id ? profile : null),
-      updateProfile: vi.fn((_profileId, patch) => ({ ...profile, ...patch })),
+      listProfiles: () => profiles,
+      getProfile: (profileId) => (profile && profileId === profile.id ? profile : null),
+      updateProfile: vi.fn((_profileId, patch) => ({ ...(profile ?? makeProfile()), ...patch })),
       deleteProfile: vi.fn(),
     },
-    profileRegistry: {
-      createProfile: vi.fn((input) => ({ ...profile, ...input })),
-      resolveProfileDir: vi.fn((profileId) => `/tmp/browser-profiles/${profileId}`),
-    },
+    profileRegistry,
     targetRegistry: {
       listTargets: (profileId?: string) =>
         !profileId || profileId === target.profileId ? [target] : [],
       selectTarget: vi.fn((targetId: string) => ({ ...target, id: targetId, status: 'selected' })),
     },
     driver,
+    extensionTabStore,
     auditStore,
     grantStore,
     approvalStore,
@@ -182,7 +242,18 @@ function makeService(overrides: {
     },
   });
 
-  return { service, audits, driver, auditStore, grantStore, approvalStore, approvalRequests, grants };
+  return {
+    service,
+    audits,
+    driver,
+    auditStore,
+    grantStore,
+    approvalStore,
+    approvalRequests,
+    grants,
+    profileRegistry,
+    extensionTabStore,
+  };
 }
 
 function makeGrant(overrides: Partial<BrowserPermissionGrant> = {}): BrowserPermissionGrant {
@@ -213,6 +284,221 @@ function makeGrant(overrides: Partial<BrowserPermissionGrant> = {}): BrowserPerm
 }
 
 describe('BrowserGatewayService', () => {
+  it('returns an actionable bootstrap reason when no managed profiles exist', async () => {
+    const { service } = makeService({ profile: null, profiles: [] });
+
+    await expect(service.listProfiles({
+      instanceId: 'instance-1',
+      provider: 'claude',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      reason: 'no_profiles_configured_call_browser_create_profile_then_browser_open_profile',
+      data: [],
+    });
+  });
+
+  it('allows providers to create managed profiles without exposing profile paths', async () => {
+    const { service, audits, profileRegistry } = makeService();
+
+    const result = await service.createProfile({
+      label: 'Google Play',
+      mode: 'session',
+      browser: 'chrome',
+      allowedOrigins: [
+        {
+          scheme: 'https',
+          hostPattern: 'play.google.com',
+          includeSubdomains: true,
+        },
+      ],
+      defaultUrl: 'https://play.google.com/console',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+
+    expect(profileRegistry.createProfile).toHaveBeenCalledWith({
+      label: 'Google Play',
+      mode: 'session',
+      browser: 'chrome',
+      allowedOrigins: [
+        {
+          scheme: 'https',
+          hostPattern: 'play.google.com',
+          includeSubdomains: true,
+        },
+      ],
+      defaultUrl: 'https://play.google.com/console',
+    });
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        label: 'Google Play',
+        allowedOrigins: [
+          {
+            scheme: 'https',
+            hostPattern: 'play.google.com',
+            includeSubdomains: true,
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('debugEndpoint');
+    expect(audits[0]).toMatchObject({
+      provider: 'claude',
+      action: 'create_profile',
+      toolName: 'browser.create_profile',
+    });
+  });
+
+  it('attaches a selected existing Chrome tab and audits it as an extension target', async () => {
+    const { service, extensionTabStore } = makeService();
+
+    const result = await service.attachExistingTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Google Play Console',
+      text: 'Release dashboard',
+      screenshotBase64: 'cG5n',
+      capturedAt: 1000,
+      extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+    });
+
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Google Play Console',
+      text: 'Release dashboard',
+      screenshotBase64: 'cG5n',
+      capturedAt: 1000,
+      extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+    });
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        id: 'existing-tab:7:42:target',
+        profileId: 'existing-tab:7:42',
+        mode: 'existing-tab',
+        driver: 'extension',
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('driverTargetId');
+  });
+
+  it('reads cached snapshots and screenshots from selected existing Chrome tabs', async () => {
+    const { service, driver } = makeService({
+      profile: null,
+      profiles: [],
+      target: makeTarget({
+        id: 'existing-tab:7:42:target',
+        profileId: 'existing-tab:7:42',
+        mode: 'existing-tab',
+        driver: 'extension',
+        url: 'https://play.google.com/console',
+        origin: 'https://play.google.com',
+      }),
+      existingTab: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        title: 'Google Play Console',
+        url: 'https://play.google.com/console',
+        origin: 'https://play.google.com',
+        text: 'token=abc123 release dashboard',
+        screenshotBase64: 'cG5n',
+        allowedOrigins: [
+          {
+            scheme: 'https',
+            hostPattern: 'play.google.com',
+            includeSubdomains: false,
+          },
+        ],
+      },
+    });
+
+    await expect(service.snapshot({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        title: 'Google Play Console',
+        url: 'https://play.google.com/console',
+        text: 'token=[REDACTED] release dashboard',
+      },
+    });
+    await expect(service.screenshot({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: 'cG5n',
+    });
+    expect(driver.snapshot).not.toHaveBeenCalled();
+    expect(driver.screenshot).not.toHaveBeenCalled();
+  });
+
+  it('queues refresh commands for selected existing Chrome tabs through the audited gateway', async () => {
+    const { service, extensionTabStore, audits } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        title: 'Google Play Console',
+        url: 'https://play.google.com/console',
+        origin: 'https://play.google.com',
+        text: 'Initial dashboard',
+        screenshotBase64: 'cG5n',
+        allowedOrigins: [
+          {
+            scheme: 'https',
+            hostPattern: 'play.google.com',
+            includeSubdomains: false,
+          },
+        ],
+      },
+    });
+
+    await expect(service.refreshExistingTab({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    })).resolves.toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        commandId: 'command-1',
+        status: 'queued',
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+      },
+    });
+    expect(extensionTabStore.queueRefresh).toHaveBeenCalledWith(
+      'existing-tab:7:42',
+      'existing-tab:7:42:target',
+    );
+    expect(audits[0]).toMatchObject({
+      provider: 'claude',
+      action: 'refresh_existing_tab',
+      toolName: 'browser.refresh_existing_tab',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      origin: 'https://play.google.com',
+      url: 'https://play.google.com/console',
+    });
+  });
+
   it('allows navigation within policy, calls the driver, and audits success', async () => {
     const { service, audits, driver } = makeService();
 

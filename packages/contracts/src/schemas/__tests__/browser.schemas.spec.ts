@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BrowserAllowedOriginSchema,
   BrowserApprovalRequestSchema,
+  BrowserAttachExistingTabRequestSchema,
   BrowserCreateProfileRequestSchema,
   BrowserGatewayResultSchema,
   BrowserPermissionGrantSchema,
@@ -42,6 +43,31 @@ describe('browser.schemas', () => {
       browser: 'edge',
       allowedOrigins: [],
       extra: true,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts selected existing-tab attachments from the browser extension', () => {
+    const result = BrowserAttachExistingTabRequestSchema.safeParse({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console/u/0/developers',
+      title: 'Google Play Console',
+      text: 'Production release dashboard',
+      screenshotBase64: Buffer.from('png').toString('base64'),
+      capturedAt: 1_700_000_000_000,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects non-web existing-tab attachments', () => {
+    const result = BrowserAttachExistingTabRequestSchema.safeParse({
+      tabId: 42,
+      windowId: 7,
+      url: 'chrome://settings',
+      title: 'Settings',
     });
 
     expect(result.success).toBe(false);

@@ -5,6 +5,7 @@ import type {
   BrowserApprovalRequestLookup,
   BrowserApprovalStatusRequest,
   BrowserApproveRequestPayload,
+  BrowserAttachExistingTabRequest,
   BrowserAuditEntry,
   BrowserClickRequest,
   BrowserCreateGrantRequest,
@@ -79,6 +80,14 @@ import {
 } from './browser-action-classifier';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { validateBrowserUploadPath } from './browser-upload-policy';
+import {
+  BrowserExtensionTabStore,
+  type BrowserExistingTabAttachment,
+  type BrowserExtensionCommand,
+  type BrowserExtensionCompleteCommandRequest,
+  type BrowserExtensionPollCommandRequest,
+  getBrowserExtensionTabStore,
+} from './browser-extension-tab-store';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -111,6 +120,19 @@ export interface BrowserGatewayAuditLogRequest
 export interface BrowserGatewayCreateProfileRequest
   extends BrowserGatewayContext,
     BrowserCreateProfileRequest {}
+
+export interface BrowserGatewayAttachExistingTabRequest
+  extends BrowserGatewayContext,
+    BrowserAttachExistingTabRequest {}
+
+export interface BrowserGatewayExistingTabRefresh {
+  commandId: string;
+  status: BrowserExtensionCommand['status'];
+  profileId: string;
+  targetId: string;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface BrowserGatewayUpdateProfileRequest
   extends BrowserGatewayContext,
@@ -151,6 +173,10 @@ export interface BrowserGatewayServiceOptions {
     | 'select'
     | 'uploadFile'
   >;
+  extensionTabStore?: Pick<
+    BrowserExtensionTabStore,
+    'attachTab' | 'getTab' | 'detachTab' | 'queueRefresh' | 'pollCommand' | 'completeCommand'
+  >;
   auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -184,6 +210,10 @@ export class BrowserGatewayService {
     | 'select'
     | 'uploadFile'
   >;
+  private readonly extensionTabStore: Pick<
+    BrowserExtensionTabStore,
+    'attachTab' | 'getTab' | 'detachTab' | 'queueRefresh' | 'pollCommand' | 'completeCommand'
+  >;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -194,6 +224,7 @@ export class BrowserGatewayService {
     this.profileRegistry = options.profileRegistry ?? getBrowserProfileRegistry();
     this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
     this.driver = options.driver ?? getPuppeteerBrowserDriver();
+    this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
     this.auditStore = options.auditStore ?? getBrowserAuditStore();
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
@@ -217,6 +248,9 @@ export class BrowserGatewayService {
     const profiles = this.profileStore.listProfiles().map((profile) =>
       toAgentSafeProfile(profile),
     );
+    const noProfilesReason = profiles.length === 0
+      ? 'no_profiles_configured_call_browser_create_profile_then_browser_open_profile'
+      : undefined;
     return this.result({
       context,
       action: 'list_profiles',
@@ -224,7 +258,10 @@ export class BrowserGatewayService {
       actionClass: 'read',
       decision: 'allowed',
       outcome: 'succeeded',
-      summary: `Listed ${profiles.length} browser profiles`,
+      reason: noProfilesReason,
+      summary: profiles.length === 0
+        ? 'No managed Browser Gateway profiles are configured; agents can create one with browser.create_profile, or call browser.list_targets to check for user-selected existing Chrome tabs.'
+        : `Listed ${profiles.length} browser profiles`,
       data: profiles,
     });
   }
@@ -244,6 +281,164 @@ export class BrowserGatewayService {
       outcome: 'succeeded',
       summary: `Created browser profile ${profile.label}`,
       data: profile,
+    });
+  }
+
+  async attachExistingTab(
+    request: BrowserGatewayAttachExistingTabRequest,
+  ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
+    const { instanceId, provider, ...input } = request;
+    try {
+      const attachment = this.extensionTabStore.attachTab(input);
+      return this.result({
+        context: { instanceId, provider: provider ?? 'orchestrator' },
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'attach_existing_tab',
+        toolName: 'browser.extension_attach_tab',
+        actionClass: 'read',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: `Attached existing Chrome tab ${attachment.title ?? attachment.url}`,
+        origin: attachment.origin,
+        url: attachment.url,
+        data: this.safeTargetFromExistingTab(attachment),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.result({
+        context: { instanceId, provider: provider ?? 'orchestrator' },
+        action: 'attach_existing_tab',
+        toolName: 'browser.extension_attach_tab',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: message,
+        summary: `Existing Chrome tab attachment denied: ${message}`,
+        url: input.url,
+        data: null,
+      });
+    }
+  }
+
+  async refreshExistingTab(
+    request: BrowserGatewayTargetRequest,
+  ): Promise<BrowserGatewayResult<BrowserGatewayExistingTabRefresh | null>> {
+    const attachment = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (!attachment) {
+      return this.result({
+        context: request,
+        profileId: request.profileId,
+        targetId: request.targetId,
+        action: 'refresh_existing_tab',
+        toolName: 'browser.refresh_existing_tab',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'existing_tab_not_found',
+        summary: 'Existing Chrome tab refresh denied because the tab was not shared with Browser Gateway',
+        data: null,
+      });
+    }
+
+    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
+    if (!originDecision.allowed) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'refresh_existing_tab',
+        toolName: 'browser.refresh_existing_tab',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: originDecision.reason,
+        summary: `Existing Chrome tab refresh denied by Browser Gateway origin policy: ${originDecision.reason}`,
+        url: attachment.url,
+        data: null,
+      });
+    }
+
+    const command = this.extensionTabStore.queueRefresh(
+      attachment.profileId,
+      attachment.targetId,
+    );
+    if (!command) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'refresh_existing_tab',
+        toolName: 'browser.refresh_existing_tab',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'existing_tab_not_found',
+        summary: 'Existing Chrome tab refresh denied because the selected tab disappeared',
+        url: attachment.url,
+        data: null,
+      });
+    }
+
+    return this.result({
+      context: request,
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      action: 'refresh_existing_tab',
+      toolName: 'browser.refresh_existing_tab',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: 'Queued refresh for selected existing Chrome tab',
+      origin: originDecision.origin,
+      url: attachment.url,
+      data: this.safeExistingTabCommand(command),
+    });
+  }
+
+  pollExistingTabCommand(
+    request: BrowserExtensionPollCommandRequest,
+  ): BrowserExtensionCommand | null {
+    return this.extensionTabStore.pollCommand(request);
+  }
+
+  async completeExistingTabCommand(
+    request: BrowserExtensionCompleteCommandRequest,
+  ): Promise<BrowserGatewayResult<BrowserGatewayExistingTabRefresh | null>> {
+    const command = this.extensionTabStore.completeCommand(request);
+    const attachment = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (!command) {
+      return this.result({
+        context: { provider: 'orchestrator' },
+        profileId: request.profileId,
+        targetId: request.targetId,
+        action: 'complete_existing_tab_command',
+        toolName: 'browser.extension_complete_command',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'existing_tab_command_not_found',
+        summary: 'Existing Chrome tab command completion denied because the command was not found',
+        data: null,
+      });
+    }
+
+    return this.result({
+      context: { provider: 'orchestrator' },
+      profileId: request.profileId,
+      targetId: request.targetId,
+      action: 'complete_existing_tab_command',
+      toolName: 'browser.extension_complete_command',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: command.status === 'failed' ? 'failed' : 'succeeded',
+      reason: command.error,
+      summary: command.status === 'failed'
+        ? `Existing Chrome tab refresh failed: ${command.error ?? 'unknown error'}`
+        : 'Existing Chrome tab refresh completed',
+      origin: attachment?.origin,
+      url: attachment?.url,
+      data: this.safeExistingTabCommand(command),
     });
   }
 
@@ -558,6 +753,11 @@ export class BrowserGatewayService {
   async snapshot(
     request: BrowserGatewayTargetRequest,
   ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return this.snapshotExistingTab(request, existingTab);
+    }
+
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
       ? await this.getLiveTarget(request.profileId, request.targetId)
@@ -641,6 +841,11 @@ export class BrowserGatewayService {
   async screenshot(
     request: BrowserGatewayScreenshotRequest,
   ): Promise<BrowserGatewayResult<string | null>> {
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return this.screenshotExistingTab(request, existingTab);
+    }
+
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
       ? await this.getLiveTarget(request.profileId, request.targetId)
@@ -1811,6 +2016,134 @@ export class BrowserGatewayService {
       grantId: prepared.grant.id,
       autonomous: prepared.grant.autonomous,
       data: null,
+    });
+  }
+
+  private safeTargetFromExistingTab(
+    attachment: BrowserExistingTabAttachment,
+  ): ReturnType<typeof toAgentSafeTarget> {
+    return toAgentSafeTarget({
+      id: attachment.targetId,
+      profileId: attachment.profileId,
+      pageId: String(attachment.tabId),
+      driverTargetId: `chrome-tab:${attachment.windowId}:${attachment.tabId}`,
+      mode: 'existing-tab',
+      title: attachment.title,
+      url: attachment.url,
+      origin: attachment.origin,
+      driver: 'extension',
+      status: 'selected',
+      lastSeenAt: attachment.updatedAt,
+    });
+  }
+
+  private safeExistingTabCommand(
+    command: BrowserExtensionCommand,
+  ): BrowserGatewayExistingTabRefresh {
+    return {
+      commandId: command.id,
+      status: command.status,
+      profileId: command.profileId,
+      targetId: command.targetId,
+      createdAt: command.createdAt,
+      updatedAt: command.updatedAt,
+    };
+  }
+
+  private snapshotExistingTab(
+    request: BrowserGatewayTargetRequest,
+    attachment: BrowserExistingTabAttachment,
+  ): BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null> {
+    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
+    if (!originDecision.allowed) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'snapshot',
+        toolName: 'browser.snapshot',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: originDecision.reason,
+        summary: `Existing-tab snapshot denied by Browser Gateway origin policy: ${originDecision.reason}`,
+        url: attachment.url,
+        data: null,
+      });
+    }
+
+    return this.result({
+      context: request,
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      action: 'snapshot',
+      toolName: 'browser.snapshot',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: 'Read cached snapshot from selected existing Chrome tab',
+      origin: originDecision.origin,
+      url: attachment.url,
+      data: {
+        title: attachment.title ?? '',
+        url: attachment.url,
+        text: redactBrowserText(attachment.text ?? '').slice(0, 12_000),
+      },
+    });
+  }
+
+  private screenshotExistingTab(
+    request: BrowserGatewayScreenshotRequest,
+    attachment: BrowserExistingTabAttachment,
+  ): BrowserGatewayResult<string | null> {
+    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
+    if (!originDecision.allowed) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'screenshot',
+        toolName: 'browser.screenshot',
+        actionClass: 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: originDecision.reason,
+        summary: `Existing-tab screenshot denied by Browser Gateway origin policy: ${originDecision.reason}`,
+        url: attachment.url,
+        data: null,
+      });
+    }
+    if (!attachment.screenshotBase64) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'screenshot',
+        toolName: 'browser.screenshot',
+        actionClass: 'read',
+        decision: 'allowed',
+        outcome: 'failed',
+        reason: 'existing_tab_screenshot_unavailable',
+        summary: 'Selected existing Chrome tab has no cached screenshot',
+        origin: originDecision.origin,
+        url: attachment.url,
+        data: null,
+      });
+    }
+
+    return this.result({
+      context: request,
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      action: 'screenshot',
+      toolName: 'browser.screenshot',
+      actionClass: 'read',
+      decision: 'allowed',
+      outcome: 'succeeded',
+      summary: 'Read cached screenshot from selected existing Chrome tab',
+      origin: originDecision.origin,
+      url: attachment.url,
+      data: attachment.screenshotBase64,
     });
   }
 

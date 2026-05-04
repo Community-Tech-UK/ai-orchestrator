@@ -4,10 +4,12 @@ import { createBrowserMcpTools } from './browser-mcp-tools';
 
 const ALLOWED_TOOLS = [
   'browser.list_profiles',
+  'browser.create_profile',
   'browser.open_profile',
   'browser.close_profile',
   'browser.list_targets',
   'browser.select_target',
+  'browser.refresh_existing_tab',
   'browser.navigate',
   'browser.click',
   'browser.type',
@@ -47,9 +49,28 @@ describe('browser-mcp-tools', () => {
 
   it('exposes concrete input schemas for provider-facing browser tools', () => {
     const tools = createBrowserMcpTools({ call: vi.fn() });
+    const createProfile = tools.find((tool) => tool.name === 'browser.create_profile');
+    const refreshExistingTab = tools.find((tool) => tool.name === 'browser.refresh_existing_tab');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
 
+    expect(createProfile?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['label', 'mode', 'browser', 'allowedOrigins'],
+      properties: {
+        label: { type: 'string' },
+        mode: { type: 'string', enum: ['session', 'isolated'] },
+        browser: { type: 'string', enum: ['chrome'] },
+        allowedOrigins: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['scheme', 'hostPattern', 'includeSubdomains'],
+          },
+        },
+      },
+      additionalProperties: false,
+    });
     expect(navigate?.inputSchema).toMatchObject({
       type: 'object',
       required: ['profileId', 'targetId', 'url'],
@@ -57,6 +78,15 @@ describe('browser-mcp-tools', () => {
         profileId: { type: 'string' },
         targetId: { type: 'string' },
         url: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(refreshExistingTab?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId', 'targetId'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
       },
       additionalProperties: false,
     });

@@ -30,6 +30,12 @@ interface IntervalOption {
   ms: number;
 }
 
+interface LimitRow {
+  label: string;
+  value: string;
+  reset: string | null;
+}
+
 const PROVIDERS: { id: ProviderId; label: string }[] = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'OpenAI Codex' },
@@ -44,6 +50,13 @@ const INTERVAL_OPTIONS: IntervalOption[] = [
   { label: 'Every 30 min', ms: 30 * 60 * 1000 },
   { label: 'Every hour', ms: 60 * 60 * 1000 },
 ];
+
+const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
+  claude: 'Numeric limits unavailable. Claude Code currently exposes plan/sign-in only outside the interactive UI.',
+  codex: 'Numeric limits unavailable. Codex exposes login method only; account limits are not available headlessly.',
+  gemini: 'Numeric limits unavailable. Gemini exposes auth type only; quota stats are interactive-session data.',
+  copilot: 'Numeric limits unavailable. Copilot exposes sign-in only; /usage is current-session statistics.',
+};
 
 @Component({
   standalone: true,
@@ -65,6 +78,7 @@ const INTERVAL_OPTIONS: IntervalOption[] = [
           <tr>
             <th>Provider</th>
             <th>Current state</th>
+            <th>Usage limits</th>
             <th>Auto-refresh</th>
             <th></th>
           </tr>
@@ -74,6 +88,21 @@ const INTERVAL_OPTIONS: IntervalOption[] = [
             <tr>
               <td class="provider-cell">{{ p.label }}</td>
               <td class="state-cell">{{ stateText(p.id) }}</td>
+              <td class="limits-cell">
+                @if (limitRows(p.id).length > 0) {
+                  @for (row of limitRows(p.id); track row.label) {
+                    <div class="limit-row">
+                      <span class="limit-label">{{ row.label }}</span>
+                      <span class="limit-value">{{ row.value }}</span>
+                      @if (row.reset) {
+                        <span class="limit-reset">{{ row.reset }}</span>
+                      }
+                    </div>
+                  }
+                } @else {
+                  <span class="limit-unavailable">{{ limitUnavailableText(p.id) }}</span>
+                }
+              </td>
               <td class="interval-cell">
                 <select
                   [value]="intervals()[p.id]"
@@ -130,6 +159,22 @@ const INTERVAL_OPTIONS: IntervalOption[] = [
     .provider-cell { font-weight: 600; }
     .state-cell { color: var(--text-secondary, #cbd5e1); }
     .state-cell.error { color: #ef4444; }
+    .limits-cell { max-width: 360px; color: var(--text-secondary, #cbd5e1); }
+    .limit-row {
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.375rem;
+      line-height: 1.35;
+    }
+    .limit-row + .limit-row { margin-top: 0.375rem; }
+    .limit-label { color: var(--text-primary, #e5e5e5); font-weight: 600; }
+    .limit-value { color: var(--text-secondary, #cbd5e1); }
+    .limit-reset { color: var(--text-muted, #94a3b8); font-size: 0.75rem; }
+    .limit-unavailable {
+      display: inline-block;
+      max-width: 34rem;
+      color: var(--text-muted, #94a3b8);
+      font-size: 0.75rem;
+      line-height: 1.35;
+    }
 
     .interval-cell select {
       padding: 4px 8px; font-size: 0.8125rem;
@@ -180,6 +225,26 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
     return `Signed in · ${plan}`;
   }
 
+  limitRows(provider: ProviderId): LimitRow[] {
+    const snap: ProviderQuotaSnapshot | null = this.snapshots()[provider];
+    if (!snap?.ok) return [];
+
+    return snap.windows
+      .filter((window) => window.limit > 0)
+      .map((window) => ({
+        label: window.label,
+        value: `${window.used}/${window.limit} ${window.unit}`,
+        reset: window.resetsAt ? `resets ${this.formatReset(window.resetsAt)}` : null,
+      }));
+  }
+
+  limitUnavailableText(provider: ProviderId): string {
+    const snap: ProviderQuotaSnapshot | null = this.snapshots()[provider];
+    if (!snap) return 'No quota snapshot yet. Click refresh to run this provider probe.';
+    if (!snap.ok) return 'Probe failed before usage limits could be checked.';
+    return LIMIT_UNAVAILABLE_TEXT[provider];
+  }
+
   onIntervalChange(provider: ProviderId, event: Event): void {
     const target = event.target as HTMLSelectElement;
     const ms = Number(target.value);
@@ -194,5 +259,16 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
 
   refreshAll(): void {
     void this.store.refreshAll();
+  }
+
+  private formatReset(resetsAt: number): string {
+    const ms = resetsAt - Date.now();
+    if (ms <= 0) return 'now';
+
+    const totalMinutes = Math.ceil(ms / 60_000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) return `in ${hours}h ${minutes}m`;
+    return `in ${minutes}m`;
   }
 }

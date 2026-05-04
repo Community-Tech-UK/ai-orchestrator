@@ -628,7 +628,12 @@ export class BrowserPageComponent implements OnInit {
   );
 
   readonly canNavigate = computed(
-    () => Boolean(this.selectedProfileId() && this.selectedTargetId() && this.navigateUrl().trim()),
+    () => Boolean(
+      this.selectedProfileId() &&
+      this.selectedTargetId() &&
+      this.navigateUrl().trim() &&
+      this.selectedTarget()?.driver !== 'extension',
+    ),
   );
 
   readonly healthJson = computed(() => JSON.stringify(this.health() ?? {}, null, 2));

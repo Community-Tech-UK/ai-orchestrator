@@ -107,6 +107,7 @@ export function registerVoiceHandlers(deps: RegisterVoiceHandlersDeps): void {
         const session = await voice.createTranscriptionSession({
           model: validated.model,
           language: validated.language,
+          providerId: validated.providerId,
         });
         return { success: true, data: session };
       } catch (error) {
@@ -167,6 +168,7 @@ export function registerVoiceHandlers(deps: RegisterVoiceHandlersDeps): void {
           model: validated.model,
           voice: validated.voice,
           format: validated.format,
+          providerId: validated.providerId,
         });
         return { success: true, data: audio };
       } catch (error) {

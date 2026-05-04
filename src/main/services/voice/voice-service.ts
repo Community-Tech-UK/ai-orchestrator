@@ -1,58 +1,92 @@
 import type {
+  VoiceProviderStatus,
   VoiceStatus,
   VoiceTranscriptionSession,
   VoiceTtsResult,
 } from '@contracts/schemas/voice';
-import { randomUUID } from 'crypto';
+import { existsSync } from 'fs';
+import { delimiter, join } from 'path';
+import { MacosSayTtsProvider } from './providers/macos-say-tts-provider';
+import { OpenAiRealtimeTranscriptionProvider } from './providers/openai-realtime-transcription-provider';
+import { OpenAiTtsProvider } from './providers/openai-tts-provider';
+import {
+  type CreateVoiceTranscriptionSessionInput,
+  type VoiceTranscriptionProvider,
+  type VoiceTranscriptionProviderId,
+  VoiceServiceError,
+  type VoiceTtsInput,
+  type VoiceTtsProvider,
+  type VoiceTtsProviderId,
+} from './providers/types';
 
-export interface CreateVoiceTranscriptionSessionInput {
-  model: string;
-  language?: string;
-}
-
-export interface VoiceTtsInput {
-  requestId: string;
-  input: string;
-  model: string;
-  voice: string;
-  format: 'mp3' | 'wav' | 'opus';
-}
+export { VoiceServiceError };
+export type {
+  CreateVoiceTranscriptionSessionInput,
+  VoiceTtsInput,
+} from './providers/types';
 
 type VoiceKeySource = VoiceStatus['keySource'];
 
 const OPENAI_TTS_INPUT_LIMIT = 4096;
-const TRANSCRIPTION_SESSION_TIMEOUT_MS = 15000;
 const TTS_TIMEOUT_MS = 30000;
-const ACTIVE_TRANSCRIPTION_SESSION_STALE_MS = 12 * 60 * 60 * 1000;
 
-interface ActiveTranscriptionSession {
-  sessionId: string;
-  createdAt: number;
-}
-
-export class VoiceServiceError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-    this.name = 'VoiceServiceError';
-  }
+export interface VoiceServiceDeps {
+  localTts?: VoiceTtsProvider;
+  openAiTts?: VoiceTtsProvider;
+  openAiTranscription?: VoiceTranscriptionProvider;
+  commandExists?: (command: string) => boolean;
 }
 
 export class VoiceService {
   private temporaryOpenAiApiKey: string | null = null;
-  private activeTranscriptionSession: ActiveTranscriptionSession | null = null;
-  private readonly ttsControllers = new Map<string, AbortController>();
+  private readonly transcriptionProviders: VoiceTranscriptionProvider[];
+  private readonly ttsProviders: VoiceTtsProvider[];
+  private readonly commandExists: (command: string) => boolean;
   private readonly cancelledTtsRequests = new Set<string>();
   private ttsQueue: Promise<unknown> = Promise.resolve();
 
+  constructor(deps: VoiceServiceDeps = {}) {
+    const openAiDeps = {
+      getApiKey: () => this.requireApiKey(),
+      getKeySource: () => this.getKeySource(),
+    };
+    this.commandExists = deps.commandExists ?? commandExistsInPath;
+    this.transcriptionProviders = [
+      deps.openAiTranscription ?? new OpenAiRealtimeTranscriptionProvider(openAiDeps),
+    ];
+    this.ttsProviders = [
+      deps.localTts ?? new MacosSayTtsProvider(),
+      deps.openAiTts ?? new OpenAiTtsProvider(openAiDeps),
+    ];
+  }
+
   getStatus(): VoiceStatus {
-    const keySource = this.getKeySource();
+    const providerStatuses = this.getProviderStatuses();
+    const activeTranscriptionProviderId =
+      this.selectActiveTranscriptionProviderId(providerStatuses);
+    const activeTtsProviderId = this.selectActiveTtsProviderId(providerStatuses);
+    const providers = providerStatuses.map((provider) => ({
+      ...provider,
+      active: provider.id === activeTranscriptionProviderId
+        || provider.id === activeTtsProviderId,
+    }));
+    const available = Boolean(activeTranscriptionProviderId && activeTtsProviderId);
+
     return {
-      available: keySource !== 'missing',
-      keySource,
+      available,
+      keySource: this.getKeySource(),
       canConfigureTemporaryKey: true,
+      activeTranscriptionProviderId,
+      activeTtsProviderId,
+      providers,
+      ...(available
+        ? {}
+        : {
+            unavailableReason: this.unavailableReason(
+              activeTranscriptionProviderId,
+              activeTtsProviderId
+            ),
+          }),
     };
   }
 
@@ -67,71 +101,24 @@ export class VoiceService {
   async createTranscriptionSession(
     input: CreateVoiceTranscriptionSessionInput
   ): Promise<VoiceTranscriptionSession> {
-    this.clearStaleTranscriptionSession();
-    if (this.activeTranscriptionSession) {
+    const providerId = this.resolveTranscriptionProviderId(input.providerId);
+    const provider = this.transcriptionProviders.find((candidate) =>
+      candidate.id === providerId
+    );
+    if (!provider) {
       throw new VoiceServiceError(
-        'session-unavailable',
-        'Another voice session is already active.'
+        'voice-provider-unavailable',
+        `Voice transcription provider ${providerId} is not available.`
       );
     }
-
-    const apiKey = this.requireApiKey();
-    const response = await this.fetchWithTimeout(
-      'https://api.openai.com/v1/realtime/transcription_sessions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: 'transcription',
-          audio: {
-            input: {
-              noise_reduction: { type: 'near_field' },
-              transcription: {
-                model: input.model,
-                ...(input.language ? { language: input.language } : {}),
-              },
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 500,
-              },
-            },
-          },
-          include: [],
-        }),
-      },
-      TRANSCRIPTION_SESSION_TIMEOUT_MS,
-      'VOICE_TRANSCRIPTION_SESSION_TIMEOUT'
-    );
-
-    const json = await this.readJsonResponse(
-      response,
-      'VOICE_TRANSCRIPTION_SESSION_FAILED'
-    );
-    const sessionId = randomUUID();
-    this.activeTranscriptionSession = {
-      sessionId,
-      createdAt: Date.now(),
-    };
-    return {
-      sessionId,
-      clientSecret: this.extractClientSecret(json),
-      expiresAt: this.extractExpiresAt(json),
-      model: input.model,
-      sdpUrl: this.extractSdpUrl(json),
-    };
+    return provider.createSession({ ...input, providerId });
   }
 
   closeTranscriptionSession(sessionId: string): boolean {
-    if (this.activeTranscriptionSession?.sessionId !== sessionId) {
-      return false;
+    for (const provider of this.transcriptionProviders) {
+      if (provider.closeSession(sessionId)) return true;
     }
-    this.activeTranscriptionSession = null;
-    return true;
+    return false;
   }
 
   synthesizeSpeech(input: VoiceTtsInput): Promise<VoiceTtsResult> {
@@ -150,17 +137,23 @@ export class VoiceService {
 
   cancelSpeech(requestId: string): boolean {
     this.cancelledTtsRequests.add(requestId);
-    const controller = this.ttsControllers.get(requestId);
-    if (!controller) {
+    let cancelled = false;
+    for (const provider of this.ttsProviders) {
+      cancelled = provider.cancel(requestId) || cancelled;
+    }
+    if (!cancelled) {
       const cleanup = setTimeout(() => {
         this.cancelledTtsRequests.delete(requestId);
       }, TTS_TIMEOUT_MS);
       cleanup.unref?.();
-      return false;
     }
-    controller.abort();
-    this.ttsControllers.delete(requestId);
-    return true;
+    return cancelled;
+  }
+
+  destroy(): void {
+    for (const provider of this.ttsProviders) {
+      provider.destroy?.();
+    }
   }
 
   private async synthesizeSpeechNow(input: VoiceTtsInput): Promise<VoiceTtsResult> {
@@ -168,48 +161,163 @@ export class VoiceService {
       throw new VoiceServiceError('VOICE_TTS_CANCELLED', 'Speech request was cancelled.');
     }
 
-    const apiKey = this.requireApiKey();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
-    this.ttsControllers.set(input.requestId, controller);
+    const providerId = this.resolveTtsProviderId(input.providerId);
+    const provider = this.ttsProviders.find((candidate) => candidate.id === providerId);
+    if (!provider) {
+      throw new VoiceServiceError(
+        'voice-provider-unavailable',
+        `Voice TTS provider ${providerId} is not available.`
+      );
+    }
 
     try {
-      const response = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: input.model,
-          voice: input.voice,
-          input: input.input,
-          response_format: input.format,
-        }),
-        signal: controller.signal,
+      return await provider.synthesize({
+        ...input,
+        providerId,
+        format: providerId === 'local-macos-say' ? 'wav' : input.format,
       });
-
-      if (!response.ok) {
-        await this.throwOpenAiError(response, 'VOICE_TTS_FAILED');
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      return {
-        requestId: input.requestId,
-        audioBase64: Buffer.from(arrayBuffer).toString('base64'),
-        mimeType: this.mimeTypeForFormat(input.format),
-        format: input.format,
-      };
-    } catch (error) {
-      if (this.isAbortError(error)) {
-        throw new VoiceServiceError('VOICE_TTS_CANCELLED', 'Speech request was cancelled.');
-      }
-      throw error;
     } finally {
-      clearTimeout(timeout);
-      this.ttsControllers.delete(input.requestId);
       this.cancelledTtsRequests.delete(input.requestId);
     }
+  }
+
+  private resolveTranscriptionProviderId(
+    requestedProviderId?: string
+  ): VoiceTranscriptionProviderId {
+    if (requestedProviderId) {
+      if (this.isTranscriptionProviderId(requestedProviderId)) {
+        return requestedProviderId;
+      }
+      throw new VoiceServiceError(
+        'voice-provider-unavailable',
+        `Voice transcription provider ${requestedProviderId} is not available.`
+      );
+    }
+
+    const providerId = this.selectActiveTranscriptionProviderId(this.getProviderStatuses());
+    if (providerId) return providerId;
+    if (this.getKeySource() === 'missing') {
+      throw new VoiceServiceError(
+        'missing-api-key',
+        'Speech-to-text requires an OpenAI API key until a local or CLI-native STT provider is configured.'
+      );
+    }
+    throw new VoiceServiceError(
+      'voice-provider-unavailable',
+      'No speech-to-text provider is available.'
+    );
+  }
+
+  private resolveTtsProviderId(requestedProviderId?: string): VoiceTtsProviderId {
+    if (requestedProviderId) {
+      if (this.isTtsProviderId(requestedProviderId)) {
+        return requestedProviderId;
+      }
+      throw new VoiceServiceError(
+        'voice-provider-unavailable',
+        `Voice TTS provider ${requestedProviderId} is not available.`
+      );
+    }
+
+    const providerId = this.selectActiveTtsProviderId(this.getProviderStatuses());
+    if (providerId) return providerId;
+    throw new VoiceServiceError(
+      'voice-provider-unavailable',
+      'No text-to-speech provider is available.'
+    );
+  }
+
+  private getProviderStatuses(): VoiceProviderStatus[] {
+    return [
+      ...this.transcriptionProviders.map((provider) => provider.getStatus()),
+      ...this.ttsProviders.map((provider) => provider.getStatus()),
+      this.localWhisperStatus(),
+      this.claudeVoiceStreamStatus(),
+      this.codexRealtimeStatus(),
+    ];
+  }
+
+  private selectActiveTranscriptionProviderId(
+    statuses: VoiceProviderStatus[]
+  ): VoiceTranscriptionProviderId | undefined {
+    const openAi = statuses.find((provider) => provider.id === 'openai-realtime');
+    return openAi?.available ? 'openai-realtime' : undefined;
+  }
+
+  private selectActiveTtsProviderId(
+    statuses: VoiceProviderStatus[]
+  ): VoiceTtsProviderId | undefined {
+    const local = statuses.find((provider) => provider.id === 'local-macos-say');
+    if (local?.available) return 'local-macos-say';
+    const openAi = statuses.find((provider) => provider.id === 'openai-tts');
+    return openAi?.available ? 'openai-tts' : undefined;
+  }
+
+  private unavailableReason(
+    activeTranscriptionProviderId: VoiceTranscriptionProviderId | undefined,
+    activeTtsProviderId: VoiceTtsProviderId | undefined
+  ): string {
+    if (!activeTranscriptionProviderId && !activeTtsProviderId) {
+      return 'Speech-to-text requires an OpenAI API key until a local or CLI-native STT provider is configured, and no text-to-speech provider is available.';
+    }
+    if (!activeTranscriptionProviderId) {
+      return 'Speech-to-text requires an OpenAI API key until a local or CLI-native STT provider is configured.';
+    }
+    return 'No text-to-speech provider is available.';
+  }
+
+  private localWhisperStatus(): VoiceProviderStatus {
+    const configured = this.commandExists('whisper') || this.commandExists('whisper-cli');
+    return {
+      id: 'local-whisper',
+      label: 'Local Whisper STT',
+      source: 'local',
+      capabilities: ['stt'],
+      available: false,
+      configured,
+      active: false,
+      privacy: 'local',
+      reason: configured
+        ? 'A Whisper CLI was detected, but no long-lived streaming STT adapter is enabled yet.'
+        : 'No supported local streaming STT provider is configured.',
+      requiresSetup: 'Install and configure a supported streaming Whisper adapter.',
+    };
+  }
+
+  private claudeVoiceStreamStatus(): VoiceProviderStatus {
+    const configured = this.commandExists('claude');
+    return {
+      id: 'claude-voice-stream',
+      label: 'Claude Voice Stream',
+      source: 'cli-native',
+      capabilities: ['stt'],
+      available: false,
+      configured,
+      active: false,
+      privacy: 'provider-cloud',
+      reason: configured
+        ? 'Claude CLI is installed, but it does not expose a stable public noninteractive audio API for this app.'
+        : 'Claude CLI is not installed or not on PATH.',
+      requiresSetup: 'Use a stable Claude audio API if Anthropic exposes one for CLI clients.',
+    };
+  }
+
+  private codexRealtimeStatus(): VoiceProviderStatus {
+    const configured = this.commandExists('codex');
+    return {
+      id: 'codex-realtime',
+      label: 'Codex Realtime',
+      source: 'cli-native',
+      capabilities: ['full-duplex'],
+      available: false,
+      configured,
+      active: false,
+      privacy: 'provider-cloud',
+      reason: configured
+        ? 'Codex realtime is experimental and scoped to Codex sessions; the generic adapter is not enabled.'
+        : 'Codex CLI is not installed or not on PATH.',
+      requiresSetup: 'Enable a stable Codex app-server realtime adapter for Codex sessions.',
+    };
   }
 
   private requireApiKey(): string {
@@ -217,7 +325,7 @@ export class VoiceService {
     if (!apiKey) {
       throw new VoiceServiceError(
         'missing-api-key',
-        'OpenAI API key is required for voice.'
+        'OpenAI API key is required for cloud voice providers.'
       );
     }
     return apiKey;
@@ -229,122 +337,21 @@ export class VoiceService {
     return 'missing';
   }
 
-  private async fetchWithTimeout(
-    url: string,
-    init: RequestInit,
-    timeoutMs: number,
-    timeoutCode: string
-  ): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, {
-        ...init,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (this.isAbortError(error)) {
-        throw new VoiceServiceError(timeoutCode, 'OpenAI voice request timed out.');
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-    }
+  private isTranscriptionProviderId(
+    providerId: string
+  ): providerId is VoiceTranscriptionProviderId {
+    return this.transcriptionProviders.some((provider) => provider.id === providerId);
   }
 
-  private async readJsonResponse(response: Response, fallbackCode: string): Promise<Record<string, unknown>> {
-    if (!response.ok) {
-      await this.throwOpenAiError(response, fallbackCode);
-    }
-    const json = await response.json();
-    if (!json || typeof json !== 'object') {
-      throw new VoiceServiceError(fallbackCode, 'OpenAI returned an invalid voice response.');
-    }
-    return json as Record<string, unknown>;
+  private isTtsProviderId(providerId: string): providerId is VoiceTtsProviderId {
+    return this.ttsProviders.some((provider) => provider.id === providerId);
   }
+}
 
-  private async throwOpenAiError(response: Response, fallbackCode: string): Promise<never> {
-    let message = `OpenAI voice request failed (${response.status}).`;
-    try {
-      const body = await response.json() as {
-        error?: { code?: string; message?: string };
-      };
-      if (body.error?.message) message = this.sanitizeOpenAiErrorMessage(body.error.message);
-    } catch {
-      // Keep the generic message. Do not include raw response bodies in errors.
-    }
-
-    const code = response.status === 429 ? 'speech-rate-limited' : fallbackCode;
-    throw new VoiceServiceError(code, message);
-  }
-
-  private extractClientSecret(json: Record<string, unknown>): string {
-    const clientSecret = json['client_secret'];
-    if (typeof clientSecret === 'string') return clientSecret;
-    if (clientSecret && typeof clientSecret === 'object') {
-      const value = (clientSecret as Record<string, unknown>)['value'];
-      if (typeof value === 'string') return value;
-    }
-    const value = json['value'];
-    if (typeof value === 'string') return value;
-    throw new VoiceServiceError(
-      'VOICE_TRANSCRIPTION_SESSION_FAILED',
-      'OpenAI did not return a realtime client secret.'
-    );
-  }
-
-  private extractExpiresAt(json: Record<string, unknown>): number | undefined {
-    if (typeof json['expires_at'] === 'number') return json['expires_at'];
-    const clientSecret = json['client_secret'];
-    if (clientSecret && typeof clientSecret === 'object') {
-      const expiresAt = (clientSecret as Record<string, unknown>)['expires_at'];
-      if (typeof expiresAt === 'number') return expiresAt;
-    }
-    return undefined;
-  }
-
-  private extractSdpUrl(json: Record<string, unknown>): string | undefined {
-    const sessionDetails = json['session_details'];
-    if (!sessionDetails || typeof sessionDetails !== 'object') return undefined;
-    const streamUrl = (sessionDetails as Record<string, unknown>)['stream_url'];
-    if (typeof streamUrl !== 'string') return undefined;
-    try {
-      const url = new URL(streamUrl);
-      if (url.protocol === 'https:' && url.hostname.endsWith('.openai.com')) {
-        return url.toString();
-      }
-    } catch {
-      // Ignore invalid or unexpected URLs from the provider response.
-    }
-    return undefined;
-  }
-
-  private mimeTypeForFormat(format: VoiceTtsInput['format']): string {
-    switch (format) {
-      case 'mp3':
-        return 'audio/mpeg';
-      case 'wav':
-        return 'audio/wav';
-      case 'opus':
-        return 'audio/ogg; codecs=opus';
-    }
-  }
-
-  private isAbortError(error: unknown): boolean {
-    return error instanceof Error && error.name === 'AbortError';
-  }
-
-  private clearStaleTranscriptionSession(): void {
-    const active = this.activeTranscriptionSession;
-    if (!active) return;
-    if (Date.now() - active.createdAt > ACTIVE_TRANSCRIPTION_SESSION_STALE_MS) {
-      this.activeTranscriptionSession = null;
-    }
-  }
-
-  private sanitizeOpenAiErrorMessage(message: string): string {
-    return message
-      .replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]')
-      .slice(0, 240);
-  }
+function commandExistsInPath(command: string): boolean {
+  const pathValue = process.env['PATH'] ?? '';
+  return pathValue
+    .split(delimiter)
+    .filter(Boolean)
+    .some((pathDir) => existsSync(join(pathDir, command)));
 }

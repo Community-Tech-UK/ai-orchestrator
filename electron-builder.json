@@ -30,6 +30,11 @@
       "from": "src/main/cli/hooks",
       "to": "hooks",
       "filter": ["*.mjs"]
+    },
+    {
+      "from": "resources/browser-extension",
+      "to": "browser-extension",
+      "filter": ["**/*"]
     }
   ],
   "mac": {

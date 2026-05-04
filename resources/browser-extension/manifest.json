@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "AI Orchestrator Browser Gateway",
+  "version": "0.1.0",
+  "description": "Share the current Chrome tab with AI Orchestrator Browser Gateway.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo+StOfam7CfQRsUs+A72AlgFLUnfSQXxJefJ1HHVEl5bxwoN4RA+TkUwflMu6BUHp0ZdtYg/g02sn8SB0og2RDLPKYoVfKGFXl07TOPjidiA/F2MxZe3Ck9icG7oSCIl8eff2BaMSUsuZ3YB+Wo712uVS2Rg0gcq5YIpiBWMpYRARG9w0gN+Hvdug7QsSGYfwZ0upyJAZj/wottlOeSD5u0uKfpXCo4esfyZeKAtIOXpNkNE04Fd821WZjOHZj1f9wdHqXFtESrffFEO6x6IMz3/gwnLNm0NDBX3jBh27+v+OapdPVAAmK9ROtTAGkXlH41PCCuntrtcktpimbYuhwIDAQAB",
+  "permissions": [
+    "activeTab",
+    "nativeMessaging",
+    "scripting",
+    "tabs"
+  ],
+  "action": {
+    "default_title": "AI Orchestrator",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1,7 +1,12 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { VoiceIpcService } from '../services/ipc/voice-ipc.service';
-import type { InstanceStatus, OutputMessage } from '../state/instance/instance.types';
+import type { VoiceProviderStatus } from '@contracts/schemas/voice';
+import type {
+  InstanceProvider,
+  InstanceStatus,
+  OutputMessage,
+} from '../state/instance/instance.types';
 import type {
   VoiceConversationPhase,
   VoiceErrorCode,
@@ -20,6 +25,7 @@ export interface VoiceConversationSessionContext {
   instanceId: string;
   status: InstanceStatus;
   messages: OutputMessage[];
+  provider: InstanceProvider;
   sendInput: (message: string) => void;
   steerInput: (message: string) => void;
 }
@@ -38,8 +44,12 @@ export class VoiceConversationStore {
   readonly errorCode = signal<VoiceErrorCode | null>(null);
   readonly voiceAvailable = signal(false);
   readonly keySource = signal<VoiceKeySource>('missing');
+  readonly activeTranscriptionProviderId = signal<string | null>(null);
+  readonly activeTtsProviderId = signal<string | null>(null);
+  readonly voiceProviders = signal<VoiceProviderStatus[]>([]);
   readonly transcriptDetached = signal(false);
   readonly audioLevel = signal(0);
+  readonly providerSummary = signal<string | null>(null);
 
   private context: VoiceConversationSessionContext | null = null;
   private connection: VoiceTranscriptionConnection | null = null;
@@ -89,15 +99,18 @@ export class VoiceConversationStore {
 
       const status = await this.voiceIpc.getStatus();
       if (!this.isCurrentStart(generation)) return;
-      this.voiceAvailable.set(status.available);
-      this.keySource.set(status.keySource);
+      this.applyVoiceStatus(status);
       if (!status.available) {
-        this.enterError('missing-api-key', 'OpenAI API key is required for voice.');
+        this.enterError(
+          status.keySource === 'missing' ? 'missing-api-key' : 'voice-provider-unavailable',
+          status.unavailableReason || 'No usable voice provider is available.'
+        );
         return;
       }
 
       const session = await this.voiceIpc.createTranscriptionSession({
         model: 'gpt-4o-transcribe',
+        providerId: status.activeTranscriptionProviderId,
       });
       if (!this.isCurrentStart(generation)) {
         await this.voiceIpc.closeTranscriptionSession(session.sessionId).catch(() => undefined);
@@ -152,8 +165,7 @@ export class VoiceConversationStore {
 
   async setTemporaryOpenAiKey(apiKey: string): Promise<void> {
     const status = await this.voiceIpc.setTemporaryOpenAiKey(apiKey);
-    this.voiceAvailable.set(status.available);
-    this.keySource.set(status.keySource);
+    this.applyVoiceStatus(status);
     this.error.set(null);
     this.errorCode.set(null);
     if (this.mode() === 'error') this.mode.set('off');
@@ -161,8 +173,7 @@ export class VoiceConversationStore {
 
   async clearTemporaryOpenAiKey(): Promise<void> {
     const status = await this.voiceIpc.clearTemporaryOpenAiKey();
-    this.voiceAvailable.set(status.available);
-    this.keySource.set(status.keySource);
+    this.applyVoiceStatus(status);
   }
 
   detachTranscript(): void {
@@ -343,7 +354,8 @@ export class VoiceConversationStore {
         input: text,
         model: 'gpt-4o-mini-tts',
         voice: 'alloy',
-        format: 'mp3',
+        format: this.activeTtsProviderId() === 'local-macos-say' ? 'wav' : 'mp3',
+        providerId: this.activeTtsProviderId() ?? undefined,
       });
       if (
         generation !== this.bargeInGeneration ||
@@ -387,6 +399,7 @@ export class VoiceConversationStore {
       if (!this.isCurrentGeneration(generation)) return;
       const session = await this.voiceIpc.createTranscriptionSession({
         model: 'gpt-4o-transcribe',
+        providerId: this.activeTranscriptionProviderId() ?? undefined,
       });
       if (!this.isCurrentGeneration(generation)) {
         await this.voiceIpc.closeTranscriptionSession(session.sessionId).catch(() => undefined);
@@ -411,6 +424,39 @@ export class VoiceConversationStore {
       'provider-session-failed',
       error instanceof Error ? error.message : 'Voice failed to start.'
     );
+  }
+
+  private applyVoiceStatus(status: {
+    available: boolean;
+    keySource: VoiceKeySource;
+    activeTranscriptionProviderId?: string;
+    activeTtsProviderId?: string;
+    providers: VoiceProviderStatus[];
+  }): void {
+    this.voiceAvailable.set(status.available);
+    this.keySource.set(status.keySource);
+    this.activeTranscriptionProviderId.set(status.activeTranscriptionProviderId ?? null);
+    this.activeTtsProviderId.set(status.activeTtsProviderId ?? null);
+    this.voiceProviders.set(status.providers);
+    this.providerSummary.set(this.summarizeProviders(status.providers));
+  }
+
+  private summarizeProviders(providers: VoiceProviderStatus[]): string | null {
+    const activeProviders = providers.filter((provider) => provider.active);
+    if (activeProviders.length === 0) return null;
+    const hasLocalTts = activeProviders.some((provider) =>
+      provider.id === 'local-macos-say'
+    );
+    const hasCloudStt = activeProviders.some((provider) =>
+      provider.capabilities.includes('stt') && provider.privacy === 'provider-cloud'
+    );
+    const hasCloudTts = activeProviders.some((provider) =>
+      provider.capabilities.includes('tts') && provider.privacy === 'provider-cloud'
+    );
+    if (hasLocalTts && hasCloudStt) return 'Local TTS + cloud STT';
+    if (hasCloudStt && hasCloudTts) return 'Cloud STT/TTS';
+    if (activeProviders.every((provider) => provider.privacy === 'local')) return 'Local voice';
+    return activeProviders.map((provider) => provider.label).join(' + ');
   }
 
   private enterError(code: VoiceErrorCode, message: string): void {

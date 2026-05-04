@@ -25,22 +25,103 @@ describe('VoiceService', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reports temporary key availability without persisting the key outside the service', () => {
-    const service = new VoiceService();
+  it('reports provider availability without persisting temporary keys outside the service', () => {
+    const localTts = {
+      id: 'local-macos-say' as const,
+      getStatus: vi.fn(() => ({
+        id: 'local-macos-say',
+        label: 'macOS Local Voice',
+        source: 'local' as const,
+        capabilities: ['tts' as const],
+        available: true,
+        configured: true,
+        active: false,
+        privacy: 'local' as const,
+      })),
+      synthesize: vi.fn(),
+      cancel: vi.fn(() => false),
+      destroy: vi.fn(),
+    };
+    const service = new VoiceService({ localTts });
 
-    expect(service.getStatus()).toEqual({
+    expect(service.getStatus()).toMatchObject({
       available: false,
       keySource: 'missing',
       canConfigureTemporaryKey: true,
+      activeTtsProviderId: 'local-macos-say',
+      activeTranscriptionProviderId: undefined,
+      unavailableReason: expect.stringContaining('Speech-to-text'),
     });
+    expect(service.getStatus().providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'local-macos-say',
+        source: 'local',
+        capabilities: ['tts'],
+        privacy: 'local',
+        available: true,
+        active: true,
+      }),
+      expect.objectContaining({
+        id: 'openai-realtime',
+        source: 'cloud',
+        capabilities: ['stt'],
+        privacy: 'provider-cloud',
+        available: false,
+      }),
+    ]));
 
     service.setTemporaryOpenAiApiKey('sk-test-temporary-key-with-enough-length');
 
-    expect(service.getStatus()).toEqual({
+    expect(service.getStatus()).toMatchObject({
       available: true,
       keySource: 'temporary',
       canConfigureTemporaryKey: true,
+      activeTranscriptionProviderId: 'openai-realtime',
+      activeTtsProviderId: 'local-macos-say',
     });
+  });
+
+  it('routes TTS through the local provider by default when it is available', async () => {
+    const localTts = {
+      id: 'local-macos-say' as const,
+      getStatus: vi.fn(() => ({
+        id: 'local-macos-say',
+        label: 'macOS Local Voice',
+        source: 'local' as const,
+        capabilities: ['tts' as const],
+        available: true,
+        configured: true,
+        active: false,
+        privacy: 'local' as const,
+      })),
+      synthesize: vi.fn(async () => ({
+        requestId: 'tts-local',
+        audioBase64: 'UklGRg==',
+        mimeType: 'audio/wav',
+        format: 'wav' as const,
+        providerId: 'local-macos-say',
+        local: true,
+      })),
+      cancel: vi.fn(() => false),
+      destroy: vi.fn(),
+    };
+    const service = new VoiceService({ localTts });
+
+    await expect(service.synthesizeSpeech({
+      requestId: 'tts-local',
+      input: 'hello',
+      model: 'gpt-4o-mini-tts',
+      voice: 'alloy',
+      format: 'wav',
+    })).resolves.toMatchObject({
+      providerId: 'local-macos-say',
+      local: true,
+      format: 'wav',
+    });
+    expect(localTts.synthesize).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: 'tts-local',
+      input: 'hello',
+    }));
   });
 
   it('mints one active transcription session and requires explicit release', async () => {
@@ -143,6 +224,7 @@ describe('VoiceService', () => {
       model: 'gpt-4o-mini-tts',
       voice: 'alloy',
       format: 'mp3',
+      providerId: 'openai-tts',
     })).rejects.toMatchObject({
       code: 'speech-rate-limited',
       message: 'quota failed for [redacted]',

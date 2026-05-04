@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>AI Orchestrator</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        width: 280px;
+        margin: 0;
+        padding: 12px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 14px;
+      }
+
+      button {
+        width: 100%;
+        border: 1px solid #737373;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      #status {
+        min-height: 18px;
+        margin-top: 10px;
+        color: #737373;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AI Orchestrator</h1>
+    <button id="share" type="button">Share Current Tab</button>
+    <div id="status" role="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

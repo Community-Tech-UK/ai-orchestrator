@@ -31,7 +31,7 @@ import { getTranscriptSnippetService } from './transcript-snippet-service';
 import {
   findClaudeJsonlFiles,
   getDefaultClaudeProjectsDir,
-  parseClaudeJsonlTranscript,
+  parseClaudeJsonlTranscriptDetailed,
   type ImportedTranscript,
 } from './native-claude-importer';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
@@ -620,37 +620,82 @@ export class HistoryManager {
       return;
     }
 
-    const knownSessionIds = new Set<string>();
-    for (const entry of this.index.entries) {
-      const sid = entry.sessionId?.trim();
-      if (sid) knownSessionIds.add(sid);
-    }
     const tombstonedSessionIds = new Set(
       (this.index.deletedSessionIds ?? []).map((s) => s.trim()).filter(Boolean)
     );
 
+    const parsedTranscripts: ImportedTranscript[] = [];
+    const nonMainSessionIds = new Set<string>();
     let imported = 0;
     let skipped = 0;
+    let collapsed = 0;
+    let removedNonMain = 0;
+    let removedSuperseded = 0;
     let failed = 0;
 
     for (const filePath of files) {
       const stem = path.basename(filePath, '.jsonl');
-      if (knownSessionIds.has(stem) || tombstonedSessionIds.has(stem)) {
+      if (tombstonedSessionIds.has(stem)) {
         skipped++;
         continue;
       }
 
       try {
-        const parsed = await parseClaudeJsonlTranscript(filePath);
+        const result = await parseClaudeJsonlTranscriptDetailed(filePath);
+        const parsed = result.transcript;
         if (!parsed) {
+          if (
+            result.skipReason === 'non-main-entrypoint'
+            && result.sessionId
+            && !tombstonedSessionIds.has(result.sessionId)
+          ) {
+            nonMainSessionIds.add(result.sessionId);
+          }
           skipped++;
           continue;
         }
-        if (knownSessionIds.has(parsed.sessionId) || tombstonedSessionIds.has(parsed.sessionId)) {
+        if (tombstonedSessionIds.has(parsed.sessionId)) {
           skipped++;
           continue;
         }
 
+        parsedTranscripts.push(parsed);
+      } catch (error) {
+        failed++;
+        logger.error(
+          'Failed to import native Claude transcript',
+          error instanceof Error ? error : undefined,
+          { filePath }
+        );
+      }
+    }
+
+    if (nonMainSessionIds.size > 0) {
+      removedNonMain = await this.removeNativeImportEntriesBySessionIds(nonMainSessionIds);
+    }
+
+    const supersededSessionIds = this.findSupersededNativeTranscriptSessionIds(parsedTranscripts);
+    if (supersededSessionIds.size > 0) {
+      removedSuperseded = await this.removeNativeImportEntriesBySessionIds(supersededSessionIds);
+    }
+
+    const knownSessionIds = new Set<string>();
+    for (const entry of this.index.entries) {
+      const sid = entry.sessionId?.trim();
+      if (sid) knownSessionIds.add(sid);
+    }
+
+    for (const parsed of parsedTranscripts) {
+      if (supersededSessionIds.has(parsed.sessionId)) {
+        collapsed++;
+        continue;
+      }
+      if (knownSessionIds.has(parsed.sessionId)) {
+        skipped++;
+        continue;
+      }
+
+      try {
         const entry = this.buildImportedEntry(parsed);
         const conversationData: ConversationData = {
           entry,
@@ -666,24 +711,164 @@ export class HistoryManager {
         logger.error(
           'Failed to import native Claude transcript',
           error instanceof Error ? error : undefined,
-          { filePath }
+          { sessionId: parsed.sessionId }
         );
       }
     }
 
-    if (imported > 0) {
+    if (imported > 0 || removedNonMain > 0 || removedSuperseded > 0) {
       this.index.entries.sort((a, b) => b.endedAt - a.endedAt);
       this.index.lastUpdated = Date.now();
-      await this.enforceLimit();
+      if (imported > 0) {
+        await this.enforceLimit();
+      }
       await this.saveIndex();
     }
 
     logger.info('Native Claude transcript import complete', {
       imported,
       skipped,
+      collapsed,
+      removedNonMain,
+      removedSuperseded,
       failed,
       total: files.length,
     });
+  }
+
+  private findSupersededNativeTranscriptSessionIds(
+    transcripts: ImportedTranscript[]
+  ): Set<string> {
+    const supersededSessionIds = new Set<string>();
+    const groups = new Map<string, ImportedTranscript[]>();
+
+    for (const transcript of transcripts) {
+      const firstMessage = transcript.messages[0];
+      if (!firstMessage?.id.trim()) {
+        continue;
+      }
+
+      const groupKey = `${transcript.workingDirectory}\0${firstMessage.id}`;
+      const group = groups.get(groupKey) ?? [];
+      group.push(transcript);
+      groups.set(groupKey, group);
+    }
+
+    for (const group of groups.values()) {
+      const candidates = [...group].sort((left, right) =>
+        this.compareNativeTranscriptCoverageCandidates(left, right)
+      );
+      const retained: ImportedTranscript[] = [];
+
+      for (const candidate of candidates) {
+        if (
+          retained.some((existing) =>
+            this.nativeTranscriptContains(existing, candidate)
+          )
+        ) {
+          supersededSessionIds.add(candidate.sessionId);
+          continue;
+        }
+
+        retained.push(candidate);
+      }
+    }
+
+    return supersededSessionIds;
+  }
+
+  private compareNativeTranscriptCoverageCandidates(
+    left: ImportedTranscript,
+    right: ImportedTranscript
+  ): number {
+    const messageCountDelta = right.messages.length - left.messages.length;
+    if (messageCountDelta !== 0) {
+      return messageCountDelta;
+    }
+
+    const endedAtDelta = right.endedAt - left.endedAt;
+    if (endedAtDelta !== 0) {
+      return endedAtDelta;
+    }
+
+    const createdAtDelta = left.createdAt - right.createdAt;
+    if (createdAtDelta !== 0) {
+      return createdAtDelta;
+    }
+
+    return left.sessionId.localeCompare(right.sessionId);
+  }
+
+  private nativeTranscriptContains(
+    candidate: ImportedTranscript,
+    possiblePrefix: ImportedTranscript
+  ): boolean {
+    if (candidate.sessionId === possiblePrefix.sessionId) {
+      return false;
+    }
+    if (candidate.messages.length < possiblePrefix.messages.length) {
+      return false;
+    }
+
+    for (let index = 0; index < possiblePrefix.messages.length; index += 1) {
+      const candidateMessage = candidate.messages[index];
+      const prefixMessage = possiblePrefix.messages[index];
+      if (
+        candidateMessage?.id !== prefixMessage?.id ||
+        candidateMessage?.type !== prefixMessage?.type ||
+        candidateMessage?.content !== prefixMessage?.content
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private async removeNativeImportEntriesBySessionIds(
+    sessionIds: ReadonlySet<string>
+  ): Promise<number> {
+    if (sessionIds.size === 0) {
+      return 0;
+    }
+
+    const removedEntryIds: string[] = [];
+    this.index.entries = this.index.entries.filter((entry) => {
+      const sessionId = entry.sessionId.trim();
+      if (!sessionIds.has(sessionId)) {
+        return true;
+      }
+      if (!this.isNativeClaudeImportedEntry(entry)) {
+        return true;
+      }
+
+      removedEntryIds.push(entry.id);
+      return false;
+    });
+
+    for (const entryId of removedEntryIds) {
+      try {
+        await fs.promises.unlink(this.getConversationPath(entryId));
+      } catch {
+        /* intentionally ignored: superseded native import data may already be absent */
+      }
+    }
+
+    return removedEntryIds.length;
+  }
+
+  private isNativeClaudeImportedEntry(
+    entry: Pick<
+      ConversationHistoryEntry,
+      'id' | 'importSource' | 'originalInstanceId' | 'provider' | 'sessionId'
+    >
+  ): boolean {
+    const sessionId = entry.sessionId.trim();
+    return (
+      entry.importSource === 'native-claude'
+      || entry.originalInstanceId === `imported-${sessionId}`
+      || (entry.id === sessionId && entry.provider === 'claude' && entry.originalInstanceId.startsWith('imported-'))
+    );
   }
 
   private buildImportedEntry(parsed: ImportedTranscript): ConversationHistoryEntry {
