@@ -14,6 +14,7 @@ import type {
 } from '../../shared/types/operator.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
+import { getOperatorEventBus } from './operator-event-bus';
 
 const logger = getLogger('OperatorRunStore');
 
@@ -283,7 +284,9 @@ export class OperatorRunStore {
       stringifyObject(input.payload),
       createdAt,
     );
-    return this.getEvent(id)!;
+    const event = this.getEvent(id)!;
+    getOperatorEventBus().publish(event);
+    return event;
   }
 
   getRun(id: string): OperatorRunRecord | null {

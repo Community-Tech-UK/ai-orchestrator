@@ -42,4 +42,5 @@ export {
   buildOperatorFixWorkerPrompt,
   type OperatorFixWorkerPromptInput,
 } from './operator-fix-worker-prompt';
+export { OperatorEventBus, getOperatorEventBus } from './operator-event-bus';
 export { OperatorEngine, getOperatorEngine } from './operator-engine';

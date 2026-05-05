@@ -1381,8 +1381,12 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved);
   }
 
-  async changeModel(instanceId: string, newModel: string): Promise<Instance> {
-    return this.lifecycle.changeModel(instanceId, newModel);
+  async changeModel(
+    instanceId: string,
+    newModel: string,
+    reasoningEffort?: Instance['reasoningEffort'] | null,
+  ): Promise<Instance> {
+    return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort);
   }
 
   interruptInstance(instanceId: string): boolean {

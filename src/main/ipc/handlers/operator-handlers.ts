@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import { IPC_CHANNELS, type IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -11,12 +11,18 @@ import {
 } from '@contracts/schemas/operator';
 import {
   OperatorRunStore,
+  getOperatorEngine,
+  getOperatorEventBus,
   getOperatorDatabase,
   getOperatorThreadService,
   getProjectRegistry,
 } from '../../operator';
 
+let operatorEventForwardingRegistered = false;
+
 export function registerOperatorHandlers(): void {
+  registerOperatorEventForwarding();
+
   ipcMain.handle(IPC_CHANNELS.OPERATOR_GET_THREAD, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       validateIpcPayload(
@@ -94,6 +100,45 @@ export function registerOperatorHandlers(): void {
       return { success: true, data: store.getRunGraph(validated.runId) };
     } catch (error) {
       return operatorError(error, 'OPERATOR_GET_RUN_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.OPERATOR_CANCEL_RUN, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(
+        OperatorRunIdPayloadSchema,
+        payload,
+        'OPERATOR_CANCEL_RUN',
+      );
+      return { success: true, data: await getOperatorEngine().cancelRun(validated.runId) };
+    } catch (error) {
+      return operatorError(error, 'OPERATOR_CANCEL_RUN_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.OPERATOR_RETRY_RUN, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(
+        OperatorRunIdPayloadSchema,
+        payload,
+        'OPERATOR_RETRY_RUN',
+      );
+      return { success: true, data: await getOperatorEngine().retryRun(validated.runId) };
+    } catch (error) {
+      return operatorError(error, 'OPERATOR_RETRY_RUN_FAILED');
+    }
+  });
+}
+
+function registerOperatorEventForwarding(): void {
+  if (operatorEventForwardingRegistered) {
+    return;
+  }
+  operatorEventForwardingRegistered = true;
+  getOperatorEventBus().subscribe((payload) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) continue;
+      window.webContents.send(IPC_CHANNELS.OPERATOR_EVENT, payload);
     }
   });
 }

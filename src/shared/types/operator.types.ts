@@ -244,6 +244,12 @@ export interface OperatorRunEventRecord {
   createdAt: number;
 }
 
+export interface OperatorRunEventNotification {
+  runId: string;
+  nodeId: string | null;
+  event: OperatorRunEventRecord;
+}
+
 export type OperatorInstanceLinkRecoveryState = 'active' | 'recovered' | 'stale';
 
 export interface OperatorInstanceLinkRecord {

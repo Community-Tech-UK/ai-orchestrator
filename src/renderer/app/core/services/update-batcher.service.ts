@@ -5,6 +5,7 @@
 import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 import type { ActivityState } from '../../../../shared/types/activity.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 
 export interface StateUpdate {
   instanceId: string;
@@ -29,6 +30,7 @@ export interface StateUpdate {
    * without polling. Optional because most state updates don't change it.
    */
   currentModel?: string;
+  reasoningEffort?: ReasoningEffort | null;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;
@@ -78,6 +80,9 @@ export class UpdateBatcherService {
       // createInstance emits a single update with this field; intervening
       // status-only updates must not wipe it out.
       currentModel: update.currentModel ?? existing?.currentModel,
+      reasoningEffort: update.reasoningEffort !== undefined
+        ? update.reasoningEffort
+        : existing?.reasoningEffort,
       providerSessionId: update.providerSessionId ?? existing?.providerSessionId,
       restartEpoch: update.restartEpoch ?? existing?.restartEpoch,
       recoveryMethod: update.recoveryMethod ?? existing?.recoveryMethod,

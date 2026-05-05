@@ -17,6 +17,7 @@ import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
 import type { ChannelPlatform } from '@shared/types/channels';
 import type { ActivityState } from '@shared/types/activity.types';
+import type { ReasoningEffort } from '@shared/types/provider.types';
 
 export type { IpcChannel };
 
@@ -77,6 +78,7 @@ export interface InstanceStateUpdatePayload {
    * Optional because most state updates don't change it.
    */
   currentModel?: string;
+  reasoningEffort?: ReasoningEffort | null;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;
@@ -129,6 +131,16 @@ export interface InstanceRestartFreshPayload {
 export interface InstanceRenamePayload {
   instanceId: string;
   displayName: string;
+}
+
+export interface InstanceChangeModelPayload {
+  instanceId: string;
+  model: string;
+  /**
+   * Undefined preserves the current override, null clears to provider default,
+   * and a value respawns the adapter with that thinking/reasoning effort.
+   */
+  reasoningEffort?: ReasoningEffort | null;
 }
 
 // ============================================

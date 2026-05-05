@@ -27,6 +27,7 @@ import { InstanceMessagingStore } from './instance-messaging.store';
 import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
 import type { CreateInstanceWithMessageOptions } from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
+import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -275,6 +276,10 @@ export class InstanceStore implements OnDestroy {
           // later lifecycle hop that resolves the model). Falls back to the
           // existing value so status-only updates don't wipe it.
           currentModel: update.currentModel ?? inst.currentModel,
+          reasoningEffort:
+            update.reasoningEffort === null
+              ? undefined
+              : update.reasoningEffort ?? inst.reasoningEffort,
           providerSessionId: update.providerSessionId ?? inst.providerSessionId,
           restartEpoch: update.restartEpoch ?? inst.restartEpoch,
           adapterGeneration: update.adapterGeneration ?? inst.adapterGeneration,
@@ -364,6 +369,10 @@ export class InstanceStore implements OnDestroy {
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
             // Same Phase 2 propagation rationale as in applyUpdate above.
             currentModel: update.currentModel ?? instance.currentModel,
+            reasoningEffort:
+              update.reasoningEffort === null
+                ? undefined
+                : update.reasoningEffort ?? instance.reasoningEffort,
             providerSessionId: update.providerSessionId ?? instance.providerSessionId,
             restartEpoch: update.restartEpoch ?? instance.restartEpoch,
             adapterGeneration: update.adapterGeneration ?? instance.adapterGeneration,
@@ -645,8 +654,12 @@ export class InstanceStore implements OnDestroy {
   }
 
   /** Change model for an instance */
-  async changeModel(instanceId: string, newModel: string): Promise<void> {
-    return this.listStore.changeModel(instanceId, newModel);
+  async changeModel(
+    instanceId: string,
+    newModel: string,
+    reasoningEffort?: ReasoningEffort | null
+  ): Promise<void> {
+    return this.listStore.changeModel(instanceId, newModel, reasoningEffort);
   }
 
   /** Clear error state */

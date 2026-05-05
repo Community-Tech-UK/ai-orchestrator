@@ -65,6 +65,36 @@ describe('ModelPickerController', () => {
     expect(instanceStore.changeModel).toHaveBeenCalledWith('inst-1', item.value.id);
   });
 
+  it('stages model and thinking selections before applying them together', async () => {
+    const controller = TestBed.inject(ModelPickerController) as ModelPickerController & {
+      selectModel: (modelId: string) => void;
+      selectReasoningEffort: (effort: 'high') => void;
+      applySelection: () => Promise<boolean>;
+    };
+
+    controller.selectModel('sonnet[1m]');
+    controller.selectReasoningEffort('high');
+
+    await controller.applySelection();
+
+    expect(instanceStore.changeModel).toHaveBeenCalledWith('inst-1', 'sonnet[1m]', 'high');
+    expect(usageStore.record).toHaveBeenCalledWith('model', 'claude:sonnet[1m]:thinking-high', '/repo');
+  });
+
+  it('shows thinking choices for providers that support reasoning effort', () => {
+    const controller = TestBed.inject(ModelPickerController) as ModelPickerController & {
+      reasoningOptions: () => { id: string; label: string }[];
+    };
+
+    expect(controller.reasoningOptions().map((option) => option.id)).toEqual([
+      'default',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ]);
+  });
+
   it('disables model changes while the selected session is not waiting for user input', () => {
     selectedInstance.update((instance) => ({
       ...instance,

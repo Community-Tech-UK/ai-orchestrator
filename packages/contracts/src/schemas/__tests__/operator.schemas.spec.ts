@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   OperatorListProjectsPayloadSchema,
   OperatorRescanProjectsPayloadSchema,
+  OperatorRunIdPayloadSchema,
   OperatorSendMessagePayloadSchema,
 } from '../operator.schemas';
 
@@ -32,5 +33,12 @@ describe('operator schemas', () => {
 
   it('rejects blank operator messages', () => {
     expect(() => OperatorSendMessagePayloadSchema.parse({ text: '' })).toThrow();
+  });
+
+  it('accepts operator run-id control payloads', () => {
+    expect(OperatorRunIdPayloadSchema.parse({ runId: 'run-1' })).toEqual({
+      runId: 'run-1',
+    });
+    expect(() => OperatorRunIdPayloadSchema.parse({ runId: '' })).toThrow();
   });
 });

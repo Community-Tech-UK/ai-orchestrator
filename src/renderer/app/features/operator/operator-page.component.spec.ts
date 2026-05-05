@@ -12,6 +12,9 @@ describe('OperatorPageComponent', () => {
     sendMessage: ReturnType<typeof vi.fn>;
     listRuns: ReturnType<typeof vi.fn>;
     listProjects: ReturnType<typeof vi.fn>;
+    cancelRun: ReturnType<typeof vi.fn>;
+    retryRun: ReturnType<typeof vi.fn>;
+    onOperatorEvent: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -60,6 +63,9 @@ describe('OperatorPageComponent', () => {
       sendMessage: vi.fn().mockResolvedValue({ success: true, data: response }),
       listRuns: vi.fn().mockResolvedValue({ success: true, data: [] }),
       listProjects: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      cancelRun: vi.fn().mockResolvedValue({ success: true, data: null }),
+      retryRun: vi.fn().mockResolvedValue({ success: true, data: null }),
+      onOperatorEvent: vi.fn().mockReturnValue(() => { /* noop */ }),
     };
 
     await TestBed.configureTestingModule({

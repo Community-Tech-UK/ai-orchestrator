@@ -11,7 +11,7 @@ import type {
 } from './supervision.types';
 import type { ExecutionLocation, NodePlacementPrefs } from './worker-node.types';
 import { createDefaultContextInheritance } from './supervision.types';
-import { getProviderModelContextWindow } from './provider.types';
+import { getProviderModelContextWindow, type ReasoningEffort } from './provider.types';
 
 /**
  * CLI provider type for instances
@@ -316,6 +316,7 @@ export interface Instance {
   yoloMode: boolean; // Auto-approve all permissions
   provider: InstanceProvider; // Which CLI provider is being used
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
+  reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
 
   /** Where this instance is executing (local or remote node) */
   executionLocation: ExecutionLocation;
@@ -368,7 +369,7 @@ export interface InstanceCreateConfig {
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)
   agentId?: string; // Agent profile ID (defaults to 'build')
   modelOverride?: string; // Optional model override for the instance
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  reasoningEffort?: ReasoningEffort;
   provider?: InstanceProvider; // CLI provider to use (defaults to settings.defaultCli)
 
   // Phase 2: Hierarchical instance options
@@ -463,6 +464,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
     provider, // Default to auto (resolved by instance manager)
+    reasoningEffort: config.reasoningEffort,
     executionLocation: { type: 'local' },
     diffStats: undefined,
 

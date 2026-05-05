@@ -497,7 +497,8 @@ export function registerInstanceHandlers(deps: {
 
         const instance = await instanceManager.changeModel(
           validatedPayload.instanceId,
-          validatedPayload.model
+          validatedPayload.model,
+          validatedPayload.reasoningEffort
         );
 
         return {

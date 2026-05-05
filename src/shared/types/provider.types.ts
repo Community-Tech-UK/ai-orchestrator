@@ -128,6 +128,9 @@ export interface ProviderSessionOptions {
   yoloMode?: boolean;
 }
 
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export type ReasoningEffort = typeof REASONING_EFFORTS[number];
+
 /**
  * Claude model identifiers - bare shorthand names so the CLI always resolves to the latest version.
  * No need to update these when new models release.
@@ -144,6 +147,23 @@ export const CLAUDE_MODELS = {
   FAST: 'haiku',
   BALANCED: 'sonnet',
   POWERFUL: 'opus',
+} as const;
+
+/**
+ * Claude pinned model identifiers for versioned selection.
+ * Bare aliases remain the defaults; pinned IDs are available when a user wants
+ * an explicit generation instead of provider-latest routing.
+ */
+export const CLAUDE_PINNED_MODELS = {
+  OPUS_47: 'claude-opus-4-7',
+  OPUS_46: 'claude-opus-4-6-20260401',
+  OPUS_45: 'claude-opus-4-5-20250918',
+  OPUS_4: 'claude-opus-4-20250514',
+  SONNET_46: 'claude-sonnet-4-6-20260401',
+  SONNET_45: 'claude-sonnet-4-5-20250929',
+  SONNET_4: 'claude-sonnet-4-20250514',
+  HAIKU_46: 'claude-haiku-4-6-20260401',
+  HAIKU_45: 'claude-haiku-4-5-20251001',
 } as const;
 
 /**
@@ -288,15 +308,26 @@ export interface ModelDisplayInfo {
  */
 export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   claude: [
-    { id: CLAUDE_MODELS.OPUS, name: 'Opus (latest)', tier: 'powerful' },
-    { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus (latest, 1M)', tier: 'powerful' },
-    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet (latest)', tier: 'balanced' },
-    { id: CLAUDE_MODELS.SONNET_1M, name: 'Sonnet (latest, 1M)', tier: 'balanced' },
-    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku (latest)', tier: 'fast' },
+    { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful' },
+    { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_45, name: 'Opus 4.5', tier: 'powerful' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_4, name: 'Opus 4', tier: 'powerful' },
+    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet latest', tier: 'balanced' },
+    { id: CLAUDE_MODELS.SONNET_1M, name: 'Sonnet latest, 1M', tier: 'balanced' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_46, name: 'Sonnet 4.6', tier: 'balanced' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_45, name: 'Sonnet 4.5', tier: 'balanced' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_4, name: 'Sonnet 4', tier: 'balanced' },
+    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku latest', tier: 'fast' },
+    { id: CLAUDE_PINNED_MODELS.HAIKU_46, name: 'Haiku 4.6', tier: 'fast' },
+    { id: CLAUDE_PINNED_MODELS.HAIKU_45, name: 'Haiku 4.5', tier: 'fast' },
   ],
   codex: [
     { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful' },
-    { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced' },
+    { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced' },
+    { id: OPENAI_MODELS.GPT53_CODEX_SPARK, name: 'GPT-5.3 Codex Spark', tier: 'fast' },
+    { id: OPENAI_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced' },
     { id: OPENAI_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
   ],
   gemini: [

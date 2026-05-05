@@ -33,8 +33,22 @@ import { OperatorStore } from '../../core/state/operator.store';
         <div class="operator-runs">
           @for (run of store.runs(); track run.id) {
             <article class="operator-run">
-              <span>{{ run.title }}</span>
-              <strong>{{ run.status }}</strong>
+              <div class="operator-run-main">
+                <span>{{ run.title }}</span>
+                <strong>{{ run.status }}</strong>
+              </div>
+              <div class="operator-run-actions">
+                @if (canCancelRun(run.status)) {
+                  <button type="button" class="operator-run-button" (click)="cancelRun(run.id)">
+                    Cancel
+                  </button>
+                }
+                @if (canRetryRun(run.status)) {
+                  <button type="button" class="operator-run-button" (click)="retryRun(run.id)">
+                    Retry
+                  </button>
+                }
+              </div>
             </article>
           }
         </div>
@@ -178,19 +192,42 @@ import { OperatorStore } from '../../core/state/operator.store';
       color: var(--text-secondary);
     }
 
-    .operator-run span {
+    .operator-run-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .operator-run-main span {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .operator-run strong {
+    .operator-run-main strong {
       color: var(--text-primary);
       font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 650;
       text-transform: uppercase;
+    }
+
+    .operator-run-actions {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 8px;
+    }
+
+    .operator-run-button {
+      min-width: 0;
+      height: 30px;
+      padding: 0 10px;
+      border-color: var(--glass-strong);
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
     }
 
     .operator-transcript {
@@ -339,6 +376,22 @@ export class OperatorPageComponent implements OnInit {
     }
     this.draft.set('');
     void this.store.sendMessage(text);
+  }
+
+  protected cancelRun(runId: string): void {
+    void this.store.cancelRun(runId);
+  }
+
+  protected retryRun(runId: string): void {
+    void this.store.retryRun(runId);
+  }
+
+  protected canCancelRun(status: string): boolean {
+    return status === 'queued' || status === 'running' || status === 'waiting';
+  }
+
+  protected canRetryRun(status: string): boolean {
+    return status === 'blocked' || status === 'failed' || status === 'cancelled';
   }
 
   protected visibleProjects() {

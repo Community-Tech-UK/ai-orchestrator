@@ -4,6 +4,7 @@ import type {
   OperatorProjectListQuery,
   OperatorProjectRecord,
   OperatorProjectRefreshOptions,
+  OperatorRunEventNotification,
   OperatorRunGraph,
   OperatorRunRecord,
   OperatorRunStatus,
@@ -68,5 +69,28 @@ export class OperatorIpcService {
       return { success: false, error: { message: 'Not in Electron' } };
     }
     return this.api.getOperatorRun({ runId }) as Promise<IpcResponse<OperatorRunGraph | null>>;
+  }
+
+  async cancelRun(runId: string): Promise<IpcResponse<OperatorRunGraph>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.cancelOperatorRun({ runId }) as Promise<IpcResponse<OperatorRunGraph>>;
+  }
+
+  async retryRun(runId: string): Promise<IpcResponse<OperatorRunGraph>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.retryOperatorRun({ runId }) as Promise<IpcResponse<OperatorRunGraph>>;
+  }
+
+  onOperatorEvent(callback: (payload: OperatorRunEventNotification) => void): () => void {
+    if (!this.api?.onOperatorEvent) {
+      return () => { /* noop */ };
+    }
+    return this.api.onOperatorEvent((payload: unknown) => {
+      this.base.getNgZone().run(() => callback(payload as OperatorRunEventNotification));
+    });
   }
 }

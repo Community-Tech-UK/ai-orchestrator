@@ -8,10 +8,13 @@ import type {
   OperatorRunNodeRecord,
   OperatorRunRecord,
   OperatorRunGraph,
+  OperatorRunStatus,
   OperatorShellCommandEventPayload,
   OperatorRunUsage,
   OperatorVerificationSummary,
 } from '../../shared/types/operator.types';
+import type { Instance } from '../../shared/types/instance.types';
+import type { RepoJobRecord, RepoJobSubmission } from '../../shared/types/repo-job.types';
 import { getOperatorDatabase } from './operator-database';
 import { getGitBatchService } from './git-batch-service';
 import { OperatorRunStore } from './operator-run-store';
@@ -37,6 +40,7 @@ export interface OperatorEngineMessageInput {
   threadId: string;
   sourceMessageId: string;
   text: string;
+  retryOfRunId?: string;
 }
 
 interface GitBatchExecutor {
@@ -61,13 +65,26 @@ interface OperatorVerificationExecutorLike {
   execute(input: OperatorVerificationExecutionInput): Promise<OperatorVerificationSummary>;
 }
 
+interface RepoJobExecutorLike {
+  submitJob(submission: RepoJobSubmission): RepoJobRecord;
+  waitForJob(jobId: string, timeout?: number): Promise<RepoJobRecord>;
+  cancelJob?(jobId: string): boolean;
+  getJob?(jobId: string): RepoJobRecord | undefined;
+}
+
+interface OperatorEngineInstanceManager extends ProjectAgentInstanceManager {
+  getInstance?(instanceId: string): Instance | undefined;
+  terminateInstance?(instanceId: string, graceful?: boolean): Promise<void>;
+}
+
 export interface OperatorEngineConfig {
   runStore?: OperatorRunStore;
   gitBatch?: GitBatchExecutor;
   projectRegistry?: ProjectRegistryResolver;
   projectAgent?: ProjectAgentExecutorLike;
   verificationExecutor?: OperatorVerificationExecutorLike;
-  instanceManager?: ProjectAgentInstanceManager;
+  repoJob?: RepoJobExecutorLike | null;
+  instanceManager?: OperatorEngineInstanceManager;
   resolveWorkRoot?: (text: string) => string;
   defaultBudget?: Partial<OperatorRunBudget>;
   now?: () => number;
@@ -80,6 +97,8 @@ export class OperatorEngine {
   private readonly projectRegistry: ProjectRegistryResolver | null;
   private readonly projectAgent: ProjectAgentExecutorLike | null;
   private readonly verificationExecutor: OperatorVerificationExecutorLike;
+  private readonly repoJob: RepoJobExecutorLike | null;
+  private readonly instanceManager: OperatorEngineInstanceManager | null;
   private readonly resolveWorkRoot: (text: string) => string;
   private readonly defaultBudget?: Partial<OperatorRunBudget>;
   private readonly now: () => number;
@@ -97,12 +116,14 @@ export class OperatorEngine {
     this.runStore = config.runStore ?? new OperatorRunStore(getOperatorDatabase().db);
     this.gitBatch = config.gitBatch ?? getGitBatchService();
     this.projectRegistry = config.projectRegistry ?? null;
+    this.instanceManager = config.instanceManager ?? null;
     this.projectAgent = config.projectAgent
       ?? (config.instanceManager
         ? new ProjectAgentExecutor({ instanceManager: config.instanceManager, runStore: this.runStore })
         : null);
     this.verificationExecutor = config.verificationExecutor
       ?? new OperatorVerificationExecutor({ runStore: this.runStore });
+    this.repoJob = config.repoJob ?? null;
     this.resolveWorkRoot = config.resolveWorkRoot ?? defaultWorkRoot;
     this.defaultBudget = config.defaultBudget;
     this.now = config.now ?? Date.now;
@@ -121,6 +142,210 @@ export class OperatorEngine {
     return null;
   }
 
+  async cancelRun(runId: string): Promise<OperatorRunGraph> {
+    const graph = this.requireRunGraph(runId);
+    if (isTerminalRunStatus(graph.run.status)) {
+      return graph;
+    }
+
+    const completedAt = this.now();
+    const cancellableNodes = graph.nodes.filter((node) => !isTerminalRunStatus(node.status));
+    await Promise.all(cancellableNodes.map(async (node) => {
+      try {
+        await this.cancelExternalNode(node);
+      } catch (error) {
+        this.runStore.appendEvent({
+          runId,
+          nodeId: node.id,
+          kind: 'recovery',
+          payload: {
+            action: 'external-cancel-failed',
+            externalRefKind: node.externalRefKind,
+            externalRefId: node.externalRefId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+    }));
+
+    for (const node of cancellableNodes) {
+      this.runStore.updateNode(node.id, {
+        status: 'cancelled',
+        completedAt,
+        error: 'Cancelled by user',
+      });
+      this.runStore.appendEvent({
+        runId,
+        nodeId: node.id,
+        kind: 'state-change',
+        payload: {
+          status: 'cancelled',
+          reason: 'user-cancelled',
+        },
+      });
+    }
+
+    this.runStore.appendEvent({
+      runId,
+      kind: 'recovery',
+      payload: {
+        action: 'cancelled',
+        reason: 'user-request',
+        cancelledNodeIds: cancellableNodes.map((node) => node.id),
+      },
+    });
+    this.runStore.updateRun(runId, {
+      status: 'cancelled',
+      completedAt,
+      usageJson: {
+        nodesCompleted: graph.run.usageJson.nodesCompleted + cancellableNodes.length,
+        wallClockMs: completedAt - graph.run.createdAt,
+      },
+      error: 'Cancelled by user',
+    });
+    this.runStore.appendEvent({
+      runId,
+      kind: 'state-change',
+      payload: {
+        status: 'cancelled',
+        reason: 'user-cancelled',
+      },
+    });
+
+    return this.runStore.getRunGraph(runId)!;
+  }
+
+  async retryRun(runId: string): Promise<OperatorRunGraph> {
+    const previousRun = this.runStore.getRun(runId);
+    if (!previousRun) {
+      throw new Error(`Operator run not found: ${runId}`);
+    }
+    if (!isTerminalRunStatus(previousRun.status)) {
+      throw new Error(`Operator run is still active and cannot be retried: ${runId}`);
+    }
+
+    const graph = await this.handleUserMessage({
+      threadId: previousRun.threadId,
+      sourceMessageId: `${previousRun.sourceMessageId}:retry:${this.now()}`,
+      text: previousRun.goal,
+      retryOfRunId: previousRun.id,
+    });
+    if (!graph) {
+      throw new Error(`Operator run cannot be retried because its goal is no longer routable: ${runId}`);
+    }
+
+    this.runStore.updateRun(previousRun.id, {
+      planJson: {
+        ...previousRun.planJson,
+        retriedByRunId: graph.run.id,
+      },
+    });
+    this.runStore.appendEvent({
+      runId: graph.run.id,
+      kind: 'recovery',
+      payload: {
+        action: 'retry-created',
+        retryOfRunId: previousRun.id,
+      },
+    });
+
+    return this.runStore.getRunGraph(graph.run.id)!;
+  }
+
+  recoverActiveRuns(): OperatorRunGraph[] {
+    const activeRuns = this.runStore.listRuns({ limit: 500 })
+      .filter((run) => run.status === 'queued' || run.status === 'running' || run.status === 'waiting');
+    const recovered: OperatorRunGraph[] = [];
+
+    for (const run of activeRuns) {
+      const graph = this.runStore.getRunGraph(run.id);
+      if (!graph) continue;
+
+      let blocked = false;
+      for (const node of graph.nodes.filter((candidate) => !isTerminalRunStatus(candidate.status))) {
+        const staleReason = this.getStaleExternalNodeReason(node);
+        if (!staleReason) {
+          this.markExternalNodeRecovered(node);
+          continue;
+        }
+
+        blocked = true;
+        const error = `Operator run recovery blocked: ${staleReason}`;
+        const completedAt = this.now();
+        const recoveryReason = node.externalRefKind === 'repo-job'
+          ? 'stale-repo-job-link'
+          : node.externalRefKind === 'instance'
+            ? 'stale-instance-link'
+            : 'stale-node';
+        this.runStore.appendEvent({
+          runId: run.id,
+          nodeId: node.id,
+          kind: 'recovery',
+          payload: {
+            reason: recoveryReason,
+            action: 'blocked',
+            instanceId: node.externalRefKind === 'instance' ? node.externalRefId : undefined,
+            externalRefKind: node.externalRefKind,
+            externalRefId: node.externalRefId,
+          },
+        });
+        this.runStore.updateNode(node.id, {
+          status: 'blocked',
+          completedAt,
+          error,
+        });
+        if (node.externalRefKind === 'instance' && node.externalRefId) {
+          this.runStore.touchInstanceLink(node.externalRefId, 'stale');
+        }
+      }
+
+      if (!blocked && graph.nodes.some((node) => !isTerminalRunStatus(node.status))) {
+        continue;
+      }
+
+      if (!blocked) {
+        this.runStore.appendEvent({
+          runId: run.id,
+          kind: 'recovery',
+          payload: {
+            reason: 'no-active-nodes',
+            action: 'blocked',
+          },
+        });
+      }
+
+      const completedAt = this.now();
+      const currentGraph = this.runStore.getRunGraph(run.id)!;
+      const error = blocked
+        ? currentGraph.nodes.find((node) => node.status === 'blocked')?.error
+          ?? 'Operator run recovery blocked'
+        : 'Operator run recovery blocked: no active nodes remain';
+      const newlyTerminalNodes = currentGraph.nodes
+        .filter((node) => isTerminalRunStatus(node.status))
+        .length;
+      this.runStore.updateRun(run.id, {
+        status: 'blocked',
+        completedAt,
+        usageJson: {
+          nodesCompleted: Math.max(currentGraph.run.usageJson.nodesCompleted, newlyTerminalNodes),
+          wallClockMs: completedAt - currentGraph.run.createdAt,
+        },
+        error,
+      });
+      this.runStore.appendEvent({
+        runId: run.id,
+        kind: 'state-change',
+        payload: {
+          status: 'blocked',
+          reason: 'startup-recovery',
+        },
+      });
+      recovered.push(this.runStore.getRunGraph(run.id)!);
+    }
+
+    return recovered;
+  }
+
   private async handleGitBatchRequest(input: OperatorEngineMessageInput): Promise<OperatorRunGraph> {
     const rootPath = this.resolveWorkRoot(input.text);
     const startedAt = this.now();
@@ -134,6 +359,7 @@ export class OperatorEngine {
         intent: 'workspace_git_batch',
         executor: 'git-batch',
         rootPath,
+        ...(input.retryOfRunId ? { retryOfRunId: input.retryOfRunId } : {}),
       },
     });
     const startBreach = evaluateOperatorBudget(run, { nodesToStart: 1 });
@@ -244,17 +470,21 @@ export class OperatorEngine {
     const runStartedAt = this.now();
     const resolution = (this.projectRegistry ?? getProjectRegistry()).resolveProject(request.projectQuery);
     const project = resolution.project;
+    const executor = request.intent === 'project_audit' && this.repoJob ? 'repo-job' : 'project-agent';
     const run = this.runStore.createRun({
       threadId: input.threadId,
       sourceMessageId: input.sourceMessageId,
-      title: project ? `Implement in ${project.displayName}` : `Implement in ${request.projectQuery}`,
+      title: project
+        ? request.intent === 'project_audit' ? `Audit ${project.displayName}` : `Implement in ${project.displayName}`
+        : request.intent === 'project_audit' ? `Audit ${request.projectQuery}` : `Implement in ${request.projectQuery}`,
       goal: input.text,
       budget: this.defaultBudget,
       planJson: {
         intent: request.intent,
-        executor: 'project-agent',
+        executor,
         projectQuery: request.projectQuery,
         resolvedStatus: resolution.status,
+        ...(input.retryOfRunId ? { retryOfRunId: input.retryOfRunId } : {}),
         ...(project ? {
           projectId: project.id,
           projectPath: project.canonicalPath,
@@ -277,6 +507,15 @@ export class OperatorEngine {
         payload: { status: 'blocked', reason: 'project-resolution', error },
       });
       return this.runStore.getRunGraph(run.id)!;
+    }
+
+    if (request.intent === 'project_audit' && this.repoJob) {
+      return this.runRepoJobAuditNode({
+        run,
+        project,
+        goal: request.goal,
+        runStartedAt,
+      });
     }
 
     const initialAgent = await this.runProjectAgentNode({
@@ -396,6 +635,189 @@ export class OperatorEngine {
       latestProjectAgentOutput = repairAgent.result.outputJson;
       verificationAttempt = repairAttempt;
     }
+  }
+
+  private async runRepoJobAuditNode(input: {
+    run: OperatorRunRecord;
+    project: OperatorProjectRecord;
+    goal: string;
+    runStartedAt: number;
+  }): Promise<OperatorRunGraph> {
+    const currentRun = this.runStore.getRun(input.run.id) ?? input.run;
+    const startBreach = evaluateOperatorBudget(currentRun, {
+      nodesToStart: 1,
+      usageJson: { wallClockMs: this.now() - input.runStartedAt },
+    });
+    if (startBreach) {
+      return this.blockRunForBudget(currentRun, null, startBreach, {
+        wallClockMs: this.now() - input.runStartedAt,
+      });
+    }
+
+    const node = this.runStore.createNode({
+      runId: input.run.id,
+      type: 'repo-job',
+      title: `Audit ${input.project.displayName}`,
+      targetProjectId: input.project.id,
+      targetPath: input.project.canonicalPath,
+      inputJson: {
+        projectId: input.project.id,
+        projectPath: input.project.canonicalPath,
+        type: 'repo-health-audit',
+      },
+    });
+
+    const afterCreateRun = this.runStore.getRun(input.run.id)!;
+    this.runStore.updateRun(input.run.id, {
+      status: 'running',
+      usageJson: {
+        nodesStarted: afterCreateRun.usageJson.nodesStarted + 1,
+        wallClockMs: this.now() - input.runStartedAt,
+      },
+    });
+    this.runStore.updateNode(node.id, { status: 'running' });
+    this.runStore.appendEvent({
+      runId: input.run.id,
+      nodeId: node.id,
+      kind: 'state-change',
+      payload: { status: 'running' },
+    });
+    this.runStore.appendEvent({
+      runId: input.run.id,
+      nodeId: node.id,
+      kind: 'progress',
+      payload: {
+        message: 'Starting repository health audit',
+        projectPath: input.project.canonicalPath,
+      },
+    });
+
+    if (!this.repoJob) {
+      const error = 'Repo job executor unavailable';
+      const completedAt = this.now();
+      const runningRun = this.runStore.getRun(input.run.id)!;
+      this.runStore.updateNode(node.id, {
+        status: 'blocked',
+        completedAt,
+        error,
+      });
+      this.runStore.updateRun(input.run.id, {
+        status: 'blocked',
+        completedAt,
+        usageJson: {
+          nodesCompleted: runningRun.usageJson.nodesCompleted + 1,
+          wallClockMs: completedAt - input.runStartedAt,
+        },
+        error,
+      });
+      this.runStore.appendEvent({
+        runId: input.run.id,
+        nodeId: node.id,
+        kind: 'state-change',
+        payload: { status: 'blocked', reason: 'executor-unavailable' },
+      });
+      return this.runStore.getRunGraph(input.run.id)!;
+    }
+
+    let finalJob: RepoJobRecord;
+    try {
+      const submitted = this.repoJob.submitJob({
+        type: 'repo-health-audit',
+        workingDirectory: input.project.canonicalPath,
+        title: `Audit ${input.project.displayName}`,
+        description: input.goal,
+        useWorktree: false,
+      });
+      this.runStore.updateNode(node.id, {
+        externalRefKind: 'repo-job',
+        externalRefId: submitted.id,
+      });
+      this.runStore.appendEvent({
+        runId: input.run.id,
+        nodeId: node.id,
+        kind: 'progress',
+        payload: {
+          message: 'Repository health audit submitted',
+          repoJobId: submitted.id,
+        },
+      });
+      finalJob = await this.repoJob.waitForJob(submitted.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Repo job failed';
+      const completedAt = this.now();
+      const runningRun = this.runStore.getRun(input.run.id)!;
+      this.runStore.updateNode(node.id, {
+        status: 'failed',
+        completedAt,
+        error: message,
+      });
+      this.runStore.updateRun(input.run.id, {
+        status: 'failed',
+        completedAt,
+        usageJson: {
+          nodesCompleted: runningRun.usageJson.nodesCompleted + 1,
+          wallClockMs: completedAt - input.runStartedAt,
+        },
+        error: message,
+      });
+      this.runStore.appendEvent({
+        runId: input.run.id,
+        nodeId: node.id,
+        kind: 'state-change',
+        payload: { status: 'failed', reason: 'repo-job-error' },
+      });
+      return this.runStore.getRunGraph(input.run.id)!;
+    }
+
+    const completedAt = this.now();
+    const runningRun = this.runStore.getRun(input.run.id)!;
+    const finalUsage: Partial<OperatorRunUsage> = {
+      nodesCompleted: runningRun.usageJson.nodesCompleted + 1,
+      wallClockMs: completedAt - input.runStartedAt,
+    };
+    const outputJson = { repoJob: finalJob as unknown as Record<string, unknown> };
+    const budgetBreach = evaluateOperatorBudget(runningRun, {
+      usageJson: finalUsage,
+    });
+    if (budgetBreach) {
+      return this.blockRunForBudget(runningRun, node, budgetBreach, finalUsage, outputJson);
+    }
+
+    const terminalStatus = repoJobStatusToOperatorStatus(finalJob.status);
+    const error = terminalStatus === 'completed' ? null : finalJob.error ?? `Repo job ${finalJob.status}`;
+    this.runStore.updateNode(node.id, {
+      status: terminalStatus,
+      outputJson,
+      externalRefKind: 'repo-job',
+      externalRefId: finalJob.id,
+      completedAt,
+      error,
+    });
+    this.runStore.updateRun(input.run.id, {
+      status: terminalStatus,
+      resultJson: outputJson,
+      completedAt,
+      usageJson: finalUsage,
+      error,
+    });
+    this.runStore.appendEvent({
+      runId: input.run.id,
+      nodeId: node.id,
+      kind: 'progress',
+      payload: {
+        message: 'Repository health audit finished',
+        repoJobId: finalJob.id,
+        status: finalJob.status,
+      },
+    });
+    this.runStore.appendEvent({
+      runId: input.run.id,
+      nodeId: node.id,
+      kind: 'state-change',
+      payload: { status: terminalStatus },
+    });
+
+    return this.runStore.getRunGraph(input.run.id)!;
   }
 
   private async runProjectAgentNode(input: {
@@ -775,6 +1197,53 @@ export class OperatorEngine {
 
     return this.runStore.getRunGraph(run.id)!;
   }
+
+  private requireRunGraph(runId: string): OperatorRunGraph {
+    const graph = this.runStore.getRunGraph(runId);
+    if (!graph) {
+      throw new Error(`Operator run not found: ${runId}`);
+    }
+    return graph;
+  }
+
+  private async cancelExternalNode(node: OperatorRunNodeRecord): Promise<void> {
+    if (node.externalRefKind === 'instance' && node.externalRefId) {
+      await this.instanceManager?.terminateInstance?.(node.externalRefId, true);
+      return;
+    }
+    if (node.externalRefKind === 'repo-job' && node.externalRefId) {
+      this.repoJob?.cancelJob?.(node.externalRefId);
+    }
+  }
+
+  private getStaleExternalNodeReason(node: OperatorRunNodeRecord): string | null {
+    if (node.externalRefKind === 'instance' && node.externalRefId) {
+      const instance = this.instanceManager?.getInstance?.(node.externalRefId);
+      if (!instance || isTerminalInstanceStatus(instance.status)) {
+        return `linked instance ${node.externalRefId} is no longer active`;
+      }
+      return null;
+    }
+
+    if (node.externalRefKind === 'repo-job' && node.externalRefId && this.repoJob?.getJob) {
+      const job = this.repoJob.getJob(node.externalRefId);
+      if (!job || job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        return `linked repo job ${node.externalRefId} is no longer active`;
+      }
+    }
+
+    if (!node.externalRefKind && node.status === 'queued') {
+      return 'queued node was not started before restart';
+    }
+
+    return null;
+  }
+
+  private markExternalNodeRecovered(node: OperatorRunNodeRecord): void {
+    if (node.externalRefKind === 'instance' && node.externalRefId) {
+      this.runStore.touchInstanceLink(node.externalRefId, 'recovered');
+    }
+  }
 }
 
 export function getOperatorEngine(config?: OperatorEngineConfig): OperatorEngine {
@@ -833,6 +1302,29 @@ function defaultWorkRoot(text: string): string {
 function readProjectAgentOutputPreview(node: OperatorRunNodeRecord): string | null {
   const preview = node.outputJson?.['outputPreview'];
   return typeof preview === 'string' ? preview : null;
+}
+
+function isTerminalRunStatus(status: OperatorRunStatus): boolean {
+  return status === 'completed'
+    || status === 'failed'
+    || status === 'cancelled'
+    || status === 'blocked';
+}
+
+function isTerminalInstanceStatus(status: Instance['status']): boolean {
+  return status === 'terminated'
+    || status === 'error'
+    || status === 'failed'
+    || status === 'cancelled'
+    || status === 'superseded'
+    || status === 'hibernated';
+}
+
+function repoJobStatusToOperatorStatus(status: RepoJobRecord['status']): OperatorRunStatus {
+  if (status === 'completed') return 'completed';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'failed') return 'failed';
+  return 'waiting';
 }
 
 function verificationFailureMessage(

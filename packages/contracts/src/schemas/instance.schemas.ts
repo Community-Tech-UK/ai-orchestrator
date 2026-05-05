@@ -7,6 +7,8 @@ import {
   FileAttachmentSchema,
 } from './common.schemas';
 
+const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+
 // ============ Instance Creation ============
 
 export const InstanceCreatePayloadSchema = z.object({
@@ -90,6 +92,7 @@ export type InstanceChangeAgentPayload = z.infer<typeof InstanceChangeAgentPaylo
 export const InstanceChangeModelPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   model: z.string().min(1).max(100),
+  reasoningEffort: ReasoningEffortSchema.nullable().optional(),
 });
 
 export type InstanceChangeModelPayload = z.infer<typeof InstanceChangeModelPayloadSchema>;

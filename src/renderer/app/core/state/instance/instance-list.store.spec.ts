@@ -260,4 +260,47 @@ describe('InstanceListStore', () => {
     expect(stateService.getInstance(instance.id)?.currentModel).toBe('sonnet');
     expect(stateService.state().error).toContain('waiting for user input');
   });
+
+  it('passes reasoning effort through model changes and stores the returned value', async () => {
+    ipc.changeModel.mockResolvedValue({
+      success: true,
+      data: {
+        currentModel: 'sonnet[1m]',
+        reasoningEffort: 'high',
+        status: 'idle',
+      },
+    });
+    const instance = store.deserializeInstance({
+      id: 'instance-model-thinking',
+      displayName: 'Thinking model switch',
+      createdAt: 1,
+      historyThreadId: 'thread-model-thinking',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      contextUsage: {
+        used: 0,
+        total: 200000,
+        percentage: 0,
+      },
+      lastActivity: 2,
+      sessionId: 'session-model-thinking',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      currentModel: 'sonnet',
+      outputBuffer: [],
+    });
+    stateService.addInstance(instance);
+
+    await (store as InstanceListStore & {
+      changeModel: (instanceId: string, newModel: string, reasoningEffort?: 'high') => Promise<void>;
+    }).changeModel(instance.id, 'sonnet[1m]', 'high');
+
+    expect(ipc.changeModel).toHaveBeenCalledWith(instance.id, 'sonnet[1m]', 'high');
+    expect(stateService.getInstance(instance.id)).toMatchObject({
+      currentModel: 'sonnet[1m]',
+      reasoningEffort: 'high',
+      status: 'idle',
+    });
+  });
 });

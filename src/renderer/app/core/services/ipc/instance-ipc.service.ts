@@ -5,6 +5,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
+import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 
 export interface CreateInstanceConfig {
   workingDirectory: string;
@@ -164,9 +165,13 @@ export class InstanceIpcService {
   /**
    * Change model for an instance (preserves conversation context)
    */
-  async changeModel(instanceId: string, model: string): Promise<IpcResponse> {
+  async changeModel(
+    instanceId: string,
+    model: string,
+    reasoningEffort?: ReasoningEffort | null
+  ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.changeModel({ instanceId, model });
+    return this.api.changeModel({ instanceId, model, reasoningEffort });
   }
 
   /**

@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type {
   OperatorProjectRecord,
+  OperatorRunGraph,
   OperatorRunStatus,
   OperatorVerificationSummary,
 } from '../../shared/types/operator.types';
+import type { Instance } from '../../shared/types/instance.types';
+import type { RepoJobRecord, RepoJobSubmission } from '../../shared/types/repo-job.types';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createOperatorTables } from './operator-schema';
 import { OperatorRunStore } from './operator-run-store';
-import { OperatorEngine } from './operator-engine';
+import { OperatorEngine, type OperatorEngineConfig } from './operator-engine';
 
 describe('OperatorEngine', () => {
   it('creates and completes a git-batch run for pull-all-repos requests', async () => {
@@ -566,7 +569,7 @@ describe('OperatorEngine', () => {
     db.close();
   });
 
-  it('routes project audit requests with "in the project" wording to the project-agent executor', async () => {
+  it('routes project audit requests with "in the project" wording to a repo-health audit job', async () => {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);
     const runStore = new OperatorRunStore(db);
@@ -577,12 +580,13 @@ describe('OperatorEngine', () => {
       aliases: ['dingley'],
     });
     const projectAgent = new FakeProjectAgentExecutor();
-    const engine = new OperatorEngine({
+    const repoJob = new FakeRepoJobExecutor();
+    const config = {
       runStore,
       gitBatch: new FakeGitBatchService(),
       projectRegistry: {
-        resolveProject: (query) => ({
-          status: 'resolved',
+        resolveProject: (query: string) => ({
+          status: 'resolved' as const,
           query,
           project,
           candidates: [project],
@@ -590,6 +594,10 @@ describe('OperatorEngine', () => {
       },
       projectAgent,
       verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      repoJob,
+    } satisfies OperatorEngineConfig & { repoJob: FakeRepoJobExecutor };
+    const engine = new OperatorEngine({
+      ...config,
     });
 
     const graph = await engine.handleUserMessage({
@@ -598,23 +606,190 @@ describe('OperatorEngine', () => {
       text: 'Please go through all the code in the dingley project and create a list of things we can improve',
     });
 
-    expect(projectAgent.calls).toEqual([
+    expect(projectAgent.calls).toEqual([]);
+    expect(repoJob.submissions).toEqual([
       expect.objectContaining({
-        goal: 'Please go through all the code in the dingley project and create a list of things we can improve',
-        project,
+        type: 'repo-health-audit',
+        workingDirectory: '/work/dingley',
+        useWorktree: false,
       }),
     ]);
     expect(graph?.run.planJson).toMatchObject({
       intent: 'project_audit',
-      executor: 'project-agent',
+      executor: 'repo-job',
       projectId: 'project-dingley',
       projectPath: '/work/dingley',
     });
     expect(graph?.nodes[0]).toMatchObject({
-      type: 'project-agent',
+      type: 'repo-job',
+      status: 'completed',
       targetProjectId: 'project-dingley',
       targetPath: '/work/dingley',
+      externalRefKind: 'repo-job',
+      externalRefId: 'repo-job-1',
     });
+    expect(graph?.run.resultJson).toMatchObject({
+      repoJob: expect.objectContaining({
+        status: 'completed',
+        result: expect.objectContaining({
+          summary: 'Audit finished',
+        }),
+      }),
+    });
+    db.close();
+  });
+
+  it('cancels an active run and marks active external workers cancelled', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const instanceManager = new FakeRecoveryInstanceManager();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      instanceManager,
+    });
+    const run = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Active run',
+      goal: 'In AI Orchestrator, add cancel support',
+      planJson: { intent: 'project_feature' },
+    });
+    const node = runStore.createNode({
+      runId: run.id,
+      type: 'project-agent',
+      title: 'Active worker',
+      externalRefKind: 'instance',
+      externalRefId: 'instance-1',
+    });
+    runStore.updateRun(run.id, { status: 'running', usageJson: { nodesStarted: 1 } });
+    runStore.updateNode(node.id, { status: 'running' });
+
+    const graph = await (engine as OperatorEngine & {
+      cancelRun(runId: string): Promise<OperatorRunGraph>;
+    }).cancelRun(run.id);
+
+    expect(instanceManager.terminated).toEqual(['instance-1']);
+    expect(graph.run).toMatchObject({
+      status: 'cancelled',
+      error: 'Cancelled by user',
+    });
+    expect(graph.nodes[0]).toMatchObject({
+      status: 'cancelled',
+      error: 'Cancelled by user',
+    });
+    expect(graph.events).toContainEqual(expect.objectContaining({
+      kind: 'state-change',
+      payload: expect.objectContaining({
+        status: 'cancelled',
+      }),
+    }));
+    db.close();
+  });
+
+  it('retries a terminal run by creating a new run linked to the previous run', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      resolveWorkRoot: () => '/work',
+    });
+    const failedRun = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Pull repositories',
+      goal: 'Please pull all the repos in my work folder',
+      planJson: { intent: 'workspace_git_batch' },
+    });
+    runStore.updateRun(failedRun.id, {
+      status: 'blocked',
+      completedAt: 10,
+      error: 'Previous failure',
+    });
+
+    const graph = await (engine as OperatorEngine & {
+      retryRun(runId: string): Promise<OperatorRunGraph>;
+    }).retryRun(failedRun.id);
+
+    expect(graph.run.id).not.toBe(failedRun.id);
+    expect(graph.run).toMatchObject({
+      status: 'completed',
+      threadId: 'thread-1',
+      goal: 'Please pull all the repos in my work folder',
+      planJson: expect.objectContaining({
+        intent: 'workspace_git_batch',
+        retryOfRunId: failedRun.id,
+      }),
+    });
+    expect(runStore.getRun(failedRun.id)?.planJson).toMatchObject({
+      retriedByRunId: graph.run.id,
+    });
+    expect(graph.events).toContainEqual(expect.objectContaining({
+      kind: 'recovery',
+      payload: expect.objectContaining({
+        action: 'retry-created',
+        retryOfRunId: failedRun.id,
+      }),
+    }));
+    db.close();
+  });
+
+  it('blocks stale active runs during startup recovery when linked instances are gone', () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const instanceManager = new FakeRecoveryInstanceManager();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      instanceManager,
+    });
+    const run = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Recovered run',
+      goal: 'In AI Orchestrator, add recovery',
+      planJson: { intent: 'project_feature' },
+    });
+    const node = runStore.createNode({
+      runId: run.id,
+      type: 'project-agent',
+      title: 'Lost worker',
+      externalRefKind: 'instance',
+      externalRefId: 'missing-instance',
+    });
+    runStore.updateRun(run.id, { status: 'running', usageJson: { nodesStarted: 1 } });
+    runStore.updateNode(node.id, { status: 'running' });
+    runStore.upsertInstanceLink({
+      instanceId: 'missing-instance',
+      runId: run.id,
+      nodeId: node.id,
+    });
+
+    const recovered = (engine as OperatorEngine & {
+      recoverActiveRuns(): OperatorRunGraph[];
+    }).recoverActiveRuns();
+
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]?.run).toMatchObject({
+      status: 'blocked',
+      error: 'Operator run recovery blocked: linked instance missing-instance is no longer active',
+    });
+    expect(recovered[0]?.nodes[0]).toMatchObject({
+      status: 'blocked',
+      error: 'Operator run recovery blocked: linked instance missing-instance is no longer active',
+    });
+    expect(runStore.getInstanceLink('missing-instance')?.recoveryState).toBe('stale');
+    expect(recovered[0]?.events).toContainEqual(expect.objectContaining({
+      kind: 'recovery',
+      payload: expect.objectContaining({
+        reason: 'stale-instance-link',
+        instanceId: 'missing-instance',
+      }),
+    }));
     db.close();
   });
 });
@@ -686,6 +861,78 @@ class FakeProjectAgentExecutor {
   }
 }
 
+class FakeRepoJobExecutor {
+  submissions: RepoJobSubmission[] = [];
+  cancelled: string[] = [];
+  private readonly jobs = new Map<string, RepoJobRecord>();
+
+  submitJob(submission: RepoJobSubmission): RepoJobRecord {
+    this.submissions.push(submission);
+    const job = repoJobRecord({
+      id: `repo-job-${this.submissions.length}`,
+      status: 'running',
+      workingDirectory: submission.workingDirectory,
+      title: submission.title,
+      description: submission.description,
+      submission,
+    });
+    this.jobs.set(job.id, job);
+    return job;
+  }
+
+  async waitForJob(jobId: string): Promise<RepoJobRecord> {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      throw new Error(`Missing fake repo job: ${jobId}`);
+    }
+    const completed = {
+      ...job,
+      status: 'completed' as const,
+      progress: 100,
+      completedAt: 2,
+      result: {
+        instanceId: 'repo-job-instance-1',
+        summary: 'Audit finished',
+        repoContext: job.repoContext,
+      },
+    };
+    this.jobs.set(jobId, completed);
+    return completed;
+  }
+
+  cancelJob(jobId: string): boolean {
+    this.cancelled.push(jobId);
+    return true;
+  }
+}
+
+class FakeRecoveryInstanceManager {
+  terminated: string[] = [];
+  private readonly instances = new Map<string, Instance>();
+
+  constructor(instances: Instance[] = []) {
+    for (const instance of instances) {
+      this.instances.set(instance.id, instance);
+    }
+  }
+
+  getInstance(instanceId: string): Instance | undefined {
+    return this.instances.get(instanceId);
+  }
+
+  async createInstance(): Promise<Instance> {
+    throw new Error('createInstance is not used by this test');
+  }
+
+  async waitForInstanceSettled(): Promise<Instance | undefined> {
+    throw new Error('waitForInstanceSettled is not used by this test');
+  }
+
+  async terminateInstance(instanceId: string): Promise<void> {
+    this.terminated.push(instanceId);
+  }
+}
+
 class FakeVerificationExecutor {
   calls: Array<{ runId: string; nodeId: string; sourceNodeId: unknown; project: OperatorProjectRecord }> = [];
 
@@ -740,6 +987,39 @@ function projectAgentResult(
     externalRefKind: 'instance',
     externalRefId: instanceId,
     error,
+  };
+}
+
+function repoJobRecord(overrides: Partial<RepoJobRecord> = {}): RepoJobRecord {
+  const submission: RepoJobSubmission = overrides.submission ?? {
+    type: 'repo-health-audit',
+    workingDirectory: overrides.workingDirectory ?? '/work/ai-orchestrator',
+    title: overrides.title,
+    description: overrides.description,
+    useWorktree: false,
+  };
+  return {
+    id: 'repo-job-1',
+    taskId: 'repo-job-1',
+    name: 'Repository health audit',
+    type: submission.type,
+    status: 'queued',
+    workingDirectory: submission.workingDirectory,
+    title: submission.title,
+    description: submission.description,
+    workflowTemplateId: 'repo-health-audit',
+    useWorktree: submission.useWorktree ?? false,
+    progress: 0,
+    createdAt: 1,
+    repoContext: {
+      gitAvailable: true,
+      isRepo: true,
+      gitRoot: submission.workingDirectory,
+      currentBranch: 'main',
+      changedFiles: [],
+    },
+    submission,
+    ...overrides,
   };
 }
 

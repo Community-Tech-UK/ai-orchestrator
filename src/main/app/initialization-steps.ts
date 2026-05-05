@@ -135,8 +135,13 @@ export function createInitializationSteps(
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { getOperatorEngine, getProjectRegistry } = require('../operator') as typeof import('../operator');
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getRepoJobService } = require('../repo-jobs') as typeof import('../repo-jobs');
+          const repoJob = getRepoJobService();
+          repoJob.initialize({ instanceManager });
           getProjectRegistry({ instanceManager });
-          getOperatorEngine({ instanceManager });
+          const engine = getOperatorEngine({ instanceManager, repoJob });
+          engine.recoverActiveRuns();
         } catch (error) {
           logger.warn('Operator runtime initialization failed; delegated project work will be unavailable', {
             error: error instanceof Error ? error.message : String(error),

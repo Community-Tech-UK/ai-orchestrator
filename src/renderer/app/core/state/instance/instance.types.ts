@@ -5,6 +5,7 @@
 import type { AgentMode } from '../../../../../shared/types/agent.types';
 import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
+import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type {
   FailedImageRef,
   FileAttachment,
@@ -111,6 +112,7 @@ export interface Instance {
   workingDirectory: string;
   yoloMode: boolean;
   currentModel?: string; // Current model being used
+  reasoningEffort?: ReasoningEffort; // Optional thinking/reasoning effort override
   outputBuffer: OutputMessage[];
   /** How this instance was restored from history, if applicable */
   restoreMode?: HistoryRestoreMode;

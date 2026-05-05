@@ -3,6 +3,7 @@ import type { ConversationLedgerConversation } from '../../../../shared/types/co
 import type {
   OperatorProjectRecord,
   OperatorProjectRefreshOptions,
+  OperatorRunEventNotification,
   OperatorRunRecord,
 } from '../../../../shared/types/operator.types';
 import { OperatorIpcService } from '../services/ipc/operator-ipc.service';
@@ -20,6 +21,7 @@ export class OperatorStore {
   private readonly _runs = signal<OperatorRunRecord[]>([]);
   private readonly _error = signal<string | null>(null);
   private initialized = false;
+  private unsubscribeOperatorEvents: (() => void) | null = null;
 
   readonly conversation = this._conversation.asReadonly();
   readonly selected = this._selected.asReadonly();
@@ -37,6 +39,7 @@ export class OperatorStore {
     if (this.initialized || this._loading()) {
       return;
     }
+    this.subscribeToOperatorEvents();
     await Promise.all([
       this.refresh(),
       this.loadProjects(),
@@ -148,5 +151,53 @@ export class OperatorStore {
     } finally {
       this._projectLoading.set(false);
     }
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    this._error.set(null);
+    try {
+      const response = await this.ipc.cancelRun(runId);
+      if (!response.success) {
+        this._error.set(response.error?.message ?? 'Failed to cancel run');
+        return;
+      }
+      await this.loadRuns();
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to cancel run');
+    }
+  }
+
+  async retryRun(runId: string): Promise<void> {
+    this._error.set(null);
+    try {
+      const response = await this.ipc.retryRun(runId);
+      if (!response.success) {
+        this._error.set(response.error?.message ?? 'Failed to retry run');
+        return;
+      }
+      await this.loadRuns();
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to retry run');
+    }
+  }
+
+  disposeForTesting(): void {
+    this.unsubscribeOperatorEvents?.();
+    this.unsubscribeOperatorEvents = null;
+    this.initialized = false;
+  }
+
+  private subscribeToOperatorEvents(): void {
+    if (this.unsubscribeOperatorEvents) {
+      return;
+    }
+    this.unsubscribeOperatorEvents = this.ipc.onOperatorEvent((payload: OperatorRunEventNotification) => {
+      const currentThreadId = this.thread()?.id;
+      const knownRun = this._runs().some((run) => run.id === payload.runId);
+      if (!currentThreadId && !knownRun) {
+        return;
+      }
+      void this.loadRuns();
+    });
   }
 }

@@ -15,6 +15,7 @@ import type {
   OutputMessage,
   CreateInstanceConfig,
 } from './instance.types';
+import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import { getModelSwitchUnavailableReason } from '../../../../../shared/types/instance-status-policy';
 
@@ -320,9 +321,24 @@ export class InstanceListStore {
   /**
    * Change model for an instance
    */
-  async changeModel(instanceId: string, newModel: string): Promise<void> {
+  async changeModel(
+    instanceId: string,
+    newModel: string,
+    reasoningEffort?: ReasoningEffort | null
+  ): Promise<void> {
     const instance = this.stateService.getInstance(instanceId);
-    if (!instance || instance.currentModel === newModel) return;
+    if (!instance) return;
+
+    const nextReasoningEffort =
+      reasoningEffort === undefined
+        ? instance.reasoningEffort
+        : reasoningEffort ?? undefined;
+    if (
+      instance.currentModel === newModel &&
+      instance.reasoningEffort === nextReasoningEffort
+    ) {
+      return;
+    }
 
     const unavailableReason = getModelSwitchUnavailableReason(instance.status);
     if (unavailableReason) {
@@ -330,12 +346,17 @@ export class InstanceListStore {
       return;
     }
 
-    const response = await this.ipc.changeModel(instanceId, newModel);
+    const response = await this.ipc.changeModel(instanceId, newModel, reasoningEffort);
 
     if (response.success && 'data' in response && response.data) {
-      const data = response.data as { currentModel?: string; status?: string };
+      const data = response.data as {
+        currentModel?: string;
+        reasoningEffort?: ReasoningEffort | null;
+        status?: string;
+      };
       this.stateService.updateInstance(instanceId, {
         currentModel: data.currentModel || newModel,
+        reasoningEffort: data.reasoningEffort ?? nextReasoningEffort,
         status: (data.status as InstanceStatus) || 'idle',
       });
     } else if ('error' in response) {
@@ -437,6 +458,9 @@ export class InstanceListStore {
     const d = data as Record<string, unknown>;
     const currentModel =
       typeof d['currentModel'] === 'string' ? d['currentModel'] : undefined;
+    const reasoningEffort = this.isReasoningEffort(d['reasoningEffort'])
+      ? d['reasoningEffort']
+      : undefined;
 
     return {
       id: d['id'] as string,
@@ -506,6 +530,7 @@ export class InstanceListStore {
       workingDirectory: d['workingDirectory'] as string,
       yoloMode: (d['yoloMode'] as boolean) ?? false,
       currentModel,
+      reasoningEffort,
       outputBuffer: (d['outputBuffer'] as OutputMessage[]) || [],
       restoreMode: d['restoreMode'] as HistoryRestoreMode | undefined,
       diffStats: d['diffStats'] as Instance['diffStats'] | undefined,
@@ -591,6 +616,15 @@ export class InstanceListStore {
       || value === 'copilot'
       || value === 'ollama'
       || value === 'cursor';
+  }
+
+  private isReasoningEffort(value: unknown): value is ReasoningEffort {
+    return value === 'none'
+      || value === 'minimal'
+      || value === 'low'
+      || value === 'medium'
+      || value === 'high'
+      || value === 'xhigh';
   }
 
   /**

@@ -89,6 +89,7 @@ export class InstancePersistenceManager {
       yoloMode: config.preserveRuntimeSettings === false ? undefined : sourceInstance.yoloMode,
       agentId: config.preserveRuntimeSettings === false ? undefined : sourceInstance.agentId,
       modelOverride: config.preserveRuntimeSettings === false ? undefined : sourceInstance.currentModel,
+      reasoningEffort: config.preserveRuntimeSettings === false ? undefined : sourceInstance.reasoningEffort,
       provider: config.preserveRuntimeSettings === false ? undefined : sourceInstance.provider,
       forceNodeId: config.preserveRuntimeSettings === false || sourceInstance.executionLocation?.type !== 'remote'
         ? undefined

@@ -1364,6 +1364,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
 
         instance.currentModel = resolvedModel;
+        instance.reasoningEffort = config.reasoningEffort;
         instance.contextUsage = {
           ...instance.contextUsage,
           total: getProviderModelContextWindow(resolvedCliType, resolvedModel),
@@ -2790,7 +2791,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
    * Change the model for an instance while preserving conversation context.
    * Follows the same pattern as toggleYoloMode: terminate adapter, update state, respawn with resume.
    */
-  async changeModel(instanceId: string, newModel: string): Promise<Instance> {
+  async changeModel(
+    instanceId: string,
+    newModel: string,
+    reasoningEffort?: Instance['reasoningEffort'] | null,
+  ): Promise<Instance> {
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
@@ -2804,10 +2809,17 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }
 
       const oldModel = instance.currentModel || 'default';
+      const oldReasoningEffort = instance.reasoningEffort;
+      const nextReasoningEffort =
+        reasoningEffort === undefined
+          ? instance.reasoningEffort
+          : reasoningEffort ?? undefined;
       logger.info('Changing model', {
         instanceId,
         oldModel,
         newModel,
+        oldReasoningEffort,
+        nextReasoningEffort,
         adapterExists: !!this.deps.getAdapter(instanceId)
       });
 
@@ -2873,6 +2885,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       instance.sessionId = newSessionId;
 
       instance.currentModel = validatedModel;
+      instance.reasoningEffort = nextReasoningEffort;
       const contextTotal = getProviderModelContextWindow(cliType, validatedModel);
       instance.contextUsage = {
         ...instance.contextUsage,
@@ -2889,6 +2902,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         systemPrompt: agent.systemPrompt,
         model: validatedModel,
         yoloMode: instance.yoloMode,
+        reasoningEffort: nextReasoningEffort,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
@@ -2944,6 +2958,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           instanceId,
           pid,
           newModel: validatedModel || 'provider-default',
+          reasoningEffort: nextReasoningEffort ?? 'provider-default',
           resumed: shouldResume,
         });
 
@@ -2953,7 +2968,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
         // Notify the instance about the model change
         await adapter.sendInput(
-          `[System: Model changed from ${oldModel} to ${validatedModel || newModel}. Conversation context has been preserved.]`
+          `[System: Model changed from ${oldModel} to ${validatedModel || newModel}. Thinking changed from ${oldReasoningEffort ?? 'provider default'} to ${nextReasoningEffort ?? 'provider default'}. Conversation context has been preserved.]`
         );
       } catch (error) {
         this.transitionState(instance, 'error');
@@ -2964,7 +2979,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
       this.emit('model-changed', {
         instanceId,
-        model: newModel
+        model: newModel,
+        reasoningEffort: nextReasoningEffort,
       });
 
       return instance;

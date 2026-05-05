@@ -1399,6 +1399,29 @@ describe('InstanceManager', () => {
       expect(updated.contextUsage.total).toBe(1000000);
     });
 
+    it('passes reasoning effort through model respawn options', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+      });
+      await instance.readyPromise;
+      mockCreateCliAdapter.mockClear();
+
+      const updated = await (manager as InstanceManager & {
+        changeModel: (instanceId: string, newModel: string, reasoningEffort?: 'high') => Promise<typeof instance>;
+      }).changeModel(instance.id, 'sonnet[1m]', 'high');
+
+      expect(updated.reasoningEffort).toBe('high');
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'claude',
+        expect.objectContaining({
+          model: 'sonnet[1m]',
+          reasoningEffort: 'high',
+        }),
+        expect.anything(),
+      );
+    });
+
     it.each([
       'processing',
       'thinking_deeply',
