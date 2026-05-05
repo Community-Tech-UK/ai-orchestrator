@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OperatorThreadResult } from '../../../../shared/types/operator.types';
+import type { ConversationLedgerConversation } from '../../../../shared/types/conversation-ledger.types';
 import { OperatorIpcService } from '../../core/services/ipc/operator-ipc.service';
 import { OperatorPageComponent } from './operator-page.component';
 
@@ -15,55 +15,51 @@ describe('OperatorPageComponent', () => {
   };
 
   beforeEach(async () => {
-    const response: OperatorThreadResult = {
-      conversation: {
-        thread: {
-          id: 'thread-operator',
-          provider: 'orchestrator',
-          nativeThreadId: 'orchestrator:global',
-          nativeSessionId: null,
-          nativeSourceKind: 'internal',
-          sourceKind: 'orchestrator',
-          sourcePath: null,
-          workspacePath: null,
-          title: 'Orchestrator',
-          createdAt: 1,
-          updatedAt: 2,
-          lastSyncedAt: null,
-          writable: true,
-          nativeVisibilityMode: 'none',
-          syncStatus: 'synced',
-          conflictStatus: 'none',
-          parentConversationId: null,
-          metadata: {},
-        },
-        messages: [
-          {
-            id: 'msg-1',
-            threadId: 'thread-operator',
-            nativeMessageId: 'msg-user',
-            nativeTurnId: 'turn-1',
-            role: 'user',
-            phase: 'input',
-            content: 'Existing instruction',
-            createdAt: 3,
-            tokenInput: null,
-            tokenOutput: null,
-            rawRef: null,
-            rawJson: null,
-            sourceChecksum: null,
-            sequence: 1,
-          },
-        ],
+    const response: ConversationLedgerConversation = {
+      thread: {
+        id: 'thread-operator',
+        provider: 'orchestrator',
+        nativeThreadId: 'orchestrator-global',
+        nativeSessionId: null,
+        nativeSourceKind: 'internal',
+        sourceKind: 'orchestrator',
+        sourcePath: null,
+        workspacePath: null,
+        title: 'Orchestrator',
+        createdAt: 1,
+        updatedAt: 2,
+        lastSyncedAt: null,
+        writable: true,
+        nativeVisibilityMode: 'none',
+        syncStatus: 'synced',
+        conflictStatus: 'none',
+        parentConversationId: null,
+        metadata: {},
       },
-      runs: [],
-      projects: [],
+      messages: [
+        {
+          id: 'msg-1',
+          threadId: 'thread-operator',
+          nativeMessageId: 'msg-user',
+          nativeTurnId: 'turn-1',
+          role: 'user',
+          phase: 'input',
+          content: 'Existing instruction',
+          createdAt: 3,
+          tokenInput: null,
+          tokenOutput: null,
+          rawRef: null,
+          rawJson: null,
+          sourceChecksum: null,
+          sequence: 1,
+        },
+      ],
     };
     ipc = {
       getThread: vi.fn().mockResolvedValue({ success: true, data: response }),
-      sendMessage: vi.fn().mockResolvedValue({ success: true, data: { ...response, run: null } }),
-      listRuns: vi.fn(),
-      listProjects: vi.fn(),
+      sendMessage: vi.fn().mockResolvedValue({ success: true, data: response }),
+      listRuns: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      listProjects: vi.fn().mockResolvedValue({ success: true, data: [] }),
     };
 
     await TestBed.configureTestingModule({
