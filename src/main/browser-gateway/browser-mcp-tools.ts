@@ -18,6 +18,8 @@ const TOOL_NAMES = [
   'browser.fill_form',
   'browser.select',
   'browser.upload_file',
+  'browser.request_user_login',
+  'browser.pause_for_manual_step',
   'browser.request_grant',
   'browser.get_approval_status',
   'browser.list_grants',
@@ -195,6 +197,27 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     actionHint: stringProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'selector', 'filePath']),
+  'browser.request_user_login': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    reason: {
+      ...stringProp,
+      description: 'Human-readable reason to show the user while requesting manual login.',
+    },
+  }, ['profileId']),
+  'browser.pause_for_manual_step': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    kind: {
+      type: 'string',
+      enum: ['manual_review', 'login', 'captcha', 'two_factor'],
+      description: 'Kind of manual browser step needed before automation can continue.',
+    },
+    reason: {
+      ...stringProp,
+      description: 'Human-readable instruction to show the user.',
+    },
+  }, ['profileId']),
   'browser.request_grant': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,

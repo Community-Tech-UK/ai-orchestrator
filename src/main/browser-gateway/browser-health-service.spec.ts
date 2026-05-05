@@ -73,6 +73,18 @@ describe('BrowserHealthService', () => {
     });
     expect(report.rawLegacyAutomation.status).toBe('ready');
     expect(report.rawLegacyAutomation.surface).toBe('legacy_raw_browser_automation');
+    expect(report.providerCapabilityDetails).toMatchObject({
+      codex: {
+        status: 'unavailable_exec_mode',
+        available: false,
+        message: expect.stringContaining('exec-mode'),
+      },
+      gemini: {
+        status: 'unconfigured_adapter_injection_missing',
+        available: false,
+        message: expect.stringContaining('adapter MCP injection'),
+      },
+    });
     expect(report.warnings).toContain(
       'Browser Gateway MCP bridge is unavailable for provider child processes.',
     );
@@ -114,6 +126,16 @@ describe('BrowserHealthService', () => {
       copilot: 'available_via_acp_mcp',
       codex: 'unavailable_exec_mode',
       gemini: 'unconfigured_adapter_injection_missing',
+    });
+    expect(report.providerCapabilityDetails).toMatchObject({
+      claude: {
+        available: true,
+        message: expect.stringContaining('Browser Gateway MCP'),
+      },
+      copilot: {
+        available: true,
+        message: expect.stringContaining('ACP MCP'),
+      },
     });
   });
 

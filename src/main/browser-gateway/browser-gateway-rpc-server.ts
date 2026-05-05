@@ -12,9 +12,11 @@ import {
   BrowserListAuditLogRequestSchema,
   BrowserListGrantsRequestSchema,
   BrowserListTargetsRequestSchema,
+  BrowserManualStepRequestSchema,
   BrowserNavigateRequestSchema,
   BrowserProfileRequestSchema,
   BrowserRequestGrantRequestSchema,
+  BrowserRequestUserLoginRequestSchema,
   BrowserRevokeGrantRequestSchema,
   BrowserScreenshotRequestSchema,
   BrowserSelectRequestSchema,
@@ -80,7 +82,6 @@ const browserExtensionCompleteCommandSchema = browserExtensionCommandTargetSchem
   error: z.string().min(1).max(1000).optional(),
   tab: BrowserAttachExistingTabRequestSchema.optional(),
 }).strict();
-
 export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
   private readonly userDataPath: string;
@@ -197,6 +198,10 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('select')(withContext);
       case 'browser.upload_file':
         return this.requireMethod('uploadFile')(withContext);
+      case 'browser.request_user_login':
+        return this.requireMethod('requestUserLogin')(withContext);
+      case 'browser.pause_for_manual_step':
+        return this.requireMethod('pauseForManualStep')(withContext);
       case 'browser.request_grant':
         return this.requireMethod('requestGrant')(withContext);
       case 'browser.get_approval_status':
@@ -423,6 +428,10 @@ export class BrowserGatewayRpcServer {
           return BrowserSelectRequestSchema;
         case 'browser.upload_file':
           return BrowserUploadFileRequestSchema;
+        case 'browser.request_user_login':
+          return BrowserRequestUserLoginRequestSchema;
+        case 'browser.pause_for_manual_step':
+          return BrowserManualStepRequestSchema;
         case 'browser.request_grant':
           return BrowserRequestGrantRequestSchema;
         case 'browser.get_approval_status':

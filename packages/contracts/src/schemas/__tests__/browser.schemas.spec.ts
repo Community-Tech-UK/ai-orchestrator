@@ -7,11 +7,13 @@ import {
   BrowserGatewayResultSchema,
   BrowserPermissionGrantSchema,
   BrowserClickRequestSchema,
+  BrowserManualStepRequestSchema,
   BrowserTypeRequestSchema,
   BrowserUploadFileRequestSchema,
   BrowserListAuditLogRequestSchema,
   BrowserNavigateRequestSchema,
   BrowserProfileSchema,
+  BrowserRequestUserLoginRequestSchema,
   BrowserScreenshotRequestSchema,
   BrowserTargetSchema,
   BrowserUpdateProfileRequestSchema,
@@ -320,5 +322,29 @@ describe('browser.schemas', () => {
         filePath: '/workspace/app/build.aab',
       }).success,
     ).toBe(true);
+  });
+
+  it('validates human handoff browser payloads', () => {
+    expect(
+      BrowserRequestUserLoginRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        reason: 'Google Play Console needs a fresh user login.',
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserManualStepRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        kind: 'two_factor',
+        reason: 'Enter the authenticator code shown on the device.',
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserManualStepRequestSchema.safeParse({
+        profileId: 'profile-1',
+        kind: 'unsupported',
+      }).success,
+    ).toBe(false);
   });
 });

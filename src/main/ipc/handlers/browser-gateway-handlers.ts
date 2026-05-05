@@ -14,9 +14,11 @@ import {
   BrowserListApprovalRequestsRequestSchema,
   BrowserListGrantsRequestSchema,
   BrowserListTargetsRequestSchema,
+  BrowserManualStepRequestSchema,
   BrowserNavigateRequestSchema,
   BrowserProfileRequestSchema,
   BrowserRequestGrantRequestSchema,
+  BrowserRequestUserLoginRequestSchema,
   BrowserRevokeGrantRequestSchema,
   BrowserScreenshotRequestSchema,
   BrowserSelectRequestSchema,
@@ -132,6 +134,18 @@ export function registerBrowserGatewayHandlers(
     IPC_CHANNELS.BROWSER_UPLOAD_FILE,
     BrowserUploadFileRequestSchema,
     (service, payload) => service.uploadFile(payload),
+    deps,
+  );
+  register(
+    IPC_CHANNELS.BROWSER_REQUEST_USER_LOGIN,
+    BrowserRequestUserLoginRequestSchema,
+    (service, payload) => service.requestUserLogin(payload),
+    deps,
+  );
+  register(
+    IPC_CHANNELS.BROWSER_PAUSE_FOR_MANUAL_STEP,
+    BrowserManualStepRequestSchema,
+    (service, payload) => service.pauseForManualStep(payload),
     deps,
   );
   register(

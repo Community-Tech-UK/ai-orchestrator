@@ -23,6 +23,8 @@ const serviceMocks = vi.hoisted(() => ({
   fillForm: vi.fn(),
   select: vi.fn(),
   uploadFile: vi.fn(),
+  requestUserLogin: vi.fn(),
+  pauseForManualStep: vi.fn(),
   requestGrant: vi.fn(),
   getApprovalStatus: vi.fn(),
   listApprovalRequests: vi.fn(),
@@ -145,6 +147,30 @@ describe('registerBrowserGatewayHandlers', () => {
     });
     expect(serviceMocks.click).toHaveBeenCalledWith(clickPayload);
     expect(serviceMocks.approveRequest).toHaveBeenCalledWith(approvePayload);
+  });
+
+  it('registers human handoff browser channels', async () => {
+    const loginPayload = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      reason: 'User needs to sign in before automation can continue.',
+    };
+    const manualPayload = {
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      kind: 'captcha',
+      reason: 'Complete the CAPTCHA challenge.',
+    };
+
+    await expect(invoke('browser:request-user-login', loginPayload)).resolves.toMatchObject({
+      success: true,
+    });
+    await expect(invoke('browser:pause-for-manual-step', manualPayload)).resolves.toMatchObject({
+      success: true,
+    });
+
+    expect(serviceMocks.requestUserLogin).toHaveBeenCalledWith(loginPayload);
+    expect(serviceMocks.pauseForManualStep).toHaveBeenCalledWith(manualPayload);
   });
 
   it('returns success false when the service throws', async () => {

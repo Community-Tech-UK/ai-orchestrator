@@ -16,6 +16,8 @@ const ALLOWED_TOOLS = [
   'browser.fill_form',
   'browser.select',
   'browser.upload_file',
+  'browser.request_user_login',
+  'browser.pause_for_manual_step',
   'browser.request_grant',
   'browser.get_approval_status',
   'browser.list_grants',
@@ -53,6 +55,8 @@ describe('browser-mcp-tools', () => {
     const refreshExistingTab = tools.find((tool) => tool.name === 'browser.refresh_existing_tab');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
+    const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
+    const pauseForManualStep = tools.find((tool) => tool.name === 'browser.pause_for_manual_step');
 
     expect(createProfile?.inputSchema).toMatchObject({
       type: 'object',
@@ -97,6 +101,30 @@ describe('browser-mcp-tools', () => {
         profileId: { type: 'string' },
         targetId: { type: 'string' },
         selector: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(requestUserLogin?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        reason: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(pauseForManualStep?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        kind: {
+          type: 'string',
+          enum: ['manual_review', 'login', 'captcha', 'two_factor'],
+        },
+        reason: { type: 'string' },
       },
       additionalProperties: false,
     });

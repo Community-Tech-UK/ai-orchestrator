@@ -37,6 +37,11 @@ export type BrowserApprovalRequestStatus =
   | 'approved'
   | 'denied'
   | 'expired';
+export type BrowserManualStepKind =
+  | 'manual_review'
+  | 'login'
+  | 'captcha'
+  | 'two_factor';
 export type BrowserProvider =
   | 'claude'
   | 'codex'
@@ -299,6 +304,17 @@ export interface BrowserUploadFileRequest extends BrowserTargetRequest {
   filePath: string;
   actionHint?: string;
   requestId?: string;
+}
+
+export interface BrowserRequestUserLoginRequest extends BrowserProfileRequest {
+  targetId?: string;
+  reason?: string;
+}
+
+export interface BrowserManualStepRequest extends BrowserProfileRequest {
+  targetId?: string;
+  kind?: BrowserManualStepKind;
+  reason?: string;
 }
 
 export interface BrowserApprovalStatusRequest {

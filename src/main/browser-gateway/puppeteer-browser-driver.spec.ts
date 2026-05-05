@@ -17,6 +17,14 @@ function makeProfile(): BrowserProfile {
   };
 }
 
+function makeIsolatedProfile(): BrowserProfile {
+  return {
+    ...makeProfile(),
+    id: 'isolated-profile',
+    mode: 'isolated',
+  };
+}
+
 describe('PuppeteerBrowserDriver', () => {
   it('opens a profile and indexes browser pages as targets', async () => {
     const page = {
@@ -49,6 +57,31 @@ describe('PuppeteerBrowserDriver', () => {
       }),
     ]);
     expect(targetRegistry.listTargets('profile-1')).toHaveLength(1);
+  });
+
+  it('marks indexed targets from isolated profiles as isolated', async () => {
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+    };
+    const browser = {
+      pages: async () => [page],
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+
+    const targets = await driver.openProfile(makeIsolatedProfile(), 'http://localhost:4567');
+
+    expect(targets[0]).toMatchObject({
+      profileId: 'isolated-profile',
+      mode: 'isolated',
+    });
   });
 
   it('returns bounded snapshots and base64 screenshots', async () => {

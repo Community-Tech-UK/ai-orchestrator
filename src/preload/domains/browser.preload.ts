@@ -109,6 +109,19 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_UPLOAD_FILE, payload);
     },
+    browserRequestUserLogin: (payload: BrowserProfilePayload & {
+      targetId?: string;
+      reason?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_REQUEST_USER_LOGIN, payload);
+    },
+    browserPauseForManualStep: (payload: BrowserProfilePayload & {
+      targetId?: string;
+      kind?: 'manual_review' | 'login' | 'captcha' | 'two_factor';
+      reason?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_PAUSE_FOR_MANUAL_STEP, payload);
+    },
     browserRequestGrant: (payload: BrowserTargetPayload & {
       proposedGrant: BrowserGrantProposalPayload;
       reason?: string;

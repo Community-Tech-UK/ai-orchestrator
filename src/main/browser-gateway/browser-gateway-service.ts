@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type {
   BrowserActionClass,
+  BrowserAllowedOrigin,
   BrowserApprovalRequest,
   BrowserApprovalRequestLookup,
   BrowserApprovalStatusRequest,
@@ -19,9 +20,11 @@ import type {
   BrowserListAuditLogRequest,
   BrowserListApprovalRequestsRequest,
   BrowserListGrantsRequest,
+  BrowserManualStepRequest,
   BrowserPermissionGrant,
   BrowserProvider,
   BrowserRequestGrantRequest,
+  BrowserRequestUserLoginRequest,
   BrowserRevokeGrantRequest,
   BrowserSelectRequest,
   BrowserProfile,
@@ -154,7 +157,7 @@ export interface BrowserGatewayMutatingActionRequest extends BrowserGatewayConte
 export interface BrowserGatewayServiceOptions {
   profileStore?: Pick<
     BrowserProfileStore,
-    'listProfiles' | 'getProfile' | 'updateProfile' | 'deleteProfile'
+    'listProfiles' | 'getProfile' | 'updateProfile' | 'deleteProfile' | 'setRuntimeState'
   >;
   profileRegistry?: Pick<BrowserProfileRegistry, 'createProfile' | 'resolveProfileDir'>;
   targetRegistry?: Pick<BrowserTargetRegistry, 'listTargets' | 'selectTarget'>;
@@ -191,7 +194,7 @@ export class BrowserGatewayService {
   private static instance: BrowserGatewayService | null = null;
   private readonly profileStore: Pick<
     BrowserProfileStore,
-    'listProfiles' | 'getProfile' | 'updateProfile' | 'deleteProfile'
+    'listProfiles' | 'getProfile' | 'updateProfile' | 'deleteProfile' | 'setRuntimeState'
   >;
   private readonly profileRegistry: Pick<BrowserProfileRegistry, 'createProfile' | 'resolveProfileDir'>;
   private readonly targetRegistry: Pick<BrowserTargetRegistry, 'listTargets' | 'selectTarget'>;
@@ -1010,6 +1013,35 @@ export class BrowserGatewayService {
     });
   }
 
+  async requestUserLogin(
+    request: BrowserGatewayContext & BrowserRequestUserLoginRequest,
+  ): Promise<BrowserGatewayResult<null>> {
+    return this.createManualHandoffApproval({
+      request,
+      toolName: 'browser.request_user_login',
+      action: 'request_user_login',
+      actionClass: 'credential',
+      resultReason: 'manual_login_required',
+      defaultPrompt: 'User login is required before Browser Gateway automation can continue.',
+      summary: 'Browser Gateway user login request requires manual completion',
+    });
+  }
+
+  async pauseForManualStep(
+    request: BrowserGatewayContext & BrowserManualStepRequest,
+  ): Promise<BrowserGatewayResult<null>> {
+    const kind = request.kind ?? 'manual_review';
+    return this.createManualHandoffApproval({
+      request,
+      toolName: 'browser.pause_for_manual_step',
+      action: 'pause_for_manual_step',
+      actionClass: this.manualStepActionClass(kind),
+      resultReason: 'manual_step_required',
+      defaultPrompt: this.defaultManualStepPrompt(kind),
+      summary: 'Browser Gateway manual step request requires user action',
+    });
+  }
+
   async click(
     request: BrowserGatewayContext & BrowserClickRequest,
   ): Promise<BrowserGatewayResult<null>> {
@@ -1550,6 +1582,17 @@ export class BrowserGatewayService {
       status: 'approved',
       grantId: grant.id,
     });
+    if (approval.toolName === 'browser.request_user_login') {
+      try {
+        if (this.profileStore.getProfile(approval.profileId)) {
+          this.profileStore.setRuntimeState(approval.profileId, {
+            lastLoginCheckAt: now,
+          });
+        }
+      } catch {
+        // Existing-tab login handoffs do not have managed profile runtime state.
+      }
+    }
 
     return this.result({
       context: request,
@@ -1703,6 +1746,161 @@ export class BrowserGatewayService {
       autonomous: revoked?.autonomous,
       data: revoked,
     });
+  }
+
+  private async createManualHandoffApproval(params: {
+    request: BrowserGatewayContext & {
+      profileId: string;
+      targetId?: string;
+      reason?: string;
+    };
+    toolName: 'browser.request_user_login' | 'browser.pause_for_manual_step';
+    action: 'request_user_login' | 'pause_for_manual_step';
+    actionClass: BrowserActionClass;
+    resultReason: string;
+    defaultPrompt: string;
+    summary: string;
+  }): Promise<BrowserGatewayResult<null>> {
+    const scope = await this.resolveManualHandoffScope(params.request);
+    if (!scope.allowedOrigin) {
+      return this.result({
+        context: params.request,
+        profileId: params.request.profileId,
+        targetId: params.request.targetId,
+        action: params.action,
+        toolName: params.toolName,
+        actionClass: params.actionClass,
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: scope.error ?? 'manual_handoff_scope_unavailable',
+        summary: `${params.toolName} denied because Browser Gateway could not resolve an allowed browser scope`,
+        url: scope.url,
+        data: null,
+      });
+    }
+
+    const prompt = params.request.reason?.trim() || params.defaultPrompt;
+    const approval = this.approvalStore.createRequest({
+      instanceId: params.request.instanceId ?? 'unknown',
+      provider: this.providerFromContext(params.request.provider),
+      profileId: params.request.profileId,
+      targetId: params.request.targetId,
+      toolName: params.toolName,
+      action: params.action,
+      actionClass: params.actionClass,
+      origin: scope.origin,
+      url: scope.url,
+      elementContext: redactElementContext({
+        nearbyText: prompt,
+      }),
+      proposedGrant: {
+        mode: 'per_action',
+        allowedOrigins: [scope.allowedOrigin],
+        allowedActionClasses: ['read'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    return this.result({
+      context: params.request,
+      profileId: params.request.profileId,
+      targetId: params.request.targetId,
+      action: params.action,
+      toolName: params.toolName,
+      actionClass: params.actionClass,
+      decision: 'requires_user',
+      outcome: 'not_run',
+      requestId: approval.requestId,
+      reason: params.resultReason,
+      summary: params.summary,
+      origin: scope.origin,
+      url: scope.url,
+      data: null,
+    });
+  }
+
+  private async resolveManualHandoffScope(request: {
+    profileId: string;
+    targetId?: string;
+  }): Promise<{
+    allowedOrigin?: BrowserAllowedOrigin;
+    origin?: string;
+    url?: string;
+    error?: string;
+  }> {
+    if (request.targetId) {
+      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      if (existingTab) {
+        const decision = isOriginAllowed(existingTab.url, existingTab.allowedOrigins);
+        if (!decision.allowed) {
+          return {
+            error: decision.reason,
+            origin: decision.origin,
+            url: existingTab.url,
+          };
+        }
+        return {
+          allowedOrigin: decision.matchedOrigin,
+          origin: decision.origin,
+          url: existingTab.url,
+        };
+      }
+    }
+
+    const profile = this.profileStore.getProfile(request.profileId);
+    if (!profile) {
+      return { error: 'profile_not_found' };
+    }
+
+    const { target, error } = request.targetId
+      ? await this.getLiveTarget(request.profileId, request.targetId)
+      : { target: null, error: undefined };
+    if (request.targetId && !target) {
+      return { error: error ?? 'target_not_found' };
+    }
+
+    const currentUrl = target?.url ?? profile.defaultUrl;
+    if (currentUrl) {
+      const decision = isOriginAllowed(currentUrl, profile.allowedOrigins);
+      if (!decision.allowed) {
+        return {
+          error: decision.reason,
+          origin: decision.origin,
+          url: currentUrl,
+        };
+      }
+      return {
+        allowedOrigin: decision.matchedOrigin,
+        origin: decision.origin,
+        url: currentUrl,
+      };
+    }
+
+    const firstAllowedOrigin = profile.allowedOrigins[0];
+    return firstAllowedOrigin
+      ? { allowedOrigin: firstAllowedOrigin }
+      : { error: 'no_allowed_origins_configured' };
+  }
+
+  private manualStepActionClass(kind: BrowserManualStepRequest['kind']): BrowserActionClass {
+    return kind === 'login' || kind === 'captcha' || kind === 'two_factor'
+      ? 'credential'
+      : 'unknown';
+  }
+
+  private defaultManualStepPrompt(kind: BrowserManualStepRequest['kind']): string {
+    if (kind === 'login') {
+      return 'User login is required before Browser Gateway automation can continue.';
+    }
+    if (kind === 'captcha') {
+      return 'Complete the browser CAPTCHA challenge before Browser Gateway automation continues.';
+    }
+    if (kind === 'two_factor') {
+      return 'Complete the browser two-factor authentication step before Browser Gateway automation continues.';
+    }
+    return 'Manual browser review is required before Browser Gateway automation can continue.';
   }
 
   private getTarget(profileId: string, targetId: string): BrowserTarget | null {

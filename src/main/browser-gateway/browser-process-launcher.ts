@@ -1,5 +1,7 @@
 import * as fsp from 'fs/promises';
 import * as net from 'net';
+import * as os from 'os';
+import * as path from 'path';
 import { execFile } from 'child_process';
 import puppeteer, { type Browser } from 'puppeteer-core';
 import type { BrowserProfile } from '@contracts/types/browser';
@@ -18,6 +20,8 @@ export interface BrowserProcessRuntime {
 export interface BrowserProcessLauncherOptions {
   exists?: (candidate: string) => boolean | Promise<boolean>;
   allocatePort?: () => Promise<number>;
+  createTempDir?: (prefix: string) => Promise<string>;
+  removeDir?: (dir: string) => Promise<void>;
   profileStore?: Pick<BrowserProfileStore, 'setRuntimeState'>;
   registerCleanup?: (cleanup: () => void | Promise<void>) => void | (() => void);
   env?: Record<string, string | undefined>;
@@ -69,6 +73,14 @@ async function defaultExists(candidate: string): Promise<boolean> {
   });
 }
 
+async function defaultCreateTempDir(prefix: string): Promise<string> {
+  return fsp.mkdtemp(prefix);
+}
+
+async function defaultRemoveDir(dir: string): Promise<void> {
+  await fsp.rm(dir, { recursive: true, force: true });
+}
+
 export async function allocateLocalhostPort(): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const server = net.createServer();
@@ -95,13 +107,18 @@ export async function allocateLocalhostPort(): Promise<number> {
 export class BrowserProcessLauncher {
   private readonly exists: (candidate: string) => boolean | Promise<boolean>;
   private readonly allocatePort: () => Promise<number>;
+  private readonly createTempDir: (prefix: string) => Promise<string>;
+  private readonly removeDir: (dir: string) => Promise<void>;
   private readonly profileStore: Pick<BrowserProfileStore, 'setRuntimeState'>;
   private readonly env: Record<string, string | undefined>;
   private readonly running = new Map<string, Browser>();
+  private readonly isolatedUserDataDirs = new Map<string, string>();
 
   constructor(options: BrowserProcessLauncherOptions = {}) {
     this.exists = options.exists ?? defaultExists;
     this.allocatePort = options.allocatePort ?? allocateLocalhostPort;
+    this.createTempDir = options.createTempDir ?? defaultCreateTempDir;
+    this.removeDir = options.removeDir ?? defaultRemoveDir;
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
     this.env = options.env ?? process.env;
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -115,12 +132,13 @@ export class BrowserProcessLauncher {
 
     const executablePath = await this.findChromeExecutable();
     const debugPort = await this.allocatePort();
+    const userDataDir = await this.userDataDirForLaunch(options.profile, options.userDataDir);
     let browser: Browser | null = null;
     try {
       browser = await puppeteer.launch({
         executablePath,
         headless: false,
-        userDataDir: options.userDataDir,
+        userDataDir,
         defaultViewport: null,
         args: [
           '--remote-debugging-address=127.0.0.1',
@@ -179,6 +197,11 @@ export class BrowserProcessLauncher {
           // Preserve the launch failure; runtime cleanup is best-effort here.
         }
       }
+      try {
+        await this.cleanupIsolatedProfile(options.profile.id);
+      } catch {
+        // Preserve the launch failure; temporary profile cleanup is best-effort here.
+      }
       throw error;
     }
   }
@@ -195,8 +218,35 @@ export class BrowserProcessLauncher {
         await browser.close();
       }
     } finally {
-      this.clearRuntimeState(profileId);
+      try {
+        this.clearRuntimeState(profileId);
+      } finally {
+        await this.cleanupIsolatedProfile(profileId);
+      }
     }
+  }
+
+  private async userDataDirForLaunch(
+    profile: BrowserProfile,
+    fallbackUserDataDir: string,
+  ): Promise<string> {
+    if (profile.mode !== 'isolated') {
+      return fallbackUserDataDir;
+    }
+
+    const prefix = path.join(os.tmpdir(), `ai-orchestrator-browser-${profile.id}-`);
+    const tempDir = await this.createTempDir(prefix);
+    this.isolatedUserDataDirs.set(profile.id, tempDir);
+    return tempDir;
+  }
+
+  private async cleanupIsolatedProfile(profileId: string): Promise<void> {
+    const isolatedDir = this.isolatedUserDataDirs.get(profileId);
+    if (!isolatedDir) {
+      return;
+    }
+    this.isolatedUserDataDirs.delete(profileId);
+    await this.removeDir(isolatedDir);
   }
 
   private clearRuntimeState(profileId: string): void {

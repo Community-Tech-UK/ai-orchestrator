@@ -26,6 +26,8 @@ describe('BrowserPageComponent', () => {
     navigate: ReturnType<typeof vi.fn>;
     snapshot: ReturnType<typeof vi.fn>;
     screenshot: ReturnType<typeof vi.fn>;
+    requestUserLogin: ReturnType<typeof vi.fn>;
+    pauseForManualStep: ReturnType<typeof vi.fn>;
     listApprovalRequests: ReturnType<typeof vi.fn>;
     approveRequest: ReturnType<typeof vi.fn>;
     denyRequest: ReturnType<typeof vi.fn>;
@@ -48,6 +50,7 @@ describe('BrowserPageComponent', () => {
           status: 'running',
           createdAt: 1,
           updatedAt: 1,
+          lastLoginCheckAt: 1_700_000_000_000,
         },
       ])),
       createProfile: vi.fn().mockResolvedValue(gatewayResult({ id: 'profile-2' })),
@@ -77,6 +80,28 @@ describe('BrowserPageComponent', () => {
         text: 'Snapshot text',
       })),
       screenshot: vi.fn().mockResolvedValue(gatewayResult('abc123')),
+      requestUserLogin: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          decision: 'requires_user',
+          outcome: 'not_run',
+          requestId: 'request-login',
+          reason: 'manual_login_required',
+          auditId: 'audit-login',
+          data: null,
+        },
+      }),
+      pauseForManualStep: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          decision: 'requires_user',
+          outcome: 'not_run',
+          requestId: 'request-manual',
+          reason: 'manual_step_required',
+          auditId: 'audit-manual',
+          data: null,
+        },
+      }),
       listApprovalRequests: vi.fn().mockResolvedValue(gatewayResult([
         {
           id: 'request-1',
@@ -95,6 +120,7 @@ describe('BrowserPageComponent', () => {
             role: 'button',
             accessibleName: 'Publish release',
             visibleText: 'Publish',
+            nearbyText: 'Manual login is required before continuing.',
           },
           proposedGrant: {
             mode: 'per_action',
@@ -161,6 +187,28 @@ describe('BrowserPageComponent', () => {
       getHealth: vi.fn().mockResolvedValue(gatewayResult({
         status: 'ready',
         managedProfiles: { total: 1, running: 1 },
+        providerCapabilityDetails: {
+          claude: {
+            available: true,
+            status: 'available_via_mcp',
+            message: 'Claude can use Browser Gateway MCP tools.',
+          },
+          copilot: {
+            available: true,
+            status: 'available_via_acp_mcp',
+            message: 'Copilot can use Browser Gateway through ACP MCP config.',
+          },
+          codex: {
+            available: false,
+            status: 'unavailable_exec_mode',
+            message: 'Codex exec-mode Browser Gateway is unavailable.',
+          },
+          gemini: {
+            available: false,
+            status: 'unconfigured_adapter_injection_missing',
+            message: 'Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.',
+          },
+        },
       })),
     };
 
@@ -177,6 +225,7 @@ describe('BrowserPageComponent', () => {
 
   it('renders Browser Gateway profiles', () => {
     expect(fixture.nativeElement.textContent).toContain('Local App');
+    expect(fixture.nativeElement.textContent).toContain('Login checked');
   });
 
   it('creates profiles with normalized allowed origins', async () => {
@@ -249,7 +298,21 @@ describe('BrowserPageComponent', () => {
     expect(button.disabled).toBe(true);
   });
 
-  it('refreshes selected existing-tab targets through Browser Gateway', async () => {
+  it('requests a user login handoff for the selected browser target', async () => {
+    const button = fixture.nativeElement.querySelector('[data-testid="request-login-button"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    await fixture.componentInstance.requestUserLogin();
+
+    expect(service.requestUserLogin).toHaveBeenCalledWith({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      reason: 'Login check requested from Browser Gateway page',
+    });
+    expect(service.listApprovalRequests).toHaveBeenCalled();
+  });
+
+  it('refreshes a selected existing Chrome tab through the extension command path', async () => {
     fixture.componentInstance.targets.set([
       {
         id: 'existing-tab:7:42:target',
@@ -277,6 +340,14 @@ describe('BrowserPageComponent', () => {
     });
   });
 
+  it('renders provider capability details from health output', () => {
+    const text = fixture.nativeElement.textContent;
+
+    expect(text).toContain('Claude can use Browser Gateway MCP tools.');
+    expect(text).toContain('Codex exec-mode Browser Gateway is unavailable.');
+    expect(text).toContain('Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.');
+  });
+
   it('renders screenshot base64 with a data URL prefix', async () => {
     await fixture.componentInstance.captureScreenshot();
     fixture.detectChanges();
@@ -297,6 +368,7 @@ describe('BrowserPageComponent', () => {
     expect(text).toContain('Pending Approvals');
     expect(text).toContain('request-1');
     expect(text).toContain('Publish release');
+    expect(text).toContain('Manual login is required before continuing.');
     expect(text).toContain('button.publish');
     expect(text).toContain('expires');
     expect(text).toContain('Active Grants');

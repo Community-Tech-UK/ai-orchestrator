@@ -95,6 +95,9 @@ interface BrowserSnapshotView {
                 <button class="profile-main" type="button" (click)="selectProfile(profile.id)">
                   <span class="profile-label">{{ profile.label }}</span>
                   <span class="profile-meta">{{ profile.browser }} · {{ profile.mode }} · {{ profile.status }}</span>
+                  @if (profile.lastLoginCheckAt) {
+                    <span class="profile-meta">Login checked {{ formatGrantExpiry(profile.lastLoginCheckAt) }}</span>
+                  }
                 </button>
                 <div class="row-actions">
                   <button class="btn small" type="button" [disabled]="working()" (click)="openProfile(profile.id)">Launch</button>
@@ -154,6 +157,15 @@ interface BrowserSnapshotView {
             </button>
             <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="loadSnapshot()">Snapshot</button>
             <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="captureScreenshot()">Screenshot</button>
+            <button
+              class="btn"
+              data-testid="request-login-button"
+              type="button"
+              [disabled]="!selectedProfileId() || working()"
+              (click)="requestUserLogin()"
+            >
+              Login Check
+            </button>
           </div>
 
           <div class="preview-grid">
@@ -181,6 +193,16 @@ interface BrowserSnapshotView {
         <aside class="side-panel">
           <section>
             <h2>Health</h2>
+            @if (providerCapabilityRows().length) {
+              <div class="provider-health-list">
+                @for (row of providerCapabilityRows(); track row.name) {
+                  <div class="provider-health-row" [class.available]="row.available">
+                    <span>{{ row.name }}</span>
+                    <small>{{ row.message }}</small>
+                  </div>
+                }
+              </div>
+            }
             <pre>{{ healthJson() }}</pre>
           </section>
           <section>
@@ -610,6 +632,37 @@ interface BrowserSnapshotView {
       gap: var(--spacing-xs);
     }
 
+    .provider-health-list {
+      display: grid;
+      gap: var(--spacing-xs);
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .provider-health-row {
+      display: grid;
+      gap: 2px;
+      padding: var(--spacing-xs);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--bg-primary);
+    }
+
+    .provider-health-row span {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+
+    .provider-health-row small {
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .provider-health-row.available {
+      border-color: color-mix(in srgb, var(--success-color) 45%, var(--border-color));
+    }
+
     .approval-context {
       display: grid;
       gap: 4px;
@@ -710,6 +763,24 @@ export class BrowserPageComponent implements OnInit {
   );
 
   readonly healthJson = computed(() => JSON.stringify(this.health() ?? {}, null, 2));
+
+  readonly providerCapabilityRows = computed(() => {
+    const details = (this.health() as {
+      providerCapabilityDetails?: Record<string, {
+        available?: boolean;
+        message?: string;
+        status?: string;
+      }>;
+    } | null)?.providerCapabilityDetails;
+    if (!details) {
+      return [];
+    }
+    return Object.entries(details).map(([name, detail]) => ({
+      name,
+      available: Boolean(detail.available),
+      message: detail.message ?? detail.status ?? 'Unavailable',
+    }));
+  });
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
@@ -915,6 +986,25 @@ export class BrowserPageComponent implements OnInit {
     await this.refreshAudit();
   }
 
+  async requestUserLogin(): Promise<void> {
+    const profileId = this.selectedProfileId();
+    if (!profileId) {
+      return;
+    }
+    const selectedTarget = this.selectedTarget();
+    const targetId = selectedTarget?.profileId === profileId ? selectedTarget.id : undefined;
+    const response = await this.runGatewayAction(() =>
+      this.ipc.requestUserLogin({
+        profileId,
+        ...(targetId ? { targetId } : {}),
+        reason: 'Login check requested from Browser Gateway page',
+      }),
+    );
+    if (response) {
+      await this.refreshApprovals();
+    }
+  }
+
   async approveApprovalRequest(
     approval: BrowserApprovalRequest,
     mode: BrowserGrantMode,
@@ -982,6 +1072,7 @@ export class BrowserPageComponent implements OnInit {
       element.inputType,
       element.inputName,
       element.placeholder,
+      element.nearbyText,
     ].filter(Boolean).join(' · ');
   }
 

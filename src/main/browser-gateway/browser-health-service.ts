@@ -18,6 +18,36 @@ export interface BrowserChromeRuntimeHealth {
   command?: string;
 }
 
+export interface BrowserGatewayProviderCapabilities {
+  claude: 'available_via_mcp' | 'legacy_chrome_disabled' | 'unconfigured';
+  copilot: 'available_via_acp_mcp' | 'unconfigured';
+  codex: 'unavailable_exec_mode' | 'available_app_server' | 'unconfigured';
+  gemini: 'unconfigured_adapter_injection_missing';
+}
+
+export interface BrowserGatewayProviderCapabilityDetails {
+  claude: {
+    available: boolean;
+    status: BrowserGatewayProviderCapabilities['claude'];
+    message: string;
+  };
+  copilot: {
+    available: boolean;
+    status: BrowserGatewayProviderCapabilities['copilot'];
+    message: string;
+  };
+  codex: {
+    available: boolean;
+    status: BrowserGatewayProviderCapabilities['codex'];
+    message: string;
+  };
+  gemini: {
+    available: boolean;
+    status: BrowserGatewayProviderCapabilities['gemini'];
+    message: string;
+  };
+}
+
 export interface BrowserGatewayHealthReport {
   status: BrowserGatewayHealthStatus;
   checkedAt: number;
@@ -31,12 +61,8 @@ export interface BrowserGatewayHealthReport {
   mcpBridge: {
     available: boolean;
   };
-  providerCapabilities: {
-    claude: 'available_via_mcp' | 'legacy_chrome_disabled' | 'unconfigured';
-    copilot: 'available_via_acp_mcp' | 'unconfigured';
-    codex: 'unavailable_exec_mode' | 'available_app_server' | 'unconfigured';
-    gemini: 'unconfigured_adapter_injection_missing';
-  };
+  providerCapabilities: BrowserGatewayProviderCapabilities;
+  providerCapabilityDetails: BrowserGatewayProviderCapabilityDetails;
   rawLegacyAutomation: BrowserAutomationHealthReport;
   warnings: string[];
 }
@@ -181,6 +207,32 @@ export class BrowserHealthService {
         copilot: bridgeAvailable ? 'available_via_acp_mcp' : 'unconfigured',
         codex: 'unavailable_exec_mode',
         gemini: 'unconfigured_adapter_injection_missing',
+      },
+      providerCapabilityDetails: {
+        claude: {
+          available: bridgeAvailable,
+          status: bridgeAvailable ? 'available_via_mcp' : 'legacy_chrome_disabled',
+          message: bridgeAvailable
+            ? 'Claude can use Browser Gateway MCP tools from provider child processes.'
+            : 'Claude raw --chrome access is disabled; Browser Gateway MCP is unavailable for provider child processes.',
+        },
+        copilot: {
+          available: bridgeAvailable,
+          status: bridgeAvailable ? 'available_via_acp_mcp' : 'unconfigured',
+          message: bridgeAvailable
+            ? 'Copilot can use Browser Gateway through the generated ACP MCP configuration.'
+            : 'Copilot Browser Gateway access is unconfigured because the MCP bridge is unavailable.',
+        },
+        codex: {
+          available: false,
+          status: 'unavailable_exec_mode',
+          message: 'Codex exec-mode Browser Gateway is unavailable until app-server MCP injection is supported.',
+        },
+        gemini: {
+          available: false,
+          status: 'unconfigured_adapter_injection_missing',
+          message: 'Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.',
+        },
       },
       rawLegacyAutomation,
       warnings,

@@ -172,6 +172,13 @@ function makeService(overrides: {
     createProfile: vi.fn((input) => ({ ...(profile ?? makeProfile()), ...input })),
     resolveProfileDir: vi.fn((profileId) => `/tmp/browser-profiles/${profileId}`),
   };
+  const profileStore = {
+    listProfiles: () => profiles,
+    getProfile: (profileId: string) => (profile && profileId === profile.id ? profile : null),
+    updateProfile: vi.fn((_profileId, patch) => ({ ...(profile ?? makeProfile()), ...patch })),
+    deleteProfile: vi.fn(),
+    setRuntimeState: vi.fn((_profileId: string, patch) => ({ ...(profile ?? makeProfile()), ...patch })),
+  };
   const extensionTabStore = {
     attachTab: vi.fn((input) => ({
       profileId: `existing-tab:${input.windowId}:${input.tabId}`,
@@ -226,12 +233,7 @@ function makeService(overrides: {
     completeCommand: vi.fn(),
   };
   const service = new BrowserGatewayService({
-    profileStore: {
-      listProfiles: () => profiles,
-      getProfile: (profileId) => (profile && profileId === profile.id ? profile : null),
-      updateProfile: vi.fn((_profileId, patch) => ({ ...(profile ?? makeProfile()), ...patch })),
-      deleteProfile: vi.fn(),
-    },
+    profileStore,
     profileRegistry,
     targetRegistry: {
       listTargets: (profileId?: string) =>
@@ -262,6 +264,7 @@ function makeService(overrides: {
     approvalStore,
     approvalRequests,
     grants,
+    profileStore,
     profileRegistry,
     extensionTabStore,
   };
@@ -1067,6 +1070,66 @@ describe('BrowserGatewayService', () => {
     });
   });
 
+  it('creates user-login approval requests without exposing credential entry to agents', async () => {
+    const { service, approvalRequests } = makeService();
+
+    const result = await service.requestUserLogin({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      reason: 'Google Play Console requires a fresh sign-in.',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      requestId: 'request-1',
+      reason: 'manual_login_required',
+    });
+    expect(approvalRequests[0]).toMatchObject({
+      toolName: 'browser.request_user_login',
+      action: 'request_user_login',
+      actionClass: 'credential',
+      elementContext: {
+        nearbyText: 'Google Play Console requires a fresh sign-in.',
+      },
+      proposedGrant: {
+        mode: 'per_action',
+        allowedActionClasses: ['read'],
+        autonomous: false,
+      },
+    });
+  });
+
+  it('creates manual-step approval requests for captcha and two-factor pauses', async () => {
+    const { service, approvalRequests } = makeService();
+
+    await expect(service.pauseForManualStep({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      kind: 'two_factor',
+      reason: 'Enter the authenticator code displayed on the device.',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    })).resolves.toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      reason: 'manual_step_required',
+    });
+    expect(approvalRequests[0]).toMatchObject({
+      toolName: 'browser.pause_for_manual_step',
+      action: 'pause_for_manual_step',
+      actionClass: 'credential',
+      elementContext: {
+        nearbyText: 'Enter the authenticator code displayed on the device.',
+      },
+      proposedGrant: {
+        allowedActionClasses: ['read'],
+      },
+    });
+  });
+
   it('approves pending requests into bounded grants and resolves the approval request', async () => {
     const { service, approvalStore, grants } = makeService();
     await service.click({
@@ -1112,6 +1175,41 @@ describe('BrowserGatewayService', () => {
       status: 'approved',
       grantId: 'grant-1',
     });
+  });
+
+  it('updates last login check time when a user-login approval is approved', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000);
+    const { service, profileStore } = makeService();
+    await service.requestUserLogin({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+
+    await service.approveRequest({
+      requestId: 'request-1',
+      grant: {
+        mode: 'per_action',
+        allowedOrigins: [
+          {
+            scheme: 'http',
+            hostPattern: 'localhost',
+            port: 4567,
+            includeSubdomains: false,
+          },
+        ],
+        allowedActionClasses: ['read'],
+        allowExternalNavigation: false,
+        autonomous: false,
+      },
+    });
+
+    expect(profileStore.setRuntimeState).toHaveBeenCalledWith('profile-1', {
+      lastLoginCheckAt: 5_000,
+    });
+    vi.useRealTimers();
   });
 
   it('lists and revokes active grants through the service', async () => {

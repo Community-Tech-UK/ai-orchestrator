@@ -15,11 +15,13 @@ import type {
   BrowserListAuditLogRequest,
   BrowserListGrantsRequest,
   BrowserListTargetsRequest,
+  BrowserManualStepRequest,
   BrowserNavigateRequest,
   BrowserPermissionGrant,
   BrowserProfile,
   BrowserProfileRequest,
   BrowserRequestGrantRequest,
+  BrowserRequestUserLoginRequest,
   BrowserRevokeGrantRequest,
   BrowserScreenshotRequest,
   BrowserSelectRequest,
@@ -106,6 +108,18 @@ export class BrowserGatewayIpcService {
 
   async uploadFile(payload: BrowserUploadFileRequest): Promise<BrowserGatewayIpcResponse<null>> {
     return this.call(() => this.api?.browserUploadFile(payload));
+  }
+
+  async requestUserLogin(
+    payload: BrowserRequestUserLoginRequest,
+  ): Promise<BrowserGatewayIpcResponse<null>> {
+    return this.call(() => this.api?.browserRequestUserLogin(payload));
+  }
+
+  async pauseForManualStep(
+    payload: BrowserManualStepRequest,
+  ): Promise<BrowserGatewayIpcResponse<null>> {
+    return this.call(() => this.api?.browserPauseForManualStep(payload));
   }
 
   async requestGrant(payload: BrowserRequestGrantRequest): Promise<BrowserGatewayIpcResponse<null>> {

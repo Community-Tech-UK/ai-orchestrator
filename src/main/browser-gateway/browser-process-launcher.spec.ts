@@ -27,6 +27,15 @@ function makeProfile(): BrowserProfile {
   };
 }
 
+function makeIsolatedProfile(): BrowserProfile {
+  return {
+    ...makeProfile(),
+    id: 'isolated-profile',
+    mode: 'isolated',
+    userDataDir: '/tmp/persistent-placeholder',
+  };
+}
+
 describe('BrowserProcessLauncher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -284,5 +293,40 @@ describe('BrowserProcessLauncher', () => {
       debugEndpoint: undefined,
       processId: undefined,
     });
+  });
+
+  it('uses a disposable user data dir for isolated profiles and removes it on close', async () => {
+    const close = vi.fn();
+    mocks.launch.mockResolvedValue({
+      wsEndpoint: () => 'ws://127.0.0.1:45678/devtools/browser/test',
+      process: () => ({ pid: 12345 }),
+      pages: async () => [],
+      newPage: vi.fn(),
+      close,
+    });
+    const removeDir = vi.fn(async () => undefined);
+    const launcher = new BrowserProcessLauncher({
+      exists: async (candidate) => candidate === 'chrome',
+      allocatePort: async () => 45678,
+      profileStore: {
+        setRuntimeState: () => makeIsolatedProfile(),
+      },
+      createTempDir: vi.fn(async () => '/tmp/browser-gateway-isolated-abc123'),
+      removeDir,
+      env: {},
+    });
+
+    await launcher.launchProfile({
+      profile: makeIsolatedProfile(),
+      userDataDir: '/tmp/persistent-placeholder',
+    });
+    await launcher.closeProfile('isolated-profile');
+
+    expect(mocks.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userDataDir: '/tmp/browser-gateway-isolated-abc123',
+      }),
+    );
+    expect(removeDir).toHaveBeenCalledWith('/tmp/browser-gateway-isolated-abc123');
   });
 });

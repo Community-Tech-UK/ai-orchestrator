@@ -414,6 +414,89 @@ describe('BrowserGatewayRpcServer', () => {
     });
   });
 
+  it('validates and forwards human handoff browser gateway calls', async () => {
+    const requestUserLogin = vi.fn().mockResolvedValue({
+      decision: 'requires_user',
+      requestId: 'request-login',
+    });
+    const pauseForManualStep = vi.fn().mockResolvedValue({
+      decision: 'requires_user',
+      requestId: 'request-manual',
+    });
+    const server = new BrowserGatewayRpcServer({
+      service: { requestUserLogin, pauseForManualStep },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.request_user_login',
+        params: {
+          instanceId: 'instance-1',
+          provider: 'claude',
+          payload: {
+            profileId: 'profile-1',
+            targetId: 'target-1',
+            reason: 'Please sign in to Google Play Console.',
+          },
+        },
+      }),
+    ).resolves.toEqual({ decision: 'requires_user', requestId: 'request-login' });
+    expect(requestUserLogin).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      reason: 'Please sign in to Google Play Console.',
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'browser.pause_for_manual_step',
+        params: {
+          instanceId: 'instance-1',
+          payload: {
+            profileId: 'profile-1',
+            targetId: 'target-1',
+            kind: 'unsupported',
+          },
+        },
+      }),
+    ).rejects.toThrow(/Invalid browser gateway RPC payload/);
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'browser.pause_for_manual_step',
+        params: {
+          instanceId: 'instance-1',
+          provider: 'copilot',
+          payload: {
+            profileId: 'profile-1',
+            targetId: 'target-1',
+            kind: 'two_factor',
+            reason: 'Enter the authenticator code.',
+          },
+        },
+      }),
+    ).resolves.toEqual({ decision: 'requires_user', requestId: 'request-manual' });
+    expect(pauseForManualStep).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      kind: 'two_factor',
+      reason: 'Enter the authenticator code.',
+    });
+  });
+
   it('falls back to a short temp socket path when userData is too long for Unix sockets', async () => {
     if (process.platform === 'win32') {
       return;

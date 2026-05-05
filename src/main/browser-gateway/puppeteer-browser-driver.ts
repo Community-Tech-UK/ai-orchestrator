@@ -2,6 +2,7 @@ import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core'
 import type {
   BrowserElementContext,
   BrowserProfile,
+  BrowserProfileMode,
   BrowserTarget,
 } from '@contracts/types/browser';
 import {
@@ -67,6 +68,7 @@ export class PuppeteerBrowserDriver {
   private readonly consoleByTargetId = new Map<string, BrowserConsoleEntry[]>();
   private readonly networkByTargetId = new Map<string, BrowserNetworkRequestEntry[]>();
   private readonly instrumentedTargetIds = new Set<string>();
+  private readonly profileModesById = new Map<string, BrowserProfileMode>();
 
   constructor(options: PuppeteerBrowserDriverOptions = {}) {
     this.launcher = options.launcher ?? new BrowserProcessLauncher();
@@ -77,19 +79,26 @@ export class PuppeteerBrowserDriver {
     profile: BrowserProfile,
     startUrl?: string,
   ): Promise<BrowserTarget[]> {
-    if (!profile.userDataDir) {
+    if (!profile.userDataDir && profile.mode !== 'isolated') {
       throw new Error(`Browser profile ${profile.id} has no userDataDir`);
     }
-    await this.launcher.launchProfile({
-      profile,
-      userDataDir: profile.userDataDir,
-      startUrl,
-    });
-    return this.indexPages(profile.id);
+    this.profileModesById.set(profile.id, profile.mode);
+    try {
+      await this.launcher.launchProfile({
+        profile,
+        userDataDir: profile.userDataDir ?? profile.id,
+        startUrl,
+      });
+      return this.indexPages(profile.id);
+    } catch (error) {
+      this.profileModesById.delete(profile.id);
+      throw error;
+    }
   }
 
   async closeProfile(profileId: string): Promise<void> {
     await this.launcher.closeProfile(profileId);
+    this.profileModesById.delete(profileId);
     this.targetRegistry.clearProfile(profileId);
     for (const targetId of Array.from(this.pagesByTargetId.keys())) {
       if (targetId.startsWith(`${profileId}:`)) {
@@ -312,7 +321,7 @@ export class PuppeteerBrowserDriver {
       profileId,
       pageId: current?.pageId ?? targetId,
       driverTargetId: current?.driverTargetId ?? targetId,
-      mode: current?.mode ?? 'session',
+      mode: current?.mode ?? this.profileModesById.get(profileId) ?? 'session',
       title: await page.title(),
       url,
       origin: this.originFromUrl(url),

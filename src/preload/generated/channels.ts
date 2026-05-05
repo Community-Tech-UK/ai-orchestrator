@@ -1011,6 +1011,8 @@ export const IPC_CHANNELS = {
   BROWSER_FILL_FORM: 'browser:fill-form',
   BROWSER_SELECT: 'browser:select',
   BROWSER_UPLOAD_FILE: 'browser:upload-file',
+  BROWSER_REQUEST_USER_LOGIN: 'browser:request-user-login',
+  BROWSER_PAUSE_FOR_MANUAL_STEP: 'browser:pause-for-manual-step',
   BROWSER_REQUEST_GRANT: 'browser:request-grant',
   BROWSER_GET_APPROVAL_STATUS: 'browser:get-approval-status',
   BROWSER_LIST_APPROVAL_REQUESTS: 'browser:list-approval-requests',

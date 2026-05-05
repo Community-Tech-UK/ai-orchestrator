@@ -20,6 +20,8 @@ describe('BROWSER_CHANNELS', () => {
       BROWSER_FILL_FORM: 'browser:fill-form',
       BROWSER_SELECT: 'browser:select',
       BROWSER_UPLOAD_FILE: 'browser:upload-file',
+      BROWSER_REQUEST_USER_LOGIN: 'browser:request-user-login',
+      BROWSER_PAUSE_FOR_MANUAL_STEP: 'browser:pause-for-manual-step',
       BROWSER_REQUEST_GRANT: 'browser:request-grant',
       BROWSER_GET_APPROVAL_STATUS: 'browser:get-approval-status',
       BROWSER_LIST_APPROVAL_REQUESTS: 'browser:list-approval-requests',
@@ -44,6 +46,8 @@ describe('BROWSER_CHANNELS', () => {
     expect(IPC_CHANNELS.BROWSER_LIST_PROFILES).toBe('browser:list-profiles');
     expect(IPC_CHANNELS.BROWSER_CLICK).toBe('browser:click');
     expect(IPC_CHANNELS.BROWSER_REFRESH_EXISTING_TAB).toBe('browser:refresh-existing-tab');
+    expect(IPC_CHANNELS.BROWSER_REQUEST_USER_LOGIN).toBe('browser:request-user-login');
+    expect(IPC_CHANNELS.BROWSER_PAUSE_FOR_MANUAL_STEP).toBe('browser:pause-for-manual-step');
     expect(IPC_CHANNELS.BROWSER_APPROVE_REQUEST).toBe('browser:approve-request');
     expect(IPC_CHANNELS.BROWSER_LIST_GRANTS).toBe('browser:list-grants');
     expect(IPC_CHANNELS.BROWSER_GET_HEALTH).toBe('browser:get-health');

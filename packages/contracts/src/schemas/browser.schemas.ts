@@ -77,6 +77,13 @@ export const BrowserApprovalRequestStatusSchema = z.enum([
 export type BrowserApprovalRequestStatus = z.infer<
   typeof BrowserApprovalRequestStatusSchema
 >;
+export const BrowserManualStepKindSchema = z.enum([
+  'manual_review',
+  'login',
+  'captcha',
+  'two_factor',
+]);
+export type BrowserManualStepKind = z.infer<typeof BrowserManualStepKindSchema>;
 export const BrowserProviderSchema = z.enum([
   'claude',
   'codex',
@@ -448,6 +455,21 @@ export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend(
   requestId: idSchema.optional(),
 }).strict();
 export type BrowserUploadFileRequest = z.infer<typeof BrowserUploadFileRequestSchema>;
+
+export const BrowserRequestUserLoginRequestSchema = BrowserProfileRequestSchema.extend({
+  targetId: idSchema.optional(),
+  reason: z.string().min(1).max(1000).optional(),
+}).strict();
+export type BrowserRequestUserLoginRequest = z.infer<
+  typeof BrowserRequestUserLoginRequestSchema
+>;
+
+export const BrowserManualStepRequestSchema = BrowserProfileRequestSchema.extend({
+  targetId: idSchema.optional(),
+  kind: BrowserManualStepKindSchema.optional(),
+  reason: z.string().min(1).max(1000).optional(),
+}).strict();
+export type BrowserManualStepRequest = z.infer<typeof BrowserManualStepRequestSchema>;
 
 export const BrowserApprovalStatusRequestSchema = z
   .object({
