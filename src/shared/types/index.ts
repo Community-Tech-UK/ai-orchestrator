@@ -30,3 +30,4 @@ export * from './plugin.types';
 export * from './terminal.types';
 export * from './orchestration-hud.types';
 export * from './conversation-ledger.types';
+export * from './operator.types';

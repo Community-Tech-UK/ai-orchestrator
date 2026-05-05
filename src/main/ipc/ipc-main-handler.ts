@@ -94,6 +94,7 @@ import {
   registerWebhookHandlers,
   registerVoiceHandlers,
   registerConversationLedgerHandlers,
+  registerOperatorHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -373,6 +374,7 @@ export class IpcMainHandler {
       ensureAuthorized: this.ensureAuthorized.bind(this)
     });
     registerConversationLedgerHandlers();
+    registerOperatorHandlers();
 
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();

@@ -66,6 +66,49 @@ export function buildBrowserGatewayMcpConfigJson(
   });
 }
 
+export function buildBrowserGatewayCodexConfigToml(
+  options: BrowserGatewayMcpConfigOptions,
+): string | null {
+  const bridge = resolveBrowserGatewayBridgeSpec(options);
+  if (!bridge) {
+    return null;
+  }
+  return [
+    '[mcp_servers."browser-gateway"]',
+    `command = ${tomlString(bridge.command)}`,
+    `args = ${tomlArray(bridge.args)}`,
+    'enabled = true',
+    'required = false',
+    'startup_timeout_sec = 10',
+    'tool_timeout_sec = 60',
+    '',
+    '[mcp_servers."browser-gateway".env]',
+    ...Object.entries(bridge.env).map(([name, value]) =>
+      `${tomlBareKey(name)} = ${tomlString(value)}`,
+    ),
+  ].join('\n');
+}
+
+export function buildBrowserGatewayGeminiSettingsJson(
+  options: BrowserGatewayMcpConfigOptions,
+): string | null {
+  const bridge = resolveBrowserGatewayBridgeSpec(options);
+  if (!bridge) {
+    return null;
+  }
+  return JSON.stringify({
+    mcpServers: {
+      'browser-gateway': {
+        command: bridge.command,
+        args: bridge.args,
+        env: bridge.env,
+        timeout: 30_000,
+        trust: false,
+      },
+    },
+  });
+}
+
 export function buildBrowserGatewayAcpMcpServers(
   options: BrowserGatewayMcpConfigOptions,
 ): AcpMcpServerConfig[] {
@@ -81,4 +124,18 @@ export function buildBrowserGatewayAcpMcpServers(
       env: Object.entries(bridge.env).map(([name, value]) => ({ name, value })),
     },
   ];
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlArray(values: string[]): string {
+  return `[${values.map((value) => tomlString(value)).join(', ')}]`;
+}
+
+function tomlBareKey(value: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(value)
+    ? value
+    : tomlString(value);
 }

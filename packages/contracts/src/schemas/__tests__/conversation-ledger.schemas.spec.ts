@@ -28,6 +28,19 @@ describe('conversation ledger IPC schemas', () => {
       workspacePath: '/tmp/project',
       ephemeral: false,
     }).ephemeral).toBe(false);
+    expect(() => ConversationLedgerStartPayloadSchema.parse({
+      provider: 'codex',
+    })).toThrow();
+    expect(ConversationLedgerStartPayloadSchema.parse({
+      provider: 'orchestrator',
+      workspacePath: null,
+      title: 'Orchestrator',
+      metadata: { operatorThreadKind: 'global' },
+    })).toMatchObject({
+      provider: 'orchestrator',
+      workspacePath: null,
+      title: 'Orchestrator',
+    });
     expect(ConversationLedgerSendTurnPayloadSchema.parse({
       threadId: 'thread_1',
       text: 'Continue',

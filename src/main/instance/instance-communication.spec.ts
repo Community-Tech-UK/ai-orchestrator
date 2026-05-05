@@ -316,6 +316,62 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'idle', instance.contextUsage, diffStats);
   });
 
+  it('notifies the parent when a child finishes a turn without exiting', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    const onChildExit = vi.fn();
+    adapters.set(instance.id, adapter);
+    instance.parentId = 'parent-1';
+    instance.status = 'busy';
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      onChildExit,
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+
+    expect(onChildExit).toHaveBeenCalledWith(instance.id, instance, 0);
+  });
+
+  it('does not notify child completion for the initial adapter idle status', () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    const onChildExit = vi.fn();
+    adapters.set(instance.id, adapter);
+    instance.parentId = 'parent-1';
+    instance.status = 'initializing';
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      onChildExit,
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+
+    expect(onChildExit).not.toHaveBeenCalled();
+  });
+
   it('does not count local system messages as process output', () => {
     const onOutput = vi.fn();
 

@@ -47,6 +47,7 @@ export type BrowserProvider =
   | 'codex'
   | 'gemini'
   | 'copilot'
+  | 'cursor'
   | 'orchestrator';
 
 export interface BrowserAllowedOrigin {

@@ -18,3 +18,7 @@ export {
   ConversationLedgerServiceError,
   getConversationLedgerService,
 } from './conversation-ledger-service';
+export {
+  GLOBAL_ORCHESTRATOR_NATIVE_THREAD_ID,
+  InternalOrchestratorConversationAdapter,
+} from './orchestrator/internal-orchestrator-conversation-adapter';

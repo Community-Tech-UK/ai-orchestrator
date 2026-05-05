@@ -43,6 +43,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, type ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { buildMessageWithFiles, processAttachments, type ProcessedAttachment } from '../file-handler';
 import { getLogger } from '../../logging/logger';
+import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
 import { ActivityStateDetector } from '../../providers/activity-state-detector';
 import { CODEX_TIMEOUTS } from '../../../shared/constants/limits';
@@ -119,6 +120,8 @@ export interface CodexCliConfig {
   outputSchema?: Record<string, unknown>;
   /** Path to a JSON schema file describing the final output (exec mode) */
   outputSchemaPath?: string;
+  /** TOML MCP server config injected into a temporary CODEX_HOME for this adapter. */
+  mcpServersConfigToml?: string;
   /** Reasoning effort level for the model */
   reasoningEffort?: CodexReasoningEffort;
   /** Resume the provided session/thread on the next exec */
@@ -416,6 +419,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     // Decide which mode to use
     const appServerAvailable = Boolean(status.metadata?.['appServerAvailable']);
+    if (this.cliConfig.mcpServersConfigToml) {
+      this.prepareCodexHome();
+    }
 
     if (appServerAvailable) {
       // App-server mode: persistent JSON-RPC connection
@@ -441,12 +447,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
           isTimeout: reason.includes('timed out'),
         });
         this.useAppServer = false;
-        this.prepareCleanCodexHome();
+        if (!this.config.env?.['CODEX_HOME']) {
+          this.prepareCodexHome();
+        }
       }
     } else {
       // Exec mode: spawn per message.
       // The WHY is already logged by checkAppServerAvailability() at warn level.
-      this.prepareCleanCodexHome();
+      if (!this.config.env?.['CODEX_HOME']) {
+        this.prepareCodexHome();
+      }
       logger.info('Codex adapter using exec mode (app-server not available)');
     }
 
@@ -801,7 +811,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
    */
   private async connectAppServer(cwd: string): Promise<AppServerClient> {
     const { connectToAppServer } = await import('./codex/app-server-client');
-    return connectToAppServer(cwd);
+    return connectToAppServer(cwd, this.cliConfig.mcpServersConfigToml
+      ? {
+          env: { ...getSafeEnvForTrustedProcess(), ...this.config.env },
+          disableBroker: true,
+        }
+      : {});
   }
 
   /**
@@ -2154,7 +2169,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
     args.push('--skip-git-repo-check');
 
-    // MCP servers are disabled via CODEX_HOME env var (see prepareCleanCodexHome).
+    // MCP servers are controlled via CODEX_HOME env var (see prepareCodexHome).
     // The `-c mcp_servers={}` CLI override does NOT actually prevent MCP loading.
 
     for (const attachment of message.attachments || []) {
@@ -2722,8 +2737,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return /^[A-Za-z0-9+/]+={0,2}$/.test(data);
   }
 
-  private prepareCleanCodexHome(): void {
-    const codexHomeDir = this.codexHome.prepareMcpFreeHome();
+  private prepareCodexHome(): void {
+    const codexHomeDir = this.cliConfig.mcpServersConfigToml
+      ? this.codexHome.prepareHomeWithMcpConfig(this.cliConfig.mcpServersConfigToml)
+      : this.codexHome.prepareMcpFreeHome();
     if (codexHomeDir) {
       this.config.env = { ...this.config.env, CODEX_HOME: codexHomeDir };
     }

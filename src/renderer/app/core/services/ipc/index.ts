@@ -42,6 +42,7 @@ export { SessionShareIpcService } from './session-share-ipc.service';
 export { RemoteObserverIpcService } from './remote-observer-ipc.service';
 export { ChannelIpcService } from './channel-ipc.service';
 export { IpcEventBusService } from './ipc-event-bus.service';
+export { OperatorIpcService } from './operator-ipc.service';
 
 // Import services for facade
 import { Injectable, inject } from '@angular/core';

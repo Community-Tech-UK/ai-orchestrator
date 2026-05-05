@@ -45,9 +45,7 @@ export const ConversationLedgerDiscoverPayloadSchema = z.object({
   limit: z.number().int().positive().max(500).optional(),
 });
 
-export const ConversationLedgerStartPayloadSchema = z.object({
-  provider: z.literal('codex'),
-  workspacePath: z.string().min(1),
+const ConversationLedgerStartCommonPayloadSchema = {
   model: z.string().min(1).nullable().optional(),
   title: z.string().min(1).nullable().optional(),
   ephemeral: z.boolean().optional(),
@@ -56,7 +54,20 @@ export const ConversationLedgerStartPayloadSchema = z.object({
   reasoningEffort: z.string().min(1).nullable().optional(),
   personality: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-});
+};
+
+export const ConversationLedgerStartPayloadSchema = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('codex'),
+    workspacePath: z.string().min(1),
+    ...ConversationLedgerStartCommonPayloadSchema,
+  }),
+  z.object({
+    provider: z.literal('orchestrator'),
+    workspacePath: z.string().min(1).nullable().optional(),
+    ...ConversationLedgerStartCommonPayloadSchema,
+  }),
+]);
 
 export const ConversationInputItemSchema = z.object({
   type: z.enum(['text', 'image', 'localImage', 'skill', 'mention']),

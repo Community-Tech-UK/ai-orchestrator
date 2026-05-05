@@ -205,7 +205,7 @@ export interface NativeConversationSnapshot {
 
 export interface NativeThreadStartRequest {
   provider: ConversationProvider;
-  workspacePath: string;
+  workspacePath?: string | null;
   model?: string | null;
   title?: string | null;
   ephemeral?: boolean;

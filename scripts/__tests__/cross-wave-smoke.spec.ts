@@ -421,6 +421,29 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(parsed.verdict.rawResponses).toEqual(responses);
   });
 
+  it('keeps recent operator-facing UI surfaces mounted and discoverable', async () => {
+    const [
+      appTs,
+      appHtml,
+      dashboardTs,
+      sidebarActionsTs,
+      sidebarNavTs,
+    ] = await Promise.all([
+      readFile(join(process.cwd(), 'src/renderer/app/app.component.ts'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/renderer/app/app.component.html'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/sidebar-actions.component.ts'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/sidebar-nav.component.ts'), 'utf-8'),
+    ]);
+
+    expect(appTs).toContain('CliUpdatePillComponent');
+    expect(appHtml).toContain('<app-cli-update-pill');
+    expect(dashboardTs).toContain("id: 'app.open-browser'");
+    expect(dashboardTs).toContain("id: 'app.open-doctor'");
+    expect(sidebarActionsTs).toContain('routerLink="/browser"');
+    expect(sidebarNavTs).toContain("route: '/browser'");
+  });
+
   it('keeps exported operator artifact bundles redacted and home-relative', async () => {
     const secret = 'sk-test-shouldnotleak1234567890';
     const previousSecret = process.env['ANTHROPIC_API_KEY'];

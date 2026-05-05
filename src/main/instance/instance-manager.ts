@@ -170,6 +170,7 @@ export class InstanceManager extends EventEmitter {
 
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
+  private completedChildNotifications = new Set<string>();
   private settings = getSettingsManager();
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private providerRuntimeSeqByInstance = new Map<string, number>();
@@ -270,9 +271,7 @@ export class InstanceManager extends EventEmitter {
           await this.context.compactContext(id, instance);
         }
       },
-      onChildExit: (childId, child, exitCode) => {
-        this.handleChildExit(childId, child, exitCode);
-      },
+      onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
       onOutput: (id) => this.stuckDetector.recordOutput(id),
       onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),
       createSnapshot: (id, name, desc, trigger) => {
@@ -1945,6 +1944,15 @@ export class InstanceManager extends EventEmitter {
    */
   private async handleChildExit(childId: string, child: Instance, exitCode: number | null): Promise<void> {
     if (!child.parentId) return;
+    if (this.completedChildNotifications.has(childId)) {
+      logger.debug('Ignoring duplicate child completion notification', {
+        childId,
+        parentId: child.parentId,
+        exitCode,
+      });
+      return;
+    }
+    this.completedChildNotifications.add(childId);
 
     const orchestration = this.orchestrationMgr.getOrchestrationHandler();
     const taskManager = getTaskManager();

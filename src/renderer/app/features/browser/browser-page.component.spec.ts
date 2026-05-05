@@ -315,6 +315,14 @@ describe('BrowserPageComponent', () => {
     expect(text).toContain('Gemini Browser Gateway is unavailable until adapter MCP injection is implemented.');
   });
 
+  it('renders existing-tab bridge setup guidance', () => {
+    const text = fixture.nativeElement.textContent;
+
+    expect(text).toContain('Existing Tab Bridge');
+    expect(text).toContain('Share Current Tab');
+    expect(text).toContain('resources/browser-extension');
+  });
+
   it('renders screenshot base64 with a data URL prefix', async () => {
     await fixture.componentInstance.captureScreenshot();
     fixture.detectChanges();

@@ -200,6 +200,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Global Operator
+  {
+    path: 'operator',
+    loadComponent: () =>
+      import('./features/operator/operator-page.component').then(
+        (m) => m.OperatorPageComponent
+      ),
+  },
+
   // Sprint 2: VCS/Git Operations
   {
     path: 'vcs',

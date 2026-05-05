@@ -55,6 +55,27 @@ describe('CommandManager', () => {
     expect(resolved?.resolvedPrompt).toContain('focus errors');
   });
 
+  it('exposes recent UI surfaces as built-in navigation commands', async () => {
+    const manager = new CommandManager();
+    const commands = await manager.getAllCommands();
+
+    expect(commands).toContainEqual(expect.objectContaining({
+      name: 'browser',
+      execution: { type: 'ui', actionId: 'app.open-browser' },
+      category: 'navigation',
+    }));
+    expect(commands).toContainEqual(expect.objectContaining({
+      name: 'doctor',
+      execution: { type: 'ui', actionId: 'app.open-doctor' },
+      category: 'diagnostics',
+    }));
+    expect(commands).toContainEqual(expect.objectContaining({
+      name: 'settings',
+      execution: { type: 'ui', actionId: 'toggle-settings' },
+      category: 'settings',
+    }));
+  });
+
   it('includes markdown commands in the registry listing with stable ids', async () => {
     const markdownCommand: CommandTemplate = {
       id: createMarkdownCommandId('workspace:review'),

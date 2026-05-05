@@ -92,6 +92,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
   showSidebar = signal(true);
   showFileExplorer = signal(false);
 
+  private readonly anyTransientOverlayOpen = computed(() =>
+    this.showCommandPalette()
+    || this.showCommandHelp()
+    || this.showSessionPicker()
+    || this.showResumePicker()
+    || this.showModelPicker()
+    || this.showPromptHistorySearch()
+    || this.showHistory()
+  );
+
   // Computed: selected instance's working directory for file explorer
   selectedInstanceWorkingDir = computed(() => {
     const instance = this.store.selectedInstance();
@@ -151,7 +161,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
           || selectedInstance?.status === 'interrupting'
           || selectedInstance?.status === 'cancelling'
           || selectedInstance?.status === 'interrupt-escalating',
-        commandPaletteOpen: this.showCommandPalette(),
+        commandPaletteOpen: this.anyTransientOverlayOpen(),
         historyOpen: this.showHistory(),
         sidebarVisible: this.showSidebar(),
       });
@@ -349,6 +359,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
         },
       }),
       this.actionDispatch.register({
+        id: 'app.open-browser',
+        run: () => {
+          this.openBrowser();
+        },
+      }),
+      this.actionDispatch.register({
+        id: 'app.open-doctor',
+        run: () => {
+          this.openDoctor();
+        },
+      }),
+      this.actionDispatch.register({
         id: 'app.open-command-help',
         run: () => {
           this.showCommandHelp.set(true);
@@ -413,6 +435,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   openRlm(): void {
     this.router.navigate(['/rlm']);
+  }
+
+  openBrowser(): void {
+    void this.router.navigate(['/browser']);
+  }
+
+  openDoctor(): void {
+    void this.router.navigate(['/settings'], {
+      queryParams: { tab: 'doctor' },
+    });
   }
 
   onRetryCliDetection(): void {

@@ -144,7 +144,7 @@ export class CodexNativeConversationAdapter implements NativeConversationAdapter
   }
 
   async startThread(request: NativeThreadStartRequest): Promise<NativeConversationHandle> {
-    const cwd = request.workspacePath;
+    const cwd = request.workspacePath ?? process.cwd();
     return this.withClient(cwd, async (client) => {
       const response = await client.request('thread/start', {
         cwd,

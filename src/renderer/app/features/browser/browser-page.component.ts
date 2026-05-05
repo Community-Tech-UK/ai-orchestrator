@@ -183,6 +183,23 @@ interface BrowserSnapshotView {
 
         <aside class="side-panel">
           <section>
+            <h2>Existing Tab Bridge</h2>
+            <div class="bridge-list">
+              <div>
+                <span>Extension</span>
+                <code>resources/browser-extension</code>
+              </div>
+              <div>
+                <span>Chrome action</span>
+                <strong>Share Current Tab</strong>
+              </div>
+              <div>
+                <span>Target mode</span>
+                <small>Read-only extension target</small>
+              </div>
+            </div>
+          </section>
+          <section>
             <h2>Health</h2>
             @if (providerCapabilityRows().length) {
               <div class="provider-health-list">
@@ -627,6 +644,37 @@ interface BrowserSnapshotView {
       display: grid;
       gap: var(--spacing-xs);
       margin-bottom: var(--spacing-sm);
+    }
+
+    .bridge-list {
+      display: grid;
+      gap: var(--spacing-xs);
+    }
+
+    .bridge-list div {
+      display: grid;
+      gap: 2px;
+      padding: var(--spacing-xs);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      background: var(--bg-primary);
+    }
+
+    .bridge-list span {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .bridge-list code,
+    .bridge-list strong,
+    .bridge-list small {
+      min-width: 0;
+      color: var(--text-secondary);
+      font-size: 11px;
+      overflow-wrap: anywhere;
     }
 
     .provider-health-row {

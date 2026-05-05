@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -232,6 +233,84 @@ describe('adapter factory — copilot', () => {
     }).acpConfig.mcpServers ?? []).map((server) => server.name);
 
     expect(names).toEqual(['existing', 'browser-gateway']);
+  });
+
+  it('passes Browser Gateway MCP config to Codex through generated TOML', () => {
+    const adapter = createCliAdapter('codex', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      browserGatewayMcp: {
+        currentDir: '/tmp/dist/main/instance',
+        execPath: '/Applications/App.app/Contents/MacOS/App',
+        isPackaged: false,
+        resourcesPath: '/tmp/resources',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        provider: 'codex',
+        exists: () => true,
+      },
+    });
+
+    const mcpConfigToml = (adapter as unknown as {
+      cliConfig: { mcpServersConfigToml?: string };
+    }).cliConfig.mcpServersConfigToml;
+
+    expect(mcpConfigToml).toContain('[mcp_servers."browser-gateway"]');
+    expect(mcpConfigToml).toContain('AI_ORCHESTRATOR_BROWSER_PROVIDER = "codex"');
+  });
+
+  it('passes Browser Gateway MCP config to Gemini through a temporary system settings file', () => {
+    const adapter = createCliAdapter('gemini', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      browserGatewayMcp: {
+        currentDir: '/tmp/dist/main/instance',
+        execPath: '/Applications/App.app/Contents/MacOS/App',
+        isPackaged: false,
+        resourcesPath: '/tmp/resources',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        provider: 'gemini',
+        exists: () => true,
+      },
+    });
+
+    const settingsPath = adapter.getConfig().env?.['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
+    expect(settingsPath).toBeTruthy();
+    const settings = JSON.parse(readFileSync(settingsPath!, 'utf-8'));
+    expect(settings.mcpServers['browser-gateway'].env).toMatchObject({
+      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: '/tmp/browser-gateway.sock',
+      AI_ORCHESTRATOR_BROWSER_PROVIDER: 'gemini',
+    });
+  });
+
+  it('passes Browser Gateway MCP servers to Cursor ACP with array env entries', () => {
+    const adapter = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      browserGatewayMcp: {
+        currentDir: '/tmp/dist/main/instance',
+        execPath: '/Applications/App.app/Contents/MacOS/App',
+        isPackaged: false,
+        resourcesPath: '/tmp/resources',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        provider: 'cursor',
+        exists: () => true,
+      },
+    });
+
+    const mcpServers = (adapter as unknown as {
+      acpConfig: { mcpServers?: Array<{ name: string; env?: Array<{ name: string; value: string }> }> };
+    }).acpConfig.mcpServers ?? [];
+
+    const browserGateway = mcpServers.find((server) => server.name === 'browser-gateway');
+    expect(browserGateway?.env).toEqual(
+      expect.arrayContaining([
+        { name: 'AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET', value: '/tmp/browser-gateway.sock' },
+        { name: 'AI_ORCHESTRATOR_BROWSER_PROVIDER', value: 'cursor' },
+      ]),
+    );
   });
 
   it('preserves pre-existing NODE_OPTIONS and does not duplicate the flag', () => {

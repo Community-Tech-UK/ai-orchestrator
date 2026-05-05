@@ -22,6 +22,7 @@ export class CodexHomeManager {
   private codexHomeDir?: string;
 
   prepareMcpFreeHome(): string | null {
+    this.cleanup();
     const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
     const codexDir = join(homeDir, '.codex');
 
@@ -52,6 +53,37 @@ export class CodexHomeManager {
       return tempDir;
     } catch (err) {
       logger.warn('Failed to create clean CODEX_HOME, MCP servers may cause latency', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  prepareHomeWithMcpConfig(mcpConfigToml: string): string | null {
+    this.cleanup();
+    const homeDir = process.env['HOME'] || process.env['USERPROFILE'] || '';
+    const codexDir = join(homeDir, '.codex');
+
+    try {
+      const tempDir = mkdtempSync(join(tmpdir(), 'codex-browser-mcp-'));
+      if (existsSync(codexDir)) {
+        this.symlinkCodexHomeEntries(codexDir, tempDir);
+      }
+
+      const configPath = join(codexDir, 'config.toml');
+      const baseConfig = existsSync(configPath)
+        ? stripMcpServers(readFileSync(configPath, 'utf-8')).trim()
+        : '';
+      const nextConfig = [baseConfig, mcpConfigToml.trim()]
+        .filter(Boolean)
+        .join('\n\n');
+      writeFileSync(join(tempDir, 'config.toml'), nextConfig, 'utf-8');
+
+      this.codexHomeDir = tempDir;
+      logger.info('Created Browser Gateway MCP CODEX_HOME', { path: tempDir });
+      return tempDir;
+    } catch (err) {
+      logger.warn('Failed to create Browser Gateway MCP CODEX_HOME', {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;

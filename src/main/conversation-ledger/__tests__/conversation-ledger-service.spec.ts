@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationLedgerService } from '../conversation-ledger-service';
 import { NativeConversationRegistry } from '../native-conversation-registry';
 import type { NativeConversationAdapter } from '../native-conversation-adapter';
+import { InternalOrchestratorConversationAdapter } from '../orchestrator/internal-orchestrator-conversation-adapter';
 
 describe('ConversationLedgerService', () => {
   const services: ConversationLedgerService[] = [];
@@ -60,7 +61,37 @@ describe('ConversationLedgerService', () => {
     expect(conversation.messages.map(message => message.content)).toEqual(['hello', 'answer']);
   });
 
-  function createService(adapter: FakeAdapter): ConversationLedgerService {
+  it('starts and reuses the internal orchestrator thread without a workspace', async () => {
+    const service = createService(new InternalOrchestratorConversationAdapter());
+
+    const thread = await service.startConversation({
+      provider: 'orchestrator',
+      workspacePath: null,
+      title: 'Orchestrator',
+      metadata: { operatorThreadKind: 'global' },
+    });
+    const turn = await service.sendTurn(thread.id, { text: 'Coordinate active work' });
+    const reused = await service.startConversation({
+      provider: 'orchestrator',
+      workspacePath: null,
+      title: 'Orchestrator',
+    });
+    const conversation = service.getConversation(thread.id);
+
+    expect(thread.provider).toBe('orchestrator');
+    expect(thread.nativeSourceKind).toBe('internal');
+    expect(thread.sourceKind).toBe('orchestrator');
+    expect(thread.workspacePath).toBeNull();
+    expect(thread.nativeVisibilityMode).toBe('none');
+    expect(reused.id).toBe(thread.id);
+    expect(turn.messages.map(message => message.role)).toEqual(['user', 'assistant']);
+    expect(conversation.messages.map(message => message.content)).toEqual([
+      'Coordinate active work',
+      expect.stringContaining('recorded'),
+    ]);
+  });
+
+  function createService(adapter: NativeConversationAdapter): ConversationLedgerService {
     const service = new ConversationLedgerService({
       dbPath: ':memory:',
       enableWAL: false,

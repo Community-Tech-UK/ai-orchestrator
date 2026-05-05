@@ -2,6 +2,7 @@
   <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
 
   <div class="title-bar-overlay" [class.macos]="isMacOS">
+    <app-cli-update-pill />
     @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
       <app-pause-toggle />
     }

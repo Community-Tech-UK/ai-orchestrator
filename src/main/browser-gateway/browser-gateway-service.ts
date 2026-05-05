@@ -2377,6 +2377,7 @@ export class BrowserGatewayService {
       provider === 'codex' ||
       provider === 'gemini' ||
       provider === 'copilot' ||
+      provider === 'cursor' ||
       provider === 'orchestrator'
       ? provider
       : 'orchestrator';

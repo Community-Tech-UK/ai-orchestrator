@@ -13,7 +13,7 @@ import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
-import { mkdirSync } from 'fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CliDetectionService, CliType } from '../cli-detection';
@@ -26,6 +26,8 @@ import { getPermissionRegistry } from '../../orchestration/permission-registry';
 import { getProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 import {
   buildBrowserGatewayAcpMcpServers,
+  buildBrowserGatewayCodexConfigToml,
+  buildBrowserGatewayGeminiSettingsJson,
   type BrowserGatewayMcpConfigOptions,
 } from '../../browser-gateway/browser-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
@@ -151,6 +153,34 @@ function getCopilotOrchestratorHome(parent: NodeJS.ProcessEnv = process.env): st
   return homeDir;
 }
 
+function withBrowserGatewayProvider(
+  options: BrowserGatewayMcpConfigOptions,
+  provider: string,
+): BrowserGatewayMcpConfigOptions {
+  return {
+    ...options,
+    provider: options.provider ?? provider,
+  };
+}
+
+function writeGeminiBrowserGatewaySettings(
+  options: BrowserGatewayMcpConfigOptions | undefined,
+): string | undefined {
+  if (!options) {
+    return undefined;
+  }
+  const settingsJson = buildBrowserGatewayGeminiSettingsJson(
+    withBrowserGatewayProvider(options, 'gemini'),
+  );
+  if (!settingsJson) {
+    return undefined;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'ai-orchestrator-gemini-browser-mcp-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, settingsJson, 'utf-8');
+  return settingsPath;
+}
+
 /**
  * Adapter type union - the concrete adapter types
  */
@@ -268,6 +298,11 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
  * Creates a Codex CLI adapter
  */
 export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapter {
+  const mcpServersConfigToml = options.browserGatewayMcp
+    ? buildBrowserGatewayCodexConfigToml(
+        withBrowserGatewayProvider(options.browserGatewayMcp, 'codex'),
+      )
+    : null;
   const codexConfig: CodexCliConfig = {
     // AI Orchestrator owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
@@ -283,6 +318,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     timeout: options.timeout,
     outputSchema: options.outputSchema,
     reasoningEffort: options.reasoningEffort,
+    ...(mcpServersConfigToml ? { mcpServersConfigToml } : {}),
   };
   return new CodexCliAdapter(codexConfig);
 }
@@ -291,6 +327,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
  * Creates a Gemini CLI adapter
  */
 export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdapter {
+  const browserGatewaySettingsPath = writeGeminiBrowserGatewaySettings(options.browserGatewayMcp);
   const geminiConfig: GeminiCliConfig = {
     workingDir: options.workingDirectory,
     model: options.model,
@@ -299,6 +336,14 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
     // from the registry. The orchestrator is the approval layer for child instances.
     yoloMode: options.yoloMode ?? true,
     timeout: options.timeout,
+    ...(browserGatewaySettingsPath
+      ? {
+          env: {
+            GEMINI_CLI_SYSTEM_SETTINGS_PATH: browserGatewaySettingsPath,
+          },
+          browserGatewaySettingsPath,
+        }
+      : {}),
   };
   return new GeminiCliAdapter(geminiConfig);
 }
@@ -337,7 +382,9 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     env['COPILOT_HOME'] = copilotHomeDir;
   }
   const browserGatewayMcpServers = options.browserGatewayMcp
-    ? buildBrowserGatewayAcpMcpServers(options.browserGatewayMcp)
+    ? buildBrowserGatewayAcpMcpServers(
+        withBrowserGatewayProvider(options.browserGatewayMcp, 'copilot'),
+      )
     : [];
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
@@ -390,6 +437,11 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
  * Creates a Cursor CLI adapter (spawns the `cursor-agent` binary directly).
  */
 export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
+  const browserGatewayMcpServers = options.browserGatewayMcp
+    ? buildBrowserGatewayAcpMcpServers(
+        withBrowserGatewayProvider(options.browserGatewayMcp, 'cursor'),
+      )
+    : [];
   return new AcpCliAdapter({
     adapterName: 'cursor-acp',
     command: 'cursor-agent',
@@ -397,6 +449,10 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
+    mcpServers: [
+      ...(options.mcpServers ?? []),
+      ...browserGatewayMcpServers,
+    ],
     model: options.model,
     systemPrompt: options.systemPrompt,
     timeout: options.timeout,

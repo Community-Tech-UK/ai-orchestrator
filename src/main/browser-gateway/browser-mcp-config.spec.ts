@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBrowserGatewayAcpMcpServers,
+  buildBrowserGatewayCodexConfigToml,
+  buildBrowserGatewayGeminiSettingsJson,
   buildBrowserGatewayMcpConfigJson,
   resolveBrowserGatewayBridgeSpec,
 } from './browser-mcp-config';
@@ -63,6 +65,36 @@ describe('browser-mcp-config', () => {
 
     expect(bridge?.env).toMatchObject({
       AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
+    });
+  });
+
+  it('builds Codex TOML config for the Browser Gateway MCP server', () => {
+    const config = buildBrowserGatewayCodexConfigToml({
+      ...options,
+      provider: 'codex',
+    });
+
+    expect(config).toContain('[mcp_servers."browser-gateway"]');
+    expect(config).toContain('command = "/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator"');
+    expect(config).toContain('args = ["/app/dist/main/browser-gateway/browser-mcp-stdio-server.js"]');
+    expect(config).toContain('AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET = "/tmp/browser-gateway.sock"');
+    expect(config).toContain('AI_ORCHESTRATOR_BROWSER_PROVIDER = "codex"');
+  });
+
+  it('builds Gemini settings JSON for the Browser Gateway MCP server', () => {
+    const config = JSON.parse(buildBrowserGatewayGeminiSettingsJson({
+      ...options,
+      provider: 'gemini',
+    })!);
+
+    expect(config.mcpServers['browser-gateway']).toMatchObject({
+      command: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
+      args: ['/app/dist/main/browser-gateway/browser-mcp-stdio-server.js'],
+      env: expect.objectContaining({
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: '/tmp/browser-gateway.sock',
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+        AI_ORCHESTRATOR_BROWSER_PROVIDER: 'gemini',
+      }),
     });
   });
 });

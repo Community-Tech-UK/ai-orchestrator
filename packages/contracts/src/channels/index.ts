@@ -23,6 +23,7 @@ import { DIAGNOSTICS_CHANNELS } from './diagnostics.channels';
 import { VOICE_CHANNELS } from './voice.channels';
 import { BROWSER_CHANNELS } from './browser.channels';
 import { CONVERSATION_LEDGER_CHANNELS } from './conversation-ledger.channels';
+import { OPERATOR_CHANNELS } from './operator.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -42,6 +43,7 @@ export {
   VOICE_CHANNELS,
   BROWSER_CHANNELS,
   CONVERSATION_LEDGER_CHANNELS,
+  OPERATOR_CHANNELS,
 };
 
 /**
@@ -66,6 +68,7 @@ export const IPC_CHANNELS = {
   ...VOICE_CHANNELS,
   ...BROWSER_CHANNELS,
   ...CONVERSATION_LEDGER_CHANNELS,
+  ...OPERATOR_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

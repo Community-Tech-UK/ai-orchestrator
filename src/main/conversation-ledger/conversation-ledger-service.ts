@@ -19,6 +19,7 @@ import { runConversationLedgerMigrations } from './conversation-ledger-schema';
 import { getNativeConversationRegistry, NativeConversationRegistry } from './native-conversation-registry';
 import type { NativeConversationAdapter } from './native-conversation-adapter';
 import { CodexNativeConversationAdapter } from './codex/codex-native-conversation-adapter';
+import { InternalOrchestratorConversationAdapter } from './orchestrator/internal-orchestrator-conversation-adapter';
 
 const logger = getLogger('ConversationLedgerService');
 
@@ -78,7 +79,10 @@ export class ConversationLedgerService {
       this.store = new ConversationLedgerStore(this.db);
     }
 
-    const adapters = config.adapters ?? [new CodexNativeConversationAdapter()];
+    const adapters = config.adapters ?? [
+      new CodexNativeConversationAdapter(),
+      new InternalOrchestratorConversationAdapter(),
+    ];
     for (const adapter of adapters) {
       this.registry.register(adapter, { override: true });
     }
@@ -182,22 +186,23 @@ export class ConversationLedgerService {
   }
 
   async startConversation(request: NativeThreadStartRequest): Promise<ConversationThreadRecord> {
-    if (request.provider !== 'codex') {
-      throw new ConversationLedgerServiceError(`Provider ${request.provider} is not supported yet`, 'PROVIDER_UNSUPPORTED');
-    }
     const adapter = this.getAdapter(request.provider);
+    const capabilities = adapter.getCapabilities();
+    if (!capabilities.canCreate) {
+      throw new ConversationLedgerServiceError(`Provider ${request.provider} cannot create conversations`, 'PROVIDER_UNSUPPORTED');
+    }
     const handle = await adapter.startThread({ ...request, ephemeral: request.ephemeral ?? false });
     return this.store.upsertThread({
       provider: request.provider,
       nativeThreadId: handle.nativeThreadId,
       nativeSessionId: handle.nativeSessionId ?? null,
-      nativeSourceKind: 'appServer',
+      nativeSourceKind: request.provider === 'orchestrator' ? 'internal' : 'appServer',
       sourceKind: 'orchestrator',
       sourcePath: handle.sourcePath ?? null,
-      workspacePath: handle.workspacePath ?? request.workspacePath,
+      workspacePath: handle.workspacePath ?? request.workspacePath ?? null,
       title: request.title ?? handle.title ?? null,
       writable: true,
-      nativeVisibilityMode: 'app-server-durable',
+      nativeVisibilityMode: capabilities.nativeVisibilityMode,
       syncStatus: 'synced',
       conflictStatus: 'none',
       metadata: handle.metadata ?? {},
@@ -210,6 +215,9 @@ export class ConversationLedgerService {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot be sent to`, 'CONVERSATION_NOT_WRITABLE');
     }
     const adapter = this.getAdapter(thread.provider);
+    if (!adapter.getCapabilities().canSendTurns) {
+      throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot receive turns`, 'CONVERSATION_NOT_WRITABLE');
+    }
     const existingCount = this.store.getMessages(threadId).length;
     const result = await adapter.sendTurn({
       provider: thread.provider,
@@ -229,7 +237,7 @@ export class ConversationLedgerService {
       nativeThreadId: thread.nativeThreadId,
       sourceKind: thread.sourceKind,
       updatedAt: Date.now(),
-      syncStatus: 'dirty',
+      syncStatus: thread.provider === 'orchestrator' ? 'synced' : 'dirty',
       writable: thread.writable,
       nativeVisibilityMode: thread.nativeVisibilityMode,
       conflictStatus: thread.conflictStatus,

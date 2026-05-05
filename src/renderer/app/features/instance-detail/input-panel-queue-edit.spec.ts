@@ -188,7 +188,7 @@ describe('InputPanelComponent queued message editing', () => {
     expect(orchestration.workflowStart).not.toHaveBeenCalled();
   });
 
-  it('shows an error when sending text that starts with an unknown slash command', async () => {
+  it('sends text that starts with an absolute path as a normal message', async () => {
     const component = fixture.componentInstance;
     const commandStore = TestBed.inject(CommandStore) as unknown as {
       resolveCommand: ReturnType<typeof vi.fn>;
@@ -209,13 +209,41 @@ describe('InputPanelComponent queued message editing', () => {
     fixture.detectChanges();
 
     const error = fixture.nativeElement.querySelector('.composer-inline-error');
+    expect(sent).toEqual(['/Users/suas/work/Dingley/auth.md\n\nplease review this']);
+    expect(commandStore.resolveCommand).not.toHaveBeenCalled();
+    expect(commandStore.executeCommand).not.toHaveBeenCalled();
+    expect(component.message()).toBe('');
+    expect(error).toBeNull();
+  });
+
+  it('shows an error when sending text that starts with an unknown slash command', async () => {
+    const component = fixture.componentInstance;
+    const commandStore = TestBed.inject(CommandStore) as unknown as {
+      resolveCommand: ReturnType<typeof vi.fn>;
+      executeCommand: ReturnType<typeof vi.fn>;
+    };
+    const sent: string[] = [];
+    (component as unknown as {
+      sendMessage: { subscribe(callback: (text: string) => void): void };
+    }).sendMessage.subscribe((text) => sent.push(text));
+
+    commandStore.resolveCommand.mockResolvedValue({
+      kind: 'none',
+      query: 'not-a-command',
+    });
+    component.message.set('/not-a-command please review this');
+
+    await component.onSend();
+    fixture.detectChanges();
+
+    const error = fixture.nativeElement.querySelector('.composer-inline-error');
     expect(sent).toEqual([]);
     expect(commandStore.executeCommand).not.toHaveBeenCalled();
-    expect(component.message()).toBe('/Users/suas/work/Dingley/auth.md\n\nplease review this');
+    expect(component.message()).toBe('/not-a-command please review this');
     if (!error) {
       throw new Error('Expected slash command error to render');
     }
-    expect(error.textContent).toContain('No slash command found for /Users/suas/work/Dingley/auth.md');
+    expect(error.textContent).toContain('No slash command found for /not-a-command');
   });
 });
 

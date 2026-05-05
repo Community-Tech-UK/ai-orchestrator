@@ -17,6 +17,8 @@ import {
   CliToolCall,
   CliUsage
 } from './base-cli-adapter';
+import { rmSync } from 'fs';
+import { dirname } from 'path';
 import { getLogger } from '../../logging/logger';
 import type {
   OutputMessage,
@@ -47,6 +49,10 @@ export interface GeminiCliConfig {
   outputFormat?: 'text' | 'json' | 'stream-json';
   /** System prompt */
   systemPrompt?: string;
+  /** Extra environment variables for Gemini CLI subprocesses. */
+  env?: Record<string, string>;
+  /** Temporary Browser Gateway settings path created by the adapter factory. */
+  browserGatewaySettingsPath?: string;
   /** Alias for yolo (used by adapter factory) */
   yoloMode?: boolean;
 }
@@ -68,6 +74,7 @@ export interface GeminiCliAdapterEvents {
  */
 export class GeminiCliAdapter extends BaseCliAdapter {
   private cliConfig: GeminiCliConfig;
+  private readonly browserGatewaySettingsPath?: string;
   /** Running total of tokens used across all turns */
   private cumulativeTokensUsed = 0;
 
@@ -77,6 +84,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       args: [],
       cwd: config.workingDir,
       timeout: config.timeout || 300000,
+      env: config.env,
       sessionPersistence: true
     };
     super(adapterConfig);
@@ -86,6 +94,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       ...config,
       yolo: config.yolo ?? config.yoloMode
     };
+    this.browserGatewaySettingsPath = config.browserGatewaySettingsPath;
     this.sessionId = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
@@ -834,11 +843,19 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   override async terminate(graceful = true): Promise<void> {
     const wasSpawned = this.isSpawned;
     await super.terminate(graceful);
+    this.cleanupBrowserGatewaySettings();
     this.isSpawned = false;
     // Emit exit event for cleanup (archive, adapter removal, etc.)
     // Only emit if we were actually spawned to avoid spurious events
     if (wasSpawned) {
       this.emit('exit', 0, null);
     }
+  }
+
+  private cleanupBrowserGatewaySettings(): void {
+    if (!this.browserGatewaySettingsPath) {
+      return;
+    }
+    rmSync(dirname(this.browserGatewaySettingsPath), { recursive: true, force: true });
   }
 }

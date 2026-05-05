@@ -117,6 +117,19 @@ const CIRCUIT_BREAKER_CONFIG = {
   cooldownMs: 5000                 // Wait 5s before allowing retry after trip
 };
 
+const ACTIVE_CHILD_TURN_STATUSES = new Set<InstanceStatus>([
+  'busy',
+  'processing',
+  'thinking_deeply',
+  'waiting_for_permission',
+]);
+
+const CHILD_TURN_COMPLETE_STATUSES = new Set<InstanceStatus>([
+  'idle',
+  'ready',
+  'waiting_for_input',
+]);
+
 function summarizeLogText(value: string, maxLength = RESPONSE_PREVIEW_LENGTH): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (normalized.length <= maxLength) {
@@ -434,6 +447,36 @@ export class InstanceCommunicationManager extends EventEmitter {
     const effectivePreviousStatus = instance.status;
     this.transitionInstanceStatus(instance, nextStatus);
     return effectivePreviousStatus;
+  }
+
+  private shouldNotifyChildTurnCompleted(
+    instance: Instance,
+    previousStatus: InstanceStatus,
+    nextStatus: InstanceStatus,
+  ): boolean {
+    return Boolean(
+      instance.parentId
+      && this.deps.onChildExit
+      && ACTIVE_CHILD_TURN_STATUSES.has(previousStatus)
+      && CHILD_TURN_COMPLETE_STATUSES.has(nextStatus)
+    );
+  }
+
+  private notifyChildTurnCompleted(instanceId: string, instance: Instance): void {
+    try {
+      const result = this.deps.onChildExit?.(instanceId, instance, 0);
+      Promise.resolve(result).catch((error: unknown) => {
+        logger.error('Failed to notify parent about completed child turn', error instanceof Error ? error : undefined, {
+          instanceId,
+          parentId: instance.parentId,
+        });
+      });
+    } catch (error) {
+      logger.error('Failed to notify parent about completed child turn', error instanceof Error ? error : undefined, {
+        instanceId,
+        parentId: instance.parentId,
+      });
+    }
   }
 
   queueContinuityPreamble(instanceId: string, preamble: string): void {
@@ -1206,6 +1249,11 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         const previousStatus = this.transitionAdapterStatus(instanceId, instance, normalizedStatus);
         instance.lastActivity = Date.now();
+        const notifyChildTurnCompleted = this.shouldNotifyChildTurnCompleted(
+          instance,
+          previousStatus,
+          normalizedStatus,
+        );
 
         if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
           this.deps.onToolStateChange?.(instanceId, 'idle');
@@ -1223,15 +1271,24 @@ export class InstanceCommunicationManager extends EventEmitter {
               const diffStats = tracker.computeDiff();
               instance.diffStats = diffStats;
               this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage, diffStats);
+              if (notifyChildTurnCompleted) {
+                this.notifyChildTurnCompleted(instanceId, instance);
+              }
             } catch (err) {
               logger.debug('computeDiff failed', { instanceId, error: String(err) });
               this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage);
+              if (notifyChildTurnCompleted) {
+                this.notifyChildTurnCompleted(instanceId, instance);
+              }
             }
             return;
           }
         }
 
         this.deps.queueUpdate(instanceId, normalizedStatus, instance.contextUsage);
+        if (notifyChildTurnCompleted) {
+          this.notifyChildTurnCompleted(instanceId, instance);
+        }
       }
     });
 

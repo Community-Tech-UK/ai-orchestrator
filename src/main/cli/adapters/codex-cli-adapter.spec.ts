@@ -608,10 +608,10 @@ Hey! I'm here. What do you want to tackle?`;
         // Intentionally pending.
       }));
 
-      // Mock prepareCleanCodexHome for exec fallback
+      // Mock Codex home preparation for exec fallback.
       vi.spyOn(
-        adapter as unknown as { prepareCleanCodexHome(): void },
-        'prepareCleanCodexHome'
+        adapter as unknown as { prepareCodexHome(): void },
+        'prepareCodexHome'
       ).mockReturnValue(undefined);
 
       // Use fake timers to advance past the 30s timeout

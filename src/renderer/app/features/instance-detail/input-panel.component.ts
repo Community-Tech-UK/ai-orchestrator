@@ -529,8 +529,9 @@ export class InputPanelComponent implements OnDestroy {
 
     this.persistComposerText(value);
 
-    // Show command suggestions when typing "/"
-    if (value.startsWith('/') && !value.includes('\n')) {
+    // Show command suggestions when typing "/" unless the leading token is a
+    // path like "/Users/foo/file.md".
+    if (value.startsWith('/') && !value.includes('\n') && !this.startsWithLikelyPath(value)) {
       this.showCommandSuggestions.set(true);
       this.selectedCommandIndex.set(0);
       void this.refreshSlashResolution(value);
@@ -891,7 +892,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   private async handleSlashCommand(text: string): Promise<boolean> {
-    if (!text.startsWith('/')) {
+    if (!text.startsWith('/') || this.startsWithLikelyPath(text)) {
       return false;
     }
 
@@ -916,6 +917,12 @@ export class InputPanelComponent implements OnDestroy {
     }
 
     return false;
+  }
+
+  private startsWithLikelyPath(text: string): boolean {
+    const firstToken = text.trimStart().split(/\s+/)[0] ?? '';
+    return /^\/{2}[^/\s]+\/[^/\s]+/.test(firstToken)
+      || /^\/[^/\s]+\/.+/.test(firstToken);
   }
 
   private clearSubmittedMessage(): void {

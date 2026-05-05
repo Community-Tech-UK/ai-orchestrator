@@ -39,6 +39,11 @@ const NAV_GROUPS: NavGroup[] = [
         icon: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="17" r="1"/>'
       },
       {
+        label: 'Browser Gateway',
+        route: '/browser',
+        icon: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/><path d="M12 18v2"/>'
+      },
+      {
         label: 'Instance Messaging',
         route: '/communication',
         icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>'
