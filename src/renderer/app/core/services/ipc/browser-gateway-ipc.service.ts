@@ -80,6 +80,10 @@ export class BrowserGatewayIpcService {
     return this.call(() => this.api?.browserSelectTarget(payload));
   }
 
+  async refreshExistingTab(payload: BrowserTargetRequest): Promise<BrowserGatewayIpcResponse<unknown>> {
+    return this.call(() => this.api?.browserRefreshExistingTab(payload));
+  }
+
   async navigate(payload: BrowserNavigateRequest): Promise<BrowserGatewayIpcResponse<null>> {
     return this.call(() => this.api?.browserNavigate(payload));
   }

@@ -73,7 +73,11 @@ import {
   toAgentSafeTarget,
   redactAgentString,
 } from './browser-safe-dto';
-import { redactBrowserText } from './browser-redaction';
+import {
+  redactBrowserNetworkRequests,
+  redactBrowserText,
+  redactElementContext,
+} from './browser-redaction';
 import {
   classifyBrowserAction,
   classifyBrowserFillForm,
@@ -495,6 +499,25 @@ export class BrowserGatewayService {
         summary: 'Open profile denied because the profile was not found',
         data: null,
       });
+    }
+
+    if (profile.defaultUrl) {
+      const originDecision = isOriginAllowed(profile.defaultUrl, profile.allowedOrigins);
+      if (!originDecision.allowed) {
+        return this.result({
+          context: request,
+          profileId: profile.id,
+          action: 'open_profile',
+          toolName: 'browser.open_profile',
+          actionClass: 'read',
+          decision: 'denied',
+          outcome: 'not_run',
+          reason: originDecision.reason,
+          summary: `Open profile denied because the default URL is outside Browser Gateway origin policy: ${originDecision.reason}`,
+          url: profile.defaultUrl,
+          data: null,
+        });
+      }
     }
 
     try {
@@ -945,7 +968,8 @@ export class BrowserGatewayService {
       'network_requests',
       'browser.network_requests',
       'network requests',
-      (profileId, targetId) => this.driver.networkRequests(profileId, targetId),
+      async (profileId, targetId) =>
+        redactBrowserNetworkRequests(await this.driver.networkRequests(profileId, targetId)),
     );
   }
 
@@ -1145,6 +1169,10 @@ export class BrowserGatewayService {
       autonomous: prepared.grant.autonomous,
     });
     if (!uploadDecision.allowed) {
+      const uploadRoots = this.proposedUploadRoots(
+        prepared.grant.uploadRoots,
+        uploadDecision.resolvedPath,
+      );
       const approval = this.approvalStore.createRequest({
         instanceId: request.instanceId ?? 'unknown',
         provider: this.providerFromContext(request.provider),
@@ -1163,7 +1191,7 @@ export class BrowserGatewayService {
           allowedOrigins: prepared.grant.allowedOrigins,
           allowedActionClasses: ['file-upload'],
           allowExternalNavigation: false,
-          uploadRoots: prepared.grant.uploadRoots,
+          uploadRoots,
           autonomous: false,
         },
         expiresAt: Date.now() + 30 * 60 * 1000,
@@ -1223,10 +1251,12 @@ export class BrowserGatewayService {
         inspectedFields.push({
           selector: field.selector,
           actionHint: field.actionHint,
-          elementContext: await this.driver.inspectElement(
-            request.profileId,
-            request.targetId,
-            field.selector,
+          elementContext: redactElementContext(
+            await this.driver.inspectElement(
+              request.profileId,
+              request.targetId,
+              field.selector,
+            ),
           ),
         });
       } catch {
@@ -1770,7 +1800,9 @@ export class BrowserGatewayService {
 
     let elementContext: Awaited<ReturnType<PuppeteerBrowserDriver['inspectElement']>>;
     try {
-      elementContext = await this.driver.inspectElement(profile.id, target.id, selector);
+      elementContext = redactElementContext(
+        await this.driver.inspectElement(profile.id, target.id, selector),
+      );
     } catch (inspectError) {
       const message = inspectError instanceof Error ? inspectError.message : String(inspectError);
       const approval = this.approvalStore.createRequest({
@@ -2019,6 +2051,19 @@ export class BrowserGatewayService {
     });
   }
 
+  private safeExistingTabCommand(
+    command: BrowserExtensionCommand,
+  ): BrowserGatewayExistingTabRefresh {
+    return {
+      commandId: command.id,
+      status: command.status,
+      profileId: command.profileId,
+      targetId: command.targetId,
+      createdAt: command.createdAt,
+      updatedAt: command.updatedAt,
+    };
+  }
+
   private safeTargetFromExistingTab(
     attachment: BrowserExistingTabAttachment,
   ): ReturnType<typeof toAgentSafeTarget> {
@@ -2035,19 +2080,6 @@ export class BrowserGatewayService {
       status: 'selected',
       lastSeenAt: attachment.updatedAt,
     });
-  }
-
-  private safeExistingTabCommand(
-    command: BrowserExtensionCommand,
-  ): BrowserGatewayExistingTabRefresh {
-    return {
-      commandId: command.id,
-      status: command.status,
-      profileId: command.profileId,
-      targetId: command.targetId,
-      createdAt: command.createdAt,
-      updatedAt: command.updatedAt,
-    };
   }
 
   private snapshotExistingTab(
@@ -2346,6 +2378,17 @@ export class BrowserGatewayService {
 
   private resolveProfileRoot(profile: BrowserProfile): string {
     return profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id);
+  }
+
+  private proposedUploadRoots(
+    currentRoots: string[] | undefined,
+    resolvedFilePath: string | undefined,
+  ): string[] | undefined {
+    const roots = [...(currentRoots ?? [])];
+    if (resolvedFilePath) {
+      roots.push(path.dirname(resolvedFilePath));
+    }
+    return roots.length > 0 ? Array.from(new Set(roots)) : undefined;
   }
 }
 

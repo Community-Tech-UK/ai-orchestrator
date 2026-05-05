@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redactBrowserText, redactHeaders } from './browser-redaction';
+import { redactBrowserText, redactBrowserUrl, redactHeaders } from './browser-redaction';
 
 describe('browser-redaction', () => {
   it('redacts sensitive browser headers and leaves safe headers intact', () => {
@@ -38,5 +38,19 @@ describe('browser-redaction', () => {
     expect(result).not.toContain('abc123');
     expect(result).not.toContain('hunter2');
     expect(result).not.toContain('sess-1');
+  });
+
+  it('redacts sensitive URL credentials, query params, and fragments', () => {
+    const result = redactBrowserUrl(
+      'https://user:pass@example.com/upload?token=abc123&safe=value&api_key=secret#session=sess-1',
+    );
+
+    expect(result).toBe(
+      'https://%5BREDACTED%5D:%5BREDACTED%5D@example.com/upload?token=%5BREDACTED%5D&safe=value&api_key=%5BREDACTED%5D#[REDACTED]',
+    );
+    expect(result).not.toContain('abc123');
+    expect(result).not.toContain('secret');
+    expect(result).not.toContain('sess-1');
+    expect(result).toContain('safe=value');
   });
 });

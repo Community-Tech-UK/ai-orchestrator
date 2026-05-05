@@ -66,6 +66,9 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     browserSelectTarget: (payload: BrowserTargetPayload): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_SELECT_TARGET, payload);
     },
+    browserRefreshExistingTab: (payload: BrowserTargetPayload): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_REFRESH_EXISTING_TAB, payload);
+    },
     browserNavigate: (payload: BrowserTargetPayload & { url: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_NAVIGATE, payload);
     },

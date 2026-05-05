@@ -25,6 +25,8 @@ export interface BrowserGatewayHealthReport {
   managedProfiles: {
     total: number;
     running: number;
+    locked: number;
+    errors: number;
   };
   mcpBridge: {
     available: boolean;
@@ -139,6 +141,8 @@ export class BrowserHealthService {
     ]);
     const profiles = this.profileStore.listProfiles();
     const running = profiles.filter((profile) => this.isRunning(profile)).length;
+    const locked = profiles.filter((profile) => profile.status === 'locked').length;
+    const errors = profiles.filter((profile) => profile.status === 'error').length;
     const bridgeAvailable = this.mcpBridgeAvailable();
     const warnings: string[] = [];
 
@@ -148,6 +152,16 @@ export class BrowserHealthService {
     if (!bridgeAvailable) {
       warnings.push('Browser Gateway MCP bridge is unavailable for provider child processes.');
     }
+    if (locked > 0) {
+      warnings.push(
+        `${locked} Browser Gateway ${locked === 1 ? 'profile is' : 'profiles are'} locked by another Chrome process.`,
+      );
+    }
+    if (errors > 0) {
+      warnings.push(
+        `${errors} Browser Gateway ${errors === 1 ? 'profile is' : 'profiles are'} in an error state.`,
+      );
+    }
 
     return {
       status: chromeRuntime.available && bridgeAvailable ? 'ready' : 'partial',
@@ -156,6 +170,8 @@ export class BrowserHealthService {
       managedProfiles: {
         total: profiles.length,
         running,
+        locked,
+        errors,
       },
       mcpBridge: {
         available: bridgeAvailable,

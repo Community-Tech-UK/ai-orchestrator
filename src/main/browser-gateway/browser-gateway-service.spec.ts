@@ -63,6 +63,8 @@ function makeService(overrides: {
   existingTab?: {
     profileId: string;
     targetId: string;
+    tabId?: number;
+    windowId?: number;
     title: string;
     url: string;
     origin: string;
@@ -193,26 +195,35 @@ function makeService(overrides: {
       overrides.existingTab &&
         overrides.existingTab.profileId === profileId &&
         overrides.existingTab.targetId === targetId
-        ? overrides.existingTab
+        ? {
+          tabId: overrides.existingTab.tabId ?? 42,
+          windowId: overrides.existingTab.windowId ?? 7,
+          attachedAt: 1,
+          updatedAt: 2,
+          ...overrides.existingTab,
+        }
         : null,
     ),
+    detachTab: vi.fn(),
     queueRefresh: vi.fn((profileId: string, targetId: string) =>
       overrides.existingTab &&
         overrides.existingTab.profileId === profileId &&
         overrides.existingTab.targetId === targetId
         ? {
           id: 'command-1',
-          kind: 'refresh_tab',
-          status: 'queued',
+          kind: 'refresh_tab' as const,
+          status: 'queued' as const,
           profileId,
           targetId,
-          tabId: 42,
-          windowId: 7,
-          createdAt: 100,
-          updatedAt: 100,
+          tabId: overrides.existingTab.tabId ?? 42,
+          windowId: overrides.existingTab.windowId ?? 7,
+          createdAt: 1_000,
+          updatedAt: 1_000,
         }
         : null,
     ),
+    pollCommand: vi.fn(),
+    completeCommand: vi.fn(),
   };
   const service = new BrowserGatewayService({
     profileStore: {
@@ -389,6 +400,50 @@ describe('BrowserGatewayService', () => {
     expect(JSON.stringify(result)).not.toContain('driverTargetId');
   });
 
+  it('queues refresh commands for selected existing Chrome tabs through the extension store', async () => {
+    const { service, extensionTabStore } = makeService({
+      existingTab: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        tabId: 42,
+        windowId: 7,
+        title: 'Google Play Console',
+        url: 'https://play.google.com/console',
+        origin: 'https://play.google.com',
+        text: 'Release dashboard',
+        allowedOrigins: [
+          {
+            scheme: 'https',
+            hostPattern: 'play.google.com',
+            includeSubdomains: false,
+          },
+        ],
+      },
+    });
+
+    const result = await service.refreshExistingTab({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+    });
+
+    expect(extensionTabStore.queueRefresh).toHaveBeenCalledWith(
+      'existing-tab:7:42',
+      'existing-tab:7:42:target',
+    );
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        commandId: 'command-1',
+        status: 'queued',
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+      },
+    });
+  });
+
   it('reads cached snapshots and screenshots from selected existing Chrome tabs', async () => {
     const { service, driver } = makeService({
       profile: null,
@@ -447,58 +502,6 @@ describe('BrowserGatewayService', () => {
     expect(driver.screenshot).not.toHaveBeenCalled();
   });
 
-  it('queues refresh commands for selected existing Chrome tabs through the audited gateway', async () => {
-    const { service, extensionTabStore, audits } = makeService({
-      profile: null,
-      profiles: [],
-      existingTab: {
-        profileId: 'existing-tab:7:42',
-        targetId: 'existing-tab:7:42:target',
-        title: 'Google Play Console',
-        url: 'https://play.google.com/console',
-        origin: 'https://play.google.com',
-        text: 'Initial dashboard',
-        screenshotBase64: 'cG5n',
-        allowedOrigins: [
-          {
-            scheme: 'https',
-            hostPattern: 'play.google.com',
-            includeSubdomains: false,
-          },
-        ],
-      },
-    });
-
-    await expect(service.refreshExistingTab({
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-      instanceId: 'instance-1',
-      provider: 'claude',
-    })).resolves.toMatchObject({
-      decision: 'allowed',
-      outcome: 'succeeded',
-      data: {
-        commandId: 'command-1',
-        status: 'queued',
-        profileId: 'existing-tab:7:42',
-        targetId: 'existing-tab:7:42:target',
-      },
-    });
-    expect(extensionTabStore.queueRefresh).toHaveBeenCalledWith(
-      'existing-tab:7:42',
-      'existing-tab:7:42:target',
-    );
-    expect(audits[0]).toMatchObject({
-      provider: 'claude',
-      action: 'refresh_existing_tab',
-      toolName: 'browser.refresh_existing_tab',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      origin: 'https://play.google.com',
-      url: 'https://play.google.com/console',
-    });
-  });
-
   it('allows navigation within policy, calls the driver, and audits success', async () => {
     const { service, audits, driver } = makeService();
 
@@ -526,6 +529,27 @@ describe('BrowserGatewayService', () => {
       action: 'navigate',
       toolName: 'browser.navigate',
     });
+  });
+
+  it('denies opening a profile when its default URL is outside allowed origins', async () => {
+    const { service, driver } = makeService({
+      profile: makeProfile({
+        defaultUrl: 'https://example.com/outside',
+      }),
+    });
+
+    const result = await service.openProfile({
+      profileId: 'profile-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'host_not_allowed',
+    });
+    expect(driver.openProfile).not.toHaveBeenCalled();
   });
 
   it('denies blocked navigation without calling the driver', async () => {
@@ -651,6 +675,41 @@ describe('BrowserGatewayService', () => {
       selector: 'button.continue',
       status: 'pending',
     });
+  });
+
+  it('redacts element context before storing approval requests', async () => {
+    const { service, driver, approvalRequests } = makeService();
+    driver.inspectElement.mockResolvedValueOnce({
+      role: 'input',
+      accessibleName: 'Token',
+      visibleText: 'token=abc123',
+      inputName: 'api_token',
+      attributes: {
+        value: 'abc123',
+        'data-token': 'secret-token',
+        'data-safe': 'safe-value',
+      },
+    });
+
+    await service.type({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'input[name="api_token"]',
+      value: 'ignored',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(approvalRequests[0]?.elementContext).toMatchObject({
+      visibleText: 'token=[REDACTED]',
+      attributes: {
+        value: '[REDACTED]',
+        'data-token': '[REDACTED]',
+        'data-safe': 'safe-value',
+      },
+    });
+    expect(JSON.stringify(approvalRequests[0])).not.toContain('abc123');
+    expect(JSON.stringify(approvalRequests[0])).not.toContain('secret-token');
   });
 
   it('executes click under a matching session grant and audits the grant id', async () => {
@@ -1094,7 +1153,7 @@ describe('BrowserGatewayService', () => {
       fs.mkdirSync(deniedRoot);
       const deniedFile = path.join(deniedRoot, 'release.zip');
       fs.writeFileSync(deniedFile, Buffer.from([0x50, 0x4b, 0x03, 0x04]));
-      const { service, driver } = makeService({
+      const { service, driver, approvalRequests } = makeService({
         profile: makeProfile({
           userDataDir: path.join(tempDir, 'userData', 'browser-profiles', 'profile-1'),
         }),
@@ -1118,10 +1177,53 @@ describe('BrowserGatewayService', () => {
         outcome: 'not_run',
         reason: 'root_not_allowed',
       });
+      expect(approvalRequests[0]?.filePath).toBe(fs.realpathSync(deniedFile));
+      expect(approvalRequests[0]?.detectedFileType).toBe('application/zip');
+      expect(approvalRequests[0]?.proposedGrant.uploadRoots).toContain(
+        fs.realpathSync(deniedRoot),
+      );
       expect(driver.uploadFile).not.toHaveBeenCalled();
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it('redacts raw network details returned by alternate drivers before exposing them', async () => {
+    const { service, driver } = makeService();
+    driver.networkRequests.mockResolvedValueOnce([
+      {
+        url: 'http://localhost:4567/api?token=abc123&safe=value',
+        method: 'GET',
+        resourceType: 'xhr',
+        headers: {
+          Authorization: 'Bearer abc123',
+          Accept: 'application/json',
+        },
+        timestamp: 1,
+      },
+    ]);
+
+    const result = await service.networkRequests({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: [
+        {
+          url: 'http://localhost:4567/api?token=%5BREDACTED%5D&safe=value',
+          headers: {
+            Authorization: '[REDACTED]',
+            Accept: 'application/json',
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain('abc123');
   });
 
   it('audits allowed driver failures as failed outcomes', async () => {

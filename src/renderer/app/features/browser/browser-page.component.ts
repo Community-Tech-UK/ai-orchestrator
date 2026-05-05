@@ -11,6 +11,7 @@ import type {
   BrowserAllowedOrigin,
   BrowserApprovalRequest,
   BrowserAuditEntry,
+  BrowserElementContext,
   BrowserGatewayResult,
   BrowserGrantMode,
   BrowserGrantProposal,
@@ -142,6 +143,15 @@ interface BrowserSnapshotView {
           </div>
 
           <div class="toolbar">
+            <button
+              class="btn"
+              data-testid="refresh-existing-tab-button"
+              type="button"
+              [disabled]="!canRefreshExistingTab() || working()"
+              (click)="refreshExistingTab()"
+            >
+              Refresh Tab
+            </button>
             <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="loadSnapshot()">Snapshot</button>
             <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="captureScreenshot()">Screenshot</button>
           </div>
@@ -187,6 +197,46 @@ interface BrowserSnapshotView {
                   </div>
                   <div class="audit-state">{{ approval.status }} · {{ approval.actionClass }}</div>
                   <p>{{ approval.origin || approval.url || approval.profileId }}</p>
+                  <dl class="approval-context">
+                    <div>
+                      <dt>Scope</dt>
+                      <dd>{{ formatApprovalScope(approval) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Expires</dt>
+                      <dd>{{ formatGrantExpiry(approval.expiresAt) }}</dd>
+                    </div>
+                    @if (approval.selector) {
+                      <div>
+                        <dt>Selector</dt>
+                        <dd>{{ approval.selector }}</dd>
+                      </div>
+                    }
+                    @if (approval.elementContext; as element) {
+                      <div>
+                        <dt>Element</dt>
+                        <dd>{{ formatElementContext(element) }}</dd>
+                      </div>
+                    }
+                    @if (approval.filePath) {
+                      <div>
+                        <dt>File</dt>
+                        <dd>{{ approval.filePath }}</dd>
+                      </div>
+                    }
+                    @if (approval.detectedFileType) {
+                      <div>
+                        <dt>Type</dt>
+                        <dd>{{ approval.detectedFileType }}</dd>
+                      </div>
+                    }
+                    @if (approval.proposedGrant.uploadRoots?.length) {
+                      <div>
+                        <dt>Upload Roots</dt>
+                        <dd>{{ formatUploadRoots(approval) }}</dd>
+                      </div>
+                    }
+                  </dl>
                   <div class="row-actions wrap">
                     <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'per_action')">Once</button>
                     <button class="btn small" type="button" [disabled]="working()" (click)="approveApprovalRequest(approval, 'session')">Session</button>
@@ -560,6 +610,29 @@ interface BrowserSnapshotView {
       gap: var(--spacing-xs);
     }
 
+    .approval-context {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      font-size: 11px;
+    }
+
+    .approval-context div {
+      display: grid;
+      grid-template-columns: 74px minmax(0, 1fr);
+      gap: var(--spacing-xs);
+    }
+
+    .approval-context dt {
+      color: var(--text-muted);
+    }
+
+    .approval-context dd {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
     .inline-toggle {
       flex-direction: row;
       align-items: center;
@@ -804,6 +877,15 @@ export class BrowserPageComponent implements OnInit {
     await this.refreshAudit();
   }
 
+  async refreshExistingTab(): Promise<void> {
+    const request = this.selectedTargetRequest();
+    if (!request) {
+      return;
+    }
+    await this.runGatewayAction(() => this.ipc.refreshExistingTab(request));
+    await this.refreshTargets();
+  }
+
   async loadSnapshot(): Promise<void> {
     const request = this.selectedTargetRequest();
     if (!request) {
@@ -879,6 +961,40 @@ export class BrowserPageComponent implements OnInit {
 
   formatGrantExpiry(expiresAt: number): string {
     return new Date(expiresAt).toLocaleString();
+  }
+
+  formatApprovalScope(approval: BrowserApprovalRequest): string {
+    const origins = approval.proposedGrant.allowedOrigins
+      .map((origin) =>
+        `${origin.scheme}://${origin.includeSubdomains ? '*.' : ''}${origin.hostPattern}${origin.port ? `:${origin.port}` : ''}`,
+      )
+      .join(', ');
+    const actions = approval.proposedGrant.allowedActionClasses.join(', ');
+    return `${approval.proposedGrant.mode} · ${actions}${origins ? ` · ${origins}` : ''}`;
+  }
+
+  formatElementContext(element: BrowserElementContext): string {
+    return [
+      element.accessibleName,
+      element.label,
+      element.visibleText,
+      element.role,
+      element.inputType,
+      element.inputName,
+      element.placeholder,
+    ].filter(Boolean).join(' · ');
+  }
+
+  formatUploadRoots(approval: BrowserApprovalRequest): string {
+    return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
+  }
+
+  canRefreshExistingTab(): boolean {
+    const targetId = this.selectedTargetId();
+    return Boolean(
+      targetId &&
+      this.targets().some((target) => target.id === targetId && target.mode === 'existing-tab'),
+    );
   }
 
   private selectedTargetRequest(): { profileId: string; targetId: string } | null {

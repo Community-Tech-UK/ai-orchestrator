@@ -11,6 +11,7 @@ export const BROWSER_CHANNELS = {
   BROWSER_CLOSE_PROFILE: 'browser:close-profile',
   BROWSER_LIST_TARGETS: 'browser:list-targets',
   BROWSER_SELECT_TARGET: 'browser:select-target',
+  BROWSER_REFRESH_EXISTING_TAB: 'browser:refresh-existing-tab',
   BROWSER_NAVIGATE: 'browser:navigate',
   BROWSER_CLICK: 'browser:click',
   BROWSER_TYPE: 'browser:type',

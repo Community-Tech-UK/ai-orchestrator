@@ -1,3 +1,5 @@
+import type { BrowserElementContext } from '@contracts/types/browser';
+
 const REDACTED = '[REDACTED]';
 
 const SENSITIVE_KEY_PARTS = [
@@ -11,9 +13,17 @@ const SENSITIVE_KEY_PARTS = [
   'session',
 ];
 
+const SENSITIVE_ATTRIBUTE_NAMES = new Set([
+  'value',
+  'data-value',
+]);
+
 function isSensitiveKey(key: string): boolean {
   const normalized = key.toLowerCase();
-  return SENSITIVE_KEY_PARTS.some((part) => normalized.includes(part));
+  return (
+    SENSITIVE_ATTRIBUTE_NAMES.has(normalized) ||
+    SENSITIVE_KEY_PARTS.some((part) => normalized.includes(part))
+  );
 }
 
 export function redactHeaders(headers: Record<string, string>): Record<string, string> {
@@ -47,4 +57,79 @@ export function redactBrowserText(value: string): string {
     (_match, key: string) => `${key}: ${REDACTED}`,
   );
   return redacted;
+}
+
+export function redactBrowserUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    if (parsed.username) {
+      parsed.username = REDACTED;
+    }
+    if (parsed.password) {
+      parsed.password = REDACTED;
+    }
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (isSensitiveKey(key)) {
+        parsed.searchParams.set(key, REDACTED);
+      }
+    }
+    if (parsed.hash) {
+      parsed.hash = REDACTED;
+    }
+    return parsed.toString();
+  } catch {
+    return redactBrowserText(value);
+  }
+}
+
+export function redactElementContext(
+  context: BrowserElementContext,
+): BrowserElementContext {
+  const redacted: BrowserElementContext = {};
+  for (const [key, value] of Object.entries(context)) {
+    if (value === undefined) {
+      continue;
+    }
+    if (key === 'attributes' && isStringRecord(value)) {
+      redacted.attributes = {};
+      for (const [attribute, attributeValue] of Object.entries(value)) {
+        redacted.attributes[attribute] = isSensitiveKey(attribute)
+          ? REDACTED
+          : redactBrowserText(attributeValue).slice(0, 1_000);
+      }
+      continue;
+    }
+    if (typeof value === 'string') {
+      (redacted as Record<string, string>)[key] =
+        key === 'formAction' ? redactBrowserUrl(value) : redactBrowserText(value);
+    }
+  }
+  return redacted;
+}
+
+export function redactBrowserNetworkRequests(entries: unknown[]): unknown[] {
+  return entries.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return entry;
+    }
+    const record = entry as Record<string, unknown>;
+    return {
+      ...record,
+      ...(typeof record['url'] === 'string'
+        ? { url: redactBrowserUrl(record['url']) }
+        : {}),
+      ...(isStringRecord(record['headers'])
+        ? { headers: redactHeaders(record['headers']) }
+        : {}),
+    };
+  });
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.values(value).every((item) => typeof item === 'string'),
+  );
 }

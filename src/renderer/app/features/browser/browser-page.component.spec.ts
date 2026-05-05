@@ -22,6 +22,7 @@ describe('BrowserPageComponent', () => {
     closeProfile: ReturnType<typeof vi.fn>;
     listTargets: ReturnType<typeof vi.fn>;
     selectTarget: ReturnType<typeof vi.fn>;
+    refreshExistingTab: ReturnType<typeof vi.fn>;
     navigate: ReturnType<typeof vi.fn>;
     snapshot: ReturnType<typeof vi.fn>;
     screenshot: ReturnType<typeof vi.fn>;
@@ -65,6 +66,10 @@ describe('BrowserPageComponent', () => {
         },
       ])),
       selectTarget: vi.fn().mockResolvedValue(gatewayResult({ id: 'target-1' })),
+      refreshExistingTab: vi.fn().mockResolvedValue(gatewayResult({
+        commandId: 'command-1',
+        status: 'queued',
+      })),
       navigate: vi.fn().mockResolvedValue(gatewayResult(null)),
       snapshot: vi.fn().mockResolvedValue(gatewayResult({
         title: 'Local',
@@ -86,6 +91,11 @@ describe('BrowserPageComponent', () => {
           origin: 'http://localhost:4567',
           url: 'http://localhost:4567',
           selector: 'button.publish',
+          elementContext: {
+            role: 'button',
+            accessibleName: 'Publish release',
+            visibleText: 'Publish',
+          },
           proposedGrant: {
             mode: 'per_action',
             allowedOrigins: [
@@ -239,6 +249,34 @@ describe('BrowserPageComponent', () => {
     expect(button.disabled).toBe(true);
   });
 
+  it('refreshes selected existing-tab targets through Browser Gateway', async () => {
+    fixture.componentInstance.targets.set([
+      {
+        id: 'existing-tab:7:42:target',
+        profileId: 'existing-tab:7:42',
+        mode: 'existing-tab',
+        title: 'Google Play Console',
+        url: 'https://play.google.com/console',
+        driver: 'extension',
+        status: 'selected',
+        lastSeenAt: 1,
+      },
+    ]);
+    fixture.componentInstance.selectedProfileId.set('existing-tab:7:42');
+    fixture.componentInstance.selectedTargetId.set('existing-tab:7:42:target');
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('[data-testid="refresh-existing-tab-button"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    await fixture.componentInstance.refreshExistingTab();
+
+    expect(service.refreshExistingTab).toHaveBeenCalledWith({
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+    });
+  });
+
   it('renders screenshot base64 with a data URL prefix', async () => {
     await fixture.componentInstance.captureScreenshot();
     fixture.detectChanges();
@@ -258,8 +296,49 @@ describe('BrowserPageComponent', () => {
 
     expect(text).toContain('Pending Approvals');
     expect(text).toContain('request-1');
+    expect(text).toContain('Publish release');
+    expect(text).toContain('button.publish');
+    expect(text).toContain('expires');
     expect(text).toContain('Active Grants');
     expect(text).toContain('autonomous');
+  });
+
+  it('renders upload approval file context and proposed upload roots', () => {
+    fixture.componentInstance.approvalRequests.set([
+      {
+        id: 'request-upload',
+        requestId: 'request-upload',
+        instanceId: 'instance-1',
+        provider: 'copilot',
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        toolName: 'browser.upload_file',
+        action: 'upload_file',
+        actionClass: 'file-upload',
+        origin: 'http://localhost:4567',
+        url: 'http://localhost:4567/upload',
+        selector: 'input[type="file"]',
+        filePath: '/workspace/dist/app.aab',
+        detectedFileType: 'application/zip',
+        proposedGrant: {
+          mode: 'session',
+          allowedOrigins: [],
+          allowedActionClasses: ['file-upload'],
+          allowExternalNavigation: false,
+          uploadRoots: ['/workspace/dist'],
+          autonomous: false,
+        },
+        status: 'pending',
+        createdAt: 1,
+        expiresAt: 999999,
+      },
+    ]);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('/workspace/dist/app.aab');
+    expect(text).toContain('application/zip');
+    expect(text).toContain('/workspace/dist');
   });
 
   it('requires typed confirmation before approving an autonomous request', async () => {

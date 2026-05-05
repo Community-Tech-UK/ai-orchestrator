@@ -93,6 +93,12 @@ export function registerBrowserGatewayHandlers(
     deps,
   );
   register(
+    IPC_CHANNELS.BROWSER_REFRESH_EXISTING_TAB,
+    BrowserTargetRequestSchema,
+    (service, payload) => service.refreshExistingTab(payload),
+    deps,
+  );
+  register(
     IPC_CHANNELS.BROWSER_NAVIGATE,
     BrowserNavigateRequestSchema,
     (service, payload) => service.navigate(payload),

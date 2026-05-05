@@ -143,12 +143,12 @@ describe('PuppeteerBrowserDriver', () => {
       type: () => 'error',
       text: () => 'token=abc123 safe=value',
       location: () => ({
-        url: 'http://localhost:4567/app.js',
+        url: 'http://localhost:4567/app.js?token=abc123',
         lineNumber: 12,
       }),
     });
     handlers.get('request')?.({
-      url: () => 'http://localhost:4567/api',
+      url: () => 'http://localhost:4567/api?token=abc123&safe=value',
       method: () => 'POST',
       resourceType: () => 'xhr',
       headers: () => ({
@@ -162,14 +162,14 @@ describe('PuppeteerBrowserDriver', () => {
         type: 'error',
         text: 'token=[REDACTED] safe=value',
         location: expect.objectContaining({
-          url: 'http://localhost:4567/app.js',
+          url: 'http://localhost:4567/app.js?token=%5BREDACTED%5D',
           lineNumber: 12,
         }),
       }),
     ]);
     await expect(driver.networkRequests('profile-1', target.id)).resolves.toEqual([
       expect.objectContaining({
-        url: 'http://localhost:4567/api',
+        url: 'http://localhost:4567/api?token=%5BREDACTED%5D&safe=value',
         method: 'POST',
         resourceType: 'xhr',
         headers: {

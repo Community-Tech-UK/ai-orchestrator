@@ -12,7 +12,12 @@ import {
   BrowserTargetRegistry,
   getBrowserTargetRegistry,
 } from './browser-target-registry';
-import { redactBrowserText, redactHeaders } from './browser-redaction';
+import {
+  redactBrowserText,
+  redactBrowserUrl,
+  redactElementContext,
+  redactHeaders,
+} from './browser-redaction';
 
 export interface BrowserSnapshot {
   title: string;
@@ -178,7 +183,7 @@ export class PuppeteerBrowserDriver {
     selector: string,
   ): Promise<BrowserElementContext> {
     const page = this.getPage(profileId, targetId);
-    return page.$eval(selector, (element) => {
+    const context = await page.$eval(selector, (element) => {
       const node = element as {
         getAttribute?: (name: string) => string | null;
         getAttributeNames?: () => string[];
@@ -218,6 +223,7 @@ export class PuppeteerBrowserDriver {
         attributes,
       };
     });
+    return redactElementContext(context);
   }
 
   async click(profileId: string, targetId: string, selector: string): Promise<void> {
@@ -330,17 +336,20 @@ export class PuppeteerBrowserDriver {
   }
 
   private consoleEntry(message: ConsoleMessage): BrowserConsoleEntry {
+    const location = message.location();
     return {
       type: message.type(),
       text: redactBrowserText(message.text()).slice(0, 4_000),
-      location: message.location(),
+      location: location.url
+        ? { ...location, url: redactBrowserUrl(location.url) }
+        : location,
       timestamp: Date.now(),
     };
   }
 
   private networkEntry(request: HTTPRequest): BrowserNetworkRequestEntry {
     return {
-      url: request.url(),
+      url: redactBrowserUrl(request.url()),
       method: request.method(),
       resourceType: request.resourceType(),
       headers: redactHeaders(request.headers()),

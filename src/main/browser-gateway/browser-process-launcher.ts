@@ -172,6 +172,13 @@ export class BrowserProcessLauncher {
           // Preserve the launch failure; runtime cleanup is best-effort here.
         }
       }
+      if (!browser || this.isProfileLockError(error)) {
+        try {
+          this.markLaunchFailure(options.profile.id, error);
+        } catch {
+          // Preserve the launch failure; runtime cleanup is best-effort here.
+        }
+      }
       throw error;
     }
   }
@@ -199,6 +206,20 @@ export class BrowserProcessLauncher {
       debugEndpoint: undefined,
       processId: undefined,
     });
+  }
+
+  private markLaunchFailure(profileId: string, error: unknown): void {
+    this.profileStore.setRuntimeState(profileId, {
+      status: this.isProfileLockError(error) ? 'locked' : 'error',
+      debugPort: undefined,
+      debugEndpoint: undefined,
+      processId: undefined,
+    });
+  }
+
+  private isProfileLockError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /profile/i.test(message) && /(lock|locked|in use|another process)/i.test(message);
   }
 
   async closeAll(): Promise<void> {

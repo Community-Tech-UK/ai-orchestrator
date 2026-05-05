@@ -60,6 +60,10 @@ describe('BrowserHealthService', () => {
     expect(report.chromeRuntime.available).toBe(true);
     expect(report.managedProfiles.total).toBe(2);
     expect(report.managedProfiles.running).toBe(1);
+    expect(report.managedProfiles).toMatchObject({
+      locked: 0,
+      errors: 0,
+    });
     expect(report.mcpBridge.available).toBe(false);
     expect(report.providerCapabilities).toEqual({
       claude: 'legacy_chrome_disabled',
@@ -111,5 +115,68 @@ describe('BrowserHealthService', () => {
       codex: 'unavailable_exec_mode',
       gemini: 'unconfigured_adapter_injection_missing',
     });
+  });
+
+  it('reports locked and errored profile counts in health output', async () => {
+    const profiles: BrowserProfile[] = [
+      {
+        id: 'profile-locked',
+        label: 'Locked',
+        mode: 'session',
+        browser: 'chrome',
+        allowedOrigins: [],
+        status: 'locked',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'profile-error',
+        label: 'Error',
+        mode: 'session',
+        browser: 'chrome',
+        allowedOrigins: [],
+        status: 'error',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => profiles },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => 4,
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.managedProfiles).toMatchObject({
+      total: 2,
+      running: 0,
+      locked: 1,
+      errors: 1,
+    });
+    expect(report.warnings).toContain(
+      '1 Browser Gateway profile is locked by another Chrome process.',
+    );
+    expect(report.warnings).toContain(
+      '1 Browser Gateway profile is in an error state.',
+    );
   });
 });
