@@ -19,7 +19,7 @@ import { runConversationLedgerMigrations } from './conversation-ledger-schema';
 import { getNativeConversationRegistry, NativeConversationRegistry } from './native-conversation-registry';
 import type { NativeConversationAdapter } from './native-conversation-adapter';
 import { CodexNativeConversationAdapter } from './codex/codex-native-conversation-adapter';
-import { InternalOrchestratorConversationAdapter } from './orchestrator/internal-orchestrator-conversation-adapter';
+import { InternalOrchestratorConversationAdapter } from './internal-orchestrator-conversation-adapter';
 
 const logger = getLogger('ConversationLedgerService');
 
@@ -138,6 +138,28 @@ export class ConversationLedgerService {
     if (!thread?.nativeThreadId) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot be reconciled`, 'CONVERSATION_NOT_RECONCILABLE');
     }
+    if (thread.provider === 'orchestrator') {
+      this.store.upsertThread({
+        id: thread.id,
+        provider: thread.provider,
+        nativeThreadId: thread.nativeThreadId,
+        sourceKind: thread.sourceKind,
+        syncStatus: 'synced',
+        conflictStatus: 'none',
+        updatedAt: Date.now(),
+      });
+      return {
+        threadId,
+        provider: thread.provider,
+        nativeThreadId: thread.nativeThreadId,
+        addedMessages: 0,
+        updatedMessages: 0,
+        deletedMessages: 0,
+        syncStatus: 'synced',
+        conflictStatus: 'none',
+        warnings: [],
+      };
+    }
     const adapter = this.getAdapter(thread.provider);
     try {
       const snapshot = await adapter.readThread({
@@ -187,10 +209,6 @@ export class ConversationLedgerService {
 
   async startConversation(request: NativeThreadStartRequest): Promise<ConversationThreadRecord> {
     const adapter = this.getAdapter(request.provider);
-    const capabilities = adapter.getCapabilities();
-    if (!capabilities.canCreate) {
-      throw new ConversationLedgerServiceError(`Provider ${request.provider} cannot create conversations`, 'PROVIDER_UNSUPPORTED');
-    }
     const handle = await adapter.startThread({ ...request, ephemeral: request.ephemeral ?? false });
     return this.store.upsertThread({
       provider: request.provider,
@@ -202,7 +220,7 @@ export class ConversationLedgerService {
       workspacePath: handle.workspacePath ?? request.workspacePath ?? null,
       title: request.title ?? handle.title ?? null,
       writable: true,
-      nativeVisibilityMode: capabilities.nativeVisibilityMode,
+      nativeVisibilityMode: request.provider === 'orchestrator' ? 'none' : 'app-server-durable',
       syncStatus: 'synced',
       conflictStatus: 'none',
       metadata: handle.metadata ?? {},
@@ -215,9 +233,6 @@ export class ConversationLedgerService {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot be sent to`, 'CONVERSATION_NOT_WRITABLE');
     }
     const adapter = this.getAdapter(thread.provider);
-    if (!adapter.getCapabilities().canSendTurns) {
-      throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot receive turns`, 'CONVERSATION_NOT_WRITABLE');
-    }
     const existingCount = this.store.getMessages(threadId).length;
     const result = await adapter.sendTurn({
       provider: thread.provider,

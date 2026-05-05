@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationLedgerService } from '../conversation-ledger-service';
 import { NativeConversationRegistry } from '../native-conversation-registry';
 import type { NativeConversationAdapter } from '../native-conversation-adapter';
-import { InternalOrchestratorConversationAdapter } from '../orchestrator/internal-orchestrator-conversation-adapter';
 
 describe('ConversationLedgerService', () => {
   const services: ConversationLedgerService[] = [];
@@ -61,37 +60,35 @@ describe('ConversationLedgerService', () => {
     expect(conversation.messages.map(message => message.content)).toEqual(['hello', 'answer']);
   });
 
-  it('starts and reuses the internal orchestrator thread without a workspace', async () => {
-    const service = createService(new InternalOrchestratorConversationAdapter());
+  it('persists internal orchestrator thread messages without a workspace path', async () => {
+    const service = new ConversationLedgerService({
+      dbPath: ':memory:',
+      enableWAL: false,
+      registry: new NativeConversationRegistry(),
+    });
+    services.push(service);
 
     const thread = await service.startConversation({
       provider: 'orchestrator',
       workspacePath: null,
       title: 'Orchestrator',
-      metadata: { operatorThreadKind: 'global' },
+      metadata: { scope: 'global', operatorThreadKind: 'root' },
     });
-    const turn = await service.sendTurn(thread.id, { text: 'Coordinate active work' });
-    const reused = await service.startConversation({
-      provider: 'orchestrator',
-      workspacePath: null,
-      title: 'Orchestrator',
-    });
-    const conversation = service.getConversation(thread.id);
+    await service.sendTurn(thread.id, { text: 'Pull all repos' });
 
-    expect(thread.provider).toBe('orchestrator');
-    expect(thread.nativeSourceKind).toBe('internal');
-    expect(thread.sourceKind).toBe('orchestrator');
-    expect(thread.workspacePath).toBeNull();
-    expect(thread.nativeVisibilityMode).toBe('none');
-    expect(reused.id).toBe(thread.id);
-    expect(turn.messages.map(message => message.role)).toEqual(['user', 'assistant']);
-    expect(conversation.messages.map(message => message.content)).toEqual([
-      'Coordinate active work',
-      expect.stringContaining('recorded'),
-    ]);
+    const conversation = service.getConversation(thread.id);
+    expect(conversation.thread.provider).toBe('orchestrator');
+    expect(conversation.thread.workspacePath).toBeNull();
+    expect(conversation.thread.syncStatus).toBe('synced');
+    expect(conversation.messages).toHaveLength(1);
+    expect(conversation.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'Pull all repos',
+      sequence: 1,
+    });
   });
 
-  function createService(adapter: NativeConversationAdapter): ConversationLedgerService {
+  function createService(adapter: FakeAdapter): ConversationLedgerService {
     const service = new ConversationLedgerService({
       dbPath: ':memory:',
       enableWAL: false,

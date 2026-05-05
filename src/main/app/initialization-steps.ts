@@ -102,6 +102,49 @@ export function createInitializationSteps(
       },
     },
     {
+      name: 'Operator database',
+      fn: () => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getOperatorDatabase } = require('../operator') as typeof import('../operator');
+          getOperatorDatabase();
+        } catch (error) {
+          logger.warn('Operator database initialization failed; operator IPC handlers will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Operator stall detector',
+      fn: () => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getOperatorStallDetector } = require('../operator') as typeof import('../operator');
+          getOperatorStallDetector().start();
+        } catch (error) {
+          logger.warn('Operator stall detector initialization failed; stalled runs will not be auto-blocked', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Operator runtime',
+      fn: () => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getOperatorEngine, getProjectRegistry } = require('../operator') as typeof import('../operator');
+          getProjectRegistry({ instanceManager });
+          getOperatorEngine({ instanceManager });
+        } catch (error) {
+          logger.warn('Operator runtime initialization failed; delegated project work will be unavailable', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
       name: 'IPC handlers',
       critical: true,
       fn: () => {

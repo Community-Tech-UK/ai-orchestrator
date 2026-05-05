@@ -30,6 +30,23 @@
           (moreClicked)="toggleControlPlane()"
         />
 
+        <button
+          type="button"
+          class="operator-global-row"
+          [class.active]="operatorStore.selected()"
+          (click)="selectOperator()"
+          aria-label="Open Orchestrator"
+        >
+          <span class="operator-global-icon" aria-hidden="true">O</span>
+          <span class="operator-global-copy">
+            <span class="operator-global-title">Orchestrator</span>
+            <span class="operator-global-subtitle">Global</span>
+          </span>
+          <span class="operator-global-state">
+            {{ operatorStore.sending() ? 'Sending' : operatorStore.loading() ? 'Loading' : 'Ready' }}
+          </span>
+        </button>
+
         <app-instance-list />
 
         <app-sidebar-footer (closeAllClicked)="closeAllInstances()" />
@@ -67,12 +84,20 @@
 
     <!-- Main content area -->
     <main class="main-content">
-      <div class="workspace-shell" [class.empty]="!hasWorkspaceSelection()">
-        <app-instance-detail
-          [canShowFileExplorer]="canShowFileExplorer()"
-          [isFileExplorerOpen]="showFileExplorer()"
-          (toggleFileExplorer)="toggleFileExplorer()"
-        />
+      <div
+        class="workspace-shell"
+        [class.empty]="!hasWorkspaceSelection()"
+        [class.operator-active]="operatorStore.selected()"
+      >
+        @if (operatorStore.selected()) {
+          <app-operator-page />
+        } @else {
+          <app-instance-detail
+            [canShowFileExplorer]="canShowFileExplorer()"
+            [isFileExplorerOpen]="showFileExplorer()"
+            (toggleFileExplorer)="toggleFileExplorer()"
+          />
+        }
       </div>
 
       @if (showControlPlane()) {

@@ -144,7 +144,10 @@ export class CodexNativeConversationAdapter implements NativeConversationAdapter
   }
 
   async startThread(request: NativeThreadStartRequest): Promise<NativeConversationHandle> {
-    const cwd = request.workspacePath ?? process.cwd();
+    const cwd = request.workspacePath;
+    if (!cwd) {
+      throw new NativeConversationError('Codex conversations require a workspace path', 'CODEX_WORKSPACE_REQUIRED', 'codex');
+    }
     return this.withClient(cwd, async (client) => {
       const response = await client.request('thread/start', {
         cwd,

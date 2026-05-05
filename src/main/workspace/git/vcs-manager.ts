@@ -5,9 +5,10 @@
  * Uses execFileSync for safe command execution (no shell injection).
  */
 
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { promisify } from 'util';
 
 // ============================================
 // Types
@@ -90,6 +91,42 @@ export interface DiffStats {
   deletions: number;
 }
 
+export interface GitCommandResult {
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  args: string[];
+  cwd: string;
+  exitCode: number;
+}
+
+export interface GitFetchOptions {
+  remote?: string;
+  prune?: boolean;
+  timeoutMs?: number;
+}
+
+export interface GitPullFastForwardOptions {
+  remote?: string;
+  branch?: string;
+  timeoutMs?: number;
+}
+
+export interface GitCommandAuditEvent {
+  cmd: 'git';
+  args: string[];
+  cwd: string;
+  exitCode: number | null;
+  durationMs: number;
+  stdoutBytes: number;
+  stderrBytes: number;
+  error?: string;
+}
+
+export interface VcsManagerOptions {
+  onCommand?: (event: GitCommandAuditEvent) => void;
+}
+
 // ============================================
 // Constants
 // ============================================
@@ -112,6 +149,19 @@ const BINARY_EXTENSIONS = new Set([
 
 /** Pattern git emits for binary files in unified diffs. */
 const BINARY_DIFF_MARKER = /^Binary files .+ and .+ differ$/m;
+const execFileAsync = promisify(execFile);
+const DEFAULT_REPOSITORY_SCAN_IGNORES = new Set([
+  '.git',
+  'node_modules',
+  '.pnpm-store',
+  '.yarn',
+  '.cache',
+  'dist',
+  'build',
+  'out',
+  'target',
+  'coverage',
+]);
 
 // ============================================
 // VCS Manager Class
@@ -119,9 +169,11 @@ const BINARY_DIFF_MARKER = /^Binary files .+ and .+ differ$/m;
 
 export class VcsManager {
   private workingDirectory: string;
+  private readonly onCommand: ((event: GitCommandAuditEvent) => void) | undefined;
 
-  constructor(workingDirectory: string) {
+  constructor(workingDirectory: string, options: VcsManagerOptions = {}) {
     this.workingDirectory = workingDirectory;
+    this.onCommand = options.onCommand;
   }
 
   /**
@@ -135,6 +187,7 @@ export class VcsManager {
         encoding: 'utf-8',
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large diffs
         timeout: 30000, // 30 second timeout
+        stdio: ['ignore', 'pipe', 'ignore'],
       });
       return result;
     } catch (error) {
@@ -152,6 +205,90 @@ export class VcsManager {
       throw new Error(`Git command failed: git ${args.join(' ')}`);
     }
     return result;
+  }
+
+  private async execGitAsync(args: string[], options?: { cwd?: string; timeoutMs?: number }): Promise<GitCommandResult> {
+    const cwd = options?.cwd || this.workingDirectory;
+    const startedAt = Date.now();
+    try {
+      const result = await execFileAsync('git', args, {
+        cwd,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: options?.timeoutMs ?? 30000,
+      });
+      const durationMs = Date.now() - startedAt;
+      const stdout = String(result.stdout);
+      const stderr = String(result.stderr);
+      this.emitCommand({
+        cmd: 'git',
+        args: [...args],
+        cwd,
+        exitCode: 0,
+        durationMs,
+        stdoutBytes: Buffer.byteLength(stdout),
+        stderrBytes: Buffer.byteLength(stderr),
+      });
+      return {
+        stdout,
+        stderr,
+        durationMs,
+        args: [...args],
+        cwd,
+        exitCode: 0,
+      };
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const stdout = commandOutput(error, 'stdout');
+      const stderr = commandOutput(error, 'stderr');
+      this.emitCommand({
+        cmd: 'git',
+        args: [...args],
+        cwd,
+        exitCode: exitCodeFromError(error),
+        durationMs,
+        stdoutBytes: Buffer.byteLength(stdout),
+        stderrBytes: Buffer.byteLength(stderr),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  private emitCommand(event: GitCommandAuditEvent): void {
+    this.onCommand?.(event);
+  }
+
+  static findRepositories(root: string, ignorePatterns: string[] = []): string[] {
+    const normalizedRoot = path.resolve(root);
+    const ignores = new Set([...DEFAULT_REPOSITORY_SCAN_IGNORES, ...ignorePatterns]);
+    const repositories: string[] = [];
+
+    function walk(dirPath: string): void {
+      const basename = path.basename(dirPath);
+      if (ignores.has(basename)) return;
+
+      if (fs.existsSync(path.join(dirPath, '.git'))) {
+        repositories.push(dirPath);
+        return;
+      }
+
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (ignores.has(entry.name)) continue;
+        walk(path.join(dirPath, entry.name));
+      }
+    }
+
+    walk(normalizedRoot);
+    return repositories.sort((a, b) => a.localeCompare(b));
   }
 
   // ============================================
@@ -281,6 +418,11 @@ export class VcsManager {
 
     const [behind, ahead] = result.trim().split('\t').map(Number);
     return { ahead: ahead || 0, behind: behind || 0 };
+  }
+
+  getUpstreamBranch(): string | null {
+    const result = this.execGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+    return result?.trim() || null;
   }
 
   /**
@@ -698,6 +840,41 @@ export class VcsManager {
     const origin = remotes.find(r => r.name === 'origin');
     return origin?.name || remotes[0]?.name || null;
   }
+
+  async fetch(options: GitFetchOptions = {}): Promise<GitCommandResult> {
+    const args = ['fetch'];
+    if (options.prune ?? true) {
+      args.push('--prune');
+    }
+    if (options.remote) {
+      args.push(options.remote);
+    }
+    return this.execGitAsync(args, { timeoutMs: options.timeoutMs });
+  }
+
+  async pullFastForward(options: GitPullFastForwardOptions = {}): Promise<GitCommandResult> {
+    const args = ['pull', '--ff-only'];
+    if (options.remote && options.branch) {
+      args.push(options.remote, options.branch);
+    }
+    return this.execGitAsync(args, { timeoutMs: options.timeoutMs });
+  }
+}
+
+function commandOutput(error: unknown, key: 'stdout' | 'stderr'): string {
+  const value = (error as { stdout?: unknown; stderr?: unknown })[key];
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf-8');
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  return '';
+}
+
+function exitCodeFromError(error: unknown): number | null {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'number' ? code : null;
 }
 
 // ============================================
@@ -707,8 +884,8 @@ export class VcsManager {
 /**
  * Create a VCS manager for a directory
  */
-export function createVcsManager(workingDirectory: string): VcsManager {
-  return new VcsManager(workingDirectory);
+export function createVcsManager(workingDirectory: string, options?: VcsManagerOptions): VcsManager {
+  return new VcsManager(workingDirectory, options);
 }
 
 /**

@@ -93,6 +93,9 @@ export class InstancePersistenceManager {
       forceNodeId: config.preserveRuntimeSettings === false || sourceInstance.executionLocation?.type !== 'remote'
         ? undefined
         : sourceInstance.executionLocation.nodeId,
+      metadata: config.preserveRuntimeSettings === false || !sourceInstance.metadata
+        ? undefined
+        : { ...sourceInstance.metadata },
       initialOutputBuffer: forkedMessages,
       initialPrompt: config.initialPrompt,
       attachments: config.attachments ?? sourceMessage?.attachments,

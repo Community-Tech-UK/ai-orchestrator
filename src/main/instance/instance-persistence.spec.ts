@@ -186,6 +186,31 @@ describe('InstancePersistenceManager', () => {
     );
   });
 
+  it('copies source metadata when preserving runtime settings across a fork', async () => {
+    sourceInstance.metadata = {
+      operatorRunId: 'run-1',
+      operatorNodeId: 'node-1',
+      custom: true,
+    };
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      atMessageIndex: 1,
+      preserveRuntimeSettings: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          operatorRunId: 'run-1',
+          operatorNodeId: 'node-1',
+          custom: true,
+        },
+      }),
+    );
+  });
+
   it('uses forkAfterMessageId for the transcript cut while preserving source message attachments', async () => {
     const attachment = {
       name: 'sketch.png',

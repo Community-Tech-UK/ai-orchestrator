@@ -18,6 +18,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { OperatorStore } from '../../core/state/operator.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -26,6 +27,7 @@ import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
+import { OperatorPageComponent } from '../operator/operator-page.component';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { CommandPaletteComponent } from '../commands/command-palette.component';
@@ -48,6 +50,7 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
   imports: [
     InstanceListComponent,
     InstanceDetailComponent,
+    OperatorPageComponent,
     CliErrorComponent,
     HistorySidebarComponent,
     CommandPaletteComponent,
@@ -73,6 +76,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   historyStore = inject(HistoryStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
+  operatorStore = inject(OperatorStore);
   private remoteNodeStore = inject(RemoteNodeStore);
   private electronIpc = inject(ElectronIpcService);
   private actionDispatch = inject(ActionDispatchService);
@@ -124,11 +128,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
   });
 
   canShowFileExplorer = computed(() =>
-    !!this.store.selectedInstance() && !this.isBenchmarkMode()
+    !!this.store.selectedInstance() && !this.operatorStore.selected() && !this.isBenchmarkMode()
   );
 
   hasWorkspaceSelection = computed(() =>
-    !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
+    this.operatorStore.selected() || !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
   );
 
   showBrowserPreview = computed(() =>
@@ -147,6 +151,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
     effect(() => {
       if (!this.canShowFileExplorer()) {
         this.showFileExplorer.set(false);
+      }
+    });
+
+    effect(() => {
+      const hasProjectSelection = !!this.store.selectedInstance() || !!this.historyStore.previewConversation();
+      if (hasProjectSelection && this.operatorStore.selected()) {
+        queueMicrotask(() => this.operatorStore.deselect());
       }
     });
 
@@ -407,9 +418,17 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   createInstance(): void {
     const workingDirectory = this.settingsStore.settings().defaultWorkingDirectory || null;
+    this.operatorStore.deselect();
     this.historyStore.clearSelection();
     this.newSessionDraft.open(workingDirectory);
     this.store.setSelectedInstance(null);
+  }
+
+  selectOperator(): void {
+    this.historyStore.clearSelection();
+    this.store.setSelectedInstance(null);
+    this.showFileExplorer.set(false);
+    this.operatorStore.select();
   }
 
   closeAllInstances(): void {

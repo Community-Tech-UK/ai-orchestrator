@@ -45,7 +45,9 @@ export const ConversationLedgerDiscoverPayloadSchema = z.object({
   limit: z.number().int().positive().max(500).optional(),
 });
 
-const ConversationLedgerStartCommonPayloadSchema = {
+const CodexConversationLedgerStartPayloadSchema = z.object({
+  provider: z.literal('codex'),
+  workspacePath: z.string().min(1),
   model: z.string().min(1).nullable().optional(),
   title: z.string().min(1).nullable().optional(),
   ephemeral: z.boolean().optional(),
@@ -54,19 +56,16 @@ const ConversationLedgerStartCommonPayloadSchema = {
   reasoningEffort: z.string().min(1).nullable().optional(),
   personality: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-};
+});
+
+const OrchestratorConversationLedgerStartPayloadSchema = CodexConversationLedgerStartPayloadSchema.extend({
+  provider: z.literal('orchestrator'),
+  workspacePath: z.string().min(1).nullable().optional(),
+});
 
 export const ConversationLedgerStartPayloadSchema = z.discriminatedUnion('provider', [
-  z.object({
-    provider: z.literal('codex'),
-    workspacePath: z.string().min(1),
-    ...ConversationLedgerStartCommonPayloadSchema,
-  }),
-  z.object({
-    provider: z.literal('orchestrator'),
-    workspacePath: z.string().min(1).nullable().optional(),
-    ...ConversationLedgerStartCommonPayloadSchema,
-  }),
+  CodexConversationLedgerStartPayloadSchema,
+  OrchestratorConversationLedgerStartPayloadSchema,
 ]);
 
 export const ConversationInputItemSchema = z.object({

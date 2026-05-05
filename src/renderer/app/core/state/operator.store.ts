@@ -1,42 +1,48 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { ConversationLedgerConversation } from '../../../../shared/types/conversation-ledger.types';
 import type {
-  OperatorProjectSummary,
-  OperatorRunSummary,
-  OperatorSendMessageResult,
-  OperatorThreadResult,
+  OperatorProjectRecord,
+  OperatorProjectRefreshOptions,
+  OperatorRunRecord,
 } from '../../../../shared/types/operator.types';
 import { OperatorIpcService } from '../services/ipc/operator-ipc.service';
 
 @Injectable({ providedIn: 'root' })
 export class OperatorStore {
-  private ipc = inject(OperatorIpcService);
+  private readonly ipc = inject(OperatorIpcService);
+  private readonly _conversation = signal<ConversationLedgerConversation | null>(null);
+  private readonly _selected = signal(false);
+  private readonly _loading = signal(false);
+  private readonly _sending = signal(false);
+  private readonly _projectLoading = signal(false);
+  private readonly _projects = signal<OperatorProjectRecord[]>([]);
+  private readonly _runLoading = signal(false);
+  private readonly _runs = signal<OperatorRunRecord[]>([]);
+  private readonly _error = signal<string | null>(null);
+  private initialized = false;
 
-  private _conversation = signal<ConversationLedgerConversation | null>(null);
-  private _runs = signal<OperatorRunSummary[]>([]);
-  private _projects = signal<OperatorProjectSummary[]>([]);
-  private _loading = signal(false);
-  private _sending = signal(false);
-  private _initialized = signal(false);
-  private _error = signal<string | null>(null);
-
-  conversation = this._conversation.asReadonly();
-  thread = computed(() => this._conversation()?.thread ?? null);
-  messages = computed(() => this._conversation()?.messages ?? []);
-  runs = this._runs.asReadonly();
-  projects = this._projects.asReadonly();
-  loading = this._loading.asReadonly();
-  sending = this._sending.asReadonly();
-  initialized = this._initialized.asReadonly();
-  error = this._error.asReadonly();
-  messageCount = computed(() => this.messages().length);
+  readonly conversation = this._conversation.asReadonly();
+  readonly selected = this._selected.asReadonly();
+  readonly loading = this._loading.asReadonly();
+  readonly sending = this._sending.asReadonly();
+  readonly projectLoading = this._projectLoading.asReadonly();
+  readonly projects = this._projects.asReadonly();
+  readonly runLoading = this._runLoading.asReadonly();
+  readonly runs = this._runs.asReadonly();
+  readonly error = this._error.asReadonly();
+  readonly thread = computed(() => this._conversation()?.thread ?? null);
+  readonly messages = computed(() => this._conversation()?.messages ?? []);
 
   async initialize(): Promise<void> {
-    if (this._initialized()) {
+    if (this.initialized || this._loading()) {
       return;
     }
-    await this.refresh();
-    this._initialized.set(true);
+    await Promise.all([
+      this.refresh(),
+      this.loadProjects(),
+      this.loadRuns(),
+    ]);
+    this.initialized = true;
   }
 
   async refresh(): Promise<void> {
@@ -44,47 +50,103 @@ export class OperatorStore {
     this._error.set(null);
     try {
       const response = await this.ipc.getThread();
-      if (!response.success || !response.data) {
-        this._error.set(response.error?.message ?? 'Failed to load operator thread');
-        return;
+      if (response.success && response.data) {
+        this._conversation.set(response.data);
+        await this.loadRuns();
+      } else {
+        this._error.set(response.error?.message ?? 'Failed to load Orchestrator');
       }
-      this.applyThreadResult(response.data);
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to load Orchestrator');
     } finally {
       this._loading.set(false);
     }
   }
 
-  async sendMessage(text: string): Promise<boolean> {
+  select(): void {
+    this._selected.set(true);
+    void this.initialize();
+  }
+
+  deselect(): void {
+    this._selected.set(false);
+  }
+
+  async sendMessage(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed || this._sending()) {
-      return false;
+      return;
     }
 
     this._sending.set(true);
     this._error.set(null);
     try {
       const response = await this.ipc.sendMessage({ text: trimmed });
-      if (!response.success || !response.data) {
-        this._error.set(response.error?.message ?? 'Failed to send operator message');
-        return false;
+      if (response.success && response.data) {
+        this._conversation.set(response.data);
+        await this.loadRuns();
+      } else {
+        this._error.set(response.error?.message ?? 'Failed to send message');
       }
-      this.applySendResult(response.data);
-      this._initialized.set(true);
-      return true;
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to send message');
     } finally {
       this._sending.set(false);
     }
   }
 
-  private applyThreadResult(result: OperatorThreadResult): void {
-    this._conversation.set(result.conversation);
-    this._runs.set(result.runs);
-    this._projects.set(result.projects);
+  async loadProjects(): Promise<void> {
+    this._projectLoading.set(true);
+    try {
+      const response = await this.ipc.listProjects();
+      if (response.success && response.data) {
+        this._projects.set(response.data);
+      } else {
+        this._error.set(response.error?.message ?? 'Failed to load projects');
+      }
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to load projects');
+    } finally {
+      this._projectLoading.set(false);
+    }
   }
 
-  private applySendResult(result: OperatorSendMessageResult): void {
-    this._conversation.set(result.conversation);
-    this._runs.set(result.runs);
-    this._projects.set(result.projects);
+  async loadRuns(): Promise<void> {
+    this._runLoading.set(true);
+    try {
+      const response = await this.ipc.listRuns({
+        threadId: this.thread()?.id,
+        limit: 25,
+      });
+      if (response.success && response.data) {
+        this._runs.set(response.data);
+      } else {
+        this._error.set(response.error?.message ?? 'Failed to load runs');
+      }
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to load runs');
+    } finally {
+      this._runLoading.set(false);
+    }
+  }
+
+  async rescanProjects(options: OperatorProjectRefreshOptions = {}): Promise<void> {
+    if (this._projectLoading()) {
+      return;
+    }
+    this._projectLoading.set(true);
+    this._error.set(null);
+    try {
+      const response = await this.ipc.rescanProjects(options);
+      if (response.success && response.data) {
+        this._projects.set(response.data);
+      } else {
+        this._error.set(response.error?.message ?? 'Failed to rescan projects');
+      }
+    } catch (error) {
+      this._error.set(error instanceof Error ? error.message : 'Failed to rescan projects');
+    } finally {
+      this._projectLoading.set(false);
+    }
   }
 }

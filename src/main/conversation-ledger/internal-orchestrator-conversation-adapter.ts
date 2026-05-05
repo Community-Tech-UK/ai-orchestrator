@@ -10,11 +10,10 @@ import type {
   NativeTurnRequest,
   NativeTurnResult,
   ReconciliationResult,
-} from '../../../shared/types/conversation-ledger.types';
-import { NativeConversationError, type NativeConversationAdapter } from '../native-conversation-adapter';
+} from '../../shared/types/conversation-ledger.types';
+import type { NativeConversationAdapter } from './native-conversation-adapter';
 
-export const GLOBAL_ORCHESTRATOR_NATIVE_THREAD_ID = 'orchestrator:global';
-const GLOBAL_ORCHESTRATOR_TITLE = 'Orchestrator';
+export const INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID = 'orchestrator-global';
 
 export class InternalOrchestratorConversationAdapter implements NativeConversationAdapter {
   readonly provider = 'orchestrator' as const;
@@ -39,17 +38,9 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
 
   async readThread(ref: NativeConversationRef): Promise<NativeConversationSnapshot> {
     return {
-      thread: {
-        provider: this.provider,
-        nativeThreadId: ref.nativeThreadId,
-        nativeSourceKind: 'internal',
-        workspacePath: null,
-        title: GLOBAL_ORCHESTRATOR_TITLE,
-        writable: true,
-        nativeVisibilityMode: 'none',
-      },
+      thread: this.threadFromRef(ref),
       messages: [],
-      warnings: [],
+      warnings: ['Internal orchestrator conversations are stored directly in the conversation ledger.'],
       rawRefs: [],
     };
   }
@@ -57,12 +48,13 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
   async startThread(request: NativeThreadStartRequest): Promise<NativeConversationHandle> {
     return {
       provider: this.provider,
-      nativeThreadId: GLOBAL_ORCHESTRATOR_NATIVE_THREAD_ID,
-      nativeSessionId: null,
-      workspacePath: null,
-      title: request.title ?? GLOBAL_ORCHESTRATOR_TITLE,
+      nativeThreadId: INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
+      nativeSessionId: INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
+      workspacePath: request.workspacePath ?? null,
+      title: request.title ?? 'Orchestrator',
       metadata: {
-        operatorThreadKind: 'global',
+        scope: 'global',
+        operatorThreadKind: 'root',
         ...(request.metadata ?? {}),
       },
     };
@@ -72,23 +64,14 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
     return {
       provider: this.provider,
       nativeThreadId: ref.nativeThreadId,
-      nativeSessionId: null,
-      workspacePath: null,
-      title: GLOBAL_ORCHESTRATOR_TITLE,
-      metadata: { operatorThreadKind: 'global' },
+      nativeSessionId: ref.nativeThreadId,
+      workspacePath: ref.workspacePath ?? null,
+      title: 'Orchestrator',
     };
   }
 
   async sendTurn(ref: NativeConversationRef, request: NativeTurnRequest): Promise<NativeTurnResult> {
-    if (ref.nativeThreadId !== GLOBAL_ORCHESTRATOR_NATIVE_THREAD_ID) {
-      throw new NativeConversationError(
-        `Unknown internal orchestrator thread ${ref.nativeThreadId}`,
-        'THREAD_NOT_FOUND',
-        this.provider
-      );
-    }
-
-    const nativeTurnId = `operator-turn:${randomUUID()}`;
+    const nativeTurnId = `operator-turn-${randomUUID()}`;
     const createdAt = Date.now();
     return {
       provider: this.provider,
@@ -99,33 +82,15 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
           nativeMessageId: `${nativeTurnId}:user`,
           nativeTurnId,
           role: 'user',
-          phase: 'input',
           content: request.text,
           createdAt,
           sequence: 1,
           rawJson: {
-            inputItems: request.inputItems ?? [],
             metadata: request.metadata ?? {},
           },
         },
-        {
-          nativeMessageId: `${nativeTurnId}:assistant`,
-          nativeTurnId,
-          role: 'assistant',
-          phase: 'recorded',
-          content: 'Request recorded. Operator execution is not enabled in this foundation build.',
-          createdAt: createdAt + 1,
-          sequence: 2,
-          rawJson: {
-            executionEnabled: false,
-            runId: null,
-          },
-        },
       ],
-      metadata: {
-        executionEnabled: false,
-        runId: null,
-      },
+      metadata: request.metadata,
     };
   }
 
@@ -140,6 +105,23 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
       syncStatus: 'synced',
       conflictStatus: 'none',
       warnings: [],
+    };
+  }
+
+  private threadFromRef(ref: NativeConversationRef): NativeConversationThread {
+    return {
+      provider: this.provider,
+      nativeThreadId: ref.nativeThreadId,
+      nativeSessionId: ref.nativeThreadId,
+      sourcePath: ref.sourcePath ?? null,
+      workspacePath: ref.workspacePath ?? null,
+      title: 'Orchestrator',
+      writable: true,
+      nativeVisibilityMode: 'none',
+      metadata: {
+        scope: 'global',
+        operatorThreadKind: 'root',
+      },
     };
   }
 }

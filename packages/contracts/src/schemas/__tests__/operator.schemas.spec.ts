@@ -1,39 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OperatorCancelRunPayloadSchema,
-  OperatorGetRunPayloadSchema,
-  OperatorGetThreadPayloadSchema,
   OperatorListProjectsPayloadSchema,
-  OperatorListRunsPayloadSchema,
   OperatorRescanProjectsPayloadSchema,
-  OperatorRetryRunPayloadSchema,
   OperatorSendMessagePayloadSchema,
 } from '../operator.schemas';
 
-describe('operator IPC schemas', () => {
-  it('validates thread, list, and message payloads', () => {
-    expect(OperatorGetThreadPayloadSchema.parse({})).toEqual({});
-    expect(OperatorListRunsPayloadSchema.parse({ limit: 25 })).toEqual({ limit: 25 });
-    expect(OperatorListProjectsPayloadSchema.parse({ limit: 10 })).toEqual({ limit: 10 });
-    expect(OperatorSendMessagePayloadSchema.parse({
-      text: '  coordinate all active projects  ',
-      metadata: { source: 'test' },
+describe('operator schemas', () => {
+  it('accepts list-projects filters with a bounded limit', () => {
+    expect(OperatorListProjectsPayloadSchema.parse({
+      query: 'AI Orchestrator',
+      limit: 25,
     })).toEqual({
-      text: 'coordinate all active projects',
-      metadata: { source: 'test' },
+      query: 'AI Orchestrator',
+      limit: 25,
     });
   });
 
-  it('validates run mutation payloads', () => {
-    expect(OperatorGetRunPayloadSchema.parse({ runId: 'run_1' })).toEqual({ runId: 'run_1' });
-    expect(OperatorCancelRunPayloadSchema.parse({ runId: 'run_1' })).toEqual({ runId: 'run_1' });
-    expect(OperatorRetryRunPayloadSchema.parse({ runId: 'run_1' })).toEqual({ runId: 'run_1' });
+  it('accepts rescan roots and source toggles', () => {
+    expect(OperatorRescanProjectsPayloadSchema.parse({
+      roots: ['/Users/suas/work'],
+      includeRecent: true,
+      includeActiveInstances: false,
+      includeConversationLedger: true,
+    })).toEqual({
+      roots: ['/Users/suas/work'],
+      includeRecent: true,
+      includeActiveInstances: false,
+      includeConversationLedger: true,
+    });
   });
 
-  it('validates project rescan payloads', () => {
-    expect(OperatorRescanProjectsPayloadSchema.parse({})).toEqual({});
-    expect(OperatorRescanProjectsPayloadSchema.parse({ roots: ['/Users/me/work'] })).toEqual({
-      roots: ['/Users/me/work'],
-    });
+  it('rejects blank operator messages', () => {
+    expect(() => OperatorSendMessagePayloadSchema.parse({ text: '' })).toThrow();
   });
 });

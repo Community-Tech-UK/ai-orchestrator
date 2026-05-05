@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { InstanceStateMachine, InvalidTransitionError } from './instance-state-machine';
-import type { InstanceStatus } from '../../shared/types/instance.types';
+import {
+  InstanceStateMachine,
+  InvalidTransitionError,
+  isInstanceSettled,
+} from './instance-state-machine';
+import type { InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
 
 // ---------------------------------------------------------------------------
 // InvalidTransitionError
@@ -385,5 +389,65 @@ describe('InstanceStateMachine – canTransition()', () => {
     expect(sm.canTransition('ready')).toBe(false);
     expect(sm.canTransition('terminated')).toBe(false);
     expect(sm.canTransition('failed')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settled predicate
+// ---------------------------------------------------------------------------
+
+describe('isInstanceSettled()', () => {
+  function message(type: OutputMessage['type'], timestamp: number): OutputMessage {
+    return {
+      id: `${type}-${timestamp}`,
+      timestamp,
+      type,
+      content: type,
+    };
+  }
+
+  it('does not settle when an idle instance has no assistant or error output after the watched turn starts', () => {
+    expect(isInstanceSettled({
+      status: 'idle',
+      outputBuffer: [message('user', 1_000)],
+      afterTimestamp: 1_000,
+      lastEventAt: 1_100,
+      now: 1_300,
+      debounceMs: 100,
+    })).toBe(false);
+  });
+
+  it('does not settle before the debounce window has elapsed after the latest event', () => {
+    expect(isInstanceSettled({
+      status: 'idle',
+      outputBuffer: [message('assistant', 1_150)],
+      afterTimestamp: 1_000,
+      lastEventAt: 1_180,
+      now: 1_220,
+      debounceMs: 100,
+    })).toBe(false);
+  });
+
+  it('settles after assistant output, an idle-like status, and the debounce window', () => {
+    expect(isInstanceSettled({
+      status: 'waiting_for_input',
+      outputBuffer: [message('assistant', 1_150)],
+      afterTimestamp: 1_000,
+      lastEventAt: 1_180,
+      now: 1_300,
+      debounceMs: 100,
+    })).toBe(true);
+  });
+
+  it('does not settle while a provider-native turn id is still active', () => {
+    expect(isInstanceSettled({
+      status: 'idle',
+      outputBuffer: [message('assistant', 1_150)],
+      activeTurnId: 'turn-123',
+      afterTimestamp: 1_000,
+      lastEventAt: 1_180,
+      now: 1_300,
+      debounceMs: 100,
+    })).toBe(false);
   });
 });

@@ -34,6 +34,13 @@ type RepoJobEventName =
 interface RepoJobInstanceManager {
   createInstance(config: InstanceCreateConfig): Promise<Instance>;
   getInstance(id: string): Instance | undefined;
+  waitForInstanceSettled(instanceId: string, options: {
+    afterTimestamp?: number;
+    timeoutMs?: number;
+    isCancelled?: () => boolean;
+    onProgress?: (elapsedMs: number) => void;
+    progressIntervalMs?: number;
+  }): Promise<Instance | undefined>;
   terminateInstance?(instanceId: string, graceful?: boolean): Promise<void>;
 }
 
@@ -571,46 +578,45 @@ export class RepoJobService extends EventEmitter {
     context: TaskExecutionContext,
     timeoutMs: number,
   ): Promise<Instance | undefined> {
-    const deadline = Date.now() + timeoutMs;
-    let loopCount = 0;
+    const instanceManager = this.getInstanceManager();
+    const instance = instanceManager.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Background instance not found: ${instanceId}`);
+    }
 
-    while (Date.now() < deadline) {
+    let progressCount = 0;
+    try {
+      const settled = await instanceManager.waitForInstanceSettled(instanceId, {
+        afterTimestamp: instance.createdAt,
+        timeoutMs,
+        isCancelled: () => context.isCancelled(),
+        progressIntervalMs: 1000,
+        onProgress: () => {
+          progressCount += 1;
+          context.reportProgress(
+            Math.min(95, 35 + progressCount * 2),
+            `Waiting for ${job.name} to finish`,
+          );
+        },
+      });
+
       if (context.isCancelled()) {
         await this.safeTerminateInstance(instanceId);
         return this.getInstanceManager().getInstance(instanceId);
       }
 
-      const instance = this.getInstanceManager().getInstance(instanceId);
-      if (!instance) {
+      if (!settled) {
         throw new Error(`Background instance not found: ${instanceId}`);
       }
 
-      const hasOutput = instance.outputBuffer.some(
-        (message) => message.type === 'assistant' || message.type === 'error',
-      );
-
-      if (
-        hasOutput &&
-        (
-          instance.status === 'idle' ||
-          instance.status === 'waiting_for_input' ||
-          instance.status === 'terminated' ||
-          instance.status === 'error'
-        )
-      ) {
-        return instance;
+      return settled;
+    } catch (error) {
+      await this.safeTerminateInstance(instanceId);
+      if (error instanceof Error && error.message.includes('Timed out waiting for instance')) {
+        throw new Error(`Timed out waiting for ${job.name} to finish`);
       }
-
-      loopCount += 1;
-      context.reportProgress(
-        Math.min(95, 35 + loopCount * 2),
-        `Waiting for ${job.name} to finish`,
-      );
-      await this.getSleep()(1000);
+      throw error;
     }
-
-    await this.safeTerminateInstance(instanceId);
-    throw new Error(`Timed out waiting for ${job.name} to finish`);
   }
 
   private async safeTerminateInstance(instanceId: string): Promise<void> {
@@ -970,14 +976,6 @@ export class RepoJobService extends EventEmitter {
       throw new Error('RepoJobService has not been initialized with a WorktreeManager');
     }
     return worktreeManager;
-  }
-
-  private getSleep(): (ms: number) => Promise<void> {
-    const sleep = this.deps.sleep;
-    if (!sleep) {
-      throw new Error('RepoJobService has not been initialized with a sleep helper');
-    }
-    return sleep;
   }
 
   private emitRepoJobEvent(eventName: RepoJobEventName, job: RepoJobRecord): void {

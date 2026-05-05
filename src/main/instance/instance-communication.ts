@@ -27,6 +27,7 @@ import {
   buildUnsupportedAttachmentWarnings,
   isUnsupportedOrchestratorAttachmentError,
 } from './orchestrator-attachment-fallback';
+import { isInstanceSettledStatus } from './instance-state-machine';
 import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
@@ -417,15 +418,40 @@ export class InstanceCommunicationManager extends EventEmitter {
 
   private transitionInstanceStatus(instance: Instance, status: InstanceStatus): void {
     if (instance.status === status) {
+      this.markTurnInactiveIfSettled(instance, status);
       return;
     }
 
     if (this.deps.transitionState) {
       this.deps.transitionState(instance, status);
+      this.markTurnInactiveIfSettled(instance, status);
       return;
     }
 
     instance.status = status;
+    this.markTurnInactiveIfSettled(instance, status);
+  }
+
+  private markTurnInactiveIfSettled(instance: Instance, status: InstanceStatus): void {
+    const isReadyForInput =
+      status === 'idle'
+      || status === 'ready'
+      || status === 'waiting_for_input';
+    const turnWasActive = Boolean(instance.activeTurnId);
+
+    if (isReadyForInput || isInstanceSettledStatus(status)) {
+      instance.activeTurnId = undefined;
+    }
+
+    if (isReadyForInput && turnWasActive) {
+      instance.lastTurnOutcome = 'completed';
+    }
+
+    if (isReadyForInput && instance.interruptPhase === 'completed') {
+      instance.interruptPhase = undefined;
+      instance.interruptRequestId = undefined;
+      instance.interruptRequestedAt = undefined;
+    }
   }
 
   /**
@@ -1236,6 +1262,13 @@ export class InstanceCommunicationManager extends EventEmitter {
       emitProviderRuntimeEvent({ kind: 'status', status: normalizedStatus });
 
       const instance = this.deps.getInstance(instanceId);
+      if (instance && instance.status === normalizedStatus) {
+        this.transitionInstanceStatus(instance, normalizedStatus);
+        if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
+          this.deps.onToolStateChange?.(instanceId, 'idle');
+        }
+        return;
+      }
       if (instance && instance.status !== normalizedStatus) {
         // Guard: ignore stale watchdog/stream-idle events that arrive after
         // the instance has transitioned to idle. The remote worker's watchdog

@@ -1,13 +1,17 @@
 import { Injectable, inject } from '@angular/core';
+import type { ConversationLedgerConversation } from '../../../../../shared/types/conversation-ledger.types';
 import type {
-  OperatorProjectSummary,
-  OperatorEvent,
-  OperatorRunSummary,
-  OperatorSendMessageRequest,
-  OperatorSendMessageResult,
-  OperatorThreadResult,
+  OperatorProjectListQuery,
+  OperatorProjectRecord,
+  OperatorProjectRefreshOptions,
+  OperatorRunGraph,
+  OperatorRunRecord,
+  OperatorRunStatus,
 } from '../../../../../shared/types/operator.types';
-import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
+import {
+  ElectronIpcService,
+  type IpcResponse,
+} from './electron-ipc.service';
 
 @Injectable({ providedIn: 'root' })
 export class OperatorIpcService {
@@ -17,48 +21,52 @@ export class OperatorIpcService {
     return this.base.getApi();
   }
 
-  async getThread(): Promise<IpcResponse<OperatorThreadResult>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorGetThread({}) as Promise<IpcResponse<OperatorThreadResult>>;
+  async getThread(): Promise<IpcResponse<ConversationLedgerConversation>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.getOperatorThread({}) as Promise<IpcResponse<ConversationLedgerConversation>>;
   }
 
-  async sendMessage(payload: OperatorSendMessageRequest): Promise<IpcResponse<OperatorSendMessageResult>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorSendMessage(payload) as Promise<IpcResponse<OperatorSendMessageResult>>;
+  async sendMessage(payload: {
+    text: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<IpcResponse<ConversationLedgerConversation>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.sendOperatorMessage(payload) as Promise<IpcResponse<ConversationLedgerConversation>>;
   }
 
-  async listRuns(payload: { limit?: number } = {}): Promise<IpcResponse<OperatorRunSummary[]>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorListRuns(payload) as Promise<IpcResponse<OperatorRunSummary[]>>;
+  async listProjects(payload: OperatorProjectListQuery = {}): Promise<IpcResponse<OperatorProjectRecord[]>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.listOperatorProjects(payload) as Promise<IpcResponse<OperatorProjectRecord[]>>;
   }
 
-  async getRun(runId: string): Promise<IpcResponse<OperatorRunSummary | null>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorGetRun({ runId }) as Promise<IpcResponse<OperatorRunSummary | null>>;
+  async rescanProjects(payload: OperatorProjectRefreshOptions = {}): Promise<IpcResponse<OperatorProjectRecord[]>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.rescanOperatorProjects(payload) as Promise<IpcResponse<OperatorProjectRecord[]>>;
   }
 
-  async cancelRun(runId: string): Promise<IpcResponse<OperatorThreadResult>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorCancelRun({ runId }) as Promise<IpcResponse<OperatorThreadResult>>;
+  async listRuns(payload: {
+    threadId?: string;
+    status?: OperatorRunStatus;
+    limit?: number;
+  } = {}): Promise<IpcResponse<OperatorRunRecord[]>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.listOperatorRuns(payload) as Promise<IpcResponse<OperatorRunRecord[]>>;
   }
 
-  async retryRun(runId: string): Promise<IpcResponse<OperatorSendMessageResult>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorRetryRun({ runId }) as Promise<IpcResponse<OperatorSendMessageResult>>;
-  }
-
-  async listProjects(payload: { limit?: number } = {}): Promise<IpcResponse<OperatorProjectSummary[]>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorListProjects(payload) as Promise<IpcResponse<OperatorProjectSummary[]>>;
-  }
-
-  async rescanProjects(payload: { roots?: string[] } = {}): Promise<IpcResponse<OperatorProjectSummary[]>> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.operatorRescanProjects(payload) as Promise<IpcResponse<OperatorProjectSummary[]>>;
-  }
-
-  onEvent(callback: (event: OperatorEvent) => void): () => void {
-    if (!this.api) return () => { /* noop */ };
-    return this.api.onOperatorEvent(callback as (data: unknown) => void);
+  async getRun(runId: string): Promise<IpcResponse<OperatorRunGraph | null>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.getOperatorRun({ runId }) as Promise<IpcResponse<OperatorRunGraph | null>>;
   }
 }

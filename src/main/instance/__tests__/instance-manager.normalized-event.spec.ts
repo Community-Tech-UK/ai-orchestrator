@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import type { Instance, OutputMessage } from '../../../shared/types/instance.types';
 
 // ---------------------------------------------------------------------------
 // Fake communication manager — returned by the mocked constructor.
@@ -512,5 +513,111 @@ describe('InstanceManager provider:normalized-event emission', () => {
       event: envelope.event,
       seq: 0,
     });
+  });
+});
+
+describe('InstanceManager settled events', () => {
+  function output(type: OutputMessage['type'], timestamp: number): OutputMessage {
+    return {
+      id: `${type}-${timestamp}`,
+      timestamp,
+      type,
+      content: type,
+    };
+  }
+
+  function instance(overrides: Partial<Instance> = {}): Instance {
+    return {
+      id: 'inst-settled',
+      displayName: 'Settled test',
+      createdAt: 1_000,
+      historyThreadId: 'thread-settled',
+      parentId: null,
+      childrenIds: [],
+      supervisorNodeId: '',
+      workerNodeId: undefined,
+      depth: 0,
+      terminationPolicy: 'terminate-children',
+      contextInheritance: {} as Instance['contextInheritance'],
+      agentId: 'build',
+      agentMode: 'build',
+      planMode: { enabled: false, state: 'off' },
+      status: 'idle',
+      contextUsage: { used: 0, total: 200000, percentage: 0 },
+      lastActivity: 1_200,
+      processId: null,
+      providerSessionId: 'session-settled',
+      sessionId: 'session-settled',
+      restartEpoch: 0,
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      provider: 'claude',
+      executionLocation: { type: 'local' },
+      outputBuffer: [output('assistant', 1_100)],
+      outputBufferMaxSize: 1000,
+      communicationTokens: new Map(),
+      subscribedTo: [],
+      totalTokensUsed: 0,
+      requestCount: 0,
+      errorCount: 0,
+      restartCount: 0,
+      ...overrides,
+    };
+  }
+
+  function lightweightManager(current: Instance): InstanceManager {
+    const manager = new EventEmitter() as InstanceManager & {
+      state: { getInstance: (id: string) => Instance | undefined };
+      settledTimers: Map<string, ReturnType<typeof setTimeout>>;
+      settledLastEventAt: Map<string, number>;
+      settledLastEmittedKey: Map<string, string>;
+    };
+    Object.setPrototypeOf(manager, InstanceManager.prototype);
+    manager.state = {
+      getInstance: (id: string) => (id === current.id ? current : undefined),
+    };
+    manager.settledTimers = new Map();
+    manager.settledLastEventAt = new Map([[current.id, 0]]);
+    manager.settledLastEmittedKey = new Map();
+    return manager;
+  }
+
+  it('emits instance:settled only after the state-machine predicate passes', () => {
+    const current = instance();
+    const manager = lightweightManager(current);
+    const settled: unknown[] = [];
+    manager.on('instance:settled', (event) => settled.push(event));
+
+    (manager as unknown as { maybeEmitInstanceSettled: (instanceId: string) => void })
+      .maybeEmitInstanceSettled(current.id);
+
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({
+      instanceId: current.id,
+      status: 'idle',
+      outputMessageId: 'assistant-1100',
+    });
+  });
+
+  it('waits for a later instance:settled event and re-checks the watched turn timestamp', async () => {
+    const current = instance({
+      outputBuffer: [output('assistant', 900)],
+    });
+    const manager = lightweightManager(current);
+    const waiting = manager.waitForInstanceSettled(current.id, {
+      afterTimestamp: 1_000,
+      timeoutMs: 1_000,
+      debounceMs: 0,
+    });
+
+    current.outputBuffer.push(output('assistant', 1_100));
+    manager.emit('instance:settled', {
+      instanceId: current.id,
+      status: 'idle',
+      timestamp: Date.now(),
+      instance: current,
+    });
+
+    await expect(waiting).resolves.toBe(current);
   });
 });

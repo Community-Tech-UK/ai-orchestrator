@@ -14,11 +14,11 @@ export {
   getNativeConversationRegistry,
 } from './native-conversation-registry';
 export {
+  INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
+  InternalOrchestratorConversationAdapter,
+} from './internal-orchestrator-conversation-adapter';
+export {
   ConversationLedgerService,
   ConversationLedgerServiceError,
   getConversationLedgerService,
 } from './conversation-ledger-service';
-export {
-  GLOBAL_ORCHESTRATOR_NATIVE_THREAD_ID,
-  InternalOrchestratorConversationAdapter,
-} from './orchestrator/internal-orchestrator-conversation-adapter';

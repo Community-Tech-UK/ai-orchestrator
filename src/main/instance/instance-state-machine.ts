@@ -1,4 +1,4 @@
-import type { InstanceStatus } from '../../shared/types/instance.types';
+import type { InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
 
 /**
  * Error thrown when an invalid state transition is attempted.
@@ -31,6 +31,89 @@ const TERMINAL_STATES = new Set<InstanceStatus>(['terminated', 'failed']);
  * Universal target states — reachable from any non-terminal state.
  */
 const UNIVERSAL_TARGETS = new Set<InstanceStatus>(['terminated', 'failed', 'degraded', 'superseded']);
+
+export const INSTANCE_SETTLED_DEBOUNCE_MS = 150;
+
+/**
+ * States that can represent a completed worker turn once assistant/error
+ * output has been observed. The output requirement is load-bearing: startup
+ * and transient idle states must not be treated as completed work.
+ */
+export const INSTANCE_SETTLED_STATUSES = new Set<InstanceStatus>([
+  'idle',
+  'waiting_for_input',
+  'terminated',
+  'error',
+  'failed',
+]);
+
+export interface InstanceSettledPredicateInput {
+  status: InstanceStatus;
+  outputBuffer: readonly Pick<OutputMessage, 'id' | 'timestamp' | 'type'>[];
+  activeTurnId?: string;
+  interruptRequestId?: string;
+  interruptPhase?: 'requested' | 'accepted' | 'completed' | 'timed-out' | 'escalated';
+  afterTimestamp?: number;
+  lastEventAt?: number;
+  now?: number;
+  debounceMs?: number;
+}
+
+export function isInstanceSettledStatus(status: InstanceStatus): boolean {
+  return INSTANCE_SETTLED_STATUSES.has(status);
+}
+
+export function findLatestSettlingOutput(
+  outputBuffer: readonly Pick<OutputMessage, 'id' | 'timestamp' | 'type'>[],
+  afterTimestamp = 0,
+): Pick<OutputMessage, 'id' | 'timestamp' | 'type'> | undefined {
+  for (let index = outputBuffer.length - 1; index >= 0; index -= 1) {
+    const message = outputBuffer[index];
+    if (
+      (message.type === 'assistant' || message.type === 'error')
+      && message.timestamp >= afterTimestamp
+    ) {
+      return message;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Defines when a worker instance is safe for supervisors to evaluate.
+ *
+ * Predicate:
+ * - status is idle-like or terminal;
+ * - at least one assistant/error output exists after the watched turn starts;
+ * - no provider turn id or interrupt lifecycle is still active;
+ * - the latest state/output event is older than the debounce window.
+ */
+export function isInstanceSettled(input: InstanceSettledPredicateInput): boolean {
+  if (!isInstanceSettledStatus(input.status)) {
+    return false;
+  }
+
+  if (input.activeTurnId) {
+    return false;
+  }
+
+  if (input.interruptRequestId && input.interruptPhase !== 'completed') {
+    return false;
+  }
+
+  if (input.interruptPhase && input.interruptPhase !== 'completed') {
+    return false;
+  }
+
+  if (!findLatestSettlingOutput(input.outputBuffer, input.afterTimestamp)) {
+    return false;
+  }
+
+  const debounceMs = input.debounceMs ?? INSTANCE_SETTLED_DEBOUNCE_MS;
+  const lastEventAt = input.lastEventAt ?? 0;
+  const now = input.now ?? Date.now();
+  return now - lastEventAt >= debounceMs;
+}
 
 /**
  * Explicit allowed transitions (excluding universal targets).

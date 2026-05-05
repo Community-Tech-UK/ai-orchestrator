@@ -460,6 +460,21 @@ describe('InstanceCommunicationManager', () => {
     expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
   });
 
+  it('clears active turn metadata when adapter returns to an idle-like status', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'busy';
+    instance.activeTurnId = 'turn-123';
+    instance.interruptPhase = 'completed';
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+
+    expect(instance.activeTurnId).toBeUndefined();
+    expect(instance.interruptPhase).toBeUndefined();
+    expect(instance.lastTurnOutcome).toBe('completed');
+  });
+
   it('normalizes idle to busy status updates through ready', () => {
     const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

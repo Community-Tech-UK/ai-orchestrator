@@ -1,36 +1,47 @@
 import { z } from 'zod';
 
-export const OperatorGetThreadPayloadSchema = z.object({}).strict();
+export const OperatorGetThreadPayloadSchema = z.object({}).optional();
 
 export const OperatorSendMessagePayloadSchema = z.object({
-  text: z.string().trim().min(1).max(20_000),
+  text: z.string().min(1),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const OperatorListProjectsPayloadSchema = z.object({
+  query: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+}).optional();
+
+export const OperatorRescanProjectsPayloadSchema = z.object({
+  roots: z.array(z.string().min(1)).optional(),
+  includeRecent: z.boolean().optional(),
+  includeActiveInstances: z.boolean().optional(),
+  includeConversationLedger: z.boolean().optional(),
+}).optional();
+
+export const OperatorRunStatusSchema = z.enum([
+  'queued',
+  'running',
+  'waiting',
+  'completed',
+  'failed',
+  'cancelled',
+  'blocked',
+]);
+
 export const OperatorListRunsPayloadSchema = z.object({
-  limit: z.number().int().positive().max(500).optional(),
-}).strict();
+  threadId: z.string().min(1).optional(),
+  status: OperatorRunStatusSchema.optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+}).optional();
 
 export const OperatorRunIdPayloadSchema = z.object({
   runId: z.string().min(1),
 });
 
-export const OperatorGetRunPayloadSchema = OperatorRunIdPayloadSchema;
-export const OperatorCancelRunPayloadSchema = OperatorRunIdPayloadSchema;
-export const OperatorRetryRunPayloadSchema = OperatorRunIdPayloadSchema;
-
-export const OperatorListProjectsPayloadSchema = z.object({
-  limit: z.number().int().positive().max(500).optional(),
-}).strict();
-
-export const OperatorRescanProjectsPayloadSchema = z.object({
-  roots: z.array(z.string().min(1)).optional(),
-}).strict();
-
 export type OperatorGetThreadPayload = z.infer<typeof OperatorGetThreadPayloadSchema>;
 export type OperatorSendMessagePayload = z.infer<typeof OperatorSendMessagePayloadSchema>;
-export type OperatorListRunsPayload = z.infer<typeof OperatorListRunsPayloadSchema>;
-export type OperatorRunIdPayload = z.infer<typeof OperatorRunIdPayloadSchema>;
-export type OperatorGetRunPayload = z.infer<typeof OperatorGetRunPayloadSchema>;
 export type OperatorListProjectsPayload = z.infer<typeof OperatorListProjectsPayloadSchema>;
 export type OperatorRescanProjectsPayload = z.infer<typeof OperatorRescanProjectsPayloadSchema>;
+export type OperatorListRunsPayload = z.infer<typeof OperatorListRunsPayloadSchema>;
+export type OperatorRunIdPayload = z.infer<typeof OperatorRunIdPayloadSchema>;

@@ -1,121 +1,101 @@
-import { CommonModule } from '@angular/common';
-import {
-  AfterViewChecked,
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  ViewChild,
-  inject,
-} from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { OperatorStore } from '../../core/state/operator.store';
 
 @Component({
   selector: 'app-operator-page',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="operator-page">
+    <section class="operator-page">
       <header class="operator-header">
-        <div class="operator-title-block">
-          <button class="icon-button" type="button" aria-label="Back to projects" title="Back to projects" (click)="goBack()">
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M9.8 3.2 5 8l4.8 4.8 1-1L7 8l3.8-3.8-1-1Z" />
-            </svg>
-          </button>
-          <div>
-            <p class="eyebrow">Global Control Plane</p>
-            <h1>Orchestrator</h1>
-          </div>
+        <div>
+          <p class="operator-kicker">Global control plane</p>
+          <h1>Orchestrator</h1>
         </div>
-        <button class="ghost-button" type="button" (click)="refresh()" [disabled]="store.loading() || store.sending()">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M13.2 5.2A5.5 5.5 0 1 0 13 11h-1.7a4 4 0 1 1 .4-4.7H9.5V4.8H14v4.5h-1.5V6.4c.3.5.5 1 .7 1.6h1.5a5.5 5.5 0 0 0-1.5-2.8Z" />
-          </svg>
-          <span>Refresh</span>
-        </button>
+        <div class="operator-status" [class.loading]="store.loading() || store.sending()">
+          {{ store.sending() ? 'Sending' : store.loading() ? 'Loading' : 'Ready' }}
+        </div>
       </header>
 
-      <main class="operator-shell">
-        <section class="transcript-panel" aria-label="Operator conversation">
-          @if (store.loading() && store.messages().length === 0) {
-            <div class="empty-state">Loading transcript...</div>
-          } @else if (store.messages().length === 0) {
-            <div class="empty-state">No operator messages yet.</div>
-          } @else {
-            <div class="message-list" #messageList>
-              @for (message of store.messages(); track message.id) {
-                <article class="message" [class.user]="message.role === 'user'" [class.operator]="message.role !== 'user'">
-                  <div class="message-meta">
-                    <span>{{ messageLabel(message) }}</span>
-                    <time [attr.datetime]="message.createdAt">{{ formatTime(message.createdAt) }}</time>
-                  </div>
-                  <p>{{ message.content }}</p>
-                </article>
-              }
-            </div>
+      @if (visibleProjects().length > 0) {
+        <div class="operator-targets">
+          @for (project of visibleProjects(); track project.id) {
+            <button type="button" class="operator-target-chip" [title]="project.canonicalPath">
+              {{ project.displayName }}
+            </button>
           }
-        </section>
-
-        <aside class="operator-side" aria-label="Operator status">
-          <section class="side-section">
-            <div class="side-heading">
-              <span>Runs</span>
-              <strong>{{ store.runs().length }}</strong>
-            </div>
-            @if (store.runs().length === 0) {
-              <p class="side-empty">No active runs.</p>
-            }
-          </section>
-          <section class="side-section">
-            <div class="side-heading">
-              <span>Projects</span>
-              <strong>{{ store.projects().length }}</strong>
-            </div>
-            @if (store.projects().length === 0) {
-              <p class="side-empty">No linked projects.</p>
-            }
-          </section>
-        </aside>
-      </main>
-
-      @if (store.error()) {
-        <p class="error-row">{{ store.error() }}</p>
+        </div>
       }
 
-      <form class="composer" (ngSubmit)="submit()">
+      @if (store.runs().length > 0) {
+        <div class="operator-runs">
+          @for (run of store.runs(); track run.id) {
+            <article class="operator-run">
+              <span>{{ run.title }}</span>
+              <strong>{{ run.status }}</strong>
+            </article>
+          }
+        </div>
+      }
+
+      <div class="operator-transcript" aria-live="polite">
+        @if (store.error(); as error) {
+          <div class="operator-error" role="alert">{{ error }}</div>
+        }
+
+        @if (store.messages().length === 0 && !store.loading()) {
+          <div class="operator-empty">
+            <span>No messages yet</span>
+          </div>
+        }
+
+        @for (message of store.messages(); track message.id) {
+          <article class="operator-message" [class.user]="message.role === 'user'">
+            <div class="operator-message-meta">
+              <span>{{ labelForRole(message.role) }}</span>
+              <time [attr.datetime]="dateTimeFor(message.createdAt)">
+                {{ message.createdAt | date:'shortTime' }}
+              </time>
+            </div>
+            <p>{{ message.content }}</p>
+          </article>
+        }
+      </div>
+
+      <form class="operator-composer" (submit)="send($event)">
         <textarea
-          name="operatorPrompt"
+          [value]="draft()"
+          (input)="onDraftInput($event)"
           rows="3"
-          placeholder="Tell the Orchestrator what to coordinate..."
-          [(ngModel)]="draft"
-          [disabled]="store.sending()"
-          (keydown)="onComposerKeydown($event)"
+          placeholder="Message Orchestrator"
+          aria-label="Message Orchestrator"
         ></textarea>
-        <button class="send-button" type="submit" [disabled]="!canSend()">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M14.5 1.8 1.5 7.2c-.7.3-.7 1.3.1 1.5l4.5 1.1 1.1 4.5c.2.8 1.2.9 1.5.1l5.5-13c.2-.4-.2-.8-.7-.6ZM3.4 8l8.5-3.5-5.2 5.2L3.4 8Zm4.6 4.6-.8-2.9 5.2-5.2L8 12.6Z" />
-          </svg>
-          <span>{{ store.sending() ? 'Sending' : 'Send' }}</span>
+        <button type="submit" [disabled]="!canSend()">
+          Send
         </button>
       </form>
-    </div>
+    </section>
   `,
   styles: [`
     :host {
-      display: block;
-      min-height: 100vh;
-      background: var(--bg-primary);
-      color: var(--text-primary);
+      display: flex;
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
     }
 
     .operator-page {
-      min-height: 100vh;
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
       display: grid;
-      grid-template-rows: auto 1fr auto auto;
+      grid-template-rows: auto auto auto 1fr auto;
+      gap: 18px;
+      max-width: 1100px;
+      width: 100%;
+      color: var(--text-primary);
     }
 
     .operator-header {
@@ -123,329 +103,255 @@ import { OperatorStore } from '../../core/state/operator.store';
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 18px 24px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(12, 18, 17, 0.84);
-      backdrop-filter: blur(18px);
+      padding: 4px 2px 0;
     }
 
-    .operator-title-block {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .eyebrow {
+    .operator-kicker {
       margin: 0 0 4px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
       color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
     }
 
     h1 {
       margin: 0;
-      font-size: 20px;
+      font-size: 28px;
       font-weight: 650;
       letter-spacing: 0;
     }
 
-    .icon-button,
-    .ghost-button,
-    .send-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.035);
-      color: var(--text-primary);
-      cursor: pointer;
-      transition: background var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
-    }
-
-    .icon-button {
-      width: 34px;
-      height: 34px;
-      padding: 0;
-      border-radius: 8px;
-    }
-
-    .ghost-button {
-      height: 34px;
-      padding: 0 12px;
-      border-radius: 8px;
-      font-size: 12px;
-    }
-
-    .icon-button:hover,
-    .ghost-button:hover,
-    .send-button:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.07);
-      border-color: rgba(255, 255, 255, 0.14);
-    }
-
-    .icon-button svg,
-    .ghost-button svg,
-    .send-button svg {
-      width: 15px;
-      height: 15px;
-      fill: currentColor;
-      flex: 0 0 auto;
-    }
-
-    .operator-shell {
-      min-height: 0;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 280px;
-      gap: 0;
-    }
-
-    .transcript-panel {
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      border-right: 1px solid rgba(255, 255, 255, 0.06);
-    }
-
-    .message-list {
-      flex: 1;
-      min-height: 0;
-      overflow: auto;
-      padding: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .message {
-      max-width: min(820px, 82%);
-      padding: 12px 14px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.07);
-      background: rgba(255, 255, 255, 0.035);
-    }
-
-    .message.user {
-      align-self: flex-end;
-      background: rgba(var(--primary-rgb), 0.1);
-      border-color: rgba(var(--primary-rgb), 0.2);
-    }
-
-    .message.operator {
-      align-self: flex-start;
-    }
-
-    .message-meta {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 6px;
+    .operator-status {
+      border: 1px solid var(--glass-strong);
+      border-radius: 999px;
+      padding: 7px 12px;
+      color: var(--text-secondary);
+      background: var(--glass-light);
       font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--text-muted);
+      font-size: 11px;
       text-transform: uppercase;
     }
 
-    .message p {
-      margin: 0;
+    .operator-status.loading {
       color: var(--text-primary);
-      font-size: 14px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
+      border-color: rgba(var(--primary-rgb), 0.3);
+      background: rgba(var(--primary-rgb), 0.12);
     }
 
-    .operator-side {
-      min-height: 0;
-      padding: 18px;
+    .operator-targets {
       display: flex;
-      flex-direction: column;
-      gap: 14px;
-      background: rgba(255, 255, 255, 0.015);
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
     }
 
-    .side-section {
-      border: 1px solid rgba(255, 255, 255, 0.07);
+    .operator-target-chip {
+      max-width: 210px;
+      height: 30px;
+      border: 1px solid var(--glass-border);
       border-radius: 8px;
-      padding: 12px;
-      background: rgba(255, 255, 255, 0.025);
+      padding: 0 10px;
+      color: var(--text-secondary);
+      background: var(--glass-light);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font: inherit;
+      font-size: 12px;
     }
 
-    .side-heading {
+    .operator-runs {
+      display: grid;
+      gap: 8px;
+    }
+
+    .operator-run {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      font-size: 12px;
+      min-width: 0;
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: var(--glass-light);
       color: var(--text-secondary);
     }
 
-    .side-heading strong {
+    .operator-run span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .operator-run strong {
+      color: var(--text-primary);
       font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+
+    .operator-transcript {
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 4px 2px;
+    }
+
+    .operator-empty,
+    .operator-error,
+    .operator-message {
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      background: var(--glass-light);
+    }
+
+    .operator-empty {
+      display: grid;
+      place-items: center;
+      min-height: 220px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .operator-error {
+      padding: 12px 14px;
+      color: var(--danger-color, #ff6b6b);
+      background: rgba(255, 107, 107, 0.08);
+    }
+
+    .operator-message {
+      padding: 14px 16px;
+      max-width: min(760px, 100%);
       color: var(--text-primary);
     }
 
-    .side-empty,
-    .empty-state,
-    .error-row {
-      color: var(--text-muted);
-      font-size: 13px;
+    .operator-message.user {
+      align-self: flex-end;
+      border-color: rgba(var(--primary-rgb), 0.3);
+      background: rgba(var(--primary-rgb), 0.12);
     }
 
-    .side-empty {
-      margin: 10px 0 0;
-    }
-
-    .empty-state {
-      margin: auto;
-      padding: 24px;
-    }
-
-    .error-row {
-      margin: 0;
-      padding: 10px 24px;
-      color: var(--error-color);
-      border-top: 1px solid rgba(var(--error-rgb), 0.18);
-      background: rgba(var(--error-rgb), 0.08);
-    }
-
-    .composer {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+    .operator-message-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 12px;
-      padding: 16px 24px 20px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(12, 18, 17, 0.92);
+      margin-bottom: 8px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .operator-message p {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: 1.5;
+    }
+
+    .operator-composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      padding: 14px;
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      background: var(--glass-light);
     }
 
     textarea {
       width: 100%;
-      min-width: 0;
-      resize: vertical;
+      min-height: 76px;
       max-height: 180px;
-      padding: 12px;
+      resize: vertical;
+      border: 1px solid var(--glass-strong);
       border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      background: rgba(255, 255, 255, 0.035);
+      padding: 12px;
       color: var(--text-primary);
+      background: var(--bg-primary);
       font: inherit;
-      line-height: 1.45;
+      line-height: 1.4;
     }
 
     textarea:focus {
       outline: none;
-      border-color: rgba(var(--primary-rgb), 0.42);
+      border-color: rgba(var(--primary-rgb), 0.45);
       box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
     }
 
-    .send-button {
-      align-self: stretch;
-      min-width: 104px;
-      padding: 0 16px;
+    button {
+      min-width: 82px;
+      height: 42px;
+      border: 1px solid rgba(var(--primary-rgb), 0.35);
       border-radius: 8px;
-      font-weight: 600;
+      color: var(--text-primary);
+      background: rgba(var(--primary-rgb), 0.16);
+      font-weight: 650;
     }
 
-    .ghost-button:disabled,
-    .send-button:disabled,
-    textarea:disabled {
-      opacity: 0.55;
-      cursor: default;
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
-    @media (max-width: 900px) {
-      .operator-shell {
+    @media (max-width: 720px) {
+      .operator-composer {
         grid-template-columns: 1fr;
       }
 
-      .operator-side {
-        display: none;
-      }
-
-      .transcript-panel {
-        border-right: none;
-      }
-
-      .composer {
-        grid-template-columns: 1fr;
-      }
-
-      .send-button {
-        height: 42px;
+      button {
+        width: 100%;
       }
     }
   `],
 })
-export class OperatorPageComponent implements AfterViewChecked {
+export class OperatorPageComponent implements OnInit {
   protected readonly store = inject(OperatorStore);
-  private router = inject(Router);
-  private shouldScrollToBottom = false;
+  protected readonly draft = signal('');
 
-  @ViewChild('messageList') private messageList?: ElementRef<HTMLElement>;
-
-  draft = '';
-
-  constructor() {
-    void this.store.initialize().then(() => {
-      this.shouldScrollToBottom = true;
-    });
+  ngOnInit(): void {
+    void this.store.initialize();
   }
 
-  ngAfterViewChecked(): void {
-    if (!this.shouldScrollToBottom || !this.messageList) {
-      return;
-    }
-    const element = this.messageList.nativeElement;
-    element.scrollTop = element.scrollHeight;
-    this.shouldScrollToBottom = false;
-  }
-
-  protected goBack(): void {
-    void this.router.navigate(['/']);
-  }
-
-  protected async refresh(): Promise<void> {
-    await this.store.refresh();
-    this.shouldScrollToBottom = true;
+  protected onDraftInput(event: Event): void {
+    const target = event.target;
+    this.draft.set(target instanceof HTMLTextAreaElement ? target.value : '');
   }
 
   protected canSend(): boolean {
-    return this.draft.trim().length > 0 && !this.store.sending();
+    return this.draft().trim().length > 0 && !this.store.sending();
   }
 
-  protected async submit(): Promise<void> {
-    const text = this.draft.trim();
-    if (!text) {
-      return;
-    }
-    const sent = await this.store.sendMessage(text);
-    if (sent) {
-      this.draft = '';
-      this.shouldScrollToBottom = true;
-    }
-  }
-
-  protected onComposerKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) {
-      return;
-    }
+  protected send(event: Event): void {
     event.preventDefault();
-    void this.submit();
+    const text = this.draft().trim();
+    if (!text || this.store.sending()) {
+      return;
+    }
+    this.draft.set('');
+    void this.store.sendMessage(text);
   }
 
-  protected messageLabel(message: ConversationMessageRecord): string {
-    return message.role === 'user' ? 'You' : 'Orchestrator';
+  protected visibleProjects() {
+    return this.store.projects().slice(0, 8);
   }
 
-  protected formatTime(timestamp: number): string {
-    return new Date(timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  protected labelForRole(role: string): string {
+    if (role === 'user') return 'You';
+    if (role === 'assistant') return 'Orchestrator';
+    return role;
+  }
+
+  protected dateTimeFor(timestamp: number): string {
+    return new Date(timestamp).toISOString();
   }
 }

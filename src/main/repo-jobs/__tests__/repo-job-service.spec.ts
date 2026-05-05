@@ -73,25 +73,63 @@ function createTestRepo(): string {
   return repoDir;
 }
 
-function buildService() {
+type WaitForSettledTestOptions = {
+  afterTimestamp?: number;
+  timeoutMs?: number;
+};
+
+function buildService(options: {
+  autoCompleteInstance?: boolean;
+  sleep?: (ms: number) => Promise<void>;
+  waitForInstanceSettled?: (
+    instanceId: string,
+    options: WaitForSettledTestOptions,
+    instances: Map<string, Instance>,
+  ) => Promise<Instance | undefined>;
+} = {}) {
   const instances = new Map<string, Instance>();
   const terminateInstance = vi.fn(async () => undefined);
+  const autoCompleteInstance = options.autoCompleteInstance ?? true;
 
   const createInstanceMock = vi.fn(async (config: InstanceCreateConfig) => {
     const instance = createMockInstance(config);
     instance.status = 'busy';
     instances.set(instance.id, instance);
 
-    setTimeout(() => {
+    if (autoCompleteInstance) {
+      setTimeout(() => {
       const current = instances.get(instance.id);
       if (!current) {
         return;
       }
       current.status = 'waiting_for_input';
       current.outputBuffer.push(createAssistantMessage('Background repo job complete'));
-    }, 5);
+      }, 5);
+    }
 
     return instance;
+  });
+  const waitForInstanceSettled = vi.fn(async (
+    instanceId: string,
+    waitOptions: WaitForSettledTestOptions,
+  ) => {
+    if (options.waitForInstanceSettled) {
+      return options.waitForInstanceSettled(instanceId, waitOptions, instances);
+    }
+
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const instance = instances.get(instanceId);
+      if (
+        instance
+        && (instance.status === 'idle' || instance.status === 'waiting_for_input')
+        && instance.outputBuffer.some((message) => message.type === 'assistant' || message.type === 'error')
+      ) {
+        return instance;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return instances.get(instanceId);
   });
 
   const worktreeManager = {
@@ -151,14 +189,16 @@ function buildService() {
       createInstance: createInstanceMock,
       getInstance: (instanceId: string) => instances.get(instanceId),
       terminateInstance,
+      waitForInstanceSettled,
     },
     worktreeManager,
-    sleep: async (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 5))),
+    sleep: options.sleep ?? (async (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 5)))),
   });
 
   return {
     service,
     createInstanceMock,
+    waitForInstanceSettled,
     worktreeManager,
     terminateInstance,
   };
@@ -237,6 +277,45 @@ describe('RepoJobService', () => {
     const firstCall = createInstanceMock.mock.calls[0]?.[0] as InstanceCreateConfig | undefined;
     expect(firstCall?.initialPrompt).toContain('Browser evidence: enabled.');
     expect(firstCall?.initialPrompt).toContain('Attach browser evidence summaries');
+  });
+
+  it('uses the event-based instance settled API instead of polling output buffers', async () => {
+    const waitForInstanceSettled = vi.fn(async (
+      instanceId: string,
+      waitOptions: WaitForSettledTestOptions,
+      instances: Map<string, Instance>,
+    ) => {
+      expect(waitOptions.afterTimestamp).toEqual(expect.any(Number));
+      expect(waitOptions.timeoutMs).toBe(20 * 60 * 1000);
+
+      const instance = instances.get(instanceId);
+      expect(instance).toBeDefined();
+      instance!.status = 'idle';
+      instance!.outputBuffer.push(createAssistantMessage('Settled by event helper'));
+      return instance;
+    });
+
+    const { service } = buildService({
+      autoCompleteInstance: false,
+      waitForInstanceSettled,
+      sleep: async () => {
+        throw new Error('legacy polling sleep should not run');
+      },
+    });
+    const repoDir = createTestRepo();
+    tempDirs.push(repoDir);
+
+    const job = service.submitJob({
+      type: 'pr-review',
+      workingDirectory: repoDir,
+      title: 'Review README changes',
+    });
+
+    const completed = await service.waitForJob(job.id, 5000);
+
+    expect(completed.status).toBe('completed');
+    expect(completed.result?.summary).toContain('Settled by event helper');
+    expect(waitForInstanceSettled).toHaveBeenCalledTimes(1);
   });
 
   it('reruns a completed job as a fresh submission', async () => {

@@ -40,6 +40,11 @@ import {
 import { InstanceStateManager } from './instance-state';
 import { InstanceLifecycleManager } from './instance-lifecycle';
 import { InstanceCommunicationManager } from './instance-communication';
+import {
+  INSTANCE_SETTLED_DEBOUNCE_MS,
+  findLatestSettlingOutput,
+  isInstanceSettled,
+} from './instance-state-machine';
 import { InstanceContextManager } from './instance-context';
 import { InstanceEventAggregator } from './instance-event-aggregator';
 import { InstanceOrchestrationManager } from './instance-orchestration';
@@ -83,6 +88,33 @@ import { getPromptHistoryService } from '../prompt-history/prompt-history-servic
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
+
+export interface InstanceStateChangedEvent {
+  instanceId: string;
+  status: InstanceStatus;
+  previousStatus?: InstanceStatus;
+  timestamp: number;
+  instance?: Instance;
+}
+
+export interface InstanceSettledEvent {
+  instanceId: string;
+  status: InstanceStatus;
+  timestamp: number;
+  instance: Instance;
+  outputMessageId?: string;
+  outputTimestamp?: number;
+}
+
+export interface InstanceSettledWaitOptions {
+  afterTimestamp?: number;
+  timeoutMs?: number;
+  debounceMs?: number;
+  signal?: AbortSignal;
+  isCancelled?: () => boolean;
+  onProgress?: (elapsedMs: number) => void;
+  progressIntervalMs?: number;
+}
 
 function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
   if (!value) {
@@ -174,6 +206,9 @@ export class InstanceManager extends EventEmitter {
   private settings = getSettingsManager();
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private providerRuntimeSeqByInstance = new Map<string, number>();
+  private settledTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private settledLastEventAt = new Map<string, number>();
+  private settledLastEmittedKey = new Map<string, string>();
   private readonly handlePause = (): void => {
     this.interruptActiveTurnsForPause();
   };
@@ -454,6 +489,7 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('removed', (instanceId) => {
       const instance = this.state.getInstance(instanceId);
       this.providerRuntimeSeqByInstance.delete(instanceId);
+      this.clearSettledTracking(instanceId);
       this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emit('instance:removed', instanceId);
     });
@@ -464,10 +500,32 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('state-update', (payload) => {
       this.emit('instance:event', this.lifecycleEvents.recordStateUpdate(payload));
       this.emit('instance:state-update', payload);
+      this.publishStateChanged(payload);
     });
     this.lifecycle.on('memory:warning', (stats) => this.emit('memory:warning', stats));
     this.lifecycle.on('memory:critical', (stats) => this.emit('memory:critical', stats));
     this.lifecycle.on('memory:stats', (stats) => this.emit('memory:stats', stats));
+  }
+
+  private publishStateChanged(payload: {
+    instanceId: string;
+    status: InstanceStatus;
+    previousStatus?: InstanceStatus;
+    timestamp: number;
+  }): void {
+    const instance = this.state.getInstance(payload.instanceId);
+    const event: InstanceStateChangedEvent = {
+      instanceId: payload.instanceId,
+      status: payload.status,
+      previousStatus: payload.previousStatus,
+      timestamp: payload.timestamp,
+      instance,
+    };
+    this.emit('instance:state-changed', event);
+    if (payload.status === 'idle') {
+      this.emit('instance:idle', event);
+    }
+    this.recordSettledActivity(payload.instanceId, payload.timestamp);
   }
 
   private mapCliPermissionActionToScope(action: string | undefined): PermissionScope {
@@ -881,7 +939,75 @@ export class InstanceManager extends EventEmitter {
   }
 
   private publishOutput(instanceId: string, message: OutputMessage): void {
+    this.recordSettledActivity(instanceId, message.timestamp);
     this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message));
+  }
+
+  private recordSettledActivity(instanceId: string, timestamp = Date.now()): void {
+    this.settledLastEventAt.set(instanceId, timestamp);
+    const existing = this.settledTimers.get(instanceId);
+    if (existing) {
+      clearTimeout(existing);
+    }
+
+    const timer = setTimeout(() => {
+      this.settledTimers.delete(instanceId);
+      this.maybeEmitInstanceSettled(instanceId);
+    }, INSTANCE_SETTLED_DEBOUNCE_MS);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.settledTimers.set(instanceId, timer);
+  }
+
+  private maybeEmitInstanceSettled(instanceId: string): void {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) {
+      this.clearSettledTracking(instanceId);
+      return;
+    }
+
+    const lastEventAt = this.settledLastEventAt.get(instanceId) ?? instance.lastActivity ?? instance.createdAt;
+    const now = Date.now();
+    if (!isInstanceSettled({
+      status: instance.status,
+      outputBuffer: instance.outputBuffer,
+      activeTurnId: instance.activeTurnId,
+      interruptRequestId: instance.interruptRequestId,
+      interruptPhase: instance.interruptPhase,
+      lastEventAt,
+      now,
+      debounceMs: INSTANCE_SETTLED_DEBOUNCE_MS,
+    })) {
+      return;
+    }
+
+    const output = findLatestSettlingOutput(instance.outputBuffer);
+    const emittedKey = `${instance.status}:${output?.id ?? 'none'}:${output?.timestamp ?? 0}:${instance.outputBuffer.length}`;
+    if (this.settledLastEmittedKey.get(instanceId) === emittedKey) {
+      return;
+    }
+    this.settledLastEmittedKey.set(instanceId, emittedKey);
+
+    const event: InstanceSettledEvent = {
+      instanceId,
+      status: instance.status,
+      timestamp: now,
+      instance,
+      outputMessageId: output?.id,
+      outputTimestamp: output?.timestamp,
+    };
+    this.emit('instance:settled', event);
+  }
+
+  private clearSettledTracking(instanceId: string): void {
+    const timer = this.settledTimers.get(instanceId);
+    if (timer) {
+      clearTimeout(timer);
+    }
+    this.settledTimers.delete(instanceId);
+    this.settledLastEventAt.delete(instanceId);
+    this.settledLastEmittedKey.delete(instanceId);
   }
 
   private queueInitialPromptForRenderer(payload: {
@@ -1007,6 +1133,123 @@ export class InstanceManager extends EventEmitter {
 
   getAllInstancesForIpc(): Record<string, unknown>[] {
     return this.state.getAllInstancesForIpc();
+  }
+
+  async waitForInstanceSettled(
+    instanceId: string,
+    options: InstanceSettledWaitOptions = {},
+  ): Promise<Instance | undefined> {
+    const startedAt = Date.now();
+    const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
+    const debounceMs = options.debounceMs ?? INSTANCE_SETTLED_DEBOUNCE_MS;
+    const getSettledInstance = (): Instance | undefined => {
+      const instance = this.state.getInstance(instanceId);
+      if (!instance) {
+        return undefined;
+      }
+
+      const lastEventAt = this.settledLastEventAt.get(instanceId) ?? 0;
+      return isInstanceSettled({
+        status: instance.status,
+        outputBuffer: instance.outputBuffer,
+        activeTurnId: instance.activeTurnId,
+        interruptRequestId: instance.interruptRequestId,
+        interruptPhase: instance.interruptPhase,
+        afterTimestamp: options.afterTimestamp,
+        lastEventAt,
+        now: Date.now(),
+        debounceMs,
+      })
+        ? instance
+        : undefined;
+    };
+
+    const existing = getSettledInstance();
+    if (existing) {
+      return existing;
+    }
+
+    return new Promise<Instance | undefined>((resolve, reject) => {
+      let completed = false;
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+      let progressTimer: ReturnType<typeof setInterval> | undefined;
+
+      const cleanup = (): void => {
+        this.off('instance:settled', handleSettled);
+        this.off('instance:removed', handleRemoved);
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+        }
+        if (progressTimer) {
+          clearInterval(progressTimer);
+        }
+      };
+
+      const finish = (instance: Instance | undefined): void => {
+        if (completed) {
+          return;
+        }
+        completed = true;
+        cleanup();
+        resolve(instance);
+      };
+
+      const fail = (error: Error): void => {
+        if (completed) {
+          return;
+        }
+        completed = true;
+        cleanup();
+        reject(error);
+      };
+
+      const isCancelled = (): boolean => (
+        options.signal?.aborted === true
+        || options.isCancelled?.() === true
+      );
+
+      const handleSettled = (event: InstanceSettledEvent): void => {
+        if (event.instanceId !== instanceId) {
+          return;
+        }
+        const settled = getSettledInstance();
+        if (settled) {
+          finish(settled);
+        }
+      };
+
+      const handleRemoved = (removedInstanceId: string): void => {
+        if (removedInstanceId === instanceId) {
+          finish(undefined);
+        }
+      };
+
+      if (isCancelled()) {
+        finish(this.state.getInstance(instanceId));
+        return;
+      }
+
+      this.on('instance:settled', handleSettled);
+      this.on('instance:removed', handleRemoved);
+
+      timeoutTimer = setTimeout(() => {
+        fail(new Error(`Timed out waiting for instance ${instanceId} to settle`));
+      }, timeoutMs);
+      if (typeof timeoutTimer.unref === 'function') {
+        timeoutTimer.unref();
+      }
+
+      progressTimer = setInterval(() => {
+        if (isCancelled()) {
+          finish(this.state.getInstance(instanceId));
+          return;
+        }
+        options.onProgress?.(Date.now() - startedAt);
+      }, options.progressIntervalMs ?? 1000);
+      if (typeof progressTimer.unref === 'function') {
+        progressTimer.unref();
+      }
+    });
   }
 
   getInstanceCount(): number {
@@ -2160,6 +2403,12 @@ export class InstanceManager extends EventEmitter {
   destroy(): void {
     getPauseCoordinator().removeListener('pause', this.handlePause);
     getTaskManager().stopTimeoutChecker();
+    for (const timer of this.settledTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.settledTimers.clear();
+    this.settledLastEventAt.clear();
+    this.settledLastEmittedKey.clear();
     this.state.destroy();
     this.lifecycle.destroy();
     this.terminateAll();
