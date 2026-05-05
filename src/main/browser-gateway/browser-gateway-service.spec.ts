@@ -212,25 +212,6 @@ function makeService(overrides: {
         : null,
     ),
     detachTab: vi.fn(),
-    queueRefresh: vi.fn((profileId: string, targetId: string) =>
-      overrides.existingTab &&
-        overrides.existingTab.profileId === profileId &&
-        overrides.existingTab.targetId === targetId
-        ? {
-          id: 'command-1',
-          kind: 'refresh_tab' as const,
-          status: 'queued' as const,
-          profileId,
-          targetId,
-          tabId: overrides.existingTab.tabId ?? 42,
-          windowId: overrides.existingTab.windowId ?? 7,
-          createdAt: 1_000,
-          updatedAt: 1_000,
-        }
-        : null,
-    ),
-    pollCommand: vi.fn(),
-    completeCommand: vi.fn(),
   };
   const service = new BrowserGatewayService({
     profileStore,
@@ -401,50 +382,6 @@ describe('BrowserGatewayService', () => {
       },
     });
     expect(JSON.stringify(result)).not.toContain('driverTargetId');
-  });
-
-  it('queues refresh commands for selected existing Chrome tabs through the extension store', async () => {
-    const { service, extensionTabStore } = makeService({
-      existingTab: {
-        profileId: 'existing-tab:7:42',
-        targetId: 'existing-tab:7:42:target',
-        tabId: 42,
-        windowId: 7,
-        title: 'Google Play Console',
-        url: 'https://play.google.com/console',
-        origin: 'https://play.google.com',
-        text: 'Release dashboard',
-        allowedOrigins: [
-          {
-            scheme: 'https',
-            hostPattern: 'play.google.com',
-            includeSubdomains: false,
-          },
-        ],
-      },
-    });
-
-    const result = await service.refreshExistingTab({
-      instanceId: 'instance-1',
-      provider: 'claude',
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-    });
-
-    expect(extensionTabStore.queueRefresh).toHaveBeenCalledWith(
-      'existing-tab:7:42',
-      'existing-tab:7:42:target',
-    );
-    expect(result).toMatchObject({
-      decision: 'allowed',
-      outcome: 'succeeded',
-      data: {
-        commandId: 'command-1',
-        status: 'queued',
-        profileId: 'existing-tab:7:42',
-        targetId: 'existing-tab:7:42:target',
-      },
-    });
   });
 
   it('reads cached snapshots and screenshots from selected existing Chrome tabs', async () => {

@@ -22,7 +22,6 @@ describe('BrowserPageComponent', () => {
     closeProfile: ReturnType<typeof vi.fn>;
     listTargets: ReturnType<typeof vi.fn>;
     selectTarget: ReturnType<typeof vi.fn>;
-    refreshExistingTab: ReturnType<typeof vi.fn>;
     navigate: ReturnType<typeof vi.fn>;
     snapshot: ReturnType<typeof vi.fn>;
     screenshot: ReturnType<typeof vi.fn>;
@@ -69,10 +68,6 @@ describe('BrowserPageComponent', () => {
         },
       ])),
       selectTarget: vi.fn().mockResolvedValue(gatewayResult({ id: 'target-1' })),
-      refreshExistingTab: vi.fn().mockResolvedValue(gatewayResult({
-        commandId: 'command-1',
-        status: 'queued',
-      })),
       navigate: vi.fn().mockResolvedValue(gatewayResult(null)),
       snapshot: vi.fn().mockResolvedValue(gatewayResult({
         title: 'Local',
@@ -310,34 +305,6 @@ describe('BrowserPageComponent', () => {
       reason: 'Login check requested from Browser Gateway page',
     });
     expect(service.listApprovalRequests).toHaveBeenCalled();
-  });
-
-  it('refreshes a selected existing Chrome tab through the extension command path', async () => {
-    fixture.componentInstance.targets.set([
-      {
-        id: 'existing-tab:7:42:target',
-        profileId: 'existing-tab:7:42',
-        mode: 'existing-tab',
-        title: 'Google Play Console',
-        url: 'https://play.google.com/console',
-        driver: 'extension',
-        status: 'selected',
-        lastSeenAt: 1,
-      },
-    ]);
-    fixture.componentInstance.selectedProfileId.set('existing-tab:7:42');
-    fixture.componentInstance.selectedTargetId.set('existing-tab:7:42:target');
-    fixture.detectChanges();
-
-    const button = fixture.nativeElement.querySelector('[data-testid="refresh-existing-tab-button"]') as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
-
-    await fixture.componentInstance.refreshExistingTab();
-
-    expect(service.refreshExistingTab).toHaveBeenCalledWith({
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-    });
   });
 
   it('renders provider capability details from health output', () => {

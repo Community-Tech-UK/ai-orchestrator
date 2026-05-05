@@ -31,7 +31,6 @@ import {
   BrowserGatewayService,
   getBrowserGatewayService,
 } from './browser-gateway-service';
-import { z } from 'zod';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -68,20 +67,6 @@ export interface BrowserGatewayRpcServerOptions {
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
-const browserExtensionCommandTargetSchema = z
-  .object({
-    profileId: z.string().min(1).max(200),
-    targetId: z.string().min(1).max(200),
-    tabId: z.number().int().nonnegative(),
-    windowId: z.number().int(),
-  })
-  .strict();
-const browserExtensionCompleteCommandSchema = browserExtensionCommandTargetSchema.extend({
-  commandId: z.string().min(1).max(200),
-  status: z.enum(['succeeded', 'failed']),
-  error: z.string().min(1).max(1000).optional(),
-  tab: BrowserAttachExistingTabRequestSchema.optional(),
-}).strict();
 export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
   private readonly userDataPath: string;
@@ -151,12 +136,6 @@ export class BrowserGatewayRpcServer {
     if (request.method === 'browser.extension_attach_tab') {
       return this.handleExtensionAttachTab(request);
     }
-    if (request.method === 'browser.extension_poll_commands') {
-      return this.handleExtensionPollCommands(request);
-    }
-    if (request.method === 'browser.extension_complete_command') {
-      return this.handleExtensionCompleteCommand(request);
-    }
 
     const params = this.parseParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
@@ -184,8 +163,6 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('closeProfile')(withContext);
       case 'browser.select_target':
         return this.requireMethod('selectTarget')(withContext);
-      case 'browser.refresh_existing_tab':
-        return this.requireMethod('refreshExistingTab')(withContext);
       case 'browser.navigate':
         return this.requireMethod('navigate')(withContext);
       case 'browser.click':
@@ -240,29 +217,6 @@ export class BrowserGatewayRpcServer {
       provider: 'orchestrator',
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
     });
-  }
-
-  private handleExtensionPollCommands(request: BrowserGatewayRpcRequest): unknown {
-    const params = this.parseAuthorizedExtensionParams(request.params);
-    const result = browserExtensionCommandTargetSchema.safeParse(params.payload);
-    if (!result.success) {
-      throw new Error('Invalid browser gateway RPC payload');
-    }
-    return this.requireMethod('pollExistingTabCommand')(result.data);
-  }
-
-  private handleExtensionCompleteCommand(request: BrowserGatewayRpcRequest): unknown {
-    const params = this.parseAuthorizedExtensionParams(request.params);
-    const result = browserExtensionCompleteCommandSchema.safeParse(params.payload);
-    if (!result.success) {
-      throw new Error('Invalid browser gateway RPC payload');
-    }
-    const data = result.data;
-    return this.requireMethod('completeExistingTabCommand')(
-      data.tab && params.extensionOrigin
-        ? { ...data, tab: { ...data.tab, extensionOrigin: params.extensionOrigin } }
-        : data,
-    );
   }
 
   private handleSocket(socket: net.Socket): void {
@@ -448,7 +402,6 @@ export class BrowserGatewayRpcServer {
         case 'browser.list_targets':
           return BrowserListTargetsRequestSchema;
         case 'browser.select_target':
-        case 'browser.refresh_existing_tab':
         case 'browser.snapshot':
         case 'browser.console_messages':
         case 'browser.network_requests':

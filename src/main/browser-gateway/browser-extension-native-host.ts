@@ -1,42 +1,15 @@
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { stdin, stdout } from 'node:process';
-import type {
-  BrowserAttachExistingTabRequest,
-} from '@contracts/types/browser';
-import type {
-  BrowserExtensionNativeRuntimeConfig,
-} from './browser-extension-native-runtime';
+import type { BrowserAttachExistingTabRequest } from '@contracts/types/browser';
+import type { BrowserExtensionNativeRuntimeConfig } from './browser-extension-native-runtime';
 
 interface BrowserExtensionAttachTabMessage {
   type: 'attach_tab';
   tab: BrowserAttachExistingTabRequest;
 }
 
-interface BrowserExtensionCommandTabReference {
-  profileId: string;
-  targetId: string;
-  tabId: number;
-  windowId: number;
-}
-
-interface BrowserExtensionPollCommandsMessage {
-  type: 'poll_commands';
-  tab: BrowserExtensionCommandTabReference;
-}
-
-interface BrowserExtensionCompleteCommandMessage {
-  type: 'complete_command';
-  commandId: string;
-  status: 'succeeded' | 'failed';
-  error?: string;
-  tab: BrowserExtensionCommandTabReference & Partial<BrowserAttachExistingTabRequest>;
-}
-
-type BrowserExtensionNativeMessage =
-  | BrowserExtensionAttachTabMessage
-  | BrowserExtensionPollCommandsMessage
-  | BrowserExtensionCompleteCommandMessage;
+type BrowserExtensionNativeMessage = BrowserExtensionAttachTabMessage;
 
 interface ExtensionRpcSendInput {
   socketPath: string;
@@ -122,27 +95,6 @@ function parseBrowserExtensionNativeMessage(
       tab: message['tab'] as unknown as BrowserAttachExistingTabRequest,
     };
   }
-  if (message['type'] === 'poll_commands' && isRecord(message['tab'])) {
-    return {
-      type: 'poll_commands',
-      tab: parseCommandTabReference(message['tab']),
-    };
-  }
-  if (message['type'] === 'complete_command' && isRecord(message['tab'])) {
-    const status = message['status'];
-    if (status !== 'succeeded' && status !== 'failed') {
-      throw new Error('unsupported_browser_extension_message');
-    }
-    return {
-      type: 'complete_command',
-      commandId: requireString(message['commandId'], 'commandId'),
-      status,
-      ...(typeof message['error'] === 'string' && message['error']
-        ? { error: message['error'] }
-        : {}),
-      tab: parseCompleteCommandTab(message['tab']),
-    };
-  }
   throw new Error('unsupported_browser_extension_message');
 }
 
@@ -178,51 +130,12 @@ function toRpcInput(input: {
   extensionOrigin?: string;
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
 }): ExtensionRpcSendInput {
-  const base = {
+  return {
     socketPath: input.runtimeConfig.socketPath,
     extensionToken: input.runtimeConfig.extensionToken,
     ...(input.extensionOrigin ? { extensionOrigin: input.extensionOrigin } : {}),
-  };
-  if (input.message.type === 'attach_tab') {
-    return {
-      ...base,
-      method: 'browser.extension_attach_tab',
-      payload: input.message.tab as unknown as Record<string, unknown>,
-    };
-  }
-  if (input.message.type === 'poll_commands') {
-    return {
-      ...base,
-      method: 'browser.extension_poll_commands',
-      payload: input.message.tab as unknown as Record<string, unknown>,
-    };
-  }
-
-  const tab = input.message.tab;
-  const payload: Record<string, unknown> = {
-    commandId: input.message.commandId,
-    profileId: tab.profileId,
-    targetId: tab.targetId,
-    tabId: tab.tabId,
-    windowId: tab.windowId,
-    status: input.message.status,
-    ...(input.message.error ? { error: input.message.error } : {}),
-  };
-  if (input.message.status === 'succeeded') {
-    payload['tab'] = {
-      tabId: tab.tabId,
-      windowId: tab.windowId,
-      url: tab.url,
-      ...(tab.title ? { title: tab.title } : {}),
-      ...(tab.text !== undefined ? { text: tab.text } : {}),
-      ...(tab.screenshotBase64 !== undefined ? { screenshotBase64: tab.screenshotBase64 } : {}),
-      ...(tab.capturedAt !== undefined ? { capturedAt: tab.capturedAt } : {}),
-    };
-  }
-  return {
-    ...base,
-    method: 'browser.extension_complete_command',
-    payload,
+    method: 'browser.extension_attach_tab',
+    payload: input.message.tab as unknown as Record<string, unknown>,
   };
 }
 
@@ -272,47 +185,8 @@ function sendExtensionRpc(input: ExtensionRpcSendInput): Promise<unknown> {
   });
 }
 
-function parseCommandTabReference(value: Record<string, unknown>): BrowserExtensionCommandTabReference {
-  return {
-    profileId: requireString(value['profileId'], 'profileId'),
-    targetId: requireString(value['targetId'], 'targetId'),
-    tabId: requireNumber(value['tabId'], 'tabId'),
-    windowId: requireNumber(value['windowId'], 'windowId'),
-  };
-}
-
-function parseCompleteCommandTab(
-  value: Record<string, unknown>,
-): BrowserExtensionCompleteCommandMessage['tab'] {
-  const reference = parseCommandTabReference(value);
-  return {
-    ...reference,
-    ...(typeof value['url'] === 'string' ? { url: value['url'] } : {}),
-    ...(typeof value['title'] === 'string' ? { title: value['title'] } : {}),
-    ...(typeof value['text'] === 'string' ? { text: value['text'] } : {}),
-    ...(typeof value['screenshotBase64'] === 'string'
-      ? { screenshotBase64: value['screenshotBase64'] }
-      : {}),
-    ...(typeof value['capturedAt'] === 'number' ? { capturedAt: value['capturedAt'] } : {}),
-  };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function requireString(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !value) {
-    throw new Error(`invalid_browser_extension_${name}`);
-  }
-  return value;
-}
-
-function requireNumber(value: unknown, name: string): number {
-  if (!Number.isInteger(value)) {
-    throw new Error(`invalid_browser_extension_${name}`);
-  }
-  return value as number;
 }
 
 if (require.main === module) {

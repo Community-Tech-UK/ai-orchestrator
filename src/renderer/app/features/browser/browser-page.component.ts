@@ -146,15 +146,6 @@ interface BrowserSnapshotView {
           </div>
 
           <div class="toolbar">
-            <button
-              class="btn"
-              data-testid="refresh-existing-tab-button"
-              type="button"
-              [disabled]="!canRefreshExistingTab() || working()"
-              (click)="refreshExistingTab()"
-            >
-              Refresh Tab
-            </button>
             <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="loadSnapshot()">Snapshot</button>
             <button class="btn" type="button" [disabled]="!selectedTargetId() || working()" (click)="captureScreenshot()">Screenshot</button>
             <button
@@ -948,15 +939,6 @@ export class BrowserPageComponent implements OnInit {
     await this.refreshAudit();
   }
 
-  async refreshExistingTab(): Promise<void> {
-    const request = this.selectedTargetRequest();
-    if (!request) {
-      return;
-    }
-    await this.runGatewayAction(() => this.ipc.refreshExistingTab(request));
-    await this.refreshTargets();
-  }
-
   async loadSnapshot(): Promise<void> {
     const request = this.selectedTargetRequest();
     if (!request) {
@@ -1078,14 +1060,6 @@ export class BrowserPageComponent implements OnInit {
 
   formatUploadRoots(approval: BrowserApprovalRequest): string {
     return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
-  }
-
-  canRefreshExistingTab(): boolean {
-    const targetId = this.selectedTargetId();
-    return Boolean(
-      targetId &&
-      this.targets().some((target) => target.id === targetId && target.mode === 'existing-tab'),
-    );
   }
 
   private selectedTargetRequest(): { profileId: string; targetId: string } | null {

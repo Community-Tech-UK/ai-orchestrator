@@ -13,7 +13,6 @@ describe('BROWSER_CHANNELS', () => {
       BROWSER_CLOSE_PROFILE: 'browser:close-profile',
       BROWSER_LIST_TARGETS: 'browser:list-targets',
       BROWSER_SELECT_TARGET: 'browser:select-target',
-      BROWSER_REFRESH_EXISTING_TAB: 'browser:refresh-existing-tab',
       BROWSER_NAVIGATE: 'browser:navigate',
       BROWSER_CLICK: 'browser:click',
       BROWSER_TYPE: 'browser:type',
@@ -45,7 +44,6 @@ describe('BROWSER_CHANNELS', () => {
   it('is included in the merged IPC channel map', () => {
     expect(IPC_CHANNELS.BROWSER_LIST_PROFILES).toBe('browser:list-profiles');
     expect(IPC_CHANNELS.BROWSER_CLICK).toBe('browser:click');
-    expect(IPC_CHANNELS.BROWSER_REFRESH_EXISTING_TAB).toBe('browser:refresh-existing-tab');
     expect(IPC_CHANNELS.BROWSER_REQUEST_USER_LOGIN).toBe('browser:request-user-login');
     expect(IPC_CHANNELS.BROWSER_PAUSE_FOR_MANUAL_STEP).toBe('browser:pause-for-manual-step');
     expect(IPC_CHANNELS.BROWSER_APPROVE_REQUEST).toBe('browser:approve-request');

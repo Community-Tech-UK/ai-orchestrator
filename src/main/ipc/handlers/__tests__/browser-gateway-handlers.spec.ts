@@ -16,7 +16,6 @@ const serviceMocks = vi.hoisted(() => ({
   closeProfile: vi.fn(),
   listTargets: vi.fn(),
   selectTarget: vi.fn(),
-  refreshExistingTab: vi.fn(),
   navigate: vi.fn(),
   click: vi.fn(),
   type: vi.fn(),
@@ -98,21 +97,6 @@ describe('registerBrowserGatewayHandlers', () => {
     });
     expect(serviceMocks.navigate).toHaveBeenCalledTimes(1);
     expect(serviceMocks.navigate).toHaveBeenCalledWith(payload);
-  });
-
-  it('registers the existing-tab refresh channel', async () => {
-    const payload = {
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-    };
-
-    const result = await invoke('browser:refresh-existing-tab', payload);
-
-    expect(result).toMatchObject({
-      success: true,
-      data: { decision: 'allowed', outcome: 'succeeded' },
-    });
-    expect(serviceMocks.refreshExistingTab).toHaveBeenCalledWith(payload);
   });
 
   it('registers mutating browser actions and approval/grant channels', async () => {

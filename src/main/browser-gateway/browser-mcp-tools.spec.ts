@@ -9,7 +9,6 @@ const ALLOWED_TOOLS = [
   'browser.close_profile',
   'browser.list_targets',
   'browser.select_target',
-  'browser.refresh_existing_tab',
   'browser.navigate',
   'browser.click',
   'browser.type',
@@ -52,7 +51,6 @@ describe('browser-mcp-tools', () => {
   it('exposes concrete input schemas for provider-facing browser tools', () => {
     const tools = createBrowserMcpTools({ call: vi.fn() });
     const createProfile = tools.find((tool) => tool.name === 'browser.create_profile');
-    const refreshExistingTab = tools.find((tool) => tool.name === 'browser.refresh_existing_tab');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
@@ -82,15 +80,6 @@ describe('browser-mcp-tools', () => {
         profileId: { type: 'string' },
         targetId: { type: 'string' },
         url: { type: 'string' },
-      },
-      additionalProperties: false,
-    });
-    expect(refreshExistingTab?.inputSchema).toMatchObject({
-      type: 'object',
-      required: ['profileId', 'targetId'],
-      properties: {
-        profileId: { type: 'string' },
-        targetId: { type: 'string' },
       },
       additionalProperties: false,
     });

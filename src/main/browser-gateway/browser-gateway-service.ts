@@ -90,9 +90,6 @@ import { validateBrowserUploadPath } from './browser-upload-policy';
 import {
   BrowserExtensionTabStore,
   type BrowserExistingTabAttachment,
-  type BrowserExtensionCommand,
-  type BrowserExtensionCompleteCommandRequest,
-  type BrowserExtensionPollCommandRequest,
   getBrowserExtensionTabStore,
 } from './browser-extension-tab-store';
 
@@ -131,15 +128,6 @@ export interface BrowserGatewayCreateProfileRequest
 export interface BrowserGatewayAttachExistingTabRequest
   extends BrowserGatewayContext,
     BrowserAttachExistingTabRequest {}
-
-export interface BrowserGatewayExistingTabRefresh {
-  commandId: string;
-  status: BrowserExtensionCommand['status'];
-  profileId: string;
-  targetId: string;
-  createdAt: number;
-  updatedAt: number;
-}
 
 export interface BrowserGatewayUpdateProfileRequest
   extends BrowserGatewayContext,
@@ -182,7 +170,7 @@ export interface BrowserGatewayServiceOptions {
   >;
   extensionTabStore?: Pick<
     BrowserExtensionTabStore,
-    'attachTab' | 'getTab' | 'detachTab' | 'queueRefresh' | 'pollCommand' | 'completeCommand'
+    'attachTab' | 'getTab' | 'detachTab'
   >;
   auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
@@ -219,7 +207,7 @@ export class BrowserGatewayService {
   >;
   private readonly extensionTabStore: Pick<
     BrowserExtensionTabStore,
-    'attachTab' | 'getTab' | 'detachTab' | 'queueRefresh' | 'pollCommand' | 'completeCommand'
+    'attachTab' | 'getTab' | 'detachTab'
   >;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
@@ -326,127 +314,6 @@ export class BrowserGatewayService {
         data: null,
       });
     }
-  }
-
-  async refreshExistingTab(
-    request: BrowserGatewayTargetRequest,
-  ): Promise<BrowserGatewayResult<BrowserGatewayExistingTabRefresh | null>> {
-    const attachment = this.extensionTabStore.getTab(request.profileId, request.targetId);
-    if (!attachment) {
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'refresh_existing_tab',
-        toolName: 'browser.refresh_existing_tab',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'existing_tab_not_found',
-        summary: 'Existing Chrome tab refresh denied because the tab was not shared with Browser Gateway',
-        data: null,
-      });
-    }
-
-    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
-    if (!originDecision.allowed) {
-      return this.result({
-        context: request,
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        action: 'refresh_existing_tab',
-        toolName: 'browser.refresh_existing_tab',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: originDecision.reason,
-        summary: `Existing Chrome tab refresh denied by Browser Gateway origin policy: ${originDecision.reason}`,
-        url: attachment.url,
-        data: null,
-      });
-    }
-
-    const command = this.extensionTabStore.queueRefresh(
-      attachment.profileId,
-      attachment.targetId,
-    );
-    if (!command) {
-      return this.result({
-        context: request,
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        action: 'refresh_existing_tab',
-        toolName: 'browser.refresh_existing_tab',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'existing_tab_not_found',
-        summary: 'Existing Chrome tab refresh denied because the selected tab disappeared',
-        url: attachment.url,
-        data: null,
-      });
-    }
-
-    return this.result({
-      context: request,
-      profileId: attachment.profileId,
-      targetId: attachment.targetId,
-      action: 'refresh_existing_tab',
-      toolName: 'browser.refresh_existing_tab',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: 'Queued refresh for selected existing Chrome tab',
-      origin: originDecision.origin,
-      url: attachment.url,
-      data: this.safeExistingTabCommand(command),
-    });
-  }
-
-  pollExistingTabCommand(
-    request: BrowserExtensionPollCommandRequest,
-  ): BrowserExtensionCommand | null {
-    return this.extensionTabStore.pollCommand(request);
-  }
-
-  async completeExistingTabCommand(
-    request: BrowserExtensionCompleteCommandRequest,
-  ): Promise<BrowserGatewayResult<BrowserGatewayExistingTabRefresh | null>> {
-    const command = this.extensionTabStore.completeCommand(request);
-    const attachment = this.extensionTabStore.getTab(request.profileId, request.targetId);
-    if (!command) {
-      return this.result({
-        context: { provider: 'orchestrator' },
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'complete_existing_tab_command',
-        toolName: 'browser.extension_complete_command',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'existing_tab_command_not_found',
-        summary: 'Existing Chrome tab command completion denied because the command was not found',
-        data: null,
-      });
-    }
-
-    return this.result({
-      context: { provider: 'orchestrator' },
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action: 'complete_existing_tab_command',
-      toolName: 'browser.extension_complete_command',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: command.status === 'failed' ? 'failed' : 'succeeded',
-      reason: command.error,
-      summary: command.status === 'failed'
-        ? `Existing Chrome tab refresh failed: ${command.error ?? 'unknown error'}`
-        : 'Existing Chrome tab refresh completed',
-      origin: attachment?.origin,
-      url: attachment?.url,
-      data: this.safeExistingTabCommand(command),
-    });
   }
 
   async updateProfile(
@@ -2247,19 +2114,6 @@ export class BrowserGatewayService {
       autonomous: prepared.grant.autonomous,
       data: null,
     });
-  }
-
-  private safeExistingTabCommand(
-    command: BrowserExtensionCommand,
-  ): BrowserGatewayExistingTabRefresh {
-    return {
-      commandId: command.id,
-      status: command.status,
-      profileId: command.profileId,
-      targetId: command.targetId,
-      createdAt: command.createdAt,
-      updatedAt: command.updatedAt,
-    };
   }
 
   private safeTargetFromExistingTab(

@@ -11,7 +11,6 @@ const TOOL_NAMES = [
   'browser.close_profile',
   'browser.list_targets',
   'browser.select_target',
-  'browser.refresh_existing_tab',
   'browser.navigate',
   'browser.click',
   'browser.type',
@@ -144,7 +143,6 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.close_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
   'browser.list_targets': objectSchema({ profileId: profileIdProp }),
   'browser.select_target': targetSchema,
-  'browser.refresh_existing_tab': targetSchema,
   'browser.navigate': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
