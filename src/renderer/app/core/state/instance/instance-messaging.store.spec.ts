@@ -157,6 +157,32 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'Seeded prompt', undefined, true);
   });
 
+  it('routes sends from a superseded edit source to its replacement instance', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({
+      id: 'source-1',
+      status: 'superseded',
+      supersededBy: 'replacement-1',
+      cancelledForEdit: true,
+    }));
+    currentStateService.addInstance(createInstance({
+      id: 'replacement-1',
+      status: 'idle',
+    }));
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+
+    await currentStore.sendInput('source-1', 'Continue seamlessly');
+
+    expect(ipcMock.sendInput).toHaveBeenCalledWith(
+      'replacement-1',
+      'Continue seamlessly',
+      undefined,
+      false
+    );
+    expect(currentStateService.getInstance('source-1')?.outputBuffer).toEqual([]);
+  });
+
   it('restores terminal queued messages as a system notice instead of an error', () => {
     const currentStore = store!;
     const currentStateService = stateService!;

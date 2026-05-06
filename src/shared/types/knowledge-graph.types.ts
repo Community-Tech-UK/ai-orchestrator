@@ -139,7 +139,8 @@ export type ProjectKnowledgeSourceKind =
   | 'readme'
   | 'instruction_doc'
   | 'config'
-  | 'code_file';
+  | 'code_file'
+  | 'operator_result';
 
 export type ProjectKnowledgeTargetKind = 'kg_triple' | 'wake_hint' | 'code_symbol';
 

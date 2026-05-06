@@ -1,4 +1,14 @@
 import { randomUUID } from 'crypto';
+import type { z } from 'zod';
+import {
+  OperatorNodeInputJsonSchema,
+  OperatorNodeOutputJsonSchema,
+  OperatorPlanJsonSchema,
+  OperatorResultJsonSchema,
+  OperatorRunBudgetSchema,
+  OperatorRunEventPayloadSchema,
+  OperatorRunUsageSchema,
+} from '@contracts/schemas/operator';
 import type {
   OperatorInstanceLinkRecoveryState,
   OperatorInstanceLinkRecord,
@@ -159,8 +169,13 @@ export class OperatorRunStore {
   createRun(input: OperatorRunCreateInput): OperatorRunRecord {
     const now = Date.now();
     const id = randomUUID();
-    const budget = { ...DEFAULT_BUDGET, ...(input.budget ?? {}) };
-    const usage = { ...DEFAULT_USAGE };
+    const budget = validateStructuredJson('budget', OperatorRunBudgetSchema, { ...DEFAULT_BUDGET, ...(input.budget ?? {}) });
+    const usage = validateStructuredJson('usageJson', OperatorRunUsageSchema, { ...DEFAULT_USAGE });
+    const planJson = validateStructuredJson(
+      'planJson',
+      OperatorPlanJsonSchema,
+      input.planJson === undefined ? {} : input.planJson,
+    );
     this.db.prepare(`
       INSERT INTO operator_runs (
         id, thread_id, source_message_id, title, status, autonomy_mode,
@@ -181,7 +196,7 @@ export class OperatorRunStore {
       input.goal,
       stringifyObject(budget),
       stringifyObject(usage),
-      stringifyObject(input.planJson ?? {}),
+      stringifyObject(planJson),
       null,
       null,
     );
@@ -191,6 +206,11 @@ export class OperatorRunStore {
   createNode(input: OperatorNodeCreateInput): OperatorRunNodeRecord {
     const now = Date.now();
     const id = randomUUID();
+    const inputJson = validateStructuredJson(
+      'inputJson',
+      OperatorNodeInputJsonSchema,
+      input.inputJson === undefined ? {} : input.inputJson,
+    );
     this.db.prepare(`
       INSERT INTO operator_run_nodes (
         id, run_id, parent_node_id, type, status, target_project_id,
@@ -207,7 +227,7 @@ export class OperatorRunStore {
       input.targetProjectId ?? null,
       input.targetPath ?? null,
       input.title,
-      stringifyObject(input.inputJson ?? {}),
+      stringifyObject(inputJson),
       null,
       input.externalRefKind ?? null,
       input.externalRefId ?? null,
@@ -225,8 +245,14 @@ export class OperatorRunStore {
       throw new Error(`Operator run not found: ${runId}`);
     }
     const usageJson = update.usageJson
-      ? { ...existing.usageJson, ...update.usageJson }
+      ? validateStructuredJson('usageJson', OperatorRunUsageSchema, { ...existing.usageJson, ...update.usageJson })
       : existing.usageJson;
+    const planJson = update.planJson === undefined
+      ? existing.planJson
+      : validateStructuredJson('planJson', OperatorPlanJsonSchema, update.planJson);
+    const resultJson = update.resultJson === undefined || update.resultJson === null
+      ? update.resultJson
+      : validateStructuredJson('resultJson', OperatorResultJsonSchema, update.resultJson);
     this.db.prepare(`
       UPDATE operator_runs
       SET status = ?, updated_at = ?, completed_at = ?, usage_json = ?,
@@ -237,8 +263,8 @@ export class OperatorRunStore {
       Date.now(),
       update.completedAt !== undefined ? update.completedAt : existing.completedAt,
       stringifyObject(usageJson),
-      stringifyObject(update.planJson ?? existing.planJson),
-      update.resultJson === undefined ? nullableStringify(existing.resultJson) : nullableStringify(update.resultJson),
+      stringifyObject(planJson),
+      update.resultJson === undefined ? nullableStringify(existing.resultJson) : nullableStringify(resultJson),
       update.error !== undefined ? update.error : existing.error,
       runId,
     );
@@ -250,6 +276,9 @@ export class OperatorRunStore {
     if (!existing) {
       throw new Error(`Operator run node not found: ${nodeId}`);
     }
+    const outputJson = update.outputJson === undefined || update.outputJson === null
+      ? update.outputJson
+      : validateStructuredJson('outputJson', OperatorNodeOutputJsonSchema, update.outputJson);
     this.db.prepare(`
       UPDATE operator_run_nodes
       SET status = ?, updated_at = ?, output_json = ?, external_ref_kind = ?,
@@ -258,7 +287,7 @@ export class OperatorRunStore {
     `).run(
       update.status ?? existing.status,
       Date.now(),
-      update.outputJson === undefined ? nullableStringify(existing.outputJson) : nullableStringify(update.outputJson),
+      update.outputJson === undefined ? nullableStringify(existing.outputJson) : nullableStringify(outputJson),
       update.externalRefKind !== undefined ? update.externalRefKind : existing.externalRefKind,
       update.externalRefId !== undefined ? update.externalRefId : existing.externalRefId,
       update.completedAt !== undefined ? update.completedAt : existing.completedAt,
@@ -271,6 +300,10 @@ export class OperatorRunStore {
   appendEvent(input: OperatorRunEventInput): OperatorRunEventRecord {
     const id = randomUUID();
     const createdAt = Date.now();
+    const eventPayload = validateStructuredJson(`${input.kind} event payload`, OperatorRunEventPayloadSchema, {
+      kind: input.kind,
+      payload: input.payload,
+    });
     this.db.prepare(`
       INSERT INTO operator_run_events (
         id, run_id, node_id, kind, payload_json, created_at
@@ -281,7 +314,7 @@ export class OperatorRunStore {
       input.runId,
       input.nodeId ?? null,
       input.kind,
-      stringifyObject(input.payload),
+      stringifyObject(eventPayload.payload),
       createdAt,
     );
     const event = this.getEvent(id)!;
@@ -310,12 +343,12 @@ export class OperatorRunStore {
     const nodes = this.db.prepare(`
       SELECT * FROM operator_run_nodes
       WHERE run_id = ?
-      ORDER BY created_at ASC
+      ORDER BY created_at ASC, rowid ASC
     `).all<NodeRow>(runId).map(nodeRowToRecord);
     const events = this.db.prepare(`
       SELECT * FROM operator_run_events
       WHERE run_id = ?
-      ORDER BY created_at ASC
+      ORDER BY created_at ASC, rowid ASC
     `).all<EventRow>(runId).map(eventRowToRecord);
     return { run, nodes, events };
   }
@@ -527,4 +560,16 @@ function parseObject<T>(value: string, fallback: T): T {
     });
     return fallback;
   }
+}
+
+function validateStructuredJson<T extends z.ZodTypeAny>(
+  label: string,
+  schema: T,
+  value: unknown,
+): z.infer<T> {
+  const result = schema.safeParse(value);
+  if (result.success) {
+    return result.data;
+  }
+  throw new Error(`Invalid operator ${label}: ${result.error.issues.map((issue) => issue.message).join('; ')}`);
 }

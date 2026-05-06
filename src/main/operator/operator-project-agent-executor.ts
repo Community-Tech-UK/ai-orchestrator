@@ -1,5 +1,6 @@
 import type {
   OperatorProjectRecord,
+  OperatorProjectAgentRouting,
   OperatorRunNodeRecord,
   OperatorRunRecord,
   OperatorRunStatus,
@@ -27,6 +28,7 @@ export interface ProjectAgentExecutionInput {
   project: OperatorProjectRecord;
   goal: string;
   promptOverride?: string;
+  routing?: OperatorProjectAgentRouting;
 }
 
 export interface ProjectAgentExecutionResult {
@@ -61,11 +63,16 @@ export class ProjectAgentExecutor {
       agentId: 'build',
       yoloMode: true,
       initialPrompt,
+      provider: input.routing?.provider,
+      modelOverride: input.routing?.modelOverride,
+      reasoningEffort: input.routing?.reasoningEffort,
+      nodePlacement: input.routing?.nodePlacement,
       metadata: {
         source: 'operator',
         operatorRunId: input.run.id,
         operatorNodeId: input.node.id,
         operatorProjectId: input.project.id,
+        ...(input.routing ? { operatorRouting: input.routing.audit } : {}),
       },
     });
     this.runStore.upsertInstanceLink({
@@ -92,10 +99,18 @@ export class ProjectAgentExecutor {
         instanceId: instance.id,
         finalStatus: finalInstance.status,
         outputPreview: finalMessage?.content.slice(0, 2000) ?? null,
+        changedFiles: changedFilesFromDiffStats(finalInstance),
+        ...(finalInstance.diffStats ? { diffStats: finalInstance.diffStats } : {}),
       },
       error: failed ? `Project agent ended with status ${finalInstance.status}` : null,
     };
   }
+}
+
+function changedFilesFromDiffStats(instance: Instance): string[] {
+  return Object.values(instance.diffStats?.files ?? {})
+    .map((entry) => entry.path)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function buildProjectAgentPrompt(

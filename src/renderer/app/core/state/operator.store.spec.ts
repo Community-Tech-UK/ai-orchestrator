@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import type { ConversationLedgerConversation } from '../../../../shared/types/conversation-ledger.types';
 import type {
+  OperatorRunGraph,
   OperatorProjectRecord,
   OperatorProjectRefreshOptions,
   OperatorRunRecord,
@@ -21,11 +22,14 @@ describe('OperatorStore', () => {
     const store = TestBed.inject(OperatorStore);
 
     await store.initialize();
+    expect(store.messageCount()).toBe(0);
+
     store.select();
     await store.sendMessage('Pull all repos');
 
     expect(store.selected()).toBe(true);
     expect(store.thread()?.provider).toBe('orchestrator');
+    expect(store.messageCount()).toBe(1);
     expect(store.messages()).toHaveLength(1);
     expect(store.messages()[0]).toMatchObject({
       role: 'user',
@@ -38,6 +42,7 @@ describe('OperatorStore', () => {
         status: 'running',
       }),
     ]);
+    expect(store.activeRunGraph()?.run.title).toBe('Pull repositories');
   });
 
   it('loads and rescans operator projects', async () => {
@@ -58,6 +63,22 @@ describe('OperatorStore', () => {
       'Dingley',
     ]);
     expect(ipc.rescanRequests).toEqual([{ roots: ['/work'] }]);
+  });
+
+  it('rescans operator projects during initialization when the registry is empty', async () => {
+    const ipc = new FakeOperatorIpcService({ projects: [] });
+    TestBed.configureTestingModule({
+      providers: [
+        OperatorStore,
+        { provide: OperatorIpcService, useValue: ipc },
+      ],
+    });
+    const store = TestBed.inject(OperatorStore);
+
+    await store.initialize();
+
+    expect(ipc.rescanRequests).toEqual([{}]);
+    expect(store.projects().map((project) => project.displayName)).toEqual(['Dingley']);
   });
 
   it('subscribes to operator events and reloads runs when progress changes', async () => {
@@ -94,6 +115,33 @@ describe('OperatorStore', () => {
     ]);
   });
 
+  it('reloads operator transcript messages when run events arrive', async () => {
+    const ipc = new FakeOperatorIpcService();
+    TestBed.configureTestingModule({
+      providers: [
+        OperatorStore,
+        { provide: OperatorIpcService, useValue: ipc },
+      ],
+    });
+    const store = TestBed.inject(OperatorStore);
+
+    await store.initialize();
+    ipc.appendAssistantMessage('Completed: Audit Dingley');
+    await ipc.emitOperatorEvent({
+      runId: 'run-1',
+      event: {
+        id: 'event-1',
+        runId: 'run-1',
+        nodeId: null,
+        kind: 'state-change',
+        payload: { status: 'completed' },
+        createdAt: 4,
+      },
+    });
+
+    expect(store.messages().map((message) => message.content)).toContain('Completed: Audit Dingley');
+  });
+
   it('can cancel and retry operator runs through IPC', async () => {
     const ipc = new FakeOperatorIpcService();
     TestBed.configureTestingModule({
@@ -121,6 +169,39 @@ describe('OperatorStore', () => {
       }),
     ]);
   });
+
+  it('derives target chips from the active run graph instead of the whole project list', async () => {
+    const ipc = new FakeOperatorIpcService({
+      projects: [
+        makeProject('project-1', 'AI Orchestrator', '/work/ai-orchestrator'),
+        makeProject('project-2', 'Unrelated', '/work/unrelated'),
+      ],
+    });
+    ipc.runs = [
+      makeRun({
+        id: 'run-1',
+        title: 'Implement in AI Orchestrator',
+        planJson: {
+          intent: 'project_feature',
+          projectId: 'project-1',
+          projectPath: '/work/ai-orchestrator',
+        },
+      }),
+    ];
+    TestBed.configureTestingModule({
+      providers: [
+        OperatorStore,
+        { provide: OperatorIpcService, useValue: ipc },
+      ],
+    });
+    const store = TestBed.inject(OperatorStore);
+
+    await store.initialize();
+
+    expect(store.targetChips()).toEqual([
+      { label: 'AI Orchestrator', path: '/work/ai-orchestrator' },
+    ]);
+  });
 });
 
 class FakeOperatorIpcService {
@@ -132,9 +213,7 @@ class FakeOperatorIpcService {
   operatorEventSubscribers = 0;
   runs: OperatorRunRecord[] = [];
   private operatorEventCallback: ((payload: unknown) => void | Promise<void>) | null = null;
-  private projects: OperatorProjectRecord[] = [
-    makeProject('project-1', 'AI Orchestrator', '/work/ai-orchestrator'),
-  ];
+  private projects: OperatorProjectRecord[];
   private conversation: ConversationLedgerConversation = {
     thread: {
       id: 'thread-1',
@@ -158,6 +237,12 @@ class FakeOperatorIpcService {
     },
     messages: [],
   };
+
+  constructor(options: { projects?: OperatorProjectRecord[] } = {}) {
+    this.projects = options.projects ?? [
+      makeProject('project-1', 'AI Orchestrator', '/work/ai-orchestrator'),
+    ];
+  }
 
   async getThread() {
     return {
@@ -211,12 +296,22 @@ class FakeOperatorIpcService {
     };
   }
 
+  async getRun(runId: string) {
+    const run = this.runs.find((candidate) => candidate.id === runId) ?? makeRun({ id: runId });
+    return {
+      success: true,
+      data: makeRunGraph(run),
+    };
+  }
+
   async rescanProjects(payload: OperatorProjectRefreshOptions) {
     this.rescanRequests.push(payload);
-    this.projects = [
-      ...this.projects,
-      makeProject('project-2', 'Dingley', '/work/dingley'),
-    ];
+    if (!this.projects.some((project) => project.id === 'project-2')) {
+      this.projects = [
+        ...this.projects,
+        makeProject('project-2', 'Dingley', '/work/dingley'),
+      ];
+    }
     return {
       success: true,
       data: this.projects,
@@ -262,6 +357,32 @@ class FakeOperatorIpcService {
   async emitOperatorEvent(payload: unknown): Promise<void> {
     await this.operatorEventCallback?.(payload);
   }
+
+  appendAssistantMessage(content: string): void {
+    const sequence = this.conversation.messages.length + 1;
+    this.conversation = {
+      ...this.conversation,
+      messages: [
+        ...this.conversation.messages,
+        {
+          id: `message-${sequence}`,
+          threadId: 'thread-1',
+          nativeMessageId: `message-${sequence}:assistant`,
+          nativeTurnId: `turn-${sequence}`,
+          role: 'assistant',
+          phase: null,
+          content,
+          createdAt: sequence,
+          tokenInput: null,
+          tokenOutput: null,
+          rawRef: null,
+          rawJson: null,
+          sourceChecksum: null,
+          sequence,
+        },
+      ],
+    };
+  }
 }
 
 function makeRun(overrides: Partial<OperatorRunRecord> = {}): OperatorRunRecord {
@@ -292,6 +413,33 @@ function makeRun(overrides: Partial<OperatorRunRecord> = {}): OperatorRunRecord 
     resultJson: null,
     error: null,
     ...overrides,
+  };
+}
+
+function makeRunGraph(run: OperatorRunRecord): OperatorRunGraph {
+  return {
+    run,
+    nodes: [
+      {
+        id: 'node-1',
+        runId: run.id,
+        parentNodeId: null,
+        type: 'project-agent',
+        status: run.status,
+        targetProjectId: typeof run.planJson['projectId'] === 'string' ? run.planJson['projectId'] : null,
+        targetPath: typeof run.planJson['projectPath'] === 'string' ? run.planJson['projectPath'] : null,
+        title: run.title,
+        inputJson: {},
+        outputJson: null,
+        externalRefKind: null,
+        externalRefId: null,
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: null,
+        error: null,
+      },
+    ],
+    events: [],
   };
 }
 

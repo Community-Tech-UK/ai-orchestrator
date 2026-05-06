@@ -216,6 +216,55 @@ describe('InputPanelComponent queued message editing', () => {
     expect(error).toBeNull();
   });
 
+  it('emits send while initializing so callers can queue during restore', async () => {
+    const component = fixture.componentInstance;
+    (component as unknown as { isInitializing: () => boolean }).isInitializing = () => true;
+    const sent: string[] = [];
+    (component as unknown as {
+      sendMessage: { subscribe(callback: (text: string) => void): void };
+    }).sendMessage.subscribe((text) => sent.push(text));
+
+    component.message.set('Continue once restored');
+
+    await component.onSend();
+
+    expect(sent).toEqual(['Continue once restored']);
+    expect(component.message()).toBe('');
+  });
+
+  it('resends an edited message without showing fork mechanics to the user', () => {
+    const component = fixture.componentInstance;
+    (component as unknown as {
+      outputMessages: () => { id: string; timestamp: number; type: 'user'; content: string }[];
+    }).outputMessages = () => [
+      {
+        id: 'user-1',
+        timestamp: 1,
+        type: 'user',
+        content: 'Original question',
+      },
+    ];
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const emitted: { messageIndex: number; messageId?: string; text: string }[] = [];
+    (component as unknown as {
+      resendEdited: {
+        subscribe(callback: (event: { messageIndex: number; messageId?: string; text: string }) => void): void;
+      };
+    }).resendEdited.subscribe((event) => emitted.push(event));
+
+    component.enterEditMode();
+    component.message.set('Edited question');
+    (component as unknown as { sendEditedMessage(): void }).sendEditedMessage();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      messageIndex: 0,
+      messageId: 'user-1',
+      text: 'Edited question',
+    });
+  });
+
   it('shows an error when sending text that starts with an unknown slash command', async () => {
     const component = fixture.componentInstance;
     const commandStore = TestBed.inject(CommandStore) as unknown as {

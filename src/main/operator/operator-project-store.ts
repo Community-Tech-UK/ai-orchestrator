@@ -1,8 +1,10 @@
 import { createHash } from 'crypto';
+import * as path from 'path';
 import type {
   OperatorProjectListQuery,
   OperatorProjectRecord,
   OperatorProjectRemote,
+  OperatorProjectScanRootRecord,
   OperatorProjectUpsertInput,
 } from '../../shared/types/operator.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -26,6 +28,12 @@ interface ProjectRow {
 
 interface AliasRow {
   alias: string;
+}
+
+interface ScanRootRow {
+  root_path: string;
+  last_scanned_at: number;
+  metadata_json: string;
 }
 
 export class OperatorProjectStore {
@@ -121,6 +129,36 @@ export class OperatorProjectStore {
     return projects.filter((project) => projectMatches(project, queryKey));
   }
 
+  upsertScanRoot(
+    rootPath: string,
+    metadata: Record<string, unknown> = {},
+  ): OperatorProjectScanRootRecord {
+    const normalizedPath = path.resolve(rootPath);
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO operator_project_scan_roots (
+        root_path, last_scanned_at, metadata_json
+      )
+      VALUES (?, ?, ?)
+      ON CONFLICT(root_path) DO UPDATE SET
+        last_scanned_at = excluded.last_scanned_at,
+        metadata_json = excluded.metadata_json
+    `).run(normalizedPath, now, stringifyJsonObject(metadata));
+    return this.rowToScanRoot(
+      this.db.prepare(`
+        SELECT * FROM operator_project_scan_roots
+        WHERE root_path = ?
+      `).get<ScanRootRow>(normalizedPath)!,
+    );
+  }
+
+  listScanRoots(): OperatorProjectScanRootRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM operator_project_scan_roots
+      ORDER BY root_path COLLATE NOCASE ASC
+    `).all<ScanRootRow>().map((row) => this.rowToScanRoot(row));
+  }
+
   private rowToProject(row: ProjectRow): OperatorProjectRecord {
     return {
       id: row.id,
@@ -144,6 +182,14 @@ export class OperatorProjectStore {
       WHERE project_id = ?
       ORDER BY sort_order ASC, alias COLLATE NOCASE ASC
     `).all<AliasRow>(projectId).map((row) => row.alias);
+  }
+
+  private rowToScanRoot(row: ScanRootRow): OperatorProjectScanRootRecord {
+    return {
+      rootPath: row.root_path,
+      lastScannedAt: row.last_scanned_at,
+      metadata: parseJsonObject(row.metadata_json, {}),
+    };
   }
 }
 

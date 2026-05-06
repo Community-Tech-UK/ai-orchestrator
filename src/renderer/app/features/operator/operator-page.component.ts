@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { Router } from '@angular/router';
+import type { OperatorRunEventRecord, OperatorRunNodeRecord } from '../../../../shared/types/operator.types';
 import { OperatorStore } from '../../core/state/operator.store';
 
 @Component({
@@ -10,20 +12,35 @@ import { OperatorStore } from '../../core/state/operator.store';
   template: `
     <section class="operator-page">
       <header class="operator-header">
-        <div>
-          <p class="operator-kicker">Global control plane</p>
-          <h1>Orchestrator</h1>
+        <div class="operator-title-row">
+          <button
+            type="button"
+            class="operator-back-button"
+            aria-label="Back to dashboard"
+            title="Back to dashboard"
+            (click)="goBack()"
+          >
+            <svg class="operator-back-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M19 12H5"></path>
+              <path d="M12 19L5 12L12 5"></path>
+            </svg>
+            <span>Back</span>
+          </button>
+          <div>
+            <p class="operator-kicker">Global control plane</p>
+            <h1>Orchestrator</h1>
+          </div>
         </div>
         <div class="operator-status" [class.loading]="store.loading() || store.sending()">
           {{ store.sending() ? 'Sending' : store.loading() ? 'Loading' : 'Ready' }}
         </div>
       </header>
 
-      @if (visibleProjects().length > 0) {
+      @if (visibleTargets().length > 0) {
         <div class="operator-targets">
-          @for (project of visibleProjects(); track project.id) {
-            <button type="button" class="operator-target-chip" [title]="project.canonicalPath">
-              {{ project.displayName }}
+          @for (target of visibleTargets(); track target.path) {
+            <button type="button" class="operator-target-chip" [title]="target.path">
+              {{ target.label }}
             </button>
           }
         </div>
@@ -52,6 +69,58 @@ import { OperatorStore } from '../../core/state/operator.store';
             </article>
           }
         </div>
+      }
+
+      @if (store.activeRunGraph(); as graph) {
+        <section class="operator-run-graph" aria-label="Run graph">
+          <div class="operator-run-graph-header">
+            <span>Run graph</span>
+            <strong>{{ graph.run.title }}</strong>
+          </div>
+          <div class="operator-run-graph-nodes">
+            @for (node of graph.nodes; track node.id) {
+              <article class="operator-run-node">
+                <div class="operator-run-node-main">
+                  <span>{{ node.type }}</span>
+                  <strong>{{ node.title }}</strong>
+                </div>
+                <div class="operator-run-node-meta">
+                  <span>{{ node.status }}</span>
+                  @if (node.targetPath) {
+                    <small [title]="node.targetPath">{{ node.targetPath }}</small>
+                  }
+                  @if (node.externalRefId) {
+                    <small [title]="node.externalRefId">{{ node.externalRefKind }} {{ node.externalRefId }}</small>
+                  }
+                </div>
+                @if (changedFilesForNode(node).length > 0) {
+                  <div class="operator-run-node-detail">
+                    <span>Changed files</span>
+                    @for (file of changedFilesForNode(node); track file) {
+                      <small [title]="file">{{ file }}</small>
+                    }
+                  </div>
+                }
+                @if (verificationChecksForNode(node).length > 0) {
+                  <div class="operator-run-node-detail">
+                    <span>Verification</span>
+                    @for (check of verificationChecksForNode(node); track check.commandLine) {
+                      <small [title]="check.commandLine">{{ check.commandLine }} · {{ check.status }}</small>
+                    }
+                  </div>
+                }
+              </article>
+            }
+          </div>
+          @if (artifactEvents().length > 0) {
+            <div class="operator-run-artifacts">
+              <span>Artifacts</span>
+              @for (artifact of artifactEvents(); track artifact.label) {
+                <small [title]="artifact.path">{{ artifact.label }}</small>
+              }
+            </div>
+          }
+        </section>
       }
 
       <div class="operator-transcript" aria-live="polite">
@@ -105,7 +174,7 @@ import { OperatorStore } from '../../core/state/operator.store';
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: auto auto auto 1fr auto;
+      grid-template-rows: auto auto auto auto 1fr auto;
       gap: 18px;
       max-width: 1100px;
       width: 100%;
@@ -118,6 +187,47 @@ import { OperatorStore } from '../../core/state/operator.store';
       justify-content: space-between;
       gap: 16px;
       padding: 4px 2px 0;
+    }
+
+    .operator-title-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .operator-back-button {
+      flex: 0 0 auto;
+      min-width: 78px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--glass-strong);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      background: var(--glass-light);
+      padding: 0 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .operator-back-button:hover {
+      color: var(--text-primary);
+      border-color: rgba(var(--primary-rgb), 0.35);
+      background: rgba(var(--primary-rgb), 0.12);
+    }
+
+    .operator-back-icon {
+      flex: 0 0 auto;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     .operator-kicker {
@@ -228,6 +338,119 @@ import { OperatorStore } from '../../core/state/operator.store';
       color: var(--text-secondary);
       font-size: 12px;
       font-weight: 600;
+    }
+
+    .operator-run-graph {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      border-top: 1px solid var(--glass-border);
+      border-bottom: 1px solid var(--glass-border);
+      padding: 12px 2px;
+    }
+
+    .operator-run-graph-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .operator-run-graph-header strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-secondary);
+      font-weight: 650;
+      text-align: right;
+    }
+
+    .operator-run-graph-nodes {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+    }
+
+    .operator-run-node {
+      min-width: 0;
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(var(--primary-rgb), 0.06);
+    }
+
+    .operator-run-node-main {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .operator-run-node-main span,
+    .operator-run-node-meta span {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .operator-run-node-main strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .operator-run-node-meta {
+      display: grid;
+      gap: 4px;
+      margin-top: 10px;
+      min-width: 0;
+    }
+
+    .operator-run-node-meta small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+
+    .operator-run-node-detail,
+    .operator-run-artifacts {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      margin-top: 10px;
+      padding-top: 9px;
+      border-top: 1px solid var(--glass-border);
+    }
+
+    .operator-run-node-detail span,
+    .operator-run-artifacts span {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .operator-run-node-detail small,
+    .operator-run-artifacts small {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-secondary);
+      font-size: 11px;
     }
 
     .operator-transcript {
@@ -345,7 +568,7 @@ import { OperatorStore } from '../../core/state/operator.store';
         grid-template-columns: 1fr;
       }
 
-      button {
+      .operator-composer button {
         width: 100%;
       }
     }
@@ -353,6 +576,7 @@ import { OperatorStore } from '../../core/state/operator.store';
 })
 export class OperatorPageComponent implements OnInit {
   protected readonly store = inject(OperatorStore);
+  private readonly router = inject(Router);
   protected readonly draft = signal('');
 
   ngOnInit(): void {
@@ -386,6 +610,11 @@ export class OperatorPageComponent implements OnInit {
     void this.store.retryRun(runId);
   }
 
+  protected goBack(): void {
+    this.store.deselect();
+    void this.router.navigate(['/']);
+  }
+
   protected canCancelRun(status: string): boolean {
     return status === 'queued' || status === 'running' || status === 'waiting';
   }
@@ -394,8 +623,57 @@ export class OperatorPageComponent implements OnInit {
     return status === 'blocked' || status === 'failed' || status === 'cancelled';
   }
 
-  protected visibleProjects() {
-    return this.store.projects().slice(0, 8);
+  protected visibleTargets() {
+    return this.store.targetChips().slice(0, 8);
+  }
+
+  protected changedFilesForNode(node: OperatorRunNodeRecord): string[] {
+    const changedFiles = node.outputJson?.['changedFiles'];
+    return Array.isArray(changedFiles)
+      ? changedFiles.filter((file): file is string => typeof file === 'string' && file.trim().length > 0)
+      : [];
+  }
+
+  protected verificationChecksForNode(node: OperatorRunNodeRecord): { commandLine: string; status: string }[] {
+    const checks = node.outputJson?.['checks'];
+    if (!Array.isArray(checks)) {
+      return [];
+    }
+    return checks.flatMap((check) => {
+      if (!check || typeof check !== 'object' || Array.isArray(check)) {
+        return [];
+      }
+      const record = check as Record<string, unknown>;
+      const command = typeof record['command'] === 'string' ? record['command'] : null;
+      const args = Array.isArray(record['args'])
+        ? record['args'].filter((arg): arg is string => typeof arg === 'string')
+        : [];
+      if (!command) {
+        return [];
+      }
+      const status = typeof record['status'] === 'string' ? record['status'] : 'unknown';
+      return [{ commandLine: [command, ...args].join(' '), status }];
+    });
+  }
+
+  protected artifactEvents(): { label: string; path: string }[] {
+    const graph = this.store.activeRunGraph();
+    if (!graph) {
+      return [];
+    }
+    return graph.events
+      .filter((event): event is OperatorRunEventRecord & { kind: 'fs-write' } => event.kind === 'fs-write')
+      .flatMap((event) => {
+        const filePath = typeof event.payload['path'] === 'string' ? event.payload['path'] : null;
+        const kind = typeof event.payload['kind'] === 'string' ? event.payload['kind'] : 'modify';
+        if (!filePath) {
+          return [];
+        }
+        return [{
+          path: filePath,
+          label: `${filePath} ${fsWriteKindLabel(kind)}`,
+        }];
+      });
   }
 
   protected labelForRole(role: string): string {
@@ -407,4 +685,10 @@ export class OperatorPageComponent implements OnInit {
   protected dateTimeFor(timestamp: number): string {
     return new Date(timestamp).toISOString();
   }
+}
+
+function fsWriteKindLabel(kind: string): string {
+  if (kind === 'create') return 'created';
+  if (kind === 'delete') return 'deleted';
+  return 'modified';
 }

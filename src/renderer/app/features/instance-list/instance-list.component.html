@@ -119,27 +119,6 @@
         [cdkDropListDisabled]="isProjectDragDisabled()"
         (cdkDropListDropped)="onProjectDrop($event)"
       >
-        <section class="operator-pinned">
-          <button
-            type="button"
-            class="operator-entry"
-            (click)="openOperator()"
-          >
-            <span class="operator-entry-icon" aria-hidden="true">
-              <svg viewBox="0 0 16 16">
-                <path d="M8 1.5 10 6l4.5 2L10 10l-2 4.5L6 10 1.5 8 6 6l2-4.5Zm0 3.7L7 7.1l-1.9.9 1.9.9 1 1.9 1-1.9 1.9-.9L9 7.1 8 5.2Z" />
-              </svg>
-            </span>
-            <span class="operator-entry-copy">
-              <span class="operator-entry-title">Orchestrator</span>
-              <span class="operator-entry-subtitle">Global control plane</span>
-            </span>
-            @if (operatorStore.messageCount() > 0) {
-              <span class="operator-entry-count">{{ operatorStore.messageCount() }}</span>
-            }
-          </button>
-        </section>
-
         @for (group of projectGroups(); track group.key) {
           <section
             class="project-group"

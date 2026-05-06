@@ -183,6 +183,7 @@ export class ProjectRegistry {
   }
 
   private async seedScanRoot(root: string): Promise<void> {
+    this.store.upsertScanRoot(root, { source: 'scan' });
     const repos = await findRepositories(root);
     for (const repo of repos) {
       await this.upsertProjectFromPath(repo, { source: 'scan' });

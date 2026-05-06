@@ -131,6 +131,37 @@ describe('ProjectGroupComputationService filtering', () => {
     expect(items).toEqual([]);
   });
 
+  it('hides a superseded edit source when its replacement is present', () => {
+    const source = makeInstance({
+      id: 'source-1',
+      status: 'superseded',
+      supersededBy: 'replacement-1',
+      cancelledForEdit: true,
+    });
+    const replacement = makeInstance({
+      id: 'replacement-1',
+      displayName: 'Edited continuation',
+      createdAt: 3,
+      lastActivity: 4,
+    });
+    const context = {
+      filter: '',
+      status: 'all',
+      location: 'all' as const,
+      projectMatches: false,
+      collapsed: new Set<string>(),
+      childrenByParent: new Map<string, string[]>(),
+      instanceMap: new Map([
+        [source.id, source],
+        [replacement.id, replacement],
+      ]),
+      activityCutoff: null,
+    };
+
+    expect(service.buildVisibleItems(source, context, 0, [], true)).toEqual([]);
+    expect(service.countSessionsInTree(source, context.childrenByParent, context.instanceMap)).toBe(0);
+  });
+
   it('matches history queries by provider, model, prompt text, and project fields', () => {
     expect(
       service.matchesHistoryText(

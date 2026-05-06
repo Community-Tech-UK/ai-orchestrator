@@ -135,7 +135,10 @@ export class InstanceDetailComponent {
       subtitle: this.getHistoryPreviewSubtitle(entry, provider),
       provider,
       currentModel: entry.currentModel,
-      messages: conversation.messages as OutputMessage[],
+      messages: [
+        ...(conversation.messages as OutputMessage[]),
+        ...(this.historyPreviewPendingRestoreMessages()[entry.id] ?? []),
+      ],
       restoring: this.historyPreviewRestoringEntryId() === entry.id,
       error: this.historyPreviewError(),
     };
@@ -268,6 +271,7 @@ export class InstanceDetailComponent {
   private historyPreviewRestoringEntryId = signal<string | null>(null);
   private historyPreviewRestoredEntryId: string | null = null;
   private historyPreviewRestoredInstanceId: string | null = null;
+  private historyPreviewPendingRestoreMessages = signal<Record<string, OutputMessage[]>>({});
   historyPreviewError = signal<string | null>(null);
 
   // Recovery detection: instance was restored but provider context is missing or unproven.
@@ -650,21 +654,34 @@ export class InstanceDetailComponent {
     const folders = this.historyPreviewPendingFolders();
     const files = this.historyPreviewPendingFiles();
     const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
-    const instanceId = await this.ensureHistoryPreviewRestored();
-    if (!instanceId) {
-      return;
-    }
+    const alreadyRestored = this.historyPreviewRestoredEntryId === preview.entry.id
+      && !!this.historyPreviewRestoredInstanceId;
+    const pendingSendId = alreadyRestored
+      ? null
+      : this.addHistoryPreviewPendingRestoreMessage(preview.entry.id, finalMessage);
 
-    for (const file of files) {
-      this.draftService.removePendingFile(preview.id, file);
+    try {
+      const instanceId = await this.ensureHistoryPreviewRestored();
+      if (!instanceId) {
+        this.draftService.setDraft(preview.id, message);
+        return;
+      }
+
+      for (const file of files) {
+        this.draftService.removePendingFile(preview.id, file);
+      }
+      for (const folder of folders) {
+        this.draftService.removePendingFolder(preview.id, folder);
+      }
+      this.draftService.clearPendingFiles(instanceId);
+      this.draftService.clearPendingFolders(instanceId);
+      this.store.sendInput(instanceId, finalMessage, files);
+      this.selectRestoredHistoryPreview(preview.id, instanceId);
+    } finally {
+      if (pendingSendId) {
+        this.removeHistoryPreviewPendingRestoreMessage(preview.entry.id, pendingSendId);
+      }
     }
-    for (const folder of folders) {
-      this.draftService.removePendingFolder(preview.id, folder);
-    }
-    this.draftService.clearPendingFiles(instanceId);
-    this.draftService.clearPendingFolders(instanceId);
-    this.store.sendInput(instanceId, finalMessage, files);
-    this.selectRestoredHistoryPreview(preview.id, instanceId);
   }
 
   onSteerMessage(message: string): void {
@@ -1200,6 +1217,58 @@ export class InstanceDetailComponent {
     this.historyPreviewRestoredInstanceId = null;
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(instanceId);
+  }
+
+  private addHistoryPreviewPendingRestoreMessage(entryId: string, message: string): string {
+    const id = `history-preview-queued-${entryId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const timestamp = Date.now();
+    const messages: OutputMessage[] = [
+      {
+        id: `${id}-user`,
+        timestamp,
+        type: 'user',
+        content: message,
+        metadata: {
+          historyPreviewQueued: true,
+        },
+      },
+      {
+        id: `${id}-notice`,
+        timestamp: timestamp + 1,
+        type: 'system',
+        content: 'Restoring this session. Your message will send when the session is ready.',
+        metadata: {
+          isRestoreNotice: true,
+          systemMessageKind: 'history-preview-restore-queue',
+        },
+      },
+    ];
+
+    this.historyPreviewPendingRestoreMessages.update((current) => ({
+      ...current,
+      [entryId]: [...(current[entryId] ?? []), ...messages],
+    }));
+
+    return id;
+  }
+
+  private removeHistoryPreviewPendingRestoreMessage(entryId: string, id: string): void {
+    this.historyPreviewPendingRestoreMessages.update((current) => {
+      const nextMessages = (current[entryId] ?? []).filter(
+        (message) => !message.id.startsWith(`${id}-`)
+      );
+
+      if (nextMessages.length === 0) {
+        const next = { ...current };
+        delete next[entryId];
+        return next;
+      }
+
+      return {
+        ...current,
+        [entryId]: nextMessages,
+      };
+    });
   }
 
   private getHistoryPreviewInstanceId(entryId: string): string {

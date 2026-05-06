@@ -134,14 +134,34 @@ export function createInitializationSteps(
       fn: () => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { getOperatorEngine, getProjectRegistry } = require('../operator') as typeof import('../operator');
+          const {
+            getOperatorEngine,
+            getOperatorThreadService,
+            getProjectRegistry,
+          } = require('../operator') as typeof import('../operator');
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { getRepoJobService } = require('../repo-jobs') as typeof import('../repo-jobs');
           const repoJob = getRepoJobService();
           repoJob.initialize({ instanceManager });
           getProjectRegistry({ instanceManager });
           const engine = getOperatorEngine({ instanceManager, repoJob });
-          engine.recoverActiveRuns();
+          const recovered = engine.recoverActiveRuns();
+          if (recovered.length > 0) {
+            void getOperatorThreadService().getThread().then(() => {
+              for (const graph of recovered) {
+                getOperatorThreadService().appendRecoveryNotice({
+                  runId: graph.run.id,
+                  title: graph.run.title,
+                  status: graph.run.status,
+                  message: graph.run.error ?? 'Recovered run needs attention.',
+                });
+              }
+            }).catch((error) => {
+              logger.warn('Operator recovery transcript notice failed', {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+          }
         } catch (error) {
           logger.warn('Operator runtime initialization failed; delegated project work will be unavailable', {
             error: error instanceof Error ? error.message : String(error),

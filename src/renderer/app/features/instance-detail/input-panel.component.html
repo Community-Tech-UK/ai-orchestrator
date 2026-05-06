@@ -146,7 +146,7 @@
   <!-- Edit mode indicator -->
   @if (editMode()) {
     <div class="edit-mode-bar">
-      <span>Editing last message · Transcript-only retry</span>
+      <span>Editing last message</span>
     </div>
   }
 
@@ -192,6 +192,8 @@
       <div class="input-hints">
         @if (showGhostText()) {
           <span class="hint hint-ghost">Tab or → to accept suggestion</span>
+        } @else if (isInitializing()) {
+          <span class="hint">Enter to queue, Shift+Enter for new line</span>
         } @else if (isRespawning()) {
           <span class="hint">Enter to send after interrupt, Shift+Enter for new line</span>
         } @else if (isSteeringTarget()) {
@@ -251,9 +253,9 @@
         }
         <button
           class="btn-send"
-          [disabled]="disabled() || !canSend() || isInitializing()"
+          [disabled]="disabled() || !canSend()"
           (click)="onSend()"
-          [title]="isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'"
+          [title]="isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'"
         >
           <span class="send-icon">↑</span>
         </button>

@@ -43,6 +43,10 @@ export class ProjectGroupComputationService {
     parentChain: boolean[],
     isLastChild: boolean
   ): HierarchicalInstance[] {
+    if (this.isSupersededEditSourceWithReplacement(instance, context.instanceMap)) {
+      return [];
+    }
+
     const childrenIds = context.childrenByParent.get(instance.id) ?? [];
     const children = childrenIds
       .map((childId) => context.instanceMap.get(childId))
@@ -104,6 +108,10 @@ export class ProjectGroupComputationService {
     childrenByParent: Map<string, string[]>,
     instanceMap: Map<string, Instance>
   ): number {
+    if (this.isSupersededEditSourceWithReplacement(instance, instanceMap)) {
+      return 0;
+    }
+
     const childrenIds = childrenByParent.get(instance.id) ?? [];
     return 1 + childrenIds.reduce((count, childId) => {
       const child = instanceMap.get(childId);
@@ -116,6 +124,10 @@ export class ProjectGroupComputationService {
     childrenByParent: Map<string, string[]>,
     instanceMap: Map<string, Instance>
   ): number {
+    if (this.isSupersededEditSourceWithReplacement(instance, instanceMap)) {
+      return 0;
+    }
+
     const isBusy = instance.status === 'busy' || instance.status === 'initializing' || instance.status === 'waiting_for_input';
     const childrenIds = childrenByParent.get(instance.id) ?? [];
 
@@ -239,5 +251,15 @@ export class ProjectGroupComputationService {
       .split(/\s+/)
       .map((term) => term.trim())
       .filter(Boolean);
+  }
+
+  private isSupersededEditSourceWithReplacement(
+    instance: Instance,
+    instanceMap: Map<string, Instance>
+  ): boolean {
+    return instance.status === 'superseded'
+      && instance.cancelledForEdit === true
+      && typeof instance.supersededBy === 'string'
+      && instanceMap.has(instance.supersededBy);
   }
 }

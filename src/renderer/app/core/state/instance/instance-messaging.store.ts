@@ -9,7 +9,7 @@ import { ElectronIpcService } from '../../services/ipc';
 import { DraftService } from '../../services/draft.service';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
-import type { InstanceStatus, OutputMessage, QueuedMessage } from './instance.types';
+import type { Instance, InstanceStatus, OutputMessage, QueuedMessage } from './instance.types';
 import { PauseStore } from '../pause/pause.store';
 
 /** Maximum number of transient-failure retries before dropping a queued message. */
@@ -227,23 +227,24 @@ export class InstanceMessagingStore {
     message: string,
     files?: File[]
   ): Promise<void> {
-    const instance = this.stateService.getInstance(instanceId);
-    if (!instance) return;
+    const target = this.resolveMessageTarget(instanceId);
+    if (!target) return;
+    const { instance, instanceId: targetInstanceId } = target;
 
     // Clear recovery state on first user message — the user is re-establishing context
     if (instance.restoreMode) {
-      this.stateService.updateInstance(instanceId, { restoreMode: undefined });
+      this.stateService.updateInstance(targetInstanceId, { restoreMode: undefined });
     }
 
     // Reject immediately if instance is in a terminal state — sending will fail
     // and the optimistic busy status would mask the real state from retry logic.
     if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot send to instance in terminal state', {
-        instanceId,
+        instanceId: targetInstanceId,
         status: instance.status,
       });
       this.addErrorToOutput(
-        instanceId,
+        targetInstanceId,
         `Cannot send message — instance is ${instance.status}. Try restarting the instance.`
       );
       return;
@@ -256,12 +257,12 @@ export class InstanceMessagingStore {
       isTransientQueueStatus(instance.status)
       || this.pauseStore.isPaused()
     ) {
-      this.enqueueMessage(instanceId, { message, files });
+      this.enqueueMessage(targetInstanceId, { message, files });
       return;
     }
 
     // Send the message immediately
-    await this.sendInputImmediate(instanceId, message, files);
+    await this.sendInputImmediate(targetInstanceId, message, files);
   }
 
   /**
@@ -277,20 +278,21 @@ export class InstanceMessagingStore {
     message: string,
     files?: File[]
   ): Promise<void> {
-    const instance = this.stateService.getInstance(instanceId);
-    if (!instance) return;
+    const target = this.resolveMessageTarget(instanceId);
+    if (!target) return;
+    const { instance, instanceId: targetInstanceId } = target;
 
     if (instance.restoreMode) {
-      this.stateService.updateInstance(instanceId, { restoreMode: undefined });
+      this.stateService.updateInstance(targetInstanceId, { restoreMode: undefined });
     }
 
     if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot steer instance in terminal state', {
-        instanceId,
+        instanceId: targetInstanceId,
         status: instance.status,
       });
       this.addErrorToOutput(
-        instanceId,
+        targetInstanceId,
         `Cannot steer message — instance is ${instance.status}. Try restarting the instance.`
       );
       return;
@@ -298,16 +300,16 @@ export class InstanceMessagingStore {
 
     if (isReadyForInputStatus(instance.status)) {
       if (this.pauseStore.isPaused()) {
-        this.enqueueSteerMessage(instanceId, { message, files, kind: 'steer' });
+        this.enqueueSteerMessage(targetInstanceId, { message, files, kind: 'steer' });
         return;
       }
-      await this.sendInputImmediate(instanceId, message, files);
+      await this.sendInputImmediate(targetInstanceId, message, files);
       return;
     }
 
-    this.enqueueSteerMessage(instanceId, { message, files, kind: 'steer' });
+    this.enqueueSteerMessage(targetInstanceId, { message, files, kind: 'steer' });
 
-    await this.requestInterruptForSteer(instanceId, instance.status);
+    await this.requestInterruptForSteer(targetInstanceId, instance.status);
   }
 
   async steerQueuedMessage(instanceId: string, index: number): Promise<void> {
@@ -392,10 +394,13 @@ export class InstanceMessagingStore {
     retryCount = 0,
     options: SendInputImmediateOptions = {}
   ): Promise<void> {
-    const previousStatus = this.stateService.getInstance(instanceId)?.status;
+    const target = this.resolveMessageTarget(instanceId);
+    if (!target) return;
+    const { instanceId: targetInstanceId } = target;
+    const previousStatus = target.instance.status;
 
     if (this.pauseStore.isPaused()) {
-      this.enqueueMessageFront(instanceId, {
+      this.enqueueMessageFront(targetInstanceId, {
         message,
         files,
         retryCount,
@@ -415,7 +420,7 @@ export class InstanceMessagingStore {
       if (validationErrors.length > 0) {
         const errorMessage = validationErrors.join('\n');
         console.error('InstanceMessagingStore: File validation failed:', errorMessage);
-        this.addErrorToOutput(instanceId, `Failed to send message:\n${errorMessage}`);
+        this.addErrorToOutput(targetInstanceId, `Failed to send message:\n${errorMessage}`);
         return;
       }
     }
@@ -430,7 +435,7 @@ export class InstanceMessagingStore {
     } catch (error) {
       console.error('InstanceMessagingStore: File conversion failed:', error);
       this.addErrorToOutput(
-        instanceId,
+        targetInstanceId,
         `Failed to process attachment: ${(error as Error).message}`
       );
       return;
@@ -438,13 +443,13 @@ export class InstanceMessagingStore {
 
     // Optimistically update status (only if not already in a terminal state)
     if (previousStatus !== 'failed' && previousStatus !== 'error' && previousStatus !== 'terminated') {
-      this.stateService.updateInstance(instanceId, {
+      this.stateService.updateInstance(targetInstanceId, {
         status: 'busy' as InstanceStatus,
       });
     }
 
     const result = await this.ipc.sendInput(
-      instanceId,
+      targetInstanceId,
       message,
       attachments,
       retryCount > 0 || options.skipUserBubble === true
@@ -455,7 +460,7 @@ export class InstanceMessagingStore {
       console.error('InstanceMessagingStore: sendInput failed', result.error);
 
       const errorMessage = result.error?.message || 'Failed to send message';
-      const currentInstance = this.stateService.getInstance(instanceId);
+      const currentInstance = this.stateService.getInstance(targetInstanceId);
       // Use previousStatus to avoid the optimistic 'busy' masking the real state
       const effectiveStatus = previousStatus !== 'busy' ? previousStatus : currentInstance?.status;
       const retryDisposition = this.getRetryDisposition(effectiveStatus, errorMessage);
@@ -463,11 +468,11 @@ export class InstanceMessagingStore {
       if (!retryDisposition.shouldRetry) {
         // Permanent failure: revert optimistic 'busy' to previous status and show error
         if (currentInstance && currentInstance.status === 'busy') {
-          this.stateService.updateInstance(instanceId, {
+          this.stateService.updateInstance(targetInstanceId, {
             status: retryDisposition.nextStatus ?? previousStatus ?? 'idle',
           });
         }
-        this.addErrorToOutput(instanceId, `Failed to send message:\n${errorMessage}`);
+        this.addErrorToOutput(targetInstanceId, `Failed to send message:\n${errorMessage}`);
         return;
       }
 
@@ -476,17 +481,17 @@ export class InstanceMessagingStore {
       // Enforce retry limit to prevent infinite re-queue loops
       if (nextRetryCount > MAX_QUEUE_RETRIES) {
         console.error('InstanceMessagingStore: Max retries exceeded, dropping message', {
-          instanceId,
+          instanceId: targetInstanceId,
           retryCount: nextRetryCount,
           errorMessage,
         });
         if (currentInstance && currentInstance.status === 'busy') {
-          this.stateService.updateInstance(instanceId, {
+          this.stateService.updateInstance(targetInstanceId, {
             status: previousStatus ?? 'idle',
           });
         }
         this.addErrorToOutput(
-          instanceId,
+          targetInstanceId,
           `Failed to send message after ${MAX_QUEUE_RETRIES} retries:\n${errorMessage}`
         );
         return;
@@ -494,15 +499,15 @@ export class InstanceMessagingStore {
 
       // Transient failure: revert optimistic status and re-queue for retry
       if (currentInstance && currentInstance.status === 'busy') {
-        this.stateService.updateInstance(instanceId, {
+        this.stateService.updateInstance(targetInstanceId, {
           status: retryDisposition.nextStatus ?? previousStatus ?? 'idle',
         });
       }
 
       this.stateService.messageQueue.update((currentMap) => {
         const newMap = new Map(currentMap);
-        const existingQueue = newMap.get(instanceId) || [];
-        newMap.set(instanceId, [
+        const existingQueue = newMap.get(targetInstanceId) || [];
+        newMap.set(targetInstanceId, [
           {
             message,
             files,
@@ -519,7 +524,7 @@ export class InstanceMessagingStore {
       const nextStatus = retryDisposition.nextStatus ?? previousStatus ?? 'idle';
       if (nextStatus === 'idle' || nextStatus === 'waiting_for_input') {
         setTimeout(() => {
-          this.processMessageQueue(instanceId);
+          this.processMessageQueue(targetInstanceId);
         }, 2000);
       }
     }
@@ -575,6 +580,31 @@ export class InstanceMessagingStore {
   // ============================================
   // Private Helpers
   // ============================================
+
+  private resolveMessageTarget(
+    instanceId: string
+  ): { instanceId: string; instance: Instance } | null {
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) {
+      return null;
+    }
+
+    if (
+      instance.status === 'superseded'
+      && instance.cancelledForEdit === true
+      && instance.supersededBy
+    ) {
+      const replacement = this.stateService.getInstance(instance.supersededBy);
+      if (replacement && !isTerminalStatus(replacement.status)) {
+        return {
+          instanceId: replacement.id,
+          instance: replacement,
+        };
+      }
+    }
+
+    return { instanceId, instance };
+  }
 
   private getRetryDisposition(
     status: InstanceStatus | undefined,

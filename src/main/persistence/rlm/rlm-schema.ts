@@ -1400,6 +1400,314 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS browser_permission_grants;
     `,
   },
+  // Migration 025: add operator-result project memory sources.
+  {
+    name: '025_operator_result_project_sources',
+    up: `
+      PRAGMA foreign_keys=OFF;
+
+      DROP INDEX IF EXISTS idx_project_code_symbols_path;
+      DROP INDEX IF EXISTS idx_project_code_symbols_source;
+      DROP INDEX IF EXISTS idx_project_code_symbols_lookup;
+      DROP INDEX IF EXISTS idx_project_knowledge_wake_links_project_hint;
+      DROP INDEX IF EXISTS idx_project_knowledge_wake_links_project_source;
+      DROP INDEX IF EXISTS idx_project_knowledge_kg_links_project_triple;
+      DROP INDEX IF EXISTS idx_project_knowledge_kg_links_project_source;
+      DROP INDEX IF EXISTS idx_project_knowledge_sources_seen;
+      DROP INDEX IF EXISTS idx_project_knowledge_sources_project_uri;
+      DROP INDEX IF EXISTS idx_project_knowledge_sources_project_kind;
+
+      ALTER TABLE project_code_symbols RENAME TO project_code_symbols_024;
+      ALTER TABLE project_knowledge_wake_links RENAME TO project_knowledge_wake_links_024;
+      ALTER TABLE project_knowledge_kg_links RENAME TO project_knowledge_kg_links_024;
+      ALTER TABLE project_knowledge_sources RENAME TO project_knowledge_sources_024;
+
+      CREATE TABLE project_knowledge_sources (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('manifest', 'readme', 'instruction_doc', 'config', 'code_file', 'operator_result')),
+        source_uri TEXT NOT NULL,
+        source_title TEXT,
+        content_fingerprint TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, source_uri)
+      );
+
+      INSERT INTO project_knowledge_sources (
+        id, project_key, source_kind, source_uri, source_title, content_fingerprint,
+        created_at, updated_at, last_seen_at, metadata_json
+      )
+      SELECT
+        id, project_key, source_kind, source_uri, source_title, content_fingerprint,
+        created_at, updated_at, last_seen_at, metadata_json
+      FROM project_knowledge_sources_024;
+
+      CREATE TABLE project_knowledge_kg_links (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        triple_id TEXT NOT NULL,
+        source_span_json TEXT NOT NULL DEFAULT '{"kind":"whole_source"}',
+        evidence_strength REAL NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, source_id, triple_id),
+        FOREIGN KEY(source_id) REFERENCES project_knowledge_sources(id) ON DELETE CASCADE,
+        FOREIGN KEY(triple_id) REFERENCES kg_triples(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO project_knowledge_kg_links (
+        id, project_key, source_id, triple_id, source_span_json,
+        evidence_strength, created_at, metadata_json
+      )
+      SELECT
+        id, project_key, source_id, triple_id, source_span_json,
+        evidence_strength, created_at, metadata_json
+      FROM project_knowledge_kg_links_024;
+
+      CREATE TABLE project_knowledge_wake_links (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        hint_id TEXT NOT NULL,
+        source_span_json TEXT NOT NULL DEFAULT '{"kind":"whole_source"}',
+        evidence_strength REAL NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, source_id, hint_id),
+        FOREIGN KEY(source_id) REFERENCES project_knowledge_sources(id) ON DELETE CASCADE,
+        FOREIGN KEY(hint_id) REFERENCES wake_hints(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO project_knowledge_wake_links (
+        id, project_key, source_id, hint_id, source_span_json,
+        evidence_strength, created_at, metadata_json
+      )
+      SELECT
+        id, project_key, source_id, hint_id, source_span_json,
+        evidence_strength, created_at, metadata_json
+      FROM project_knowledge_wake_links_024;
+
+      CREATE TABLE project_code_symbols (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        workspace_hash TEXT NOT NULL,
+        symbol_id TEXT NOT NULL,
+        path_from_root TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        container_name TEXT,
+        start_line INTEGER NOT NULL,
+        start_character INTEGER NOT NULL,
+        end_line INTEGER,
+        end_character INTEGER,
+        signature TEXT,
+        doc_comment TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, symbol_id),
+        FOREIGN KEY(source_id) REFERENCES project_knowledge_sources(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO project_code_symbols (
+        id, project_key, source_id, workspace_hash, symbol_id, path_from_root,
+        name, kind, container_name, start_line, start_character, end_line,
+        end_character, signature, doc_comment, created_at, updated_at, metadata_json
+      )
+      SELECT
+        id, project_key, source_id, workspace_hash, symbol_id, path_from_root,
+        name, kind, container_name, start_line, start_character, end_line,
+        end_character, signature, doc_comment, created_at, updated_at, metadata_json
+      FROM project_code_symbols_024;
+
+      DROP TABLE project_code_symbols_024;
+      DROP TABLE project_knowledge_wake_links_024;
+      DROP TABLE project_knowledge_kg_links_024;
+      DROP TABLE project_knowledge_sources_024;
+
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_sources_project_kind
+        ON project_knowledge_sources(project_key, source_kind);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_sources_project_uri
+        ON project_knowledge_sources(project_key, source_uri);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_sources_seen
+        ON project_knowledge_sources(project_key, last_seen_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_kg_links_project_source
+        ON project_knowledge_kg_links(project_key, source_id);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_kg_links_project_triple
+        ON project_knowledge_kg_links(project_key, triple_id);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_wake_links_project_source
+        ON project_knowledge_wake_links(project_key, source_id);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_wake_links_project_hint
+        ON project_knowledge_wake_links(project_key, hint_id);
+      CREATE INDEX IF NOT EXISTS idx_project_code_symbols_lookup
+        ON project_code_symbols(project_key, name, kind);
+      CREATE INDEX IF NOT EXISTS idx_project_code_symbols_source
+        ON project_code_symbols(project_key, source_id);
+      CREATE INDEX IF NOT EXISTS idx_project_code_symbols_path
+        ON project_code_symbols(project_key, path_from_root);
+
+      PRAGMA foreign_keys=ON;
+    `,
+    down: `
+      PRAGMA foreign_keys=OFF;
+
+      DROP INDEX IF EXISTS idx_project_code_symbols_path;
+      DROP INDEX IF EXISTS idx_project_code_symbols_source;
+      DROP INDEX IF EXISTS idx_project_code_symbols_lookup;
+      DROP INDEX IF EXISTS idx_project_knowledge_wake_links_project_hint;
+      DROP INDEX IF EXISTS idx_project_knowledge_wake_links_project_source;
+      DROP INDEX IF EXISTS idx_project_knowledge_kg_links_project_triple;
+      DROP INDEX IF EXISTS idx_project_knowledge_kg_links_project_source;
+      DROP INDEX IF EXISTS idx_project_knowledge_sources_seen;
+      DROP INDEX IF EXISTS idx_project_knowledge_sources_project_uri;
+      DROP INDEX IF EXISTS idx_project_knowledge_sources_project_kind;
+
+      ALTER TABLE project_code_symbols RENAME TO project_code_symbols_025;
+      ALTER TABLE project_knowledge_wake_links RENAME TO project_knowledge_wake_links_025;
+      ALTER TABLE project_knowledge_kg_links RENAME TO project_knowledge_kg_links_025;
+      ALTER TABLE project_knowledge_sources RENAME TO project_knowledge_sources_025;
+
+      CREATE TABLE project_knowledge_sources (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('manifest', 'readme', 'instruction_doc', 'config', 'code_file')),
+        source_uri TEXT NOT NULL,
+        source_title TEXT,
+        content_fingerprint TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, source_uri)
+      );
+
+      INSERT INTO project_knowledge_sources (
+        id, project_key, source_kind, source_uri, source_title, content_fingerprint,
+        created_at, updated_at, last_seen_at, metadata_json
+      )
+      SELECT
+        id, project_key, source_kind, source_uri, source_title, content_fingerprint,
+        created_at, updated_at, last_seen_at, metadata_json
+      FROM project_knowledge_sources_025
+      WHERE source_kind IN ('manifest', 'readme', 'instruction_doc', 'config', 'code_file');
+
+      CREATE TABLE project_knowledge_kg_links (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        triple_id TEXT NOT NULL,
+        source_span_json TEXT NOT NULL DEFAULT '{"kind":"whole_source"}',
+        evidence_strength REAL NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, source_id, triple_id),
+        FOREIGN KEY(source_id) REFERENCES project_knowledge_sources(id) ON DELETE CASCADE,
+        FOREIGN KEY(triple_id) REFERENCES kg_triples(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO project_knowledge_kg_links (
+        id, project_key, source_id, triple_id, source_span_json,
+        evidence_strength, created_at, metadata_json
+      )
+      SELECT
+        l.id, l.project_key, l.source_id, l.triple_id, l.source_span_json,
+        l.evidence_strength, l.created_at, l.metadata_json
+      FROM project_knowledge_kg_links_025 l
+      JOIN project_knowledge_sources s ON s.id = l.source_id;
+
+      CREATE TABLE project_knowledge_wake_links (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        hint_id TEXT NOT NULL,
+        source_span_json TEXT NOT NULL DEFAULT '{"kind":"whole_source"}',
+        evidence_strength REAL NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, source_id, hint_id),
+        FOREIGN KEY(source_id) REFERENCES project_knowledge_sources(id) ON DELETE CASCADE,
+        FOREIGN KEY(hint_id) REFERENCES wake_hints(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO project_knowledge_wake_links (
+        id, project_key, source_id, hint_id, source_span_json,
+        evidence_strength, created_at, metadata_json
+      )
+      SELECT
+        l.id, l.project_key, l.source_id, l.hint_id, l.source_span_json,
+        l.evidence_strength, l.created_at, l.metadata_json
+      FROM project_knowledge_wake_links_025 l
+      JOIN project_knowledge_sources s ON s.id = l.source_id;
+
+      CREATE TABLE project_code_symbols (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        workspace_hash TEXT NOT NULL,
+        symbol_id TEXT NOT NULL,
+        path_from_root TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        container_name TEXT,
+        start_line INTEGER NOT NULL,
+        start_character INTEGER NOT NULL,
+        end_line INTEGER,
+        end_character INTEGER,
+        signature TEXT,
+        doc_comment TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        UNIQUE(project_key, symbol_id),
+        FOREIGN KEY(source_id) REFERENCES project_knowledge_sources(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO project_code_symbols (
+        id, project_key, source_id, workspace_hash, symbol_id, path_from_root,
+        name, kind, container_name, start_line, start_character, end_line,
+        end_character, signature, doc_comment, created_at, updated_at, metadata_json
+      )
+      SELECT
+        c.id, c.project_key, c.source_id, c.workspace_hash, c.symbol_id, c.path_from_root,
+        c.name, c.kind, c.container_name, c.start_line, c.start_character, c.end_line,
+        c.end_character, c.signature, c.doc_comment, c.created_at, c.updated_at, c.metadata_json
+      FROM project_code_symbols_025 c
+      JOIN project_knowledge_sources s ON s.id = c.source_id;
+
+      DROP TABLE project_code_symbols_025;
+      DROP TABLE project_knowledge_wake_links_025;
+      DROP TABLE project_knowledge_kg_links_025;
+      DROP TABLE project_knowledge_sources_025;
+
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_sources_project_kind
+        ON project_knowledge_sources(project_key, source_kind);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_sources_project_uri
+        ON project_knowledge_sources(project_key, source_uri);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_sources_seen
+        ON project_knowledge_sources(project_key, last_seen_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_kg_links_project_source
+        ON project_knowledge_kg_links(project_key, source_id);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_kg_links_project_triple
+        ON project_knowledge_kg_links(project_key, triple_id);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_wake_links_project_source
+        ON project_knowledge_wake_links(project_key, source_id);
+      CREATE INDEX IF NOT EXISTS idx_project_knowledge_wake_links_project_hint
+        ON project_knowledge_wake_links(project_key, hint_id);
+      CREATE INDEX IF NOT EXISTS idx_project_code_symbols_lookup
+        ON project_code_symbols(project_key, name, kind);
+      CREATE INDEX IF NOT EXISTS idx_project_code_symbols_source
+        ON project_code_symbols(project_key, source_id);
+      CREATE INDEX IF NOT EXISTS idx_project_code_symbols_path
+        ON project_code_symbols(project_key, path_from_root);
+
+      PRAGMA foreign_keys=ON;
+    `,
+  },
 ];
 
 /**

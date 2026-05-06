@@ -16,7 +16,6 @@ import {
 } from '@angular/core';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { ScrollingModule } from '@angular/cdk/scrolling';
-import { Router } from '@angular/router';
 import { InstanceStore, type Instance } from '../../core/state/instance.store';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { HistoryStore } from '../../core/state/history.store';
@@ -41,7 +40,6 @@ import {
 } from './history-rail-filtering';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
-import { OperatorStore } from '../../core/state/operator.store';
 
 const ORDER_STORAGE_KEY = 'instance-list-order';
 const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
@@ -113,8 +111,6 @@ export class InstanceListComponent implements OnDestroy {
   private newSessionDraft = inject(NewSessionDraftService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private clipboard = inject(CLIPBOARD_SERVICE);
-  private router = inject(Router);
-  protected readonly operatorStore = inject(OperatorStore);
 
   filterInput = signal('');
   filterText = signal('');
@@ -391,7 +387,6 @@ export class InstanceListComponent implements OnDestroy {
 
   constructor() {
     this.visibleInstanceResolver.setProjectGroupsSource(this.projectGroups);
-    void this.operatorStore.initialize();
     void this.historyStore.loadHistory();
     void this.loadRecentDirectories();
 
@@ -565,13 +560,6 @@ export class InstanceListComponent implements OnDestroy {
     this.closeProjectMenu({ restoreFocus: false });
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(instanceId);
-  }
-
-  openOperator(): void {
-    this.closeProjectMenu({ restoreFocus: false });
-    this.historyStore.clearSelection();
-    this.store.setSelectedInstance(null);
-    void this.router.navigate(['/operator']);
   }
 
   onTerminateInstance(instanceId: string): void {

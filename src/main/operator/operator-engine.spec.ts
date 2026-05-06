@@ -11,6 +11,8 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createOperatorTables } from './operator-schema';
 import { OperatorRunStore } from './operator-run-store';
 import { OperatorEngine, type OperatorEngineConfig } from './operator-engine';
+import type { OperatorMemoryPromotionResult } from './operator-memory-promoter';
+import type { OperatorFollowUpScheduleResult } from './operator-follow-up-scheduler';
 
 describe('OperatorEngine', () => {
   it('creates and completes a git-batch run for pull-all-repos requests', async () => {
@@ -51,13 +53,23 @@ describe('OperatorEngine', () => {
         status: 'completed',
         targetPath: '/work',
       }),
+      expect.objectContaining({
+        type: 'synthesis',
+        status: 'completed',
+        outputJson: expect.objectContaining({
+          summaryMarkdown: expect.stringContaining('Pulled 1 repositories'),
+        }),
+      }),
     ]);
-    expect(graph?.events.map((event) => event.kind)).toEqual([
+    expect(graph?.run.resultJson).toMatchObject({
+      synthesis: expect.objectContaining({
+        summaryMarkdown: expect.stringContaining('Pulled 1 repositories'),
+      }),
+    });
+    expect(graph?.events.map((event) => event.kind)).toEqual(expect.arrayContaining([
       'state-change',
       'progress',
-      'progress',
-      'state-change',
-    ]);
+    ]));
     expect(gitBatch.roots).toEqual(['/work']);
     db.close();
   });
@@ -279,8 +291,51 @@ describe('OperatorEngine', () => {
           status: 'passed',
         }),
       }),
+      expect.objectContaining({
+        type: 'synthesis',
+        status: 'completed',
+        outputJson: expect.objectContaining({
+          summaryMarkdown: expect.stringContaining('Verification: passed'),
+        }),
+      }),
     ]);
     expect(graph?.events.map((event) => event.kind)).toContain('verification-result');
+    db.close();
+  });
+
+  it('routes suffix-style implementation requests from the success criteria', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord();
+    const projectAgent = new FakeProjectAgentExecutor();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent,
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Implement voice conversations in AI Orchestrator',
+    });
+
+    expect(projectAgent.calls).toEqual([
+      expect.objectContaining({
+        goal: 'Implement voice conversations',
+        project,
+      }),
+    ]);
+    expect(graph?.run).toMatchObject({
+      status: 'completed',
+      planJson: expect.objectContaining({
+        intent: 'project_feature',
+        projectQuery: 'AI Orchestrator',
+      }),
+    });
     db.close();
   });
 
@@ -312,8 +367,12 @@ describe('OperatorEngine', () => {
         }),
       },
     });
-    expect(graph?.nodes.at(-1)).toMatchObject({
+    expect(graph?.nodes.at(-2)).toMatchObject({
       type: 'verification',
+      status: 'completed',
+    });
+    expect(graph?.nodes.at(-1)).toMatchObject({
+      type: 'synthesis',
       status: 'completed',
     });
     db.close();
@@ -386,8 +445,8 @@ describe('OperatorEngine', () => {
     expect(graph?.run).toMatchObject({
       status: 'completed',
       usageJson: expect.objectContaining({
-        nodesStarted: 4,
-        nodesCompleted: 4,
+        nodesStarted: 5,
+        nodesCompleted: 5,
         retriesUsed: 1,
       }),
     });
@@ -396,6 +455,7 @@ describe('OperatorEngine', () => {
       'verification',
       'project-agent',
       'verification',
+      'synthesis',
     ]);
     expect(graph?.nodes[1]).toMatchObject({ status: 'failed' });
     expect(graph?.nodes[2]).toMatchObject({
@@ -635,6 +695,465 @@ describe('OperatorEngine', () => {
           summary: 'Audit finished',
         }),
       }),
+      synthesis: expect.objectContaining({
+        summaryMarkdown: expect.stringContaining('Audit finished'),
+      }),
+    });
+    db.close();
+  });
+
+  it('routes direct project audit requests from the success criteria', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord({
+      id: 'project-dingley',
+      canonicalPath: '/work/dingley',
+      displayName: 'Dingley',
+      aliases: ['dingley'],
+    });
+    const repoJob = new FakeRepoJobExecutor();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      repoJob,
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Audit the dingley project',
+    });
+
+    expect(repoJob.submissions).toEqual([
+      expect.objectContaining({
+        type: 'repo-health-audit',
+        workingDirectory: '/work/dingley',
+      }),
+    ]);
+    expect(graph?.run.planJson).toMatchObject({
+      intent: 'project_audit',
+      projectQuery: 'dingley',
+    });
+    db.close();
+  });
+
+  it('adds advanced routing metadata to project feature runs and worker inputs', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord({
+      id: 'project-ai',
+      canonicalPath: '/work/ai-orchestrator',
+      displayName: 'AI Orchestrator',
+      aliases: ['AI Orchestrator'],
+    });
+    const projectAgent = new FakeProjectAgentExecutor();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent,
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      modelRouter: {
+        route: () => ({
+          model: 'gpt-5.5',
+          complexity: 'complex',
+          tier: 'powerful',
+          confidence: 0.91,
+          reason: 'Implementation requires repository-wide edits',
+        }),
+      },
+      remoteRouting: {
+        enabled: true,
+        preferRemoteForProject: () => true,
+      },
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Implement voice conversations in AI Orchestrator',
+    });
+
+    expect(projectAgent.calls[0]?.routing).toMatchObject({
+      modelOverride: 'gpt-5.5',
+      nodePlacement: {
+        requiresWorkingDirectory: '/work/ai-orchestrator',
+      },
+      audit: {
+        source: 'operator-routing',
+        model: 'gpt-5.5',
+        tier: 'powerful',
+        remoteEligible: true,
+        memoryPromotionEligible: true,
+      },
+    });
+    expect(graph?.run.planJson).toMatchObject({
+      routing: expect.objectContaining({
+        model: 'gpt-5.5',
+        tier: 'powerful',
+        remoteEligible: true,
+        memoryPromotionEligible: true,
+      }),
+    });
+    expect(graph?.nodes.find((node) => node.type === 'project-agent')?.inputJson).toMatchObject({
+      routing: expect.objectContaining({
+        model: 'gpt-5.5',
+        remoteEligible: true,
+      }),
+    });
+    db.close();
+  });
+
+  it('promotes completed project runs into project memory when routing marks them eligible', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord({
+      id: 'project-ai',
+      canonicalPath: '/work/ai-orchestrator',
+      displayName: 'AI Orchestrator',
+      aliases: ['AI Orchestrator'],
+    });
+    const memoryPromoter = new FakeMemoryPromoter();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      memoryPromoter,
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Implement voice conversations in AI Orchestrator',
+    });
+
+    expect(memoryPromoter.calls).toEqual([
+      expect.objectContaining({
+        graph: expect.objectContaining({
+          run: expect.objectContaining({
+            status: 'completed',
+            resultJson: expect.objectContaining({
+              synthesis: expect.objectContaining({
+                summaryMarkdown: expect.stringContaining('Verification: passed'),
+              }),
+            }),
+          }),
+        }),
+        projects: [
+          expect.objectContaining({
+            id: 'project-ai',
+            canonicalPath: '/work/ai-orchestrator',
+          }),
+        ],
+      }),
+    ]);
+    expect(graph?.events).toContainEqual(expect.objectContaining({
+      kind: 'progress',
+      payload: expect.objectContaining({
+        action: 'memory-promoted',
+        projectKeys: ['/work/ai-orchestrator'],
+      }),
+    }));
+    db.close();
+  });
+
+  it('creates scheduled follow-up automations for completed runs with explicit cadence', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord({
+      id: 'project-ai',
+      canonicalPath: '/work/ai-orchestrator',
+      displayName: 'AI Orchestrator',
+      aliases: ['AI Orchestrator'],
+    });
+    const followUpScheduler = new FakeFollowUpScheduler({
+      status: 'created',
+      automationId: 'automation-1',
+      name: 'Daily operator follow-up',
+      schedule: {
+        type: 'cron',
+        expression: '0 9 * * *',
+        timezone: 'UTC',
+      },
+    });
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      memoryPromoter: null,
+      followUpScheduler,
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'In AI Orchestrator, add voice support and check back daily',
+    });
+
+    expect(followUpScheduler.calls).toEqual([
+      expect.objectContaining({
+        graph: expect.objectContaining({
+          run: expect.objectContaining({
+            status: 'completed',
+            goal: 'In AI Orchestrator, add voice support and check back daily',
+          }),
+        }),
+        projects: [
+          expect.objectContaining({
+            canonicalPath: '/work/ai-orchestrator',
+          }),
+        ],
+      }),
+    ]);
+    expect(graph?.events).toContainEqual(expect.objectContaining({
+      kind: 'progress',
+      payload: expect.objectContaining({
+        action: 'automation-follow-up-created',
+        automationId: 'automation-1',
+      }),
+    }));
+    db.close();
+  });
+
+  it('creates a discovery node and blocks instead of guessing ambiguous project references', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const candidates = [
+      projectRecord({ id: 'project-1', displayName: 'Dingley Web', canonicalPath: '/work/dingley-web' }),
+      projectRecord({ id: 'project-2', displayName: 'Dingley API', canonicalPath: '/work/dingley-api' }),
+    ];
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: {
+        resolveProject: (query: string) => ({
+          status: 'ambiguous' as const,
+          query,
+          project: null,
+          candidates,
+        }),
+      },
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'In dingley, add voice support',
+    });
+
+    expect(graph?.run).toMatchObject({
+      status: 'blocked',
+      error: 'Project reference is ambiguous: dingley',
+    });
+    expect(graph?.nodes).toEqual([
+      expect.objectContaining({
+        type: 'discover-projects',
+        status: 'blocked',
+        outputJson: expect.objectContaining({
+          status: 'ambiguous',
+          candidates: [
+            expect.objectContaining({ id: 'project-1', canonicalPath: '/work/dingley-web' }),
+            expect.objectContaining({ id: 'project-2', canonicalPath: '/work/dingley-api' }),
+          ],
+        }),
+      }),
+    ]);
+    db.close();
+  });
+
+  it('fans out cross-project research to bounded project agents and synthesizes results', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const projects = [
+      projectRecord({ id: 'project-1', displayName: 'App One', canonicalPath: '/work/app-one' }),
+      projectRecord({ id: 'project-2', displayName: 'App Two', canonicalPath: '/work/app-two' }),
+    ];
+    const projectAgent = new FakeProjectAgentExecutor([
+      projectAgentResult('instance-1', 'App One should improve tests.'),
+      projectAgentResult('instance-2', 'App Two should improve linting.'),
+    ]);
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      resolveWorkRoot: () => '/work',
+      projectRegistry: {
+        resolveProject: () => ({ status: 'not_found' as const, query: '', project: null, candidates: [] }),
+        refreshProjects: async () => projects,
+      },
+      projectAgent,
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      defaultBudget: { maxConcurrentNodes: 2 },
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Review all repos in my work folder and synthesize common improvements',
+    });
+
+    expect(projectAgent.calls.map((call) => call.project.displayName)).toEqual(['App One', 'App Two']);
+    expect(graph?.run).toMatchObject({
+      status: 'completed',
+      planJson: expect.objectContaining({
+        intent: 'cross_project_research',
+        rootPath: '/work',
+        projectCount: 2,
+      }),
+      resultJson: expect.objectContaining({
+        synthesis: expect.objectContaining({
+          summaryMarkdown: expect.stringContaining('App One should improve tests'),
+        }),
+      }),
+    });
+    expect(graph?.nodes.map((node) => node.type)).toEqual([
+      'discover-projects',
+      'project-agent',
+      'project-agent',
+      'synthesis',
+    ]);
+    db.close();
+  });
+
+  it('runs cross-project research workers with bounded concurrency', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const projects = [
+      projectRecord({ id: 'project-1', displayName: 'App One', canonicalPath: '/work/app-one' }),
+      projectRecord({ id: 'project-2', displayName: 'App Two', canonicalPath: '/work/app-two' }),
+      projectRecord({ id: 'project-3', displayName: 'App Three', canonicalPath: '/work/app-three' }),
+    ];
+    const projectAgent = new ConcurrentFakeProjectAgentExecutor();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      resolveWorkRoot: () => '/work',
+      projectRegistry: {
+        resolveProject: () => ({ status: 'not_found' as const, query: '', project: null, candidates: [] }),
+        refreshProjects: async () => projects,
+      },
+      projectAgent,
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      defaultBudget: { maxConcurrentNodes: 2 },
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Review all repos in my work folder and synthesize common improvements',
+    });
+
+    expect(graph?.run.status).toBe('completed');
+    expect(projectAgent.maxActive).toBe(2);
+    expect(projectAgent.calls.map((call) => call.project.displayName)).toEqual([
+      'App One',
+      'App Two',
+      'App Three',
+    ]);
+    db.close();
+  });
+
+  it('limits cross-project research fanout to the requested root', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const inRootProject = projectRecord({
+      id: 'project-in-root',
+      displayName: 'In Root',
+      canonicalPath: '/work/in-root',
+    });
+    const outsideProject = projectRecord({
+      id: 'project-outside',
+      displayName: 'Outside Root',
+      canonicalPath: '/elsewhere/outside',
+    });
+    const projectAgent = new FakeProjectAgentExecutor([
+      projectAgentResult('instance-in-root', 'In-root project summary.'),
+    ]);
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      resolveWorkRoot: () => '/work',
+      projectRegistry: {
+        resolveProject: () => ({ status: 'not_found' as const, query: '', project: null, candidates: [] }),
+        refreshProjects: async () => [inRootProject, outsideProject],
+      },
+      projectAgent,
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Review all repos in my work folder and synthesize common improvements',
+    });
+
+    expect(projectAgent.calls.map((call) => call.project.displayName)).toEqual(['In Root']);
+    expect(graph?.run.planJson).toMatchObject({
+      projectCount: 1,
+    });
+    expect(graph?.nodes.filter((node) => node.type === 'project-agent')).toHaveLength(1);
+    expect(graph?.nodes.find((node) => node.targetProjectId === 'project-outside')).toBeUndefined();
+    db.close();
+  });
+
+  it('refreshes project resolution and routes vague work requests with typoed project wording', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord({
+      id: 'project-dingley',
+      canonicalPath: '/work/Dingley',
+      displayName: 'Dingley',
+      aliases: ['Dingley'],
+    });
+    const projectRegistry = new RefreshingProjectRegistry(project);
+    const repoJob = new FakeRepoJobExecutor();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry,
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      repoJob,
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'can you do some work in the dingley plroject',
+    });
+
+    expect(projectRegistry.refreshCalls).toBe(1);
+    expect(repoJob.submissions).toEqual([
+      expect.objectContaining({
+        type: 'repo-health-audit',
+        workingDirectory: '/work/Dingley',
+      }),
+    ]);
+    expect(graph?.run).toMatchObject({
+      status: 'completed',
+      planJson: expect.objectContaining({
+        intent: 'project_audit',
+        projectQuery: 'dingley',
+        projectId: 'project-dingley',
+        projectPath: '/work/Dingley',
+      }),
     });
     db.close();
   });
@@ -792,6 +1311,85 @@ describe('OperatorEngine', () => {
     }));
     db.close();
   });
+
+  it('completes startup recovery when a linked repo job already reached a terminal status', () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const repoJob = new FakeRepoJobExecutor();
+    repoJob.seedJob(repoJobRecord({
+      id: 'repo-job-1',
+      status: 'completed',
+      result: {
+        instanceId: 'instance-1',
+        summary: 'Recovered audit finished',
+        repoContext: {
+          gitAvailable: true,
+          isRepo: true,
+          gitRoot: '/work/dingley',
+          currentBranch: 'main',
+          hasUncommittedChanges: false,
+          recentCommits: [],
+          changedFiles: [],
+        },
+      },
+    }));
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      repoJob,
+    });
+    const run = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Audit Dingley',
+      goal: 'Audit the dingley project',
+      planJson: { intent: 'project_audit' },
+    });
+    const node = runStore.createNode({
+      runId: run.id,
+      type: 'repo-job',
+      title: 'Audit Dingley',
+      externalRefKind: 'repo-job',
+      externalRefId: 'repo-job-1',
+    });
+    runStore.updateRun(run.id, { status: 'running', usageJson: { nodesStarted: 1 } });
+    runStore.updateNode(node.id, { status: 'running' });
+
+    const recovered = (engine as OperatorEngine & {
+      recoverActiveRuns(): OperatorRunGraph[];
+    }).recoverActiveRuns();
+
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]?.run).toMatchObject({
+      status: 'completed',
+      resultJson: expect.objectContaining({
+        repoJob: expect.objectContaining({
+          status: 'completed',
+          result: expect.objectContaining({
+            summary: 'Recovered audit finished',
+          }),
+        }),
+      }),
+    });
+    expect(recovered[0]?.nodes).toContainEqual(expect.objectContaining({
+      id: node.id,
+      status: 'completed',
+      outputJson: expect.objectContaining({
+        repoJob: expect.objectContaining({
+          id: 'repo-job-1',
+        }),
+      }),
+    }));
+    expect(recovered[0]?.events).toContainEqual(expect.objectContaining({
+      kind: 'recovery',
+      payload: expect.objectContaining({
+        action: 'completed-from-recovered-repo-job',
+        repoJobId: 'repo-job-1',
+      }),
+    }));
+    db.close();
+  });
 });
 
 class FakeGitBatchService {
@@ -847,17 +1445,85 @@ class FakeProjectAgentExecutor {
     goal: string;
     project: OperatorProjectRecord;
     promptOverride?: string;
+    routing?: unknown;
   }> = [];
 
   constructor(private readonly results: ProjectAgentResult[] = [projectAgentResult()]) {}
 
-  async execute(input: { goal: string; project: OperatorProjectRecord; promptOverride?: string }) {
+  async execute(input: {
+    goal: string;
+    project: OperatorProjectRecord;
+    promptOverride?: string;
+    routing?: unknown;
+  }) {
     this.calls.push({
       goal: input.goal,
       project: input.project,
       promptOverride: input.promptOverride,
+      routing: input.routing,
     });
     return this.results.shift() ?? projectAgentResult();
+  }
+}
+
+class ConcurrentFakeProjectAgentExecutor extends FakeProjectAgentExecutor {
+  active = 0;
+  maxActive = 0;
+
+  override async execute(input: {
+    goal: string;
+    project: OperatorProjectRecord;
+    promptOverride?: string;
+    routing?: unknown;
+  }) {
+    this.active += 1;
+    this.maxActive = Math.max(this.maxActive, this.active);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return await super.execute(input);
+    } finally {
+      this.active -= 1;
+    }
+  }
+}
+
+class FakeMemoryPromoter {
+  calls: Array<{
+    graph: OperatorRunGraph;
+    projects: OperatorProjectRecord[];
+  }> = [];
+
+  promote(input: {
+    graph: OperatorRunGraph;
+    projects: OperatorProjectRecord[];
+  }): OperatorMemoryPromotionResult[] {
+    this.calls.push(input);
+    return input.projects.map((project) => ({
+      projectId: project.id,
+      projectKey: project.canonicalPath,
+      sourceId: `source-${project.id}`,
+      hintId: `hint-${project.id}`,
+      sourceCreated: true,
+      sourceChanged: false,
+      linkCreated: true,
+    }));
+  }
+}
+
+class FakeFollowUpScheduler {
+  calls: Array<{
+    graph: OperatorRunGraph;
+    projects: OperatorProjectRecord[];
+  }> = [];
+
+  constructor(private readonly result: OperatorFollowUpScheduleResult) {}
+
+  async schedule(input: {
+    graph: OperatorRunGraph;
+    projects: OperatorProjectRecord[];
+  }): Promise<OperatorFollowUpScheduleResult> {
+    this.calls.push(input);
+    return this.result;
   }
 }
 
@@ -865,6 +1531,10 @@ class FakeRepoJobExecutor {
   submissions: RepoJobSubmission[] = [];
   cancelled: string[] = [];
   private readonly jobs = new Map<string, RepoJobRecord>();
+
+  seedJob(job: RepoJobRecord): void {
+    this.jobs.set(job.id, job);
+  }
 
   submitJob(submission: RepoJobSubmission): RepoJobRecord {
     this.submissions.push(submission);
@@ -903,6 +1573,10 @@ class FakeRepoJobExecutor {
   cancelJob(jobId: string): boolean {
     this.cancelled.push(jobId);
     return true;
+  }
+
+  getJob(jobId: string): RepoJobRecord | undefined {
+    return this.jobs.get(jobId);
   }
 }
 
@@ -1032,6 +1706,35 @@ function resolvedRegistry(project: OperatorProjectRecord) {
       candidates: [project],
     }),
   };
+}
+
+class RefreshingProjectRegistry {
+  refreshCalls = 0;
+  private refreshed = false;
+
+  constructor(private readonly project: OperatorProjectRecord) {}
+
+  resolveProject(query: string) {
+    return this.refreshed
+      ? {
+        status: 'resolved' as const,
+        query,
+        project: this.project,
+        candidates: [this.project],
+      }
+      : {
+        status: 'not_found' as const,
+        query,
+        project: null,
+        candidates: [],
+      };
+  }
+
+  async refreshProjects(): Promise<OperatorProjectRecord[]> {
+    this.refreshCalls += 1;
+    this.refreshed = true;
+    return [this.project];
+  }
 }
 
 function passedVerification(): OperatorVerificationSummary {

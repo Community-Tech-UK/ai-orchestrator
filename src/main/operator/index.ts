@@ -1,6 +1,7 @@
 export {
   OperatorThreadService,
   getOperatorThreadService,
+  type OperatorRecoveryNoticeInput,
   type OperatorSendMessageInput,
   type OperatorThreadServiceConfig,
 } from './operator-thread-service';
@@ -42,5 +43,28 @@ export {
   buildOperatorFixWorkerPrompt,
   type OperatorFixWorkerPromptInput,
 } from './operator-fix-worker-prompt';
+export {
+  defaultOperatorWorkRoot,
+  planOperatorRequest,
+  type OperatorIntent,
+  type OperatorPlannerOptions,
+  type OperatorRequestPlan,
+} from './operator-planner';
+export {
+  synthesizeOperatorRun,
+  type OperatorSynthesisResult,
+} from './operator-synthesis-executor';
+export {
+  OperatorMemoryPromoter,
+  getOperatorMemoryPromoter,
+  type OperatorMemoryPromotionInput,
+  type OperatorMemoryPromotionResult,
+} from './operator-memory-promoter';
+export {
+  OperatorFollowUpScheduler,
+  getOperatorFollowUpScheduler,
+  parseOperatorFollowUpSchedule,
+  type OperatorFollowUpScheduleResult,
+} from './operator-follow-up-scheduler';
 export { OperatorEventBus, getOperatorEventBus } from './operator-event-bus';
 export { OperatorEngine, getOperatorEngine } from './operator-engine';

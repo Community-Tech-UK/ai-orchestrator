@@ -124,4 +124,57 @@ describe('OperatorRunStore', () => {
     ]);
     db.close();
   });
+
+  it('rejects invalid structured payloads before writing them', () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const store = new OperatorRunStore(db);
+    const run = store.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Validate writes',
+      goal: 'Validate operator run writes',
+    });
+    const node = store.createNode({
+      runId: run.id,
+      type: 'git-batch',
+      title: 'Pull repositories',
+      inputJson: { rootPath: '/work' },
+    });
+
+    expect(() => store.createRun({
+      threadId: 'thread-2',
+      sourceMessageId: 'message-2',
+      title: 'Invalid budget',
+      goal: 'Invalid budget',
+      budget: { maxNodes: -1 },
+    })).toThrow(/budget/i);
+    expect(() => store.updateRun(run.id, {
+      usageJson: { nodesStarted: -1 },
+    })).toThrow(/usage/i);
+    expect(() => store.createNode({
+      runId: run.id,
+      type: 'git-batch',
+      title: 'Invalid input',
+      inputJson: null as unknown as Record<string, unknown>,
+    })).toThrow(/inputJson/i);
+    expect(() => store.updateNode(node.id, {
+      outputJson: [] as unknown as Record<string, unknown>,
+    })).toThrow(/outputJson/i);
+    expect(() => store.appendEvent({
+      runId: run.id,
+      nodeId: node.id,
+      kind: 'shell-command',
+      payload: {
+        cmd: 'git',
+        args: 'fetch',
+        cwd: '/work',
+        exitCode: 0,
+        durationMs: 1,
+        stdoutBytes: 0,
+        stderrBytes: 0,
+      } as unknown as Record<string, unknown>,
+    })).toThrow(/shell-command/i);
+    db.close();
+  });
 });

@@ -858,7 +858,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   async onSend(): Promise<void> {
-    if (!this.canSend() || this.disabled() || this.isInitializing()) return;
+    if (!this.canSend() || this.disabled()) return;
 
     const text = this.message().trim();
 
@@ -995,11 +995,6 @@ export class InputPanelComponent implements OnDestroy {
 
     const idx = this.editMessageIndex();
     if (idx === null) return;
-
-    const confirmed = window.confirm(
-      'This retry will fork the transcript only. Filesystem checkpoint restore is not available for this edit. Continue?',
-    );
-    if (!confirmed) return;
 
     this.resendEdited.emit({
       messageIndex: idx,

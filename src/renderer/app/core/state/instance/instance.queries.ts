@@ -48,8 +48,18 @@ export class InstanceQueries {
 
   /** Selected instance object */
   readonly selectedInstance = computed(() => {
-    const id = this.stateService.state().selectedInstanceId;
-    return id ? this.stateService.state().instances.get(id) || null : null;
+    const state = this.stateService.state();
+    const id = state.selectedInstanceId;
+    const selected = id ? state.instances.get(id) || null : null;
+    if (
+      selected?.status === 'superseded'
+      && selected.cancelledForEdit === true
+      && selected.supersededBy
+    ) {
+      return state.instances.get(selected.supersededBy) || selected;
+    }
+
+    return selected;
   });
 
   /** Loading state */

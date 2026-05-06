@@ -8,6 +8,7 @@ import type {
   ConversationDiscoveryScope,
   ConversationLedgerConversation,
   ConversationListQuery,
+  ConversationMessageUpsertInput,
   ConversationProvider,
   ConversationThreadRecord,
   NativeThreadStartRequest,
@@ -261,6 +262,39 @@ export class ConversationLedgerService {
       ...result,
       messages: this.store.getMessages(threadId),
     };
+  }
+
+  appendMessage(
+    threadId: string,
+    message: Omit<ConversationMessageUpsertInput, 'sequence'> & { sequence?: number },
+  ): ConversationLedgerConversation {
+    const thread = this.store.findThreadById(threadId);
+    if (!thread) {
+      throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
+    }
+    const existingCount = this.store.getMessages(threadId).length;
+    this.store.upsertMessages(threadId, [{
+      ...message,
+      sequence: message.sequence ?? existingCount + 1,
+    }]);
+    this.store.upsertThread({
+      id: thread.id,
+      provider: thread.provider,
+      nativeThreadId: thread.nativeThreadId,
+      nativeSessionId: thread.nativeSessionId,
+      nativeSourceKind: thread.nativeSourceKind,
+      sourceKind: thread.sourceKind,
+      sourcePath: thread.sourcePath,
+      workspacePath: thread.workspacePath,
+      title: thread.title,
+      updatedAt: Date.now(),
+      writable: thread.writable,
+      nativeVisibilityMode: thread.nativeVisibilityMode,
+      syncStatus: thread.provider === 'orchestrator' ? 'synced' : thread.syncStatus,
+      conflictStatus: thread.conflictStatus,
+      metadata: thread.metadata,
+    });
+    return this.getConversation(threadId);
   }
 
   close(): void {

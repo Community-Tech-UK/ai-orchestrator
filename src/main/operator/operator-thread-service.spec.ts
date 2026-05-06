@@ -57,6 +57,67 @@ describe('OperatorThreadService', () => {
     ]);
   });
 
+  it('returns a visible Orchestrator acknowledgement when the engine is available', async () => {
+    const ledger = createLedger();
+    const engine = new FakeOperatorEngine();
+    const service = new OperatorThreadService({ ledger, engine });
+
+    const conversation = await service.sendMessage({ text: 'hi' });
+
+    expect(conversation.messages).toHaveLength(2);
+    expect(conversation.messages[1]).toMatchObject({
+      role: 'assistant',
+      content: expect.stringContaining('I am here'),
+    });
+  });
+
+  it('appends an error message when the operator engine throws synchronously', async () => {
+    const ledger = createLedger();
+    const service = new OperatorThreadService({ ledger, engine: new ThrowingOperatorEngine() });
+
+    const conversation = await service.sendMessage({ text: 'Please pull all repos' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const updated = ledger.getConversation(conversation.thread.id);
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      role: 'assistant',
+      content: expect.stringContaining('I could not complete that Operator request: engine exploded'),
+      rawJson: expect.objectContaining({
+        metadata: expect.objectContaining({
+          kind: 'operator-error',
+        }),
+      }),
+    }));
+  });
+
+  it('appends recovery notices to the global transcript', async () => {
+    const ledger = createLedger();
+    const service = new OperatorThreadService({ ledger, engine: null });
+    const thread = await service.getThread();
+
+    service.appendRecoveryNotice({
+      runId: 'run-1',
+      title: 'Implement in AI Orchestrator',
+      status: 'blocked',
+      message: 'Operator run recovery blocked: linked instance missing-instance is no longer active',
+    });
+
+    const conversation = ledger.getConversation(thread.thread.id);
+    expect(conversation.messages).toEqual([
+      expect.objectContaining({
+        role: 'assistant',
+        content: expect.stringContaining('Recovered run blocked: Implement in AI Orchestrator'),
+        rawJson: expect.objectContaining({
+          metadata: expect.objectContaining({
+            kind: 'operator-recovery',
+            operatorRunId: 'run-1',
+          }),
+        }),
+      }),
+    ]);
+  });
+
   function createLedger(): ConversationLedgerService {
     const ledger = new ConversationLedgerService({
       dbPath: ':memory:',
@@ -74,5 +135,11 @@ class FakeOperatorEngine {
   async handleUserMessage(input: { threadId: string; sourceMessageId: string; text: string }): Promise<null> {
     this.inputs.push(input);
     return null;
+  }
+}
+
+class ThrowingOperatorEngine {
+  handleUserMessage(): Promise<null> {
+    throw new Error('engine exploded');
   }
 }

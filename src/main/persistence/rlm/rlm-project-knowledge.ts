@@ -587,6 +587,7 @@ function parseSourceKind(value: string): ProjectKnowledgeSourceKind {
     || value === 'instruction_doc'
     || value === 'config'
     || value === 'code_file'
+    || value === 'operator_result'
   ) {
     return value;
   }

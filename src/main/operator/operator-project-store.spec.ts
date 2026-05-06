@@ -56,6 +56,24 @@ describe('OperatorProjectStore', () => {
     ]);
   });
 
+  it('persists scan roots so registry refreshes survive store recreation', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'operator-project-store-'));
+    tempPaths.push(tempDir);
+    const dbPath = path.join(tempDir, 'operator.db');
+    const db = openDb(dbPath);
+
+    const firstStore = new OperatorProjectStore(db);
+    firstStore.upsertScanRoot('/Users/suas/work', { source: 'manual' });
+
+    const secondStore = new OperatorProjectStore(db);
+    expect(secondStore.listScanRoots()).toEqual([
+      expect.objectContaining({
+        rootPath: '/Users/suas/work',
+        metadata: { source: 'manual' },
+      }),
+    ]);
+  });
+
   function openDb(dbPath: string): SqliteDriver {
     const db = defaultDriverFactory(dbPath);
     createOperatorTables(db);

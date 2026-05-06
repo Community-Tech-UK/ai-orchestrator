@@ -36,6 +36,18 @@ describe('ProjectAgentExecutor', () => {
       type: 'assistant',
       content: 'Implemented voice conversations and verified tests.',
     }];
+    settled.diffStats = {
+      totalAdded: 12,
+      totalDeleted: 3,
+      files: {
+        '/work/ai-orchestrator/src/main/voice.ts': {
+          path: '/work/ai-orchestrator/src/main/voice.ts',
+          status: 'modified',
+          added: 12,
+          deleted: 3,
+        },
+      },
+    };
     const instanceManager = {
       createInstance: vi.fn(async (config) => {
         const instance = createInstanceRecord(config);
@@ -89,6 +101,11 @@ describe('ProjectAgentExecutor', () => {
         instanceId: 'instance-1',
         finalStatus: 'idle',
         outputPreview: 'Implemented voice conversations and verified tests.',
+        changedFiles: ['/work/ai-orchestrator/src/main/voice.ts'],
+        diffStats: {
+          totalAdded: 12,
+          totalDeleted: 3,
+        },
       },
       error: null,
     });
@@ -154,6 +171,86 @@ describe('ProjectAgentExecutor', () => {
       nodeId: node.id,
       recoveryState: 'active',
     });
+    db.close();
+  });
+
+  it('passes operator routing decisions to the spawned worker', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const run = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Implement voice',
+      goal: 'Implement voice conversations',
+    });
+    const node = runStore.createNode({
+      runId: run.id,
+      type: 'project-agent',
+      title: 'AI Orchestrator worker',
+      targetProjectId: 'project-1',
+      targetPath: '/work/ai-orchestrator',
+    });
+    const instanceManager = {
+      createInstance: vi.fn(async (config) => {
+        const instance = createInstanceRecord(config);
+        instance.id = 'instance-routed';
+        instance.createdAt = 1;
+        return instance;
+      }),
+      waitForInstanceSettled: vi.fn(async (instanceId: string) => {
+        const settled = createInstanceRecord({
+          workingDirectory: '/work/ai-orchestrator',
+          provider: 'codex',
+        });
+        settled.id = instanceId;
+        settled.status = 'idle';
+        return settled;
+      }),
+    };
+    const executor = new ProjectAgentExecutor({ runStore, instanceManager });
+
+    await executor.execute({
+      run,
+      node,
+      project: projectRecord(),
+      goal: 'Implement voice conversations',
+      routing: {
+        provider: 'codex',
+        modelOverride: 'gpt-5.5',
+        reasoningEffort: 'high',
+        nodePlacement: {
+          requiresCli: 'codex',
+          requiresWorkingDirectory: '/work/ai-orchestrator',
+        },
+        audit: {
+          source: 'operator-routing',
+          reason: 'Implementation task routed to powerful Codex model',
+          remoteEligible: true,
+          memoryPromotionEligible: true,
+          automationFollowUpEligible: false,
+        },
+      },
+    });
+
+    expect(instanceManager.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      modelOverride: 'gpt-5.5',
+      reasoningEffort: 'high',
+      nodePlacement: {
+        requiresCli: 'codex',
+        requiresWorkingDirectory: '/work/ai-orchestrator',
+      },
+      metadata: expect.objectContaining({
+        operatorRouting: {
+          source: 'operator-routing',
+          reason: 'Implementation task routed to powerful Codex model',
+          remoteEligible: true,
+          memoryPromotionEligible: true,
+          automationFollowUpEligible: false,
+        },
+      }),
+    }));
     db.close();
   });
 });
