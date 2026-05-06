@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { OperatorRunGraph } from '../../shared/types/operator.types';
 import { ConversationLedgerService } from '../conversation-ledger';
 import { NativeConversationRegistry } from '../conversation-ledger/native-conversation-registry';
+import { defaultDriverFactory } from '../db/better-sqlite3-driver';
+import { createOperatorTables } from './operator-schema';
+import { OperatorRunStore } from './operator-run-store';
 import { OperatorThreadService } from './operator-thread-service';
 
 describe('OperatorThreadService', () => {
@@ -32,7 +35,7 @@ describe('OperatorThreadService', () => {
     const ledger = createLedger();
     const service = new OperatorThreadService({ ledger, engine: null });
 
-    const conversation = await service.sendMessage({ text: 'Pull all repos' });
+    const { conversation } = await service.sendMessage({ text: 'Pull all repos' });
 
     expect(conversation.messages).toHaveLength(1);
     expect(conversation.messages[0]).toMatchObject({
@@ -47,7 +50,7 @@ describe('OperatorThreadService', () => {
     const engine = new FakeOperatorEngine();
     const service = new OperatorThreadService({ ledger, engine });
 
-    const conversation = await service.sendMessage({ text: 'Please pull all repos' });
+    const { conversation } = await service.sendMessage({ text: 'Please pull all repos' });
 
     expect(engine.inputs).toEqual([
       {
@@ -58,12 +61,35 @@ describe('OperatorThreadService', () => {
     ]);
   });
 
+  it('returns the started operator run id with the visible conversation', async () => {
+    const ledger = createLedger();
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const engine = new RunCreatingOperatorEngine(runStore);
+    const service = new OperatorThreadService({ ledger, engine, runStore });
+
+    const result = await service.sendMessage({ text: 'Please pull all repos' });
+
+    expect(result.runId).toBe(engine.createdRunId);
+    expect(result.conversation).toMatchObject({
+      thread: { id: expect.any(String) },
+      messages: [
+        expect.objectContaining({ role: 'user', content: 'Please pull all repos' }),
+        expect.objectContaining({ role: 'assistant', content: expect.stringContaining('repository operation') }),
+      ],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    db.close();
+  });
+
   it('returns a visible Orchestrator acknowledgement when the engine is available', async () => {
     const ledger = createLedger();
     const engine = new FakeOperatorEngine();
     const service = new OperatorThreadService({ ledger, engine });
 
-    const conversation = await service.sendMessage({ text: 'hi' });
+    const { conversation } = await service.sendMessage({ text: 'hi' });
 
     expect(conversation.messages).toHaveLength(2);
     expect(conversation.messages[1]).toMatchObject({
@@ -94,7 +120,7 @@ describe('OperatorThreadService', () => {
       },
     });
 
-    const conversation = await service.sendMessage({ text: 'Please pull all repos' });
+    const { conversation } = await service.sendMessage({ text: 'Please pull all repos' });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -119,7 +145,7 @@ describe('OperatorThreadService', () => {
     const ledger = createLedger();
     const service = new OperatorThreadService({ ledger, engine: new ThrowingOperatorEngine() });
 
-    const conversation = await service.sendMessage({ text: 'Please pull all repos' });
+    const { conversation } = await service.sendMessage({ text: 'Please pull all repos' });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -225,5 +251,22 @@ class CompletingOperatorEngine {
       nodes: [],
       events: [],
     };
+  }
+}
+
+class RunCreatingOperatorEngine {
+  createdRunId: string | null = null;
+
+  constructor(private readonly runStore: OperatorRunStore) {}
+
+  async handleUserMessage(input: { threadId: string; sourceMessageId: string; text: string }): Promise<OperatorRunGraph> {
+    const run = this.runStore.createRun({
+      threadId: input.threadId,
+      sourceMessageId: input.sourceMessageId,
+      title: 'Pull repositories',
+      goal: input.text,
+    });
+    this.createdRunId = run.id;
+    return { run, nodes: [], events: [] };
   }
 }

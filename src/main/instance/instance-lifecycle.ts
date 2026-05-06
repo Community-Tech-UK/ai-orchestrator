@@ -84,6 +84,7 @@ import { InstanceTerminationCoordinator } from './lifecycle/instance-termination
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
+import { getMcpManager } from '../mcp/mcp-manager';
 import {
   buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath,
@@ -1314,6 +1315,27 @@ export class InstanceLifecycleManager extends EventEmitter {
               error: err instanceof Error ? err.message : String(err),
               workingDirectory: instance.workingDirectory,
             });
+          });
+        }
+
+        try {
+          const mcpManager = getMcpManager();
+          const runtimeToolContext = await mcpManager.getRuntimeToolContext({
+            query: config.initialPrompt,
+            maxTools: 6,
+          });
+          const mcpPrompt = mcpManager.formatRuntimeToolContext(runtimeToolContext);
+          if (mcpPrompt) {
+            systemPrompt = `${systemPrompt}\n\n---\n\n${mcpPrompt}`;
+            logger.info('Injected deferred MCP runtime tool context into system prompt', {
+              selectedTools: runtimeToolContext.selectedTools.length,
+              deferredToolCount: runtimeToolContext.deferredToolCount,
+              serverCount: runtimeToolContext.serverSummaries.length,
+            });
+          }
+        } catch (err) {
+          logger.warn('Failed to inject MCP runtime tool context', {
+            error: err instanceof Error ? err.message : String(err),
           });
         }
 

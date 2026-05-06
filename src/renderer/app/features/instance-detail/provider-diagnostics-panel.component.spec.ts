@@ -71,6 +71,11 @@ describe('ProviderDiagnosticsPanelComponent', () => {
       inputTokens: 60,
       outputTokens: 20,
       promptWeight: 0.75,
+      promptWeightBreakdown: {
+        systemPrompt: 35,
+        mcpToolDescriptions: 12,
+        skills: 8,
+      },
     }));
     fixture.detectChanges();
 
@@ -82,6 +87,9 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     expect(text).toContain('80%');
     expect(text).toContain('60 in / 20 out');
     expect(text).toContain('75% prompt');
+    expect(text).toContain('system 35');
+    expect(text).toContain('MCP tools 12');
+    expect(text).toContain('skills 8');
   });
 
   it('ignores diagnostics from other instances and hides absent fields', () => {
@@ -96,5 +104,22 @@ describe('ProviderDiagnosticsPanelComponent', () => {
     expect(text).not.toContain('req_other');
     expect(text).not.toContain('stop_other');
     expect(text).not.toContain('Request');
+  });
+
+  it('clears event diagnostics when switching to another instance', () => {
+    events.next(makeEnvelope({
+      kind: 'complete',
+      requestId: 'req_inst_1',
+      stopReason: 'end_turn',
+    }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('req_inst_1');
+
+    fixture.componentInstance.instanceId = 'inst-2';
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).not.toContain('req_inst_1');
+    expect(text).not.toContain('end_turn');
   });
 });

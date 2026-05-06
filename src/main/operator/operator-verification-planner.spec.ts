@@ -23,15 +23,35 @@ describe('planProjectVerification', () => {
       },
     }), 'utf-8');
     await fs.writeFile(path.join(projectPath, 'tsconfig.json'), '{}', 'utf-8');
+    await fs.writeFile(path.join(projectPath, 'tsconfig.spec.json'), '{}', 'utf-8');
 
     const plan = await planProjectVerification(projectPath);
 
     expect(plan.kinds).toEqual(['node', 'typescript']);
     expect(plan.checks).toEqual([
       expect.objectContaining({ label: 'typecheck', command: 'npm', args: ['run', 'typecheck'], required: true }),
+      expect.objectContaining({ label: 'spec-typecheck', command: 'npx', args: ['tsc', '--noEmit', '-p', 'tsconfig.spec.json'], required: true }),
       expect.objectContaining({ label: 'test', command: 'npm', args: ['test', '--', '--run', '--watch=false'], required: true }),
       expect.objectContaining({ label: 'lint', command: 'npm', args: ['run', 'lint'], required: false }),
     ]);
+  });
+
+  it('adds project spec typechecking when the npm typecheck script does not cover specs', async () => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'operator-verify-spec-ts-'));
+    tempPaths.push(projectPath);
+    await fs.writeFile(path.join(projectPath, 'package.json'), JSON.stringify({
+      scripts: {
+        typecheck: 'tsc --noEmit',
+      },
+    }), 'utf-8');
+    await fs.writeFile(path.join(projectPath, 'tsconfig.json'), '{}', 'utf-8');
+    await fs.writeFile(path.join(projectPath, 'tsconfig.spec.json'), '{}', 'utf-8');
+
+    const plan = await planProjectVerification(projectPath);
+
+    expect(plan.checks).toContainEqual(
+      expect.objectContaining({ label: 'spec-typecheck', command: 'npx', args: ['tsc', '--noEmit', '-p', 'tsconfig.spec.json'], required: true }),
+    );
   });
 
   it('detects non-Node project types in documented priority order', async () => {
@@ -49,6 +69,24 @@ describe('planProjectVerification', () => {
     await expect(planProjectVerification(goPath)).resolves.toMatchObject({
       kinds: ['go'],
       checks: [expect.objectContaining({ command: 'go', args: ['test', './...'], required: true })],
+    });
+  });
+
+  it('detects Gradle and requirements.txt projects', async () => {
+    const gradlePath = await fs.mkdtemp(path.join(os.tmpdir(), 'operator-verify-gradle-'));
+    const pythonPath = await fs.mkdtemp(path.join(os.tmpdir(), 'operator-verify-requirements-'));
+    tempPaths.push(gradlePath, pythonPath);
+    await fs.writeFile(path.join(gradlePath, 'build.gradle'), 'plugins { id "java" }\n', 'utf-8');
+    await fs.writeFile(path.join(gradlePath, 'gradlew'), '#!/bin/sh\n', 'utf-8');
+    await fs.writeFile(path.join(pythonPath, 'requirements.txt'), 'pytest\n', 'utf-8');
+
+    await expect(planProjectVerification(gradlePath)).resolves.toMatchObject({
+      kinds: ['gradle'],
+      checks: [expect.objectContaining({ command: './gradlew', args: ['test'], required: true })],
+    });
+    await expect(planProjectVerification(pythonPath)).resolves.toMatchObject({
+      kinds: ['python'],
+      checks: [expect.objectContaining({ command: 'python', args: ['-m', 'pytest'], required: true })],
     });
   });
 

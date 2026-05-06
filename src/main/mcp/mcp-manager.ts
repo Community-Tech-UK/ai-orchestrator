@@ -15,7 +15,11 @@ import { getSafeEnvForTrustedProcess } from '../security/env-filter';
 import { registerCleanup } from '../util/cleanup-registry';
 import { SseTransport } from './transports/sse-transport';
 import { HttpTransport } from './transports/http-transport';
-import { getMCPToolSearchService } from './mcp-tool-search';
+import {
+  getMCPToolSearchService,
+  type MCPServerSummary,
+  type MCPTool,
+} from './mcp-tool-search';
 
 const logger = getLogger('McpManager');
 import {
@@ -92,6 +96,19 @@ interface ServerConnection {
   buffer: string;
 }
 
+export interface McpRuntimeToolContextOptions {
+  query?: string;
+  maxTools?: number;
+}
+
+export interface McpRuntimeToolContext {
+  serverSummaries: MCPServerSummary[];
+  selectedTools: MCPTool[];
+  loadedToolIds: string[];
+  deferredToolCount: number;
+  query: string | null;
+}
+
 export class McpManager extends EventEmitter {
   private connections: Map<string, ServerConnection> = new Map();
   private tools: Map<string, McpTool> = new Map();
@@ -119,11 +136,9 @@ export class McpManager extends EventEmitter {
     // Local/explicit config wins over duplicates (first registration wins).
     if (config.command) {
       const argsKey = JSON.stringify(config.args || []);
-      const envKey = config.env ? JSON.stringify(Object.keys(config.env).sort()) : '';
+      const envKey = envSignature(config.env);
       for (const existing of this.connections.values()) {
-        const existingEnvKey = existing.config.env
-          ? JSON.stringify(Object.keys(existing.config.env).sort())
-          : '';
+        const existingEnvKey = envSignature(existing.config.env);
         if (
           existing.config.command === config.command &&
           JSON.stringify(existing.config.args || []) === argsKey &&
@@ -214,9 +229,18 @@ export class McpManager extends EventEmitter {
       });
       this.emit('server:phase', serverId, 'ready', 'succeeded');
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      try {
+        await this.disconnect(serverId);
+      } catch (cleanupError) {
+        logger.warn('Failed to clean up MCP connection after connect failure', {
+          serverId,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      }
       connection.config.status = 'error';
-      connection.config.error = (error as Error).message;
-      this.emit('server:error', serverId, (error as Error).message);
+      connection.config.error = message;
+      this.emit('server:error', serverId, message);
       throw error;
     }
   }
@@ -431,6 +455,72 @@ export class McpManager extends EventEmitter {
    */
   getServers(): McpServerConfig[] {
     return Array.from(this.connections.values()).map((c) => c.config);
+  }
+
+  async getRuntimeToolContext(options: McpRuntimeToolContextOptions = {}): Promise<McpRuntimeToolContext> {
+    const search = getMCPToolSearchService();
+    const query = options.query?.trim() || null;
+    const maxTools = Math.max(0, Math.min(options.maxTools ?? 6, 20));
+    const serverSummaries = search.getServerSummaries();
+    const selectedToolIds: string[] = [];
+
+    if (query && maxTools > 0) {
+      const results = search.search({
+        query,
+        maxResults: maxTools,
+        minScore: 0.1,
+      });
+      await Promise.all(results.map((result) => search.loadTool(result.tool.id)));
+      for (const result of results) {
+        selectedToolIds.push(result.tool.id);
+      }
+    } else if (!query && maxTools > 0) {
+      selectedToolIds.push(...search.getLoadedTools().map((tool) => tool.id).slice(0, maxTools));
+    }
+
+    const selectedTools = selectedToolIds
+      .map((toolId) => search.getTool(toolId))
+      .filter((tool): tool is MCPTool => tool !== undefined)
+      .slice(0, maxTools);
+    const deferredToolCount = Math.max(0, search.getAllTools().length - selectedTools.length);
+
+    return {
+      serverSummaries,
+      selectedTools,
+      loadedToolIds: selectedTools.map((tool) => tool.id),
+      deferredToolCount,
+      query,
+    };
+  }
+
+  formatRuntimeToolContext(context: McpRuntimeToolContext): string | null {
+    if (context.serverSummaries.length === 0 && context.selectedTools.length === 0) {
+      return null;
+    }
+
+    const lines = [
+      '[MCP Runtime Tool Context]',
+      'Connected MCP servers are summarized here. Detailed tool descriptions are included only for tools selected as relevant to the current prompt.',
+      '',
+    ];
+    if (context.serverSummaries.length > 0) {
+      lines.push('Servers:');
+      for (const summary of context.serverSummaries) {
+        lines.push(`- ${summary.serverName}: ${summary.toolCount} tools, ${summary.resourceCount} resources. ${summary.searchHint}`);
+      }
+      lines.push('');
+    }
+    if (context.selectedTools.length > 0) {
+      lines.push(context.query ? `Selected tools for query "${context.query}":` : 'Loaded MCP tools:');
+      for (const tool of context.selectedTools) {
+        lines.push(`- ${tool.serverName}/${tool.name}: ${tool.description || 'No description provided.'}`);
+      }
+      lines.push('');
+    }
+    if (context.deferredToolCount > 0) {
+      lines.push(`${context.deferredToolCount} additional MCP tools are deferred from the prompt to reduce context weight.`);
+    }
+    return lines.join('\n').trim();
   }
 
   // ============================================
@@ -924,4 +1014,11 @@ export function getMcpManager(): McpManager {
     mcpManager = new McpManager();
   }
   return mcpManager;
+}
+
+function envSignature(env: Record<string, string> | undefined): string {
+  if (!env) {
+    return '';
+  }
+  return JSON.stringify(Object.entries(env).sort(([left], [right]) => left.localeCompare(right)));
 }

@@ -216,6 +216,45 @@ describe('OperatorEngine', () => {
     db.close();
   });
 
+  it('fails and finalizes git-batch runs when the executor throws', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: {
+        async pullAll() {
+          throw new Error('repository discovery failed');
+        },
+      },
+      resolveWorkRoot: () => '/work',
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'Please pull all the repos in my work folder',
+    });
+
+    expect(graph?.run).toMatchObject({
+      status: 'failed',
+      error: 'repository discovery failed',
+    });
+    expect(graph?.nodes).toEqual([
+      expect.objectContaining({
+        type: 'git-batch',
+        status: 'failed',
+        outputJson: { error: 'repository discovery failed' },
+        error: 'repository discovery failed',
+      }),
+      expect.objectContaining({
+        type: 'synthesis',
+        status: 'completed',
+      }),
+    ]);
+    db.close();
+  });
+
   it('routes in-project implementation requests to a project-agent executor', async () => {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);
@@ -670,6 +709,52 @@ describe('OperatorEngine', () => {
       }),
     ]);
     expect(verificationExecutor.calls).toHaveLength(0);
+    db.close();
+  });
+
+  it('fails and finalizes the run when verification executor throws', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: {
+        async execute() {
+          throw new Error('verification process failed');
+        },
+      },
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'In AI Orchestrator, add retry support',
+    });
+
+    expect(graph?.run).toMatchObject({
+      status: 'failed',
+      error: 'verification process failed',
+    });
+    expect(graph?.nodes).toEqual([
+      expect.objectContaining({
+        type: 'project-agent',
+        status: 'completed',
+      }),
+      expect.objectContaining({
+        type: 'verification',
+        status: 'failed',
+        outputJson: { error: 'verification process failed' },
+        error: 'verification process failed',
+      }),
+      expect.objectContaining({
+        type: 'synthesis',
+        status: 'completed',
+      }),
+    ]);
     db.close();
   });
 
@@ -1202,6 +1287,61 @@ describe('OperatorEngine', () => {
     db.close();
   });
 
+  it('creates project runs before an unresolved project registry refresh completes', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord({
+      id: 'project-dingley',
+      canonicalPath: '/work/Dingley',
+      displayName: 'Dingley',
+      aliases: ['Dingley'],
+    });
+    const projectRegistry = new DeferredRefreshingProjectRegistry(project);
+    const repoJob = new FakeRepoJobExecutor();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry,
+      projectAgent: new FakeProjectAgentExecutor(),
+      verificationExecutor: new FakeVerificationExecutor([passedVerification()], runStore),
+      repoJob,
+    });
+
+    const graphPromise = engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'can you do some work in the dingley plroject',
+    });
+    await projectRegistry.refreshStarted;
+
+    const startedRun = runStore.findRunBySourceMessage('thread-1', 'message-1');
+    expect(startedRun).toMatchObject({
+      status: 'queued',
+      title: 'Audit dingley',
+      planJson: expect.objectContaining({
+        intent: 'project_audit',
+        projectQuery: 'dingley',
+        resolvedStatus: 'not_found',
+      }),
+    });
+
+    projectRegistry.releaseRefresh();
+    const graph = await graphPromise;
+
+    expect(graph?.run.id).toBe(startedRun?.id);
+    expect(graph?.run).toMatchObject({
+      status: 'completed',
+      title: 'Audit Dingley',
+      planJson: expect.objectContaining({
+        resolvedStatus: 'resolved',
+        projectId: 'project-dingley',
+        projectPath: '/work/Dingley',
+      }),
+    });
+    db.close();
+  });
+
   it('cancels an active run and marks active external workers cancelled', async () => {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);
@@ -1351,6 +1491,56 @@ describe('OperatorEngine', () => {
       payload: expect.objectContaining({
         reason: 'stale-instance-link',
         instanceId: 'missing-instance',
+      }),
+    }));
+    db.close();
+  });
+
+  it('uses persisted instance links as recovery source of truth when node refs are incomplete', () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const instanceManager = new FakeRecoveryInstanceManager();
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      instanceManager,
+    });
+    const run = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Recovered linked run',
+      goal: 'In AI Orchestrator, add recovery',
+      planJson: { intent: 'project_feature' },
+    });
+    const node = runStore.createNode({
+      runId: run.id,
+      type: 'project-agent',
+      title: 'Lost worker',
+    });
+    runStore.updateRun(run.id, { status: 'running', usageJson: { nodesStarted: 1 } });
+    runStore.updateNode(node.id, { status: 'running' });
+    runStore.upsertInstanceLink({
+      instanceId: 'missing-linked-instance',
+      runId: run.id,
+      nodeId: node.id,
+    });
+
+    const recovered = (engine as OperatorEngine & {
+      recoverActiveRuns(): OperatorRunGraph[];
+    }).recoverActiveRuns();
+
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]?.run).toMatchObject({
+      status: 'blocked',
+      error: 'Operator run recovery blocked: linked instance missing-linked-instance is no longer active',
+    });
+    expect(runStore.getInstanceLink('missing-linked-instance')?.recoveryState).toBe('stale');
+    expect(recovered[0]?.events).toContainEqual(expect.objectContaining({
+      kind: 'recovery',
+      payload: expect.objectContaining({
+        reason: 'stale-instance-link',
+        instanceId: 'missing-linked-instance',
       }),
     }));
     db.close();
@@ -1778,6 +1968,52 @@ class RefreshingProjectRegistry {
     this.refreshCalls += 1;
     this.refreshed = true;
     return [this.project];
+  }
+}
+
+class DeferredRefreshingProjectRegistry {
+  refreshCalls = 0;
+  readonly refreshStarted: Promise<void>;
+  private refreshed = false;
+  private readonly refreshGate: Promise<void>;
+  private markRefreshStarted!: () => void;
+  private resolveRefreshGate!: () => void;
+
+  constructor(private readonly project: OperatorProjectRecord) {
+    this.refreshStarted = new Promise((resolve) => {
+      this.markRefreshStarted = resolve;
+    });
+    this.refreshGate = new Promise((resolve) => {
+      this.resolveRefreshGate = resolve;
+    });
+  }
+
+  resolveProject(query: string) {
+    return this.refreshed
+      ? {
+        status: 'resolved' as const,
+        query,
+        project: this.project,
+        candidates: [this.project],
+      }
+      : {
+        status: 'not_found' as const,
+        query,
+        project: null,
+        candidates: [],
+      };
+  }
+
+  async refreshProjects(): Promise<OperatorProjectRecord[]> {
+    this.refreshCalls += 1;
+    this.markRefreshStarted();
+    await this.refreshGate;
+    this.refreshed = true;
+    return [this.project];
+  }
+
+  releaseRefresh(): void {
+    this.resolveRefreshGate();
   }
 }
 

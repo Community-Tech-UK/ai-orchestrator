@@ -29,6 +29,15 @@ const ProviderQuotaDiagnosticsSchema = z.object({
   message: z.string().optional(),
 });
 
+const ProviderPromptWeightBreakdownSchema = z.object({
+  systemPrompt: z.number().nonnegative().optional(),
+  mcpToolDescriptions: z.number().nonnegative().optional(),
+  skills: z.number().nonnegative().optional(),
+  plugins: z.number().nonnegative().optional(),
+  userPrompt: z.number().nonnegative().optional(),
+  other: z.number().nonnegative().optional(),
+});
+
 const ProviderApiDiagnosticsSchema = {
   requestId: z.string().min(1).max(300).optional(),
   stopReason: z.string().min(1).max(300).optional(),
@@ -78,6 +87,7 @@ const ProviderContextEventSchema = z.object({
   outputTokens: z.number().int().nonnegative().optional(),
   source: z.string().min(1).max(100).optional(),
   promptWeight: z.number().nonnegative().optional(),
+  promptWeightBreakdown: ProviderPromptWeightBreakdownSchema.optional(),
 });
 
 const ProviderErrorEventSchema = z.object({
@@ -126,6 +136,7 @@ export const ProviderRuntimeEventEnvelopeSchema = z.object({
   provider: ProviderNameSchema,
   instanceId: z.string().min(1),
   sessionId: z.string().optional(),
+  model: z.string().min(1).max(300).optional(),
   adapterGeneration: z.number().int().nonnegative().optional(),
   turnId: z.string().optional(),
   event: ProviderRuntimeEventSchema,

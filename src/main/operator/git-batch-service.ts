@@ -54,11 +54,14 @@ export class GitBatchService {
         })
         : undefined,
     });
-    let branch = vcs.getCurrentBranch();
-    let upstream = vcs.getUpstreamBranch();
-    let status = vcs.getStatus();
+    let branch: string | null = null;
+    let upstream: string | null = null;
+    let status = { ahead: 0, behind: 0, isClean: true };
 
     try {
+      branch = vcs.getCurrentBranch();
+      upstream = vcs.getUpstreamBranch();
+      status = vcs.getStatus();
       const remotes = vcs.getRemotes().filter((remote) => remote.type === 'fetch');
       if (remotes.length === 0) {
         return skipped(repositoryPath, 'no_remote', branch, upstream, status, startedAt);

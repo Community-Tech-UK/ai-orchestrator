@@ -156,8 +156,11 @@ export class OperatorStore {
     try {
       const response = await this.ipc.sendMessage({ text: trimmed });
       if (response.success && response.data) {
-        this._conversation.set(response.data);
+        this._conversation.set(response.data.conversation);
         await this.loadRuns();
+        if (response.data.runId) {
+          await this.loadRunGraph(response.data.runId);
+        }
       } else {
         this._error.set(response.error?.message ?? 'Failed to send message');
       }

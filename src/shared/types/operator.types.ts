@@ -1,3 +1,4 @@
+import type { ConversationLedgerConversation } from './conversation-ledger.types';
 import type { InstanceProvider } from './instance.types';
 import type { ReasoningEffort } from './provider.types';
 import type { NodePlacementPrefs } from './worker-node.types';
@@ -145,6 +146,7 @@ export type OperatorVerificationProjectKind =
   | 'typescript'
   | 'rust'
   | 'maven'
+  | 'gradle'
   | 'go'
   | 'python'
   | 'unknown';
@@ -296,4 +298,9 @@ export interface OperatorRunGraph {
   run: OperatorRunRecord;
   nodes: OperatorRunNodeRecord[];
   events: OperatorRunEventRecord[];
+}
+
+export interface OperatorSendMessageResult {
+  conversation: ConversationLedgerConversation;
+  runId: string | null;
 }

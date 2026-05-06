@@ -114,6 +114,7 @@ describe('otel-spans', () => {
       timestamp: 1_717_000_000_000,
       provider: 'claude',
       instanceId: 'inst-1',
+      model: 'claude-sonnet-4-5',
       event: {
         kind: 'complete',
         requestId: 'req_123',
@@ -128,6 +129,7 @@ describe('otel-spans', () => {
     const span = spans.find((candidate) => candidate.name === 'provider.runtime_event');
 
     expect(span?.attributes['ai.provider.request_id']).toBe('req_123');
+    expect(span?.attributes['ai.provider.model']).toBe('claude-sonnet-4-5');
     expect(span?.attributes['ai.provider.stop_reason']).toBe('end_turn');
     expect(span?.attributes['ai.provider.rate_limit.remaining']).toBe(0);
     expect(span?.attributes['ai.provider.quota.exhausted']).toBe(true);

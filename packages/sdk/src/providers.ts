@@ -1,5 +1,7 @@
 // Re-export the normalized runtime event contract from @contracts.
 // SDK consumers should prefer these types for new integrations.
+import type { ProviderPromptWeightBreakdown } from '@contracts/types/provider-runtime-events';
+
 export type {
   ProviderRuntimeEvent,
   ProviderRuntimeEventEnvelope,
@@ -15,6 +17,7 @@ export type {
   ProviderCompleteEvent,
   ProviderRateLimitDiagnostics,
   ProviderQuotaDiagnostics,
+  ProviderPromptWeightBreakdown,
 } from '@contracts/types/provider-runtime-events';
 
 export type ProviderType =
@@ -135,6 +138,7 @@ export interface ProviderContextUsage {
   outputTokens?: number;
   source?: string;
   promptWeight?: number;
+  promptWeightBreakdown?: ProviderPromptWeightBreakdown;
   costEstimate?: number;
 }
 

@@ -73,6 +73,16 @@ export interface ProviderQuotaDiagnostics {
   message?: string;
 }
 
+/** Estimated prompt/input token attribution for diagnostics. */
+export interface ProviderPromptWeightBreakdown {
+  systemPrompt?: number;
+  mcpToolDescriptions?: number;
+  skills?: number;
+  plugins?: number;
+  userPrompt?: number;
+  other?: number;
+}
+
 // ============================================
 // Event Payload Types
 // ============================================
@@ -148,6 +158,8 @@ export interface ProviderContextEvent {
   source?: string;
   /** Share of the context window attributable to prompt/input tokens. */
   promptWeight?: number;
+  /** Estimated token attribution for prompt/input sources. */
+  promptWeightBreakdown?: ProviderPromptWeightBreakdown;
 }
 
 /** Provider-level error. */
@@ -246,6 +258,8 @@ export interface ProviderRuntimeEventEnvelope {
   readonly provider: ProviderName;
   readonly instanceId: string;
   readonly sessionId?: string;
+  /** Resolved model identifier used by this provider event, if known. */
+  readonly model?: string;
   /** Monotonic adapter-listener generation for stale-event suppression. */
   readonly adapterGeneration?: number;
   /** Provider-native turn ID associated with this event, when known. */

@@ -9,6 +9,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type {
   ProviderQuotaDiagnostics,
+  ProviderPromptWeightBreakdown,
   ProviderRateLimitDiagnostics,
   ProviderRuntimeEvent,
 } from '@contracts/types/provider-runtime-events';
@@ -28,6 +29,7 @@ interface ProviderDiagnosticsSnapshot {
     outputTokens?: number;
     source?: string;
     promptWeight?: number;
+    promptWeightBreakdown?: ProviderPromptWeightBreakdown;
   };
 }
 
@@ -113,7 +115,11 @@ export class ProviderDiagnosticsPanelComponent {
 
   @Input()
   set instanceId(value: string) {
-    this.instanceIdValue.set(value ?? '');
+    const next = value ?? '';
+    if (next !== this.instanceIdValue()) {
+      this.snapshot.set({});
+    }
+    this.instanceIdValue.set(next);
   }
 
   @Input()
@@ -182,6 +188,7 @@ export class ProviderDiagnosticsPanelComponent {
           outputTokens: event.outputTokens,
           source: event.source,
           promptWeight: event.promptWeight,
+          promptWeightBreakdown: event.promptWeightBreakdown,
         },
       }));
       return;
@@ -216,6 +223,7 @@ export class ProviderDiagnosticsPanelComponent {
         outputTokens: usage.outputTokens,
         source: usage.source,
         promptWeight: usage.promptWeight,
+        promptWeightBreakdown: usage.promptWeightBreakdown,
       },
     };
   }
@@ -246,7 +254,21 @@ export class ProviderDiagnosticsPanelComponent {
     if (context.promptWeight !== undefined) {
       parts.push(`${Math.round(context.promptWeight * 100)}% prompt`);
     }
+    if (context.promptWeightBreakdown !== undefined) {
+      parts.push(this.formatPromptWeightBreakdown(context.promptWeightBreakdown));
+    }
     return parts.join(' - ');
+  }
+
+  private formatPromptWeightBreakdown(breakdown: ProviderPromptWeightBreakdown): string {
+    const parts: string[] = [];
+    if (breakdown.systemPrompt !== undefined) parts.push(`system ${Math.round(breakdown.systemPrompt)}`);
+    if (breakdown.mcpToolDescriptions !== undefined) parts.push(`MCP tools ${Math.round(breakdown.mcpToolDescriptions)}`);
+    if (breakdown.skills !== undefined) parts.push(`skills ${Math.round(breakdown.skills)}`);
+    if (breakdown.plugins !== undefined) parts.push(`plugins ${Math.round(breakdown.plugins)}`);
+    if (breakdown.userPrompt !== undefined) parts.push(`user ${Math.round(breakdown.userPrompt)}`);
+    if (breakdown.other !== undefined) parts.push(`other ${Math.round(breakdown.other)}`);
+    return parts.join(', ');
   }
 
   private formatTime(timestamp: number): string {

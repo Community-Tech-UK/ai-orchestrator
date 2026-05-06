@@ -38,6 +38,7 @@ import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 
 class FakeAdapter extends EventEmitter {
   sendInput = vi.fn().mockResolvedValue(undefined);
+  terminate = vi.fn().mockResolvedValue(undefined);
   currentTurnId: string | null = null;
 
   constructor(private readonly adapterName: string) {
@@ -221,6 +222,30 @@ describe('InstanceCommunicationManager', () => {
       outputTokens: 20,
       source: 'provider-usage',
       promptWeight: 0.75,
+    }, undefined);
+  });
+
+  it('preserves provider diagnostics from adapter error objects', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const error = Object.assign(new Error('Rate limited'), {
+      requestId: 'req_error_123',
+      stopReason: 'rate_limit',
+      rateLimit: { remaining: 0, resetAt: 1_717_000_060_000 },
+      quota: { exhausted: true, message: 'quota exhausted' },
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('error', error);
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(instance.id, {
+      kind: 'error',
+      message: 'Rate limited',
+      recoverable: false,
+      requestId: 'req_error_123',
+      stopReason: 'rate_limit',
+      rateLimit: { remaining: 0, resetAt: 1_717_000_060_000 },
+      quota: { exhausted: true, message: 'quota exhausted' },
     }, undefined);
   });
 

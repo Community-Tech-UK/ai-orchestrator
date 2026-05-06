@@ -5,6 +5,7 @@ import { toProviderOutputEvent } from './provider-output-event';
 import type { ContextUsage, OutputMessage } from '../../shared/types/instance.types';
 import type {
   ProviderQuotaDiagnostics,
+  ProviderPromptWeightBreakdown,
   ProviderRateLimitDiagnostics,
   ProviderRuntimeEvent,
 } from '@contracts/types/provider-runtime-events';
@@ -120,6 +121,7 @@ export function observeAdapterRuntimeEvents(
       ...(normalized.outputTokens !== undefined ? { outputTokens: normalized.outputTokens } : {}),
       ...(normalized.source !== undefined ? { source: normalized.source } : {}),
       ...(normalized.promptWeight !== undefined ? { promptWeight: normalized.promptWeight } : {}),
+      ...(normalized.promptWeightBreakdown !== undefined ? { promptWeightBreakdown: normalized.promptWeightBreakdown } : {}),
     }, normalized);
   };
 
@@ -271,6 +273,13 @@ function normalizeContextUsage(usage: unknown): ContextUsage | null {
     normalized.promptWeight = promptWeight;
   }
 
+  const promptWeightBreakdown = normalizePromptWeightBreakdown(
+    usageRecord['promptWeightBreakdown'] ?? usageRecord['prompt_weight_breakdown'],
+  );
+  if (promptWeightBreakdown !== undefined) {
+    normalized.promptWeightBreakdown = promptWeightBreakdown;
+  }
+
   if (typeof usageRecord['costEstimate'] === 'number') {
     normalized.costEstimate = usageRecord['costEstimate'];
   }
@@ -280,6 +289,28 @@ function normalizeContextUsage(usage: unknown): ContextUsage | null {
   }
 
   return normalized;
+}
+
+function normalizePromptWeightBreakdown(value: unknown): ProviderPromptWeightBreakdown | undefined {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+  if (!record) {
+    return undefined;
+  }
+
+  const breakdown: ProviderPromptWeightBreakdown = {};
+  const systemPrompt = readNumber(record, ['systemPrompt', 'system_prompt']);
+  const mcpToolDescriptions = readNumber(record, ['mcpToolDescriptions', 'mcp_tool_descriptions']);
+  const skills = readNumber(record, ['skills']);
+  const plugins = readNumber(record, ['plugins']);
+  const userPrompt = readNumber(record, ['userPrompt', 'user_prompt']);
+  const other = readNumber(record, ['other']);
+  if (systemPrompt !== undefined) breakdown.systemPrompt = systemPrompt;
+  if (mcpToolDescriptions !== undefined) breakdown.mcpToolDescriptions = mcpToolDescriptions;
+  if (skills !== undefined) breakdown.skills = skills;
+  if (plugins !== undefined) breakdown.plugins = plugins;
+  if (userPrompt !== undefined) breakdown.userPrompt = userPrompt;
+  if (other !== undefined) breakdown.other = other;
+  return Object.keys(breakdown).length > 0 ? breakdown : undefined;
 }
 
 function definedNumberField<K extends string>(key: K, value: number | undefined): Partial<Record<K, number>> {

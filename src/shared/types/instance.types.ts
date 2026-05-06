@@ -121,6 +121,15 @@ export interface ContextUsage {
   source?: string;
   /** Share of the context window attributable to prompt/input tokens. */
   promptWeight?: number;
+  /** Estimated token attribution for prompt/input sources. */
+  promptWeightBreakdown?: {
+    systemPrompt?: number;
+    mcpToolDescriptions?: number;
+    skills?: number;
+    plugins?: number;
+    userPrompt?: number;
+    other?: number;
+  };
   costEstimate?: number;
   /**
    * When true, `used` is an estimate derived from aggregate turn tokens

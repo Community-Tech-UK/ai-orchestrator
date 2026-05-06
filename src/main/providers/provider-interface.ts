@@ -72,6 +72,7 @@ export abstract class BaseProvider implements ProviderAdapter {
       provider: this.provider,
       instanceId: this.instanceId,
       sessionId: this.sessionId || undefined,
+      model: this.getDiagnosticsModel(),
       event,
     };
     if (process.env['NODE_ENV'] !== 'production') {
@@ -130,6 +131,10 @@ export abstract class BaseProvider implements ProviderAdapter {
   }
   protected pushComplete(params: { tokensUsed?: number; costUsd?: number; durationMs?: number } = {}): void {
     this.pushEvent({ kind: 'complete', ...params });
+  }
+
+  protected getDiagnosticsModel(): string | undefined {
+    return this.config.defaultModel;
   }
 
   protected completeEvents(): void {

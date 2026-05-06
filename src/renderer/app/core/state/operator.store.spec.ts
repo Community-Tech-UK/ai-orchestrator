@@ -341,7 +341,10 @@ class FakeOperatorIpcService {
     };
     return {
       success: true,
-      data: this.conversation,
+      data: {
+        conversation: this.conversation,
+        runId: 'run-1',
+      },
     };
   }
 

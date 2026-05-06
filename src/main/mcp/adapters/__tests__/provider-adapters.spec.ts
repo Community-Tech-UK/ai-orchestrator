@@ -99,6 +99,60 @@ describe('provider MCP adapters', () => {
     expect(stripped).not.toContain('API_KEY');
   });
 
+  it('Codex TOML editor strips deeply-nested MCP sub-tables (e.g. tools.<name> per-tool approval)', () => {
+    // Regression: Codex CLI 0.128+ supports `[mcp_servers.<name>.tools.<X>]`
+    // approval tables. Without this, stripMcpServers left the orphan sub-table
+    // behind, which Codex parsed as an implicit server with no transport and
+    // rejected with "invalid transport in mcp_servers.<name>".
+    const editor = new CodexTomlEditor();
+    const input = [
+      'model = "gpt-5"',
+      '',
+      '[mcp_servers.claude-code]',
+      'command = "/usr/local/bin/claude"',
+      'args = ["mcp", "serve"]',
+      '',
+      '[mcp_servers.claude-code.tools.Read]',
+      'approval_mode = "approve"',
+      '',
+      '[mcp_servers.claude-code.tools.Write]',
+      'approval_mode = "approve"',
+      '',
+      '[profiles.default]',
+      'approval = "never"',
+    ].join('\n');
+
+    const stripped = editor.stripMcpServers(input);
+    expect(stripped).not.toContain('mcp_servers.claude-code');
+    expect(stripped).not.toContain('approval_mode');
+    expect(stripped).toContain('[profiles.default]');
+
+    const deleted = editor.deleteMcpServer(input, 'claude-code');
+    expect(deleted).not.toContain('mcp_servers.claude-code');
+    expect(deleted).not.toContain('approval_mode');
+    expect(deleted).toContain('[profiles.default]');
+  });
+
+  it('Codex TOML editor handles quoted server names with nested sub-tables', () => {
+    const editor = new CodexTomlEditor();
+    const input = [
+      'model = "gpt-5"',
+      '',
+      '[mcp_servers."with-dash"]',
+      'command = "node"',
+      '',
+      '[mcp_servers."with-dash".tools.Read]',
+      'approval_mode = "approve"',
+      '',
+      '[profiles.default]',
+      'approval = "never"',
+    ].join('\n');
+    const stripped = editor.stripMcpServers(input);
+    expect(stripped).not.toContain('mcp_servers."with-dash"');
+    expect(stripped).not.toContain('approval_mode');
+    expect(stripped).toContain('[profiles.default]');
+  });
+
 
   it('Codex adapter reads and writes config.toml', async () => {
     const codexHome = path.join(tmp, '.codex');

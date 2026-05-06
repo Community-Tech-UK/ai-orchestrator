@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PluginPackageManager } from './plugin-package-manager';
+import { PluginPackageManager, sanitizePluginId } from './plugin-package-manager';
 
 async function writeRuntimePlugin(
   root: string,
@@ -125,5 +125,81 @@ describe('PluginPackageManager', () => {
 
     expect(result.removed).toEqual(['stale-plugin']);
     await expect(manager.list()).resolves.not.toContainEqual(expect.objectContaining({ id: 'stale-plugin' }));
+  });
+
+  it('prunes disabled and broken active runtime plugin records', async () => {
+    const disabledPath = path.join(pluginRoot, 'disabled-plugin');
+    const brokenPath = path.join(pluginRoot, 'broken-plugin');
+    await fs.mkdir(disabledPath, { recursive: true });
+    await fs.mkdir(brokenPath, { recursive: true });
+    await fs.writeFile(storePath, JSON.stringify({
+      packages: [
+        {
+          id: 'disabled-plugin',
+          name: 'Disabled Plugin',
+          version: '1.0.0',
+          status: 'disabled',
+          source: { type: 'directory', value: disabledPath },
+          installPath: disabledPath,
+          cachePath: disabledPath,
+          lastValidationResult: { ok: true, errors: [], warnings: [] },
+          lastUpdatedAt: 1,
+        },
+        {
+          id: 'broken-plugin',
+          name: 'Broken Plugin',
+          version: '1.0.0',
+          status: 'installed',
+          source: { type: 'directory', value: brokenPath },
+          installPath: brokenPath,
+          cachePath: brokenPath,
+          lastValidationResult: { ok: true, errors: [], warnings: [] },
+          lastUpdatedAt: 1,
+        },
+      ],
+    }, null, 2));
+    const manager = new PluginPackageManager({ pluginRoot, storePath });
+
+    await expect(manager.list()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'broken-plugin', status: 'broken' }),
+      expect.objectContaining({ id: 'disabled-plugin', status: 'disabled' }),
+    ]));
+    const result = await manager.prune();
+
+    expect(result.removed.sort()).toEqual(['broken-plugin', 'disabled-plugin']);
+    await expect(manager.list()).resolves.toEqual([]);
+    await expect(fs.access(disabledPath)).rejects.toThrow();
+    await expect(fs.access(brokenPath)).rejects.toThrow();
+  });
+
+  it('rejects plugin ids that resolve to the plugin root or its parent', () => {
+    expect(() => sanitizePluginId('.')).toThrow('Plugin name does not produce a safe id');
+    expect(() => sanitizePluginId('..')).toThrow('Plugin name does not produce a safe id');
+  });
+
+  it('refuses to uninstall a plugin record outside the managed plugin root', async () => {
+    const outsidePath = path.join(tempDir, 'outside-plugin');
+    await fs.mkdir(outsidePath, { recursive: true });
+    await fs.writeFile(path.join(outsidePath, 'sentinel.txt'), 'keep\n', 'utf-8');
+    await fs.writeFile(storePath, JSON.stringify({
+      packages: [
+        {
+          id: 'outside-plugin',
+          name: 'Outside Plugin',
+          version: '1.0.0',
+          status: 'installed',
+          source: { type: 'directory', value: outsidePath },
+          installPath: outsidePath,
+          cachePath: outsidePath,
+          lastValidationResult: { ok: true, errors: [], warnings: [] },
+          lastUpdatedAt: 1,
+        },
+      ],
+    }, null, 2));
+    const manager = new PluginPackageManager({ pluginRoot, storePath });
+
+    await expect(manager.uninstall('outside-plugin')).rejects.toThrow(/outside managed plugin root/i);
+
+    await expect(fs.access(path.join(outsidePath, 'sentinel.txt'))).resolves.toBeUndefined();
   });
 });

@@ -28,16 +28,26 @@ export class HttpTransport extends EventEmitter {
     }
 
     let timeout: ReturnType<typeof setTimeout> | null = null;
+    let removeAbortListener = (): void => {};
+    const controller = this.abortController;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(
         () => reject(new Error('HTTP MCP request timed out')),
         this.options.timeoutMs ?? 30_000,
       );
     });
+    const abortPromise = new Promise<never>((_resolve, reject) => {
+      if (!controller) {
+        return;
+      }
+      const onAbort = () => reject(new Error('HTTP MCP request aborted'));
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort);
+    });
+    const signal = compatibleFetchSignal(controller?.signal);
 
     try {
-      const response = await Promise.race([
-        fetch(this.options.url, {
+      const fetchPromise = fetch(this.options.url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -45,8 +55,17 @@ export class HttpTransport extends EventEmitter {
           ...this.options.headers,
         },
         body: JSON.stringify(message),
-        }),
+        ...(signal ? { signal } : {}),
+      }).catch((error) => {
+        if (controller?.signal.aborted) {
+          return new Promise<Response>(() => { /* abort race already rejected */ });
+        }
+        throw error;
+      });
+      const response = await Promise.race([
+        fetchPromise,
         timeoutPromise,
+        abortPromise,
       ]);
       if (!response.ok) {
         throw new Error(`HTTP MCP request failed: ${response.status} ${response.statusText}`);
@@ -62,6 +81,7 @@ export class HttpTransport extends EventEmitter {
       if (timeout) {
         clearTimeout(timeout);
       }
+      removeAbortListener();
     }
   }
 
@@ -70,5 +90,17 @@ export class HttpTransport extends EventEmitter {
     this.abortController?.abort();
     this.abortController = null;
     this.emit('disconnected');
+  }
+}
+
+function compatibleFetchSignal(signal: AbortSignal | undefined): AbortSignal | undefined {
+  if (!signal) {
+    return undefined;
+  }
+  try {
+    new Request('http://127.0.0.1/', { signal });
+    return signal;
+  } catch {
+    return undefined;
   }
 }

@@ -141,6 +141,7 @@ function buildProjectAgentPrompt(
     '',
     'Work in this repository until the requested change is implemented properly.',
     'Follow the project instructions, inspect before editing, run focused verification, and report what changed.',
+    'Do not overwrite, discard, or revert dirty user changes. Other workers or the user may be editing the same repository; inspect the worktree before writing and adapt around unrelated changes.',
     '',
     'Suggested verification:',
     ...verificationLines,

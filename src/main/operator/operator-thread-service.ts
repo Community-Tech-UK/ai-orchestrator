@@ -1,5 +1,5 @@
 import type { ConversationLedgerConversation } from '../../shared/types/conversation-ledger.types';
-import type { OperatorRunGraph } from '../../shared/types/operator.types';
+import type { OperatorRunGraph, OperatorSendMessageResult } from '../../shared/types/operator.types';
 import {
   getConversationLedgerService,
   INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
@@ -24,8 +24,12 @@ const GLOBAL_OPERATOR_METADATA = {
 export interface OperatorThreadServiceConfig {
   ledger?: ConversationLedgerService;
   engine?: OperatorEngineLike | null;
-  runStore?: Pick<OperatorRunStore, 'appendEvent'>;
+  runStore?: OperatorThreadRunStore;
 }
+
+type OperatorThreadRunStore =
+  Pick<OperatorRunStore, 'appendEvent'> &
+  Partial<Pick<OperatorRunStore, 'findRunBySourceMessage'>>;
 
 export interface OperatorSendMessageInput {
   text: string;
@@ -43,7 +47,7 @@ export class OperatorThreadService {
   private static instance: OperatorThreadService | null = null;
   private readonly ledger: ConversationLedgerService;
   private readonly engine: OperatorEngineLike | null;
-  private readonly runStore: Pick<OperatorRunStore, 'appendEvent'> | null;
+  private readonly runStore: OperatorThreadRunStore | null;
 
   static getInstance(config?: OperatorThreadServiceConfig): OperatorThreadService {
     this.instance ??= new OperatorThreadService(config);
@@ -75,7 +79,7 @@ export class OperatorThreadService {
     return this.ledger.getConversation(thread.id);
   }
 
-  async sendMessage(input: OperatorSendMessageInput): Promise<ConversationLedgerConversation> {
+  async sendMessage(input: OperatorSendMessageInput): Promise<OperatorSendMessageResult> {
     const text = input.text.trim();
     if (!text) {
       throw new Error('Operator message text is required');
@@ -104,12 +108,22 @@ export class OperatorThreadService {
         },
       );
     }
+    let runId: string | null = null;
     if (this.engine && sourceMessage) {
-      void Promise.resolve().then(() => this.engine!.handleUserMessage({
-        threadId: updated.thread.id,
-        sourceMessageId: sourceMessage.id,
-        text,
-      })).then((graph) => {
+      let runPromise: Promise<OperatorRunGraph | null>;
+      try {
+        runPromise = this.engine.handleUserMessage({
+          threadId: updated.thread.id,
+          sourceMessageId: sourceMessage.id,
+          text,
+        });
+      } catch (error) {
+        runPromise = Promise.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+      // The Operator engine persists routable runs before its first await,
+      // allowing the UI to open the run while work continues.
+      runId = this.findRunIdForSourceMessage(updated.thread.id, sourceMessage.id);
+      void runPromise.then((graph) => {
         if (!graph) {
           return;
         }
@@ -128,6 +142,7 @@ export class OperatorThreadService {
       }).catch((error) => {
         logger.warn('Operator engine failed to handle message', {
           threadId: updated.thread.id,
+          sourceMessageId: sourceMessage.id,
           messageId: sourceMessage.id,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -142,7 +157,10 @@ export class OperatorThreadService {
         );
       });
     }
-    return this.ledger.getConversation(conversation.thread.id);
+    return {
+      conversation: this.ledger.getConversation(conversation.thread.id),
+      runId,
+    };
   }
 
   appendRecoveryNotice(input: OperatorRecoveryNoticeInput): ConversationLedgerConversation {
@@ -197,6 +215,20 @@ export class OperatorThreadService {
         threadId,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  private findRunIdForSourceMessage(threadId: string, sourceMessageId: string): string | null {
+    try {
+      const runStore = this.runStore ?? new OperatorRunStore(getOperatorDatabase().db);
+      return runStore.findRunBySourceMessage?.(threadId, sourceMessageId)?.id ?? null;
+    } catch (error) {
+      logger.warn('Operator run lookup failed after starting engine', {
+        threadId,
+        sourceMessageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
   }
 

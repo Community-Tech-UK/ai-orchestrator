@@ -62,7 +62,12 @@ export class CodexTomlEditor {
       const header = line.match(/^\s*\[([^\]]+)\]\s*$/);
       if (header) {
         const sectionName = header[1] ?? '';
-        const mcpName = this.parseMcpSectionName(sectionName) ?? this.parseNestedMcpTable(sectionName)?.name ?? null;
+        // Match any sub-table of an MCP server (e.g. `tools.Read`,
+        // `env`, `headers`, or arbitrarily nested keys). Codex CLI 0.128+
+        // supports per-tool approval tables like `[mcp_servers.<name>.tools.Read]`;
+        // missing this case leaves an orphan sub-table that Codex parses as an
+        // implicit server with no transport and rejects.
+        const mcpName = this.parseMcpSectionOwner(sectionName);
         skipping = mcpName !== null && !keepMcp(mcpName);
       }
       if (!skipping) {
@@ -70,6 +75,21 @@ export class CodexTomlEditor {
       }
     }
     return out.join('\n');
+  }
+
+  /**
+   * Returns the MCP server name for any `mcp_servers.<name>` section or
+   * sub-table, regardless of nesting depth. Returns null for non-MCP sections.
+   *
+   * Examples (all return "claude-code"):
+   *   mcp_servers.claude-code
+   *   mcp_servers.claude-code.env
+   *   mcp_servers.claude-code.tools.Read
+   *   mcp_servers."claude-code".tools.Read
+   */
+  private parseMcpSectionOwner(sectionName: string): string | null {
+    const match = sectionName.match(/^mcp_servers\.(?:"([^"]+)"|([^.]+))(?:\..*)?$/);
+    return match ? (match[1] ?? match[2] ?? null) : null;
   }
 
   private parseSections(input: string): Section[] {

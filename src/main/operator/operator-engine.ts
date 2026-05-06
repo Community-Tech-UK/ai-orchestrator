@@ -1,6 +1,7 @@
 import * as path from 'path';
 import type {
   OperatorGitBatchSummary,
+  OperatorInstanceLinkRecord,
   OperatorProjectAgentRouting,
   OperatorProjectRecord,
   OperatorProjectRefreshOptions,
@@ -356,28 +357,32 @@ export class OperatorEngine {
     for (const run of activeRuns) {
       const graph = this.runStore.getRunGraph(run.id);
       if (!graph) continue;
+      const instanceLinksByNodeId = new Map(
+        this.runStore.listInstanceLinksForRun(run.id).map((link) => [link.nodeId, link]),
+      );
 
       let blocked = false;
       for (const node of graph.nodes.filter((candidate) => !isTerminalRunStatus(candidate.status))) {
-        const completedGraph = this.completeRecoveredExternalNodeIfPossible(run, node);
+        const recoveryNode = this.applyPersistedInstanceLink(node, instanceLinksByNodeId.get(node.id));
+        const completedGraph = this.completeRecoveredExternalNodeIfPossible(run, recoveryNode);
         if (completedGraph) {
           recovered.push(completedGraph);
           blocked = false;
           break;
         }
 
-        const staleReason = this.getStaleExternalNodeReason(node);
+        const staleReason = this.getStaleExternalNodeReason(recoveryNode);
         if (!staleReason) {
-          this.markExternalNodeRecovered(node);
+          this.markExternalNodeRecovered(recoveryNode);
           continue;
         }
 
         blocked = true;
         const error = `Operator run recovery blocked: ${staleReason}`;
         const completedAt = this.now();
-        const recoveryReason = node.externalRefKind === 'repo-job'
+        const recoveryReason = recoveryNode.externalRefKind === 'repo-job'
           ? 'stale-repo-job-link'
-          : node.externalRefKind === 'instance'
+          : recoveryNode.externalRefKind === 'instance'
             ? 'stale-instance-link'
             : 'stale-node';
         this.runStore.appendEvent({
@@ -387,9 +392,9 @@ export class OperatorEngine {
           payload: {
             reason: recoveryReason,
             action: 'blocked',
-            instanceId: node.externalRefKind === 'instance' ? node.externalRefId : undefined,
-            externalRefKind: node.externalRefKind,
-            externalRefId: node.externalRefId,
+            instanceId: recoveryNode.externalRefKind === 'instance' ? recoveryNode.externalRefId : undefined,
+            externalRefKind: recoveryNode.externalRefKind,
+            externalRefId: recoveryNode.externalRefId,
           },
         });
         this.runStore.updateNode(node.id, {
@@ -397,8 +402,8 @@ export class OperatorEngine {
           completedAt,
           error,
         });
-        if (node.externalRefKind === 'instance' && node.externalRefId) {
-          this.runStore.touchInstanceLink(node.externalRefId, 'stale');
+        if (recoveryNode.externalRefKind === 'instance' && recoveryNode.externalRefId) {
+          this.runStore.touchInstanceLink(recoveryNode.externalRefId, 'stale');
         }
       }
 
@@ -505,17 +510,50 @@ export class OperatorEngine {
       payload: { message: 'Starting Git batch pull', rootPath },
     });
 
-    const summary = await this.gitBatch.pullAll(rootPath, {
-      concurrency: 6,
-      onShellCommand: (payload) => {
-        this.runStore.appendEvent({
-          runId: run.id,
-          nodeId: node.id,
-          kind: 'shell-command',
-          payload,
-        });
-      },
-    });
+    let summary: OperatorGitBatchSummary;
+    try {
+      summary = await this.gitBatch.pullAll(rootPath, {
+        concurrency: 6,
+        onShellCommand: (payload) => {
+          this.runStore.appendEvent({
+            runId: run.id,
+            nodeId: node.id,
+            kind: 'shell-command',
+            payload,
+          });
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Git batch pull failed';
+      const completedAt = this.now();
+      const finalUsage: Partial<OperatorRunUsage> = {
+        nodesCompleted: 1,
+        wallClockMs: completedAt - startedAt,
+      };
+      const outputJson = { error: message };
+      this.runStore.updateNode(node.id, {
+        status: 'failed',
+        outputJson,
+        completedAt,
+        error: message,
+      });
+      this.runStore.appendEvent({
+        runId: run.id,
+        nodeId: node.id,
+        kind: 'state-change',
+        payload: { status: 'failed', reason: 'git-batch-error' },
+      });
+      return this.completeRunWithSynthesis({
+        runId: run.id,
+        parentNodeId: node.id,
+        status: 'failed',
+        resultJson: outputJson,
+        error: message,
+        usageJson: finalUsage,
+        completedAt,
+        runStartedAt: startedAt,
+      });
+    }
     const terminalStatus = summary.failed > 0 ? 'blocked' : 'completed';
     const completedAt = this.now();
     const finalUsage: Partial<OperatorRunUsage> = {
@@ -587,22 +625,11 @@ export class OperatorEngine {
     const runStartedAt = this.now();
     const projectRegistry = this.projectRegistry ?? getProjectRegistry();
     let resolution = projectRegistry.resolveProject(request.projectQuery);
-    if (resolution.status === 'not_found' && projectRegistry.refreshProjects) {
-      await projectRegistry.refreshProjects({
-        includeRecent: true,
-        includeActiveInstances: true,
-        includeConversationLedger: true,
-      });
-      resolution = projectRegistry.resolveProject(request.projectQuery);
-    }
-    const project = resolution.project;
     const executor = request.intent === 'project_audit' && this.repoJob ? 'repo-job' : 'project-agent';
     const run = this.runStore.createRun({
       threadId: input.threadId,
       sourceMessageId: input.sourceMessageId,
-      title: project
-        ? request.intent === 'project_audit' ? `Audit ${project.displayName}` : `Implement in ${project.displayName}`
-        : request.intent === 'project_audit' ? `Audit ${request.projectQuery}` : `Implement in ${request.projectQuery}`,
+      title: projectRunTitle(request.intent, request.projectQuery),
       goal: input.text,
       budget: this.defaultBudget,
       planJson: {
@@ -615,12 +642,81 @@ export class OperatorEngine {
         successCriteria: request.plan.successCriteria,
         maxConcurrentNodes: request.plan.maxConcurrentNodes,
         ...(input.retryOfRunId ? { retryOfRunId: input.retryOfRunId } : {}),
+      },
+    });
+
+    if (resolution.status === 'not_found' && projectRegistry.refreshProjects) {
+      try {
+        await projectRegistry.refreshProjects({
+          includeRecent: true,
+          includeActiveInstances: true,
+          includeConversationLedger: true,
+        });
+        resolution = projectRegistry.resolveProject(request.projectQuery);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Project refresh failed';
+        const completedAt = this.now();
+        const discoveryNode = this.runStore.createNode({
+          runId: run.id,
+          type: 'discover-projects',
+          title: 'Resolve project',
+          inputJson: {
+            query: request.projectQuery,
+            intent: request.intent,
+          },
+        });
+        this.runStore.updateNode(discoveryNode.id, {
+          status: 'failed',
+          outputJson: {
+            status: 'refresh_failed',
+            query: request.projectQuery,
+            error: message,
+          },
+          completedAt,
+          error: message,
+        });
+        this.runStore.appendEvent({
+          runId: run.id,
+          nodeId: discoveryNode.id,
+          kind: 'state-change',
+          payload: { status: 'failed', reason: 'project-refresh', error: message },
+        });
+        return this.completeRunWithSynthesis({
+          runId: run.id,
+          parentNodeId: discoveryNode.id,
+          status: 'failed',
+          resultJson: {
+            projectResolution: {
+              status: 'refresh_failed',
+              query: request.projectQuery,
+              error: message,
+            },
+          },
+          error: message,
+          usageJson: {
+            nodesStarted: 1,
+            nodesCompleted: 1,
+            wallClockMs: completedAt - runStartedAt,
+          },
+          completedAt,
+          runStartedAt,
+        });
+      }
+    }
+
+    const project = resolution.project;
+    this.runStore.updateRun(run.id, {
+      title: projectRunTitle(request.intent, project?.displayName ?? request.projectQuery),
+      planJson: {
+        ...this.runStore.getRun(run.id)!.planJson,
+        resolvedStatus: resolution.status,
         ...(project ? {
           projectId: project.id,
           projectPath: project.canonicalPath,
         } : {}),
       },
     });
+    const resolvedRun = this.runStore.getRun(run.id)!;
 
     if (!project) {
       const error = resolution.status === 'ambiguous'
@@ -679,7 +775,7 @@ export class OperatorEngine {
 
     if (request.intent === 'project_audit' && this.repoJob) {
       return this.runRepoJobAuditNode({
-        run,
+        run: resolvedRun,
         project,
         goal: request.goal,
         runStartedAt,
@@ -687,7 +783,7 @@ export class OperatorEngine {
     }
 
     const initialAgent = await this.runProjectAgentNode({
-      run,
+      run: resolvedRun,
       project,
       goal: request.goal,
       projectQuery: request.projectQuery,
@@ -1499,11 +1595,47 @@ export class OperatorEngine {
       },
     });
 
-    const summary = await this.verificationExecutor.execute({
-      run: this.runStore.getRun(input.run.id)!,
-      node: this.runStore.getNode(node.id)!,
-      project: input.project,
-    });
+    let summary: OperatorVerificationSummary;
+    try {
+      summary = await this.verificationExecutor.execute({
+        run: this.runStore.getRun(input.run.id)!,
+        node: this.runStore.getNode(node.id)!,
+        project: input.project,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Verification failed';
+      const completedAt = this.now();
+      const runningRun = this.runStore.getRun(input.run.id)!;
+      const finalUsage: Partial<OperatorRunUsage> = {
+        nodesCompleted: runningRun.usageJson.nodesCompleted + 1,
+        wallClockMs: completedAt - input.runStartedAt,
+      };
+      const outputJson = { error: message };
+      this.runStore.updateNode(node.id, {
+        status: 'failed',
+        outputJson,
+        completedAt,
+        error: message,
+      });
+      this.runStore.appendEvent({
+        runId: input.run.id,
+        nodeId: node.id,
+        kind: 'state-change',
+        payload: { status: 'failed', reason: 'verification-error' },
+      });
+      return {
+        graph: this.completeRunWithSynthesis({
+          runId: input.run.id,
+          parentNodeId: node.id,
+          status: 'failed',
+          resultJson: { verification: outputJson },
+          error: message,
+          usageJson: finalUsage,
+          completedAt,
+          runStartedAt: input.runStartedAt,
+        }),
+      };
+    }
     const completedAt = this.now();
     const runningRun = this.runStore.getRun(input.run.id)!;
     const finalUsage: Partial<OperatorRunUsage> = {
@@ -2021,6 +2153,20 @@ export class OperatorEngine {
       this.runStore.touchInstanceLink(node.externalRefId, 'recovered');
     }
   }
+
+  private applyPersistedInstanceLink(
+    node: OperatorRunNodeRecord,
+    link: OperatorInstanceLinkRecord | undefined,
+  ): OperatorRunNodeRecord {
+    if (node.externalRefKind || !link) {
+      return node;
+    }
+    return {
+      ...node,
+      externalRefKind: 'instance',
+      externalRefId: link.instanceId,
+    };
+  }
 }
 
 export function getOperatorEngine(config?: OperatorEngineConfig): OperatorEngine {
@@ -2105,6 +2251,10 @@ function readProjectAgentOutputPreviewFromJson(outputJson: Record<string, unknow
 
 function hasAutomationFollowUpRequest(text: string): boolean {
   return /\b(remind|schedule|every|daily|weekly|follow[- ]?up|check back)\b/i.test(text);
+}
+
+function projectRunTitle(intent: 'project_feature' | 'project_audit', projectName: string): string {
+  return intent === 'project_audit' ? `Audit ${projectName}` : `Implement in ${projectName}`;
 }
 
 function projectSummary(project: OperatorProjectRecord): Record<string, unknown> {

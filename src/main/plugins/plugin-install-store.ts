@@ -3,7 +3,7 @@ import * as path from 'path';
 import type { PluginPackageSource } from './plugin-source-resolver';
 import type { PluginValidationResult } from './plugin-validator';
 
-export type RuntimePluginPackageStatus = 'installed' | 'missing';
+export type RuntimePluginPackageStatus = 'installed' | 'missing' | 'disabled' | 'broken';
 
 export interface RuntimePluginPackage {
   id: string;

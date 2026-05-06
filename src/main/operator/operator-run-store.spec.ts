@@ -43,6 +43,7 @@ describe('OperatorRunStore', () => {
       completedAt: 2,
     });
     store.updateRun(run.id, {
+      title: 'Pull all repositories',
       status: 'completed',
       resultJson: { summary: 'Pulled 1 repo' },
       completedAt: 3,
@@ -52,6 +53,7 @@ describe('OperatorRunStore', () => {
 
     expect(graph?.run).toMatchObject({
       id: run.id,
+      title: 'Pull all repositories',
       status: 'completed',
       budget: {
         maxNodes: 50,

@@ -119,6 +119,7 @@ export interface OperatorNodeCreateInput {
 }
 
 export interface OperatorRunUpdateInput {
+  title?: string;
   status?: OperatorRunStatus;
   usageJson?: Partial<OperatorRunUsage>;
   planJson?: Record<string, unknown>;
@@ -255,10 +256,11 @@ export class OperatorRunStore {
       : validateStructuredJson('resultJson', OperatorResultJsonSchema, update.resultJson);
     this.db.prepare(`
       UPDATE operator_runs
-      SET status = ?, updated_at = ?, completed_at = ?, usage_json = ?,
+      SET title = ?, status = ?, updated_at = ?, completed_at = ?, usage_json = ?,
           plan_json = ?, result_json = ?, error = ?
       WHERE id = ?
     `).run(
+      update.title ?? existing.title,
       update.status ?? existing.status,
       Date.now(),
       update.completedAt !== undefined ? update.completedAt : existing.completedAt,
@@ -324,6 +326,17 @@ export class OperatorRunStore {
 
   getRun(id: string): OperatorRunRecord | null {
     const row = this.db.prepare('SELECT * FROM operator_runs WHERE id = ?').get<RunRow>(id);
+    return row ? runRowToRecord(row) : null;
+  }
+
+  findRunBySourceMessage(threadId: string, sourceMessageId: string): OperatorRunRecord | null {
+    const row = this.db.prepare(`
+      SELECT * FROM operator_runs
+      WHERE thread_id = ?
+        AND source_message_id = ?
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
+    `).get<RunRow>(threadId, sourceMessageId);
     return row ? runRowToRecord(row) : null;
   }
 

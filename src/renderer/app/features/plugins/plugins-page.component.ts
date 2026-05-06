@@ -33,7 +33,7 @@ interface RuntimePluginInfo {
   id: string;
   name: string;
   version?: string;
-  status: 'installed' | 'missing';
+  status: 'installed' | 'missing' | 'disabled' | 'broken';
   installPath?: string;
   lastUpdatedAt?: number;
 }
@@ -179,7 +179,7 @@ type ActiveTab = 'installed' | 'discover';
                       @if (plugin.version) {
                         <span class="plugin-version">v{{ plugin.version }}</span>
                       }
-                      <span class="status-badge" [class.status-loaded]="plugin.status === 'installed'" [class.status-error]="plugin.status === 'missing'">
+                      <span class="status-badge" [class.status-loaded]="plugin.status === 'installed'" [class.status-error]="plugin.status !== 'installed'">
                         {{ plugin.status }}
                       </span>
                     </div>

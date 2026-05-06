@@ -297,7 +297,8 @@ describe('AnthropicApiProvider', () => {
         && event.event.total === 200000
         && event.event.inputTokens === 100
         && event.event.outputTokens === 50
-        && event.event.source === 'anthropic-api')).toBe(true);
+        && event.event.source === 'anthropic-api'
+        && event.event.promptWeightBreakdown?.systemPrompt === 5)).toBe(true);
     });
 
     it('emits complete diagnostics from the API response', async () => {

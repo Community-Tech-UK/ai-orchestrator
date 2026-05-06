@@ -8,6 +8,7 @@ import type {
   OperatorRunGraph,
   OperatorRunRecord,
   OperatorRunStatus,
+  OperatorSendMessageResult,
 } from '../../../../../shared/types/operator.types';
 import {
   ElectronIpcService,
@@ -32,11 +33,11 @@ export class OperatorIpcService {
   async sendMessage(payload: {
     text: string;
     metadata?: Record<string, unknown>;
-  }): Promise<IpcResponse<ConversationLedgerConversation>> {
+  }): Promise<IpcResponse<OperatorSendMessageResult>> {
     if (!this.api) {
       return { success: false, error: { message: 'Not in Electron' } };
     }
-    return this.api.sendOperatorMessage(payload) as Promise<IpcResponse<ConversationLedgerConversation>>;
+    return this.api.sendOperatorMessage(payload) as Promise<IpcResponse<OperatorSendMessageResult>>;
   }
 
   async listProjects(payload: OperatorProjectListQuery = {}): Promise<IpcResponse<OperatorProjectRecord[]>> {

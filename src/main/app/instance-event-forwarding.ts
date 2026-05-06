@@ -108,21 +108,24 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   });
 
   instanceManager.on('provider:normalized-event', (envelope) => {
+    const instance = instanceManager.getInstance(envelope.instanceId);
+    const enrichedEnvelope = envelope.model || !instance?.currentModel
+      ? envelope
+      : { ...envelope, model: instance.currentModel };
     if (process.env['NODE_ENV'] !== 'production') {
-      ProviderRuntimeEventEnvelopeSchema.parse(envelope);
+      ProviderRuntimeEventEnvelopeSchema.parse(enrichedEnvelope);
     }
 
-    recordProviderRuntimeEventSpan(envelope);
-    windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, envelope);
-    const message = toOutputMessageFromProviderEnvelope(envelope);
+    recordProviderRuntimeEventSpan(enrichedEnvelope);
+    windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, enrichedEnvelope);
+    const message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
     if (!message) {
       return;
     }
 
-    observer.publishInstanceOutput(envelope.instanceId, message);
+    observer.publishInstanceOutput(enrichedEnvelope.instanceId, message);
     try {
       const continuity = getSessionContinuityManager();
-      const instance = instanceManager.getInstance(envelope.instanceId);
       if (instance) {
         const stateUpdate: Parameters<typeof continuity.updateState>[1] = {
           sessionId: instance.sessionId,

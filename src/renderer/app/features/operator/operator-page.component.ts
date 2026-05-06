@@ -39,9 +39,9 @@ import { OperatorStore } from '../../core/state/operator.store';
       @if (visibleTargets().length > 0) {
         <div class="operator-targets">
           @for (target of visibleTargets(); track target.path) {
-            <button type="button" class="operator-target-chip" [title]="target.path">
+            <span class="operator-target-chip" [title]="target.path">
               {{ target.label }}
-            </button>
+            </span>
           }
         </div>
       }
@@ -270,6 +270,8 @@ import { OperatorStore } from '../../core/state/operator.store';
     }
 
     .operator-target-chip {
+      display: inline-flex;
+      align-items: center;
       max-width: 210px;
       height: 30px;
       border: 1px solid var(--glass-border);

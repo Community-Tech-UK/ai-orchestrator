@@ -113,6 +113,12 @@ describe('observeAdapterRuntimeEvents', () => {
       outputTokens: 20,
       source: 'provider-usage',
       promptWeight: 0.75,
+      promptWeightBreakdown: {
+        systemPrompt: 25,
+        mcpToolDescriptions: 15,
+        skills: 10,
+        userPrompt: 10,
+      },
     });
     adapter.emit('complete', {
       usage: { totalTokens: 80, duration: 900 },
@@ -133,6 +139,12 @@ describe('observeAdapterRuntimeEvents', () => {
       outputTokens: 20,
       source: 'provider-usage',
       promptWeight: 0.75,
+      promptWeightBreakdown: {
+        systemPrompt: 25,
+        mcpToolDescriptions: 15,
+        skills: 10,
+        userPrompt: 10,
+      },
     });
     expect(events[1]?.event).toEqual({
       kind: 'complete',

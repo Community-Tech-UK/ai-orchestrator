@@ -84,6 +84,9 @@ describe('ProjectAgentExecutor', () => {
     expect(instanceManager.createInstance.mock.calls[0]?.[0].initialPrompt).toContain(
       'Suggested verification',
     );
+    expect(instanceManager.createInstance.mock.calls[0]?.[0].initialPrompt).toContain(
+      'Do not overwrite, discard, or revert dirty user changes',
+    );
     expect(instanceManager.waitForInstanceSettled).toHaveBeenCalledWith('instance-1', expect.objectContaining({
       afterTimestamp: 1,
     }));

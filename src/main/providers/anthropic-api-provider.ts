@@ -50,7 +50,7 @@ import {
   supportsContextEditing,
 } from '../../shared/types/api-features.types';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
-import type { ProviderName } from '@contracts/types/provider-runtime-events';
+import type { ProviderName, ProviderPromptWeightBreakdown } from '@contracts/types/provider-runtime-events';
 
 // ============================================
 // Types
@@ -317,6 +317,10 @@ export class AnthropicApiProvider extends BaseProvider {
     return this.currentUsage;
   }
 
+  protected override getDiagnosticsModel(): string | undefined {
+    return this.model;
+  }
+
   // ============================================
   // Private Helper Methods
   // ============================================
@@ -421,6 +425,7 @@ export class AnthropicApiProvider extends BaseProvider {
       outputTokens,
       source: 'anthropic-api',
       promptWeight: totalTokens > 0 ? inputTokens / totalTokens : 0,
+      promptWeightBreakdown: this.estimatePromptWeightBreakdown(inputTokens),
     };
     this.pushEvent({
       kind: 'context',
@@ -431,6 +436,7 @@ export class AnthropicApiProvider extends BaseProvider {
       outputTokens: contextUsage.outputTokens,
       source: contextUsage.source,
       promptWeight: contextUsage.promptWeight,
+      promptWeightBreakdown: contextUsage.promptWeightBreakdown,
     });
 
     // Update usage statistics
@@ -486,6 +492,30 @@ export class AnthropicApiProvider extends BaseProvider {
       ...(tokensUsed !== undefined ? { tokensUsed } : {}),
       ...(requestId !== undefined ? { requestId } : {}),
       ...(stopReason !== undefined ? { stopReason } : {}),
+    });
+  }
+
+  private estimatePromptWeightBreakdown(inputTokens: number): ProviderPromptWeightBreakdown | undefined {
+    if (!this.session || inputTokens <= 0) {
+      return undefined;
+    }
+
+    const systemPromptText = systemPromptToText(this.session.systemPrompt);
+    const systemPrompt = Math.min(inputTokens, estimateTokens(systemPromptText));
+    const skills = Math.min(
+      Math.max(0, inputTokens - systemPrompt),
+      estimateTokens((this.options.skills ?? []).join('\n\n')),
+    );
+    const plugins = Math.min(
+      Math.max(0, inputTokens - systemPrompt - skills),
+      estimateTokens(this.options.toolDefinitions ?? ''),
+    );
+    const userPrompt = Math.max(0, inputTokens - systemPrompt - skills - plugins);
+    return prunePromptWeightBreakdown({
+      systemPrompt,
+      skills,
+      plugins,
+      userPrompt,
     });
   }
 
@@ -574,4 +604,35 @@ export class AnthropicApiProvider extends BaseProvider {
 
 export function createAnthropicApiProvider(config: ProviderConfig): AnthropicApiProvider {
   return new AnthropicApiProvider(config);
+}
+
+function systemPromptToText(systemPrompt: CacheableSystemPrompt | string): string {
+  if (typeof systemPrompt === 'string') {
+    return systemPrompt;
+  }
+  return systemPrompt
+    .map((block) => typeof block.text === 'string' ? block.text : '')
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function estimateTokens(text: string): number {
+  const normalized = text.trim();
+  if (!normalized) {
+    return 0;
+  }
+  return Math.ceil(normalized.length / 4);
+}
+
+function prunePromptWeightBreakdown(
+  breakdown: ProviderPromptWeightBreakdown,
+): ProviderPromptWeightBreakdown | undefined {
+  const pruned: ProviderPromptWeightBreakdown = {};
+  if (breakdown.systemPrompt) pruned.systemPrompt = breakdown.systemPrompt;
+  if (breakdown.mcpToolDescriptions) pruned.mcpToolDescriptions = breakdown.mcpToolDescriptions;
+  if (breakdown.skills) pruned.skills = breakdown.skills;
+  if (breakdown.plugins) pruned.plugins = breakdown.plugins;
+  if (breakdown.userPrompt) pruned.userPrompt = breakdown.userPrompt;
+  if (breakdown.other) pruned.other = breakdown.other;
+  return Object.keys(pruned).length > 0 ? pruned : undefined;
 }

@@ -23,6 +23,7 @@ export async function planProjectVerification(projectPath: string): Promise<Oper
   const normalizedPath = path.resolve(projectPath);
   const packageJson = await readPackageJson(normalizedPath);
   const hasTsconfig = await exists(path.join(normalizedPath, 'tsconfig.json'));
+  const hasTsconfigSpec = await exists(path.join(normalizedPath, 'tsconfig.spec.json'));
 
   if (packageJson) {
     const scripts = packageJson.scripts ?? {};
@@ -35,6 +36,9 @@ export async function planProjectVerification(projectPath: string): Promise<Oper
       checks.push(check('typecheck', 'npm', ['run', 'typecheck'], true));
     } else if (hasTsconfig) {
       checks.push(check('typecheck', 'npx', ['tsc', '--noEmit'], true));
+    }
+    if (hasTsconfigSpec && !scriptCoversSpecTypecheck(scripts['typecheck'])) {
+      checks.push(check('spec-typecheck', 'npx', ['tsc', '--noEmit', '-p', 'tsconfig.spec.json'], true));
     }
     if (typeof scripts['test'] === 'string') {
       checks.push(check('test', 'npm', ['test', '--', '--run', '--watch=false'], true));
@@ -69,6 +73,18 @@ export async function planProjectVerification(projectPath: string): Promise<Oper
     };
   }
 
+  if (
+    await exists(path.join(normalizedPath, 'build.gradle'))
+    || await exists(path.join(normalizedPath, 'build.gradle.kts'))
+  ) {
+    const wrapperCommand = await exists(path.join(normalizedPath, 'gradlew')) ? './gradlew' : 'gradle';
+    return {
+      projectPath: normalizedPath,
+      kinds: ['gradle'],
+      checks: [check('test', wrapperCommand, ['test'], true)],
+    };
+  }
+
   if (await exists(path.join(normalizedPath, 'go.mod'))) {
     return {
       projectPath: normalizedPath,
@@ -77,7 +93,10 @@ export async function planProjectVerification(projectPath: string): Promise<Oper
     };
   }
 
-  if (await exists(path.join(normalizedPath, 'pyproject.toml'))) {
+  if (
+    await exists(path.join(normalizedPath, 'pyproject.toml'))
+    || await exists(path.join(normalizedPath, 'requirements.txt'))
+  ) {
     return {
       projectPath: normalizedPath,
       kinds: ['python'],
@@ -118,6 +137,10 @@ async function readPackageJson(projectPath: string): Promise<{ scripts?: Record<
   } catch {
     return null;
   }
+}
+
+function scriptCoversSpecTypecheck(script: unknown): boolean {
+  return typeof script === 'string' && /\btsconfig\.spec\.json\b|\btsconfig\.spec\b/.test(script);
 }
 
 async function exists(filePath: string): Promise<boolean> {

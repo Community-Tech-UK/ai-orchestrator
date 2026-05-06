@@ -6,6 +6,7 @@ import type { AgentMode } from '../../../../../shared/types/agent.types';
 import type { ActivityState } from '../../../../../shared/types/activity.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import type { ProviderPromptWeightBreakdown } from '@contracts/types/provider-runtime-events';
 import type {
   FailedImageRef,
   FileAttachment,
@@ -58,6 +59,8 @@ export interface ContextUsage {
   source?: string;
   /** Share of the context window attributable to prompt/input tokens. */
   promptWeight?: number;
+  /** Breakdown of estimated prompt/context contributors, when available. */
+  promptWeightBreakdown?: ProviderPromptWeightBreakdown;
   /** Estimated cost in dollars */
   costEstimate?: number;
   /**

@@ -1,8 +1,9 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { PluginManifestSchema } from '@contracts/schemas/plugin';
 import { PluginDependencyResolver } from './plugin-dependency-resolver';
-import { PluginInstallStore, type RuntimePluginPackage } from './plugin-install-store';
+import { PluginInstallStore, type RuntimePluginPackage, type RuntimePluginPackageStatus } from './plugin-install-store';
 import { PluginSourceResolver, type PluginPackageSource } from './plugin-source-resolver';
 import { PluginValidator, type PluginValidationResult } from './plugin-validator';
 
@@ -46,7 +47,7 @@ export class PluginPackageManager {
     const plugins = await this.store.list();
     return Promise.all(plugins.map(async (plugin) => ({
       ...plugin,
-      status: await pathExists(plugin.installPath) ? 'installed' : 'missing',
+      status: await this.resolveRuntimePluginStatus(plugin),
     })));
   }
 
@@ -76,13 +77,16 @@ export class PluginPackageManager {
   }
 
   async prune(options: RuntimePluginPruneOptions = {}): Promise<RuntimePluginPruneResult> {
-    const plugins = await this.store.list();
+    const plugins = await this.list();
     const removed: string[] = [];
     for (const plugin of plugins) {
-      if (await pathExists(plugin.installPath)) {
+      if (plugin.status === 'installed') {
         continue;
       }
       if (!options.dryRun) {
+        if (plugin.status !== 'missing') {
+          await fs.rm(this.resolveManagedPluginPath(plugin.installPath), { recursive: true, force: true });
+        }
         await this.store.delete(plugin.id);
       }
       removed.push(plugin.id);
@@ -95,7 +99,9 @@ export class PluginPackageManager {
 
   async uninstall(pluginId: string): Promise<void> {
     const current = await this.store.get(pluginId);
-    const installPath = current?.installPath ?? path.join(this.pluginRoot, sanitizePluginId(pluginId));
+    const installPath = current?.installPath
+      ? this.resolveManagedPluginPath(current.installPath)
+      : this.pluginInstallPath(pluginId);
     await fs.rm(installPath, { recursive: true, force: true });
     await this.store.delete(pluginId);
     await this.clearRuntimePluginCache();
@@ -120,7 +126,7 @@ export class PluginPackageManager {
         throw new Error(`Runtime plugin update changed id from ${expectedPluginId} to ${id}`);
       }
 
-      const installPath = path.join(this.pluginRoot, id);
+      const installPath = this.pluginInstallPath(id);
       await this.replacePluginDirectory(resolved.stagedPath, installPath, id);
       const installed: RuntimePluginPackage = {
         id,
@@ -184,6 +190,30 @@ export class PluginPackageManager {
       // Tests and headless tooling may not have Electron's plugin manager loaded.
     }
   }
+
+  private pluginInstallPath(pluginId: string): string {
+    return this.resolveManagedPluginPath(path.join(this.pluginRoot, sanitizePluginId(pluginId)));
+  }
+
+  private async resolveRuntimePluginStatus(plugin: RuntimePluginPackage): Promise<RuntimePluginPackageStatus> {
+    if (!await pathExists(plugin.installPath)) {
+      return 'missing';
+    }
+    if (plugin.status === 'disabled') {
+      return 'disabled';
+    }
+    return await hasValidRuntimePluginManifest(plugin.installPath) ? 'installed' : 'broken';
+  }
+
+  private resolveManagedPluginPath(candidatePath: string): string {
+    const root = path.resolve(this.pluginRoot);
+    const resolved = path.resolve(candidatePath);
+    const relative = path.relative(root, resolved);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(`Runtime plugin path is outside managed plugin root: ${resolved}`);
+    }
+    return resolved;
+  }
 }
 
 export function sanitizePluginId(name: string): string {
@@ -192,8 +222,8 @@ export function sanitizePluginId(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  if (!id) {
-    throw new Error('Plugin name does not produce a valid id');
+  if (!id || id === '.' || id === '..') {
+    throw new Error('Plugin name does not produce a safe id');
   }
   return id;
 }
@@ -202,6 +232,15 @@ async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+async function hasValidRuntimePluginManifest(installPath: string): Promise<boolean> {
+  try {
+    const raw = await fs.readFile(path.join(installPath, '.codex-plugin', 'plugin.json'), 'utf-8');
+    return PluginManifestSchema.safeParse(JSON.parse(raw) as unknown).success;
   } catch {
     return false;
   }

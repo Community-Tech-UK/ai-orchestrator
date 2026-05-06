@@ -133,6 +133,12 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
           outputTokens: 25,
           source: 'provider-usage',
           promptWeight: 0.68,
+          promptWeightBreakdown: {
+            systemPrompt: 20,
+            mcpToolDescriptions: 10,
+            skills: 5,
+            userPrompt: 20,
+          },
         },
       }).event;
     expect(contextEvent).toMatchObject({
@@ -141,6 +147,12 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
       outputTokens: 25,
       source: 'provider-usage',
       promptWeight: 0.68,
+      promptWeightBreakdown: {
+        systemPrompt: 20,
+        mcpToolDescriptions: 10,
+        skills: 5,
+        userPrompt: 20,
+      },
     });
   });
 

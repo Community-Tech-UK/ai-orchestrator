@@ -90,6 +90,9 @@ export function recordProviderRuntimeEventSpan(envelope: ProviderRuntimeEventEnv
   if ('requestId' in event && event.requestId) {
     attributes['ai.provider.request_id'] = event.requestId;
   }
+  if (envelope.model) {
+    attributes['ai.provider.model'] = envelope.model;
+  }
   if ('stopReason' in event && event.stopReason) {
     attributes['ai.provider.stop_reason'] = event.stopReason;
   }
