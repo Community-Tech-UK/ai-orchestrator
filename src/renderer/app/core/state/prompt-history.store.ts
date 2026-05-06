@@ -33,6 +33,14 @@ function dedupeByText(entries: PromptHistoryEntry[]): PromptHistoryEntry[] {
   return deduped;
 }
 
+export type PromptRecallScope = 'thread' | 'project' | 'all';
+
+export interface PromptRecallRequest {
+  scope?: PromptRecallScope;
+  instanceId: string;
+  workingDirectory?: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PromptHistoryStore {
   private readonly ipc = inject(PromptHistoryIpcService);
@@ -110,9 +118,21 @@ export class PromptHistoryStore {
     return this._byProject()[projectPath]?.entries ?? [];
   }
 
-  getEntriesForRecall(instanceId: string, projectPath?: string | null): readonly PromptHistoryEntry[] {
-    const instanceEntries = [...this.getEntriesForInstance(instanceId)];
-    const projectEntries = projectPath ? [...this.getEntriesForProject(projectPath)] : [];
+  getEntriesForRecall(request: PromptRecallRequest): readonly PromptHistoryEntry[] {
+    const scope = request.scope ?? 'project';
+
+    if (scope === 'all') {
+      return this.allEntries().slice(0, PROMPT_HISTORY_MAX);
+    }
+
+    const instanceEntries = [...this.getEntriesForInstance(request.instanceId)];
+    if (scope === 'thread') {
+      return instanceEntries.slice(0, PROMPT_HISTORY_MAX);
+    }
+
+    const projectEntries = request.workingDirectory
+      ? [...this.getEntriesForProject(request.workingDirectory)]
+      : [];
     return dedupeByText([...instanceEntries, ...projectEntries]).slice(0, PROMPT_HISTORY_MAX);
   }
 

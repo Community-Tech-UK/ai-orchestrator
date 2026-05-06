@@ -32,6 +32,7 @@ import { createVoiceDomain } from './domains/voice.preload';
 import { createBrowserDomain } from './domains/browser.preload';
 import { createConversationLedgerDomain } from './domains/conversation-ledger.preload';
 import { createOperatorDomain } from './domains/operator.preload';
+import { createRuntimePluginDomain } from './domains/runtime-plugin.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -67,6 +68,7 @@ const electronAPI = {
   ...createBrowserDomain(ipcRenderer, IPC_CHANNELS),
   ...createConversationLedgerDomain(ipcRenderer, IPC_CHANNELS),
   ...createOperatorDomain(ipcRenderer, IPC_CHANNELS),
+  ...createRuntimePluginDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

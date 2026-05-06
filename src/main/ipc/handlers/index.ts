@@ -54,3 +54,4 @@ export { registerWebhookHandlers } from './webhook-handlers';
 export { registerVoiceHandlers } from './voice-handlers';
 export { registerConversationLedgerHandlers } from './conversation-ledger-handlers';
 export { registerOperatorHandlers } from './operator-handlers';
+export { registerRuntimePluginHandlers } from './runtime-plugin-handlers';

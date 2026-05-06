@@ -5,7 +5,12 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { traceDebate, traceInstanceLifecycle, traceVerification } from '../otel-spans';
+import {
+  recordProviderRuntimeEventSpan,
+  traceDebate,
+  traceInstanceLifecycle,
+  traceVerification,
+} from '../otel-spans';
 
 describe('otel-spans', () => {
   let exporter: InMemorySpanExporter;
@@ -100,5 +105,31 @@ describe('otel-spans', () => {
 
     await provider.forceFlush();
     expect(result).toBe(42);
+  });
+
+  it('records provider diagnostics attributes on runtime event spans', async () => {
+    recordProviderRuntimeEventSpan({
+      eventId: 'evt-1',
+      seq: 0,
+      timestamp: 1_717_000_000_000,
+      provider: 'claude',
+      instanceId: 'inst-1',
+      event: {
+        kind: 'complete',
+        requestId: 'req_123',
+        stopReason: 'end_turn',
+        rateLimit: { remaining: 0 },
+        quota: { exhausted: true },
+      },
+    });
+
+    await provider.forceFlush();
+    const spans = exporter.getFinishedSpans();
+    const span = spans.find((candidate) => candidate.name === 'provider.runtime_event');
+
+    expect(span?.attributes['ai.provider.request_id']).toBe('req_123');
+    expect(span?.attributes['ai.provider.stop_reason']).toBe('end_turn');
+    expect(span?.attributes['ai.provider.rate_limit.remaining']).toBe(0);
+    expect(span?.attributes['ai.provider.quota.exhausted']).toBe(true);
   });
 });

@@ -3,6 +3,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type { PluginPackageSource } from '@contracts/schemas/plugin';
 
 @Injectable({ providedIn: 'root' })
 export class PluginIpcService {
@@ -74,6 +75,40 @@ export class PluginIpcService {
   async pluginsCreateTemplate(name: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.pluginsCreateTemplate(name);
+  }
+
+  // ============================================
+  // Runtime Plugin Package Operations
+  // ============================================
+
+  async runtimePluginsList(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimePluginsList();
+  }
+
+  async runtimePluginsValidate(source: PluginPackageSource): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimePluginsValidate(source);
+  }
+
+  async runtimePluginsInstall(source: PluginPackageSource): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimePluginsInstall(source);
+  }
+
+  async runtimePluginsUpdate(pluginId: string, source?: PluginPackageSource): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimePluginsUpdate(pluginId, source);
+  }
+
+  async runtimePluginsPrune(): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimePluginsPrune();
+  }
+
+  async runtimePluginsUninstall(pluginId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.runtimePluginsUninstall(pluginId);
   }
 
   // ============================================

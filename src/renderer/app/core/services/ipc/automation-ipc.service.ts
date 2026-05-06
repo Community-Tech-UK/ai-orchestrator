@@ -4,6 +4,11 @@ import type {
   CreateAutomationInput,
   UpdateAutomationInput,
 } from '../../../../../shared/types/automation.types';
+import type {
+  AutomationPreflightReport,
+  AutomationPreflightRequest,
+  AutomationTemplate,
+} from '../../../../../shared/types/task-preflight.types';
 
 @Injectable({ providedIn: 'root' })
 export class AutomationIpcService {
@@ -60,6 +65,16 @@ export class AutomationIpcService {
   async markSeen(payload: { automationId?: string; runId?: string }): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.automationMarkSeen(payload);
+  }
+
+  async preflight(payload: AutomationPreflightRequest): Promise<IpcResponse<AutomationPreflightReport>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.automationPreflight(payload) as Promise<IpcResponse<AutomationPreflightReport>>;
+  }
+
+  async listTemplates(): Promise<IpcResponse<AutomationTemplate[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.automationTemplatesList() as Promise<IpcResponse<AutomationTemplate[]>>;
   }
 
   onChanged(callback: (event: unknown) => void): () => void {

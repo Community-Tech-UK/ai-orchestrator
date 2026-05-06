@@ -606,28 +606,40 @@ export class OrchestratorPluginManager {
         let manifest: PluginManifest | undefined;
         let detected = true;
         try {
-          const manifestPath = path.join(path.dirname(filePath), 'plugin.json');
-          try {
-            const manifestRaw = await fs.readFile(manifestPath, 'utf-8');
-            phases.push(buildPhase('manifest_load', 'succeeded'));
-            const parsed: unknown = JSON.parse(manifestRaw);
-            const result = validateManifest(parsed);
-            if (result.valid) {
-              manifest = result.manifest;
-              phases.push(buildPhase('manifest_validation', 'succeeded'));
-            } else {
-              phases.push(buildPhase('manifest_validation', 'failed', result.errors.join(', ')));
-              logger.warn(`Invalid plugin manifest at ${manifestPath}: ${result.errors.join(', ')}`);
-              errors.push({ filePath: manifestPath, error: `Invalid manifest: ${result.errors.join(', ')}` });
-            }
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-              phases.push(buildPhase('manifest_load', 'skipped', 'plugin.json not present'));
-              phases.push(buildPhase('manifest_validation', 'skipped', 'plugin.json not present'));
-            } else {
+          const manifestPaths = [
+            path.join(path.dirname(filePath), 'plugin.json'),
+            path.join(path.dirname(filePath), '.codex-plugin', 'plugin.json'),
+          ];
+          let manifestLoadAttempted = false;
+          for (const manifestPath of manifestPaths) {
+            try {
+              const manifestRaw = await fs.readFile(manifestPath, 'utf-8');
+              manifestLoadAttempted = true;
+              phases.push(buildPhase('manifest_load', 'succeeded'));
+              const parsed: unknown = JSON.parse(manifestRaw);
+              const result = validateManifest(parsed);
+              if (result.valid) {
+                manifest = result.manifest;
+                phases.push(buildPhase('manifest_validation', 'succeeded'));
+              } else {
+                phases.push(buildPhase('manifest_validation', 'failed', result.errors.join(', ')));
+                logger.warn(`Invalid plugin manifest at ${manifestPath}: ${result.errors.join(', ')}`);
+                errors.push({ filePath: manifestPath, error: `Invalid manifest: ${result.errors.join(', ')}` });
+              }
+              break;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                continue;
+              }
+              manifestLoadAttempted = true;
               phases.push(buildPhase('manifest_load', 'failed', error instanceof Error ? error.message : String(error)));
               phases.push(buildPhase('manifest_validation', 'skipped', 'manifest load failed'));
+              break;
             }
+          }
+          if (!manifestLoadAttempted) {
+            phases.push(buildPhase('manifest_load', 'skipped', 'plugin.json not present'));
+            phases.push(buildPhase('manifest_validation', 'skipped', 'plugin.json not present'));
           }
 
           const loaded = await this.loadModule(filePath);

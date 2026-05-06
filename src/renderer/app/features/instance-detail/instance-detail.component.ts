@@ -36,10 +36,12 @@ import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
+import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { QuickActionDispatcherService } from '../orchestration/quick-action-dispatcher.service';
 import { TodoStore } from '../../core/state/todo.store';
+import { AutomationStore } from '../../core/state/automation.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
@@ -85,6 +87,7 @@ interface HistoryPreviewView {
     InstanceWelcomeComponent,
     InstanceReviewPanelComponent,
     CrossModelReviewPanelComponent,
+    ProviderDiagnosticsPanelComponent,
     RemoteBrowseModalComponent,
     OrchestrationHudComponent,
     ChildDiagnosticBundleModalComponent
@@ -104,6 +107,7 @@ export class InstanceDetailComponent {
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
   private quickActionDispatcher = inject(QuickActionDispatcherService);
+  private automationStore = inject(AutomationStore);
   readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
   private fileAttachment = inject(FileAttachmentService);
   todoStore = inject(TodoStore);
@@ -361,6 +365,10 @@ export class InstanceDetailComponent {
     if (!inst) return [];
     return this.store.getMessageQueue(inst.id);
   });
+  threadWakeups = computed(() => {
+    const inst = this.instance();
+    return inst ? this.automationStore.threadWakeupsForInstance(inst.id) : [];
+  });
 
   inputPlaceholder = computed(() => {
     const inst = this.instance();
@@ -517,6 +525,41 @@ export class InstanceDetailComponent {
       // Update welcome screen
       this.newSessionDraft.setWorkingDirectory(folder);
     }
+  }
+
+  async onCreateThreadWakeup(event: {
+    prompt: string;
+    runAt: number;
+    intervalMinutes?: number;
+    reviveIfArchived: boolean;
+  }): Promise<void> {
+    const inst = this.instance();
+    if (!inst) return;
+    await this.automationStore.createThreadWakeup({
+      instanceId: inst.id,
+      sessionId: inst.providerSessionId,
+      historyEntryId: inst.historyThreadId,
+      workingDirectory: inst.workingDirectory,
+      prompt: event.prompt,
+      runAt: event.runAt,
+      intervalMinutes: event.intervalMinutes,
+      reviveIfArchived: event.reviveIfArchived,
+    });
+  }
+
+  async onCancelThreadWakeups(): Promise<void> {
+    const inst = this.instance();
+    if (!inst) return;
+    await this.automationStore.cancelThreadWakeups(inst.id);
+  }
+
+  showWakeupReviveToggle(status: string): boolean {
+    return status === 'failed'
+      || status === 'error'
+      || status === 'terminated'
+      || status === 'cancelled'
+      || status === 'superseded'
+      || status === 'hibernated';
   }
 
   getProviderDisplayName(provider: string): string {

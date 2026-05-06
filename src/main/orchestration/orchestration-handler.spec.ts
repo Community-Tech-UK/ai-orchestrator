@@ -236,6 +236,7 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
       missedRunPolicy: 'notify',
       concurrencyPolicy: 'skip',
+      destination: { kind: 'newInstance' },
       action: {
         prompt: 'Check the repo status and summarize issues.',
         workingDirectory: '/repo/current',
@@ -270,6 +271,7 @@ describe('OrchestrationHandler.processOutput (streaming markers)', () => {
       schedule: { type: 'cron', expression: '0 9 * * *', timezone: 'UTC' },
       missedRunPolicy: 'notify',
       concurrencyPolicy: 'skip',
+      destination: { kind: 'newInstance' },
       action: {
         prompt: 'Check the repo status and summarize issues.',
         workingDirectory: '/repo/current',

@@ -38,6 +38,11 @@
             (reviewPanelToggle)="toggleCrossModelReviewPanel()"
           />
 
+          <app-provider-diagnostics-panel
+            [instanceId]="inst.id"
+            [contextUsage]="inst.contextUsage"
+          />
+
           <!-- Context warning -->
           @if (contextWarningLevel()) {
             <app-context-warning
@@ -259,11 +264,16 @@
             [currentModel]="inst.currentModel"
             [workingDirectory]="inst.workingDirectory"
             [isReplayFallback]="isReplayFallback()"
+            [showWakeupControls]="true"
+            [hasThreadWakeups]="threadWakeups().length > 0"
+            [showWakeupReviveToggle]="showWakeupReviveToggle(inst.status)"
             (sendMessage)="onSendMessage($event)"
             (steerMessage)="onSteerMessage($event)"
             (removeFile)="onRemoveFile($event)"
             (removeFolder)="onRemoveFolder($event)"
             (addFiles)="onAddFiles()"
+            (createWakeup)="onCreateThreadWakeup($event)"
+            (cancelWakeups)="onCancelThreadWakeups()"
             (cancelQueuedMessage)="onCancelQueuedMessage($event)"
             (editQueuedMessage)="onEditQueuedMessage($event)"
             (steerQueuedMessage)="onSteerQueuedMessage($event)"

@@ -47,14 +47,16 @@ vi.mock('../../../logging/logger', () => ({
 
 const mockLoadConversation = vi.fn();
 const mockMarkNativeResumeFailed = vi.fn();
+const mockDeleteEntry = vi.fn();
+const mockArchiveEntry = vi.fn();
 
 vi.mock('../../../history', () => ({
   getHistoryManager: () => ({
     getEntries: vi.fn().mockReturnValue([]),
     loadConversation: mockLoadConversation,
     markNativeResumeFailed: mockMarkNativeResumeFailed,
-    deleteEntry: vi.fn(),
-    archiveEntry: vi.fn(),
+    deleteEntry: mockDeleteEntry,
+    archiveEntry: mockArchiveEntry,
     clearAll: vi.fn(),
   }),
 }));
@@ -127,6 +129,8 @@ describe('session-handlers', () => {
     handlers.clear();
     vi.clearAllMocks();
     mockMarkNativeResumeFailed.mockReset();
+    mockDeleteEntry.mockReset();
+    mockArchiveEntry.mockReset();
     mockIsRemoteNodeReachable.mockReset();
 
     mockInstanceManager = makeMockInstanceManager();
@@ -134,6 +138,21 @@ describe('session-handlers', () => {
     registerSessionHandlers({
       instanceManager: mockInstanceManager,
       serializeInstance: vi.fn((instance: unknown) => instance as Record<string, unknown>),
+    });
+  });
+
+  describe('history maintenance', () => {
+    it('registers archive and delete handlers', async () => {
+      mockArchiveEntry.mockResolvedValue(true);
+      mockDeleteEntry.mockResolvedValue(true);
+
+      await expect(invoke(IPC_CHANNELS.HISTORY_ARCHIVE, { entryId: 'entry-1' }))
+        .resolves.toMatchObject({ success: true });
+      await expect(invoke(IPC_CHANNELS.HISTORY_DELETE, { entryId: 'entry-1' }))
+        .resolves.toMatchObject({ success: true });
+
+      expect(mockArchiveEntry).toHaveBeenCalledWith('entry-1');
+      expect(mockDeleteEntry).toHaveBeenCalledWith('entry-1');
     });
   });
 

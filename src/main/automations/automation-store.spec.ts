@@ -113,6 +113,89 @@ describe('AutomationStore', () => {
     expect(claimed?.snapshot.action.attachments?.[0]?.data).toBe(attachment.data);
   });
 
+  it('defaults automations to new-instance delivery when no destination is supplied', async () => {
+    const automation = await store.create({
+      name: 'Default destination check',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: {
+        prompt: 'Run elsewhere',
+        workingDirectory: '/tmp',
+      },
+    }, 1_000, 100);
+
+    const hydrated = await store.get(automation.id);
+
+    expect(automation.destination).toEqual({ kind: 'newInstance' });
+    expect(hydrated?.destination).toEqual({ kind: 'newInstance' });
+  });
+
+  it('persists thread destinations and includes them in queued run snapshots', async () => {
+    const automation = await store.create({
+      name: 'Thread destination check',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'queue',
+      destination: {
+        kind: 'thread',
+        instanceId: 'instance-1',
+        sessionId: 'session-1',
+        historyEntryId: 'history-1',
+        reviveIfArchived: true,
+      },
+      action: {
+        prompt: 'Wake the thread',
+        workingDirectory: '/tmp',
+      },
+    }, 1_000, 100);
+
+    const hydrated = await store.get(automation.id);
+    const first = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000);
+    const queued = store.decideAndInsertRun(automation, 'scheduled', 2_000, 2_000);
+
+    expect(hydrated?.destination).toEqual({
+      kind: 'thread',
+      instanceId: 'instance-1',
+      sessionId: 'session-1',
+      historyEntryId: 'history-1',
+      reviveIfArchived: true,
+    });
+    expect(first.kind).toBe('started');
+    expect(queued.kind).toBe('queued');
+    expect(queued.run.configSnapshot?.destination).toEqual(hydrated?.destination);
+  });
+
+  it('removes companion thread destination rows when updated back to a new instance', async () => {
+    const automation = await store.create({
+      name: 'Destination update check',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      destination: {
+        kind: 'thread',
+        instanceId: 'instance-1',
+        reviveIfArchived: false,
+      },
+      action: {
+        prompt: 'Wake the thread',
+        workingDirectory: '/tmp',
+      },
+    }, 1_000, 100);
+
+    await store.update(automation.id, {
+      destination: { kind: 'newInstance' },
+    }, 2_000, 1_500);
+
+    const hydrated = await store.get(automation.id);
+    const companionRows = db
+      .prepare('SELECT * FROM automation_thread_destinations WHERE automation_id = ?')
+      .all(automation.id);
+
+    expect(hydrated?.destination).toEqual({ kind: 'newInstance' });
+    expect(companionRows).toEqual([]);
+  });
+
   it('does not insert a skipped row when the automation is missing', () => {
     const outcome = store.decideAndInsertRun(null, 'scheduled', 1_000, 1_000);
     expect(outcome.kind).toBe('missing');

@@ -6,6 +6,7 @@ import type {
   AutomationConfigSnapshot,
   AutomationConcurrencyPolicy,
   AutomationDeliveryMode,
+  AutomationDestination,
   AutomationMissedRunPolicy,
   AutomationRun,
   AutomationRunStatus,
@@ -58,6 +59,14 @@ interface AutomationRunRow {
   updated_at: number;
 }
 
+interface AutomationThreadDestinationRow {
+  automation_id: string;
+  instance_id: string;
+  session_id: string | null;
+  history_entry_id: string | null;
+  revive_if_archived: number;
+}
+
 type FireDecision =
   | { kind: 'missing'; reason: string }
   | { kind: 'skipped'; reason: string; run?: AutomationRun }
@@ -72,6 +81,10 @@ interface RunInsertExtras {
   triggerSource?: AutomationTriggerSource;
   deliveryMode?: AutomationDeliveryMode;
 }
+
+type PersistedAutomationConfigSnapshot = Omit<AutomationConfigSnapshot, 'destination'> & {
+  destination?: AutomationDestination;
+};
 
 export interface AutomationRunDecisionOptions {
   idempotencyKey?: string;
@@ -91,7 +104,34 @@ function toSnapshot(automation: Automation): AutomationConfigSnapshot {
     schedule: automation.schedule,
     missedRunPolicy: automation.missedRunPolicy,
     concurrencyPolicy: automation.concurrencyPolicy,
+    destination: automation.destination,
     action: automation.action,
+  };
+}
+
+function normalizeDestination(destination?: AutomationDestination | null): AutomationDestination {
+  if (!destination || destination.kind === 'newInstance') {
+    return { kind: 'newInstance' };
+  }
+
+  const normalized: Extract<AutomationDestination, { kind: 'thread' }> = {
+    kind: 'thread',
+    instanceId: destination.instanceId,
+    reviveIfArchived: destination.reviveIfArchived ?? true,
+  };
+  if (destination.sessionId !== undefined) {
+    normalized.sessionId = destination.sessionId;
+  }
+  if (destination.historyEntryId !== undefined) {
+    normalized.historyEntryId = destination.historyEntryId;
+  }
+  return normalized;
+}
+
+function normalizeSnapshot(snapshot: PersistedAutomationConfigSnapshot): AutomationConfigSnapshot {
+  return {
+    ...snapshot,
+    destination: normalizeDestination(snapshot.destination),
   };
 }
 
@@ -107,6 +147,7 @@ export class AutomationStore {
     const schedule = input.schedule;
     const missedRunPolicy = input.missedRunPolicy ?? 'notify';
     const concurrencyPolicy = input.concurrencyPolicy ?? 'skip';
+    const destination = normalizeDestination(input.destination);
 
     const insert = this.db.transaction(() => {
       this.db.prepare(`
@@ -130,6 +171,7 @@ export class AutomationStore {
         now,
         now,
       );
+      this.writeDestination(id, destination);
       this.attachmentService.replacePrepared(id, prepared);
     });
     insert();
@@ -160,6 +202,7 @@ export class AutomationStore {
 
     const schedule = updates.schedule ?? existing.schedule;
     const setNextFireAt = nextFireAt !== undefined ? nextFireAt : existing.nextFireAt;
+    const destination = updates.destination ? normalizeDestination(updates.destination) : existing.destination;
 
     const write = this.db.transaction(() => {
       this.db.prepare(`
@@ -190,6 +233,7 @@ export class AutomationStore {
         now,
         id,
       );
+      this.writeDestination(id, destination);
       if (prepared) {
         this.attachmentService.replacePrepared(id, prepared);
       }
@@ -691,6 +735,58 @@ export class AutomationStore {
     return this.db.prepare(`SELECT * FROM automation_runs WHERE id = ?`).get<AutomationRunRow>(id);
   }
 
+  private getDestination(automationId: string): AutomationDestination {
+    const row = this.db.prepare(`
+      SELECT *
+      FROM automation_thread_destinations
+      WHERE automation_id = ?
+    `).get<AutomationThreadDestinationRow>(automationId);
+    if (!row) {
+      return { kind: 'newInstance' };
+    }
+
+    const destination: Extract<AutomationDestination, { kind: 'thread' }> = {
+      kind: 'thread',
+      instanceId: row.instance_id,
+      reviveIfArchived: row.revive_if_archived === 1,
+    };
+    if (row.session_id) {
+      destination.sessionId = row.session_id;
+    }
+    if (row.history_entry_id) {
+      destination.historyEntryId = row.history_entry_id;
+    }
+    return destination;
+  }
+
+  private writeDestination(automationId: string, destination: AutomationDestination): void {
+    const normalized = normalizeDestination(destination);
+    if (normalized.kind === 'newInstance') {
+      this.db.prepare(`
+        DELETE FROM automation_thread_destinations
+        WHERE automation_id = ?
+      `).run(automationId);
+      return;
+    }
+
+    this.db.prepare(`
+      INSERT INTO automation_thread_destinations
+        (automation_id, instance_id, session_id, history_entry_id, revive_if_archived)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(automation_id) DO UPDATE SET
+        instance_id = excluded.instance_id,
+        session_id = excluded.session_id,
+        history_entry_id = excluded.history_entry_id,
+        revive_if_archived = excluded.revive_if_archived
+    `).run(
+      automationId,
+      normalized.instanceId,
+      normalized.sessionId ?? null,
+      normalized.historyEntryId ?? null,
+      normalized.reviveIfArchived ? 1 : 0,
+    );
+  }
+
   private async mapAutomation(row: AutomationRow): Promise<Automation> {
     const automation = this.mapAutomationSync(row);
     automation.action = {
@@ -710,6 +806,7 @@ export class AutomationStore {
       schedule: JSON.parse(row.schedule_json) as AutomationSchedule,
       missedRunPolicy: row.missed_run_policy,
       concurrencyPolicy: row.concurrency_policy,
+      destination: this.getDestination(row.id),
       action: JSON.parse(row.action_json) as AutomationAction,
       nextFireAt: row.next_fire_at,
       lastFiredAt: row.last_fired_at,
@@ -740,7 +837,7 @@ export class AutomationStore {
       deliveryMode: row.delivery_mode ?? 'notify',
       seenAt: row.seen_at,
       configSnapshot: row.config_snapshot_json
-        ? JSON.parse(row.config_snapshot_json) as AutomationConfigSnapshot
+        ? normalizeSnapshot(JSON.parse(row.config_snapshot_json) as PersistedAutomationConfigSnapshot)
         : null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

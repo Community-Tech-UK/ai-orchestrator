@@ -100,6 +100,66 @@ describe('observeAdapterRuntimeEvents', () => {
     });
   });
 
+  it('normalizes provider diagnostics from context and complete payloads', () => {
+    const adapter = new EventEmitter();
+    const events: NormalizedAdapterRuntimeEvent[] = [];
+    observeAdapterRuntimeEvents(adapter, (event) => events.push(event));
+
+    adapter.emit('context', {
+      used: 80,
+      total: 100,
+      percentage: 80,
+      inputTokens: 60,
+      outputTokens: 20,
+      source: 'provider-usage',
+      promptWeight: 0.75,
+    });
+    adapter.emit('complete', {
+      usage: { totalTokens: 80, duration: 900 },
+      metadata: {
+        requestId: 'req_123',
+        stopReason: 'end_turn',
+        rateLimit: { remaining: 0, resetAt: 1713340860000 },
+        quota: { exhausted: false, message: 'ok' },
+      },
+    });
+
+    expect(events[0]?.event).toEqual({
+      kind: 'context',
+      used: 80,
+      total: 100,
+      percentage: 80,
+      inputTokens: 60,
+      outputTokens: 20,
+      source: 'provider-usage',
+      promptWeight: 0.75,
+    });
+    expect(events[1]?.event).toEqual({
+      kind: 'complete',
+      tokensUsed: 80,
+      durationMs: 900,
+      requestId: 'req_123',
+      stopReason: 'end_turn',
+      rateLimit: { remaining: 0, resetAt: 1713340860000 },
+      quota: { exhausted: false, message: 'ok' },
+    });
+  });
+
+  it('drops overlong provider diagnostic strings that would violate the runtime contract', () => {
+    const adapter = new EventEmitter();
+    const events: NormalizedAdapterRuntimeEvent[] = [];
+    observeAdapterRuntimeEvents(adapter, (event) => events.push(event));
+
+    adapter.emit('complete', {
+      metadata: {
+        requestId: 'r'.repeat(301),
+        stopReason: 's'.repeat(301),
+      },
+    });
+
+    expect(events[0]?.event).toEqual({ kind: 'complete' });
+  });
+
   it('removes listeners when cleanup is called', () => {
     const adapter = new EventEmitter();
     const events: NormalizedAdapterRuntimeEvent[] = [];

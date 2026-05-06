@@ -4,7 +4,8 @@ export type TaskPreflightSurface =
   | 'repo-job'
   | 'workflow'
   | 'worktree'
-  | 'verification';
+  | 'verification'
+  | 'automation';
 
 export type TaskPreflightPermissionPreset = 'allow' | 'ask' | 'deny';
 
@@ -99,4 +100,60 @@ export interface TaskPreflightReport {
   blockers: string[];
   warnings: string[];
   recommendedLinks: TaskPreflightLink[];
+}
+
+export interface AutomationPreflightRequest {
+  workingDirectory: string;
+  prompt: string;
+  provider?: string;
+  model?: string;
+  yoloMode?: boolean;
+  expectedUnattended?: boolean;
+}
+
+export interface SuggestedPermissionRule {
+  id: string;
+  scope: 'session' | 'project' | 'user';
+  permission: string;
+  pattern: string;
+  action: 'allow' | 'ask';
+  reason: string;
+  risk: 'low' | 'medium' | 'high';
+  writeTarget?: {
+    filePath: string;
+    mode: 'append-rule' | 'update-rule';
+  };
+  previewRule: {
+    permission: string;
+    pattern: string;
+    action: 'allow' | 'ask';
+  };
+}
+
+export interface AutomationPromptEditSuggestion {
+  id: string;
+  reason: string;
+  replacementPrompt: string;
+}
+
+export interface AutomationPreflightReport extends TaskPreflightReport {
+  surface: 'automation';
+  okToSave: boolean;
+  suggestedPermissionRules: SuggestedPermissionRule[];
+  suggestedPromptEdits: AutomationPromptEditSuggestion[];
+}
+
+export interface AutomationTemplateSchedule {
+  type: 'cron';
+  expression: string;
+  timezone: string;
+}
+
+export interface AutomationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  suggestedSchedule: AutomationTemplateSchedule;
+  tags: string[];
 }

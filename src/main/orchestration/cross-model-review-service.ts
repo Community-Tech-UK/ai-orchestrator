@@ -30,6 +30,8 @@ import type {
 } from '../../shared/types/cross-model-review.types';
 import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-concerns';
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
+import type { HeadlessReviewFinding, HeadlessReviewResult, HeadlessReviewReviewer } from '../cli-entrypoints/review-command-output';
+import type { HeadlessReviewRequest, ReviewExecutionHost } from '../review/review-execution-host';
 
 const logger = getLogger('CrossModelReviewService');
 
@@ -62,6 +64,7 @@ export class CrossModelReviewService extends EventEmitter {
   private availabilityRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
   private instanceManager: InstanceManager | null = null;
+  private reviewExecutionHost: ReviewExecutionHost | null = null;
   private isPaused = getPauseCoordinator().isPaused();
   private readonly handlePause = (): void => {
     this.isPaused = true;
@@ -100,6 +103,10 @@ export class CrossModelReviewService extends EventEmitter {
    */
   setInstanceManager(im: InstanceManager): void {
     this.instanceManager = im;
+  }
+
+  setReviewExecutionHost(host: ReviewExecutionHost): void {
+    this.reviewExecutionHost = host;
   }
 
   async initialize(): Promise<void> {
@@ -352,6 +359,157 @@ export class CrossModelReviewService extends EventEmitter {
       logger.warn('Review failed', { cliType, error: message });
       throw err;
     }
+  }
+
+  async runHeadlessReview(request: HeadlessReviewRequest): Promise<HeadlessReviewResult> {
+    const startedAt = new Date();
+    const host = this.reviewExecutionHost;
+    if (!host) {
+      const completedAt = new Date();
+      return {
+        target: request.target,
+        cwd: request.cwd,
+        startedAt: startedAt.toISOString(),
+        completedAt: completedAt.toISOString(),
+        reviewers: [],
+        findings: [],
+        summary: 'Headless review host is not configured.',
+        infrastructureErrors: ['Headless review host is not configured.'],
+      };
+    }
+
+    const reviewers = await this.resolveHeadlessReviewers(request);
+    if (reviewers.length === 0) {
+      const completedAt = new Date();
+      return {
+        target: request.target,
+        cwd: request.cwd,
+        startedAt: startedAt.toISOString(),
+        completedAt: completedAt.toISOString(),
+        reviewers: [],
+        findings: [],
+        summary: 'No reviewers available for headless review.',
+        infrastructureErrors: [],
+      };
+    }
+
+    const abort = new AbortController();
+    const timeoutMs = Math.max(1, request.timeoutSeconds ?? 60) * 1000;
+    const timeout = setTimeout(() => abort.abort(), timeoutMs);
+    const reviewerStatuses: HeadlessReviewReviewer[] = [];
+    const successfulReviews: ReviewResult[] = [];
+
+    try {
+      const reviewDepth = request.reviewDepth ?? 'structured';
+      const prompt = reviewDepth === 'tiered'
+        ? buildTieredReviewPrompt(request.taskDescription, request.content)
+        : buildStructuredReviewPrompt(request.taskDescription, request.content);
+
+      for (const reviewer of reviewers) {
+        try {
+          const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, request.cwd, abort.signal);
+          const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
+          if (!parsed) {
+            reviewerStatuses.push({ provider: reviewer, status: 'failed', reason: 'Reviewer returned unparseable output' });
+            continue;
+          }
+          successfulReviews.push(parsed);
+          reviewerStatuses.push({ provider: reviewer, status: 'used' });
+        } catch (error) {
+          reviewerStatuses.push({
+            provider: reviewer,
+            status: 'failed',
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const findings = successfulReviews.flatMap((review) => this.toHeadlessFindings(review));
+    const failedReasons = reviewerStatuses
+      .filter((reviewer) => reviewer.status === 'failed' && reviewer.reason)
+      .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
+    const infrastructureErrors = successfulReviews.length === 0 ? failedReasons : [];
+    const completedAt = new Date();
+
+    return {
+      target: request.target,
+      cwd: request.cwd,
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      reviewers: reviewerStatuses,
+      findings,
+      summary: this.summarizeHeadlessReview(successfulReviews.length, findings.length, infrastructureErrors.length),
+      infrastructureErrors,
+    };
+  }
+
+  private async resolveHeadlessReviewers(request: HeadlessReviewRequest): Promise<string[]> {
+    if (request.reviewers) {
+      return request.reviewers;
+    }
+
+    await this.refreshAvailability();
+    const settings = getSettingsManager().getAll();
+    return this.reviewerPool.selectReviewers(
+      request.primaryProvider ?? 'claude',
+      settings.crossModelReviewMaxReviewers,
+    );
+  }
+
+  private toHeadlessFindings(review: ReviewResult): HeadlessReviewFinding[] {
+    const findings: HeadlessReviewFinding[] = [];
+    for (const issue of review.criticalIssues ?? []) {
+      findings.push({
+        title: `${review.reviewerId} critical issue`,
+        body: issue,
+        severity: 'high',
+        confidence: 0.9,
+      });
+    }
+
+    for (const [dimension, score] of Object.entries(review.scores)) {
+      if (!score || score.issues.length === 0) {
+        continue;
+      }
+      for (const issue of score.issues) {
+        findings.push({
+          title: `${review.reviewerId} ${dimension} concern`,
+          body: issue,
+          severity: this.severityForScore(dimension, score.score),
+          confidence: Math.max(0.1, Math.min(1, (5 - score.score) / 4)),
+        });
+      }
+    }
+
+    if (findings.length === 0 && review.overallVerdict !== 'APPROVE') {
+      findings.push({
+        title: `${review.reviewerId} ${review.overallVerdict.toLowerCase()} verdict`,
+        body: review.summary,
+        severity: review.overallVerdict === 'REJECT' ? 'high' : 'medium',
+        confidence: 0.7,
+      });
+    }
+
+    return findings;
+  }
+
+  private severityForScore(dimension: string, score: number): HeadlessReviewFinding['severity'] {
+    if (score <= 1) return dimension === 'security' ? 'critical' : 'high';
+    if (score <= 2) return dimension === 'security' ? 'high' : 'medium';
+    return 'low';
+  }
+
+  private summarizeHeadlessReview(successfulReviewers: number, findingCount: number, infrastructureErrorCount: number): string {
+    if (infrastructureErrorCount > 0 && successfulReviewers === 0) {
+      return 'Headless review failed before any reviewer completed.';
+    }
+    if (findingCount === 0) {
+      return `No findings from ${successfulReviewers} reviewer(s).`;
+    }
+    return `${findingCount} finding(s) from ${successfulReviewers} reviewer(s).`;
   }
 
   // === Response Parsing ===

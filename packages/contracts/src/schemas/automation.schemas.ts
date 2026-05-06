@@ -67,6 +67,19 @@ export const AutomationActionSchema = z.object({
   attachments: z.array(AutomationFileAttachmentSchema).max(10).optional(),
 });
 
+export const AutomationDestinationSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('newInstance'),
+  }),
+  z.object({
+    kind: z.literal('thread'),
+    instanceId: z.string().min(1).max(200),
+    sessionId: z.string().min(1).max(200).optional(),
+    historyEntryId: z.string().min(1).max(200).optional(),
+    reviveIfArchived: z.boolean().default(true),
+  }),
+]);
+
 export const AutomationCreatePayloadSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
@@ -74,12 +87,21 @@ export const AutomationCreatePayloadSchema = z.object({
   schedule: AutomationScheduleSchema,
   missedRunPolicy: AutomationMissedRunPolicySchema.optional(),
   concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
+  destination: AutomationDestinationSchema.default({ kind: 'newInstance' }),
   action: AutomationActionSchema,
 });
 
 export const AutomationUpdatePayloadSchema = z.object({
   id: AutomationIdSchema,
-  updates: AutomationCreatePayloadSchema.partial().extend({
+  updates: z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(1000).optional(),
+    enabled: z.boolean().optional(),
+    schedule: AutomationScheduleSchema.optional(),
+    missedRunPolicy: AutomationMissedRunPolicySchema.optional(),
+    concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
+    destination: AutomationDestinationSchema.optional(),
+    action: AutomationActionSchema.optional(),
     active: z.boolean().optional(),
   }),
 });
@@ -115,6 +137,15 @@ export const AutomationMarkSeenPayloadSchema = z.object({
   message: 'automationId or runId is required',
 });
 
+export const AutomationPreflightPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+  prompt: z.string().min(1).max(500000),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  model: z.string().max(100).optional(),
+  yoloMode: z.boolean().optional(),
+  expectedUnattended: z.boolean().optional(),
+});
+
 export const AutomationValidateCronPayloadSchema = z.object({
   expression: z.string().min(1).max(200),
   timezone: z.string().min(1).max(100),
@@ -126,3 +157,4 @@ export type AutomationGetPayload = z.infer<typeof AutomationGetPayloadSchema>;
 export type AutomationDeletePayload = z.infer<typeof AutomationDeletePayloadSchema>;
 export type AutomationRunNowPayload = z.infer<typeof AutomationRunNowPayloadSchema>;
 export type AutomationListRunsPayload = z.infer<typeof AutomationListRunsPayloadSchema>;
+export type AutomationPreflightPayload = z.infer<typeof AutomationPreflightPayloadSchema>;

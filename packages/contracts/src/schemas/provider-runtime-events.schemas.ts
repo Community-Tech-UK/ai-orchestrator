@@ -17,6 +17,25 @@ const ProviderRuntimeThinkingContentSchema = z.object({
   tokenCount: z.number().int().nonnegative().optional(),
 });
 
+const ProviderRateLimitSchema = z.object({
+  limit: z.number().nonnegative().optional(),
+  remaining: z.number().nonnegative().optional(),
+  resetAt: z.number().int().nonnegative().optional(),
+});
+
+const ProviderQuotaDiagnosticsSchema = z.object({
+  exhausted: z.boolean().optional(),
+  resetAt: z.number().int().nonnegative().optional(),
+  message: z.string().optional(),
+});
+
+const ProviderApiDiagnosticsSchema = {
+  requestId: z.string().min(1).max(300).optional(),
+  stopReason: z.string().min(1).max(300).optional(),
+  rateLimit: ProviderRateLimitSchema.optional(),
+  quota: ProviderQuotaDiagnosticsSchema.optional(),
+};
+
 const ProviderOutputEventSchema = z.object({
   kind: z.literal('output'),
   content: z.string(),
@@ -55,6 +74,10 @@ const ProviderContextEventSchema = z.object({
   used: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
   percentage: z.number().optional(),
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  source: z.string().min(1).max(100).optional(),
+  promptWeight: z.number().nonnegative().optional(),
 });
 
 const ProviderErrorEventSchema = z.object({
@@ -62,6 +85,7 @@ const ProviderErrorEventSchema = z.object({
   message: z.string(),
   recoverable: z.boolean().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
+  ...ProviderApiDiagnosticsSchema,
 });
 
 const ProviderExitEventSchema = z.object({
@@ -80,6 +104,7 @@ const ProviderCompleteEventSchema = z.object({
   tokensUsed: z.number().int().nonnegative().optional(),
   costUsd: z.number().nonnegative().optional(),
   durationMs: z.number().int().nonnegative().optional(),
+  ...ProviderApiDiagnosticsSchema,
 });
 
 export const ProviderRuntimeEventSchema = z.discriminatedUnion('kind', [

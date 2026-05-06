@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  TemplateRef,
   computed,
   input,
   output,
@@ -41,6 +42,10 @@ import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from '
           />
           <kbd>Esc</kbd>
         </header>
+
+        @if (headerAccessory()) {
+          <ng-container [ngTemplateOutlet]="headerAccessory()" />
+        }
 
         <div class="overlay-list">
           @if (flatItems().length === 0) {
@@ -257,6 +262,7 @@ import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from '
 })
 export class OverlayShellComponent implements AfterViewInit {
   controller = input.required<OverlayController>();
+  headerAccessory = input<TemplateRef<unknown> | null>(null);
   itemFooter = input<OverlayItemFooterTemplate | null>(null);
   closeRequested = output<void>();
   selected = output<OverlayItem>();

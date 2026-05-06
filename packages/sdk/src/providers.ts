@@ -13,6 +13,8 @@ export type {
   ProviderExitEvent,
   ProviderSpawnedEvent,
   ProviderCompleteEvent,
+  ProviderRateLimitDiagnostics,
+  ProviderQuotaDiagnostics,
 } from '@contracts/types/provider-runtime-events';
 
 export type ProviderType =
@@ -129,6 +131,10 @@ export interface ProviderContextUsage {
   total: number;
   percentage: number;
   cumulativeTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  source?: string;
+  promptWeight?: number;
   costEstimate?: number;
 }
 

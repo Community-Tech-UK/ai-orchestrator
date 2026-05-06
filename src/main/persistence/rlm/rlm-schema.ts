@@ -1708,6 +1708,27 @@ export const MIGRATIONS: Migration[] = [
       PRAGMA foreign_keys=ON;
     `,
   },
+  // Migration 026: thread destinations for automation wakeups.
+  {
+    name: '026_automation_thread_destinations',
+    up: `
+      CREATE TABLE IF NOT EXISTS automation_thread_destinations (
+        automation_id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL,
+        session_id TEXT,
+        history_entry_id TEXT,
+        revive_if_archived INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY(automation_id) REFERENCES automations(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_automation_thread_destinations_instance
+        ON automation_thread_destinations(instance_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_automation_thread_destinations_instance;
+      DROP TABLE IF EXISTS automation_thread_destinations;
+    `,
+  },
 ];
 
 /**

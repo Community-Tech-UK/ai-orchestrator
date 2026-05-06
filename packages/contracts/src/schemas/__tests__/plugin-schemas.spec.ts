@@ -3,6 +3,10 @@ import { ZodError } from 'zod';
 
 import {
   PluginManifestSchema,
+  PluginPackageSourceSchema,
+  RuntimePluginInstallPayloadSchema,
+  RuntimePluginPrunePayloadSchema,
+  RuntimePluginValidatePayloadSchema,
   SkillFrontmatterSchema,
   validateHookPayload,
   HookPayloadSchemas,
@@ -130,6 +134,43 @@ describe('PluginManifestSchema', () => {
       name: 'x'.repeat(201),
       version: '1.0.0',
     })).toThrow(ZodError);
+  });
+
+  it('accepts optional package-manager metadata without requiring it for legacy manifests', () => {
+    const legacy = PluginManifestSchema.parse({ name: 'legacy', version: '1.0.0' });
+    expect(legacy.source).toBeUndefined();
+
+    const packaged = PluginManifestSchema.parse({
+      name: 'packaged',
+      version: '1.0.0',
+      source: {
+        type: 'url',
+        value: 'https://example.com/packaged.zip',
+        checksum: 'sha256:abc123',
+      },
+      dependencies: [
+        { name: 'helper-plugin', version: '^1.0.0', optional: true },
+      ],
+      compatibility: {
+        orchestrator: '>=0.1.0',
+      },
+    });
+    expect(packaged.source?.type).toBe('url');
+    expect(packaged.dependencies?.[0]?.optional).toBe(true);
+  });
+});
+
+describe('Runtime plugin package-manager schemas', () => {
+  it('validates install and validate payload sources', () => {
+    const source = { type: 'directory', value: '/tmp/plugin' };
+    expect(PluginPackageSourceSchema.safeParse(source).success).toBe(true);
+    expect(RuntimePluginValidatePayloadSchema.safeParse({ source }).success).toBe(true);
+    expect(RuntimePluginInstallPayloadSchema.safeParse({ source }).success).toBe(true);
+  });
+
+  it('rejects unknown source types and validates prune payloads', () => {
+    expect(PluginPackageSourceSchema.safeParse({ type: 'git', value: 'repo' }).success).toBe(false);
+    expect(RuntimePluginPrunePayloadSchema.safeParse({ dryRun: true }).success).toBe(true);
   });
 });
 

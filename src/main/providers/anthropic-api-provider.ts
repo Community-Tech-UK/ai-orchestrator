@@ -294,6 +294,7 @@ export class AnthropicApiProvider extends BaseProvider {
 
       // Update context usage
       this.updateContextUsage(response);
+      this.emitCompleteDiagnostics(response);
 
       this.pushStatus('idle' as InstanceStatus);
     } catch (error) {
@@ -416,8 +417,21 @@ export class AnthropicApiProvider extends BaseProvider {
       used: totalTokens,
       total: this.session!.maxContextTokens,
       percentage: Math.min(percentage, 100),
+      inputTokens,
+      outputTokens,
+      source: 'anthropic-api',
+      promptWeight: totalTokens > 0 ? inputTokens / totalTokens : 0,
     };
-    this.pushContext(contextUsage.used, contextUsage.total, contextUsage.percentage);
+    this.pushEvent({
+      kind: 'context',
+      used: contextUsage.used,
+      total: contextUsage.total,
+      percentage: contextUsage.percentage,
+      inputTokens: contextUsage.inputTokens,
+      outputTokens: contextUsage.outputTokens,
+      source: contextUsage.source,
+      promptWeight: contextUsage.promptWeight,
+    });
 
     // Update usage statistics
     const modelId = this.model;
@@ -459,6 +473,25 @@ export class AnthropicApiProvider extends BaseProvider {
     } catch {
       // Metrics collector not available - ignore
     }
+  }
+
+  private emitCompleteDiagnostics(response: Anthropic.Message): void {
+    const usage = response.usage;
+    const tokensUsed = usage ? usage.input_tokens + usage.output_tokens : undefined;
+    const requestId = this.getResponseRequestId(response);
+    const stopReason = response.stop_reason ?? undefined;
+
+    this.pushEvent({
+      kind: 'complete',
+      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
+      ...(requestId !== undefined ? { requestId } : {}),
+      ...(stopReason !== undefined ? { stopReason } : {}),
+    });
+  }
+
+  private getResponseRequestId(response: Anthropic.Message): string | undefined {
+    const requestId = (response as Anthropic.Message & { _request_id?: string | null })._request_id;
+    return typeof requestId === 'string' && requestId.trim() ? requestId.trim() : undefined;
   }
 
   // ============================================

@@ -31,6 +31,12 @@ export function createAutomationDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_
     automationMarkSeen: (payload: { automationId?: string; runId?: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AUTOMATION_MARK_SEEN, payload),
 
+    automationPreflight: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.AUTOMATION_PREFLIGHT, payload),
+
+    automationTemplatesList: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.AUTOMATION_TEMPLATES_LIST),
+
     onAutomationChanged: (callback: (event: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.AUTOMATION_CHANGED, listener);

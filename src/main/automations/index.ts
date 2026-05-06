@@ -75,5 +75,6 @@ export function resetAutomationsForTesting(): void {
 export { computeMissedFireTimes, computeNextFireAt, validateCronExpression } from './automation-schedule';
 export { AutomationStore } from './automation-store';
 export { AutomationRunner } from './automation-runner';
+export { ThreadWakeupRunner } from './thread-wakeup-runner';
 export { AutomationScheduler } from './automation-scheduler';
 export { CatchUpCoordinator } from './catch-up-coordinator';

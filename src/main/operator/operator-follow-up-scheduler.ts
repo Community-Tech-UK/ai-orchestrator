@@ -102,7 +102,7 @@ export function parseOperatorFollowUpSchedule(
   if (/\btomorrow\b/.test(normalized)) {
     return {
       type: 'oneTime',
-      runAt: nextLocalWallClock(options.now, 1, 9, 0),
+      runAt: nextWallClockInTimezone(options.now, 1, 9, 0, options.timezone),
       timezone: options.timezone,
     };
   }
@@ -179,11 +179,83 @@ function buildAutomationInput(
   };
 }
 
-function nextLocalWallClock(now: number, daysFromNow: number, hour: number, minute: number): number {
-  const date = new Date(now);
-  date.setDate(date.getDate() + daysFromNow);
-  date.setHours(hour, minute, 0, 0);
-  return date.getTime();
+function nextWallClockInTimezone(
+  now: number,
+  daysFromNow: number,
+  hour: number,
+  minute: number,
+  timezone: string,
+): number {
+  const current = zonedDateParts(now, timezone);
+  return zonedWallClockToUtc({
+    year: current.year,
+    month: current.month,
+    day: current.day + daysFromNow,
+    hour,
+    minute,
+    timezone,
+  });
+}
+
+function zonedWallClockToUtc(input: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  timezone: string;
+}): number {
+  const targetAsUtc = Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute, 0, 0);
+  let guess = targetAsUtc;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const actual = zonedDateParts(guess, input.timezone);
+    const actualAsUtc = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+      actual.second,
+      0,
+    );
+    const offset = targetAsUtc - actualAsUtc;
+    if (offset === 0) {
+      return guess;
+    }
+    guess += offset;
+  }
+
+  return guess;
+}
+
+function zonedDateParts(timestamp: number, timezone: string): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+} {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(timestamp));
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+    hour: value('hour'),
+    minute: value('minute'),
+    second: value('second'),
+  };
 }
 
 function defaultTimezone(): string {

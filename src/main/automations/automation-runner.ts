@@ -18,6 +18,8 @@ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-run
 import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
 import { AutomationStore } from './automation-store';
 import { getAutomationEvents } from './automation-events';
+import { ThreadWakeupRunner } from './thread-wakeup-runner';
+import { SessionRevivalService } from '../session/session-revival-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
 import { getChannelManager } from '../channels/channel-manager';
@@ -36,11 +38,11 @@ interface RunTracking {
   automationId: string;
   seenAssistantOutput: boolean;
   lastAssistantOutput?: string;
-  outputChunks: Array<{
+  outputChunks: {
     kind: string;
     content?: string;
     timestamp: number;
-  }>;
+  }[];
 }
 
 const FAILURE_STATUSES = new Set<InstanceStatus>([
@@ -58,8 +60,15 @@ const WAIT_STATUSES = new Set<InstanceStatus>([
 
 const CHANNEL_DELIVERY_MAX_CHARS = 3500;
 
+type ThreadWakeupRunnerFactory = (
+  manager: InstanceManager,
+  store: AutomationStore,
+  now: () => number,
+) => ThreadWakeupRunner;
+
 export class AutomationRunner {
   private instanceManager: InstanceManager | null = null;
+  private threadWakeupRunner: ThreadWakeupRunner | null = null;
   private readonly trackingByInstance = new Map<string, RunTracking>();
   private readonly instanceByRun = new Map<string, string>();
   private initialized = false;
@@ -68,6 +77,16 @@ export class AutomationRunner {
     private readonly store: AutomationStore,
     private readonly events = getAutomationEvents(),
     private readonly now = () => Date.now(),
+    private readonly threadWakeupRunnerFactory: ThreadWakeupRunnerFactory = (
+      manager,
+      automationStore,
+      currentTime,
+    ) => new ThreadWakeupRunner(
+      manager,
+      new SessionRevivalService(manager),
+      automationStore,
+      currentTime,
+    ),
   ) {}
 
   initialize(instanceManager: InstanceManager): void {
@@ -76,6 +95,7 @@ export class AutomationRunner {
     }
     this.initialized = true;
     this.instanceManager = instanceManager;
+    this.threadWakeupRunner = this.threadWakeupRunnerFactory(instanceManager, this.store, this.now);
 
     instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
       this.handleProviderEvent(envelope);
@@ -170,6 +190,16 @@ export class AutomationRunner {
   }
 
   private async dispatchRun(claimed: ClaimedAutomationRun, manager: InstanceManager): Promise<void> {
+    if (claimed.snapshot.destination.kind === 'thread') {
+      const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
+        run: claimed.run,
+        automation: this.automationFromSnapshot(claimed.automation, claimed.snapshot),
+        destination: claimed.snapshot.destination,
+      });
+      this.handleTerminalRun(terminal);
+      return;
+    }
+
     try {
       const instance = await manager.createInstance({
         displayName: `Automation: ${claimed.snapshot.name}`,
@@ -205,26 +235,8 @@ export class AutomationRunner {
         undefined,
         this.now(),
       );
-	      if (failed) {
-	        this.events.emitRunChanged({ automationId: failed.automationId, run: failed });
-	        emitPluginHook('automation.run.failed', {
-	          automationId: failed.automationId,
-	          runId: failed.id,
-	          status: failed.status,
-	          error: failed.error ?? undefined,
-	          outputFullRef: failed.outputFullRef ?? undefined,
-	          timestamp: Date.now(),
-	        });
-	        this.events.emitRunTerminal({
-          automationId: failed.automationId,
-          runId: failed.id,
-          status: failed.status as Exclude<AutomationRunStatus, 'pending' | 'running'>,
-        });
-        if (this.isOneTimeRun(failed)) {
-          this.emitAutomationState(failed.automationId);
-          this.events.emitScheduleDeactivated({ automationId: failed.automationId });
-        }
-        await this.promotePendingIfAny(failed.automationId);
+      if (failed) {
+        this.handleTerminalRun(failed);
       }
     }
   }
@@ -384,48 +396,7 @@ export class AutomationRunner {
       return;
     }
 
-    this.events.emitRunChanged({ automationId: run.automationId, run });
-    this.events.emitRunTerminal({
-      automationId: run.automationId,
-      runId: run.id,
-      status: run.status as Exclude<AutomationRunStatus, 'pending' | 'running'>,
-    });
-    if (run.status === 'failed') {
-      emitPluginHook('automation.run.failed', {
-        automationId: run.automationId,
-        runId: run.id,
-        status: run.status,
-        error: run.error ?? undefined,
-        outputFullRef: run.outputFullRef ?? undefined,
-        timestamp: Date.now(),
-      });
-    } else {
-      emitPluginHook('automation.run.completed', {
-        automationId: run.automationId,
-        runId: run.id,
-        status: run.status,
-        outputSummary: run.outputSummary ?? undefined,
-        outputFullRef: run.outputFullRef ?? undefined,
-        timestamp: Date.now(),
-      });
-    }
-    if (this.isOneTimeRun(run)) {
-      this.emitAutomationState(run.automationId);
-      this.events.emitScheduleDeactivated({ automationId: run.automationId });
-    }
-    this.deliverRunSummaryToChannel(run).catch((deliveryError) => {
-      logger.warn('Failed to deliver automation run summary to channel', {
-        automationId: run.automationId,
-        runId: run.id,
-        error: deliveryError instanceof Error ? deliveryError.message : String(deliveryError),
-      });
-    });
-    this.promotePendingIfAny(run.automationId).catch((promoteError) => {
-      logger.warn('Failed to promote pending automation run', {
-        automationId: run.automationId,
-        error: promoteError instanceof Error ? promoteError.message : String(promoteError),
-      });
-    });
+    this.handleTerminalRun(run);
   }
 
   private failTrackedInstance(instanceId: string, reason: string): void {
@@ -564,5 +535,72 @@ export class AutomationRunner {
       throw new Error('AutomationRunner has not been initialized');
     }
     return this.instanceManager;
+  }
+
+  private requireThreadWakeupRunner(): ThreadWakeupRunner {
+    if (!this.threadWakeupRunner) {
+      throw new Error('AutomationRunner thread wakeup runner has not been initialized');
+    }
+    return this.threadWakeupRunner;
+  }
+
+  private automationFromSnapshot(
+    automation: Automation,
+    snapshot: ClaimedAutomationRun['snapshot'],
+  ): Automation {
+    return {
+      ...automation,
+      name: snapshot.name,
+      schedule: snapshot.schedule,
+      missedRunPolicy: snapshot.missedRunPolicy,
+      concurrencyPolicy: snapshot.concurrencyPolicy,
+      destination: snapshot.destination,
+      action: snapshot.action,
+    };
+  }
+
+  private handleTerminalRun(run: AutomationRun): void {
+    this.events.emitRunChanged({ automationId: run.automationId, run });
+    this.events.emitRunTerminal({
+      automationId: run.automationId,
+      runId: run.id,
+      status: run.status as Exclude<AutomationRunStatus, 'pending' | 'running'>,
+    });
+    if (run.status === 'failed') {
+      emitPluginHook('automation.run.failed', {
+        automationId: run.automationId,
+        runId: run.id,
+        status: run.status,
+        error: run.error ?? undefined,
+        outputFullRef: run.outputFullRef ?? undefined,
+        timestamp: Date.now(),
+      });
+    } else {
+      emitPluginHook('automation.run.completed', {
+        automationId: run.automationId,
+        runId: run.id,
+        status: run.status,
+        outputSummary: run.outputSummary ?? undefined,
+        outputFullRef: run.outputFullRef ?? undefined,
+        timestamp: Date.now(),
+      });
+    }
+    if (this.isOneTimeRun(run)) {
+      this.emitAutomationState(run.automationId);
+      this.events.emitScheduleDeactivated({ automationId: run.automationId });
+    }
+    this.deliverRunSummaryToChannel(run).catch((deliveryError) => {
+      logger.warn('Failed to deliver automation run summary to channel', {
+        automationId: run.automationId,
+        runId: run.id,
+        error: deliveryError instanceof Error ? deliveryError.message : String(deliveryError),
+      });
+    });
+    this.promotePendingIfAny(run.automationId).catch((promoteError) => {
+      logger.warn('Failed to promote pending automation run', {
+        automationId: run.automationId,
+        error: promoteError instanceof Error ? promoteError.message : String(promoteError),
+      });
+    });
   }
 }

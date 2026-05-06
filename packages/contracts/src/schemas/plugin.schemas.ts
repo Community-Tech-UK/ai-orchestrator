@@ -73,6 +73,25 @@ export const PluginSlotSchema = z.enum([
 
 export type PluginSlot = z.infer<typeof PluginSlotSchema>;
 
+export const PluginPackageSourceSchema = z.object({
+  type: z.enum(['file', 'directory', 'zip', 'url']),
+  value: z.string().min(1).max(5000),
+  checksum: z.string().min(1).max(200).optional(),
+});
+
+export type PluginPackageSource = z.infer<typeof PluginPackageSourceSchema>;
+
+export const PluginDependencySchema = z.object({
+  name: z.string().min(1).max(200),
+  version: z.string().max(100).optional(),
+  optional: z.boolean().optional(),
+});
+
+export const PluginCompatibilitySchema = z.object({
+  orchestrator: z.string().max(100).optional(),
+  providers: z.array(z.string().max(100)).max(20).optional(),
+});
+
 /**
  * Plugin manifest schema — validates plugin.json files.
  */
@@ -90,9 +109,40 @@ export const PluginManifestSchema = z.object({
   config: z.object({
     schema: z.record(z.string(), z.unknown()),
   }).optional(),
+  source: PluginPackageSourceSchema.optional(),
+  dependencies: z.array(PluginDependencySchema).max(100).optional(),
+  compatibility: PluginCompatibilitySchema.optional(),
 });
 
 export type ValidatedPluginManifest = z.infer<typeof PluginManifestSchema>;
+
+export const RuntimePluginValidatePayloadSchema = z.object({
+  source: PluginPackageSourceSchema,
+});
+
+export const RuntimePluginInstallPayloadSchema = z.object({
+  source: PluginPackageSourceSchema,
+  activate: z.boolean().optional(),
+});
+
+export const RuntimePluginUpdatePayloadSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+  source: PluginPackageSourceSchema.optional(),
+});
+
+export const RuntimePluginUninstallPayloadSchema = z.object({
+  pluginId: z.string().min(1).max(200),
+});
+
+export const RuntimePluginPrunePayloadSchema = z.object({
+  dryRun: z.boolean().optional(),
+});
+
+export type RuntimePluginValidatePayload = z.infer<typeof RuntimePluginValidatePayloadSchema>;
+export type RuntimePluginInstallPayload = z.infer<typeof RuntimePluginInstallPayloadSchema>;
+export type RuntimePluginUpdatePayload = z.infer<typeof RuntimePluginUpdatePayloadSchema>;
+export type RuntimePluginUninstallPayload = z.infer<typeof RuntimePluginUninstallPayloadSchema>;
+export type RuntimePluginPrunePayload = z.infer<typeof RuntimePluginPrunePayloadSchema>;
 
 // ============================================
 // Skill Frontmatter Schema

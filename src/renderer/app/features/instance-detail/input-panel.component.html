@@ -187,6 +187,81 @@
         >
           <span class="attach-icon">+</span>
         </button>
+        @if (showWakeupControls()) {
+          <div class="wakeup-control">
+            <button
+              type="button"
+              class="btn-wakeup"
+              [class.active]="showWakeupMenu() || hasThreadWakeups()"
+              (click)="onToggleWakeupMenu()"
+              title="Schedule thread wakeup"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 2"></path>
+              </svg>
+              @if (hasThreadWakeups()) {
+                <span class="wakeup-dot"></span>
+              }
+            </button>
+            @if (showWakeupMenu()) {
+              <div class="wakeup-popover">
+                <div class="wakeup-segments" role="tablist" aria-label="Wakeup mode">
+                  <button
+                    type="button"
+                    [class.active]="wakeupMode() === 'once'"
+                    (click)="onWakeupMode('once')"
+                  >
+                    At
+                  </button>
+                  <button
+                    type="button"
+                    [class.active]="wakeupMode() === 'loop'"
+                    (click)="onWakeupMode('loop')"
+                  >
+                    Loop
+                  </button>
+                </div>
+                @if (wakeupMode() === 'once') {
+                  <input
+                    class="wakeup-time"
+                    type="datetime-local"
+                    [value]="wakeupRunAtLocal()"
+                    (input)="onWakeupRunAtInput($event)"
+                  >
+                } @else {
+                  <div class="wakeup-presets" aria-label="Loop interval">
+                    @for (minutes of [15, 20, 30, 60]; track minutes) {
+                      <button
+                        type="button"
+                        [class.active]="wakeupIntervalMinutes() === minutes"
+                        (click)="onWakeupInterval(minutes)"
+                      >
+                        {{ minutes < 60 ? minutes + 'm' : '1h' }}
+                      </button>
+                    }
+                  </div>
+                }
+                @if (showWakeupReviveToggle()) {
+                  <label class="wakeup-toggle">
+                    <input
+                      type="checkbox"
+                      [checked]="wakeupReviveIfArchived()"
+                      (change)="wakeupReviveIfArchived.set($any($event.target).checked)"
+                    >
+                    Revive
+                  </label>
+                }
+                <div class="wakeup-actions">
+                  @if (hasThreadWakeups()) {
+                    <button type="button" class="wakeup-action secondary" (click)="onCancelWakeups()">Cancel</button>
+                  }
+                  <button type="button" class="wakeup-action" (click)="onCreateWakeup()">Schedule</button>
+                </div>
+              </div>
+            }
+          </div>
+        }
       </div>
 
       <div class="input-hints">

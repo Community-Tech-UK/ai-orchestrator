@@ -78,6 +78,7 @@ export type KeybindingAction =
   | 'select-agent-build'
   | 'select-agent-plan'
   // Wave 2 — navigation, pickers, and recall
+  | 'select-orchestrator'
   | 'select-visible-instance-1'
   | 'select-visible-instance-2'
   | 'select-visible-instance-3'
@@ -166,6 +167,16 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     customizable: true,
   },
   ...SELECT_VISIBLE_INSTANCE_BINDINGS,
+  {
+    id: 'select-orchestrator',
+    name: 'Select Orchestrator',
+    description: 'Switch focus to the global Orchestrator control plane',
+    keys: { key: 'o', modifiers: ['meta', 'shift'] },
+    action: 'select-orchestrator',
+    context: 'global',
+    category: 'Navigation',
+    customizable: true,
+  },
 
   // Instance management
   {

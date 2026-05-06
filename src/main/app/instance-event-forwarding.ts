@@ -24,6 +24,7 @@ import type { InstanceSlice } from '../state';
 import { getLoadBalancer } from '../process/load-balancer';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
+import { recordProviderRuntimeEventSpan } from '../observability/otel-spans';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -111,6 +112,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       ProviderRuntimeEventEnvelopeSchema.parse(envelope);
     }
 
+    recordProviderRuntimeEventSpan(envelope);
     windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, envelope);
     const message = toOutputMessageFromProviderEnvelope(envelope);
     if (!message) {

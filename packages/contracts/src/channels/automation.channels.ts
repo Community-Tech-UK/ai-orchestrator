@@ -11,6 +11,8 @@ export const AUTOMATION_CHANNELS = {
   AUTOMATION_CANCEL_PENDING: 'automation:cancel-pending',
   AUTOMATION_LIST_RUNS: 'automation:list-runs',
   AUTOMATION_MARK_SEEN: 'automation:mark-seen',
+  AUTOMATION_PREFLIGHT: 'automation:preflight',
+  AUTOMATION_TEMPLATES_LIST: 'automation:templates-list',
 
   AUTOMATION_CHANGED: 'automation:changed',
   AUTOMATION_RUN_CHANGED: 'automation:run-changed',

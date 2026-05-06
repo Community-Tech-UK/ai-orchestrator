@@ -31,155 +31,24 @@ import {
   SessionShareReplayPayloadSchema,
   SessionShareSavePayloadSchema,
 } from '@contracts/schemas/session';
-import {
-  getConversationHistoryTitle,
-  inferConversationHistoryProvider,
-} from '../../../shared/types/history.types';
-import type { ConversationHistoryEntry } from '../../../shared/types/history.types';
-import type { ExportedSession, InstanceProvider, OutputMessage } from '../../../shared/types/instance.types';
+import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
 import { getSessionArchiveManager } from '../../session/session-archive';
 import { getSessionShareService } from '../../session/session-share-service';
 import { getSessionContinuityManager } from '../../session/session-continuity';
-import { buildReplayContinuityMessage } from '../../session/replay-continuity';
-import { getOutputStorageManager } from '../../memory/output-storage';
+import { SessionRevivalService } from '../../session/session-revival-service';
+import { HistoryRestoreCoordinator } from '../../history/history-restore-coordinator';
 import type { ResumeOptions } from '../../session/session-continuity';
-import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 import { isRemoteNodeReachable } from './remote-node-check';
-import { planSessionRecovery } from '../../instance/lifecycle/session-recovery';
 
 const logger = getLogger('SessionHandlers');
-const SESSION_NOT_FOUND_MESSAGE = /no conversation found|session.*not.*found/i;
-const SESSION_NOT_FOUND_ID_MESSAGE = /session\s+id:\s*([^\s]+)/i;
-const UUID_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
-
-/**
- * Select the most recent messages within a count limit for display during restore.
- * Keeps tool_use/tool_result pairs together at the boundary.
- */
-export function selectMessagesForRestore(
-  messages: OutputMessage[],
-  limit = 100
-): { selected: OutputMessage[]; hidden: OutputMessage[]; truncatedCount: number } {
-  if (!messages?.length || messages.length <= limit) {
-    return { selected: messages || [], hidden: [], truncatedCount: 0 };
-  }
-
-  let startIdx = messages.length - limit;
-
-  // Don't orphan tool_use/tool_result pairs at the boundary
-  while (startIdx > 0 && messages[startIdx]?.type === 'tool_result') {
-    startIdx--;
-  }
-
-  return {
-    hidden: messages.slice(0, startIdx),
-    selected: messages.slice(startIdx),
-    truncatedCount: startIdx,
-  };
-}
-
-function isRestoreInfrastructureMessage(message: OutputMessage): boolean {
-  const kind = message.metadata?.['systemMessageKind'];
-  if (message.metadata?.['isRestoreNotice'] === true || kind === 'restore-fallback') {
-    return true;
-  }
-
-  if (message.type === 'system' && RESTORE_FALLBACK_NOTICE_MESSAGE.test(message.content.trim())) {
-    return true;
-  }
-
-  return message.type === 'error' && SESSION_NOT_FOUND_MESSAGE.test(message.content);
-}
-
-export function getMessagesForRestoreTranscript(messages: OutputMessage[]): OutputMessage[] {
-  return (messages || []).filter((message) => !isRestoreInfrastructureMessage(message));
-}
-
-function normalizeSessionId(value: string | null | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed || undefined;
-}
-
-function getFailedResumeSessionIds(messages: OutputMessage[]): Set<string> {
-  const failedSessionIds = new Set<string>();
-  for (const message of messages || []) {
-    if (message.type === 'error' && SESSION_NOT_FOUND_MESSAGE.test(message.content)) {
-      const failedId = message.content.match(SESSION_NOT_FOUND_ID_MESSAGE)?.[1];
-      if (failedId?.trim()) {
-        failedSessionIds.add(failedId.trim());
-      }
-    }
-
-    const originalSessionId = message.metadata?.['originalSessionId'];
-    if (isRestoreInfrastructureMessage(message) && typeof originalSessionId === 'string') {
-      const normalized = normalizeSessionId(originalSessionId);
-      if (normalized) {
-        failedSessionIds.add(normalized);
-      }
-    }
-  }
-
-  return failedSessionIds;
-}
-
-export function getNativeResumeSessionId(
-  entry: Pick<ConversationHistoryEntry, 'sessionId' | 'historyThreadId' | 'nativeResumeFailedAt'>,
-  messages: OutputMessage[],
-  provider: InstanceProvider
-): string | undefined {
-  const sessionId = normalizeSessionId(entry.sessionId);
-  const historyThreadId = normalizeSessionId(entry.historyThreadId);
-
-  if (entry.nativeResumeFailedAt == null) {
-    return sessionId || historyThreadId;
-  }
-
-  if (!historyThreadId || historyThreadId === sessionId) {
-    return undefined;
-  }
-
-  if (provider !== 'claude' || !UUID_SESSION_ID.test(historyThreadId)) {
-    return undefined;
-  }
-
-  const failedSessionIds = getFailedResumeSessionIds(messages);
-  return failedSessionIds.has(historyThreadId) ? undefined : historyThreadId;
-}
-
-function getOriginalSessionIdFromRestoreNotices(messages: OutputMessage[]): string | undefined {
-  for (const message of messages || []) {
-    if (!isRestoreInfrastructureMessage(message)) {
-      continue;
-    }
-
-    const originalSessionId = message.metadata?.['originalSessionId'];
-    if (typeof originalSessionId === 'string' && originalSessionId.trim()) {
-      return originalSessionId.trim();
-    }
-  }
-
-  return undefined;
-}
-
-function getProviderDisplayName(provider: InstanceProvider): string {
-  switch (provider) {
-    case 'codex':
-      return 'Codex';
-    case 'gemini':
-      return 'Gemini';
-    case 'copilot':
-      return 'Copilot';
-    case 'cursor':
-      return 'Cursor';
-    case 'claude':
-    default:
-      return 'Claude';
-  }
-}
+export {
+  getNativeResumeSessionId,
+  getMessagesForRestoreTranscript,
+  selectMessagesForRestore,
+} from '../../history/history-restore-helpers';
 
 /**
  * Serializes history-restore spawns. When the user rapid-fires several
@@ -857,6 +726,13 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
   // ============================================
 
   const history = getHistoryManager();
+  const sessionRevival = new SessionRevivalService(instanceManager, {
+    history: () => history,
+    historyRestore: new HistoryRestoreCoordinator({
+      history: () => history,
+      isRemoteNodeReachable,
+    }),
+  });
 
   async function buildShareBundleForInstance(instanceId: string) {
     const instance = instanceManager.getInstance(instanceId);
@@ -1004,12 +880,9 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     }
   );
 
-  // Restore conversation as new instance
-  // Uses a two-phase approach: try --resume first, fall back to fresh instance
-  //
-  // Each restore's heavy path (createInstance → readyPromise → CLI spawn →
-  // post-spawn poll) runs behind a single-slot mutex so rapid-fire restores
-  // don't overload the main process event loop. See withHistoryRestoreLock.
+  // Restore conversation as a live instance.
+  // Each heavy restore path runs behind the same single-slot mutex as before;
+  // the implementation now lives in SessionRevivalService/HistoryRestoreCoordinator.
   ipcMain.handle(
     IPC_CHANNELS.HISTORY_RESTORE,
     async (
@@ -1018,438 +891,33 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     ): Promise<IpcResponse> => withHistoryRestoreLock(async () => {
       try {
         const validated = validateIpcPayload(HistoryRestorePayloadSchema, payload, 'HISTORY_RESTORE');
-        const data = await history.loadConversation(validated.entryId);
-        if (!data) {
+        const result = await sessionRevival.revive({
+          historyEntryId: validated.entryId,
+          workingDirectory: validated.workingDirectory,
+          reviveIfArchived: true,
+          reason: 'history-restore',
+        });
+
+        if (result.status === 'failed') {
+          const notFound = result.failureCode === 'target_missing';
           return {
             success: false,
             error: {
-              code: 'HISTORY_NOT_FOUND',
-              message: `History entry ${validated.entryId} not found`,
+              code: notFound ? 'HISTORY_NOT_FOUND' : 'HISTORY_RESTORE_FAILED',
+              message: notFound
+                ? `History entry ${validated.entryId} not found`
+                : result.error ?? 'History restore failed',
               timestamp: Date.now()
             }
           };
         }
 
-        const workingDir =
-          validated.workingDirectory || data.entry.workingDirectory;
-        const restoreTranscriptMessages = getMessagesForRestoreTranscript(data.messages);
-        // Derive the restored instance's displayName via the same resolver
-        // the workspace rail uses for history entries — so the title the user
-        // saw in the rail *before* clicking matches the title shown *after*
-        // the live instance replaces the history item.
-        //
-        // getConversationHistoryTitle:
-        //   - honors user-renamed sessions (returns entry.displayName when
-        //     entry.isRenamed is true)
-        //   - otherwise prefers firstUserMessage, which self-heals archives
-        //     whose displayName drifted because auto-title previously
-        //     re-fired on a prior restore (see also: Change 4 in
-        //     instance-lifecycle.ts, which prevents new drift going forward).
-        const displayName = getConversationHistoryTitle(data.entry);
-        const historyThreadId =
-          data.entry.historyThreadId || data.entry.sessionId || data.entry.id;
-        const restoreProvider = inferConversationHistoryProvider(data.entry);
-        const restoreModel = data.entry.currentModel?.trim() || undefined;
-        const nativeResumeSessionId = getNativeResumeSessionId(
-          data.entry,
-          data.messages,
-          restoreProvider
-        );
-
-        // If the session originally ran on a remote node, extract the nodeId
-        // so createInstance routes the CLI to the same node.
-        const restoreNodeId = data.entry.executionLocation?.type === 'remote'
-          ? data.entry.executionLocation.nodeId
-          : undefined;
-
-        // For remote sessions, check whether the node is still connected.
-        // Native resume (--resume <sessionId>) only works on the node that
-        // holds the session — attempting it locally is guaranteed to fail.
-        const remoteNodeAvailable = restoreNodeId
-          ? isRemoteNodeReachable(restoreNodeId)
-          : true;
-        if (restoreNodeId && !remoteNodeAvailable) {
-          logger.info('History restore: remote node unavailable, skipping native resume', {
-            nodeId: restoreNodeId,
-          });
-        }
-
-        const recoveryPlan = planSessionRecovery({
-          instanceId: validated.entryId,
-          reason: 'history-restore',
-          previousProviderSessionId: nativeResumeSessionId,
-          provider: restoreProvider,
-          model: restoreModel,
-          cwd: workingDir,
-          yolo: false,
-          executionLocation: restoreNodeId ? 'remote' : 'local',
-          capabilities: {
-            supportsResume: Boolean(nativeResumeSessionId) && remoteNodeAvailable,
-            supportsForkSession: false,
-          },
-          adapterGeneration: 0,
-          hasConversation: restoreTranscriptMessages.some(
-            (message) => message.type === 'user' || message.type === 'assistant',
-          ),
-          sessionResumeBlacklisted: Boolean(data.entry.nativeResumeFailedAt && !nativeResumeSessionId),
-        });
-        const canAttemptNativeResume =
-          Boolean(nativeResumeSessionId)
-          && (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork');
-        let resumeFailed = false;
-
-        // Phase 1: Try to resume the CLI session
-        if (canAttemptNativeResume) {
-          let resumeInstanceId: string | undefined;
-          try {
-            const POST_SPAWN_TIMEOUT_MS = restoreNodeId ? 15_000 : 5_000;
-            const POLL_INTERVAL_MS = 200;
-            const instance = await instanceManager.createInstance({
-              workingDirectory: workingDir,
-              displayName,
-              isRenamed: data.entry.isRenamed,
-              historyThreadId,
-              sessionId: nativeResumeSessionId,
-              resume: true,
-              initialOutputBuffer: restoreTranscriptMessages,
-              provider: restoreProvider,
-              modelOverride: restoreModel,
-              forceNodeId: restoreNodeId,
-            });
-            resumeInstanceId = instance.id;
-            instance.autoRespawnSuppressedUntil = Date.now() + POST_SPAWN_TIMEOUT_MS + 2_000;
-
-            // Wait for Phase 2 (background init) to complete before checking resume.
-            // Phase 2 spawns the CLI process — without this, the poll races against
-            // instruction loading + CLI detection (~10-15s) and always times out.
-            try {
-              await instance.readyPromise;
-            } catch {
-              // Phase 2 itself failed (e.g., CLI not found, spawn error)
-              throw new Error('Instance initialization failed during resume');
-            }
-
-            // Now the CLI process is spawned with --resume <sessionId>.
-            // Check for definitive signals:
-            // - context usage > 0 → CLI loaded the session (success)
-            // - process exited → session not found or error (failure)
-            // - process alive, no context → session loaded, waiting for input (success)
-            //
-            // In --print --input-format stream-json mode, the CLI may not emit
-            // any output until it receives user input. So "alive after grace period"
-            // is treated as success — if the session ID was invalid, the CLI exits fast.
-            // Remote sessions need more time due to network latency and remote CLI
-            // startup. Scale the timeout based on whether this is a remote resume.
-
-            // Track whether resume was confirmed via context usage or merely assumed
-            // from a live process. Unconfirmed resumes need a replay continuity
-            // preamble because the provider may have silently started a fresh thread.
-            let resumeConfirmed = false;
-
-            const resumeAlive = await new Promise<boolean>((resolve) => {
-              const timeout = setTimeout(() => {
-                cleanup();
-                const inst = instanceManager.getInstance(instance.id);
-                const alive = inst != null
-                  && inst.status !== 'error'
-                  && inst.status !== 'terminated'
-                  && inst.status !== 'respawning';
-                const hasContext = inst?.contextUsage != null && inst.contextUsage.used > 0;
-
-                if (alive) {
-                  if (hasContext) {
-                    resumeConfirmed = true;
-                    logger.info('History restore: resume confirmed via context usage', {
-                      instanceId: instance.id,
-                      contextUsed: inst?.contextUsage?.used,
-                    });
-                  } else {
-                    // Process is alive but no context usage — resume is unconfirmed.
-                    // The provider may have silently fallen back to a fresh thread.
-                    logger.info('History restore: resume unconfirmed — process alive but no context usage', {
-                      instanceId: instance.id,
-                      status: inst?.status,
-                      contextUsed: inst?.contextUsage?.used,
-                    });
-                  }
-                  resolve(true);
-                } else {
-                  // Process died during the grace period, so native resume failed.
-                  logger.warn('History restore: resume failed after grace period', {
-                    instanceId: instance.id,
-                    status: inst?.status,
-                    alive,
-                    hasContext,
-                    contextUsed: inst?.contextUsage?.used,
-                  });
-                  resolve(false);
-                }
-              }, POST_SPAWN_TIMEOUT_MS);
-
-              const poll = setInterval(() => {
-                const inst = instanceManager.getInstance(instance.id);
-                if (!inst) {
-                  cleanup();
-                  resolve(false);
-                  return;
-                }
-
-                // Definitive failure: process exited
-                if (inst.status === 'error' || inst.status === 'terminated' || inst.status === 'respawning') {
-                  cleanup();
-                  resolve(false);
-                  return;
-                }
-
-                // Definitive success: CLI reported token usage from the resumed session
-                if (inst.contextUsage && inst.contextUsage.used > 0) {
-                  cleanup();
-                  resumeConfirmed = true;
-                  logger.info('History restore: resume confirmed early via context usage', {
-                    instanceId: instance.id,
-                    contextUsed: inst.contextUsage.used,
-                  });
-                  resolve(true);
-                  return;
-                }
-              }, POLL_INTERVAL_MS);
-
-              function cleanup() {
-                clearTimeout(timeout);
-                clearInterval(poll);
-              }
-            });
-
-            if (resumeAlive) {
-              instance.autoRespawnSuppressedUntil = undefined;
-              if (resumeConfirmed) {
-                // Resume confirmed — context usage observed, session truly restored
-                logger.info('History restore: CLI session resumed successfully (confirmed)', {
-                  instanceId: instance.id,
-                  sessionId: nativeResumeSessionId,
-                });
-                return {
-                  success: true,
-                  data: {
-                    instanceId: instance.id,
-                    restoredMessages: instance.outputBuffer,
-                    restoreMode: 'native-resume'
-                  }
-                };
-              }
-
-              // Resume unconfirmed — process is alive but provider may have
-              // silently started a fresh thread. Send a replay continuity
-              // preamble so the agent has conversation context either way.
-              logger.info('History restore: resume unconfirmed — injecting replay preamble as safety net', {
-                instanceId: instance.id,
-                sessionId: nativeResumeSessionId,
-              });
-
-              try {
-                const preamble = buildReplayContinuityMessage(restoreTranscriptMessages, { reason: 'resume-unconfirmed' });
-                if (preamble) {
-                  instanceManager.queueContinuityPreamble(instance.id, preamble);
-                }
-              } catch (preambleErr) {
-                logger.warn('History restore: failed to queue replay preamble', {
-                  instanceId: instance.id,
-                  error: preambleErr instanceof Error ? preambleErr.message : String(preambleErr),
-                });
-              }
-
-              return {
-                success: true,
-                data: {
-                  instanceId: instance.id,
-                  restoredMessages: instance.outputBuffer,
-                  restoreMode: 'resume-unconfirmed'
-                }
-              };
-            }
-
-            // Process died — fall through to fallback
-            resumeFailed = true;
-            const currentInstance = instanceManager.getInstance(instance.id);
-            instance.autoRespawnSuppressedUntil = undefined;
-            logger.warn('History restore: CLI session resume failed, falling back to fresh instance', {
-              instanceId: instance.id,
-              sessionId: nativeResumeSessionId,
-              status: currentInstance?.status
-            });
-
-            // Clean up the failed instance.
-            // Clear outputBuffer so archiveInstance() skips it (it checks length === 0).
-            if (currentInstance) {
-              currentInstance.outputBuffer = [];
-            }
-            try {
-              await instanceManager.terminateInstance(instance.id, false);
-            } catch {
-              // Ignore cleanup errors
-            }
-          } catch (err) {
-            // createInstance or readyPromise threw — fall through to fallback.
-            // If an instance was created before the error (e.g. readyPromise
-            // rejection when remote spawn fails), clean it up so we don't
-            // leave a ghost instance in the sidebar alongside the fallback.
-            resumeFailed = true;
-            logger.warn('History restore: resume attempt threw', {
-              error: err instanceof Error ? err.message : String(err),
-              resumeInstanceId,
-            });
-            if (resumeInstanceId) {
-              const staleInstance = instanceManager.getInstance(resumeInstanceId);
-              if (staleInstance) {
-                staleInstance.outputBuffer = [];
-                staleInstance.autoRespawnSuppressedUntil = undefined;
-              }
-              try {
-                await instanceManager.terminateInstance(resumeInstanceId, false);
-              } catch {
-                // Ignore cleanup errors — terminateInstance already handles
-                // adapter failures internally after the fix above.
-              }
-            }
-          }
-        } else {
-          resumeFailed = true;
-          logger.info('History restore: skipping native resume', {
-            entryId: validated.entryId,
-            sessionId: nativeResumeSessionId ?? data.entry.sessionId,
-            nativeResumeFailedAt: data.entry.nativeResumeFailedAt ?? null,
-            remoteNodeAvailable: restoreNodeId ? remoteNodeAvailable : undefined,
-            restoreNodeId: restoreNodeId ?? null,
-          });
-        }
-
-        // Phase 2: Fallback — create fresh instance with messages as display context
-        if (resumeFailed) {
-          if (canAttemptNativeResume) {
-            try {
-              await history.markNativeResumeFailed(validated.entryId);
-            } catch (markError) {
-              logger.warn('History restore: failed to persist native resume failure state', {
-                entryId: validated.entryId,
-                error: markError instanceof Error ? markError.message : String(markError),
-              });
-            }
-          }
-
-          const { selected: displayMessages, hidden: hiddenMessages, truncatedCount } =
-            selectMessagesForRestore(restoreTranscriptMessages, 100);
-
-          // Only route the fallback to the remote node if it's still connected.
-          // When the node is unavailable, fall back to a local session and resolve
-          // the working directory to something that exists on this machine (the
-          // remote workingDir is likely a path on the worker node's filesystem).
-          const fallbackNodeId = remoteNodeAvailable ? restoreNodeId : undefined;
-          // When falling back to local, ALWAYS use process.cwd() — the stored
-          // working directory is a path on the remote node's filesystem (e.g.,
-          // C:\Users\shutu\Documents\Work) which doesn't exist locally.
-          // validated.workingDirectory is the entry's saved path and is equally
-          // invalid on the local machine.
-          const fallbackWorkingDir = (restoreNodeId && !remoteNodeAvailable)
-            ? process.cwd()
-            : workingDir;
-
-          const instance = await instanceManager.createInstance({
-            workingDirectory: fallbackWorkingDir,
-            displayName,
-            isRenamed: data.entry.isRenamed,
-            historyThreadId,
-            initialOutputBuffer: displayMessages,
-            provider: restoreProvider,
-            modelOverride: restoreModel,
-            forceNodeId: fallbackNodeId,
-            // No resume, no sessionId — fresh session
-          });
-
-          let canLoadEarlierMessages = hiddenMessages.length > 0;
-          if (canLoadEarlierMessages) {
-            try {
-              await getOutputStorageManager().storeMessages(instance.id, hiddenMessages);
-              logger.info('History restore: persisted truncated messages for lazy loading', {
-                instanceId: instance.id,
-                storedCount: hiddenMessages.length,
-              });
-            } catch (storageError) {
-              canLoadEarlierMessages = false;
-              logger.error(
-                'History restore: failed to persist truncated messages',
-                storageError instanceof Error ? storageError : undefined,
-                {
-                  instanceId: instance.id,
-                  storedCount: hiddenMessages.length,
-                }
-              );
-            }
-          }
-
-          const replayContinuity = buildReplayContinuityMessage(restoreTranscriptMessages, {
-            reason: canAttemptNativeResume ? 'history-restore-fallback' : 'history-restore-replay',
-          });
-          if (replayContinuity) {
-            instanceManager.queueContinuityPreamble(instance.id, replayContinuity);
-          }
-
-          const providerName = getProviderDisplayName(restoreProvider);
-          const originalSessionId =
-            (canAttemptNativeResume
-              ? nativeResumeSessionId
-              : getOriginalSessionIdFromRestoreNotices(data.messages))
-            || data.entry.sessionId;
-
-          // Add a system message informing the user that CLI context was lost
-          const systemMessage: OutputMessage = {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'system' as const,
-            content: truncatedCount > 0 && canLoadEarlierMessages
-              ? `Previous ${providerName} CLI session could not be restored natively. Your conversation history is displayed above (${truncatedCount} earlier messages available via "Load earlier messages"), and a condensed transcript will be attached automatically to your next message.`
-              : truncatedCount > 0
-                ? `Previous ${providerName} CLI session could not be restored natively. The latest ${displayMessages.length} messages are displayed above, and a condensed transcript of the earlier conversation will be attached automatically to your next message.`
-                : `Previous ${providerName} CLI session could not be restored natively. Your conversation history is displayed above, and a condensed transcript will be attached automatically to your next message.`,
-            metadata: {
-              isRestoreNotice: true,
-              systemMessageKind: 'restore-fallback',
-              provider: restoreProvider,
-              restoredMessageCount: restoreTranscriptMessages.length,
-              hiddenMessageCount: hiddenMessages.length,
-              continuityInjectionQueued: Boolean(replayContinuity),
-              nativeResumeFailedAt: canAttemptNativeResume ? Date.now() : (data.entry.nativeResumeFailedAt ?? null),
-              originalSessionId,
-              restoreNodeId: restoreNodeId ?? null,
-              remoteNodeAvailable: restoreNodeId ? remoteNodeAvailable : undefined,
-            }
-          };
-          instance.outputBuffer.push(systemMessage);
-          const restoredMessages: OutputMessage[] = [...displayMessages, systemMessage];
-
-          logger.info('History restore: created fresh instance with restored messages', {
-            instanceId: instance.id,
-            messageCount: restoredMessages.length,
-            provider: restoreProvider,
-            restoreNodeId: restoreNodeId ?? null,
-          });
-
-          return {
-            success: true,
-            data: {
-              instanceId: instance.id,
-              restoredMessages,
-              restoreMode: 'replay-fallback'
-            }
-          };
-        }
-
-        // Should not reach here, but satisfy TypeScript
         return {
-          success: false,
-          error: {
-            code: 'HISTORY_RESTORE_FAILED',
-            message: 'Unexpected state in restore handler',
-            timestamp: Date.now()
+          success: true,
+          data: {
+            instanceId: result.instanceId,
+            restoredMessages: result.restoredMessages ?? [],
+            restoreMode: result.restoreMode
           }
         };
       } catch (error) {

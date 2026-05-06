@@ -95,6 +95,7 @@ import {
   registerVoiceHandlers,
   registerConversationLedgerHandlers,
   registerOperatorHandlers,
+  registerRuntimePluginHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -375,6 +376,7 @@ export class IpcMainHandler {
     });
     registerConversationLedgerHandlers();
     registerOperatorHandlers();
+    registerRuntimePluginHandlers();
 
     // Set up event forwarding to renderer
     this.setupMemoryEventForwarding();

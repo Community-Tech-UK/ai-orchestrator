@@ -202,6 +202,28 @@ describe('OperatorStore', () => {
       { label: 'AI Orchestrator', path: '/work/ai-orchestrator' },
     ]);
   });
+
+  it('derives pinned Orchestrator row status and active run count from current runs', async () => {
+    const ipc = new FakeOperatorIpcService();
+    ipc.runs = [
+      makeRun({ id: 'run-1', status: 'running' }),
+      makeRun({ id: 'run-2', status: 'blocked' }),
+      makeRun({ id: 'run-3', status: 'completed' }),
+    ];
+    TestBed.configureTestingModule({
+      providers: [
+        OperatorStore,
+        { provide: OperatorIpcService, useValue: ipc },
+      ],
+    });
+    const store = TestBed.inject(OperatorStore);
+
+    await store.initialize();
+
+    expect(store.activeRunCount()).toBe(2);
+    expect(store.statusTone()).toBe('running');
+    expect(store.statusLabel()).toBe('Running');
+  });
 });
 
 class FakeOperatorIpcService {

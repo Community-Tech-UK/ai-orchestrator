@@ -48,7 +48,8 @@
     "build:worker-agent": "tsx build-worker-agent.ts",
     "build:worker-sea": "tsx build-worker-agent-sea.ts",
     "build:worker-dist": "npm run build:worker-agent && npm run build:worker-sea",
-    "download:winsw": "node scripts/download-winsw.js"
+    "download:winsw": "node scripts/download-winsw.js",
+    "review": "tsx src/main/cli-entrypoints/review-command.ts"
   },
   "keywords": [
     "ai",
@@ -92,6 +93,7 @@
     "dompurify": "^3.3.1",
     "echarts": "^6.0.0",
     "electron-store": "^11.0.2",
+    "extract-zip": "^2.0.1",
     "file-saver": "^2.0.5",
     "glob": "^13.0.0",
     "highlight.js": "^11.11.1",

@@ -43,11 +43,24 @@ export interface AutomationAction {
   attachments?: FileAttachment[];
 }
 
+export type AutomationDestination =
+  | {
+      kind: 'newInstance';
+    }
+  | {
+      kind: 'thread';
+      instanceId: string;
+      sessionId?: string;
+      historyEntryId?: string;
+      reviveIfArchived: boolean;
+    };
+
 export interface AutomationConfigSnapshot {
   name: string;
   schedule: AutomationSchedule;
   missedRunPolicy: AutomationMissedRunPolicy;
   concurrencyPolicy: AutomationConcurrencyPolicy;
+  destination: AutomationDestination;
   action: AutomationAction;
 }
 
@@ -60,6 +73,7 @@ export interface Automation {
   schedule: AutomationSchedule;
   missedRunPolicy: AutomationMissedRunPolicy;
   concurrencyPolicy: AutomationConcurrencyPolicy;
+  destination: AutomationDestination;
   action: AutomationAction;
   nextFireAt: number | null;
   lastFiredAt: number | null;
@@ -97,6 +111,7 @@ export interface CreateAutomationInput {
   schedule: AutomationSchedule;
   missedRunPolicy?: AutomationMissedRunPolicy;
   concurrencyPolicy?: AutomationConcurrencyPolicy;
+  destination?: AutomationDestination;
   action: AutomationAction;
 }
 
@@ -108,6 +123,7 @@ export interface UpdateAutomationInput {
   schedule?: AutomationSchedule;
   missedRunPolicy?: AutomationMissedRunPolicy;
   concurrencyPolicy?: AutomationConcurrencyPolicy;
+  destination?: AutomationDestination;
   action?: AutomationAction;
 }
 

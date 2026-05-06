@@ -90,4 +90,69 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
       ).not.toThrow();
     }
   });
+
+  it('accepts additive diagnostics on existing error, complete, and context events', () => {
+    const errorEvent = ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: {
+          kind: 'error',
+          message: 'Rate limited',
+          requestId: 'req_123',
+          rateLimit: { remaining: 0, resetAt: 1713340860000 },
+        },
+      }).event;
+    expect(errorEvent).toMatchObject({
+      kind: 'error',
+      requestId: 'req_123',
+      rateLimit: { remaining: 0, resetAt: 1713340860000 },
+    });
+
+    const completeEvent = ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: {
+          kind: 'complete',
+          tokensUsed: 100,
+          stopReason: 'end_turn',
+          quota: { exhausted: false },
+        },
+      }).event;
+    expect(completeEvent).toMatchObject({
+      kind: 'complete',
+      stopReason: 'end_turn',
+      quota: { exhausted: false },
+    });
+
+    const contextEvent = ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: {
+          kind: 'context',
+          used: 80,
+          total: 100,
+          percentage: 80,
+          inputTokens: 55,
+          outputTokens: 25,
+          source: 'provider-usage',
+          promptWeight: 0.68,
+        },
+      }).event;
+    expect(contextEvent).toMatchObject({
+      kind: 'context',
+      inputTokens: 55,
+      outputTokens: 25,
+      source: 'provider-usage',
+      promptWeight: 0.68,
+    });
+  });
+
+  it('keeps the provider runtime kind freeze by rejecting api_diagnostics', () => {
+    expect(() =>
+      ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: {
+          kind: 'api_diagnostics',
+          requestId: 'req_123',
+        },
+      })
+    ).toThrow();
+  });
 });

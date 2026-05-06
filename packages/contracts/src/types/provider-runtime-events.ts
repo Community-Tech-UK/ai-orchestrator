@@ -59,6 +59,20 @@ export interface ProviderRuntimeThinkingContent {
   tokenCount?: number;
 }
 
+/** Normalized provider API rate-limit diagnostics. */
+export interface ProviderRateLimitDiagnostics {
+  limit?: number;
+  remaining?: number;
+  resetAt?: number;
+}
+
+/** Normalized provider quota diagnostics. */
+export interface ProviderQuotaDiagnostics {
+  exhausted?: boolean;
+  resetAt?: number;
+  message?: string;
+}
+
 // ============================================
 // Event Payload Types
 // ============================================
@@ -126,6 +140,14 @@ export interface ProviderContextEvent {
   total: number;
   /** Usage percentage (0-100). */
   percentage?: number;
+  /** Input tokens in the provider-reported API call, when known. */
+  inputTokens?: number;
+  /** Output tokens in the provider-reported API call, when known. */
+  outputTokens?: number;
+  /** Source of the context accounting, for example provider-usage or estimate. */
+  source?: string;
+  /** Share of the context window attributable to prompt/input tokens. */
+  promptWeight?: number;
 }
 
 /** Provider-level error. */
@@ -137,6 +159,14 @@ export interface ProviderErrorEvent {
   recoverable?: boolean;
   /** Structured error details. */
   details?: Record<string, unknown>;
+  /** Provider-native request identifier, redacted to the ID only. */
+  requestId?: string;
+  /** Provider-native stop reason when the error is tied to a turn completion. */
+  stopReason?: string;
+  /** Provider rate-limit summary, without raw headers. */
+  rateLimit?: ProviderRateLimitDiagnostics;
+  /** Provider quota summary. */
+  quota?: ProviderQuotaDiagnostics;
 }
 
 /** Process/session exited. */
@@ -164,6 +194,14 @@ export interface ProviderCompleteEvent {
   costUsd?: number;
   /** Duration of the response turn in ms. */
   durationMs?: number;
+  /** Provider-native request identifier, redacted to the ID only. */
+  requestId?: string;
+  /** Provider-native stop reason. */
+  stopReason?: string;
+  /** Provider rate-limit summary, without raw headers. */
+  rateLimit?: ProviderRateLimitDiagnostics;
+  /** Provider quota summary. */
+  quota?: ProviderQuotaDiagnostics;
 }
 
 // ============================================

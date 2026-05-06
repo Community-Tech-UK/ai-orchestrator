@@ -10,7 +10,7 @@ describe('PromptHistorySearchController', () => {
     id: 'inst-1',
     workingDirectory: '/repo',
   });
-  const entries = [
+  const projectEntries = [
     {
       id: 'entry-1',
       text: 'write tests for prompt recall',
@@ -18,13 +18,26 @@ describe('PromptHistorySearchController', () => {
       projectPath: '/repo',
     },
   ];
+  const allEntries = [
+    {
+      id: 'entry-2',
+      text: 'reuse prompt from another project',
+      createdAt: 2,
+      projectPath: '/elsewhere',
+      attachmentCount: 2,
+      attachments: [{ name: 'notes.md' }],
+    },
+  ];
   const promptHistoryStore = {
-    getEntriesForRecall: vi.fn(() => entries),
+    getEntriesForRecall: vi.fn((options: { scope?: string }) =>
+      options.scope === 'all' ? allEntries : projectEntries
+    ),
     requestRecallEntry: vi.fn(),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     TestBed.configureTestingModule({
       providers: [
         PromptHistorySearchController,
@@ -38,7 +51,11 @@ describe('PromptHistorySearchController', () => {
     const controller = TestBed.inject(PromptHistorySearchController);
 
     expect(controller.groups()[0].items[0].label).toContain('write tests');
-    expect(promptHistoryStore.getEntriesForRecall).toHaveBeenCalledWith('inst-1', '/repo');
+    expect(promptHistoryStore.getEntriesForRecall).toHaveBeenCalledWith({
+      scope: 'project',
+      instanceId: 'inst-1',
+      workingDirectory: '/repo',
+    });
   });
 
   it('requests recall when an entry is selected', () => {
@@ -46,6 +63,40 @@ describe('PromptHistorySearchController', () => {
     const item = controller.groups()[0].items[0];
 
     expect(controller.run(item)).toBe(true);
-    expect(promptHistoryStore.requestRecallEntry).toHaveBeenCalledWith(entries[0]);
+    expect(promptHistoryStore.requestRecallEntry).toHaveBeenCalledWith(projectEntries[0]);
+  });
+
+  it('switches scopes and labels all-project entries with their source project', () => {
+    const controller = TestBed.inject(PromptHistorySearchController);
+
+    controller.setScope('all');
+    const item = controller.groups()[0].items[0];
+
+    expect(window.localStorage.getItem('prompt-history-recall-scope')).toBe('all');
+    expect(promptHistoryStore.getEntriesForRecall).toHaveBeenLastCalledWith({
+      scope: 'all',
+      instanceId: 'inst-1',
+      workingDirectory: '/repo',
+    });
+    expect(item.description).toContain('/elsewhere');
+    expect(item.keywords).toContain('/elsewhere');
+  });
+
+  it('recalls only text fields for all-project entries', () => {
+    const controller = TestBed.inject(PromptHistorySearchController);
+
+    controller.setScope('all');
+    const item = controller.groups()[0].items[0];
+
+    expect(controller.run(item)).toBe(true);
+    expect(promptHistoryStore.requestRecallEntry).toHaveBeenCalledWith({
+      id: 'entry-2',
+      text: 'reuse prompt from another project',
+      createdAt: 2,
+      projectPath: '/elsewhere',
+      provider: undefined,
+      model: undefined,
+      wasSlashCommand: undefined,
+    });
   });
 });

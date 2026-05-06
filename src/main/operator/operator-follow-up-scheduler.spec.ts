@@ -35,6 +35,20 @@ describe('OperatorFollowUpScheduler', () => {
       expression: '*/15 * * * *',
       timezone: 'UTC',
     });
+    const tomorrowInNewYork = parseOperatorFollowUpSchedule('check back tomorrow', {
+      now: Date.UTC(2026, 0, 1, 12, 0, 0),
+      timezone: 'America/New_York',
+    });
+    expect(tomorrowInNewYork).toMatchObject({
+      type: 'oneTime',
+      timezone: 'America/New_York',
+    });
+    expect(zonedParts(tomorrowInNewYork?.type === 'oneTime' ? tomorrowInNewYork.runAt : 0, 'America/New_York'))
+      .toMatchObject({
+        day: 2,
+        hour: 9,
+        minute: 0,
+      });
   });
 
   it('creates a native automation with project context when a concrete schedule exists', async () => {
@@ -165,5 +179,25 @@ function projectRecord(): OperatorProjectRecord {
     lastSeenAt: 1,
     lastAccessedAt: 1,
     metadata: {},
+  };
+}
+
+function zonedParts(timestamp: number, timezone: string): {
+  day: number;
+  hour: number;
+  minute: number;
+} {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(timestamp));
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return {
+    day: value('day'),
+    hour: value('hour'),
+    minute: value('minute'),
   };
 }

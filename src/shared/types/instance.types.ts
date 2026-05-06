@@ -113,6 +113,14 @@ export interface ContextUsage {
   percentage: number;
   /** Lifetime token spend across all turns in this session. */
   cumulativeTokens?: number;
+  /** Input tokens in the provider-reported API call, when known. */
+  inputTokens?: number;
+  /** Output tokens in the provider-reported API call, when known. */
+  outputTokens?: number;
+  /** Source of the context accounting, for example provider-usage or estimate. */
+  source?: string;
+  /** Share of the context window attributable to prompt/input tokens. */
+  promptWeight?: number;
   costEstimate?: number;
   /**
    * When true, `used` is an estimate derived from aggregate turn tokens

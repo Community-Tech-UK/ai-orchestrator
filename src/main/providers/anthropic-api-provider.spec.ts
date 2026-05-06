@@ -12,7 +12,10 @@ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-run
 // Mock dependencies
 vi.mock('@anthropic-ai/sdk', () => {
   const mockCreate = vi.fn().mockResolvedValue({
+    id: 'msg_123',
+    _request_id: 'req_123',
     content: [{ type: 'text', text: 'Hello!' }],
+    stop_reason: 'end_turn',
     usage: {
       input_tokens: 100,
       output_tokens: 50,
@@ -291,7 +294,22 @@ describe('AnthropicApiProvider', () => {
       expect(events.some((event) =>
         event.event.kind === 'context'
         && event.event.used === 150
-        && event.event.total === 200000)).toBe(true);
+        && event.event.total === 200000
+        && event.event.inputTokens === 100
+        && event.event.outputTokens === 50
+        && event.event.source === 'anthropic-api')).toBe(true);
+    });
+
+    it('emits complete diagnostics from the API response', async () => {
+      const events = captureEvents(provider);
+
+      await provider.sendMessage('Hello');
+
+      expect(events.some((event) =>
+        event.event.kind === 'complete'
+        && event.event.tokensUsed === 150
+        && event.event.requestId === 'req_123'
+        && event.event.stopReason === 'end_turn')).toBe(true);
     });
 
     it('uses a 1M context total for explicit Claude 1M models', async () => {

@@ -196,6 +196,42 @@ describe('OrchestratorPluginManager', () => {
     await fsPromises.rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('reads packaged .codex-plugin/plugin.json manifests during plugin scan', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'packaged-plugin');
+    await fsPromises.mkdir(path.join(pluginDir, '.codex-plugin'), { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'module.exports = {};');
+
+    await fsPromises.writeFile(
+      path.join(pluginDir, '.codex-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'packaged-plugin',
+        version: '2.0.0',
+        description: 'Packaged runtime plugin',
+        hooks: ['instance.created'],
+      }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    ).mockResolvedValue({});
+
+    const result = await manager.listPlugins(tmpDir, {} as never);
+    const pluginEntry = result.plugins.find((p) => p.filePath === pluginFile);
+
+    expect(pluginEntry?.manifest).toMatchObject({
+      name: 'packaged-plugin',
+      version: '2.0.0',
+      description: 'Packaged runtime plugin',
+    });
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
   it('registers notifier slot plugins with a live runtime', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'notify-plugin');

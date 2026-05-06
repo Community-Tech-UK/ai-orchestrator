@@ -16,6 +16,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { PluginIpcService } from '../../core/services/ipc/plugin-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import type { PluginPackageSource } from '@contracts/schemas/plugin';
 
 // ─── Local interfaces ─────────────────────────────────────────────────────────
 
@@ -27,6 +28,27 @@ interface PluginInfo {
   status: 'loaded' | 'unloaded' | 'error';
   path?: string;
 }
+
+interface RuntimePluginInfo {
+  id: string;
+  name: string;
+  version?: string;
+  status: 'installed' | 'missing';
+  installPath?: string;
+  lastUpdatedAt?: number;
+}
+
+type RuntimeValidationResult =
+  | {
+      ok: true;
+      manifest: { name: string; version: string; description?: string };
+      warnings: string[];
+    }
+  | {
+      ok: false;
+      errors: string[];
+      warnings: string[];
+    };
 
 type ActiveTab = 'installed' | 'discover';
 
@@ -67,6 +89,10 @@ type ActiveTab = 'installed' | 'discover';
           <span class="metric-label">Installed</span>
           <span class="metric-value">{{ installedCount() }}</span>
         </div>
+        <div class="metric-card">
+          <span class="metric-label">Runtime Packages</span>
+          <span class="metric-value">{{ runtimePackageCount() }}</span>
+        </div>
       </div>
 
       <!-- Error Banner -->
@@ -94,6 +120,7 @@ type ActiveTab = 'installed' | 'discover';
         <!-- Installed Tab -->
         @if (activeTab() === 'installed') {
           <div class="tab-content">
+            <div class="section-title">Provider Plugins</div>
             @if (loadedPlugins().length === 0) {
               <div class="empty-state">No plugins currently loaded.</div>
             } @else {
@@ -133,6 +160,44 @@ type ActiveTab = 'installed' | 'discover';
                         type="button"
                         [disabled]="working()"
                         (click)="uninstallPlugin(plugin.id)"
+                      >Uninstall</button>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            <div class="section-title">Runtime Plugin Packages</div>
+            @if (runtimePlugins().length === 0) {
+              <div class="empty-state">No runtime plugin packages installed.</div>
+            } @else {
+              <div class="plugin-grid">
+                @for (plugin of runtimePlugins(); track plugin.id) {
+                  <div class="plugin-card">
+                    <div class="plugin-card-header">
+                      <span class="plugin-name">{{ plugin.name || plugin.id }}</span>
+                      @if (plugin.version) {
+                        <span class="plugin-version">v{{ plugin.version }}</span>
+                      }
+                      <span class="status-badge" [class.status-loaded]="plugin.status === 'installed'" [class.status-error]="plugin.status === 'missing'">
+                        {{ plugin.status }}
+                      </span>
+                    </div>
+                    @if (plugin.installPath) {
+                      <p class="plugin-path">{{ plugin.installPath }}</p>
+                    }
+                    <div class="plugin-actions">
+                      <button
+                        class="btn small"
+                        type="button"
+                        [disabled]="runtimeWorking()"
+                        (click)="updateRuntimePlugin(plugin.id)"
+                      >Update</button>
+                      <button
+                        class="btn danger small"
+                        type="button"
+                        [disabled]="runtimeWorking()"
+                        (click)="uninstallRuntimePlugin(plugin.id)"
                       >Uninstall</button>
                     </div>
                   </div>
@@ -202,6 +267,57 @@ type ActiveTab = 'installed' | 'discover';
                   [disabled]="working() || installPath().trim().length === 0"
                   (click)="installFromPath()"
                 >Install</button>
+              </div>
+            </div>
+
+            <div class="install-from-path">
+              <div class="section-title">Install Runtime Package</div>
+              <div class="install-row">
+                <input
+                  class="input"
+                  type="text"
+                  placeholder="/path/to/plugin, /path/to/plugin.zip, or https://..."
+                  [value]="runtimeSourceInput()"
+                  (input)="onRuntimeSourceInput($event)"
+                />
+                <button
+                  class="btn"
+                  type="button"
+                  [disabled]="runtimeWorking() || runtimeSourceInput().trim().length === 0"
+                  (click)="validateRuntimeSource()"
+                >Validate</button>
+                <button
+                  class="btn primary"
+                  type="button"
+                  [disabled]="runtimeWorking() || runtimeSourceInput().trim().length === 0"
+                  (click)="installRuntimeSource()"
+                >{{ runtimeWorking() ? 'Working…' : 'Install' }}</button>
+              </div>
+              @if (runtimeValidation(); as validation) {
+                <div class="runtime-validation" [class.invalid]="!validation.ok">
+                  @if (validation.ok) {
+                    <span>{{ validation.manifest.name }} v{{ validation.manifest.version }}</span>
+                    @if (validation.warnings.length > 0) {
+                      <span>{{ validation.warnings.join(' ') }}</span>
+                    }
+                  } @else {
+                    <span>{{ validation.errors.join(' ') }}</span>
+                    @if (validation.warnings.length > 0) {
+                      <span>{{ validation.warnings.join(' ') }}</span>
+                    }
+                  }
+                </div>
+              }
+              @if (runtimeStatusMessage()) {
+                <div class="template-result">{{ runtimeStatusMessage() }}</div>
+              }
+              <div class="discover-actions">
+                <button
+                  class="btn"
+                  type="button"
+                  [disabled]="runtimeWorking()"
+                  (click)="pruneRuntimePlugins()"
+                >Prune Stale Packages</button>
               </div>
             </div>
           </div>
@@ -295,7 +411,7 @@ type ActiveTab = 'installed' | 'discover';
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: var(--spacing-md);
     }
 
@@ -511,6 +627,24 @@ type ActiveTab = 'installed' | 'discover';
       font-family: var(--font-family-mono);
     }
 
+    .runtime-validation {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-sm) var(--spacing-md);
+      border: 1px solid color-mix(in srgb, var(--success-color, #22c55e) 50%, transparent);
+      border-radius: var(--radius-sm);
+      background: color-mix(in srgb, var(--success-color, #22c55e) 12%, transparent);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    .runtime-validation.invalid {
+      border-color: color-mix(in srgb, var(--error-color) 60%, transparent);
+      background: color-mix(in srgb, var(--error-color) 14%, transparent);
+      color: var(--error-color);
+    }
+
     /* ── Common ── */
 
     .empty-state {
@@ -580,11 +714,16 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
 
   readonly loadedPlugins = signal<PluginInfo[]>([]);
   readonly availablePlugins = signal<PluginInfo[]>([]);
+  readonly runtimePlugins = signal<RuntimePluginInfo[]>([]);
   readonly activeTab = signal<ActiveTab>('installed');
   readonly loading = signal(false);
   readonly working = signal(false);
+  readonly runtimeWorking = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly installPath = signal('');
+  readonly runtimeSourceInput = signal('');
+  readonly runtimeValidation = signal<RuntimeValidationResult | null>(null);
+  readonly runtimeStatusMessage = signal<string | null>(null);
   readonly templateName = signal('');
   readonly templateResult = signal<string | null>(null);
 
@@ -597,6 +736,10 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
   readonly availableCount = computed(() => this.availablePlugins().length);
 
   readonly installedCount = computed(() => this.loadedPlugins().length);
+
+  readonly runtimePackageCount = computed(() =>
+    this.runtimePlugins().filter((plugin) => plugin.status === 'installed').length
+  );
 
   // ── Event unsubscribers ────────────────────────────────────────────────────
 
@@ -653,6 +796,8 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
         const available = this.extractData<PluginInfo[]>(availableResponse) ?? [];
         this.availablePlugins.set(available);
       }
+
+      await this.refreshRuntimePlugins();
     } finally {
       this.loading.set(false);
     }
@@ -755,6 +900,108 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
     }
   }
 
+  async validateRuntimeSource(): Promise<void> {
+    if (this.runtimeWorking()) return;
+    const source = this.getRuntimePackageSource();
+    if (!source) return;
+
+    this.errorMessage.set(null);
+    this.runtimeStatusMessage.set(null);
+    this.runtimeWorking.set(true);
+    try {
+      const response = await this.pluginIpc.runtimePluginsValidate(source);
+      if (!response.success) {
+        this.setError(response, 'Failed to validate runtime plugin package.');
+        return;
+      }
+      this.runtimeValidation.set(this.extractData<RuntimeValidationResult>(response));
+    } finally {
+      this.runtimeWorking.set(false);
+    }
+  }
+
+  async installRuntimeSource(): Promise<void> {
+    if (this.runtimeWorking()) return;
+    const source = this.getRuntimePackageSource();
+    if (!source) return;
+
+    this.errorMessage.set(null);
+    this.runtimeStatusMessage.set(null);
+    this.runtimeWorking.set(true);
+    try {
+      const response = await this.pluginIpc.runtimePluginsInstall(source);
+      if (!response.success) {
+        this.setError(response, 'Failed to install runtime plugin package.');
+        return;
+      }
+      const installed = this.extractData<RuntimePluginInfo>(response);
+      this.runtimeStatusMessage.set(installed ? `Installed ${installed.name || installed.id}` : 'Runtime package installed.');
+      this.runtimeSourceInput.set('');
+      this.runtimeValidation.set(null);
+      await this.refreshRuntimePlugins();
+    } finally {
+      this.runtimeWorking.set(false);
+    }
+  }
+
+  async updateRuntimePlugin(pluginId: string): Promise<void> {
+    if (this.runtimeWorking()) return;
+
+    this.errorMessage.set(null);
+    this.runtimeStatusMessage.set(null);
+    this.runtimeWorking.set(true);
+    try {
+      const response = await this.pluginIpc.runtimePluginsUpdate(pluginId, undefined);
+      if (!response.success) {
+        this.setError(response, `Failed to update runtime plugin "${pluginId}".`);
+        return;
+      }
+      this.runtimeStatusMessage.set(`Updated ${pluginId}`);
+      await this.refreshRuntimePlugins();
+    } finally {
+      this.runtimeWorking.set(false);
+    }
+  }
+
+  async pruneRuntimePlugins(): Promise<void> {
+    if (this.runtimeWorking()) return;
+
+    this.errorMessage.set(null);
+    this.runtimeStatusMessage.set(null);
+    this.runtimeWorking.set(true);
+    try {
+      const response = await this.pluginIpc.runtimePluginsPrune();
+      if (!response.success) {
+        this.setError(response, 'Failed to prune runtime plugin packages.');
+        return;
+      }
+      const result = this.extractData<{ removed: string[] }>(response);
+      this.runtimeStatusMessage.set(`Pruned ${result?.removed.length ?? 0} package(s).`);
+      await this.refreshRuntimePlugins();
+    } finally {
+      this.runtimeWorking.set(false);
+    }
+  }
+
+  async uninstallRuntimePlugin(pluginId: string): Promise<void> {
+    if (this.runtimeWorking()) return;
+
+    this.errorMessage.set(null);
+    this.runtimeStatusMessage.set(null);
+    this.runtimeWorking.set(true);
+    try {
+      const response = await this.pluginIpc.runtimePluginsUninstall(pluginId);
+      if (!response.success) {
+        this.setError(response, `Failed to uninstall runtime plugin "${pluginId}".`);
+        return;
+      }
+      this.runtimeStatusMessage.set(`Uninstalled ${pluginId}`);
+      await this.refreshRuntimePlugins();
+    } finally {
+      this.runtimeWorking.set(false);
+    }
+  }
+
   async createTemplate(): Promise<void> {
     const name = this.templateName().trim();
     if (!name || this.working()) return;
@@ -783,6 +1030,13 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
     this.installPath.set(target.value);
   }
 
+  onRuntimeSourceInput(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.runtimeSourceInput.set(target.value);
+    this.runtimeValidation.set(null);
+    this.runtimeStatusMessage.set(null);
+  }
+
   onTemplateNameInput(event: Event): void {
     const target = event.target as HTMLInputElement;
     this.templateName.set(target.value);
@@ -795,6 +1049,14 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
     if (response.success) {
       const loaded = this.extractData<PluginInfo[]>(response) ?? [];
       this.loadedPlugins.set(loaded);
+    }
+  }
+
+  private async refreshRuntimePlugins(): Promise<void> {
+    const response = await this.pluginIpc.runtimePluginsList();
+    if (response.success) {
+      const runtimePlugins = this.extractData<RuntimePluginInfo[]>(response) ?? [];
+      this.runtimePlugins.set(runtimePlugins);
     }
   }
 
@@ -818,5 +1080,20 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
 
   private extractData<T>(response: IpcResponse): T | null {
     return response.success ? (response.data as T) : null;
+  }
+
+  private getRuntimePackageSource(): PluginPackageSource | null {
+    const value = this.runtimeSourceInput().trim();
+    if (!value) return null;
+    if (/^https?:\/\//i.test(value)) {
+      return { type: 'url', value };
+    }
+    if (value.toLowerCase().endsWith('.zip')) {
+      return { type: 'zip', value };
+    }
+    if (/\.(mjs|cjs|js)$/i.test(value)) {
+      return { type: 'file', value };
+    }
+    return { type: 'directory', value };
   }
 }

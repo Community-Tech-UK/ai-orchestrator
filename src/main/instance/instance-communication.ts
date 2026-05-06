@@ -1339,6 +1339,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         used: usage.used,
         total: usage.total,
         percentage: usage.percentage,
+        ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+        ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+        ...(usage.source !== undefined ? { source: usage.source } : {}),
+        ...(usage.promptWeight !== undefined ? { promptWeight: usage.promptWeight } : {}),
       });
 
       const instance = this.deps.getInstance(instanceId);

@@ -10,6 +10,7 @@ import type {
   AutomationSchedule,
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
+import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
 import { AutomationStore } from '../../core/state/automation.store';
 
 interface AutomationFormModel {
@@ -145,6 +146,24 @@ function fromLocalDateInput(value: string): number {
 
               <div class="form-grid">
                 <label>
+                  <span>Template</span>
+                  <select name="template" [ngModel]="selectedTemplateId()" (ngModelChange)="selectedTemplateId.set($event)">
+                    <option value="">None</option>
+                    @for (template of store.templates(); track template.id) {
+                      <option [value]="template.id">{{ template.name }}</option>
+                    }
+                  </select>
+                </label>
+                <div class="template-actions">
+                  <button class="btn" type="button" [disabled]="!selectedTemplateId()" (click)="applySelectedTemplate()">Apply</button>
+                  <button class="btn" type="button" [disabled]="!canRunPreflight()" (click)="runPreflight()">
+                    {{ store.preflightLoading() ? 'Running...' : 'Preflight' }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <label>
                   <span>Schedule</span>
                   <select name="scheduleType" [ngModel]="form().scheduleType" (ngModelChange)="patchForm({ scheduleType: $event })">
                     <option value="cron">Cron</option>
@@ -250,6 +269,57 @@ function fromLocalDateInput(value: string): number {
                 </div>
               }
 
+              @if (store.preflight(); as report) {
+                <div class="preflight" [class.preflight--blocked]="!report.okToSave">
+                  <div class="preflight-header">
+                    <strong>{{ preflightLabel(report) }}</strong>
+                    @if (report.warnings.length > 0 && report.okToSave) {
+                      <button class="btn" type="button" (click)="acknowledgePreflight()">Acknowledge</button>
+                    }
+                  </div>
+
+                  @if (report.blockers.length > 0) {
+                    <div class="preflight-group">
+                      <span>Blockers</span>
+                      <ul>
+                        @for (blocker of report.blockers; track blocker) {
+                          <li>{{ blocker }}</li>
+                        }
+                      </ul>
+                    </div>
+                  }
+
+                  @if (report.warnings.length > 0) {
+                    <div class="preflight-group">
+                      <span>Warnings</span>
+                      <ul>
+                        @for (warning of report.warnings; track warning) {
+                          <li>{{ warning }}</li>
+                        }
+                      </ul>
+                    </div>
+                  }
+
+                  @if (report.suggestedPermissionRules.length > 0) {
+                    <div class="preflight-group">
+                      <span>Suggested Rules</span>
+                      @for (rule of report.suggestedPermissionRules; track rule.id) {
+                        <code>{{ rule.permission }} {{ rule.action }} {{ rule.pattern }}</code>
+                      }
+                    </div>
+                  }
+
+                  @if (report.suggestedPromptEdits.length > 0) {
+                    <div class="preflight-group">
+                      <span>Prompt Edits</span>
+                      @for (edit of report.suggestedPromptEdits; track edit.id) {
+                        <button class="btn" type="button" (click)="applyPromptEdit(edit.replacementPrompt)">{{ edit.reason }}</button>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+
               <div class="actions">
                 <button class="btn btn--primary" type="submit" [disabled]="!canSave()">Save</button>
                 <button class="btn" type="button" (click)="cancelEdit()">Cancel</button>
@@ -326,6 +396,7 @@ function fromLocalDateInput(value: string): number {
     .form, .summary { display: flex; flex-direction: column; gap: 12px; }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .form-grid--compact { grid-template-columns: repeat(4, max-content); }
+    .template-actions { display: flex; align-items: end; gap: 8px; }
     label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-muted); }
     .checkbox { flex-direction: row; align-items: center; color: var(--text-primary); }
     input, select, textarea { width: 100%; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); padding: 8px; font: inherit; font-size: 12px; }
@@ -348,14 +419,25 @@ function fromLocalDateInput(value: string): number {
     .run-error { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .attachments { display: flex; flex-wrap: wrap; gap: 6px; }
     .attachments span { border: 1px solid var(--border-color); border-radius: 999px; padding: 3px 8px; font-size: 11px; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .stats, .form-grid { grid-template-columns: 1fr; } .run-row { grid-template-columns: 1fr; } }
+    .preflight { display: flex; flex-direction: column; gap: 10px; border: 1px solid color-mix(in srgb, var(--warning-color) 45%, var(--border-color)); border-radius: 6px; padding: 10px; background: var(--bg-primary); }
+    .preflight--blocked { border-color: color-mix(in srgb, var(--error-color) 55%, var(--border-color)); }
+    .preflight-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .preflight-header strong { font-size: 12px; }
+    .preflight-group { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+    .preflight-group > span { color: var(--text-muted); font-size: 11px; }
+    .preflight-group ul { margin: 0; padding-left: 18px; }
+    .preflight-group li { margin: 3px 0; overflow-wrap: anywhere; }
+    .preflight-group code { border: 1px solid var(--border-color); border-radius: 4px; padding: 5px 6px; background: var(--bg-secondary); overflow-wrap: anywhere; font-size: 11px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .stats, .form-grid { grid-template-columns: 1fr; } .template-actions { align-items: stretch; } .run-row { grid-template-columns: 1fr; } }
   `],
 })
 export class AutomationsPageComponent {
   private readonly router = inject(Router);
   store = inject(AutomationStore);
   selectedId = signal<string | null>(null);
+  selectedTemplateId = signal('');
   editing = signal(false);
+  preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
 
   selected = computed(() =>
@@ -365,8 +447,15 @@ export class AutomationsPageComponent {
     this.store.runs().filter((run) => run.automationId === this.selectedId()).slice(0, 20)
   );
 
+  constructor() {
+    void this.store.loadTemplates();
+  }
+
   startCreate(): void {
     this.selectedId.set(null);
+    this.selectedTemplateId.set('');
+    this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
     this.form.set(emptyForm());
     this.editing.set(true);
   }
@@ -377,6 +466,8 @@ export class AutomationsPageComponent {
 
   patchForm(patch: Partial<AutomationFormModel>): void {
     this.form.update((current) => ({ ...current, ...patch }));
+    this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
   }
 
   select(automation: Automation): void {
@@ -390,16 +481,25 @@ export class AutomationsPageComponent {
   editSelected(): void {
     const automation = this.selected();
     if (!automation) return;
+    this.selectedTemplateId.set('');
+    this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
     this.form.set(this.toForm(automation));
     this.editing.set(true);
   }
 
   cancelEdit(): void {
     this.editing.set(false);
+    this.preflightAcknowledged.set(false);
   }
 
   async save(): Promise<void> {
     const model = this.form();
+    const report = await this.runPreflightForForm();
+    if (!report?.okToSave || (report.warnings.length > 0 && !this.preflightAcknowledged())) {
+      return;
+    }
+
     const schedule = this.toSchedule(model);
     const action: AutomationAction = {
       prompt: model.prompt,
@@ -440,7 +540,42 @@ export class AutomationsPageComponent {
 
   canSave(): boolean {
     const model = this.form();
-    return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim());
+    return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading());
+  }
+
+  canRunPreflight(): boolean {
+    const model = this.form();
+    return Boolean(model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading());
+  }
+
+  applySelectedTemplate(): void {
+    const template = this.store.applyTemplate(this.selectedTemplateId());
+    if (!template) {
+      return;
+    }
+    this.applyTemplate(template);
+  }
+
+  async runPreflight(): Promise<void> {
+    await this.runPreflightForForm();
+  }
+
+  acknowledgePreflight(): void {
+    this.preflightAcknowledged.set(true);
+  }
+
+  applyPromptEdit(replacementPrompt: string): void {
+    this.patchForm({ prompt: replacementPrompt });
+  }
+
+  preflightLabel(report: AutomationPreflightReport): string {
+    if (!report.okToSave) {
+      return 'Preflight blocked';
+    }
+    if (report.warnings.length > 0) {
+      return this.preflightAcknowledged() ? 'Preflight acknowledged' : 'Preflight warnings';
+    }
+    return 'Preflight ready';
   }
 
   deleteSelected(): void {
@@ -467,6 +602,39 @@ export class AutomationsPageComponent {
 
   formatTime(timestamp: number | null): string {
     return timestamp ? new Date(timestamp).toLocaleString() : 'None';
+  }
+
+  private async runPreflightForForm(): Promise<AutomationPreflightReport | null> {
+    const model = this.form();
+    if (!model.workingDirectory.trim() || !model.prompt.trim()) {
+      return null;
+    }
+    const report = await this.store.runPreflight({
+      workingDirectory: model.workingDirectory,
+      prompt: model.prompt,
+      provider: model.provider === 'auto' ? undefined : model.provider,
+      model: model.model || undefined,
+      yoloMode: model.yoloMode,
+      expectedUnattended: true,
+    });
+    if (report && report.warnings.length === 0) {
+      this.preflightAcknowledged.set(true);
+    }
+    return report;
+  }
+
+  private applyTemplate(template: AutomationTemplate): void {
+    this.form.update((current) => ({
+      ...current,
+      name: current.name || template.name,
+      description: current.description || template.description,
+      scheduleType: template.suggestedSchedule.type,
+      cronExpression: template.suggestedSchedule.expression,
+      timezone: current.timezone || template.suggestedSchedule.timezone,
+      prompt: template.prompt,
+    }));
+    this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
   }
 
   private toForm(automation: Automation): AutomationFormModel {

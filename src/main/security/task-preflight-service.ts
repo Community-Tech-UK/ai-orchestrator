@@ -10,6 +10,9 @@ import { getFilesystemPolicy } from './filesystem-policy';
 import { getNetworkPolicy } from './network-policy';
 import { getPermissionManager, type PermissionAction } from './permission-manager';
 import type {
+  AutomationPreflightReport,
+  AutomationPreflightRequest,
+  SuggestedPermissionRule,
   TaskPreflightLink,
   TaskPreflightPrediction,
   TaskPreflightReport,
@@ -38,6 +41,49 @@ export class TaskPreflightService {
 
   private constructor() {
     // Singleton
+  }
+
+  async getAutomationPreflight(request: AutomationPreflightRequest): Promise<AutomationPreflightReport> {
+    const workingDirectory = path.resolve(request.workingDirectory);
+    const requiresWrite = this.inferRequiresWrite(request.prompt);
+    const requiresNetwork = this.inferRequiresNetwork(request.prompt);
+    const baseReport = await this.getPreflight({
+      workingDirectory,
+      surface: 'automation',
+      taskType: 'automation',
+      requiresWrite,
+      requiresNetwork,
+    });
+
+    const blockers = [...baseReport.blockers];
+    const warnings = new Set(baseReport.warnings);
+    if (!(await this.directoryExists(workingDirectory))) {
+      blockers.push('The selected working directory does not exist or is not a directory.');
+    }
+
+    const unattendedPrediction = baseReport.permissions.predictions.find((prediction) =>
+      prediction.certainty === 'expected' || prediction.certainty === 'likely'
+    );
+    if (request.expectedUnattended && unattendedPrediction) {
+      warnings.add(`This unattended automation is likely to pause for approval: ${unattendedPrediction.label}.`);
+    }
+
+    return {
+      ...baseReport,
+      surface: 'automation',
+      blockers,
+      warnings: Array.from(warnings),
+      okToSave: blockers.length === 0,
+      suggestedPermissionRules: request.yoloMode
+        ? []
+        : this.buildSuggestedPermissionRules({
+            workingDirectory,
+            requiresWrite,
+            requiresNetwork,
+            defaultAction: baseReport.permissions.defaultAction,
+          }),
+      suggestedPromptEdits: this.buildPromptEditSuggestions(request.prompt),
+    };
   }
 
   async getPreflight(request: TaskPreflightRequest): Promise<TaskPreflightReport> {
@@ -253,6 +299,93 @@ export class TaskPreflightService {
     });
 
     return report;
+  }
+
+  private inferRequiresWrite(prompt: string): boolean {
+    return /\b(write|edit|modify|fix|install|update|delete|create|commit|format)\b|lint\s+--fix/i.test(prompt);
+  }
+
+  private inferRequiresNetwork(prompt: string): boolean {
+    return /\b(fetch|download|install|npm\s+install|pnpm\s+install|yarn\s+add|curl|wget|api|github|pull\s+request|pr)\b/i.test(prompt);
+  }
+
+  private async directoryExists(directory: string): Promise<boolean> {
+    try {
+      const stat = await fsp.stat(directory);
+      return stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private buildSuggestedPermissionRules(input: {
+    workingDirectory: string;
+    requiresWrite: boolean;
+    requiresNetwork: boolean;
+    defaultAction: 'allow' | 'ask' | 'deny';
+  }): SuggestedPermissionRule[] {
+    if (input.defaultAction !== 'ask') {
+      return [];
+    }
+
+    const rules: SuggestedPermissionRule[] = [];
+    if (input.requiresWrite) {
+      const pattern = path.join(input.workingDirectory, '**');
+      rules.push({
+        id: 'automation-project-file-write',
+        scope: 'project',
+        permission: 'file_write',
+        pattern,
+        action: 'allow',
+        reason: 'This automation is expected to modify files in the selected project while unattended.',
+        risk: 'medium',
+        writeTarget: {
+          filePath: path.join(input.workingDirectory, '.orchestrator', 'permissions.json'),
+          mode: 'append-rule',
+        },
+        previewRule: {
+          permission: 'file_write',
+          pattern,
+          action: 'allow',
+        },
+      });
+    }
+
+    if (input.requiresNetwork) {
+      const pattern = 'registry.npmjs.org,github.com,api.github.com';
+      rules.push({
+        id: 'automation-network-approval',
+        scope: 'project',
+        permission: 'network_access',
+        pattern,
+        action: 'ask',
+        reason: 'This automation appears to need network access; keep the rule scoped and reviewed before unattended use.',
+        risk: 'medium',
+        writeTarget: {
+          filePath: path.join(input.workingDirectory, '.orchestrator', 'permissions.json'),
+          mode: 'append-rule',
+        },
+        previewRule: {
+          permission: 'network_access',
+          pattern,
+          action: 'ask',
+        },
+      });
+    }
+
+    return rules;
+  }
+
+  private buildPromptEditSuggestions(prompt: string): Array<{ id: string; reason: string; replacementPrompt: string }> {
+    if (/\b(return|summari[sz]e|report|output|respond|include)\b/i.test(prompt)) {
+      return [];
+    }
+
+    return [{
+      id: 'automation-output-summary',
+      reason: 'Automation prompts should specify what summary should be returned after the unattended run.',
+      replacementPrompt: `${prompt.trim()}\n\nReturn a concise summary of what changed, commands run, and any blockers.`,
+    }];
   }
 }
 

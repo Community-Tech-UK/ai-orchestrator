@@ -9,6 +9,10 @@ import type {
   TaskPreflightRequest,
 } from '../../../../../shared/types/task-preflight.types';
 
+type LaunchTaskPreflightRequest = Omit<TaskPreflightRequest, 'surface'> & {
+  surface: Exclude<TaskPreflightRequest['surface'], 'automation'>;
+};
+
 @Injectable({ providedIn: 'root' })
 export class TaskIpcService {
   private base = inject(ElectronIpcService);
@@ -70,7 +74,7 @@ export class TaskIpcService {
   }
 
   async taskGetPreflight(
-    request: TaskPreflightRequest,
+    request: LaunchTaskPreflightRequest,
   ): Promise<IpcResponse<TaskPreflightReport>> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.taskGetPreflight(request) as Promise<IpcResponse<TaskPreflightReport>>;

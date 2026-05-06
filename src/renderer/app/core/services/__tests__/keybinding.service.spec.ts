@@ -57,4 +57,17 @@ describe('KeybindingService input-context gate', () => {
 
     expect(dispatch.dispatch).toHaveBeenCalledWith('select-visible-instance-1');
   });
+
+  it('dispatches the Orchestrator selection shortcut without conflicting with session picker', () => {
+    textarea.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'O',
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: !service.isMac,
+      metaKey: service.isMac,
+      shiftKey: true,
+    }));
+
+    expect(dispatch.dispatch).toHaveBeenCalledWith('select-orchestrator');
+  });
 });

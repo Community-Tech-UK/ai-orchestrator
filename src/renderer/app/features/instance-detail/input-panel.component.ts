@@ -101,6 +101,9 @@ export class InputPanelComponent implements OnDestroy {
   currentModel = input<string | undefined>(undefined);
   workingDirectory = input<string | null>(null);
   isReplayFallback = input<boolean>(false);
+  showWakeupControls = input<boolean>(false);
+  hasThreadWakeups = input<boolean>(false);
+  showWakeupReviveToggle = input<boolean>(false);
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {
@@ -130,6 +133,13 @@ export class InputPanelComponent implements OnDestroy {
   removeFile = output<File>();
   removeFolder = output<string>();
   addFiles = output<void>();
+  createWakeup = output<{
+    prompt: string;
+    runAt: number;
+    intervalMinutes?: number;
+    reviveIfArchived: boolean;
+  }>();
+  cancelWakeups = output<void>();
   cancelQueuedMessage = output<number>(); // Emits the index of the message to cancel
   editQueuedMessage = output<number>();
   steerQueuedMessage = output<number>();
@@ -167,7 +177,11 @@ export class InputPanelComponent implements OnDestroy {
   private recallIndex = signal<number | null>(null);
   private recalledEntryId = signal<string | null>(null);
   private recallEntries = computed(() =>
-    this.promptHistoryStore.getEntriesForRecall(this.instanceId(), this.workingDirectory())
+    this.promptHistoryStore.getEntriesForRecall({
+      scope: 'project',
+      instanceId: this.instanceId(),
+      workingDirectory: this.workingDirectory(),
+    })
   );
   // Computed: filter commands based on input
   filteredCommands = computed(() => {
@@ -306,6 +320,11 @@ export class InputPanelComponent implements OnDestroy {
   nlWorkflowSuggestionError = signal<string | null>(null);
   showVoiceKeyInput = signal(false);
   temporaryVoiceKey = signal('');
+  showWakeupMenu = signal(false);
+  wakeupMode = signal<'once' | 'loop'>('once');
+  wakeupRunAtLocal = signal(this.defaultWakeupLocal());
+  wakeupIntervalMinutes = signal(20);
+  wakeupReviveIfArchived = signal(true);
   private isFocused = signal(false);
   private nlWorkflowSuggestionTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -546,6 +565,42 @@ export class InputPanelComponent implements OnDestroy {
 
     // Auto-resize textarea - debounced via requestAnimationFrame to avoid blocking input
     this.scheduleTextareaResize(textarea);
+  }
+
+  onToggleWakeupMenu(): void {
+    this.showWakeupMenu.update((open) => !open);
+    if (!this.wakeupRunAtLocal()) {
+      this.wakeupRunAtLocal.set(this.defaultWakeupLocal());
+    }
+  }
+
+  onWakeupRunAtInput(event: Event): void {
+    this.wakeupRunAtLocal.set((event.target as HTMLInputElement).value);
+  }
+
+  onWakeupMode(mode: 'once' | 'loop'): void {
+    this.wakeupMode.set(mode);
+  }
+
+  onWakeupInterval(minutes: number): void {
+    this.wakeupIntervalMinutes.set(minutes);
+  }
+
+  onCreateWakeup(): void {
+    const prompt = this.message().trim() || 'Continue from here.';
+    const runAt = this.parseWakeupLocal(this.wakeupRunAtLocal()) ?? Date.now() + 60 * 60 * 1000;
+    this.createWakeup.emit({
+      prompt,
+      runAt,
+      intervalMinutes: this.wakeupMode() === 'loop' ? this.wakeupIntervalMinutes() : undefined,
+      reviveIfArchived: this.showWakeupReviveToggle() ? this.wakeupReviveIfArchived() : true,
+    });
+    this.showWakeupMenu.set(false);
+  }
+
+  onCancelWakeups(): void {
+    this.cancelWakeups.emit();
+    this.showWakeupMenu.set(false);
   }
 
   private scheduleNlWorkflowSuggestion(value: string): void {
@@ -1113,6 +1168,21 @@ export class InputPanelComponent implements OnDestroy {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private defaultWakeupLocal(): string {
+    return this.toDatetimeLocal(Date.now() + 60 * 60 * 1000);
+  }
+
+  private toDatetimeLocal(timestamp: number): string {
+    const date = new Date(timestamp);
+    const offsetMs = date.getTimezoneOffset() * 60_000;
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  }
+
+  private parseWakeupLocal(value: string): number | null {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   onRemoveFile(file: File): void {

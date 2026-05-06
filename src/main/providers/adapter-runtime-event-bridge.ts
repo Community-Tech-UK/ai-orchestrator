@@ -3,7 +3,11 @@ import type { EventEmitter } from 'events';
 import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter';
 import { toProviderOutputEvent } from './provider-output-event';
 import type { ContextUsage, OutputMessage } from '../../shared/types/instance.types';
-import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
+import type {
+  ProviderQuotaDiagnostics,
+  ProviderRateLimitDiagnostics,
+  ProviderRuntimeEvent,
+} from '@contracts/types/provider-runtime-events';
 import { getLogger } from '../logging/logger';
 
 const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
@@ -42,6 +46,13 @@ export type NormalizedAdapterRuntimeEvent =
   | NormalizedAdapterRuntimeEventBase<'complete', CliResponse>
   | NormalizedAdapterRuntimeEventBase<'exit', { code: number | null; signal: string | null }>
   | NormalizedAdapterRuntimeEventBase<'spawned', number>;
+
+interface ProviderApiDiagnostics {
+  requestId?: string;
+  stopReason?: string;
+  rateLimit?: ProviderRateLimitDiagnostics;
+  quota?: ProviderQuotaDiagnostics;
+}
 
 export function observeAdapterRuntimeEvents(
   adapter: AdapterRuntimeEventSource,
@@ -105,24 +116,32 @@ export function observeAdapterRuntimeEvents(
       used: normalized.used,
       total: normalized.total,
       percentage: normalized.percentage,
+      ...(normalized.inputTokens !== undefined ? { inputTokens: normalized.inputTokens } : {}),
+      ...(normalized.outputTokens !== undefined ? { outputTokens: normalized.outputTokens } : {}),
+      ...(normalized.source !== undefined ? { source: normalized.source } : {}),
+      ...(normalized.promptWeight !== undefined ? { promptWeight: normalized.promptWeight } : {}),
     }, normalized);
   };
 
   const onError = (error: Error | string): void => {
+    const diagnostics = extractProviderApiDiagnostics(error);
     emit({
       kind: 'error',
       message: error instanceof Error ? error.message : String(error),
       recoverable: false,
+      ...diagnostics,
     }, error);
   };
 
   const onComplete = (response: CliResponse): void => {
-    emit({
+    const event: ProviderRuntimeEventOfKind<'complete'> = {
       kind: 'complete',
-      tokensUsed: response.usage?.totalTokens,
-      costUsd: response.usage?.cost,
-      durationMs: response.usage?.duration,
-    }, response);
+      ...definedNumberField('tokensUsed', response.usage?.totalTokens),
+      ...definedNumberField('costUsd', response.usage?.cost),
+      ...definedNumberField('durationMs', response.usage?.duration),
+      ...extractProviderApiDiagnostics(response.metadata),
+    };
+    emit(event, response);
   };
 
   const onExit = (code: number | null, signal: string | null): void => {
@@ -232,6 +251,26 @@ function normalizeContextUsage(usage: unknown): ContextUsage | null {
     normalized.cumulativeTokens = usageRecord['cumulativeTokens'];
   }
 
+  const inputTokens = readNumber(usageRecord, ['inputTokens', 'input_tokens']);
+  if (inputTokens !== undefined) {
+    normalized.inputTokens = inputTokens;
+  }
+
+  const outputTokens = readNumber(usageRecord, ['outputTokens', 'output_tokens']);
+  if (outputTokens !== undefined) {
+    normalized.outputTokens = outputTokens;
+  }
+
+  const source = readString(usageRecord, ['source'], 100);
+  if (source !== undefined) {
+    normalized.source = source;
+  }
+
+  const promptWeight = readNumber(usageRecord, ['promptWeight', 'prompt_weight']);
+  if (promptWeight !== undefined) {
+    normalized.promptWeight = promptWeight;
+  }
+
   if (typeof usageRecord['costEstimate'] === 'number') {
     normalized.costEstimate = usageRecord['costEstimate'];
   }
@@ -241,6 +280,87 @@ function normalizeContextUsage(usage: unknown): ContextUsage | null {
   }
 
   return normalized;
+}
+
+function definedNumberField<K extends string>(key: K, value: number | undefined): Partial<Record<K, number>> {
+  return value === undefined ? {} : { [key]: value } as Partial<Record<K, number>>;
+}
+
+function extractProviderApiDiagnostics(value: unknown): ProviderApiDiagnostics {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+  if (!record) {
+    return {};
+  }
+
+  const requestId = readString(record, ['requestId', 'request_id', 'x-request-id', 'anthropic-request-id']);
+  const stopReason = readString(record, ['stopReason', 'stop_reason']);
+  const rateLimit = normalizeRateLimit(record['rateLimit'] ?? record['rate_limit']);
+  const quota = normalizeQuota(record['quota']);
+
+  return {
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(stopReason !== undefined ? { stopReason } : {}),
+    ...(rateLimit !== undefined ? { rateLimit } : {}),
+    ...(quota !== undefined ? { quota } : {}),
+  };
+}
+
+function normalizeRateLimit(value: unknown): ProviderRateLimitDiagnostics | undefined {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+  if (!record) {
+    return undefined;
+  }
+
+  const rateLimit: ProviderRateLimitDiagnostics = {};
+  const limit = readNumber(record, ['limit']);
+  const remaining = readNumber(record, ['remaining']);
+  const resetAt = readNumber(record, ['resetAt', 'reset_at']);
+  if (limit !== undefined) rateLimit.limit = limit;
+  if (remaining !== undefined) rateLimit.remaining = remaining;
+  if (resetAt !== undefined) rateLimit.resetAt = resetAt;
+  return Object.keys(rateLimit).length > 0 ? rateLimit : undefined;
+}
+
+function normalizeQuota(value: unknown): ProviderQuotaDiagnostics | undefined {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+  if (!record) {
+    return undefined;
+  }
+
+  const quota: ProviderQuotaDiagnostics = {};
+  if (typeof record['exhausted'] === 'boolean') {
+    quota.exhausted = record['exhausted'];
+  }
+  const resetAt = readNumber(record, ['resetAt', 'reset_at']);
+  if (resetAt !== undefined) {
+    quota.resetAt = resetAt;
+  }
+  const message = readString(record, ['message']);
+  if (message !== undefined) {
+    quota.message = message;
+  }
+  return Object.keys(quota).length > 0 ? quota : undefined;
+}
+
+function readNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function readString(record: Record<string, unknown>, keys: string[], maxLength = 300): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      const trimmed = value.trim();
+      return trimmed.length <= maxLength ? trimmed : undefined;
+    }
+  }
+  return undefined;
 }
 
 function normalizeOutputMessageType(type: unknown): OutputMessage['type'] {

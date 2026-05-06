@@ -135,6 +135,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.operatorStore.selected() || !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
   );
 
+  operatorGlobalAriaLabel = computed(() => {
+    const status = this.operatorStore.statusLabel();
+    const activeRunCount = this.operatorStore.activeRunCount();
+    if (activeRunCount === 0) {
+      return `Open Orchestrator, ${status}`;
+    }
+    return `Open Orchestrator, ${status}, ${activeRunCount} active ${activeRunCount === 1 ? 'run' : 'runs'}`;
+  });
+
   showBrowserPreview = computed(() =>
     !this.electronIpc.isElectron && !this.isBenchmarkMode()
   );
@@ -238,6 +247,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
 
     this.actionCleanup.push(
+      this.actionDispatch.register({
+        id: 'select-orchestrator',
+        run: () => {
+          this.selectOperator();
+        },
+      }),
       ...visibleInstanceActions,
       this.actionDispatch.register({
         id: 'toggle-command-palette',

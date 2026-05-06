@@ -124,6 +124,7 @@ describe('InstanceCommunicationManager', () => {
   let instance: Instance;
   let adapters: Map<string, CliAdapter>;
   let queueUpdate: ReturnType<typeof vi.fn>;
+  let emitProviderRuntimeEvent: ReturnType<typeof vi.fn>;
   let manager: InstanceCommunicationManager;
 
   async function flushOutputHandlers(): Promise<void> {
@@ -138,6 +139,7 @@ describe('InstanceCommunicationManager', () => {
     instance = createInstance();
     adapters = new Map();
     queueUpdate = vi.fn();
+    emitProviderRuntimeEvent = vi.fn();
 
     manager = new InstanceCommunicationManager({
       getInstance: (id) => (id === instance.id ? instance : undefined),
@@ -151,6 +153,7 @@ describe('InstanceCommunicationManager', () => {
       onInterruptedExit: vi.fn().mockResolvedValue(undefined),
       ingestToRLM: vi.fn(),
       ingestToUnifiedMemory: vi.fn(),
+      emitProviderRuntimeEvent,
     });
   });
 
@@ -192,6 +195,33 @@ describe('InstanceCommunicationManager', () => {
     expect(instance.status).toBe('terminated');
     expect(instance.processId).toBeNull();
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined, undefined);
+  });
+
+  it('preserves provider context diagnostics when forwarding adapter context events', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('context', {
+      used: 80,
+      total: 100,
+      percentage: 80,
+      inputTokens: 60,
+      outputTokens: 20,
+      source: 'provider-usage',
+      promptWeight: 0.75,
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(instance.id, {
+      kind: 'context',
+      used: 80,
+      total: 100,
+      percentage: 80,
+      inputTokens: 60,
+      outputTokens: 20,
+      source: 'provider-usage',
+      promptWeight: 0.75,
+    }, undefined);
   });
 
   it('keeps ACP session/prompt timeouts retryable instead of poisoning the instance', async () => {

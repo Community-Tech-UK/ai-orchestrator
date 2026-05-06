@@ -961,6 +961,8 @@ export const IPC_CHANNELS = {
   AUTOMATION_CANCEL_PENDING: 'automation:cancel-pending',
   AUTOMATION_LIST_RUNS: 'automation:list-runs',
   AUTOMATION_MARK_SEEN: 'automation:mark-seen',
+  AUTOMATION_PREFLIGHT: 'automation:preflight',
+  AUTOMATION_TEMPLATES_LIST: 'automation:templates-list',
 
   AUTOMATION_CHANGED: 'automation:changed',
   AUTOMATION_RUN_CHANGED: 'automation:run-changed',
@@ -1046,6 +1048,13 @@ export const IPC_CHANNELS = {
   OPERATOR_CANCEL_RUN: 'operator:cancel-run',
   OPERATOR_RETRY_RUN: 'operator:retry-run',
   OPERATOR_EVENT: 'operator:event',
+
+  RUNTIME_PLUGINS_LIST: 'runtime-plugins:list',
+  RUNTIME_PLUGINS_VALIDATE: 'runtime-plugins:validate',
+  RUNTIME_PLUGINS_INSTALL: 'runtime-plugins:install',
+  RUNTIME_PLUGINS_UPDATE: 'runtime-plugins:update',
+  RUNTIME_PLUGINS_PRUNE: 'runtime-plugins:prune',
+  RUNTIME_PLUGINS_UNINSTALL: 'runtime-plugins:uninstall',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

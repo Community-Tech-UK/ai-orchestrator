@@ -6,6 +6,7 @@
  */
 
 import { SpanStatusCode, type Span } from '@opentelemetry/api';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { getOrchestratorTracer } from './otel-setup';
 
 async function withSpan<T>(
@@ -76,4 +77,31 @@ export function traceInstanceLifecycle<T>(
     },
     () => fn(),
   );
+}
+
+export function recordProviderRuntimeEventSpan(envelope: ProviderRuntimeEventEnvelope): void {
+  const event = envelope.event;
+  const attributes: Record<string, string | number | boolean> = {
+    'provider.name': envelope.provider,
+    'provider.event_kind': event.kind,
+    'instance.id': envelope.instanceId,
+  };
+
+  if ('requestId' in event && event.requestId) {
+    attributes['ai.provider.request_id'] = event.requestId;
+  }
+  if ('stopReason' in event && event.stopReason) {
+    attributes['ai.provider.stop_reason'] = event.stopReason;
+  }
+  if ('rateLimit' in event && event.rateLimit?.remaining !== undefined) {
+    attributes['ai.provider.rate_limit.remaining'] = event.rateLimit.remaining;
+  }
+  if ('quota' in event && event.quota?.exhausted !== undefined) {
+    attributes['ai.provider.quota.exhausted'] = event.quota.exhausted;
+  }
+
+  const span = getOrchestratorTracer().startSpan('provider.runtime_event', {
+    attributes,
+  });
+  span.end();
 }

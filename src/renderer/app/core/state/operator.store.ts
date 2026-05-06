@@ -14,6 +14,8 @@ export interface OperatorTargetChip {
   path: string;
 }
 
+export type OperatorGlobalStatusTone = 'idle' | 'running' | 'attention' | 'failed';
+
 @Injectable({ providedIn: 'root' })
 export class OperatorStore {
   private readonly ipc = inject(OperatorIpcService);
@@ -44,6 +46,37 @@ export class OperatorStore {
   readonly thread = computed(() => this._conversation()?.thread ?? null);
   readonly messages = computed(() => this._conversation()?.messages ?? []);
   readonly messageCount = computed(() => this._conversation()?.messages.length ?? 0);
+  readonly activeRunCount = computed(() => this._runs().filter((run) => isActiveRunStatus(run.status)).length);
+  readonly statusTone = computed<OperatorGlobalStatusTone>(() => {
+    if (this._error()) {
+      return 'failed';
+    }
+    if (this._sending() || this._loading() || this._runLoading() || this._projectLoading()) {
+      return 'running';
+    }
+    if (this.activeRunCount() > 0) {
+      return 'running';
+    }
+
+    const latestRun = this._runs()[0];
+    if (!latestRun) {
+      return 'idle';
+    }
+    if (latestRun.status === 'failed') {
+      return 'failed';
+    }
+    if (latestRun.status === 'blocked' || latestRun.status === 'waiting') {
+      return 'attention';
+    }
+    return 'idle';
+  });
+  readonly statusLabel = computed(() => {
+    const tone = this.statusTone();
+    if (tone === 'running') return 'Running';
+    if (tone === 'attention') return 'Attention';
+    if (tone === 'failed') return 'Failed';
+    return 'Idle';
+  });
   readonly targetChips = computed<OperatorTargetChip[]>(() => {
     const graph = this._activeRunGraph();
     if (!graph) return [];
@@ -275,4 +308,8 @@ export class OperatorStore {
 function lastPathSegment(value: string): string {
   const normalized = value.replace(/\/+$/, '');
   return normalized.split('/').pop() || value;
+}
+
+function isActiveRunStatus(status: OperatorRunRecord['status']): boolean {
+  return status === 'queued' || status === 'running' || status === 'waiting' || status === 'blocked';
 }
