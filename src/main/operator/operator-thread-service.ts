@@ -6,7 +6,9 @@ import {
   type ConversationLedgerService,
 } from '../conversation-ledger';
 import { getLogger } from '../logging/logger';
+import { getOperatorDatabase } from './operator-database';
 import { getOperatorEngine } from './operator-engine';
+import { OperatorRunStore } from './operator-run-store';
 
 const logger = getLogger('OperatorThreadService');
 
@@ -22,6 +24,7 @@ const GLOBAL_OPERATOR_METADATA = {
 export interface OperatorThreadServiceConfig {
   ledger?: ConversationLedgerService;
   engine?: OperatorEngineLike | null;
+  runStore?: Pick<OperatorRunStore, 'appendEvent'>;
 }
 
 export interface OperatorSendMessageInput {
@@ -40,6 +43,7 @@ export class OperatorThreadService {
   private static instance: OperatorThreadService | null = null;
   private readonly ledger: ConversationLedgerService;
   private readonly engine: OperatorEngineLike | null;
+  private readonly runStore: Pick<OperatorRunStore, 'appendEvent'> | null;
 
   static getInstance(config?: OperatorThreadServiceConfig): OperatorThreadService {
     this.instance ??= new OperatorThreadService(config);
@@ -53,6 +57,7 @@ export class OperatorThreadService {
   constructor(config: OperatorThreadServiceConfig = {}) {
     this.ledger = config.ledger ?? getConversationLedgerService();
     this.engine = config.engine === undefined ? getOperatorEngine() : config.engine;
+    this.runStore = config.runStore ?? null;
   }
 
   async getThread(): Promise<ConversationLedgerConversation> {
@@ -119,6 +124,7 @@ export class OperatorThreadService {
             status: graph.run.status,
           },
         );
+        this.appendTranscriptRefreshEvent(graph.run.id, updated.thread.id);
       }).catch((error) => {
         logger.warn('Operator engine failed to handle message', {
           threadId: updated.thread.id,
@@ -172,6 +178,26 @@ export class OperatorThreadService {
       createdAt: Date.now(),
       rawJson: { metadata },
     });
+  }
+
+  private appendTranscriptRefreshEvent(runId: string, threadId: string): void {
+    try {
+      const runStore = this.runStore ?? new OperatorRunStore(getOperatorDatabase().db);
+      runStore.appendEvent({
+        runId,
+        kind: 'progress',
+        payload: {
+          action: 'transcript-result-appended',
+          threadId,
+        },
+      });
+    } catch (error) {
+      logger.warn('Operator transcript refresh event failed', {
+        runId,
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private findExistingThread() {

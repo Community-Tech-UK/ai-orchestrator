@@ -80,6 +80,35 @@ describe('GitBatchService', () => {
     ]);
   });
 
+  it('skips no-upstream, detached, and divergent repositories with reasons', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'git-batch-safety-'));
+    tempPaths.push(workspace);
+    const noUpstream = setupTrackingRepo(workspace, 'no-upstream');
+    const detached = setupTrackingRepo(workspace, 'detached');
+    const divergent = setupTrackingRepo(workspace, 'divergent');
+
+    git(noUpstream.clone, ['checkout', '-b', 'local-only']);
+    git(detached.clone, ['checkout', '--detach']);
+
+    await fs.writeFile(path.join(divergent.seed, 'remote.txt'), 'remote\n', 'utf-8');
+    git(divergent.seed, ['add', 'remote.txt']);
+    git(divergent.seed, ['commit', '-m', 'remote change']);
+    git(divergent.seed, ['push']);
+    await fs.writeFile(path.join(divergent.clone, 'local.txt'), 'local\n', 'utf-8');
+    git(divergent.clone, ['add', 'local.txt']);
+    git(divergent.clone, ['commit', '-m', 'local change']);
+
+    const result = await new GitBatchService().pullAll(workspace, { concurrency: 3 });
+
+    expect(result.total).toBe(3);
+    expect(result.skipped).toBe(3);
+    expect(result.results.map((repo) => [path.basename(repo.repositoryPath), repo.reason]).sort()).toEqual([
+      ['detached', 'detached_head'],
+      ['divergent', 'divergent'],
+      ['no-upstream', 'no_upstream'],
+    ]);
+  });
+
   function setupTrackingRepo(workspace: string, cloneName = 'app'): { seed: string; clone: string } {
     const remote = path.join(workspace, `${cloneName}.git`);
     const seedRoot = fsSync.mkdtempSync(path.join(os.tmpdir(), 'git-batch-seed-'));

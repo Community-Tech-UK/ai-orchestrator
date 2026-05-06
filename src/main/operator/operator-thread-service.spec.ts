@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { OperatorRunGraph } from '../../shared/types/operator.types';
 import { ConversationLedgerService } from '../conversation-ledger';
 import { NativeConversationRegistry } from '../conversation-ledger/native-conversation-registry';
 import { OperatorThreadService } from './operator-thread-service';
@@ -71,6 +72,49 @@ describe('OperatorThreadService', () => {
     });
   });
 
+  it('emits a run event after appending the final result message so renderer refreshes the transcript', async () => {
+    const ledger = createLedger();
+    const engine = new CompletingOperatorEngine();
+    const appendedEvents: unknown[] = [];
+    const service = new OperatorThreadService({
+      ledger,
+      engine,
+      runStore: {
+        appendEvent: (event) => {
+          appendedEvents.push(event);
+          return {
+            id: 'event-1',
+            runId: event.runId,
+            nodeId: event.nodeId ?? null,
+            kind: event.kind,
+            payload: event.payload,
+            createdAt: 1,
+          };
+        },
+      },
+    });
+
+    const conversation = await service.sendMessage({ text: 'Please pull all repos' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const updated = ledger.getConversation(conversation.thread.id);
+    expect(updated.messages).toContainEqual(expect.objectContaining({
+      role: 'assistant',
+      content: expect.stringContaining('Pulled 1 repositories'),
+    }));
+    expect(appendedEvents).toEqual([
+      expect.objectContaining({
+        runId: 'run-1',
+        kind: 'progress',
+        payload: {
+          action: 'transcript-result-appended',
+          threadId: conversation.thread.id,
+        },
+      }),
+    ]);
+  });
+
   it('appends an error message when the operator engine throws synchronously', async () => {
     const ledger = createLedger();
     const service = new OperatorThreadService({ ledger, engine: new ThrowingOperatorEngine() });
@@ -141,5 +185,45 @@ class FakeOperatorEngine {
 class ThrowingOperatorEngine {
   handleUserMessage(): Promise<null> {
     throw new Error('engine exploded');
+  }
+}
+
+class CompletingOperatorEngine {
+  async handleUserMessage(): Promise<OperatorRunGraph> {
+    return {
+      run: {
+        id: 'run-1',
+        threadId: 'thread-1',
+        sourceMessageId: 'message-1',
+        title: 'Pull repositories',
+        status: 'completed',
+        autonomyMode: 'full',
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2,
+        goal: 'Please pull all repos',
+        budget: {
+          maxNodes: 50,
+          maxRetries: 3,
+          maxWallClockMs: 7200000,
+          maxConcurrentNodes: 3,
+        },
+        usageJson: {
+          nodesStarted: 1,
+          nodesCompleted: 1,
+          retriesUsed: 0,
+          wallClockMs: 1,
+        },
+        planJson: {},
+        resultJson: {
+          synthesis: {
+            summaryMarkdown: 'Pulled 1 repositories.',
+          },
+        },
+        error: null,
+      },
+      nodes: [],
+      events: [],
+    };
   }
 }

@@ -174,6 +174,66 @@ describe('ProjectAgentExecutor', () => {
     db.close();
   });
 
+  it('returns waiting when the worker settles waiting for user input', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const run = runStore.createRun({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      title: 'Implement voice',
+      goal: 'Implement voice conversations',
+    });
+    const node = runStore.createNode({
+      runId: run.id,
+      type: 'project-agent',
+      title: 'AI Orchestrator worker',
+      targetProjectId: 'project-1',
+      targetPath: '/work/ai-orchestrator',
+    });
+    const settled = createInstanceRecord({
+      workingDirectory: '/work/ai-orchestrator',
+      provider: 'codex',
+    });
+    settled.id = 'instance-waiting';
+    settled.status = 'waiting_for_input';
+    settled.outputBuffer = [{
+      id: 'assistant-1',
+      timestamp: 2,
+      type: 'assistant',
+      content: 'I need confirmation before taking this destructive action.',
+    }];
+    const instanceManager = {
+      createInstance: vi.fn(async (config) => {
+        const instance = createInstanceRecord(config);
+        instance.id = 'instance-waiting';
+        instance.createdAt = 1;
+        return instance;
+      }),
+      waitForInstanceSettled: vi.fn(async () => settled),
+    };
+    const executor = new ProjectAgentExecutor({ runStore, instanceManager });
+
+    const result = await executor.execute({
+      run,
+      node,
+      project: projectRecord(),
+      goal: 'Implement voice conversations',
+    });
+
+    expect(result).toMatchObject({
+      status: 'waiting',
+      externalRefKind: 'instance',
+      externalRefId: 'instance-waiting',
+      outputJson: {
+        finalStatus: 'waiting_for_input',
+        outputPreview: 'I need confirmation before taking this destructive action.',
+      },
+      error: 'Project agent is waiting for input',
+    });
+    db.close();
+  });
+
   it('passes operator routing decisions to the spawned worker', async () => {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);

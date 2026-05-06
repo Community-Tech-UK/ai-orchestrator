@@ -220,9 +220,51 @@ describe('OperatorStore', () => {
 
     await store.initialize();
 
-    expect(store.activeRunCount()).toBe(2);
+    expect(store.activeRunCount()).toBe(1);
     expect(store.statusTone()).toBe('running');
     expect(store.statusLabel()).toBe('Running');
+  });
+
+  it('surfaces a blocked latest run as attention instead of an active run', async () => {
+    const ipc = new FakeOperatorIpcService();
+    ipc.runs = [
+      makeRun({ id: 'run-1', status: 'blocked' }),
+      makeRun({ id: 'run-2', status: 'completed' }),
+    ];
+    TestBed.configureTestingModule({
+      providers: [
+        OperatorStore,
+        { provide: OperatorIpcService, useValue: ipc },
+      ],
+    });
+    const store = TestBed.inject(OperatorStore);
+
+    await store.initialize();
+
+    expect(store.activeRunCount()).toBe(0);
+    expect(store.statusTone()).toBe('attention');
+    expect(store.statusLabel()).toBe('Attention');
+  });
+
+  it('surfaces a waiting latest run as attention while keeping it in the active count', async () => {
+    const ipc = new FakeOperatorIpcService();
+    ipc.runs = [
+      makeRun({ id: 'run-1', status: 'waiting' }),
+      makeRun({ id: 'run-2', status: 'completed' }),
+    ];
+    TestBed.configureTestingModule({
+      providers: [
+        OperatorStore,
+        { provide: OperatorIpcService, useValue: ipc },
+      ],
+    });
+    const store = TestBed.inject(OperatorStore);
+
+    await store.initialize();
+
+    expect(store.activeRunCount()).toBe(1);
+    expect(store.statusTone()).toBe('attention');
+    expect(store.statusLabel()).toBe('Attention');
   });
 });
 

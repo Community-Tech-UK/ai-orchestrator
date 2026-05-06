@@ -89,10 +89,15 @@ export class ProjectAgentExecutor {
     const finalMessage = [...(finalInstance.outputBuffer ?? [])]
       .reverse()
       .find((message) => message.type === 'assistant' || message.type === 'error' || message.type === 'system');
-    const failed = finalInstance.status === 'error' || finalInstance.status === 'terminated';
+    const status = instanceStatusToOperatorRunStatus(finalInstance.status);
+    const error = status === 'failed'
+      ? `Project agent ended with status ${finalInstance.status}`
+      : status === 'waiting'
+        ? `Project agent is waiting for input`
+        : null;
 
     return {
-      status: failed ? 'failed' : 'completed',
+      status,
       externalRefKind: 'instance',
       externalRefId: instance.id,
       outputJson: {
@@ -102,9 +107,16 @@ export class ProjectAgentExecutor {
         changedFiles: changedFilesFromDiffStats(finalInstance),
         ...(finalInstance.diffStats ? { diffStats: finalInstance.diffStats } : {}),
       },
-      error: failed ? `Project agent ended with status ${finalInstance.status}` : null,
+      error,
     };
   }
+}
+
+function instanceStatusToOperatorRunStatus(status: Instance['status']): OperatorRunStatus {
+  if (status === 'waiting_for_input') return 'waiting';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'idle') return 'completed';
+  return 'failed';
 }
 
 function changedFilesFromDiffStats(instance: Instance): string[] {

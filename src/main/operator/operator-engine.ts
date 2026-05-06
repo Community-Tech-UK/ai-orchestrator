@@ -1325,14 +1325,49 @@ export class OperatorEngine {
       return { graph: this.runStore.getRunGraph(input.run.id)! };
     }
 
-    const result = await this.projectAgent.execute({
-      run: this.runStore.getRun(input.run.id)!,
-      node,
-      project: input.project,
-      goal: input.goal,
-      promptOverride: input.promptOverride,
-      routing: input.routing,
-    });
+    let result: ProjectAgentExecutionResult;
+    try {
+      result = await this.projectAgent.execute({
+        run: this.runStore.getRun(input.run.id)!,
+        node,
+        project: input.project,
+        goal: input.goal,
+        promptOverride: input.promptOverride,
+        routing: input.routing,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Project agent failed';
+      const completedAt = this.now();
+      const runningRun = this.runStore.getRun(input.run.id)!;
+      const finalUsage: Partial<OperatorRunUsage> = {
+        nodesCompleted: runningRun.usageJson.nodesCompleted + 1,
+        wallClockMs: completedAt - input.runStartedAt,
+      };
+      this.runStore.updateNode(node.id, {
+        status: 'failed',
+        outputJson: { error: message },
+        completedAt,
+        error: message,
+      });
+      this.runStore.updateRun(input.run.id, {
+        status: 'running',
+        usageJson: finalUsage,
+      });
+      this.runStore.appendEvent({
+        runId: input.run.id,
+        nodeId: node.id,
+        kind: 'state-change',
+        payload: { status: 'failed', reason: 'project-agent-error' },
+      });
+      return {
+        node: this.runStore.getNode(node.id)!,
+        result: {
+          status: 'failed',
+          outputJson: { error: message },
+          error: message,
+        },
+      };
+    }
     const completedAt = this.now();
     const runningRun = this.runStore.getRun(input.run.id)!;
     const finalUsage: Partial<OperatorRunUsage> = {

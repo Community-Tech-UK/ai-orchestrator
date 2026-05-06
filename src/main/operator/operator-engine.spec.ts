@@ -629,6 +629,50 @@ describe('OperatorEngine', () => {
     db.close();
   });
 
+  it('fails and finalizes the run when the project agent executor throws', async () => {
+    const db = defaultDriverFactory(':memory:');
+    createOperatorTables(db);
+    const runStore = new OperatorRunStore(db);
+    const project = projectRecord();
+    const verificationExecutor = new FakeVerificationExecutor([passedVerification()], runStore);
+    const engine = new OperatorEngine({
+      runStore,
+      gitBatch: new FakeGitBatchService(),
+      projectRegistry: resolvedRegistry(project),
+      projectAgent: {
+        async execute() {
+          throw new Error('worker spawn failed');
+        },
+      },
+      verificationExecutor,
+    });
+
+    const graph = await engine.handleUserMessage({
+      threadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      text: 'In AI Orchestrator, add retry support',
+    });
+
+    expect(graph?.run).toMatchObject({
+      status: 'failed',
+      error: 'worker spawn failed',
+    });
+    expect(graph?.nodes).toEqual([
+      expect.objectContaining({
+        type: 'project-agent',
+        status: 'failed',
+        outputJson: { error: 'worker spawn failed' },
+        error: 'worker spawn failed',
+      }),
+      expect.objectContaining({
+        type: 'synthesis',
+        status: 'completed',
+      }),
+    ]);
+    expect(verificationExecutor.calls).toHaveLength(0);
+    db.close();
+  });
+
   it('routes project audit requests with "in the project" wording to a repo-health audit job', async () => {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);

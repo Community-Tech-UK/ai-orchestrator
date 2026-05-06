@@ -54,9 +54,6 @@ export class OperatorStore {
     if (this._sending() || this._loading() || this._runLoading() || this._projectLoading()) {
       return 'running';
     }
-    if (this.activeRunCount() > 0) {
-      return 'running';
-    }
 
     const latestRun = this._runs()[0];
     if (!latestRun) {
@@ -67,6 +64,9 @@ export class OperatorStore {
     }
     if (latestRun.status === 'blocked' || latestRun.status === 'waiting') {
       return 'attention';
+    }
+    if (this.activeRunCount() > 0) {
+      return 'running';
     }
     return 'idle';
   });
@@ -311,5 +311,5 @@ function lastPathSegment(value: string): string {
 }
 
 function isActiveRunStatus(status: OperatorRunRecord['status']): boolean {
-  return status === 'queued' || status === 'running' || status === 'waiting' || status === 'blocked';
+  return status === 'queued' || status === 'running' || status === 'waiting';
 }
