@@ -63,6 +63,15 @@ export interface MCPServer {
   };
 }
 
+export interface MCPServerSummary {
+  serverId: string;
+  serverName: string;
+  toolCount: number;
+  resourceCount: number;
+  promptCount: number;
+  searchHint: string;
+}
+
 /**
  * Search result with relevance scoring
  */
@@ -754,6 +763,17 @@ export class MCPToolSearchService extends EventEmitter {
     };
   }
 
+  getServerSummaries(): MCPServerSummary[] {
+    return Array.from(this.servers.values()).map((server) => ({
+      serverId: server.id,
+      serverName: server.name,
+      toolCount: this.index.byServer.get(server.id)?.length ?? 0,
+      resourceCount: server.resources.length,
+      promptCount: 0,
+      searchHint: 'Use MCP tool search for detailed tool descriptions when needed.',
+    }));
+  }
+
   /**
    * Clear all data
    */
@@ -814,4 +834,8 @@ export function getMCPToolSearchService(): MCPToolSearchService {
     mcpToolSearchInstance = new MCPToolSearchService();
   }
   return mcpToolSearchInstance;
+}
+
+export function _resetMCPToolSearchServiceForTesting(): void {
+  mcpToolSearchInstance = null;
 }

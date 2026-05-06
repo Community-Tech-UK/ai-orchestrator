@@ -89,6 +89,7 @@ import {
   getBrowserGatewayRpcSocketPath,
   type BrowserGatewayMcpConfigOptions,
 } from '../browser-gateway';
+import { getOrchestratorInjectionReader } from '../mcp/mcp-multi-provider-singletons';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
@@ -102,6 +103,7 @@ import {
 } from './lifecycle/tool-permission-config';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
+import { ORCHESTRATOR_INJECTION_PROVIDERS, isSupportedProvider } from '../../shared/types/mcp-scopes.types';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -404,6 +406,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
     }
 
+    configs.push(...this.getOrchestratorMcpConfigs(provider));
+
     if (configs.length === 0) {
       logger.warn('No MCP configs resolved — spawned instances will not have custom MCP servers', {
         expectedPath: MCP_CONFIG_PATH,
@@ -412,6 +416,26 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     return configs;
+  }
+
+  private getOrchestratorMcpConfigs(provider?: string): string[] {
+    if (
+      !isSupportedProvider(provider) ||
+      !ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
+    ) {
+      return [];
+    }
+
+    try {
+      const bundle = getOrchestratorInjectionReader().buildBundle(provider);
+      return [...bundle.configPaths, ...bundle.inlineConfigs];
+    } catch (error) {
+      logger.warn('Failed to resolve Orchestrator MCP injection bundle', {
+        provider,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   private getBrowserGatewayMcpOptions(

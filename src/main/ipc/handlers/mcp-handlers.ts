@@ -17,19 +17,60 @@ import {
   McpServerPayloadSchema,
   McpSetServerEnabledPayloadSchema,
 } from '@contracts/schemas/provider';
+import {
+  McpDeletePayloadSchema,
+  McpDriftQuerySchema,
+  McpFanOutPayloadSchema,
+  McpInjectionTargetsPayloadSchema,
+  McpProviderScopePayloadSchema,
+  McpProviderUserDeletePayloadSchema,
+  McpProviderUserUpsertPayloadSchema,
+  McpResolveDriftPayloadSchema,
+  OrchestratorMcpServerUpsertSchema,
+  SharedMcpServerUpsertSchema,
+} from '@contracts/schemas/mcp-multi-provider';
 import { MCP_SERVER_PRESETS } from '../../../shared/types/mcp.types';
+import type { McpServerConfig } from '../../../shared/types/mcp.types';
+import type { OrchestratorMcpServer } from '../../../shared/types/mcp-orchestrator.types';
 import { WindowManager } from '../../window-manager';
 import { getBrowserAutomationHealthService } from '../../browser-automation/browser-automation-health';
 import {
   discoverProviderMcpServers,
   setProviderMcpServerEnabled,
 } from '../../mcp/provider-mcp-config-discovery';
+import {
+  getCliMcpConfigService,
+  getOrchestratorMcpRepository,
+  getSharedMcpCoordinator,
+} from '../../mcp/mcp-multi-provider-singletons';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('McpHandlers');
 
 export function registerMcpHandlers(deps: {
   windowManager: WindowManager;
 }): void {
   const mcp = getMcpManager();
   const lifecycle = getMcpLifecycleManager();
+
+  const broadcastMultiProviderState = async (): Promise<void> => {
+    const state = await getCliMcpConfigService().getMultiProviderState();
+    deps.windowManager
+      .getMainWindow()
+      ?.webContents.send(IPC_CHANNELS.MCP_MULTI_PROVIDER_STATE_CHANGED, state);
+  };
+
+  try {
+    for (const { record } of getOrchestratorMcpRepository().list()) {
+      if (!mcp.getServerStatus(record.id)) {
+        mcp.addServer(toMcpManagerConfig(record));
+      }
+    }
+  } catch (error) {
+    logger.warn('Failed to hydrate persisted Orchestrator MCP servers', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // Set up event forwarding to renderer
   mcp.on('server:connected', (serverId) => {
@@ -191,17 +232,41 @@ export function registerMcpHandlers(deps: {
     ): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(McpAddServerPayloadSchema, payload, 'MCP_ADD_SERVER');
-        mcp.addServer({
+        const config: McpServerConfig = {
           id: validated.id,
           name: validated.name,
           description: validated.description,
+          source: 'orchestrator',
+          sourceProvider: 'orchestrator',
+          scope: 'orchestrator',
           transport: validated.transport,
           command: validated.command,
           args: validated.args,
           env: validated.env,
           url: validated.url,
-          autoConnect: validated.autoConnect
-        });
+          autoConnect: validated.autoConnect ?? true,
+        };
+        try {
+          const saved = getOrchestratorMcpRepository().upsert({
+            id: validated.id,
+            name: validated.name,
+            description: validated.description,
+            scope: 'orchestrator',
+            transport: validated.transport,
+            command: validated.command,
+            args: validated.args,
+            env: validated.env,
+            url: validated.url,
+            autoConnect: validated.autoConnect ?? true,
+          });
+          await mcp.upsertServer(toMcpManagerConfig(saved.record));
+          await broadcastMultiProviderState();
+        } catch (error) {
+          logger.warn('Falling back to in-memory MCP server add', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          mcp.addServer(config);
+        }
         return { success: true };
       } catch (error) {
         return {
@@ -226,6 +291,15 @@ export function registerMcpHandlers(deps: {
       try {
         const validated = validateIpcPayload(McpServerPayloadSchema, payload, 'MCP_REMOVE_SERVER');
         await mcp.removeServer(validated.serverId);
+        try {
+          getOrchestratorMcpRepository().delete(validated.serverId);
+          await broadcastMultiProviderState();
+        } catch (error) {
+          logger.warn('Failed to remove MCP server from persistent registry', {
+            serverId: validated.serverId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         return { success: true };
       } catch (error) {
         return {
@@ -526,4 +600,341 @@ export function registerMcpHandlers(deps: {
       }
     }
   );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_GET_MULTI_PROVIDER_STATE,
+    async (): Promise<IpcResponse> => {
+      try {
+        return {
+          success: true,
+          data: await getCliMcpConfigService().getMultiProviderState(),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_GET_MULTI_PROVIDER_STATE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_REFRESH_MULTI_PROVIDER_STATE,
+    async (): Promise<IpcResponse> => {
+      try {
+        const state = await getCliMcpConfigService().refreshMultiProviderState();
+        await broadcastMultiProviderState();
+        return { success: true, data: state };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_REFRESH_MULTI_PROVIDER_STATE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_ORCHESTRATOR_UPSERT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          OrchestratorMcpServerUpsertSchema,
+          payload,
+          'MCP_ORCHESTRATOR_UPSERT',
+        );
+        const saved = getCliMcpConfigService().orchestratorUpsert(validated);
+        await mcp.upsertServer(toMcpManagerConfig(saved.record));
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_ORCHESTRATOR_UPSERT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_ORCHESTRATOR_DELETE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpDeletePayloadSchema, payload, 'MCP_ORCHESTRATOR_DELETE');
+        getCliMcpConfigService().orchestratorDelete(validated.serverId);
+        await mcp.removeServer(validated.serverId);
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_ORCHESTRATOR_DELETE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_ORCHESTRATOR_SET_INJECTION_TARGETS,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          McpInjectionTargetsPayloadSchema,
+          payload,
+          'MCP_ORCHESTRATOR_SET_INJECTION_TARGETS',
+        );
+        getCliMcpConfigService().orchestratorSetInjectionTargets(validated.serverId, validated.providers);
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_ORCHESTRATOR_SET_INJECTION_TARGETS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_SHARED_UPSERT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(SharedMcpServerUpsertSchema, payload, 'MCP_SHARED_UPSERT');
+        const id = getCliMcpConfigService().sharedUpsert(validated);
+        await broadcastMultiProviderState();
+        return { success: true, data: { id } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_SHARED_UPSERT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_SHARED_DELETE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpDeletePayloadSchema, payload, 'MCP_SHARED_DELETE');
+        getCliMcpConfigService().sharedDelete(validated.serverId);
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_SHARED_DELETE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_SHARED_FAN_OUT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpFanOutPayloadSchema, payload, 'MCP_SHARED_FAN_OUT');
+        const result = await getSharedMcpCoordinator().fanOut(validated.serverId, validated.providers);
+        await getCliMcpConfigService().refreshMultiProviderState();
+        await broadcastMultiProviderState();
+        return { success: true, data: result };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_SHARED_FAN_OUT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_SHARED_GET_DRIFT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpDriftQuerySchema, payload, 'MCP_SHARED_GET_DRIFT');
+        return {
+          success: true,
+          data: await getSharedMcpCoordinator().getDrift(validated.serverId),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_SHARED_GET_DRIFT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_SHARED_RESOLVE_DRIFT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpResolveDriftPayloadSchema, payload, 'MCP_SHARED_RESOLVE_DRIFT');
+        await getSharedMcpCoordinator().resolveDrift(
+          validated.serverId,
+          validated.provider,
+          validated.action,
+        );
+        await getCliMcpConfigService().refreshMultiProviderState();
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_SHARED_RESOLVE_DRIFT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_PROVIDER_USER_UPSERT,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          McpProviderUserUpsertPayloadSchema,
+          payload,
+          'MCP_PROVIDER_USER_UPSERT',
+        );
+        await getCliMcpConfigService().providerUserUpsert({
+          id: validated.id ?? `${validated.provider}:user:${validated.name}`,
+          provider: validated.provider,
+          name: validated.name,
+          description: validated.description,
+          transport: validated.transport,
+          command: validated.command,
+          args: validated.args,
+          url: validated.url,
+          headers: validated.headers,
+          env: validated.env,
+          autoConnect: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_PROVIDER_USER_UPSERT_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_PROVIDER_USER_DELETE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          McpProviderUserDeletePayloadSchema,
+          payload,
+          'MCP_PROVIDER_USER_DELETE',
+        );
+        await getCliMcpConfigService().providerUserDelete(validated.provider, validated.serverId);
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_PROVIDER_USER_DELETE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_PROVIDER_OPEN_SCOPE_FILE,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(
+          McpProviderScopePayloadSchema,
+          payload,
+          'MCP_PROVIDER_OPEN_SCOPE_FILE',
+        );
+        return {
+          success: true,
+          data: await getCliMcpConfigService().providerOpenScopeFile(
+            validated.provider,
+            validated.scope,
+          ),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MCP_PROVIDER_OPEN_SCOPE_FILE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+}
+
+function toMcpManagerConfig(record: OrchestratorMcpServer): McpServerConfig {
+  return {
+    id: record.id,
+    name: record.name,
+    description: record.description,
+    source: 'orchestrator',
+    sourceProvider: 'orchestrator',
+    scope: record.scope,
+    transport: record.transport,
+    command: record.command,
+    args: record.args,
+    env: record.env,
+    url: record.url,
+    headers: record.headers,
+    autoConnect: record.autoConnect,
+  };
 }

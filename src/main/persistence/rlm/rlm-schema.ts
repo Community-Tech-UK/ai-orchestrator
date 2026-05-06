@@ -1729,6 +1729,72 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS automation_thread_destinations;
     `,
   },
+  // Migration 027: orchestrator-owned MCP server registry.
+  {
+    name: '027_orchestrator_mcp_servers',
+    up: `
+      CREATE TABLE IF NOT EXISTS orchestrator_mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        scope TEXT NOT NULL CHECK (scope IN ('orchestrator','orchestrator-bootstrap','orchestrator-codemem')),
+        transport TEXT NOT NULL CHECK (transport IN ('stdio','sse','http')),
+        command TEXT,
+        args_json TEXT,
+        url TEXT,
+        headers_json TEXT,
+        env_json TEXT,
+        env_secrets_encrypted_json TEXT,
+        auto_connect INTEGER NOT NULL DEFAULT 0 CHECK (auto_connect IN (0,1)),
+        inject_into_json TEXT NOT NULL DEFAULT '["claude","codex","gemini","copilot"]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_orchestrator_mcp_scope
+        ON orchestrator_mcp_servers(scope);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_orchestrator_mcp_scope;
+      DROP TABLE IF EXISTS orchestrator_mcp_servers;
+    `,
+  },
+  // Migration 028: canonical shared MCP server registry.
+  {
+    name: '028_shared_mcp_servers',
+    up: `
+      CREATE TABLE IF NOT EXISTS shared_mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        transport TEXT NOT NULL CHECK (transport IN ('stdio','sse','http')),
+        command TEXT,
+        args_json TEXT,
+        url TEXT,
+        headers_json TEXT,
+        env_json TEXT,
+        env_secrets_encrypted_json TEXT,
+        targets_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `,
+    down: `
+      DROP TABLE IF EXISTS shared_mcp_servers;
+    `,
+  },
+  // Migration 029: encrypt secret-like MCP headers separately from public header metadata.
+  {
+    name: '029_mcp_header_secret_storage',
+    up: `
+      ALTER TABLE orchestrator_mcp_servers ADD COLUMN headers_secrets_encrypted_json TEXT;
+      ALTER TABLE shared_mcp_servers ADD COLUMN headers_secrets_encrypted_json TEXT;
+    `,
+    down: `
+      ALTER TABLE shared_mcp_servers DROP COLUMN headers_secrets_encrypted_json;
+      ALTER TABLE orchestrator_mcp_servers DROP COLUMN headers_secrets_encrypted_json;
+    `,
+  },
 ];
 
 /**

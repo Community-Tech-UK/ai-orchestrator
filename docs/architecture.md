@@ -108,6 +108,22 @@ Located in `src/main/cli/adapters/`:
 - **Provider helper directories** keep protocol details out of adapter entrypoints. For Codex, `src/main/cli/adapters/codex/` owns app-server transport, exec transcript parsing, stderr diagnostics, attachment capability checks, reasoning dedupe, session scanning, and MCP-free `CODEX_HOME` setup.
 - Adapter entrypoints should stay orchestration-focused. Prefer extracting pure parsing/formatting helpers or direct-testable coordinators before adding new long private-method blocks.
 
+## MCP Multi-Provider
+
+Main-process layer managing MCP servers across Claude Code, Codex, Gemini, and Copilot plus two Orchestrator-owned scopes: Shared and Orchestrator.
+
+Key files:
+- `src/main/mcp/cli-mcp-config-service.ts` - high-level multi-provider state and provider user-scope writes.
+- `src/main/mcp/shared-mcp-coordinator.ts` - shared-server fan-out, drift detection, and drift resolution.
+- `src/main/mcp/orchestrator-injection-reader.ts` - spawn-time Orchestrator MCP bundle reader.
+- `src/main/mcp/adapters/*-mcp-adapter.ts` - provider-native config readers/writers.
+- `src/main/mcp/write-safety-helper.ts` - atomic writes, backups, and parent-permission guard.
+- `src/main/mcp/secret-storage.ts` - `safeStorage` wrapper with explicit plaintext quarantine fallback.
+
+Renderer writes flow through `McpPageComponent` -> `McpIpcService` -> MCP IPC handlers -> `CliMcpConfigService` or `SharedMcpCoordinator` -> provider adapter -> `WriteSafetyHelper` -> disk.
+
+Disk/read flow uses provider adapters to build `McpMultiProviderStateDto`; renderer state lives in `McpMultiProviderStore` and receives `mcp:multi-provider-state-changed` updates.
+
 ## Process Management
 
 Located in `src/main/process/`:

@@ -22,6 +22,211 @@
     <div class="info-banner">{{ infoMessage() }}</div>
   }
 
+  <section class="management-panel">
+    <div class="management-tabs" role="tablist" aria-label="MCP management scopes">
+      @for (tab of managementTabs; track tab.id) {
+        <button
+          data-test="mcp-tab"
+          class="management-tab"
+          type="button"
+          role="tab"
+          [attr.aria-selected]="activeManagementTab() === tab.id"
+          [class.active]="activeManagementTab() === tab.id"
+          (click)="setManagementTab(tab.id)"
+        >
+          {{ tab.label }}
+        </button>
+      }
+    </div>
+
+    <div class="management-body">
+      <div class="management-heading">
+        <div>
+          <span class="panel-heading">Multi-provider MCP</span>
+          @if (isProviderManagementTab()) {
+            <div class="panel-subtitle">User scope is writable. Project, workspace, managed, and system scopes are read-only.</div>
+          }
+        </div>
+        <span class="management-version">state {{ multiProviderStore.state().stateVersion }}</span>
+      </div>
+
+      <div class="management-actions">
+        @if (isProviderManagementTab()) {
+          <button class="btn small" type="button" [disabled]="working()" (click)="openCurrentProviderUserFile()">
+            Open User Config
+          </button>
+        }
+        <button class="btn small primary" type="button" [disabled]="working()" (click)="beginCreateManagementServer()">
+          Add
+        </button>
+      </div>
+
+      @if (managementFormOpen()) {
+        <div class="management-form">
+          <div class="management-form-header">
+            <span class="server-name">{{ managementFormTitle() }}</span>
+            <button class="btn small" type="button" (click)="cancelManagementForm()">Cancel</button>
+          </div>
+
+          <div class="management-form-grid">
+            <label class="field">
+              <span class="field-label">Name <span class="required">*</span></span>
+              <input class="input" type="text" [value]="managementForm.name()" (input)="onManagementTextField('name', $event)" />
+            </label>
+
+            <label class="field">
+              <span class="field-label">Transport <span class="required">*</span></span>
+              <select class="select" [value]="managementForm.transport()" (change)="onManagementTransportChange($event)">
+                <option value="stdio">stdio</option>
+                <option value="http">http</option>
+                <option value="sse">sse</option>
+              </select>
+            </label>
+
+            @if (activeManagementTab() === 'orchestrator') {
+              <label class="field">
+                <span class="field-label">Scope</span>
+                <select class="select" [value]="managementForm.scope()" (change)="onManagementScopeChange($event)">
+                  @for (scope of orchestratorScopes; track scope) {
+                    <option [value]="scope">{{ scope }}</option>
+                  }
+                </select>
+              </label>
+            }
+
+            @if (managementForm.transport() === 'stdio') {
+              <label class="field form-wide">
+                <span class="field-label">Command <span class="required">*</span></span>
+                <input class="input" type="text" [value]="managementForm.command()" (input)="onManagementTextField('command', $event)" />
+              </label>
+
+              <label class="field form-wide">
+                <span class="field-label">Arguments JSON</span>
+                <textarea class="textarea compact" [value]="managementForm.argsJson()" placeholder="[&quot;--flag&quot;]" (input)="onManagementTextField('argsJson', $event)"></textarea>
+              </label>
+            } @else {
+              <label class="field form-wide">
+                <span class="field-label">URL <span class="required">*</span></span>
+                <input class="input" type="url" [value]="managementForm.url()" (input)="onManagementTextField('url', $event)" />
+              </label>
+            }
+
+            <label class="field form-wide">
+              <span class="field-label">Description</span>
+              <input class="input" type="text" [value]="managementForm.description()" (input)="onManagementTextField('description', $event)" />
+            </label>
+
+            <label class="field">
+              <span class="field-label">Headers JSON</span>
+              <textarea class="textarea compact" [value]="managementForm.headersJson()" placeholder="{&quot;Authorization&quot;:&quot;Bearer ...&quot;}" (input)="onManagementTextField('headersJson', $event)"></textarea>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Environment JSON</span>
+              <textarea class="textarea compact" [value]="managementForm.envJson()" placeholder="{&quot;API_KEY&quot;:&quot;...&quot;}" (input)="onManagementTextField('envJson', $event)"></textarea>
+            </label>
+          </div>
+
+          @if (activeManagementTab() === 'orchestrator') {
+            <div class="provider-checks">
+              <span class="field-label">Inject into</span>
+              @for (provider of orchestratorInjectionProviders; track provider) {
+                <label class="checkbox-row compact-check">
+                  <input
+                    type="checkbox"
+                    [checked]="isManagementProviderSelected('injectInto', provider)"
+                    (change)="toggleManagementProvider('injectInto', provider, $event)"
+                  />
+                  {{ provider }}
+                </label>
+              }
+            </div>
+          }
+
+          @if (activeManagementTab() === 'shared') {
+            <div class="provider-checks">
+              <span class="field-label">Fan-out targets</span>
+              @for (provider of supportedProviders; track provider) {
+                <label class="checkbox-row compact-check">
+                  <input
+                    type="checkbox"
+                    [checked]="isManagementProviderSelected('targets', provider)"
+                    (change)="toggleManagementProvider('targets', provider, $event)"
+                  />
+                  {{ provider }}
+                </label>
+              }
+            </div>
+          } @else {
+            <label class="checkbox-row compact-check">
+              <input type="checkbox" [checked]="managementForm.autoConnect()" (change)="onManagementAutoConnectChange($event)" />
+              Auto-connect
+            </label>
+          }
+
+          @if (managementFormError()) {
+            <div class="error-banner">{{ managementFormError() }}</div>
+          }
+
+          <div class="form-actions">
+            <button class="btn primary" type="button" [disabled]="working()" (click)="submitManagementServer()">
+              {{ working() ? 'Saving…' : 'Save MCP Server' }}
+            </button>
+          </div>
+        </div>
+      }
+
+      @if (managementRows().length === 0) {
+        <div class="empty-hint">{{ managementEmptyMessage() }}</div>
+      } @else {
+        <div class="management-grid">
+          @for (server of managementRows(); track server.id) {
+            <div class="management-row">
+              <div class="management-row-main">
+                <div class="server-name">{{ server.name }}</div>
+                <div class="server-meta">
+                  {{ server.scope }} · {{ server.transport }}
+                  @if (server.sourceFile) {
+                    · {{ server.sourceFile }}
+                  }
+                </div>
+                @if (activeManagementTab() === 'shared' && sharedTargetSummary(server.id)) {
+                  <div class="server-scope">{{ sharedTargetSummary(server.id) }}</div>
+                }
+              </div>
+              <div class="management-command">
+                @if (server.command) {
+                  {{ server.command }} {{ server.args?.join(' ') }}
+                } @else if (server.url) {
+                  {{ server.url }}
+                } @else {
+                  configuration only
+                }
+              </div>
+              <div class="management-row-actions">
+                @if (canEditManagementServer(server)) {
+                  <button class="btn small" type="button" [disabled]="working()" (click)="beginEditManagementServer(server)">
+                    Edit
+                  </button>
+                }
+                @if (activeManagementTab() === 'shared') {
+                  <button class="btn small" type="button" [disabled]="working()" (click)="fanOutSharedServer(server)">
+                    Fan Out
+                  </button>
+                }
+                @if (canEditManagementServer(server)) {
+                  <button class="btn small danger" type="button" [disabled]="working()" (click)="deleteManagementServer(server)">
+                    Delete
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </section>
+
   <!-- Metric cards -->
   <div class="metrics-row">
     <div class="metric-card">

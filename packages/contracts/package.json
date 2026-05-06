@@ -30,6 +30,7 @@
     "./schemas/browser":         { "types": "./src/schemas/browser.schemas.ts",         "default": "./src/schemas/browser.schemas.ts" },
     "./schemas/conversation-ledger": { "types": "./src/schemas/conversation-ledger.schemas.ts", "default": "./src/schemas/conversation-ledger.schemas.ts" },
     "./schemas/operator":        { "types": "./src/schemas/operator.schemas.ts",        "default": "./src/schemas/operator.schemas.ts" },
+    "./schemas/mcp-multi-provider": { "types": "./src/schemas/mcp-multi-provider.schemas.ts", "default": "./src/schemas/mcp-multi-provider.schemas.ts" },
     "./channels/instance":        { "types": "./src/channels/instance.channels.ts",        "default": "./src/channels/instance.channels.ts" },
     "./channels/file":            { "types": "./src/channels/file.channels.ts",            "default": "./src/channels/file.channels.ts" },
     "./channels/session":         { "types": "./src/channels/session.channels.ts",         "default": "./src/channels/session.channels.ts" },

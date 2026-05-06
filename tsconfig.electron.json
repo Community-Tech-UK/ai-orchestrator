@@ -44,6 +44,7 @@
       "@contracts/schemas/browser":          ["./packages/contracts/src/schemas/browser.schemas"],
       "@contracts/schemas/conversation-ledger": ["./packages/contracts/src/schemas/conversation-ledger.schemas"],
       "@contracts/schemas/operator":         ["./packages/contracts/src/schemas/operator.schemas"],
+      "@contracts/schemas/mcp-multi-provider": ["./packages/contracts/src/schemas/mcp-multi-provider.schemas"],
       "@contracts/schemas/provider-runtime-events": ["./packages/contracts/src/schemas/provider-runtime-events.schemas"],
       "@contracts/channels/automation":      ["./packages/contracts/src/channels/automation.channels"],
       "@contracts/channels/pause":           ["./packages/contracts/src/channels/pause.channels"],

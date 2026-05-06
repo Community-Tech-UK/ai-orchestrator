@@ -106,6 +106,11 @@ export interface AppSettings {
   pauseReachabilityProbeMode: PauseReachabilityProbeMode;
   pauseReachabilityProbeIntervalSec: number;
   pauseAllowPrivateRanges: boolean;
+
+  // MCP Safety
+  mcpCleanupBackupsOnQuit: boolean;
+  mcpDisableProviderBackups: boolean;
+  mcpAllowWorldWritableParent: boolean;
 }
 
 /**
@@ -186,6 +191,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pauseReachabilityProbeMode: 'disabled',
   pauseReachabilityProbeIntervalSec: 30,
   pauseAllowPrivateRanges: false,
+
+  // MCP Safety
+  mcpCleanupBackupsOnQuit: true,
+  mcpDisableProviderBackups: false,
+  mcpAllowWorldWritableParent: false,
 };
 
 /**
@@ -210,7 +220,7 @@ export interface SettingMetadata {
   label: string;
   description: string;
   type: 'boolean' | 'string' | 'number' | 'select' | 'directory' | 'multi-select';
-  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review' | 'network';
+  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review' | 'network' | 'mcp';
   options?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
@@ -631,6 +641,27 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Permit RFC 1918 private network hosts while paused.',
     type: 'boolean',
     category: 'network',
+  },
+  {
+    key: 'mcpCleanupBackupsOnQuit',
+    label: 'Clean up MCP config backups on quit',
+    description: 'Remove .orc.bak files created before editing provider MCP configs',
+    type: 'boolean',
+    category: 'mcp',
+  },
+  {
+    key: 'mcpDisableProviderBackups',
+    label: 'Do not write MCP config backups',
+    description: 'Skip safety backups before editing provider MCP configs',
+    type: 'boolean',
+    category: 'mcp',
+  },
+  {
+    key: 'mcpAllowWorldWritableParent',
+    label: 'Allow world-writable MCP config parents',
+    description: 'Permit writes to MCP config folders whose parent directory is world-writable',
+    type: 'boolean',
+    category: 'mcp',
   },
 ];
 

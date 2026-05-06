@@ -4,6 +4,10 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type {
+  McpMultiProviderStateDto,
+  SharedDriftStatusDto,
+} from '../../../../../shared/types/mcp-dtos.types';
 
 @Injectable({ providedIn: 'root' })
 export class McpIpcService {
@@ -162,6 +166,84 @@ export class McpIpcService {
     return this.api.mcpGetPresets();
   }
 
+  async getMultiProviderState(): Promise<IpcResponse<McpMultiProviderStateDto>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpGetMultiProviderState() as Promise<IpcResponse<McpMultiProviderStateDto>>;
+  }
+
+  async refreshMultiProviderState(): Promise<IpcResponse<McpMultiProviderStateDto>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpRefreshMultiProviderState() as Promise<IpcResponse<McpMultiProviderStateDto>>;
+  }
+
+  async orchestratorUpsert(payload: unknown): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpOrchestratorUpsert(payload);
+  }
+
+  async orchestratorDelete(serverId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpOrchestratorDelete({ serverId });
+  }
+
+  async orchestratorSetInjectionTargets(payload: {
+    serverId: string;
+    providers: string[];
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpOrchestratorSetInjectionTargets(payload);
+  }
+
+  async sharedUpsert(payload: unknown): Promise<IpcResponse<{ id: string }>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpSharedUpsert(payload) as Promise<IpcResponse<{ id: string }>>;
+  }
+
+  async sharedDelete(serverId: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpSharedDelete({ serverId });
+  }
+
+  async sharedFanOut(payload: {
+    serverId: string;
+    providers?: string[];
+  }): Promise<IpcResponse<SharedDriftStatusDto[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpSharedFanOut(payload) as Promise<IpcResponse<SharedDriftStatusDto[]>>;
+  }
+
+  async sharedGetDrift(serverId: string): Promise<IpcResponse<SharedDriftStatusDto[]>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpSharedGetDrift({ serverId }) as Promise<IpcResponse<SharedDriftStatusDto[]>>;
+  }
+
+  async sharedResolveDrift(payload: {
+    serverId: string;
+    provider: string;
+    action: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpSharedResolveDrift(payload);
+  }
+
+  async providerUserUpsert(payload: unknown): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpProviderUserUpsert(payload);
+  }
+
+  async providerUserDelete(payload: { provider: string; serverId: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpProviderUserDelete(payload);
+  }
+
+  async providerOpenScopeFile(payload: {
+    provider: string;
+    scope: string;
+  }): Promise<IpcResponse<{ filePath?: string }>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpProviderOpenScopeFile(payload) as Promise<IpcResponse<{ filePath?: string }>>;
+  }
+
   /**
    * Subscribe to MCP state changes (tools, resources, prompts updated)
    */
@@ -181,6 +263,13 @@ export class McpIpcService {
 
     return this.api.onMcpServerStatusChanged((data) => {
       this.ngZone.run(() => callback(data));
+    });
+  }
+
+  onMultiProviderStateChanged(callback: (data: McpMultiProviderStateDto) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onMcpMultiProviderStateChanged((data) => {
+      this.ngZone.run(() => callback(data as McpMultiProviderStateDto));
     });
   }
 }

@@ -41,6 +41,23 @@ interface HookApprovalSummary {
       />
     }
 
+    <div class="setting-row" data-test="settings-section-mcp">
+      <div class="setting-info">
+        <h3 class="setting-label">MCP Safety</h3>
+        <p class="setting-description">
+          Controls for provider config backups and filesystem write guards.
+        </p>
+      </div>
+    </div>
+
+    @for (setting of store.mcpSettings(); track setting.key) {
+      <app-setting-row
+        [setting]="setting"
+        [value]="store.get(setting.key)"
+        (valueChange)="onSettingChange($event)"
+      />
+    }
+
     <!-- Hook Approvals Section -->
     <div class="setting-row hook-approvals-header">
       <div class="setting-info">

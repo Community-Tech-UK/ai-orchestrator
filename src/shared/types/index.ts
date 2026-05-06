@@ -31,3 +31,7 @@ export * from './terminal.types';
 export * from './orchestration-hud.types';
 export * from './conversation-ledger.types';
 export * from './operator.types';
+export * from './mcp-scopes.types';
+export * from './mcp-orchestrator.types';
+export * from './mcp-shared.types';
+export * from './mcp-dtos.types';

@@ -32,6 +32,7 @@ npm run test                # Run tests (uses vitest)
 
 - **NEVER commit or push** unless the user explicitly asks you to
 - **NEVER modify code on a server** — always make changes locally so we can deploy through the proper pipeline and code does not get out of sync
+- **NEVER commit unfinished plans/specs**. Keep unfinished planning documents untracked. Only commit a planning document after it has been fully implemented and verified; rename it with `_completed` before committing, for example `feature-plan_completed.md`.
 
 ## Implementation Requirements
 

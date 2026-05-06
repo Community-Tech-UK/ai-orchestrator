@@ -18,6 +18,18 @@ import { Router } from '@angular/router';
 import { McpIpcService } from '../../core/services/ipc/mcp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { BrowserAutomationIpcService } from '../../core/services/ipc/browser-automation-ipc.service';
+import { McpMultiProviderStore } from './state/mcp-multi-provider.store';
+import {
+  REDACTED_SENTINEL,
+  type RedactedMcpServerDto,
+} from '../../../../shared/types/mcp-dtos.types';
+import {
+  ORCHESTRATOR_INJECTION_PROVIDERS,
+  SUPPORTED_PROVIDERS,
+  type OrchestratorMcpScope,
+  type SupportedProvider,
+} from '../../../../shared/types/mcp-scopes.types';
+import type { McpTransport } from '../../../../shared/types/mcp-orchestrator.types';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -102,6 +114,15 @@ interface BrowserAutomationHealthReport {
 }
 
 type DetailTab = 'tools' | 'resources' | 'prompts' | 'config';
+type ManagementTab = 'orchestrator' | 'shared' | SupportedProvider;
+type ManagementMode = 'create' | 'edit';
+type ManagementProviderField = 'injectInto' | 'targets';
+
+const ORCHESTRATOR_SCOPES: readonly OrchestratorMcpScope[] = [
+  'orchestrator',
+  'orchestrator-bootstrap',
+  'orchestrator-codemem',
+];
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -117,6 +138,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly mcpIpc = inject(McpIpcService);
   private readonly browserAutomationIpc = inject(BrowserAutomationIpcService);
+  readonly multiProviderStore = inject(McpMultiProviderStore);
 
   // ── Data signals ──────────────────────────────────────────────────────────
 
@@ -158,6 +180,40 @@ export class McpPageComponent implements OnInit, OnDestroy {
     command: signal(''),
     url: signal(''),
     autoConnect: signal(false),
+  };
+
+  readonly managementTabs: { id: ManagementTab; label: string }[] = [
+    { id: 'orchestrator', label: 'Orchestrator' },
+    { id: 'shared', label: 'Shared' },
+    { id: 'claude', label: 'Claude' },
+    { id: 'codex', label: 'Codex' },
+    { id: 'gemini', label: 'Gemini' },
+    { id: 'copilot', label: 'Copilot' },
+  ];
+
+  readonly activeManagementTab = signal<ManagementTab>('orchestrator');
+  readonly supportedProviders = SUPPORTED_PROVIDERS;
+  readonly orchestratorInjectionProviders = ORCHESTRATOR_INJECTION_PROVIDERS;
+  readonly orchestratorScopes = ORCHESTRATOR_SCOPES;
+
+  readonly managementFormOpen = signal(false);
+  readonly managementFormMode = signal<ManagementMode>('create');
+  readonly managementFormServerId = signal<string | null>(null);
+  readonly managementFormOriginalName = signal<string | null>(null);
+  readonly managementFormError = signal<string | null>(null);
+  readonly managementForm = {
+    name: signal(''),
+    description: signal(''),
+    scope: signal<OrchestratorMcpScope>('orchestrator'),
+    transport: signal<McpTransport>('stdio'),
+    command: signal(''),
+    argsJson: signal(''),
+    url: signal(''),
+    headersJson: signal(''),
+    envJson: signal(''),
+    autoConnect: signal(true),
+    injectInto: signal<readonly SupportedProvider[]>([...ORCHESTRATOR_INJECTION_PROVIDERS]),
+    targets: signal<readonly SupportedProvider[]>([...SUPPORTED_PROVIDERS]),
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -231,6 +287,26 @@ export class McpPageComponent implements OnInit, OnDestroy {
       url,
       autoConnect,
     }, null, 2);
+  });
+
+  readonly managementRows = computed<RedactedMcpServerDto[]>(() => {
+    const tab = this.activeManagementTab();
+    if (tab === 'orchestrator') {
+      return this.multiProviderStore.orchestrator().map((entry) => entry.record);
+    }
+    if (tab === 'shared') {
+      return this.multiProviderStore.shared().map((entry) => entry.record);
+    }
+    return this.multiProviderStore.state().providers
+      .find((provider) => provider.provider === tab)
+      ?.servers.slice() ?? [];
+  });
+
+  readonly managementEmptyMessage = computed(() => {
+    const tab = this.activeManagementTab();
+    if (tab === 'orchestrator') return 'No Orchestrator-scoped MCP servers.';
+    if (tab === 'shared') return 'No Shared MCP servers.';
+    return `No ${tab} MCP servers discovered.`;
   });
 
   // ── Tab definitions ───────────────────────────────────────────────────────
@@ -374,6 +450,183 @@ export class McpPageComponent implements OnInit, OnDestroy {
 
   setTab(tab: DetailTab): void {
     this.activeTab.set(tab);
+  }
+
+  setManagementTab(tab: ManagementTab): void {
+    this.activeManagementTab.set(tab);
+    this.cancelManagementForm();
+  }
+
+  // ── Multi-provider management operations ────────────────────────────────
+
+  isProviderManagementTab(tab: ManagementTab = this.activeManagementTab()): tab is SupportedProvider {
+    return (SUPPORTED_PROVIDERS as readonly string[]).includes(tab);
+  }
+
+  managementFormTitle(): string {
+    const action = this.managementFormMode() === 'create' ? 'Add' : 'Edit';
+    const tab = this.activeManagementTab();
+    if (tab === 'orchestrator') return `${action} Orchestrator MCP`;
+    if (tab === 'shared') return `${action} Shared MCP`;
+    return `${action} ${tab} User MCP`;
+  }
+
+  beginCreateManagementServer(): void {
+    this.managementFormMode.set('create');
+    this.managementFormServerId.set(null);
+    this.managementFormOriginalName.set(null);
+    this.managementFormError.set(null);
+    this.hydrateManagementForm();
+    this.managementFormOpen.set(true);
+  }
+
+  beginEditManagementServer(server: RedactedMcpServerDto): void {
+    this.managementFormMode.set('edit');
+    this.managementFormServerId.set(server.id);
+    this.managementFormOriginalName.set(server.name);
+    this.managementFormError.set(null);
+    this.hydrateManagementForm(server);
+    this.managementFormOpen.set(true);
+  }
+
+  cancelManagementForm(): void {
+    this.managementFormOpen.set(false);
+    this.managementFormError.set(null);
+  }
+
+  canEditManagementServer(server: RedactedMcpServerDto): boolean {
+    const tab = this.activeManagementTab();
+    return tab === 'orchestrator' || tab === 'shared' || (this.isProviderManagementTab(tab) && !server.readOnly);
+  }
+
+  onManagementTextField(
+    field: 'name' | 'description' | 'command' | 'argsJson' | 'url' | 'headersJson' | 'envJson',
+    event: Event,
+  ): void {
+    const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+    this.managementForm[field].set(target.value);
+  }
+
+  onManagementTransportChange(event: Event): void {
+    const target = event.target as HTMLSelectElement;
+    this.managementForm.transport.set(target.value as McpTransport);
+  }
+
+  onManagementScopeChange(event: Event): void {
+    const target = event.target as HTMLSelectElement;
+    this.managementForm.scope.set(target.value as OrchestratorMcpScope);
+  }
+
+  onManagementAutoConnectChange(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.managementForm.autoConnect.set(target.checked);
+  }
+
+  isManagementProviderSelected(field: ManagementProviderField, provider: SupportedProvider): boolean {
+    return this.managementForm[field]().includes(provider);
+  }
+
+  toggleManagementProvider(
+    field: ManagementProviderField,
+    provider: SupportedProvider,
+    event: Event,
+  ): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    const current = this.managementForm[field]();
+    const next = checked
+      ? [...new Set([...current, provider])]
+      : current.filter((entry) => entry !== provider);
+    this.managementForm[field].set(next);
+  }
+
+  async submitManagementServer(): Promise<void> {
+    this.working.set(true);
+    this.managementFormError.set(null);
+    this.errorMessage.set(null);
+    this.infoMessage.set(null);
+    try {
+      const tab = this.activeManagementTab();
+      const payload = this.buildManagementPayload(tab);
+      let response: IpcResponse;
+
+      if (tab === 'orchestrator') {
+        response = await this.mcpIpc.orchestratorUpsert(payload);
+      } else if (tab === 'shared') {
+        response = await this.mcpIpc.sharedUpsert(payload);
+      } else {
+        response = await this.mcpIpc.providerUserUpsert({
+          ...payload,
+          provider: tab,
+        });
+        const originalName = this.managementFormOriginalName();
+        if (
+          response.success
+          && this.managementFormMode() === 'edit'
+          && this.managementFormServerId()
+          && originalName
+          && originalName !== this.managementForm.name().trim()
+        ) {
+          await this.mcpIpc.providerUserDelete({
+            provider: tab,
+            serverId: this.managementFormServerId()!,
+          });
+        }
+      }
+
+      if (!response.success) {
+        this.managementFormError.set(response.error?.message ?? 'Failed to save MCP server.');
+        return;
+      }
+
+      this.cancelManagementForm();
+      this.infoMessage.set('MCP server saved.');
+      await this.loadAll();
+    } catch (error) {
+      this.managementFormError.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.working.set(false);
+    }
+  }
+
+  async deleteManagementServer(server: RedactedMcpServerDto): Promise<void> {
+    const tab = this.activeManagementTab();
+    await this.runManagementOp(async () => {
+      if (tab === 'orchestrator') {
+        return this.mcpIpc.orchestratorDelete(server.id);
+      }
+      if (tab === 'shared') {
+        return this.mcpIpc.sharedDelete(server.id);
+      }
+      return this.mcpIpc.providerUserDelete({ provider: tab, serverId: server.id });
+    }, `${server.name} removed.`, 'Failed to remove MCP server.');
+  }
+
+  async fanOutSharedServer(server: RedactedMcpServerDto): Promise<void> {
+    await this.runManagementOp(
+      () => this.mcpIpc.sharedFanOut({ serverId: server.id }),
+      `${server.name} written to selected providers.`,
+      'Failed to write shared MCP server.',
+    );
+  }
+
+  async openCurrentProviderUserFile(): Promise<void> {
+    const tab = this.activeManagementTab();
+    if (!this.isProviderManagementTab(tab)) {
+      return;
+    }
+    await this.runManagementOp(
+      () => this.mcpIpc.providerOpenScopeFile({ provider: tab, scope: 'user' }),
+      `${tab} user MCP config opened.`,
+      'Failed to open provider MCP config.',
+    );
+  }
+
+  sharedTargetSummary(serverId: string): string {
+    const shared = this.multiProviderStore.shared().find((entry) => entry.record.id === serverId);
+    if (!shared) {
+      return '';
+    }
+    return shared.targets.map((target) => `${target.provider}: ${target.state}`).join(' - ');
   }
 
   // ── Server operations ─────────────────────────────────────────────────────
@@ -595,6 +848,141 @@ export class McpPageComponent implements OnInit, OnDestroy {
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
+  private hydrateManagementForm(server?: RedactedMcpServerDto): void {
+    const tab = this.activeManagementTab();
+    this.managementForm.name.set(server?.name ?? '');
+    this.managementForm.description.set(server?.description ?? '');
+    this.managementForm.scope.set(
+      server?.scope === 'orchestrator-bootstrap' || server?.scope === 'orchestrator-codemem'
+        ? server.scope
+        : 'orchestrator',
+    );
+    this.managementForm.transport.set(server?.transport ?? 'stdio');
+    this.managementForm.command.set(server?.command ?? '');
+    this.managementForm.argsJson.set(server?.args?.length ? JSON.stringify(server.args, null, 2) : '');
+    this.managementForm.url.set(server?.url ?? '');
+    this.managementForm.headersJson.set(server?.headers ? JSON.stringify(server.headers, null, 2) : '');
+    this.managementForm.envJson.set(server?.env ? JSON.stringify(server.env, null, 2) : '');
+    this.managementForm.autoConnect.set(server?.autoConnect ?? true);
+
+    if (tab === 'orchestrator' && server) {
+      const entry = this.multiProviderStore.orchestrator().find((item) => item.record.id === server.id);
+      this.managementForm.injectInto.set(entry?.injectInto ?? [...ORCHESTRATOR_INJECTION_PROVIDERS]);
+    } else {
+      this.managementForm.injectInto.set([...ORCHESTRATOR_INJECTION_PROVIDERS]);
+    }
+
+    if (tab === 'shared' && server) {
+      const entry = this.multiProviderStore.shared().find((item) => item.record.id === server.id);
+      this.managementForm.targets.set(entry?.record.sharedTargets ?? [...SUPPORTED_PROVIDERS]);
+    } else {
+      this.managementForm.targets.set([...SUPPORTED_PROVIDERS]);
+    }
+  }
+
+  private buildManagementPayload(tab: ManagementTab): Record<string, unknown> {
+    const name = this.managementForm.name().trim();
+    if (!name) {
+      throw new Error('Name is required.');
+    }
+
+    const transport = this.managementForm.transport();
+    const payload: Record<string, unknown> = {
+      name,
+      description: this.optionalText(this.managementForm.description()),
+      transport,
+      ...(this.managementFormMode() === 'edit' && this.managementFormServerId()
+        ? { id: this.managementFormServerId() }
+        : {}),
+    };
+
+    if (transport === 'stdio') {
+      const command = this.managementForm.command().trim();
+      if (!command) {
+        throw new Error('Command is required for stdio MCP servers.');
+      }
+      payload['command'] = command;
+      const args = this.parseOptionalStringArray('Arguments', this.managementForm.argsJson());
+      if (args && !args.includes(REDACTED_SENTINEL)) payload['args'] = args;
+    } else {
+      const url = this.managementForm.url().trim();
+      if (!url && !this.isEditingManagementServer()) {
+        throw new Error('URL is required for HTTP and SSE MCP servers.');
+      }
+      if (url && !url.includes(REDACTED_SENTINEL)) {
+        payload['url'] = url;
+      }
+    }
+
+    const headers = this.parseOptionalStringRecord('Headers', this.managementForm.headersJson(), true);
+    if (headers) payload['headers'] = headers;
+    const env = this.parseOptionalStringRecord('Environment', this.managementForm.envJson(), true);
+    if (env) payload['env'] = env;
+
+    if (tab === 'orchestrator') {
+      payload['scope'] = this.managementForm.scope();
+      payload['autoConnect'] = this.managementForm.autoConnect();
+      payload['injectInto'] = this.managementForm.injectInto();
+    } else if (tab === 'shared') {
+      const targets = this.managementForm.targets();
+      if (targets.length === 0) {
+        throw new Error('Select at least one target provider.');
+      }
+      payload['targets'] = targets;
+    } else {
+      payload['autoConnect'] = this.managementForm.autoConnect();
+    }
+
+    return payload;
+  }
+
+  private isEditingManagementServer(): boolean {
+    return this.managementFormMode() === 'edit' && Boolean(this.managementFormServerId());
+  }
+
+  private optionalText(value: string): string | undefined {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private parseOptionalStringArray(label: string, value: string): string[] | undefined {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string')) {
+      throw new Error(`${label} must be a JSON array of strings.`);
+    }
+    return parsed;
+  }
+
+  private parseOptionalStringRecord(
+    label: string,
+    value: string,
+    skipRedacted: boolean,
+  ): Record<string, string> | undefined {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`${label} must be a JSON object.`);
+    }
+    const record: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(parsed)) {
+      if (typeof entry !== 'string') {
+        throw new Error(`${label} values must be strings.`);
+      }
+      if (skipRedacted && entry === REDACTED_SENTINEL) {
+        continue;
+      }
+      record[key] = entry;
+    }
+    return Object.keys(record).length > 0 ? record : undefined;
+  }
+
   private async loadAll(): Promise<void> {
     await Promise.all([
       this.loadServers(),
@@ -602,6 +990,7 @@ export class McpPageComponent implements OnInit, OnDestroy {
       this.loadResources(),
       this.loadPrompts(),
       this.loadBrowserHealth(),
+      this.multiProviderStore.refresh(),
     ]);
   }
 
@@ -681,6 +1070,27 @@ export class McpPageComponent implements OnInit, OnDestroy {
       }
       this.infoMessage.set(successMessage);
       await this.loadServers();
+    } finally {
+      this.working.set(false);
+    }
+  }
+
+  private async runManagementOp(
+    op: () => Promise<IpcResponse>,
+    successMessage: string,
+    fallbackError: string,
+  ): Promise<void> {
+    this.working.set(true);
+    this.errorMessage.set(null);
+    this.infoMessage.set(null);
+    try {
+      const response = await op();
+      if (!response.success) {
+        this.errorMessage.set(response.error?.message ?? fallbackError);
+        return;
+      }
+      this.infoMessage.set(successMessage);
+      await this.loadAll();
     } finally {
       this.working.set(false);
     }

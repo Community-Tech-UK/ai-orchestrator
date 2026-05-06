@@ -67,6 +67,9 @@ export class SettingsStore {
   readonly networkSettings = computed(() =>
     SETTINGS_METADATA.filter(s => s.category === 'network')
   );
+  readonly mcpSettings = computed(() =>
+    SETTINGS_METADATA.filter(s => s.category === 'mcp')
+  );
 
   // Remote Nodes
   readonly remoteNodesEnabled = computed(() => this._settings().remoteNodesEnabled);

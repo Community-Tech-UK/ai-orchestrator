@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getLogger } from '../../../logging/logger';
+import { CodexTomlEditor } from '../../../mcp/adapters/codex-toml-editor';
 
 const logger = getLogger('CodexHomeManager');
 
@@ -124,25 +125,5 @@ export class CodexHomeManager {
  * Strip all [mcp_servers.*] sections from a TOML config string.
  */
 export function stripMcpServers(config: string): string {
-  const lines = config.split('\n');
-  const result: string[] = [];
-  let inMcpSection = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (/^\[.+\]$/.test(trimmed)) {
-      if (trimmed.startsWith('[mcp_servers')) {
-        inMcpSection = true;
-        continue;
-      }
-      inMcpSection = false;
-    }
-
-    if (!inMcpSection) {
-      result.push(line);
-    }
-  }
-
-  return result.join('\n');
+  return new CodexTomlEditor().stripMcpServers(config);
 }

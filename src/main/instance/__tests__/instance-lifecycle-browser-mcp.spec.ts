@@ -12,9 +12,22 @@ const browserGatewayMocks = vi.hoisted(() => ({
   getBrowserGatewayRpcSocketPath: vi.fn(() => '/tmp/browser-gateway.sock'),
 }));
 
+const mcpInjectionMocks = vi.hoisted(() => ({
+  buildBundle: vi.fn(() => ({
+    configPaths: [],
+    inlineConfigs: ['{"mcpServers":{"orchestrator-test":{}}}'],
+  })),
+}));
+
 vi.mock('../../browser-gateway', () => ({
   buildBrowserGatewayMcpConfigJson: browserGatewayMocks.buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath: browserGatewayMocks.getBrowserGatewayRpcSocketPath,
+}));
+
+vi.mock('../../mcp/mcp-multi-provider-singletons', () => ({
+  getOrchestratorInjectionReader: () => ({
+    buildBundle: mcpInjectionMocks.buildBundle,
+  }),
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -53,14 +66,47 @@ describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
     expect(configsForRemote(manager)).toEqual([]);
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).not.toHaveBeenCalled();
   });
+
+  it('adds Orchestrator-scoped inline MCP configs for supported local providers', () => {
+    const manager = makeManager();
+
+    const configs = manager.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+
+    expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
+    expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('claude');
+  });
+
+  it('skips Orchestrator-scoped configs for providers that do not consume mcpConfig', () => {
+    const manager = makeManager();
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-browser', 'codex');
+
+    expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
+  });
+
+  it('skips Orchestrator-scoped configs for unsupported providers', () => {
+    const manager = makeManager();
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-browser', 'cursor');
+
+    expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
+  });
 });
 
 function makeManager(): {
-  getMcpConfig(executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string }, instanceId?: string): string[];
+  getMcpConfig(
+    executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string },
+    instanceId?: string,
+    provider?: string,
+  ): string[];
   settings: { getAll: () => { codememEnabled: boolean } };
 } {
   const manager = Object.create(InstanceLifecycleManager.prototype) as {
-    getMcpConfig(executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string }, instanceId?: string): string[];
+    getMcpConfig(
+      executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string },
+      instanceId?: string,
+      provider?: string,
+    ): string[];
     settings: { getAll: () => { codememEnabled: boolean } };
   };
   manager.settings = { getAll: () => ({ codememEnabled: false }) };

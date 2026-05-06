@@ -46,6 +46,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/schemas/browser':                 path.join(baseContracts, 'schemas', 'browser.schemas'),
   '@contracts/schemas/conversation-ledger':      path.join(baseContracts, 'schemas', 'conversation-ledger.schemas'),
   '@contracts/schemas/operator':                path.join(baseContracts, 'schemas', 'operator.schemas'),
+  '@contracts/schemas/mcp-multi-provider':      path.join(baseContracts, 'schemas', 'mcp-multi-provider.schemas'),
   '@contracts/schemas/provider-runtime-events': path.join(baseContracts, 'schemas', 'provider-runtime-events.schemas'),
   '@contracts/channels/automation':             path.join(baseContracts, 'channels', 'automation.channels'),
   '@contracts/channels/pause':                  path.join(baseContracts, 'channels', 'pause.channels'),

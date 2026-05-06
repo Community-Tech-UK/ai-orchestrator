@@ -14,6 +14,8 @@ import { getLogger } from '../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../security/env-filter';
 import { registerCleanup } from '../util/cleanup-registry';
 import { SseTransport } from './transports/sse-transport';
+import { HttpTransport } from './transports/http-transport';
+import { getMCPToolSearchService } from './mcp-tool-search';
 
 const logger = getLogger('McpManager');
 import {
@@ -81,6 +83,7 @@ interface ServerConnection {
   config: McpServerConfig;
   process?: ChildProcess;
   sseTransport?: SseTransport;
+  httpTransport?: HttpTransport;
   requestId: number;
   pendingRequests: Map<number, {
     resolve: (value: unknown) => void;
@@ -153,6 +156,13 @@ export class McpManager extends EventEmitter {
     }
   }
 
+  async upsertServer(config: McpServerConfig): Promise<void> {
+    if (this.connections.has(config.id)) {
+      await this.removeServer(config.id);
+    }
+    this.addServer(config);
+  }
+
   /**
    * Remove a server
    */
@@ -185,6 +195,8 @@ export class McpManager extends EventEmitter {
           await this.connectStdio(connection);
         } else if (connection.config.transport === 'sse') {
           await this.connectSse(connection);
+        } else if (connection.config.transport === 'http') {
+          await this.connectHttp(connection);
         } else {
           throw new Error(`Transport ${connection.config.transport} not yet implemented`);
         }
@@ -228,6 +240,11 @@ export class McpManager extends EventEmitter {
     if (connection.sseTransport) {
       connection.sseTransport.disconnect();
       connection.sseTransport = undefined;
+    }
+
+    if (connection.httpTransport) {
+      await connection.httpTransport.disconnect();
+      connection.httpTransport = undefined;
     }
 
     // Reject pending requests
@@ -501,6 +518,37 @@ export class McpManager extends EventEmitter {
     connection.sseTransport = transport;
   }
 
+  private async connectHttp(connection: ServerConnection): Promise<void> {
+    if (!connection.config.url) {
+      throw new Error('HTTP transport requires a url in the config');
+    }
+
+    const transport = new HttpTransport({
+      url: connection.config.url,
+      headers: connection.config.headers,
+    });
+
+    transport.on('message', (msg: unknown) => {
+      this.handleMessage(connection, msg as JsonRpcResponse | JsonRpcNotification);
+    });
+
+    transport.on('disconnected', () => {
+      if (connection.config.status === 'connected') {
+        connection.config.status = 'disconnected';
+        this.emit('server:disconnected', connection.config.id);
+      }
+    });
+
+    transport.on('error', (err: Error) => {
+      connection.config.status = 'error';
+      connection.config.error = err.message;
+      this.emit('server:error', connection.config.id, err.message);
+    });
+
+    await transport.connect();
+    connection.httpTransport = transport;
+  }
+
   /**
    * Handle a JSON-RPC message received via SSE transport
    */
@@ -614,6 +662,11 @@ export class McpManager extends EventEmitter {
           connection.pendingRequests.delete(id);
           reject(err instanceof Error ? err : new Error(String(err)));
         });
+      } else if (connection.httpTransport) {
+        connection.httpTransport.send(request).catch(err => {
+          connection.pendingRequests.delete(id);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
       } else if (connection.process?.stdin) {
         connection.process.stdin.write(JSON.stringify(request) + '\n');
       } else {
@@ -662,6 +715,8 @@ export class McpManager extends EventEmitter {
     };
     if (connection.sseTransport) {
       await connection.sseTransport.send(notification);
+    } else if (connection.httpTransport) {
+      await connection.httpTransport.send(notification);
     } else if (connection.process?.stdin) {
       connection.process.stdin.write(JSON.stringify(notification) + '\n');
     }
@@ -712,6 +767,23 @@ export class McpManager extends EventEmitter {
     try {
       const result = await this.sendRequest(connection, 'tools/list');
       const { tools } = result as { tools: Array<{ name: string; description?: string; inputSchema: unknown }> };
+      const search = getMCPToolSearchService();
+      search.registerServer({
+        id: connection.config.id,
+        name: connection.config.name,
+        description: connection.config.description,
+        uri: connection.config.url ?? connection.config.command ?? connection.config.id,
+        status: 'connected',
+        tools: [],
+        resources: [],
+        lastSeen: Date.now(),
+        capabilities: {
+          tools: Boolean(connection.config.capabilities?.tools),
+          resources: Boolean(connection.config.capabilities?.resources),
+          prompts: Boolean(connection.config.capabilities?.prompts),
+          sampling: false,
+        },
+      });
 
       // Update tools map
       for (const tool of tools) {
@@ -728,6 +800,16 @@ export class McpManager extends EventEmitter {
           serverId: connection.config.id,
         };
         this.tools.set(`${connection.config.id}:${tool.name}`, mcpTool);
+        search.indexTool({
+          id: `${connection.config.id}:${tool.name}`,
+          name: tool.name,
+          description: description ?? '',
+          serverId: connection.config.id,
+          serverName: connection.config.name,
+          inputSchema: tool.inputSchema as Record<string, unknown>,
+          tags: [],
+          metadata: {},
+        });
       }
 
       this.emit('tools:updated', this.getTools());
@@ -795,6 +877,11 @@ export class McpManager extends EventEmitter {
    * Remove tools, resources, and prompts for a server
    */
   private removeServerItems(serverId: string): void {
+    const search = getMCPToolSearchService();
+    for (const tool of search.getToolsByServer(serverId)) {
+      search.removeTool(tool.id);
+    }
+    search.unregisterServer(serverId);
     // Remove tools
     for (const [key, tool] of this.tools) {
       if (tool.serverId === serverId) {

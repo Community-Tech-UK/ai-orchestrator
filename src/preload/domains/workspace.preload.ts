@@ -388,6 +388,65 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.MCP_GET_BROWSER_AUTOMATION_HEALTH);
     },
 
+    mcpGetMultiProviderState: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_GET_MULTI_PROVIDER_STATE);
+    },
+
+    mcpRefreshMultiProviderState: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_REFRESH_MULTI_PROVIDER_STATE);
+    },
+
+    mcpOrchestratorUpsert: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_ORCHESTRATOR_UPSERT, payload);
+    },
+
+    mcpOrchestratorDelete: (payload: { serverId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_ORCHESTRATOR_DELETE, payload);
+    },
+
+    mcpOrchestratorSetInjectionTargets: (payload: {
+      serverId: string;
+      providers: string[];
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_ORCHESTRATOR_SET_INJECTION_TARGETS, payload);
+    },
+
+    mcpSharedUpsert: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_SHARED_UPSERT, payload);
+    },
+
+    mcpSharedDelete: (payload: { serverId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_SHARED_DELETE, payload);
+    },
+
+    mcpSharedFanOut: (payload: { serverId: string; providers?: string[] }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_SHARED_FAN_OUT, payload);
+    },
+
+    mcpSharedGetDrift: (payload: { serverId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_SHARED_GET_DRIFT, payload);
+    },
+
+    mcpSharedResolveDrift: (payload: {
+      serverId: string;
+      provider: string;
+      action: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_SHARED_RESOLVE_DRIFT, payload);
+    },
+
+    mcpProviderUserUpsert: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_PROVIDER_USER_UPSERT, payload);
+    },
+
+    mcpProviderUserDelete: (payload: { provider: string; serverId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_PROVIDER_USER_DELETE, payload);
+    },
+
+    mcpProviderOpenScopeFile: (payload: { provider: string; scope: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_PROVIDER_OPEN_SCOPE_FILE, payload);
+    },
+
     /**
      * Listen for MCP state changes (tools, resources, prompts updated)
      */
@@ -423,6 +482,15 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
           ch.MCP_SERVER_STATUS_CHANGED,
           handler
         );
+    },
+
+    onMcpMultiProviderStateChanged: (
+      callback: (data: unknown) => void
+    ): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.MCP_MULTI_PROVIDER_STATE_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(ch.MCP_MULTI_PROVIDER_STATE_CHANGED, handler);
     },
 
     // ============================================

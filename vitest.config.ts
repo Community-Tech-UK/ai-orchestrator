@@ -64,6 +64,7 @@ export default defineConfig({
       '@contracts/schemas/browser':         resolve(__dirname, './packages/contracts/src/schemas/browser.schemas'),
       '@contracts/schemas/conversation-ledger': resolve(__dirname, './packages/contracts/src/schemas/conversation-ledger.schemas'),
       '@contracts/schemas/operator':        resolve(__dirname, './packages/contracts/src/schemas/operator.schemas'),
+      '@contracts/schemas/mcp-multi-provider': resolve(__dirname, './packages/contracts/src/schemas/mcp-multi-provider.schemas'),
       '@contracts/schemas/provider-runtime-events': resolve(__dirname, './packages/contracts/src/schemas/provider-runtime-events.schemas'),
       '@contracts/channels/automation':     resolve(__dirname, './packages/contracts/src/channels/automation.channels'),
       '@contracts/channels/pause':          resolve(__dirname, './packages/contracts/src/channels/pause.channels'),
