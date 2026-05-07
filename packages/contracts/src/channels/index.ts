@@ -26,6 +26,7 @@ import { CONVERSATION_LEDGER_CHANNELS } from './conversation-ledger.channels';
 import { OPERATOR_CHANNELS } from './operator.channels';
 import { CHAT_CHANNELS } from './chat.channels';
 import { RUNTIME_PLUGIN_CHANNELS } from './runtime-plugin.channels';
+import { RTK_CHANNELS } from './rtk.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -48,6 +49,7 @@ export {
   OPERATOR_CHANNELS,
   CHAT_CHANNELS,
   RUNTIME_PLUGIN_CHANNELS,
+  RTK_CHANNELS,
 };
 
 /**
@@ -75,6 +77,7 @@ export const IPC_CHANNELS = {
   ...OPERATOR_CHANNELS,
   ...CHAT_CHANNELS,
   ...RUNTIME_PLUGIN_CHANNELS,
+  ...RTK_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

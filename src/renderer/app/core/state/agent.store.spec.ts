@@ -74,7 +74,11 @@ describe('AgentStore', () => {
 
         expect(geminiPreference).toBeDefined();
         expect(geminiPreference?.command).toBe('gemini');
-        expect(geminiPreference?.defaultModel).toBe('gemini-3.1-pro-preview');
+        // Defaults to gemini-3-pro-preview (alias) instead of the canonical
+        // gemini-3.1-pro-preview to work around Google's persistent
+        // MODEL_CAPACITY_EXHAUSTED on the canonical ID. The alias still
+        // serves Gemini 3.1 Pro under the hood. See provider.types.ts.
+        expect(geminiPreference?.defaultModel).toBe('gemini-3-pro-preview');
         expect(geminiPreference?.defaultTimeout).toBe(300);
         expect(geminiPreference?.autoApprove).toBe(false);
         expect(geminiPreference?.personality).toBe('creative-solver');

@@ -97,6 +97,7 @@ import {
   registerChatHandlers,
   registerOperatorHandlers,
   registerRuntimePluginHandlers,
+  registerRtkHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -238,6 +239,9 @@ export class IpcMainHandler {
     registerResumeHandlers({ instanceManager: this.instanceManager });
     registerWorkflowHandlers();
     registerDiagnosticsHandlers();
+
+    // RTK token-savings panel
+    registerRtkHandlers();
 
     // VCS handlers (Git integration)
     registerVcsHandlers();

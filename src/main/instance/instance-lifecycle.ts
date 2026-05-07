@@ -65,7 +65,8 @@ import {
 } from './instance-state-machine';
 import { getAutoTitleService } from './auto-title-service';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
-import { ensureHookScript } from '../cli/hooks/hook-path-resolver';
+import { ensureHookScript, ensureRtkDeferHookScript } from '../cli/hooks/hook-path-resolver';
+import { getRtkRuntime } from '../cli/rtk/rtk-runtime';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
@@ -482,6 +483,19 @@ export class InstanceLifecycleManager extends EventEmitter {
    *  orchestrator can surface approval UI instead of silently denying. */
   private getPermissionHookPath(yoloMode: boolean): string | undefined {
     if (yoloMode) return undefined;
+    // When the RTK feature flag is on AND a usable rtk binary is available,
+    // use the combined RTK + defer hook script. Otherwise, fall back to the
+    // standard defer-only hook. Both scripts honor the same decision-file
+    // resume protocol, so callers don't need to care which is in use.
+    if (this.shouldUseRtkHook()) {
+      try {
+        return ensureRtkDeferHookScript();
+      } catch (err) {
+        logger.warn('Failed to resolve RTK defer hook path, falling back to defer-only', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     try {
       return ensureHookScript();
     } catch (err) {
@@ -490,6 +504,38 @@ export class InstanceLifecycleManager extends EventEmitter {
       });
       return undefined;
     }
+  }
+
+  /**
+   * Whether to use the RTK + defer combined hook for this orchestrator process.
+   * Requires both the rtkEnabled setting AND a usable rtk binary on disk.
+   * Result is computed lazily and cached for the process lifetime; toggling the
+   * setting requires a restart to take effect.
+   */
+  private rtkHookEligibility: boolean | null = null;
+  private shouldUseRtkHook(): boolean {
+    if (this.rtkHookEligibility !== null) return this.rtkHookEligibility;
+    const enabled = getSettingsManager().get('rtkEnabled');
+    if (!enabled) {
+      this.rtkHookEligibility = false;
+      return false;
+    }
+    const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
+    const runtime = getRtkRuntime({ bundledOnly });
+    this.rtkHookEligibility = runtime.isAvailable();
+    return this.rtkHookEligibility;
+  }
+
+  /**
+   * Resolved RTK config to pass to spawn options when the hook is in use.
+   * Returns undefined when the RTK feature is disabled or unavailable.
+   */
+  private getRtkSpawnConfig(): { enabled: boolean; binaryPath: string } | undefined {
+    if (!this.shouldUseRtkHook()) return undefined;
+    const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
+    const runtime = getRtkRuntime({ bundledOnly });
+    if (!runtime.isAvailable()) return undefined;
+    return { enabled: true, binaryPath: runtime.binaryPath() };
   }
 
   private async warmCodememWorkspace(workspacePath: string): Promise<void> {
@@ -1459,6 +1505,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             resolvedCliType,
           ) ?? undefined,
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
         };
 
         // Check for a pre-warmed adapter before spawning fresh.
@@ -1916,6 +1963,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             cliType,
           ) ?? undefined,
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
         };
 
         let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -2102,6 +2150,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           cliType,
         ) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
       },
       instance.executionLocation
     );
@@ -2173,6 +2222,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           cliType,
         ) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
       },
       instance.executionLocation
     );
@@ -2412,6 +2462,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             cliType,
           ) ?? undefined,
           permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
         },
         instance.executionLocation
       );
@@ -2567,6 +2618,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           cliType,
         ) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -2743,6 +2795,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           cliType,
         ) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(newYoloMode),
+        rtk: this.getRtkSpawnConfig(),
       };
       logger.debug('Spawn options configured', {
         instanceId,
@@ -2975,6 +3028,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           cliType,
         ) ?? undefined,
         permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
+          rtk: this.getRtkSpawnConfig(),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);

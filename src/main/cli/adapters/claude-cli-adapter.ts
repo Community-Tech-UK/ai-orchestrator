@@ -190,6 +190,15 @@ export interface ClaudeCliSpawnOptions {
    *  The hook intercepts dangerous tools (Bash, etc.) and returns `defer` to pause
    *  execution, allowing the orchestrator to surface approval UI. */
   permissionHookPath?: string;
+  /** RTK rewrite integration. When `enabled` is true and `binaryPath` resolves,
+   *  the spawned CLI receives ORCHESTRATOR_RTK_ENABLED=1 and ORCHESTRATOR_RTK_PATH
+   *  in its env, and the rtk-defer-hook.mjs variant is used (caller passes the
+   *  rtk hook path via permissionHookPath). The hook calls `rtk rewrite` on Bash
+   *  tool input and compresses output 60–90%. See bigchange_rtk_integration.md. */
+  rtk?: {
+    enabled: boolean;
+    binaryPath?: string;
+  };
 }
 
 /**
@@ -245,12 +254,24 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private cliStatusPromise: Promise<CliStatus> | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
+    // Build env passthrough for the spawned CLI process. The PreToolUse hook
+    // script reads ORCHESTRATOR_RTK_ENABLED and ORCHESTRATOR_RTK_PATH from env,
+    // so they need to be present in the CLI's environment, not the orchestrator's.
+    const env: Record<string, string> = {};
+    if (options.rtk?.enabled && options.rtk.binaryPath) {
+      env['ORCHESTRATOR_RTK_ENABLED'] = '1';
+      env['ORCHESTRATOR_RTK_PATH'] = options.rtk.binaryPath;
+      // Belt-and-braces: also propagate the telemetry opt-out at the CLI level
+      env['RTK_TELEMETRY_DISABLED'] = '1';
+    }
+
     const config: CliAdapterConfig = {
       command: 'claude',
       args: [],
       cwd: options.workingDirectory,
       timeout: 300000,
-      sessionPersistence: true
+      sessionPersistence: true,
+      env: Object.keys(env).length > 0 ? env : undefined,
     };
     super(config);
 

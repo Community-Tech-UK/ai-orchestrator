@@ -1076,6 +1076,11 @@ export const IPC_CHANNELS = {
   RUNTIME_PLUGINS_UPDATE: 'runtime-plugins:update',
   RUNTIME_PLUGINS_PRUNE: 'runtime-plugins:prune',
   RUNTIME_PLUGINS_UNINSTALL: 'runtime-plugins:uninstall',
+
+  RTK_GET_SUMMARY: 'rtk:get-summary',
+  RTK_GET_HISTORY: 'rtk:get-history',
+  RTK_GET_STATUS: 'rtk:get-status',
+  RTK_SAVINGS_DELTA: 'rtk:savings-delta',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

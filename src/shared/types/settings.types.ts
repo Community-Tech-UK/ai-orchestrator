@@ -111,6 +111,13 @@ export interface AppSettings {
   mcpCleanupBackupsOnQuit: boolean;
   mcpDisableProviderBackups: boolean;
   mcpAllowWorldWritableParent: boolean;
+
+  // RTK (Rust Token Killer) — compresses LLM-bound shell command output 60–90%.
+  // See bigchange_rtk_integration.md for details. Off by default in v1; flip on
+  // after dogfood validation.
+  rtkEnabled: boolean;
+  /** When true, never use a system-installed rtk; only the bundled binary. */
+  rtkBundledOnly: boolean;
 }
 
 /**
@@ -196,6 +203,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpCleanupBackupsOnQuit: true,
   mcpDisableProviderBackups: false,
   mcpAllowWorldWritableParent: false,
+
+  // RTK
+  rtkEnabled: false,
+  rtkBundledOnly: false,
 };
 
 /**

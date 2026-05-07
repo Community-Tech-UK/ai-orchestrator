@@ -77,6 +77,15 @@ export interface UnifiedSpawnOptions {
    *  When set, the adapter injects hook configuration via --settings to intercept dangerous
    *  tools and return `defer`, pausing execution for user approval. */
   permissionHookPath?: string;
+  /** Optional RTK rewrite integration (Claude CLI only in v1).
+   *  When set with `enabled: true` and a resolved `binaryPath`, the spawned CLI gets
+   *  ORCHESTRATOR_RTK_ENABLED=1 / ORCHESTRATOR_RTK_PATH in its env so the
+   *  combined rtk-defer-hook.mjs can call `rtk rewrite` on Bash tool input.
+   *  See bigchange_rtk_integration.md. */
+  rtk?: {
+    enabled: boolean;
+    binaryPath?: string;
+  };
   /** Instance ID, used by ACP-backed adapters (Copilot, Cursor) to tag
    *  permission requests routed through `PermissionRegistry`. When omitted,
    *  the factory generates a synthetic ephemeral ID so the registry's
@@ -290,6 +299,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
     chrome: options.chrome,
     permissionHookPath: options.permissionHookPath,
+    rtk: options.rtk,
   };
   return new ClaudeCliAdapter(claudeOptions);
 }

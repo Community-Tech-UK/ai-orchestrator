@@ -240,7 +240,19 @@ export const DEFAULT_MODELS: Record<ProviderType, string> = {
   'openai': OPENAI_MODELS.GPT55,
   'openai-compatible': OPENAI_MODELS.GPT55,
   'ollama': 'llama3',
-  'google': GOOGLE_MODELS.GEMINI_3_1_PRO,
+  // NOTE: We default to GEMINI_3_PRO ('gemini-3-pro-preview') instead of
+  // GEMINI_3_1_PRO ('gemini-3.1-pro-preview') because Google's Code Assist
+  // backend (cloudcode-pa.googleapis.com — what `gemini-cli` uses on free /
+  // OAuth login auth) returns persistent 429 RESOURCE_EXHAUSTED /
+  // MODEL_CAPACITY_EXHAUSTED for the canonical `gemini-3.1-pro-preview` ID
+  // for many users. Sending `gemini-3-pro-preview` instead is server-side
+  // routed to the same Gemini 3.1 Pro infrastructure (visible in the
+  // response `stats.models` block) but through a non-saturated capacity
+  // bucket. Revert when Google fixes capacity for the canonical ID.
+  // See `gemini-cli` issue google-gemini/gemini-cli#24159.
+  'google': GOOGLE_MODELS.GEMINI_3_PRO,
+  // Copilot proxies Gemini through GitHub's gateway, not Code Assist, so it
+  // does not hit the same capacity bucket — leave it on the canonical ID.
   'copilot': COPILOT_MODELS.GEMINI_3_1_PRO,
   'amazon-bedrock': 'anthropic.claude-sonnet-4-6-20260401-v1:0',
   'azure': OPENAI_MODELS.GPT55,
@@ -331,8 +343,14 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: OPENAI_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
   ],
   gemini: [
-    { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
+    // Order matters: resolveModelForTier() picks the FIRST entry matching a
+    // tier. GEMINI_3_PRO ('gemini-3-pro-preview') comes before GEMINI_3_1_PRO
+    // because Google's Code Assist backend currently returns 429
+    // MODEL_CAPACITY_EXHAUSTED for the canonical `gemini-3.1-pro-preview`
+    // ID, while the older alias is server-side routed to the same Gemini
+    // 3.1 Pro infrastructure through a non-saturated bucket.
     { id: GOOGLE_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
+    { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
     { id: GOOGLE_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced' },
     { id: GOOGLE_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
     { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },

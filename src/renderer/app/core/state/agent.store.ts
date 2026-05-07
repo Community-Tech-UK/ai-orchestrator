@@ -10,7 +10,7 @@ import {
   getDefaultAgent,
   getAgentById,
 } from '../../../../shared/types/agent.types';
-import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
+import { CLAUDE_MODELS, GOOGLE_MODELS } from '../../../../shared/types/provider.types';
 
 // ============================================
 // Types
@@ -42,7 +42,11 @@ const DEFAULT_PREFERENCES: Record<string, AgentPreference> = {
   },
   gemini: {
     command: 'gemini',
-    defaultModel: 'gemini-3.1-pro-preview',
+    // See provider.types.ts DEFAULT_MODELS.google comment: defaulting to
+    // GEMINI_3_PRO instead of GEMINI_3_1_PRO works around Google's
+    // MODEL_CAPACITY_EXHAUSTED on the canonical 3.1 ID while still being
+    // routed to the Gemini 3.1 Pro backend.
+    defaultModel: GOOGLE_MODELS.GEMINI_3_PRO,
     defaultTimeout: 300,
     autoApprove: false,
     personality: 'creative-solver',

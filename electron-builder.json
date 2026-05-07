@@ -54,19 +54,40 @@
     "extendInfo": {
       "NSLocalNetworkUsageDescription": "AI Orchestrator uses your local network to discover and connect to worker nodes on other machines.",
       "NSMicrophoneUsageDescription": "AI Orchestrator uses the microphone only when you enable voice conversation for a session."
-    }
+    },
+    "extraResources": [
+      {
+        "from": "resources/rtk/darwin-${arch}/",
+        "to": "rtk/darwin-${arch}/",
+        "filter": ["rtk"]
+      }
+    ]
   },
   "linux": {
     "target": [
       "AppImage",
       "deb"
     ],
-    "category": "Development"
+    "category": "Development",
+    "extraResources": [
+      {
+        "from": "resources/rtk/linux-${arch}/",
+        "to": "rtk/linux-${arch}/",
+        "filter": ["rtk"]
+      }
+    ]
   },
   "win": {
     "target": [
       "nsis",
       "portable"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/rtk/win32-${arch}/",
+        "to": "rtk/win32-${arch}/",
+        "filter": ["rtk.exe"]
+      }
     ]
   },
   "nsis": {

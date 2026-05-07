@@ -34,6 +34,7 @@ import { createConversationLedgerDomain } from './domains/conversation-ledger.pr
 import { createOperatorDomain } from './domains/operator.preload';
 import { createChatDomain } from './domains/chat.preload';
 import { createRuntimePluginDomain } from './domains/runtime-plugin.preload';
+import { createRtkDomain } from './domains/rtk.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -71,6 +72,7 @@ const electronAPI = {
   ...createOperatorDomain(ipcRenderer, IPC_CHANNELS),
   ...createChatDomain(ipcRenderer, IPC_CHANNELS),
   ...createRuntimePluginDomain(ipcRenderer, IPC_CHANNELS),
+  ...createRtkDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

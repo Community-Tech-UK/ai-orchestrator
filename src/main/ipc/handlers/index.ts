@@ -56,3 +56,4 @@ export { registerConversationLedgerHandlers } from './conversation-ledger-handle
 export { registerOperatorHandlers } from './operator-handlers';
 export { registerChatHandlers } from './chat-handlers';
 export { registerRuntimePluginHandlers } from './runtime-plugin-handlers';
+export { registerRtkHandlers } from './rtk-handlers';
