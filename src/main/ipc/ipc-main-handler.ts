@@ -94,6 +94,7 @@ import {
   registerWebhookHandlers,
   registerVoiceHandlers,
   registerConversationLedgerHandlers,
+  registerChatHandlers,
   registerOperatorHandlers,
   registerRuntimePluginHandlers,
 } from './handlers';
@@ -375,6 +376,7 @@ export class IpcMainHandler {
       ensureAuthorized: this.ensureAuthorized.bind(this)
     });
     registerConversationLedgerHandlers();
+    registerChatHandlers({ instanceManager: this.instanceManager });
     registerOperatorHandlers();
     registerRuntimePluginHandlers();
 

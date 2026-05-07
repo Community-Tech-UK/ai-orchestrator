@@ -200,13 +200,10 @@ export const routes: Routes = [
       ),
   },
 
-  // Global Operator
+  // Legacy Global Operator entry point now lands on the Chats dashboard.
   {
     path: 'operator',
-    loadComponent: () =>
-      import('./features/operator/operator-page.component').then(
-        (m) => m.OperatorPageComponent
-      ),
+    redirectTo: '',
   },
 
   // Sprint 2: VCS/Git Operations

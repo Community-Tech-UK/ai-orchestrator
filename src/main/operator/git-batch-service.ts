@@ -11,17 +11,31 @@ export interface GitBatchPullOptions {
   concurrency?: number;
   ignorePatterns?: string[];
   onShellCommand?: (payload: OperatorShellCommandEventPayload) => void;
+  shouldCancel?: () => boolean;
+}
+
+export class GitBatchCancelledError extends Error {
+  constructor() {
+    super('Git batch pull cancelled');
+    this.name = 'GitBatchCancelledError';
+  }
 }
 
 export class GitBatchService {
   async pullAll(rootPath: string, options: GitBatchPullOptions = {}): Promise<OperatorGitBatchSummary> {
     const normalizedRoot = path.resolve(rootPath);
+    throwIfCancelled(options);
     const repositories = VcsManager.findRepositories(normalizedRoot, options.ignorePatterns);
     const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, 16));
     const results = await runWithConcurrency(
       repositories,
       concurrency,
-      (repositoryPath) => this.pullRepository(repositoryPath, options),
+      async (repositoryPath) => {
+        throwIfCancelled(options);
+        const result = await this.pullRepository(repositoryPath, options);
+        throwIfCancelled(options);
+        return result;
+      },
     );
 
     return {
@@ -39,6 +53,7 @@ export class GitBatchService {
     repositoryPath: string,
     options: GitBatchPullOptions,
   ): Promise<OperatorGitBatchRepoResult> {
+    throwIfCancelled(options);
     const startedAt = Date.now();
     const vcs = createVcsManager(repositoryPath, {
       onCommand: options.onShellCommand
@@ -63,6 +78,7 @@ export class GitBatchService {
       upstream = vcs.getUpstreamBranch();
       status = vcs.getStatus();
       const remotes = vcs.getRemotes().filter((remote) => remote.type === 'fetch');
+      throwIfCancelled(options);
       if (remotes.length === 0) {
         return skipped(repositoryPath, 'no_remote', branch, upstream, status, startedAt);
       }
@@ -74,6 +90,7 @@ export class GitBatchService {
       }
 
       await vcs.fetch({ prune: true });
+      throwIfCancelled(options);
       branch = vcs.getCurrentBranch();
       upstream = vcs.getUpstreamBranch();
       status = vcs.getStatus();
@@ -100,6 +117,7 @@ export class GitBatchService {
       }
 
       await vcs.pullFastForward();
+      throwIfCancelled(options);
       const finalStatus = vcs.getStatus();
       return {
         repositoryPath,
@@ -132,6 +150,12 @@ export class GitBatchService {
 
 export function getGitBatchService(): GitBatchService {
   return new GitBatchService();
+}
+
+function throwIfCancelled(options: GitBatchPullOptions): void {
+  if (options.shouldCancel?.()) {
+    throw new GitBatchCancelledError();
+  }
 }
 
 function skipped(

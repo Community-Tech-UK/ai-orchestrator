@@ -18,7 +18,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { CliStore } from '../../core/state/cli.store';
 import { SettingsStore } from '../../core/state/settings.store';
-import { OperatorStore } from '../../core/state/operator.store';
+import { ChatStore } from '../../core/state/chat.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
@@ -27,7 +27,8 @@ import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
-import { OperatorPageComponent } from '../operator/operator-page.component';
+import { ChatSidebarComponent } from '../chats/chat-sidebar.component';
+import { ChatDetailComponent } from '../chats/chat-detail.component';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { CommandPaletteComponent } from '../commands/command-palette.component';
@@ -50,7 +51,8 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
   imports: [
     InstanceListComponent,
     InstanceDetailComponent,
-    OperatorPageComponent,
+    ChatSidebarComponent,
+    ChatDetailComponent,
     CliErrorComponent,
     HistorySidebarComponent,
     CommandPaletteComponent,
@@ -76,7 +78,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   historyStore = inject(HistoryStore);
   cliStore = inject(CliStore);
   settingsStore = inject(SettingsStore);
-  operatorStore = inject(OperatorStore);
+  chatStore = inject(ChatStore);
   private remoteNodeStore = inject(RemoteNodeStore);
   private electronIpc = inject(ElectronIpcService);
   private actionDispatch = inject(ActionDispatchService);
@@ -128,21 +130,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
   });
 
   canShowFileExplorer = computed(() =>
-    !!this.store.selectedInstance() && !this.operatorStore.selected() && !this.isBenchmarkMode()
+    !!this.store.selectedInstance() && !this.chatStore.selectedChatId() && !this.isBenchmarkMode()
   );
 
   hasWorkspaceSelection = computed(() =>
-    this.operatorStore.selected() || !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
+    !!this.chatStore.selectedChatId() || !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
   );
-
-  operatorGlobalAriaLabel = computed(() => {
-    const status = this.operatorStore.statusLabel();
-    const activeRunCount = this.operatorStore.activeRunCount();
-    if (activeRunCount === 0) {
-      return `Open Orchestrator, ${status}`;
-    }
-    return `Open Orchestrator, ${status}, ${activeRunCount} active ${activeRunCount === 1 ? 'run' : 'runs'}`;
-  });
 
   showBrowserPreview = computed(() =>
     !this.electronIpc.isElectron && !this.isBenchmarkMode()
@@ -165,8 +158,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     effect(() => {
       const hasProjectSelection = !!this.store.selectedInstance() || !!this.historyStore.previewConversation();
-      if (hasProjectSelection && this.operatorStore.selected()) {
-        queueMicrotask(() => this.operatorStore.deselect());
+      if (hasProjectSelection && this.chatStore.selectedChatId()) {
+        queueMicrotask(() => this.chatStore.deselect());
       }
     });
 
@@ -250,7 +243,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.actionDispatch.register({
         id: 'select-orchestrator',
         run: () => {
-          this.selectOperator();
+          this.selectChats();
         },
       }),
       ...visibleInstanceActions,
@@ -433,17 +426,17 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   createInstance(): void {
     const workingDirectory = this.settingsStore.settings().defaultWorkingDirectory || null;
-    this.operatorStore.deselect();
+    this.chatStore.deselect();
     this.historyStore.clearSelection();
     this.newSessionDraft.open(workingDirectory);
     this.store.setSelectedInstance(null);
   }
 
-  selectOperator(): void {
+  selectChats(): void {
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(null);
     this.showFileExplorer.set(false);
-    this.operatorStore.select();
+    void this.chatStore.selectFirstChat();
   }
 
   closeAllInstances(): void {

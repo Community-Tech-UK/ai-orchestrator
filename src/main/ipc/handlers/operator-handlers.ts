@@ -2,78 +2,20 @@ import { BrowserWindow, ipcMain } from 'electron';
 import { IPC_CHANNELS, type IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
-  OperatorGetThreadPayloadSchema,
-  OperatorListProjectsPayloadSchema,
   OperatorListRunsPayloadSchema,
-  OperatorRescanProjectsPayloadSchema,
   OperatorRunIdPayloadSchema,
-  OperatorSendMessagePayloadSchema,
 } from '@contracts/schemas/operator';
 import {
   OperatorRunStore,
-  getOperatorEngine,
   getOperatorEventBus,
   getOperatorDatabase,
-  getOperatorThreadService,
-  getProjectRegistry,
+  getOperatorRunRunner,
 } from '../../operator';
 
 let operatorEventForwardingRegistered = false;
 
 export function registerOperatorHandlers(): void {
   registerOperatorEventForwarding();
-
-  ipcMain.handle(IPC_CHANNELS.OPERATOR_GET_THREAD, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      validateIpcPayload(
-        OperatorGetThreadPayloadSchema,
-        payload ?? {},
-        'OPERATOR_GET_THREAD',
-      );
-      return { success: true, data: await getOperatorThreadService().getThread() };
-    } catch (error) {
-      return operatorError(error, 'OPERATOR_GET_THREAD_FAILED');
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.OPERATOR_SEND_MESSAGE, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const validated = validateIpcPayload(
-        OperatorSendMessagePayloadSchema,
-        payload,
-        'OPERATOR_SEND_MESSAGE',
-      );
-      return { success: true, data: await getOperatorThreadService().sendMessage(validated) };
-    } catch (error) {
-      return operatorError(error, 'OPERATOR_SEND_MESSAGE_FAILED');
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.OPERATOR_LIST_PROJECTS, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const validated = validateIpcPayload(
-        OperatorListProjectsPayloadSchema,
-        payload ?? {},
-        'OPERATOR_LIST_PROJECTS',
-      );
-      return { success: true, data: getProjectRegistry().listProjects(validated ?? {}) };
-    } catch (error) {
-      return operatorError(error, 'OPERATOR_LIST_PROJECTS_FAILED');
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.OPERATOR_RESCAN_PROJECTS, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const validated = validateIpcPayload(
-        OperatorRescanProjectsPayloadSchema,
-        payload ?? {},
-        'OPERATOR_RESCAN_PROJECTS',
-      );
-      return { success: true, data: await getProjectRegistry().refreshProjects(validated ?? {}) };
-    } catch (error) {
-      return operatorError(error, 'OPERATOR_RESCAN_PROJECTS_FAILED');
-    }
-  });
 
   ipcMain.handle(IPC_CHANNELS.OPERATOR_LIST_RUNS, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
@@ -110,22 +52,9 @@ export function registerOperatorHandlers(): void {
         payload,
         'OPERATOR_CANCEL_RUN',
       );
-      return { success: true, data: await getOperatorEngine().cancelRun(validated.runId) };
+      return { success: true, data: getOperatorRunRunner().cancel(validated.runId) };
     } catch (error) {
       return operatorError(error, 'OPERATOR_CANCEL_RUN_FAILED');
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.OPERATOR_RETRY_RUN, async (_event, payload: unknown): Promise<IpcResponse> => {
-    try {
-      const validated = validateIpcPayload(
-        OperatorRunIdPayloadSchema,
-        payload,
-        'OPERATOR_RETRY_RUN',
-      );
-      return { success: true, data: await getOperatorEngine().retryRun(validated.runId) };
-    } catch (error) {
-      return operatorError(error, 'OPERATOR_RETRY_RUN_FAILED');
     }
   });
 }

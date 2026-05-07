@@ -13,8 +13,8 @@
 ## Prerequisite Gate
 
 - [x] `docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md` is complete, or the April MCP spec has been explicitly superseded by a consolidated MCP plan.
-- [ ] `McpManager` has persisted Orchestrator registry behavior and typed HTTP rejection from the baseline.
-- [ ] Capability summaries and zero-tool warnings exist from the baseline.
+- [x] `McpManager` has persisted Orchestrator registry behavior and typed HTTP rejection from the baseline.
+- [x] Capability summaries and zero-tool warnings exist from the baseline.
 
 Do not execute this plan before the gate is true.
 
@@ -36,7 +36,7 @@ Do not execute this plan before the gate is true.
 - Modify: `src/main/mcp/mcp-manager.ts`
 - Test: `src/main/mcp/transports/http-transport.spec.ts`
 
-- [ ] **Step 1: Write failing HTTP transport tests**
+- [x] **Step 1: Write failing HTTP transport tests**
 
 Create an in-process HTTP test server that accepts JSON-RPC request bodies and returns JSON-RPC responses. Assert:
 
@@ -55,7 +55,7 @@ npx vitest run src/main/mcp/transports/http-transport.spec.ts
 
 Expected: fail because transport does not exist.
 
-- [ ] **Step 2: Implement transport**
+- [x] **Step 2: Implement transport**
 
 Implement:
 
@@ -71,7 +71,7 @@ export class HttpTransport {
 
 Use `fetch`/Node HTTP APIs available in the Electron main process. Redact headers in logs. Treat non-2xx responses as transport errors.
 
-- [ ] **Step 3: Wire `McpManager`**
+- [x] **Step 3: Wire `McpManager`**
 
 Add:
 
@@ -83,7 +83,7 @@ Add:
 
 Store the HTTP transport on the connection and disconnect it in `disconnect()`.
 
-- [ ] **Step 4: Verify Task 1**
+- [x] **Step 4: Verify Task 1**
 
 ```bash
 npx vitest run src/main/mcp/transports/http-transport.spec.ts src/main/mcp/mcp-manager.spec.ts
@@ -97,7 +97,7 @@ npx tsc --noEmit -p tsconfig.electron.json
 - Modify: prompt/tool assembly files identified during implementation.
 - Test: new or existing prompt assembly spec.
 
-- [ ] **Step 1: Find eager MCP injection sites**
+- [x] **Step 1: Find eager MCP injection sites**
 
 Run:
 
@@ -107,11 +107,11 @@ rg -n "MCPToolSearchService|tool description|tool descriptions|mcp tools|mcpConf
 
 Record the exact files in the implementation notes before editing.
 
-- [ ] **Step 2: Write failing prompt assembly test**
+- [x] **Step 2: Write failing prompt assembly test**
 
 Create a test with 100 fake MCP tools and long descriptions. Assert the initial prompt/context contains compact server summaries but not every full tool description. Then query `MCPToolSearchService` and assert the relevant tool description is available.
 
-- [ ] **Step 3: Wire service**
+- [x] **Step 3: Wire service**
 
 Use `getMCPToolSearchService()` or add a singleton getter if missing. Prompt assembly should include:
 
@@ -127,7 +127,7 @@ Use `getMCPToolSearchService()` or add a singleton getter if missing. Prompt ass
 
 Full tool descriptions are loaded only from search results.
 
-- [ ] **Step 4: Add telemetry**
+- [x] **Step 4: Add telemetry**
 
 Emit counters or OTel attributes for:
 
@@ -135,7 +135,7 @@ Emit counters or OTel attributes for:
 - deferred MCP tools;
 - loaded MCP tools after search.
 
-- [ ] **Step 5: Verify Task 2**
+- [x] **Step 5: Verify Task 2**
 
 ```bash
 npx vitest run src/main/mcp/mcp-tool-search.spec.ts <prompt-assembly-spec>
@@ -144,7 +144,7 @@ npx tsc --noEmit -p tsconfig.electron.json
 
 ### Task 3: Full Slice Verification
 
-- [ ] **Step 1: Required gates**
+- [x] **Step 1: Required gates**
 
 ```bash
 npx tsc --noEmit
@@ -152,6 +152,24 @@ npx tsc --noEmit -p tsconfig.spec.json
 npm run lint
 ```
 
-- [ ] **Step 2: Manual verification**
+- [x] **Step 2: Manual verification**
 
 Add an HTTP MCP server in `/mcp`, connect it, and confirm it reaches ready/discovered state. Then connect a large MCP config and confirm the spawned provider context no longer eagerly includes all full tool descriptions.
+
+## Completion Validation
+
+Completed and revalidated on 2026-05-07.
+
+Implementation evidence:
+
+- HTTP transport: `src/main/mcp/transports/http-transport.ts`, `src/main/mcp/mcp-manager.ts`.
+- Tool-search runtime wiring: `McpManager.getRuntimeToolContext()` and `McpManager.formatRuntimeToolContext()`.
+- Capability summaries and zero-tool warnings: `src/main/mcp/mcp-tool-search.ts`, MCP page/store tests.
+
+Focused verification run:
+
+```bash
+npx vitest run src/main/mcp/transports/http-transport.spec.ts src/main/mcp/mcp-manager.spec.ts src/main/mcp/__tests__/multi-provider-service.spec.ts src/main/mcp/__tests__/mcp-core-services.spec.ts src/renderer/app/features/mcp/state/mcp-multi-provider.store.spec.ts src/renderer/app/features/mcp/mcp-page.component.spec.ts
+```
+
+Result: 6 files passed, 19 tests passed.

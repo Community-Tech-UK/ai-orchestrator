@@ -7,18 +7,6 @@ export function createOperatorDomain(
   ch: typeof IPC_CHANNELS
 ) {
   return {
-    getOperatorThread: (payload: unknown = {}): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.OPERATOR_GET_THREAD, payload),
-
-    sendOperatorMessage: (payload: unknown): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.OPERATOR_SEND_MESSAGE, payload),
-
-    listOperatorProjects: (payload: unknown = {}): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.OPERATOR_LIST_PROJECTS, payload),
-
-    rescanOperatorProjects: (payload: unknown = {}): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.OPERATOR_RESCAN_PROJECTS, payload),
-
     listOperatorRuns: (payload: unknown = {}): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.OPERATOR_LIST_RUNS, payload),
 
@@ -27,9 +15,6 @@ export function createOperatorDomain(
 
     cancelOperatorRun: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.OPERATOR_CANCEL_RUN, payload),
-
-    retryOperatorRun: (payload: unknown): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.OPERATOR_RETRY_RUN, payload),
 
     onOperatorEvent: (callback: (payload: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, payload: unknown) => callback(payload);

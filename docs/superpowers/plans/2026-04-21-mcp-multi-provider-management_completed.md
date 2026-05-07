@@ -5396,7 +5396,7 @@ git commit -m "feat(mcp): testConfig reads from OrchestratorInjectionReader"
 **Context:** Final human-in-the-loop check before merging. Covers all 14 IPC paths + the three UI tabs + the three safety settings.
 
 **Files:**
-- Create: `docs/superpowers/verifications/2026-04-21-mcp-multi-provider.md`
+- Create: `docs/superpowers/verifications/2026-04-21-mcp-multi-provider_completed.md`
 
 - [ ] **Step 1: Write the runbook**
 
@@ -5448,7 +5448,7 @@ Run `npm run dev` and verify each item.
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/superpowers/verifications/2026-04-21-mcp-multi-provider.md
+git add docs/superpowers/verifications/2026-04-21-mcp-multi-provider_completed.md
 git commit -m "docs(mcp): manual verification runbook"
 ```
 
@@ -5521,7 +5521,7 @@ Expected: Angular + Electron build completes successfully.
 
 - [ ] **Step 5: Run the manual verification runbook**
 
-Execute every numbered item in `docs/superpowers/verifications/2026-04-21-mcp-multi-provider.md`.
+Execute every numbered item in `docs/superpowers/verifications/2026-04-21-mcp-multi-provider_completed.md`.
 
 - [ ] **Step 6: Observation #0.10 informs a final audit**
 
@@ -5544,4 +5544,3 @@ git commit --allow-empty -m "chore(mcp): Phase 4 verification complete"
 - [ ] Phase 4: 4 tasks (testConfig generalization + manual runbook + architecture docs + final verification)
 
 **Total: 45 tasks.** Work them in order; do not skip test-then-implement pairs.
-

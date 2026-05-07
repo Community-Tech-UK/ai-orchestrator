@@ -14,6 +14,7 @@ import type {
 import type { NativeConversationAdapter } from './native-conversation-adapter';
 
 export const INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID = 'orchestrator-global';
+export const INTERNAL_ORCHESTRATOR_CHAT_THREAD_PREFIX = 'orchestrator-chat-';
 
 export class InternalOrchestratorConversationAdapter implements NativeConversationAdapter {
   readonly provider = 'orchestrator' as const;
@@ -46,15 +47,22 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
   }
 
   async startThread(request: NativeThreadStartRequest): Promise<NativeConversationHandle> {
+    const chatId = typeof request.metadata?.['chatId'] === 'string'
+      ? request.metadata['chatId'].trim()
+      : '';
+    const nativeThreadId = chatId
+      ? `${INTERNAL_ORCHESTRATOR_CHAT_THREAD_PREFIX}${chatId}`
+      : `${INTERNAL_ORCHESTRATOR_CHAT_THREAD_PREFIX}${randomUUID()}`;
     return {
       provider: this.provider,
-      nativeThreadId: INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
-      nativeSessionId: INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID,
+      nativeThreadId,
+      nativeSessionId: nativeThreadId,
       workspacePath: request.workspacePath ?? null,
-      title: request.title ?? 'Orchestrator',
+      title: request.title ?? 'Chat',
       metadata: {
-        scope: 'global',
-        operatorThreadKind: 'root',
+        scope: 'chat',
+        operatorThreadKind: 'chat',
+        ...(chatId ? { chatId } : {}),
         ...(request.metadata ?? {}),
       },
     };
@@ -66,7 +74,7 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
       nativeThreadId: ref.nativeThreadId,
       nativeSessionId: ref.nativeThreadId,
       workspacePath: ref.workspacePath ?? null,
-      title: 'Orchestrator',
+      title: 'Chat',
     };
   }
 
@@ -115,12 +123,12 @@ export class InternalOrchestratorConversationAdapter implements NativeConversati
       nativeSessionId: ref.nativeThreadId,
       sourcePath: ref.sourcePath ?? null,
       workspacePath: ref.workspacePath ?? null,
-      title: 'Orchestrator',
+      title: 'Chat',
       writable: true,
       nativeVisibilityMode: 'none',
       metadata: {
-        scope: 'global',
-        operatorThreadKind: 'root',
+        scope: 'chat',
+        operatorThreadKind: 'chat',
       },
     };
   }

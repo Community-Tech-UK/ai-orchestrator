@@ -12,7 +12,7 @@
 
 ## Source Spec
 
-- `docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design.md`
+- `docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md`
 - MCP prerequisite: `docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md`
 
 ## Execution Order

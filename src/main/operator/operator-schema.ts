@@ -101,5 +101,27 @@ export function createOperatorTables(db: SqliteDriver): void {
       last_seen_at INTEGER NOT NULL,
       recovery_state TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS chats (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      current_cwd TEXT,
+      project_id TEXT,
+      yolo INTEGER NOT NULL DEFAULT 0,
+      ledger_thread_id TEXT NOT NULL UNIQUE,
+      current_instance_id TEXT,
+      created_at INTEGER NOT NULL,
+      last_active_at INTEGER NOT NULL,
+      archived_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chats_last_active
+      ON chats(last_active_at DESC)
+      WHERE archived_at IS NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_chats_ledger_thread
+      ON chats(ledger_thread_id);
   `);
 }

@@ -85,12 +85,14 @@ import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { buildCodememMcpConfig } from '../codemem/mcp-config';
 import { getMcpManager } from '../mcp/mcp-manager';
+import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
 import {
   buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath,
   type BrowserGatewayMcpConfigOptions,
 } from '../browser-gateway';
 import { getOrchestratorInjectionReader } from '../mcp/mcp-multi-provider-singletons';
+import { defaultOperatorDbPath } from '../operator/operator-database';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
@@ -407,7 +409,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
     }
 
-    configs.push(...this.getOrchestratorMcpConfigs(provider));
+    configs.push(...this.getOrchestratorMcpConfigs(provider, instanceId));
 
     if (configs.length === 0) {
       logger.warn('No MCP configs resolved — spawned instances will not have custom MCP servers', {
@@ -419,7 +421,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     return configs;
   }
 
-  private getOrchestratorMcpConfigs(provider?: string): string[] {
+  private getOrchestratorMcpConfigs(provider?: string, instanceId?: string): string[] {
     if (
       !isSupportedProvider(provider) ||
       !ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
@@ -429,7 +431,20 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     try {
       const bundle = getOrchestratorInjectionReader().buildBundle(provider);
-      return [...bundle.configPaths, ...bundle.inlineConfigs];
+      const builtInToolsConfig = buildOrchestratorToolsMcpConfig({
+        currentDir: __dirname,
+        operatorDbPath: defaultOperatorDbPath(),
+        conversationLedgerDbPath: path.join(app.getPath('userData'), 'conversation-ledger', 'conversation-ledger.db'),
+        execPath: process.execPath,
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        instanceId,
+      });
+      return [
+        ...bundle.configPaths,
+        ...bundle.inlineConfigs,
+        ...(builtInToolsConfig ? [builtInToolsConfig] : []),
+      ];
     } catch (error) {
       logger.warn('Failed to resolve Orchestrator MCP injection bundle', {
         provider,

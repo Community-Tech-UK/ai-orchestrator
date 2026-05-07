@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 861,
+    "channelCount": 867,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4235,87 +4235,118 @@
         "line": 1049
       },
       {
-        "name": "OPERATOR_GET_THREAD",
-        "value": "operator:get-thread",
-        "line": 1051
-      },
-      {
-        "name": "OPERATOR_SEND_MESSAGE",
-        "value": "operator:send-message",
-        "line": 1052
-      },
-      {
-        "name": "OPERATOR_LIST_PROJECTS",
-        "value": "operator:list-projects",
-        "line": 1053
-      },
-      {
-        "name": "OPERATOR_RESCAN_PROJECTS",
-        "value": "operator:rescan-projects",
-        "line": 1054
-      },
-      {
         "name": "OPERATOR_LIST_RUNS",
         "value": "operator:list-runs",
-        "line": 1055
+        "line": 1051
       },
       {
         "name": "OPERATOR_GET_RUN",
         "value": "operator:get-run",
-        "line": 1056
+        "line": 1052
       },
       {
         "name": "OPERATOR_CANCEL_RUN",
         "value": "operator:cancel-run",
-        "line": 1057
-      },
-      {
-        "name": "OPERATOR_RETRY_RUN",
-        "value": "operator:retry-run",
-        "line": 1058
+        "line": 1053
       },
       {
         "name": "OPERATOR_EVENT",
         "value": "operator:event",
+        "line": 1054
+      },
+      {
+        "name": "CHAT_LIST",
+        "value": "chat:list",
+        "line": 1056
+      },
+      {
+        "name": "CHAT_GET",
+        "value": "chat:get",
+        "line": 1057
+      },
+      {
+        "name": "CHAT_CREATE",
+        "value": "chat:create",
+        "line": 1058
+      },
+      {
+        "name": "CHAT_RENAME",
+        "value": "chat:rename",
         "line": 1059
+      },
+      {
+        "name": "CHAT_ARCHIVE",
+        "value": "chat:archive",
+        "line": 1060
+      },
+      {
+        "name": "CHAT_SET_CWD",
+        "value": "chat:set-cwd",
+        "line": 1061
+      },
+      {
+        "name": "CHAT_SET_PROVIDER",
+        "value": "chat:set-provider",
+        "line": 1062
+      },
+      {
+        "name": "CHAT_SET_MODEL",
+        "value": "chat:set-model",
+        "line": 1063
+      },
+      {
+        "name": "CHAT_SET_YOLO",
+        "value": "chat:set-yolo",
+        "line": 1064
+      },
+      {
+        "name": "CHAT_SEND_MESSAGE",
+        "value": "chat:send-message",
+        "line": 1065
+      },
+      {
+        "name": "CHAT_EVENT",
+        "value": "chat:event",
+        "line": 1066
       },
       {
         "name": "RUNTIME_PLUGINS_LIST",
         "value": "runtime-plugins:list",
-        "line": 1061
+        "line": 1068
       },
       {
         "name": "RUNTIME_PLUGINS_VALIDATE",
         "value": "runtime-plugins:validate",
-        "line": 1062
+        "line": 1069
       },
       {
         "name": "RUNTIME_PLUGINS_INSTALL",
         "value": "runtime-plugins:install",
-        "line": 1063
+        "line": 1070
       },
       {
         "name": "RUNTIME_PLUGINS_UPDATE",
         "value": "runtime-plugins:update",
-        "line": 1064
+        "line": 1071
       },
       {
         "name": "RUNTIME_PLUGINS_PRUNE",
         "value": "runtime-plugins:prune",
-        "line": 1065
+        "line": 1072
       },
       {
         "name": "RUNTIME_PLUGINS_UNINSTALL",
         "value": "runtime-plugins:uninstall",
-        "line": 1066
+        "line": 1073
       }
     ]
   },
   "preload": {
-    "domainCount": 20,
+    "domainCount": 21,
     "domains": [
       "automation.preload.ts",
       "browser.preload.ts",
+      "chat.preload.ts",
       "communication.preload.ts",
       "conversation-ledger.preload.ts",
       "diagnostics.preload.ts",
@@ -4368,164 +4399,24 @@
   },
   "largeFiles": [
     {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/echarts.js",
-      "lines": 81347
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/highlight__js.js",
-      "lines": 51787
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-BLLIXHU6.js",
-      "lines": 22611
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-12907/astropy/extern/jquery/data/js/jquery.dataTables.js",
-      "lines": 15279
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-14182/astropy/extern/jquery/data/js/jquery.dataTables.js",
-      "lines": 15279
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-14365/astropy/extern/jquery/data/js/jquery.dataTables.js",
-      "lines": 15279
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-14995/astropy/extern/jquery/data/js/jquery.dataTables.js",
-      "lines": 15279
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-6938/astropy/extern/js/jquery.dataTables.js",
-      "lines": 15279
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-7746/astropy/extern/js/jquery.dataTables.js",
-      "lines": 15279
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-14182/astropy/extern/jquery/data/js/jquery-3.6.0.js",
-      "lines": 10882
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-14365/astropy/extern/jquery/data/js/jquery-3.6.0.js",
-      "lines": 10882
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-14995/astropy/extern/jquery/data/js/jquery-3.6.0.js",
-      "lines": 10882
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10914/django/contrib/admin/static/admin/js/vendor/jquery/jquery.js",
-      "lines": 10365
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10924/django/contrib/admin/static/admin/js/vendor/jquery/jquery.js",
-      "lines": 10365
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11001/django/contrib/admin/static/admin/js/vendor/jquery/jquery.js",
-      "lines": 10365
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11019/django/contrib/admin/static/admin/js/vendor/jquery/jquery.js",
-      "lines": 10365
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-12907/astropy/extern/jquery/data/js/jquery-3.1.1.js",
-      "lines": 10221
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-6938/astropy/extern/js/jquery-3.1.1.js",
-      "lines": 10221
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-7746/astropy/extern/js/jquery-3.1.1.js",
-      "lines": 10221
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10914/django/contrib/admin/static/admin/js/vendor/select2/select2.full.js",
-      "lines": 6437
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10924/django/contrib/admin/static/admin/js/vendor/select2/select2.full.js",
-      "lines": 6437
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11001/django/contrib/admin/static/admin/js/vendor/select2/select2.full.js",
-      "lines": 6437
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11019/django/contrib/admin/static/admin/js/vendor/select2/select2.full.js",
-      "lines": 6437
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/@angular_router.js",
-      "lines": 6045
-    },
-    {
-      "path": ".claude-attachments/979033f9-baa6-4828-8429-dc929fbc6647/Dingley.md",
-      "lines": 5870
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
-      "lines": 5548
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-RSS3ODKE.js",
-      "lines": 5539
+      "lines": 5547
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-pause-on-vpn_completed.md",
       "lines": 5156
     },
     {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-DJR7F2SD.js",
-      "lines": 4804
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/@angular_forms.js",
-      "lines": 4793
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md",
       "lines": 4447
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10914/js_tests/qunit/qunit.js",
-      "lines": 4438
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10924/js_tests/qunit/qunit.js",
-      "lines": 4438
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11001/js_tests/qunit/qunit.js",
-      "lines": 4438
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11019/js_tests/qunit/qunit.js",
-      "lines": 4438
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
       "lines": 4321
     },
     {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-4XPPFPFV.js",
-      "lines": 4239
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-RW6UE5DK.js",
-      "lines": 4130
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
       "lines": 3817
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/@angular_cdk_drag-drop.js",
-      "lines": 3560
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -4541,23 +4432,11 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3213
-    },
-    {
-      "path": ".claude-attachments/5270c026-b638-4e5a-a17e-74ae91d1e303/2026-02-25-prod-server-migration.md",
-      "lines": 2978
-    },
-    {
-      "path": "archive/PHASE_7_VALIDATED_PLAN.md",
-      "lines": 2973
+      "lines": 3250
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
       "lines": 2952
-    },
-    {
-      "path": "archive/PHASE_8_VALIDATED_PLAN.md",
-      "lines": 2896
     },
     {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
@@ -4608,40 +4487,12 @@
       "lines": 2433
     },
     {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-6938/cextern/expat/doc/reference.html",
-      "lines": 2391
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/astropy__astropy-7746/cextern/expat/doc/reference.html",
-      "lines": 2391
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
     },
     {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10914/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.js",
-      "lines": 2309
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10924/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.js",
-      "lines": 2309
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11001/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.js",
-      "lines": 2309
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11019/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.js",
-      "lines": 2309
-    },
-    {
-      "path": "src/main/operator/operator-engine.ts",
-      "lines": 2183
-    },
-    {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2131
+      "lines": 2211
     },
     {
       "path": "src/main/persistence/rlm/rlm-schema.ts",
@@ -4664,10 +4515,6 @@
       "lines": 2091
     },
     {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/qrcode.js",
-      "lines": 2084
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-remote-nodes-phase1-phase2.COMPLETED.md",
       "lines": 2078
     },
@@ -4678,14 +4525,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
       "lines": 2006
-    },
-    {
-      "path": ".claude-attachments/7f8f383c-f741-445d-8f56-8cad277c0b7e/REACT_TO_ELEMENTOR_CONVERSION_GUIDE.md",
-      "lines": 2001
-    },
-    {
-      "path": ".claude-attachments/c8f21c83-51dd-493f-995c-856818c149d3/REACT_TO_ELEMENTOR_CONVERSION_GUIDE.md",
-      "lines": 2001
     },
     {
       "path": "docs/superpowers/plans/2026-04-11-knowledge-ui-completion_completed.md",
@@ -4700,18 +4539,6 @@
       "lines": 1962
     },
     {
-      "path": "archive/PHASE_7A_VALIDATED_PLAN.md",
-      "lines": 1952
-    },
-    {
-      "path": "archive/PHASE_6_VALIDATED_PLAN.md",
-      "lines": 1910
-    },
-    {
-      "path": "src/main/operator/operator-engine.spec.ts",
-      "lines": 1869
-    },
-    {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
     },
@@ -4724,36 +4551,12 @@
       "lines": 1827
     },
     {
-      "path": "archive/multi_agent_verification_ui.md",
-      "lines": 1803
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
     },
     {
-      "path": "archive/PHASE_8A_VALIDATED_PLAN.md",
-      "lines": 1793
-    },
-    {
-      "path": ".claude-attachments/28ef82de-1b42-47eb-9e40-7ec547d2c698/multi_agent_verification_ui.md",
-      "lines": 1761
-    },
-    {
-      "path": "archive/multi_agent_verification.md",
-      "lines": 1748
-    },
-    {
-      "path": ".claude-attachments/9403b372-5f3e-4d37-8679-622783d92589/2026-03-02-frontend-integration-plan.md",
-      "lines": 1734
-    },
-    {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1732
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/chunk-SKJHEC3Z.js",
-      "lines": 1700
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -4782,10 +4585,6 @@
     {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1560
-    },
-    {
-      "path": "archive/PHASE_9_VALIDATED_PLAN.md",
-      "lines": 1541
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
@@ -4860,36 +4659,12 @@
       "lines": 1316
     },
     {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10914/tests/utils_tests/files/strip_tags1.html",
-      "lines": 1303
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-10924/tests/utils_tests/files/strip_tags1.html",
-      "lines": 1303
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11001/tests/utils_tests/files/strip_tags1.html",
-      "lines": 1303
-    },
-    {
-      "path": "benchmarks/external-benchmarks/swe-bench/workdir/django__django-11019/tests/utils_tests/files/strip_tags1.html",
-      "lines": 1303
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/diff.js",
-      "lines": 1301
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
       "lines": 1268
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-instance-startup-optimization.md",
       "lines": 1267
-    },
-    {
-      "path": ".claude-attachments/9403b372-5f3e-4d37-8679-622783d92589/2026-03-02-architectural-remediation-plan.md",
-      "lines": 1257
     },
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
@@ -4922,10 +4697,6 @@
     {
       "path": "src/main/history/history-manager.ts",
       "lines": 1227
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/marked.js",
-      "lines": 1204
     },
     {
       "path": "src/main/instance/instance-context.ts",
@@ -4988,16 +4759,8 @@
       "lines": 1126
     },
     {
-      "path": "archive/CLAUDE_DESKTOP_FEATURES_PLAN.md",
-      "lines": 1123
-    },
-    {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
       "lines": 1119
-    },
-    {
-      "path": "archive/PHASE_8B_VALIDATED_PLAN.md",
-      "lines": 1114
     },
     {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
@@ -5028,12 +4791,8 @@
       "lines": 1092
     },
     {
-      "path": ".claude-attachments/f9b8fe7f-3bdb-4ef0-a54b-7ac8339c3c14/codex_final_unified_plan.md",
-      "lines": 1085
-    },
-    {
       "path": "src/preload/generated/channels.ts",
-      "lines": 1075
+      "lines": 1082
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
@@ -5056,20 +4815,8 @@
       "lines": 1055
     },
     {
-      "path": ".claude-attachments/fa114a1b-e61b-4e3a-ba43-1e0d8406acbd/claude_t3_plan.md",
-      "lines": 1053
-    },
-    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/dompurify.js",
-      "lines": 1033
-    },
-    {
-      "path": "archive/PHASE_7B_VALIDATED_PLAN.md",
-      "lines": 1033
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
@@ -5080,8 +4827,8 @@
       "lines": 1027
     },
     {
-      "path": "archive/DEVELOPMENT_PLAN.md",
-      "lines": 1024
+      "path": "src/main/mcp/mcp-manager.ts",
+      "lines": 1025
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -5090,10 +4837,6 @@
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1020
-    },
-    {
-      "path": ".angular/cache/21.2.3/ai-orchestrator/vite/deps/@angular_core.js",
-      "lines": 1016
     },
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",
@@ -5180,10 +4923,6 @@
       "lines": 938
     },
     {
-      "path": "src/main/mcp/mcp-manager.ts",
-      "lines": 928
-    },
-    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5202,6 +4941,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency.md",
       "lines": 897
+    },
+    {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 896
     },
     {
       "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
@@ -5232,20 +4975,12 @@
       "lines": 873
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 871
-    },
-    {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
       "lines": 869
     },
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 868
-    },
-    {
-      "path": ".claude-attachments/5ee0b8d7-a32f-4fe8-865f-28a2d7a22d0c/newplan.md",
-      "lines": 865
     },
     {
       "path": "src/renderer/app/features/semantic-search/semantic-search-page.component.ts",
@@ -5312,10 +5047,6 @@
       "lines": 836
     },
     {
-      "path": "archive/01-PERSISTENCE-LAYER.md",
-      "lines": 832
-    },
-    {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 832
     },
@@ -5342,6 +5073,10 @@
     {
       "path": "src/renderer/app/features/remote-config/remote-config-page.component.ts",
       "lines": 815
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
+      "lines": 814
     },
     {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",

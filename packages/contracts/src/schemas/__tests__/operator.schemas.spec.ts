@@ -3,41 +3,10 @@ import {
   OperatorRunBudgetSchema,
   OperatorRunEventPayloadSchema,
   OperatorRunUsageSchema,
-  OperatorListProjectsPayloadSchema,
-  OperatorRescanProjectsPayloadSchema,
   OperatorRunIdPayloadSchema,
-  OperatorSendMessagePayloadSchema,
 } from '../operator.schemas';
 
 describe('operator schemas', () => {
-  it('accepts list-projects filters with a bounded limit', () => {
-    expect(OperatorListProjectsPayloadSchema.parse({
-      query: 'AI Orchestrator',
-      limit: 25,
-    })).toEqual({
-      query: 'AI Orchestrator',
-      limit: 25,
-    });
-  });
-
-  it('accepts rescan roots and source toggles', () => {
-    expect(OperatorRescanProjectsPayloadSchema.parse({
-      roots: ['/Users/suas/work'],
-      includeRecent: true,
-      includeActiveInstances: false,
-      includeConversationLedger: true,
-    })).toEqual({
-      roots: ['/Users/suas/work'],
-      includeRecent: true,
-      includeActiveInstances: false,
-      includeConversationLedger: true,
-    });
-  });
-
-  it('rejects blank operator messages', () => {
-    expect(() => OperatorSendMessagePayloadSchema.parse({ text: '' })).toThrow();
-  });
-
   it('accepts operator run-id control payloads', () => {
     expect(OperatorRunIdPayloadSchema.parse({ runId: 'run-1' })).toEqual({
       runId: 'run-1',
@@ -102,5 +71,14 @@ describe('operator schemas', () => {
         stderrBytes: 0,
       },
     })).toThrow();
+  });
+
+  it('does not export deleted deterministic operator request schemas', async () => {
+    const schemas = await import('../operator.schemas') as Record<string, unknown>;
+
+    expect(schemas['OperatorGetThreadPayloadSchema']).toBeUndefined();
+    expect(schemas['OperatorSendMessagePayloadSchema']).toBeUndefined();
+    expect(schemas['OperatorListProjectsPayloadSchema']).toBeUndefined();
+    expect(schemas['OperatorRescanProjectsPayloadSchema']).toBeUndefined();
   });
 });

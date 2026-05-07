@@ -1,0 +1,80 @@
+<section class="chat-sidebar">
+  <div class="chat-sidebar-header">
+    <button type="button" class="new-chat-button" (click)="openCreate()">
+      <span aria-hidden="true">+</span>
+      New chat
+    </button>
+  </div>
+
+  @if (showCreate()) {
+    <form class="chat-create" (ngSubmit)="createChat()">
+      <input
+        class="chat-create-input"
+        name="chat-name"
+        placeholder="Name"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+      />
+      <div class="chat-create-row">
+        <select
+          class="chat-create-select"
+          name="provider"
+          [ngModel]="provider()"
+          (ngModelChange)="provider.set($event)"
+        >
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="gemini">Gemini</option>
+          <option value="copilot">Copilot</option>
+        </select>
+        <input
+          class="chat-create-input"
+          name="model"
+          placeholder="Model"
+          [ngModel]="model()"
+          (ngModelChange)="model.set($event)"
+        />
+      </div>
+      <div class="chat-create-row">
+        <input
+          class="chat-create-input"
+          name="cwd"
+          placeholder="Working directory"
+          [ngModel]="cwd()"
+          (ngModelChange)="cwd.set($event)"
+        />
+        <button type="button" class="icon-button" title="Choose folder" (click)="browseCwd()">...</button>
+      </div>
+      <div class="chat-create-actions">
+        <button type="button" class="text-button" (click)="showCreate.set(false)">Cancel</button>
+        <button type="submit" class="primary-button" [disabled]="!canCreate()">Create</button>
+      </div>
+    </form>
+  }
+
+  <div class="chat-group-label">Chats</div>
+
+  <div class="chat-list">
+    @for (chat of chatStore.chats(); track chat.id) {
+      <div
+        role="button"
+        tabindex="0"
+        class="chat-row"
+        [class.active]="chatStore.selectedChatId() === chat.id"
+        (click)="selectChat(chat.id)"
+        (keydown.enter)="selectChat(chat.id)"
+        (keydown.space)="selectChat(chat.id); $event.preventDefault()"
+      >
+        <span class="chat-status" [class.needs-setup]="!chat.provider || !chat.currentCwd"></span>
+        <span class="chat-row-main">
+          <span class="chat-name">{{ chat.name }}</span>
+          <span class="chat-meta">{{ providerLabel(chat.provider, chat.model) }}</span>
+        </span>
+        <span class="chat-cwd">{{ cwdLabel(chat.currentCwd) }}</span>
+        <button type="button" class="archive-button" title="Archive chat" (click)="archiveChat($event, chat.id)">×</button>
+      </div>
+    } @empty {
+      <div class="empty-chats">No chats yet</div>
+    }
+  </div>
+</section>

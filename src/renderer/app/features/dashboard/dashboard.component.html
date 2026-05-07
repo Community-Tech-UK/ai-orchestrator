@@ -30,34 +30,7 @@
           (moreClicked)="toggleControlPlane()"
         />
 
-        <button
-          type="button"
-          class="operator-global-row"
-          [class.active]="operatorStore.selected()"
-          [class.status-running]="operatorStore.statusTone() === 'running'"
-          [class.status-attention]="operatorStore.statusTone() === 'attention'"
-          [class.status-failed]="operatorStore.statusTone() === 'failed'"
-          (click)="selectOperator()"
-          [attr.aria-label]="operatorGlobalAriaLabel()"
-        >
-          <span class="operator-global-icon" aria-hidden="true">O</span>
-          <span class="operator-global-copy">
-            <span class="operator-global-title">Orchestrator</span>
-            <span class="operator-global-subtitle">Global</span>
-          </span>
-          <span class="operator-global-state">
-            {{ operatorStore.statusLabel() }}
-          </span>
-          @if (operatorStore.activeRunCount() > 0) {
-            <span
-              class="operator-global-badge"
-              [attr.aria-label]="operatorStore.activeRunCount() + ' active operator runs'"
-            >
-              {{ operatorStore.activeRunCount() }}
-            </span>
-          }
-        </button>
-
+        <app-chat-sidebar />
         <app-instance-list />
 
         <app-sidebar-footer (closeAllClicked)="closeAllInstances()" />
@@ -98,10 +71,10 @@
       <div
         class="workspace-shell"
         [class.empty]="!hasWorkspaceSelection()"
-        [class.operator-active]="operatorStore.selected()"
+        [class.chat-active]="chatStore.selectedChatId()"
       >
-        @if (operatorStore.selected()) {
-          <app-operator-page />
+        @if (chatStore.selectedChatId()) {
+          <app-chat-detail />
         } @else {
           <app-instance-detail
             [canShowFileExplorer]="canShowFileExplorer()"

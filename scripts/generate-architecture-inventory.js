@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const {
   extractContractsChannelEntries,
 } = require('./ipc-channel-utils');
@@ -23,6 +24,8 @@ const SKIPPED_DIRS = new Set([
   'release',
 ]);
 
+let indexedFilesCache = null;
+
 function walk(dir, matcher, results = []) {
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -41,23 +44,48 @@ function relative(filePath) {
   return path.relative(ROOT, filePath);
 }
 
+function readIndexedFiles() {
+  if (indexedFilesCache) return indexedFilesCache;
+
+  try {
+    indexedFilesCache = execFileSync('git', ['ls-files', '-z', '--cached'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
+      .split('\0')
+      .filter(Boolean)
+      .map((file) => path.join(ROOT, file))
+      .filter((file) => fs.existsSync(file));
+    return indexedFilesCache;
+  } catch {
+    indexedFilesCache = walk(ROOT, (file) => true);
+    return indexedFilesCache;
+  }
+}
+
+function readIndexedFilesMatching(matcher) {
+  return readIndexedFiles()
+    .filter(matcher)
+    .sort((a, b) => relative(a).localeCompare(relative(b)));
+}
+
 function readProviderNames() {
-  const providerFiles = walk(path.join(ROOT, 'src/main/providers'), (file) =>
-    file.endsWith('-provider.ts') || file.endsWith('provider-runtime-service.ts'),
+  const providersDir = path.join(ROOT, 'src/main/providers');
+  const providerFiles = readIndexedFilesMatching((file) =>
+    file.startsWith(`${providersDir}${path.sep}`)
+    && (file.endsWith('-provider.ts') || file.endsWith('provider-runtime-service.ts')),
   );
   return providerFiles.map(relative).sort();
 }
 
 function readPreloadDomains() {
-  return fs.existsSync(PRELOAD_DOMAINS_DIR)
-    ? fs.readdirSync(PRELOAD_DOMAINS_DIR)
-      .filter((name) => name.endsWith('.preload.ts'))
-      .sort()
-    : [];
+  return readIndexedFilesMatching((file) =>
+    path.dirname(file) === PRELOAD_DOMAINS_DIR && path.basename(file).endsWith('.preload.ts'),
+  ).map((file) => path.basename(file));
 }
 
 function readLargeFiles() {
-  return walk(ROOT, (file) => {
+  return readIndexedFilesMatching((file) => {
     if (!/\.(ts|js|html|scss|md)$/.test(file)) return false;
     const rel = relative(file);
     return !rel.startsWith('node_modules/') && !rel.startsWith('dist/');
@@ -71,7 +99,10 @@ function readLargeFiles() {
 }
 
 function readPackageDependencyGraph() {
-  const packageFiles = walk(path.join(ROOT, 'packages'), (file) => path.basename(file) === 'package.json');
+  const packagesDir = path.join(ROOT, 'packages');
+  const packageFiles = readIndexedFilesMatching((file) =>
+    file.startsWith(`${packagesDir}${path.sep}`) && path.basename(file) === 'package.json',
+  );
   const packageNames = new Set(
     packageFiles.map((file) => JSON.parse(fs.readFileSync(file, 'utf8')).name).filter(Boolean),
   );

@@ -1,8 +1,3 @@
-import type { ConversationLedgerConversation } from './conversation-ledger.types';
-import type { InstanceProvider } from './instance.types';
-import type { ReasoningEffort } from './provider.types';
-import type { NodePlacementPrefs } from './worker-node.types';
-
 export type OperatorProjectSource =
   | 'recent-directory'
   | 'active-instance'
@@ -183,27 +178,6 @@ export interface OperatorVerificationSummary {
 export type OperatorVerificationResultEventPayload =
   Record<string, unknown> & OperatorVerificationSummary;
 
-export interface OperatorRoutingAudit {
-  source: 'operator-routing';
-  reason: string;
-  model?: string;
-  complexity?: string;
-  tier?: string;
-  confidence?: number;
-  provider?: InstanceProvider;
-  remoteEligible: boolean;
-  memoryPromotionEligible: boolean;
-  automationFollowUpEligible: boolean;
-}
-
-export interface OperatorProjectAgentRouting {
-  provider?: InstanceProvider;
-  modelOverride?: string;
-  reasoningEffort?: ReasoningEffort;
-  nodePlacement?: NodePlacementPrefs;
-  audit: OperatorRoutingAudit;
-}
-
 export interface OperatorRunUsage {
   nodesStarted: number;
   nodesCompleted: number;
@@ -298,9 +272,4 @@ export interface OperatorRunGraph {
   run: OperatorRunRecord;
   nodes: OperatorRunNodeRecord[];
   events: OperatorRunEventRecord[];
-}
-
-export interface OperatorSendMessageResult {
-  conversation: ConversationLedgerConversation;
-  runId: string | null;
 }

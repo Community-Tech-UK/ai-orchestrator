@@ -1,0 +1,184 @@
+@if (detail(); as detail) {
+  <section class="chat-detail">
+    <header class="chat-header">
+      <div class="chat-title-area">
+        <span class="chat-eyebrow">Chat</span>
+        <div class="chat-name-row">
+          <input
+            class="chat-name-input"
+            [ngModel]="draftName()"
+            (ngModelChange)="draftName.set($event)"
+            (keydown.enter)="saveName()"
+            aria-label="Chat name"
+          />
+          <button
+            type="button"
+            class="compact-button"
+            [disabled]="!draftName().trim() || draftName().trim() === detail.chat.name"
+            (click)="saveName()"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+
+      <div class="chat-runtime-state">
+        <span class="runtime-pill">{{ providerLabel(detail.chat.provider) }}</span>
+        @if (currentInstance(); as instance) {
+          <span class="runtime-pill status-pill">{{ instance.status }}</span>
+        } @else {
+          <span class="runtime-pill status-pill">Dormant</span>
+        }
+      </div>
+    </header>
+
+    <section class="chat-settings" aria-label="Chat settings">
+      <label class="field">
+        <span>Provider</span>
+        <select
+          [ngModel]="draftProvider()"
+          (ngModelChange)="applyProvider($event)"
+          [disabled]="hasMessages()"
+        >
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="gemini">Gemini</option>
+          <option value="copilot">Copilot</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Model</span>
+        <div class="field-row">
+          <input
+            [ngModel]="draftModel()"
+            (ngModelChange)="draftModel.set($event)"
+            (keydown.enter)="saveModel()"
+            placeholder="Default"
+          />
+          <button type="button" class="compact-button" [disabled]="!detail.chat.provider" (click)="saveModel()">
+            Apply
+          </button>
+        </div>
+      </label>
+
+      <label class="field project-field">
+        <span>Project</span>
+        <div class="field-row">
+          <input
+            [ngModel]="draftCwd()"
+            (ngModelChange)="draftCwd.set($event)"
+            (keydown.enter)="applyCwd()"
+            placeholder="Working directory"
+          />
+          <button type="button" class="icon-button" title="Choose folder" (click)="browseCwd()">...</button>
+          <button type="button" class="compact-button" [disabled]="!draftCwd().trim()" (click)="applyCwd()">
+            Set
+          </button>
+        </div>
+      </label>
+
+      <label class="toggle-field">
+        <input type="checkbox" [checked]="detail.chat.yolo" (change)="toggleYolo($event)" />
+        <span>YOLO</span>
+      </label>
+    </section>
+
+    @if (!setupComplete()) {
+      <div class="setup-banner">
+        <span class="setup-title">Setup required</span>
+        <span class="setup-copy">Pick a provider and project before sending the first message.</span>
+      </div>
+    } @else if (detail.chat.currentCwd) {
+      <div class="project-strip">
+        <span class="project-name">{{ cwdLabel(detail.chat.currentCwd) }}</span>
+        <span class="project-path">{{ detail.chat.currentCwd }}</span>
+      </div>
+    }
+
+    @if (chatStore.error()) {
+      <div class="error-banner">{{ chatStore.error() }}</div>
+    }
+
+    @if (runs().length > 0 || runLoading()) {
+      <section class="chat-runs" aria-label="Chat runs">
+        <div class="chat-runs-header">
+          <span>Runs</span>
+          <button type="button" class="compact-button" [disabled]="runLoading()" (click)="refreshRuns()">
+            Refresh
+          </button>
+        </div>
+        <div class="chat-run-list">
+          @for (run of runs(); track run.id) {
+            <article class="chat-run" [class.active]="activeRunGraph()?.run?.id === run.id">
+              <div class="chat-run-main">
+                <strong>{{ run.title }}</strong>
+                <span>{{ run.status }}</span>
+              </div>
+              @if (isActiveRun(run)) {
+                <button type="button" class="compact-button" (click)="cancelRun(run.id)">Cancel</button>
+              }
+            </article>
+          }
+        </div>
+        @if (activeRunGraph(); as graph) {
+          <div class="chat-run-graph">
+            @for (node of graph.nodes; track node.id) {
+              <div class="chat-run-node">
+                <span>{{ node.title }}</span>
+                <small>{{ node.status }}</small>
+              </div>
+            }
+            <div class="chat-run-event-count">{{ graph.events.length }} events</div>
+          </div>
+        }
+      </section>
+    }
+
+    <div class="chat-output-section">
+      <app-output-stream
+        [messages]="messages()"
+        [instanceId]="streamInstanceId()"
+        [provider]="providerForUi()"
+        [showThinking]="showThinking()"
+        [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
+        [showToolMessages]="showToolMessages()"
+        [isChild]="false"
+      />
+      @if (statusForUi() === 'busy' || statusForUi() === 'processing' || statusForUi() === 'thinking_deeply' || statusForUi() === 'initializing' || statusForUi() === 'interrupting' || statusForUi() === 'cancelling' || statusForUi() === 'interrupt-escalating') {
+        <app-activity-status
+          [status]="statusForUi()"
+          [activity]="activity()"
+          [busySince]="busySince()"
+        />
+      }
+    </div>
+
+    <app-input-panel
+      [instanceId]="streamInstanceId()"
+      [disabled]="!setupComplete() || chatStore.sending()"
+      [placeholder]="setupComplete() ? 'Send a message...' : 'Choose provider and project first'"
+      [pendingFiles]="[]"
+      [pendingFolders]="[]"
+      [queuedCount]="0"
+      [queuedMessages]="[]"
+      [isBusy]="isBusy()"
+      [isRespawning]="isRespawning()"
+      [outputMessages]="messages()"
+      [instanceStatus]="statusForUi()"
+      [provider]="providerForUi()"
+      [currentModel]="modelForUi()"
+      [workingDirectory]="detail.chat.currentCwd"
+      [isReplayFallback]="false"
+      (sendMessage)="onSendMessage($event)"
+      (steerMessage)="onSteerMessage($event)"
+    />
+  </section>
+} @else {
+  <section class="chat-detail empty-chat">
+    <div class="empty-chat-copy">
+      <span class="chat-eyebrow">Chats</span>
+      <h2>Select or create a chat</h2>
+    </div>
+  </section>
+}

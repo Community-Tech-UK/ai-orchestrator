@@ -24,6 +24,7 @@ import { VOICE_CHANNELS } from './voice.channels';
 import { BROWSER_CHANNELS } from './browser.channels';
 import { CONVERSATION_LEDGER_CHANNELS } from './conversation-ledger.channels';
 import { OPERATOR_CHANNELS } from './operator.channels';
+import { CHAT_CHANNELS } from './chat.channels';
 import { RUNTIME_PLUGIN_CHANNELS } from './runtime-plugin.channels';
 
 export {
@@ -45,6 +46,7 @@ export {
   BROWSER_CHANNELS,
   CONVERSATION_LEDGER_CHANNELS,
   OPERATOR_CHANNELS,
+  CHAT_CHANNELS,
   RUNTIME_PLUGIN_CHANNELS,
 };
 
@@ -71,6 +73,7 @@ export const IPC_CHANNELS = {
   ...BROWSER_CHANNELS,
   ...CONVERSATION_LEDGER_CHANNELS,
   ...OPERATOR_CHANNELS,
+  ...CHAT_CHANNELS,
   ...RUNTIME_PLUGIN_CHANNELS,
 } as const;
 

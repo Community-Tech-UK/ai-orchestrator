@@ -109,4 +109,43 @@ describe('MCP core services', () => {
     await helper.cleanupBackups([target]);
     expect(fs.existsSync(backup)).toBe(false);
   });
+
+  it('skips provider config backups when backups are disabled', async () => {
+    const helper = new WriteSafetyHelper({
+      allowWorldWritableParent: false,
+      writeBackups: false,
+    });
+    const target = path.join(tmp, 'config.json');
+    await helper.writeAtomic(target, 'old');
+    await helper.writeAtomic(target, 'new');
+
+    expect(fs.readFileSync(target, 'utf8')).toBe('new');
+    expect(fs.existsSync(`${target}.orch-bak`)).toBe(false);
+  });
+
+  it('requires explicit opt-in before writing under a world-writable parent', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+
+    const parent = path.join(tmp, 'world-writable');
+    fs.mkdirSync(parent);
+    fs.chmodSync(parent, 0o777);
+    const target = path.join(parent, 'config.json');
+
+    const guarded = new WriteSafetyHelper({
+      allowWorldWritableParent: false,
+      writeBackups: false,
+    });
+    await expect(guarded.writeAtomic(target, '{}')).rejects.toThrow(
+      'Refusing to write MCP config under world-writable parent',
+    );
+
+    const optedIn = new WriteSafetyHelper({
+      allowWorldWritableParent: true,
+      writeBackups: false,
+    });
+    await optedIn.writeAtomic(target, '{}');
+    expect(fs.readFileSync(target, 'utf8')).toBe('{}');
+  });
 });

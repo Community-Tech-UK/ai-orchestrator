@@ -116,54 +116,28 @@ export function createInitializationSteps(
       },
     },
     {
-      name: 'Operator stall detector',
+      name: 'Chat service',
       fn: () => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { getOperatorStallDetector } = require('../operator') as typeof import('../operator');
-          getOperatorStallDetector().start();
+          const { getChatService } = require('../chats') as typeof import('../chats');
+          getChatService({ instanceManager }).initialize();
         } catch (error) {
-          logger.warn('Operator stall detector initialization failed; stalled runs will not be auto-blocked', {
+          logger.warn('Chat service initialization failed; chat IPC handlers will report degraded errors', {
             error: error instanceof Error ? error.message : String(error),
           });
         }
       },
     },
     {
-      name: 'Operator runtime',
+      name: 'Operator event relay',
       fn: () => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const {
-            getOperatorEngine,
-            getOperatorThreadService,
-            getProjectRegistry,
-          } = require('../operator') as typeof import('../operator');
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { getRepoJobService } = require('../repo-jobs') as typeof import('../repo-jobs');
-          const repoJob = getRepoJobService();
-          repoJob.initialize({ instanceManager });
-          getProjectRegistry({ instanceManager });
-          const engine = getOperatorEngine({ instanceManager, repoJob });
-          const recovered = engine.recoverActiveRuns();
-          if (recovered.length > 0) {
-            void getOperatorThreadService().getThread().then(() => {
-              for (const graph of recovered) {
-                getOperatorThreadService().appendRecoveryNotice({
-                  runId: graph.run.id,
-                  title: graph.run.title,
-                  status: graph.run.status,
-                  message: graph.run.error ?? 'Recovered run needs attention.',
-                });
-              }
-            }).catch((error) => {
-              logger.warn('Operator recovery transcript notice failed', {
-                error: error instanceof Error ? error.message : String(error),
-              });
-            });
-          }
+          const { getOperatorEventRelay } = require('../operator') as typeof import('../operator');
+          getOperatorEventRelay().start();
         } catch (error) {
-          logger.warn('Operator runtime initialization failed; delegated project work will be unavailable', {
+          logger.warn('Operator event relay initialization failed; run events will refresh on manual reload only', {
             error: error instanceof Error ? error.message : String(error),
           });
         }
