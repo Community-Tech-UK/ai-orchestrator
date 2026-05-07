@@ -1,8 +1,10 @@
 # Operator Verification and Retry Design
 
 **Date:** 2026-05-05
-**Status:** Draft for implementation
+**Status:** Superseded on 2026-05-07
 **Scope:** Add independent verification and bounded fix-worker retry loops to global Operator project work.
+
+Do not implement this design as written. It targets the removed global `OperatorEngine` architecture. The replacement direction is the persistent Chats collection in `docs/superpowers/specs/2026-05-06-chats-collection-design_completed.md`, with deterministic work represented as explicit structured tools and audit runs.
 
 ## Summary
 

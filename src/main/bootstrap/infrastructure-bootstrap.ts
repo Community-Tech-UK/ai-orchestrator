@@ -6,6 +6,7 @@
  */
 
 import { registerBootstrapModule } from './index';
+import { getCliUpdatePollService } from '../cli/cli-update-poll-service';
 
 export function registerInfrastructureBootstrap(): void {
   registerBootstrapModule({
@@ -51,6 +52,19 @@ export function registerInfrastructureBootstrap(): void {
     init: () => {
       const { getCliDetectionService } = require('../cli/cli-detection') as typeof import('../cli/cli-detection');
       getCliDetectionService();
+    },
+  });
+
+  registerBootstrapModule({
+    name: 'CLI update poller',
+    domain: 'infrastructure',
+    failureMode: 'degraded',
+    dependencies: ['CLI detection'],
+    init: () => {
+      getCliUpdatePollService().start();
+    },
+    teardown: () => {
+      getCliUpdatePollService().stop();
     },
   });
 

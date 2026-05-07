@@ -1,5 +1,9 @@
 # Browser Gateway First Milestone Implementation Plan
 
+**Status:** Completed and revalidated on 2026-05-07.
+
+This plan is kept for implementation history. The implemented surface lives under `src/main/browser-gateway/`, `packages/contracts/src/channels/browser.channels.ts`, `packages/contracts/src/schemas/browser.schemas.ts`, `src/preload/domains/browser.preload.ts`, and `src/renderer/app/features/browser/`. Focused validation on 2026-05-07 covered Browser Gateway contracts, service, RPC server, MCP tools, approval/grant stores, and preload channel alignment.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the first Browser Gateway milestone: managed persistent Chrome profiles, read-only/navigation browser tools, audit logging, and one non-Claude MCP exposure path without exposing raw Chrome DevTools tools to agents.
@@ -12,7 +16,7 @@
 
 ## Scope
 
-This plan implements the recommended first milestone from `docs/superpowers/specs/2026-05-03-browser-gateway-design.md`.
+This plan implements the recommended first milestone from `docs/superpowers/specs/2026-05-03-browser-gateway-design_completed.md`.
 
 Included:
 

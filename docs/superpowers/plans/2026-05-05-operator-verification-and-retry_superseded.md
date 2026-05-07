@@ -1,5 +1,9 @@
 # Operator Verification and Retry Implementation Plan
 
+**Status:** Superseded on 2026-05-07 by the Chats architecture.
+
+Do not implement this plan as written. It depends on `OperatorEngine`, `OperatorProjectAgentExecutor`, and deterministic project-agent run graphs that were removed when the app moved to provider-backed persistent Chats. Future verification should be designed either as chat-invoked provider work or as auditable structured tools, not as an engine-owned retry loop.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not commit or push unless the user explicitly asks.
 
 **Goal:** Add first-class deterministic verification and bounded fix-worker retry loops to global Operator project runs.

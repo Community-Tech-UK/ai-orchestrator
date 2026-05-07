@@ -144,10 +144,30 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--success-color, #4ade80);
+  background: var(--text-muted);
 
-  &.needs-setup {
+  &.runtime-ready {
+    background: var(--success-color, #4ade80);
+  }
+
+  &.runtime-busy,
+  &.runtime-starting {
+    background: rgba(var(--primary-rgb), 0.92);
+    box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
+  }
+
+  &.runtime-waiting,
+  &.runtime-setup,
+  &.runtime-stale {
     background: var(--warning-color, #ffb74d);
+  }
+
+  &.runtime-error {
+    background: var(--danger-color, #ef4444);
+  }
+
+  &.runtime-dormant {
+    background: var(--text-muted);
   }
 }
 

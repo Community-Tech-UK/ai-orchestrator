@@ -1,8 +1,10 @@
 # Browser Gateway Autonomous Grants - Design
 
 **Date:** 2026-05-04
-**Status:** Approved design, Claude validation fixes applied, implementation plan pending
+**Status:** Completed, validated 2026-05-07
 **Owner:** James (shutupandshave)
+
+This design is retained as the Browser Gateway grant/approval architecture record. The implementation now includes grant storage, approval requests, action classification, upload policy, mutating browser actions, grant-aware auditing, renderer grant controls, and MCP/RPC forwarding through the Browser Gateway service.
 
 ## 1. Overview
 

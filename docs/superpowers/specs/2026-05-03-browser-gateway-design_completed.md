@@ -1,8 +1,10 @@
 # AI Orchestrator Browser Gateway - Design
 
 **Date:** 2026-05-03
-**Status:** Draft, validation fixes applied, v1 driver/bridge decision recorded
+**Status:** Completed, validated 2026-05-07
 **Owner:** James (shutupandshave)
+
+This design is retained as the Browser Gateway architecture record. The current code includes the managed-profile gateway, provider MCP/RPC bridge, safe DTO/redaction layer, Browser page, approval/grant expansion, and existing-tab native-host plumbing. See `src/main/browser-gateway/` for the implemented main-process surface.
 
 ## 1. Overview
 

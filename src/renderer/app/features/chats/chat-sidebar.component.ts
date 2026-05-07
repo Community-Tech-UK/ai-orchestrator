@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import type { ChatProvider } from '../../../../shared/types/chat.types';
+import type { ChatProvider, ChatRecord } from '../../../../shared/types/chat.types';
 import { ChatStore } from '../../core/state/chat.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { deriveChatRuntimeState, type ChatRuntimeState } from './chat-runtime-state';
 
 @Component({
   selector: 'app-chat-sidebar',
@@ -85,6 +86,13 @@ export class ChatSidebarComponent implements OnInit {
   providerLabel(provider: ChatProvider | null, model: string | null): string {
     if (!provider) return 'setup required';
     return model ? `${provider} · ${model}` : provider;
+  }
+
+  runtimeState(chat: ChatRecord): ChatRuntimeState {
+    const instance = chat.currentInstanceId
+      ? this.instanceStore.getInstance(chat.currentInstanceId)
+      : null;
+    return deriveChatRuntimeState(chat, instance?.status);
   }
 
   private clearWorkspaceSelection(): void {

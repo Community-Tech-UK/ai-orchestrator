@@ -965,6 +965,81 @@ describe('ChannelMessageRouter', () => {
 
       expect(adapter.sendMessage).not.toHaveBeenCalled();
     });
+
+    it('does not duplicate output when multiple inbound messages target the same instance', async () => {
+      // Regression: previously every inbound message keyed an output tracker by
+      // its random msg.id, so each /continue button click attached a fresh
+      // listener to provider:normalized-event and the same chunk was sent to
+      // Discord N times. See channel-message-router.streamResults.
+      vi.useFakeTimers();
+
+      // Both inbound messages route to the same instance via thread persistence.
+      persistence.resolveInstanceByThread.mockReturnValue('inst-1');
+
+      await router.handleInboundMessage(makeMessage({
+        id: 'dup-1',
+        chatId: 'c1',
+        messageId: 'm1',
+        threadId: 'thread-dup',
+        content: 'first prompt',
+      }));
+
+      await router.handleInboundMessage(makeMessage({
+        id: 'dup-2',
+        chatId: 'c1',
+        messageId: 'm2',
+        threadId: 'thread-dup',
+        content: 'second prompt',
+      }));
+
+      adapter.sendMessage.mockClear();
+
+      // Single output chunk from the instance should produce a single Discord send.
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'one chunk'));
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const streamSends = adapter.sendMessage.mock.calls.filter(
+        (call) => call[1] === 'one chunk',
+      );
+      expect(streamSends).toHaveLength(1);
+      // And the stream replies to the latest user prompt, not the stale first one.
+      expect(streamSends[0][2]).toMatchObject({ replyTo: 'm2' });
+    });
+
+    it('emits the suppression notice only once across repeated inbound messages', async () => {
+      // Regression: each per-msg tracker hit its own MAX_LIVE_STREAM_FLUSHES
+      // budget independently, so users saw multiple "Output is still streaming"
+      // notices when they clicked /continue while the AI was busy.
+      vi.useFakeTimers();
+
+      persistence.resolveInstanceByThread.mockReturnValue('inst-1');
+
+      // Five user prompts arrive while the instance keeps streaming.
+      for (let i = 0; i < 5; i++) {
+        await router.handleInboundMessage(makeMessage({
+          id: `sup-${i}`,
+          chatId: 'c1',
+          messageId: `mm${i}`,
+          threadId: 'thread-sup',
+          content: `prompt ${i}`,
+        }));
+      }
+
+      adapter.sendMessage.mockClear();
+
+      // Push enough chunks to exceed MAX_LIVE_STREAM_FLUSHES (3) and trigger
+      // the suppression branch.
+      for (let i = 0; i < 6; i++) {
+        instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', `chunk ${i} `));
+        await vi.advanceTimersByTimeAsync(2000);
+      }
+
+      const suppressionSends = adapter.sendMessage.mock.calls.filter(
+        (call) => typeof call[1] === 'string' && call[1].startsWith('Output is still streaming.'),
+      );
+      expect(suppressionSends).toHaveLength(1);
+    });
   });
 
   // -------------------------------------------------------------------------

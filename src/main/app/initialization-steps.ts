@@ -61,7 +61,6 @@ import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
 import { initializePauseFeatureRuntime } from './pause-feature-bootstrap';
-import { getCliUpdatePollService } from '../cli/cli-update-poll-service';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 
@@ -154,7 +153,6 @@ export function createInitializationSteps(
       },
     },
     { name: 'Runtime diagnostics', fn: () => installRuntimeDiagnostics() },
-    { name: 'CLI update poller', fn: () => getCliUpdatePollService().start() },
     { name: 'Pause feature', fn: () => initializePauseFeatureRuntime() },
     { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
     {

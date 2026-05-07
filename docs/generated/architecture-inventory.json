@@ -4476,7 +4476,7 @@
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
-      "lines": 2482
+      "lines": 2502
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -4747,6 +4747,10 @@
       "lines": 1143
     },
     {
+      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
+      "lines": 1141
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
       "lines": 1139
     },
@@ -4801,10 +4805,6 @@
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
       "lines": 1069
-    },
-    {
-      "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
-      "lines": 1066
     },
     {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
@@ -4893,10 +4893,6 @@
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 957
-    },
-    {
-      "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone.md",
-      "lines": 954
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",

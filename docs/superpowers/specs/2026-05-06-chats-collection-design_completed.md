@@ -41,7 +41,7 @@ The user-visible result:
 - A user can have many concurrent persistent chats, each with its own provider, model, and current cwd.
 - A chat can change which project it's working on without losing its visible transcript.
 - Project-pinned chats inside the existing Projects sidebar group continue to work exactly as today.
-- The genuinely mechanical operations preserved from the prior spec (`git-batch` for "pull all repos") remain available, callable as a tool from any chat.
+- The genuinely mechanical operations preserved from the prior spec (`git-batch` for "pull all repos") remain available as a structured MCP tool for Claude-backed chats; non-Claude chats can still do equivalent work through their shell tools.
 - The data layer leaves room for a future "items / Jira-board" feature that references chats but does not change them.
 - App restart preserves chat identity and transcripts; CLI runtimes re-spawn lazily.
 
@@ -63,7 +63,7 @@ Pieces this design reuses:
 - `src/renderer/app/features/instance-list/instance-list.component.*` — already renders the project sidebar groups. We add a new top-level "Chats" group above it.
 - `src/main/operator/operator-database.ts` — existing `userData/operator/operator.db`. We reuse it for the new `chats` table.
 - `src/main/operator/git-batch-service.ts` (already implemented per the prior spec's Wave 3) — preserved and exposed as an MCP tool.
-- `src/main/mcp/orchestrator-mcp-repository.ts` and `src/main/mcp/orchestrator-injection-reader.ts` — already inject configured MCP servers into spawned CLI sessions. We extend this path to expose orchestrator-specific tools (starting with `git_batch_pull`) to chat Instances.
+- `src/main/mcp/orchestrator-mcp-repository.ts` and `src/main/mcp/orchestrator-injection-reader.ts` — already inject configured MCP servers into spawned CLI sessions. We keep that path and add a built-in orchestrator-tools MCP config for `git_batch_pull`.
 
 Pieces this design retires:
 
@@ -168,8 +168,8 @@ A new service `src/main/chats/chat-transcript-bridge.ts` performs the bridging:
 
 - Subscribes to the existing instance output / runtime event streams for any Instance linked to a chat (the chat-service supplies the `chatId` ↔ `instanceId` link).
 - Translates each event into a ledger message:
-  - Streaming assistant text chunks are coalesced; only the final assistant turn is persisted to the ledger (intermediate streams stay in the output buffer for live rendering).
-  - Tool calls and tool results become assistant messages with `metadata.kind = 'tool_call' | 'tool_result'` and a `metadata.toolUseId` for correlation.
+  - Streaming assistant output is coalesced by stable `nativeMessageId` when provider updates reuse the same message id; the durable transcript ends with the settled assistant turn, while intermediate streams still drive live rendering through the output buffer.
+  - Tool calls and tool results become `role = 'tool'` ledger messages with `phase = 'tool_call' | 'tool_result'`, `metadata.kind = 'tool_call' | 'tool_result'`, and `metadata.toolUseId` for correlation.
   - Errors become assistant messages with `metadata.kind = 'error'`.
   - Native `instance:state-changed` and similar lifecycle events are not bridged; the chat detail surface still subscribes to instance events directly for live UX.
 - Uses `ConversationLedgerService.appendMessage()` (which already exists for orchestrator-thread writes), not `sendTurn()`. The bridge is the producer; the CLI is the source.
@@ -178,7 +178,7 @@ A new service `src/main/chats/chat-transcript-bridge.ts` performs the bridging:
 
 - The chat composer sends `chat:send-message` to the main process.
 - The chat-service appends a user message to the ledger thread first (so the transcript reflects the user's intent even if the Instance hasn't started yet), then forwards the text to the Instance via the existing instance-input path.
-- **Duplicate-message avoidance:** the bridge tags each user message it has appended with `metadata.fromBridge = true`. The Instance's normal user-input echo (provider runtime events sometimes echo the user turn) is checked against `tool_use_id`-style correlation; if a matching `fromBridge`-tagged ledger entry exists, the echo is dropped at the bridge boundary instead of being re-appended.
+- **Duplicate-message avoidance:** the transcript bridge never appends `OutputMessage` entries whose type is `user`. User turns are persisted only by `chat-service`; Instance user echoes are live renderer artifacts and are intentionally ignored at the bridge boundary. Chat-created Instances are spawned without `initialPrompt`; the first chat message always goes through `chat:send-message` so the ledger write happens exactly once.
 
 **Renderer reads from the ledger, not the instance buffer:**
 
@@ -230,24 +230,29 @@ A migration converts the single existing Orchestrator ledger thread (created by 
 ### 6. Recovery on Restart
 
 - Load chat list from `chats` table on startup. Display in sidebar.
-- **Do not auto-spawn** Instances. `current_instance_id` is cleared at startup; clicking a chat lazy-spawns its Instance.
+- **Do not auto-spawn** Instances. `current_instance_id` is cleared at startup; clicking a chat only loads ledger state. The first user message lazy-spawns the Instance if needed.
 - Optional follow-up (not v1): eager-spawn the most recently active N chats in the background.
 
 ### 7. Tools the Chat's CLI Can Invoke
 
 The chat is a normal CLI session, so it has the provider's native tools (file read/write, shell, MCP, child agents, etc.). On top of that, this design exposes orchestrator-specific tools **via MCP injection**, using the existing infrastructure in `src/main/mcp/orchestrator-mcp-repository.ts` + `orchestrator-injection-reader.ts`.
 
-**Important constraint: MCP injection is currently Claude-only and provider-scoped, not instance-scoped.** The constant `ORCHESTRATOR_INJECTION_PROVIDERS = ['claude']` (`src/shared/types/mcp-scopes.types.ts:43`) limits injection to Claude. The reader at `instance-lifecycle.ts:422` filters by provider, not by instance. We accept this for v1:
+**Important constraint: MCP injection is currently Claude-only and provider-scoped.** The constant `ORCHESTRATOR_INJECTION_PROVIDERS = ['claude']` (`src/shared/types/mcp-scopes.types.ts:43`) limits injection to Claude. v1 keeps that visibility model, but the built-in orchestrator-tools config includes the spawning `instanceId` so tool invocations can be attributed correctly.
 
 - v1 ships `git_batch_pull` as an injected MCP tool **only for Claude-backed sessions**, and the injection is **global** across all Claude sessions (chat instances AND project sessions). This is a small UX bonus for project-session users — it doesn't break anything.
 - For non-Claude chats (Codex / Gemini / Copilot), the user can still drive the same outcome by asking the chat's CLI to run shell commands; the CLIs all have shell tool access. We do not block non-Claude chats from running batch git operations; we just don't surface the structured `git_batch_pull` tool to them.
-- Per-instance scoping (only chat instances see the tool) is **out of scope for v1** — that's a separate refactor of the MCP injection mechanism. Open question filed in §Future Work.
+- Per-instance visibility scoping (only chat instances see the tool) is **out of scope for v1**. Per-instance **binding** is in scope: the same tool can be visible to all Claude sessions, but each built-in tools bridge receives `AI_ORCHESTRATOR_INSTANCE_ID`. The tool runner resolves `chatId` by looking up the chat whose `current_instance_id` matches that instance id.
 
 Implementation pattern:
 
-1. Add a new internal MCP server (in-process stdio) that exposes the orchestrator-specific tools. Suggested location: `src/main/mcp/orchestrator-tools-mcp-server.ts`.
-2. Register it in `OrchestratorMcpRepository` with `injectInto: ['claude']` (matching `ORCHESTRATOR_INJECTION_PROVIDERS`).
-3. When any Claude Instance is spawned, the existing injection reader bundles this MCP into the CLI's MCP config alongside user-configured MCP servers.
+1. Add a new bundled stdio MCP bridge that exposes the orchestrator-specific tools:
+   - `src/main/mcp/orchestrator-tools-mcp-server.ts` — child-process stdio entrypoint, similar to the browser/codemem MCP bridges.
+   - `src/main/mcp/orchestrator-tools-mcp-config.ts` — resolves the packaged/dev bridge path and builds the inline MCP config JSON.
+   - `src/main/mcp/orchestrator-tools.ts` — tool definitions and run-store writes.
+2. Keep user-configured Orchestrator MCP servers in `OrchestratorMcpRepository` as today.
+3. Change `InstanceLifecycleManager.getOrchestratorMcpConfigs(provider)` to accept the spawning `instanceId` and append the built-in orchestrator-tools config alongside `OrchestratorInjectionReader.buildBundle(provider)`.
+4. The built-in inline MCP config injects these env vars into the stdio bridge: `AI_ORCHESTRATOR_OPERATOR_DB_PATH`, `AI_ORCHESTRATOR_CONVERSATION_LEDGER_DB_PATH`, and `AI_ORCHESTRATOR_INSTANCE_ID`.
+5. The tool runner resolves source attribution by querying `ChatStore.getByInstanceId(instanceId)`. Project-session Claude Instances can call `git_batch_pull`; their source context has `chatId = null` and `threadId = 'mcp-standalone'`.
 
 v1 ships exactly one tool through this path:
 
@@ -261,13 +266,19 @@ With `OperatorEngine` removed (§What to Delete), the previous "run graph creati
 
 The MCP tool handler does this directly, no engine needed:
 
-1. **On invocation start** — handler creates one `OperatorRun` (status = `running`, title = `git_batch_pull`) plus one `OperatorRunNode` (type = `git-batch`, status = `running`). It captures source attribution into `OperatorRun.metadata`:
-   - `chatId` — must be available to the tool handler at invocation time. Each CLI spawns its own MCP server child process, so a per-instance binding is feasible; the specific mechanism (args interpolation, env vars at spawn, or an HTTP/loopback transport with a per-instance token) is an implementation detail. The implementation plan must pick one and document it. As a fallback, the chat-service can correlate by listening to the instance's `tool_use` provider runtime events and record the binding before the tool's first write to the run store, but this is racier than direct attribution at spawn.
-   - `instanceId` — same source.
-   - `messageId` — the ledger message id of the assistant turn that triggered the tool call. The transcript bridge appends the assistant's `tool_call` ledger message; the MCP handler reads the most recent such message for this chat to bind to.
+1. **On invocation start** — handler creates one `OperatorRun` (status = `running`, title = `git_batch_pull`) plus one `OperatorRunNode` (type = `git-batch`, status = `running`). It captures source attribution using existing run fields:
+   - `threadId` — the chat ledger thread id when `ChatStore.getByInstanceId(instanceId)` finds a chat; otherwise `'mcp-standalone'`.
+   - `sourceMessageId` — latest ledger `tool_call` message for the chat when available, otherwise latest user message, otherwise `mcp-tool:<timestamp>`.
+   - `planJson` on the run stores `{ tool: 'git_batch_pull', chatId, instanceId, messageId }`.
+   - `inputJson` on the node stores the tool args plus the same `chatId`, `instanceId`, and `messageId`.
 2. **During execution** — `git-batch-service` events stream into `OperatorRunEvent` records (`shell-command`, `progress`).
 3. **On completion** — node and run move to `completed` (or `failed`); the per-repo summary is stored in `OperatorRunNode.outputJson`.
-4. **Cancellation** — the user clicks "Cancel" in the run panel. IPC sends a cancel signal to the in-process tool handler; the handler aborts the bounded-concurrency `git-batch-service` operation by signalling its abort controller and marks the run `cancelled`. The IPC handler at `OPERATOR_CANCEL_RUN` is repointed from `getOperatorEngine().cancelRun()` to a small new `OperatorRunRunner.cancel(runId)` that knows about live tool-runs.
+4. **Cancellation** — the user clicks "Cancel" in the run panel. IPC marks the run `cancelled`; the live MCP tool checks `runStore.getRun(run.id)?.status === 'cancelled'` through `GitBatchPullOptions.shouldCancel`.
+   - Extend `GitBatchPullOptions` with `shouldCancel?: () => boolean`.
+   - `GitBatchService.pullAll()` and `pullRepository()` call `throwIfCancelled(options)` before discovery, before/after each repository worker, and between Git commands.
+   - Cancellation throws `GitBatchCancelledError`, and the MCP handler marks the node/run `cancelled`.
+   - This is best-effort for an already-running Git child command, but it prevents remaining repositories from starting once the cancellation is observed.
+   - The IPC handler at `OPERATOR_CANCEL_RUN` is repointed from `getOperatorEngine().cancelRun()` to `OperatorRunRunner.cancel(runId)`.
 5. **Retry** — re-invoking the tool with the same args creates a fresh run; retry does not mutate the prior run. The `OPERATOR_RETRY_RUN` IPC handler is **deleted** in v1 (no chat-issued retry button); future work can add a "retry from history" affordance if useful.
 6. **Event streaming to renderer** — the existing `OperatorRunEvent` channel (`operator:event`) is reused. The renderer's run panel subscribes to it.
 
@@ -357,7 +368,7 @@ No deterministic acknowledgement. No regex routing. The first user message is se
 ## What to Keep / Reposition
 
 - `src/main/operator/operator-database.ts` and `userData/operator/operator.db` — kept; used for `chats` table.
-- `src/main/operator/operator-run-store.ts` / `operator-event-bus.ts` / `operator-schema.ts` and the `OperatorRun*` types — kept; used by tool invocations for audit records and reserved for the future Jira-board layer.
+- `src/main/operator/operator-run-store.ts` / `operator-event-bus.ts` / `operator-schema.ts` and the `OperatorRun*` types — kept; used by tool invocations for audit records and reserved for the future Jira-board layer. Tool-run source attribution is stored in existing `thread_id`, `source_message_id`, run `plan_json`, and node `input_json` fields.
 - `src/main/operator/git-batch-service.ts` (already implemented) — kept; exposed as the `git_batch_pull` chat tool via MCP.
 - `src/main/operator/operator-project-store.ts` — keep for now; the project registry is useful for the project picker UI in Wave B (the cwd switcher can suggest known projects). If unused after Wave B, remove in Wave C cleanup.
 - Conversation ledger extensions for `provider: "orchestrator"` threads — kept; chat transcripts use them.
@@ -375,6 +386,17 @@ No deterministic acknowledgement. No regex routing. The first user message is se
 ### `chats` table
 
 (See Architecture §5 Persistence.)
+
+### Tool-run source attribution
+
+Do **not** add a new `operator_runs.metadata_json` column in v1. The retained operator-run schema already has enough fields for audit attribution:
+
+- `operator_runs.thread_id` — chat ledger thread id, or `'mcp-standalone'` for non-chat Claude project sessions.
+- `operator_runs.source_message_id` — latest ledger tool-call/user message id when available, or an `mcp-tool:<timestamp>` fallback.
+- `operator_runs.plan_json` — stores `{ tool: 'git_batch_pull', chatId, instanceId, messageId }`.
+- `operator_run_nodes.input_json` — stores the tool args plus the same attribution fields.
+
+This keeps the run-store contract small and matches the existing `OperatorRunStore` APIs.
 
 ### Future: `items` table (Jira-board layer; **NOT** v1)
 
@@ -406,7 +428,7 @@ New channels in `packages/contracts/src/channels/chat.channels.ts`:
 - `chat:create`
 - `chat:rename`
 - `chat:archive`
-- `chat:set-cwd`           — initiates the cwd-switch flow described in Architecture §1
+- `chat:set-cwd`           — Wave A: sets bootstrap/pre-runtime cwd for chats with no active Instance; Wave B: also initiates the cwd-switch flow described in Architecture §1
 - `chat:set-provider`      — sets the chat's provider; only valid before the first message in the chat (or as part of the migrated-chat-bootstrap flow)
 - `chat:set-model`         — sets the chat's model; valid at any time, but provider must be set first
 - `chat:set-yolo`          — toggles per-chat yolo
@@ -463,18 +485,21 @@ Unit tests:
 
 - `InternalOrchestratorConversationAdapter.startThread()` returns unique native thread ids per call, and resumeThread round-trips them.
 - `ChatTranscriptBridge` outbound: instance assistant turns, tool calls, tool results, and errors land in the ledger with the correct metadata; streaming chunks are coalesced.
-- `ChatTranscriptBridge` inbound: `chat:send-message` appends one user message; the same Instance echo does not produce a duplicate.
+- `ChatTranscriptBridge` inbound: `chat:send-message` appends one user message, and the bridge drops Instance-emitted `user` output so no duplicate user ledger message is produced.
 - `chat-service` create / rename / archive / set-provider / set-model / set-yolo happy paths and validation (e.g., `set-provider` rejected after first message).
+- `chat-service.set-cwd` bootstrap mode sets `current_cwd` for a migrated chat before any Instance is spawned.
 - `chat-service.set-cwd` correctly terminates the old instance, creates the new one, links it, and appends the system event to the ledger (Wave B).
 - Migration: existing `'orchestrator-global'` ledger thread → first chat row in bootstrap state; later `set-provider`/`set-model`/`set-cwd` complete bootstrap.
 - Sidebar store: list ordering by `last_active_at`, archive hide.
 - Cwd-switch transcript replay policy: last 10 turn pairs reach the new Instance's prompt, capped by character budget.
+- Tool-run source attribution is written to existing `thread_id`, `source_message_id`, run `plan_json`, and node `input_json` fields.
+- `GitBatchService.pullAll()` honors `shouldCancel` by preventing remaining repositories from starting and throwing `GitBatchCancelledError`.
 
 IPC tests:
 
 - Schema validation for each new channel.
 - Lazy-spawn on first send-message.
-- MCP-routed tool invocation: when a Claude chat's CLI calls `git_batch_pull`, an `OperatorRun` is produced with `metadata.chatId` / `metadata.instanceId` / `metadata.messageId` populated; cancel via `OPERATOR_CANCEL_RUN` aborts in-flight Git work; progress events flow over `operator:event`.
+- MCP-routed tool invocation: when a Claude chat's CLI calls `git_batch_pull`, an `OperatorRun` is produced with chat/source attribution in `thread_id`, `source_message_id`, run `plan_json`, and node `input_json`; cancel via `OPERATOR_CANCEL_RUN` best-effort cancels Git work through `shouldCancel`; progress events flow over `operator:event`.
 - Repointed `OPERATOR_CANCEL_RUN` no longer calls `getOperatorEngine` (regression guard against accidental engine resurrection).
 
 Renderer tests:
@@ -486,8 +511,8 @@ Renderer tests:
 
 Integration tests:
 
-- Restart recovery: create a chat, send a message, restart the runtime, the chat is still in the list with its transcript intact (read from the ledger), no Instance spawned until clicked.
-- `git_batch_pull` tool invocation from a Claude chat against a temporary multi-repo workspace; verify per-repo summary in `OperatorRunNode.outputJson`.
+- Restart recovery: create a chat, send a message, restart the runtime, the chat is still in the list with its transcript intact (read from the ledger), no Instance spawned until the first post-restart user message.
+- `git_batch_pull` tool invocation from a Claude chat against a temporary multi-repo workspace; verify per-repo summary in `OperatorRunNode.outputJson`, attribution in run `plan_json` / node `input_json`, and cancellation behavior through `shouldCancel`.
 - Packaging guard: `npm run prebuild` (which runs `verify:ipc` + `verify:exports` + `check:contracts` + `verify-native-abi`) passes after the changes.
 
 Verification commands after implementation:
@@ -505,20 +530,21 @@ Verification commands after implementation:
 - Modify `InternalOrchestratorConversationAdapter.startThread()` to generate per-call unique native thread ids (Architecture §3).
 - Add `chats` table + migration of the existing `orchestrator-global` thread (with bootstrap state).
 - Add `chat-service` + the **transcript bridge** (Architecture §4). Without the bridge the migrated chat's transcript can't be displayed and new chat replies don't persist.
-- Add IPC channels: `chat:list`, `chat:get`, `chat:create`, `chat:rename`, `chat:archive`, `chat:set-provider`, `chat:set-model`, `chat:set-yolo`, `chat:send-message`, `chat:event`. (`chat:set-cwd` is in Wave B.)
+- Add IPC channels: `chat:list`, `chat:get`, `chat:create`, `chat:rename`, `chat:archive`, `chat:set-provider`, `chat:set-model`, `chat:set-cwd`, `chat:set-yolo`, `chat:send-message`, `chat:event`.
+- Wave A includes `chat:set-cwd` for bootstrap/pre-runtime cwd selection so migrated chats can leave bootstrap. Wave B expands the same channel to full runtime cwd switching.
 - Wire all 11 contracts-package steps in §IPC and Contracts.
 - Add the Chats sidebar group + "+ New chat" dialog.
 - Add the chat-detail component wrapping `InstanceDetailComponent`, including the migrated-chat bootstrap panel.
 - Update `dashboard.component.ts/html` to render chat-detail when a chat is selected (replaces the `OperatorPageComponent` branch).
 - Update `initialization-steps.ts` and `operator-handlers.ts` per §What to Delete; keep the run-store-only IPC handlers.
 - Delete the old engine / planner / executors / thread-service / `operator-page.component.ts` per §What to Delete (with importer-check).
-- Cwd is fixed for the chat's lifetime in Wave A; switching is Wave B.
+- Cwd can be chosen during create/bootstrap in Wave A; switching away from an already-spawned cwd is Wave B.
 - Acceptance: user can create N chats with provider/model/cwd, talk to a real LLM in each, restart the app, see them all listed, transcripts intact (driven by the ledger, not the dead Instance's buffer); the migrated Orchestrator thread appears as the first chat with its prior transcript visible after the bootstrap panel is satisfied; `verify:ipc` / `verify:exports` / `check:contracts` all pass; the packaged DMG launches without "Cannot find module" errors.
 
 ### Wave B — Cwd switching
 
 - Add the project picker chip to the chat detail header.
-- Add `chat:set-cwd` IPC + the `replaceInstanceForChat` lifecycle helper.
+- Expand `chat:set-cwd` from bootstrap-only behavior to runtime switching, backed by the `replaceInstanceForChat` lifecycle helper.
 - Implement transcript replay policy on the new Instance's first turn (Architecture §1).
 - Append the project-switch system event to the ledger on switch.
 - Acceptance: in a single chat, the user switches projects; the transcript is continuous in the renderer; the new Instance receives a replay block on its first turn and operates in the new cwd.
@@ -526,12 +552,12 @@ Verification commands after implementation:
 ### Wave C — Tool layer
 
 - Add the new internal MCP server `orchestrator-tools-mcp-server` exposing `git_batch_pull`.
-- Register it in `OrchestratorMcpRepository` with `injectInto: ['claude']`.
+- Append its built-in inline config from `InstanceLifecycleManager.getOrchestratorMcpConfigs(provider, instanceId)` for Claude-backed spawns; keep `OrchestratorMcpRepository` for user-configured Orchestrator MCP entries.
 - Implement the audit-run wrapper (§7): `OperatorRun` per invocation, source attribution, cancel via `OperatorRunRunner.cancel`, event streaming through `operator:event`.
 - Surface tool invocations in the existing run-graph panel, visible only when the active chat has triggered a structured run.
 - Acceptance: in a Claude-backed chat, the user asks "pull all repos in /Users/suas/work" and the CLI invokes `git_batch_pull`; a run row appears in the run panel; events stream live; cancellation works mid-run.
 
-Each wave is independently shippable. Waves A and C are independent; Wave B depends on Wave A.
+Each wave is independently shippable when taken in order. Wave B depends on Wave A. Wave C also depends on Wave A for chat identity, transcript bridge events, and active-chat run-panel filtering, but does not depend on Wave B.
 
 ## Success Criteria
 
@@ -540,7 +566,7 @@ Each wave is independently shippable. Waves A and C are independent; Wave B depe
 - Chats persist across app restarts; their CLI Instances do not.
 - A chat in the Chats group can change its working directory mid-conversation without losing visible transcript continuity.
 - Project-pinned chats inside the Projects sidebar group continue to work exactly as today.
-- A chat can invoke `git_batch_pull` to "pull all repos in my work folder" through its CLI tool path.
+- A Claude-backed chat can invoke structured `git_batch_pull` to "pull all repos in my work folder" through its MCP tool path. Non-Claude chats can perform equivalent work through their shell tools, without the structured audit-run wrapper in v1.
 - The future items / Jira-board layer can be added in a later spec without changing the chat schema.
 
 ## Open Questions / Future Work
@@ -554,7 +580,7 @@ Each wave is independently shippable. Waves A and C are independent; Wave B depe
 - **Unifying project sessions and chats** under a single `Chat` record. Deferred. The current dual representation (Chats: aggregate over Instance; Projects: bare Instances) is acceptable for v1; consolidating in v2 is mechanical.
 - **Items / Jira board.** Sketched in Data Model §Future. Spec separately when the user is ready.
 - **Cwd-switch replay strategy.** v1 prepends the last 10 turn pairs to the new Instance's first turn. Alternatives if this proves insufficient: summarization-based replay, or sticky context that re-prepends on every turn until the user explicitly clears it.
-- **Per-instance MCP injection scoping.** v1 accepts that `git_batch_pull` is injected into all Claude instances (chat AND project sessions), because `ORCHESTRATOR_INJECTION_PROVIDERS` and `getOrchestratorMcpConfigs(provider)` filter by provider, not by instance. Future work: add an `injectInto.scope` (e.g. `'chat-only' | 'all'`) plus per-instance metadata so chat-only tools don't leak into project sessions and we can expose `git_batch_pull` to non-Claude chats too.
+- **Per-instance MCP injection scoping.** v1 accepts that `git_batch_pull` is visible to all Claude instances (chat AND project sessions), even though the built-in bridge receives `instanceId` for attribution. Future work: add an `injectInto.scope` (e.g. `'chat-only' | 'all'`) so chat-only tools don't leak into project sessions and so structured tools can later be exposed to non-Claude chats too.
 - **Non-Claude chats and structured tools.** Codex / Gemini / Copilot chats can drive batch git work via shell tools but won't see the structured `git_batch_pull` tool until per-instance MCP scoping (above) is in place — or until each provider's CLI gets its own injection path.
 
 ## Completion Validation

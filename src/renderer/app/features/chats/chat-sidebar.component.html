@@ -56,6 +56,7 @@
 
   <div class="chat-list">
     @for (chat of chatStore.chats(); track chat.id) {
+      @let runtime = runtimeState(chat);
       <div
         role="button"
         tabindex="0"
@@ -65,10 +66,10 @@
         (keydown.enter)="selectChat(chat.id)"
         (keydown.space)="selectChat(chat.id); $event.preventDefault()"
       >
-        <span class="chat-status" [class.needs-setup]="!chat.provider || !chat.currentCwd"></span>
+        <span class="chat-status" [class]="runtime.statusClass" [attr.title]="runtime.description"></span>
         <span class="chat-row-main">
           <span class="chat-name">{{ chat.name }}</span>
-          <span class="chat-meta">{{ providerLabel(chat.provider, chat.model) }}</span>
+          <span class="chat-meta">{{ providerLabel(chat.provider, chat.model) }} · {{ runtime.label }}</span>
         </span>
         <span class="chat-cwd">{{ cwdLabel(chat.currentCwd) }}</span>
         <button type="button" class="archive-button" title="Archive chat" (click)="archiveChat($event, chat.id)">×</button>

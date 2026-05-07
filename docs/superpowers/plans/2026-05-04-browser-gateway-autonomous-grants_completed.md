@@ -1,5 +1,9 @@
 # Browser Gateway Autonomous Grants Implementation Plan
 
+**Status:** Completed and revalidated on 2026-05-07.
+
+This plan is kept for implementation history. The implemented grant and approval surface lives in `src/main/browser-gateway/browser-grant-store.ts`, `src/main/browser-gateway/browser-approval-store.ts`, `src/main/browser-gateway/browser-action-classifier.ts`, `src/main/browser-gateway/browser-grant-policy.ts`, `src/main/browser-gateway/browser-upload-policy.ts`, `src/main/browser-gateway/browser-gateway-service.ts`, and the browser contracts. Focused validation on 2026-05-07 covered the Browser Gateway service, contracts, grant/approval stores, RPC server, MCP tools, and IPC channel contract.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add scoped Browser Gateway grants so a user can approve once for a browser session, including explicit autonomous submit/delete permissions, while preserving policy, audit, and redaction.

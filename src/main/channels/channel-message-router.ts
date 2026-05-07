@@ -109,6 +109,13 @@ interface OutputStreamTracker {
   pendingFinalization: boolean;
   outputHandler: (envelope: ProviderRuntimeEventEnvelope) => void;
   stateHandler: (payload: { instanceId: string; status?: string }) => void;
+  /**
+   * The latest inbound message that should be used as the reply target for
+   * outbound stream chunks. Mutated when subsequent user prompts arrive while
+   * the instance is still streaming, so live output threads under the most
+   * recent user message instead of duplicating across stale trackers.
+   */
+  currentMsg: InboundChannelMessage;
 }
 
 /** Directories that must never be sent out via channel file sharing */
@@ -2310,8 +2317,18 @@ export class ChannelMessageRouter {
     adapter: BaseChannelAdapter,
   ): void {
     const im = this.getInstanceManager();
-    const bufferKey = `${msg.id}:${instanceId}`;
-    if (this.outputStreams.has(bufferKey)) {
+    // Key by (platform, chatId, instanceId) — NOT by msg.id — so repeat user
+    // prompts to the same chat+instance reuse the existing stream tracker.
+    // Otherwise every new message (including each /continue button click)
+    // would spawn a fresh listener on provider:normalized-event, causing every
+    // emitted output chunk to be replayed N times into the channel.
+    const bufferKey = `${msg.platform}:${msg.chatId}:${instanceId}`;
+    const existingTracker = this.outputStreams.get(bufferKey);
+    if (existingTracker) {
+      // Re-target streaming output at the latest user prompt and clear any
+      // pending finalization — fresh input means more output is incoming.
+      existingTracker.currentMsg = msg;
+      existingTracker.pendingFinalization = false;
       return;
     }
 
@@ -2324,6 +2341,7 @@ export class ChannelMessageRouter {
       pendingFinalization: false,
       outputHandler: () => undefined,
       stateHandler: () => undefined,
+      currentMsg: msg,
     };
 
     const cleanup = (): void => {
@@ -2352,16 +2370,18 @@ export class ChannelMessageRouter {
       const bufferedContent = `${tracker.suppressedContent}${tracker.content}`;
       tracker.content = '';
       tracker.suppressedContent = '';
+      // Always reply to the most recent user prompt for this chat+instance.
+      const ctx = tracker.currentMsg;
 
       if (!tracker.pendingFinalization && tracker.flushCount >= MAX_LIVE_STREAM_FLUSHES) {
         tracker.suppressedContent += bufferedContent;
         if (!tracker.suppressionNoticeSent) {
           tracker.suppressionNoticeSent = true;
           void adapter.sendMessage(
-            msg.chatId,
+            ctx.chatId,
             'Output is still streaming. I will hold further live chunks and post the final update when the session settles.',
             {
-              replyTo: msg.messageId,
+              replyTo: ctx.messageId,
               actions: this.buildSessionActions(instanceId),
             },
           ).catch((err: unknown) => {
@@ -2374,34 +2394,34 @@ export class ChannelMessageRouter {
       tracker.flushCount += 1;
       const shouldCleanupAfterSend = tracker.pendingFinalization;
 
-      void adapter.sendMessage(msg.chatId, bufferedContent, {
-        replyTo: msg.messageId,
+      void adapter.sendMessage(ctx.chatId, bufferedContent, {
+        replyTo: ctx.messageId,
         actions: this.buildSessionActions(instanceId),
       }).then((sentMessage) => {
         this.persistence.saveMessage({
-          id: `out-${msg.platform}-${sentMessage.messageId}`,
-          platform: msg.platform,
-          chat_id: msg.chatId,
+          id: `out-${ctx.platform}-${sentMessage.messageId}`,
+          platform: ctx.platform,
+          chat_id: ctx.chatId,
           message_id: sentMessage.messageId,
-          thread_id: msg.threadId ?? null,
+          thread_id: ctx.threadId ?? null,
           sender_id: 'bot',
           sender_name: 'Orchestrator',
           content: bufferedContent,
           direction: 'outbound',
           instance_id: instanceId,
-          reply_to_message_id: msg.messageId,
+          reply_to_message_id: ctx.messageId,
           timestamp: sentMessage.timestamp,
         });
 
         this.channelManager.emitResponseSent({
-          channelMessageId: msg.messageId,
-          platform: msg.platform,
-          chatId: msg.chatId,
+          channelMessageId: ctx.messageId,
+          platform: ctx.platform,
+          chatId: ctx.chatId,
           messageId: sentMessage.messageId,
           instanceId,
           content: bufferedContent,
           status: 'complete',
-          replyToMessageId: msg.messageId,
+          replyToMessageId: ctx.messageId,
           timestamp: sentMessage.timestamp,
         });
       }).catch((err: unknown) => {

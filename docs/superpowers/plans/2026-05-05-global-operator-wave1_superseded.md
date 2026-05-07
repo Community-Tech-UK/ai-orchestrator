@@ -1,5 +1,9 @@
 # Global Operator Wave 1 Implementation Plan
 
+**Status:** Superseded on 2026-05-07 by `docs/superpowers/specs/2026-05-06-chats-collection-design_completed.md`.
+
+This plan was the intermediate durable "Operator" conversation foundation. The current product direction replaces the single global operator surface with persistent provider-backed Chats. `OperatorThreadService`, `OperatorEngine`, and the old `OperatorPageComponent` are intentionally absent; retained operator code is limited to auditable structured tool runs.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the persistent top-level Orchestrator conversation foundation with no execution engine.
