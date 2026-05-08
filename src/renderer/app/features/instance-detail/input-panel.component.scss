@@ -43,6 +43,31 @@
   opacity: 0.9;
 }
 
+.loop-start-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: rgba(var(--primary-rgb), 0.1);
+  border: 1px solid rgba(var(--primary-rgb), 0.28);
+  font-size: 12px;
+}
+
+.loop-start-status .lss-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  color: var(--primary-color);
+}
+
+.loop-start-status .lss-msg {
+  opacity: 0.9;
+}
+
 .composer-toolbar {
   display: flex;
   align-items: flex-start;

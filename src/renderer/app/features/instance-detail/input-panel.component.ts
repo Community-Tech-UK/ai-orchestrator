@@ -64,6 +64,8 @@ import type {
 } from '../../core/state/instance/instance.types';
 import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
 
+const LOOP_START_ACK_TIMEOUT_MS = 30_000;
+
 @Component({
   selector: 'app-input-panel',
   standalone: true,
@@ -269,27 +271,43 @@ export class InputPanelComponent implements OnDestroy {
 
     this.loopStarting.set(true);
     this.loopStartError.set(null);
-    this.loopStartRequested.emit({
-      config: finalConfig,
-      firstMessage,
-      attachments,
-      onResolved: (ok, error) => {
-        this.loopStarting.set(false);
-        if (ok) {
-          // Only clear once the loop is actually running.
-          this.loopArmed.set(false);
-          this.showLoopPanel.set(false);
-          this.message.set('');
-          this.loopStartError.set(null);
-        } else {
-          // Preserve the user's typed goal, panel state, and pending files
-          // so they can fix and retry — do NOT clear anything.
-          this.loopArmed.set(true);
-          this.showLoopPanel.set(true);
-          this.loopStartError.set(error ?? 'Loop start failed.');
-        }
-      },
-    });
+
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const settle = (ok: boolean, error?: string) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      this.loopStarting.set(false);
+      if (ok) {
+        // Only clear once the loop is actually running.
+        this.loopArmed.set(false);
+        this.showLoopPanel.set(false);
+        this.message.set('');
+        this.loopStartError.set(null);
+      } else {
+        // Preserve the user's typed goal, panel state, and pending files
+        // so they can fix and retry — do NOT clear anything.
+        this.loopArmed.set(true);
+        this.showLoopPanel.set(true);
+        this.loopStartError.set(error ?? 'Loop start failed.');
+      }
+    };
+    timeout = setTimeout(() => {
+      settle(false, 'Loop start did not acknowledge within 30 seconds. No loop was confirmed; try again or check the app logs.');
+    }, LOOP_START_ACK_TIMEOUT_MS);
+
+    try {
+      this.loopStartRequested.emit({
+        config: finalConfig,
+        firstMessage,
+        attachments,
+        onResolved: settle,
+      });
+    } catch (error) {
+      settle(false, error instanceof Error ? error.message : String(error));
+    }
     return true;
   }
 

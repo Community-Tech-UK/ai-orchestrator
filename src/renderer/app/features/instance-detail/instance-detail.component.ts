@@ -1083,38 +1083,44 @@ export class InstanceDetailComponent {
     onResolved: (ok: boolean, error?: string) => void;
   }): Promise<void> {
     const { config, firstMessage, attachments, onResolved } = payload;
-    // The loop directive (panel prompt) is what's reusable across sessions —
-    // remember that, not the goal-specific textarea content.
-    const directiveForHistory = config.iterationPrompt ?? config.initialPrompt;
-    const inst = this.store.selectedInstance();
-    if (inst) {
-      const r = await this.loopStore.start(inst.id, config, attachments);
-      if (r.ok) {
+    try {
+      // The loop directive (panel prompt) is what's reusable across sessions —
+      // remember that, not the goal-specific textarea content.
+      const directiveForHistory = config.iterationPrompt ?? config.initialPrompt;
+      const inst = this.store.selectedInstance();
+      if (inst) {
+        const r = await this.loopStore.start(inst.id, config, attachments);
+        if (r.ok) {
+          this.loopPromptHistory.remember(directiveForHistory);
+          onResolved(true);
+        } else {
+          const msg = r.error ?? 'unknown error';
+          this.store.setError(`Loop start failed: ${msg}`);
+          onResolved(false, msg);
+        }
+        return;
+      }
+      let lastStartError: string | undefined;
+      const ok = await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
+        firstMessage,
+        config,
+        (creating) => this.isCreatingInstance.set(creating),
+        async (newChatId) => {
+          const r = await this.loopStore.start(newChatId, config, attachments);
+          if (!r.ok) lastStartError = r.error;
+          return r;
+        },
+      );
+      if (ok) {
         this.loopPromptHistory.remember(directiveForHistory);
         onResolved(true);
       } else {
-        const msg = r.error ?? 'unknown error';
-        this.store.setError(`Loop start failed: ${msg}`);
-        onResolved(false, msg);
+        onResolved(false, lastStartError ?? 'Could not create session for loop.');
       }
-      return;
-    }
-    let lastStartError: string | undefined;
-    const ok = await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
-      firstMessage,
-      config,
-      (creating) => this.isCreatingInstance.set(creating),
-      async (newChatId) => {
-        const r = await this.loopStore.start(newChatId, config, attachments);
-        if (!r.ok) lastStartError = r.error;
-        return r;
-      },
-    );
-    if (ok) {
-      this.loopPromptHistory.remember(directiveForHistory);
-      onResolved(true);
-    } else {
-      onResolved(false, lastStartError ?? 'Could not create session for loop.');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.store.setError(`Loop start failed: ${msg}`);
+      onResolved(false, msg);
     }
   }
 

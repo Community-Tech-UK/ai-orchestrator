@@ -172,6 +172,8 @@ export class LoopStore {
       if (!r.success) return { ok: false, error: r.error?.message ?? 'unknown error' };
       if (r.data?.state) this.upsertActive(r.data.state);
       return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     } finally {
       this.startingByChat.delete(chatId);
     }

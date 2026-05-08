@@ -57,8 +57,17 @@ export class LoopIpcService {
     config: LoopStartConfigInput,
     attachments?: { name: string; data: Uint8Array }[],
   ): Promise<IpcResponse<{ state: LoopStatePayload }>> {
-    if (!this.api) return notInElectron();
-    return this.api.loopStart(chatId, config, attachments) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
+    const api = this.api;
+    if (!api) return notInElectron();
+    if (typeof api.loopStart !== 'function') {
+      return {
+        success: false,
+        error: {
+          message: 'Loop IPC bridge is unavailable. Reload the app and try again.',
+        },
+      };
+    }
+    return api.loopStart(chatId, config, attachments) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
   }
 
   async pause(loopRunId: string): Promise<IpcResponse> {

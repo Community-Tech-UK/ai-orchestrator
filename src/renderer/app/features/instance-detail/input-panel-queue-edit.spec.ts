@@ -25,6 +25,7 @@ import { PromptHistoryStore } from '../../core/state/prompt-history.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { VoiceConversationStore } from '../../core/voice/voice-conversation.store';
 import { InputPanelComponent } from './input-panel.component';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const inputPanelTemplate = readFileSync(
@@ -92,6 +93,19 @@ class LoopToggleStubComponent {
   @Output() stopRequested = new EventEmitter<void>();
 }
 
+@Component({
+  selector: 'app-loop-config-panel',
+  standalone: true,
+  template: '',
+})
+class LoopConfigPanelStubComponent {
+  @Input() workspaceCwd = '';
+  @Input() firstMessageHint = '';
+  @Output() dismissed = new EventEmitter<void>();
+  @Output() validityChange = new EventEmitter<boolean>();
+  @Output() configChange = new EventEmitter<LoopStartConfigInput | null>();
+}
+
 describe('InputPanelComponent queued message editing', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
 
@@ -109,6 +123,7 @@ describe('InputPanelComponent queued message editing', () => {
           CopilotModelSelectorStubComponent,
           AgentSelectorStubComponent,
           LoopToggleStubComponent,
+          LoopConfigPanelStubComponent,
         ],
       },
     });
@@ -268,6 +283,51 @@ describe('InputPanelComponent queued message editing', () => {
         initialPrompt: 'implement the plan',
       },
     });
+  });
+
+  it('recovers the loop composer if the parent never acknowledges loop start', async () => {
+    vi.useFakeTimers();
+    try {
+      const component = fixture.componentInstance;
+      const loopStarts: unknown[] = [];
+      (component as unknown as {
+        loopStartRequested: {
+          subscribe(callback: (event: unknown) => void): void;
+        };
+      }).loopStartRequested.subscribe((event) => loopStarts.push(event));
+
+      component.onLoopOpenConfig();
+      component.onLoopValidityChange(true);
+      component.onLoopConfigChange({
+        initialPrompt: 'continue until done',
+        workspaceCwd: '/tmp/project',
+        provider: 'claude',
+        contextStrategy: 'same-session',
+      });
+      component.message.set('implement the plan');
+
+      await component.onSend();
+      fixture.detectChanges();
+
+      expect(loopStarts).toHaveLength(1);
+      expect(component.loopStarting()).toBe(true);
+      expect(component.canSend()).toBe(false);
+      expect(fixture.nativeElement.querySelector('.loop-start-status')?.textContent).toContain('Starting loop');
+
+      vi.advanceTimersByTime(30_000);
+      await Promise.resolve();
+      fixture.detectChanges();
+
+      expect(component.loopStarting()).toBe(false);
+      expect(component.canSend()).toBe(true);
+      expect(component.loopArmed()).toBe(true);
+      expect(component.showLoopPanel()).toBe(true);
+      expect(component.message()).toBe('implement the plan');
+      expect(component.loopStartError()).toContain('did not acknowledge');
+      expect(fixture.nativeElement.querySelector('.loop-start-error')?.textContent).toContain('did not acknowledge');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('emits send while initializing so callers can queue during restore', async () => {
