@@ -154,6 +154,25 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     },
 
     /**
+     * Copy a chat message (text + optional HTML + optional first image) to
+     * the system clipboard as a multi-format entry. Lets a single copy
+     * round-trip both prose and inline images: rich-text targets pick up
+     * the HTML (with embedded images), image-only targets pick up the
+     * first image, and plain-text targets pick up the text.
+     *
+     * `imageDataUrl` MUST be a PNG or JPEG data URL —
+     * `nativeImage.createFromDataURL` does not support WebP/GIF/etc., so
+     * the renderer should pre-convert via `dataUrlToClipboardCompatibleDataUrl`.
+     */
+    imageCopyMessage: (payload: {
+      text: string;
+      html?: string;
+      imageDataUrl?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.IMAGE_COPY_MESSAGE, payload);
+    },
+
+    /**
      * Show a native context menu for an image (Copy Image, Save Image As...)
      */
     imageContextMenu: (payload: {

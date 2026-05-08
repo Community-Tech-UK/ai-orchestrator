@@ -80,9 +80,18 @@ const spawnFixture = vi.hoisted(() => {
     const stdin = new EventEmitter() as EventEmitter & {
       write: ReturnType<typeof vi.fn>;
       end: ReturnType<typeof vi.fn>;
+      writable: boolean;
     };
-    stdin.write = vi.fn();
-    stdin.end = vi.fn();
+    stdin.writable = true;
+    stdin.write = vi.fn((_chunk: unknown, _encoding?: unknown, cb?: unknown) => {
+      if (typeof cb === 'function') {
+        queueMicrotask(() => (cb as () => void)());
+      }
+      return true;
+    });
+    stdin.end = vi.fn(() => {
+      stdin.writable = false;
+    });
     proc.stdin = stdin;
     proc.stdout = new EventEmitter();
     proc.stderr = new EventEmitter();
@@ -224,9 +233,9 @@ describe('ClaudeCliAdapter', () => {
 
         const settings = JSON.parse(args[settingsIndex + 1] ?? '{}') as {
           hooks?: {
-            PreToolUse?: Array<{
-              hooks?: Array<{ command?: string }>;
-            }>;
+            PreToolUse?: {
+              hooks?: { command?: string }[];
+            }[];
           };
         };
 
@@ -413,6 +422,26 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
 
       expect(status.available).toBe(false);
       expect(status.error).toContain('ENOENT');
+    });
+  });
+
+  describe('sendMessage', () => {
+    it('closes stdin after writing the one-shot stream-json prompt', async () => {
+      const adapter = new ClaudeCliAdapter({});
+      const sendPromise = adapter.sendMessage({ role: 'user', content: 'hello' });
+
+      await new Promise<void>((r) => setImmediate(r));
+      const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
+
+      await vi.waitFor(() => {
+        expect(proc.stdin.write).toHaveBeenCalled();
+      });
+      expect(proc.stdin.end).toHaveBeenCalledTimes(1);
+
+      proc.stdout.emit('data', Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n'));
+      proc.emit('close', 0);
+
+      await expect(sendPromise).resolves.toMatchObject({ content: 'ok' });
     });
   });
 

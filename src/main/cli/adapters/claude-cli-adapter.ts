@@ -158,6 +158,7 @@ export interface ClaudeCliSpawnOptions {
   workingDirectory?: string;
   model?: string;
   maxTokens?: number;
+  timeout?: number;
   yoloMode?: boolean;
   resume?: boolean;
   forkSession?: boolean; // When resuming, create a new session ID instead of reusing
@@ -269,7 +270,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       command: 'claude',
       args: [],
       cwd: options.workingDirectory,
-      timeout: 300000,
+      timeout: options.timeout ?? 300000,
       sessionPersistence: true,
       env: Object.keys(env).length > 0 ? env : undefined,
     };
@@ -491,6 +492,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 }))
               : undefined
           );
+          this.formatter.close();
         }
       };
 
@@ -565,6 +567,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // Send the message
     if (this.formatter && this.formatter.isWritable()) {
       await this.formatter.sendMessage(message.content);
+      this.formatter.close();
     }
 
     const stdout = this.process.stdout;

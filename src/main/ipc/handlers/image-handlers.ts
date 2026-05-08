@@ -26,6 +26,28 @@ const ImageContextMenuPayloadSchema = z.object({
   filename: z.string().min(1),
 });
 
+const ImageCopyMessagePayloadSchema = z.object({
+  /** Plain-text representation of the message body. */
+  text: z.string(),
+  /**
+   * Optional rich HTML representation (typically the message text plus
+   * inline `<img>` tags for each attachment). Pasted into rich-text
+   * targets like Slack, email clients, and Notes so both text and
+   * images survive the round-trip.
+   */
+  html: z.string().optional(),
+  /**
+   * Optional first image (PNG/JPEG data URL) for paste targets that
+   * accept only an image (Photoshop, Preview, image-paste boxes).
+   * The renderer must convert non-PNG/JPEG data URLs (WebP, GIF, …)
+   * before sending — `nativeImage.createFromDataURL` only accepts PNG/JPEG.
+   */
+  imageDataUrl: z
+    .string()
+    .startsWith('data:')
+    .optional(),
+});
+
 function copyImageFromDataUrl(dataUrl: string): void {
   const image = nativeImage.createFromDataURL(dataUrl);
   if (image.isEmpty()) {
@@ -58,6 +80,33 @@ export function registerImageHandlers(): void {
       ImageCopyPayloadSchema,
       async (validated): Promise<IpcResponse> => {
         copyImageFromDataUrl(validated.dataUrl);
+        return { success: true };
+      }
+    )
+  );
+
+  // Copy a chat-message-shaped payload to the system clipboard as a
+  // multi-format entry: text + HTML + image (when present). Lets a single
+  // copy round-trip both prose and inline images, so pasting into Slack /
+  // email / docs preserves images via HTML, while pasting into Photoshop
+  // or an image-only box pastes the first image natively.
+  ipcMain.handle(
+    IPC_CHANNELS.IMAGE_COPY_MESSAGE,
+    validatedHandler(
+      'IMAGE_COPY_MESSAGE',
+      ImageCopyMessagePayloadSchema,
+      async (validated): Promise<IpcResponse> => {
+        const data: Electron.Data = { text: validated.text };
+        if (validated.html !== undefined && validated.html.length > 0) {
+          data.html = validated.html;
+        }
+        if (validated.imageDataUrl) {
+          const image = nativeImage.createFromDataURL(validated.imageDataUrl);
+          if (!image.isEmpty()) {
+            data.image = image;
+          }
+        }
+        clipboard.write(data);
         return { success: true };
       }
     )

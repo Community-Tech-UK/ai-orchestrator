@@ -140,16 +140,10 @@ export class LoopStore {
       if (chatId) this.setBanner(chatId, null);
     });
 
-    this.ipc.onError(({ loopRunId, error }) => {
+    this.ipc.onError(({ loopRunId }) => {
       const chatId = this.findChatIdForLoop(loopRunId);
       if (!chatId) return;
-      this.setBanner(chatId, {
-        kind: 'claimed-failed',
-        loopRunId,
-        signal: 'error',
-        failure: error,
-        shownAt: Date.now(),
-      });
+      this.setBanner(chatId, null);
     });
   }
 

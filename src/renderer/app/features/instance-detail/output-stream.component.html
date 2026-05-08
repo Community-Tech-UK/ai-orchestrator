@@ -66,7 +66,7 @@
                   </div>
                   <div class="message-hover-actions">
                     <button class="action-btn" [class.copied]="isMessageCopied(item.response.id)"
-                      (click)="copyMessageContent(item.response.content, item.response.id)"
+                      (click)="copyMessageContent(item.response.content, item.response.id, item.response.attachments)"
                       title="Copy to clipboard">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -157,7 +157,7 @@
                     <span class="message-time">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
                     @if (item.message.type === 'assistant') {
                       <button class="copy-message-btn" [class.copied]="isMessageCopied(item.message.id)"
-                        (click)="copyMessageContent(item.message.content, item.message.id)"
+                        (click)="copyMessageContent(item.message.content, item.message.id, item.message.attachments)"
                         title="Copy to clipboard">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -217,7 +217,7 @@
                     </button>
                   }
                   <button class="action-btn" [class.copied]="isMessageCopied(item.message.id)"
-                    (click)="copyMessageContent(item.message.content, item.message.id)"
+                    (click)="copyMessageContent(item.message.content, item.message.id, item.message.attachments)"
                     title="Copy to clipboard">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>

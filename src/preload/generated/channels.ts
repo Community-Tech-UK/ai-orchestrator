@@ -79,6 +79,7 @@ export const IPC_CHANNELS = {
   // Image operations
   IMAGE_PASTE: 'image:paste',
   IMAGE_COPY_TO_CLIPBOARD: 'image:copy-to-clipboard',
+  IMAGE_COPY_MESSAGE: 'image:copy-message',
   IMAGE_CONTEXT_MENU: 'image:context-menu',
   IMAGE_RESOLVE: 'image:resolve',
 

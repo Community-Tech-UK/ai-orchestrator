@@ -21,7 +21,7 @@ import {
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
-import type { FailedImageRef } from '../../../../shared/types/instance.types';
+import type { FailedImageRef, FileAttachment } from '../../../../shared/types/instance.types';
 import { MarkdownService } from '../../core/services/markdown.service';
 import { ElectronIpcService, InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
@@ -631,12 +631,31 @@ export class OutputStreamComponent {
   }
 
   /**
-   * Copy message content to clipboard
+   * Copy message content to clipboard.
+   *
+   * If the message has image attachments, copies them alongside the text as
+   * a multi-format clipboard entry (plain text + HTML with inline images +
+   * first image as a native image). Otherwise falls back to a text-only copy.
    */
-  async copyMessageContent(content: string, messageId: string): Promise<void> {
-    if (!content) return;
+  async copyMessageContent(
+    content: string,
+    messageId: string,
+    attachments?: FileAttachment[],
+  ): Promise<void> {
+    const imageAttachments = (attachments ?? []).filter(
+      (a) => typeof a.data === 'string' && a.type.startsWith('image/'),
+    );
 
-    const result = await this.clipboard.copyText(content, { silent: true, label: 'message' });
+    if (!content && imageAttachments.length === 0) return;
+
+    const result = await this.clipboard.copyMessage(
+      {
+        text: content,
+        images: imageAttachments.map((a) => ({ dataUrl: a.data, name: a.name })),
+      },
+      { silent: true, label: 'message' },
+    );
+
     if (result.ok) {
       this.copiedMessageId.set(messageId);
       if (this.copyResetTimer) {
@@ -825,11 +844,19 @@ export class OutputStreamComponent {
     const items: ContextMenuItem[] = [];
     const content = item.message?.content || item.response?.content;
     const forkableMessage = item.message ?? item.response;
-    if (content) {
+    const attachments = forkableMessage?.attachments;
+    const hasCopyableImages =
+      Array.isArray(attachments) &&
+      attachments.some((a) => typeof a.data === 'string' && a.type.startsWith('image/'));
+    if (content || hasCopyableImages) {
       items.push({
         label: 'Copy message',
         action: () => {
-          void this.copyMessageContent(content, forkableMessage?.id ?? item.id);
+          void this.copyMessageContent(
+            content ?? '',
+            forkableMessage?.id ?? item.id,
+            attachments,
+          );
           this.closeContextMenu();
         },
       });

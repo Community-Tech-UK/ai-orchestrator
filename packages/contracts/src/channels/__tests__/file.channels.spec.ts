@@ -21,6 +21,7 @@ describe('FILE_CHANNELS', () => {
   it('has correct values for image operations', () => {
     expect(FILE_CHANNELS.IMAGE_PASTE).toBe('image:paste');
     expect(FILE_CHANNELS.IMAGE_COPY_TO_CLIPBOARD).toBe('image:copy-to-clipboard');
+    expect(FILE_CHANNELS.IMAGE_COPY_MESSAGE).toBe('image:copy-message');
   });
 
   it('exposes the IMAGE_RESOLVE channel', () => {
