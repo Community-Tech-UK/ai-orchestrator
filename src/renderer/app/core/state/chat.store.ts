@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { ChatCreateInput, ChatDetail, ChatEvent, ChatRecord } from '../../../../shared/types/chat.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { ChatIpcService } from '../services/ipc/chat-ipc.service';
 
 @Injectable({ providedIn: 'root' })
@@ -137,6 +138,11 @@ export class ChatStore {
   async setModel(chatId: string, model: string | null): Promise<void> {
     const response = await this.ipc.setModel(chatId, model);
     this.handleDetailResponse(response, 'Failed to set model');
+  }
+
+  async setReasoning(chatId: string, reasoningEffort: ReasoningEffort | null): Promise<void> {
+    const response = await this.ipc.setReasoning(chatId, reasoningEffort);
+    this.handleDetailResponse(response, 'Failed to set reasoning level');
   }
 
   async setYolo(chatId: string, yolo: boolean): Promise<void> {

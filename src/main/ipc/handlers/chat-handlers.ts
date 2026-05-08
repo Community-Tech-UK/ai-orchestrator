@@ -10,6 +10,7 @@ import {
   ChatSetCwdPayloadSchema,
   ChatSetModelPayloadSchema,
   ChatSetProviderPayloadSchema,
+  ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
 } from '@contracts/schemas/chat';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
@@ -80,7 +81,7 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_SET_PROVIDER, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatSetProviderPayloadSchema, payload, 'CHAT_SET_PROVIDER');
-      return { success: true, data: service.setProvider(validated.chatId, validated.provider) };
+      return { success: true, data: await service.setProvider(validated.chatId, validated.provider) };
     } catch (error) {
       return chatError(error, 'CHAT_SET_PROVIDER_FAILED');
     }
@@ -89,9 +90,18 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_SET_MODEL, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatSetModelPayloadSchema, payload, 'CHAT_SET_MODEL');
-      return { success: true, data: service.setModel(validated.chatId, validated.model) };
+      return { success: true, data: await service.setModel(validated.chatId, validated.model) };
     } catch (error) {
       return chatError(error, 'CHAT_SET_MODEL_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_SET_REASONING, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(ChatSetReasoningPayloadSchema, payload, 'CHAT_SET_REASONING');
+      return { success: true, data: await service.setReasoning(validated.chatId, validated.reasoningEffort) };
+    } catch (error) {
+      return chatError(error, 'CHAT_SET_REASONING_FAILED');
     }
   });
 

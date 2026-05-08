@@ -13,6 +13,7 @@ describe('ChatIpcService', () => {
     chatSetCwd: vi.fn(),
     chatSetProvider: vi.fn(),
     chatSetModel: vi.fn(),
+    chatSetReasoning: vi.fn(),
     chatSetYolo: vi.fn(),
     chatSendMessage: vi.fn(),
     onChatEvent: vi.fn(),
@@ -29,6 +30,7 @@ describe('ChatIpcService', () => {
       api.chatSetCwd,
       api.chatSetProvider,
       api.chatSetModel,
+      api.chatSetReasoning,
       api.chatSetYolo,
       api.chatSendMessage,
     ]) {
@@ -61,6 +63,7 @@ describe('ChatIpcService', () => {
     await service.setCwd('chat-1', '/next');
     await service.setProvider('chat-1', 'codex');
     await service.setModel('chat-1', null);
+    await service.setReasoning('chat-1', 'high');
     await service.setYolo('chat-1', true);
     await service.sendMessage('chat-1', 'Hello');
 
@@ -72,6 +75,7 @@ describe('ChatIpcService', () => {
     expect(api.chatSetCwd).toHaveBeenCalledWith({ chatId: 'chat-1', cwd: '/next' });
     expect(api.chatSetProvider).toHaveBeenCalledWith({ chatId: 'chat-1', provider: 'codex' });
     expect(api.chatSetModel).toHaveBeenCalledWith({ chatId: 'chat-1', model: null });
+    expect(api.chatSetReasoning).toHaveBeenCalledWith({ chatId: 'chat-1', reasoningEffort: 'high' });
     expect(api.chatSetYolo).toHaveBeenCalledWith({ chatId: 'chat-1', yolo: true });
     expect(api.chatSendMessage).toHaveBeenCalledWith({ chatId: 'chat-1', text: 'Hello', attachments: undefined });
   });

@@ -303,12 +303,23 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 };
 
 /**
- * Display info for model dropdown menus
+ * Display info for model dropdown menus.
+ *
+ * `pinned` and `family` are consumed by the compact model picker:
+ *   - `pinned: true` surfaces the entry in the top "Latest" section without
+ *     a section header. The provider's primary default model (per
+ *     `getPrimaryModelForProvider`) must always be pinned — enforced by a
+ *     unit invariant in `provider.types.spec.ts`.
+ *   - `family` groups non-pinned entries inside the "Other versions"
+ *     submenu (e.g. 'Opus' / 'Sonnet' / 'Haiku' for Claude). Untagged
+ *     dynamically-discovered entries fall through to a default group.
  */
 export interface ModelDisplayInfo {
   id: string;
   name: string;
   tier: 'fast' | 'balanced' | 'powerful';
+  pinned?: boolean;
+  family?: string;
 }
 
 /**
@@ -320,27 +331,27 @@ export interface ModelDisplayInfo {
  */
 export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   claude: [
-    { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful' },
-    { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful' },
-    { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful' },
-    { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful' },
-    { id: CLAUDE_PINNED_MODELS.OPUS_45, name: 'Opus 4.5', tier: 'powerful' },
-    { id: CLAUDE_PINNED_MODELS.OPUS_4, name: 'Opus 4', tier: 'powerful' },
-    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet latest', tier: 'balanced' },
-    { id: CLAUDE_MODELS.SONNET_1M, name: 'Sonnet latest, 1M', tier: 'balanced' },
-    { id: CLAUDE_PINNED_MODELS.SONNET_46, name: 'Sonnet 4.6', tier: 'balanced' },
-    { id: CLAUDE_PINNED_MODELS.SONNET_45, name: 'Sonnet 4.5', tier: 'balanced' },
-    { id: CLAUDE_PINNED_MODELS.SONNET_4, name: 'Sonnet 4', tier: 'balanced' },
-    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku latest', tier: 'fast' },
-    { id: CLAUDE_PINNED_MODELS.HAIKU_46, name: 'Haiku 4.6', tier: 'fast' },
-    { id: CLAUDE_PINNED_MODELS.HAIKU_45, name: 'Haiku 4.5', tier: 'fast' },
+    { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
+    { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful', family: 'Opus' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful', family: 'Opus' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_45, name: 'Opus 4.5', tier: 'powerful', family: 'Opus' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_4, name: 'Opus 4', tier: 'powerful', family: 'Opus' },
+    { id: CLAUDE_MODELS.SONNET, name: 'Sonnet latest', tier: 'balanced', pinned: true, family: 'Sonnet' },
+    { id: CLAUDE_MODELS.SONNET_1M, name: 'Sonnet latest, 1M', tier: 'balanced', pinned: true, family: 'Sonnet' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_46, name: 'Sonnet 4.6', tier: 'balanced', family: 'Sonnet' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_45, name: 'Sonnet 4.5', tier: 'balanced', family: 'Sonnet' },
+    { id: CLAUDE_PINNED_MODELS.SONNET_4, name: 'Sonnet 4', tier: 'balanced', family: 'Sonnet' },
+    { id: CLAUDE_MODELS.HAIKU, name: 'Haiku latest', tier: 'fast', pinned: true, family: 'Haiku' },
+    { id: CLAUDE_PINNED_MODELS.HAIKU_46, name: 'Haiku 4.6', tier: 'fast', family: 'Haiku' },
+    { id: CLAUDE_PINNED_MODELS.HAIKU_45, name: 'Haiku 4.5', tier: 'fast', family: 'Haiku' },
   ],
   codex: [
-    { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful' },
-    { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced' },
-    { id: OPENAI_MODELS.GPT53_CODEX_SPARK, name: 'GPT-5.3 Codex Spark', tier: 'fast' },
-    { id: OPENAI_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced' },
-    { id: OPENAI_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
+    { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful', pinned: true, family: 'GPT' },
+    { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced', family: 'GPT' },
+    { id: OPENAI_MODELS.GPT53_CODEX_SPARK, name: 'GPT-5.3 Codex Spark', tier: 'fast', family: 'GPT' },
+    { id: OPENAI_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced', family: 'GPT' },
+    { id: OPENAI_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast', pinned: true, family: 'GPT' },
   ],
   gemini: [
     // Order matters: resolveModelForTier() picks the FIRST entry matching a
@@ -351,39 +362,41 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // 3.1 Pro infrastructure through a non-saturated bucket.
     // Labels reflect what the SERVER actually serves (per stats.models in the
     // CLI's stream-json output), not the wire string we send.
-    { id: GOOGLE_MODELS.GEMINI_3_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
-    { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (canonical ID — currently capacity-limited)', tier: 'powerful' },
-    { id: GOOGLE_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced' },
-    { id: GOOGLE_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
-    { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },
+    { id: GOOGLE_MODELS.GEMINI_3_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful', pinned: true, family: 'Gemini Pro' },
+    { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (canonical ID — currently capacity-limited)', tier: 'powerful', family: 'Gemini Pro' },
+    { id: GOOGLE_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced', pinned: true, family: 'Gemini Flash' },
+    { id: GOOGLE_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful', family: 'Gemini Pro' },
+    { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast', family: 'Gemini Flash' },
   ],
   copilot: [
-    { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
-    { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'powerful' },
-    { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful' },
-    { id: COPILOT_MODELS.CLAUDE_OPUS_46_FAST, name: 'Claude Opus 4.6 Fast', tier: 'powerful' },
-    { id: COPILOT_MODELS.CLAUDE_OPUS_45, name: 'Claude Opus 4.5', tier: 'powerful' },
-    { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced' },
-    { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced' },
-    { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced' },
-    { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
-    { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced' },
-    { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
-    { id: COPILOT_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },
-    { id: COPILOT_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced' },
-    { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced' },
-    { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'balanced' },
-    { id: COPILOT_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced' },
-    { id: COPILOT_MODELS.GPT51, name: 'GPT-5.1', tier: 'balanced' },
-    { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast' },
-    { id: COPILOT_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast' },
-    { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast' },
-    { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast' },
-    { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced' },
+    // Order matters: getPrimaryModelForProvider returns [0]; the entry at index 0
+    // must be pinned to satisfy the pinned-default invariant.
+    { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful', pinned: true, family: 'Gemini' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'powerful', family: 'Claude' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful', family: 'Claude' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_46_FAST, name: 'Claude Opus 4.6 Fast', tier: 'powerful', family: 'Claude' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_45, name: 'Claude Opus 4.5', tier: 'powerful', family: 'Claude' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced', pinned: true, family: 'Claude' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced', family: 'Claude' },
+    { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced', family: 'Claude' },
+    { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful', family: 'Gemini' },
+    { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced', family: 'Gemini' },
+    { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful', family: 'Gemini' },
+    { id: COPILOT_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast', family: 'Gemini' },
+    { id: COPILOT_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced', pinned: true, family: 'GPT' },
+    { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced', family: 'GPT' },
+    { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'balanced', family: 'GPT' },
+    { id: COPILOT_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced', family: 'GPT' },
+    { id: COPILOT_MODELS.GPT51, name: 'GPT-5.1', tier: 'balanced', family: 'GPT' },
+    { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast', family: 'Claude' },
+    { id: COPILOT_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast', family: 'GPT' },
+    { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast', family: 'GPT' },
+    { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast', family: 'GPT' },
+    { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced', pinned: true, family: 'Auto' },
   ],
   ollama: [],
   cursor: [
-    { id: CURSOR_MODELS.AUTO, name: 'Auto (let Cursor pick)', tier: 'balanced' },
+    { id: CURSOR_MODELS.AUTO, name: 'Auto (let Cursor pick)', tier: 'balanced', pinned: true, family: 'Auto' },
     // No hardcoded per-model entries — dynamic list populates later.
   ],
 };

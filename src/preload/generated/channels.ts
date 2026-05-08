@@ -1066,6 +1066,7 @@ export const IPC_CHANNELS = {
   CHAT_SET_CWD: 'chat:set-cwd',
   CHAT_SET_PROVIDER: 'chat:set-provider',
   CHAT_SET_MODEL: 'chat:set-model',
+  CHAT_SET_REASONING: 'chat:set-reasoning',
   CHAT_SET_YOLO: 'chat:set-yolo',
   CHAT_SEND_MESSAGE: 'chat:send-message',
   CHAT_EVENT: 'chat:event',

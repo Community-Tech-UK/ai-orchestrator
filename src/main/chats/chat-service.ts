@@ -10,6 +10,7 @@ import type {
   ChatRecord,
   ChatSendMessageInput,
 } from '../../shared/types/chat.types';
+import type { ReasoningEffort } from '../../shared/types/provider.types';
 import type { ConversationLedgerService } from '../conversation-ledger';
 import {
   getConversationLedgerService,
@@ -105,6 +106,7 @@ export class ChatService {
       name,
       provider: input.provider,
       model: input.model ?? null,
+      reasoningEffort: input.reasoningEffort ?? null,
       currentCwd: input.currentCwd,
       yolo: input.yolo ?? false,
       ledgerThreadId: thread.id,
@@ -135,31 +137,54 @@ export class ChatService {
     return chat;
   }
 
-  setProvider(chatId: string, provider: ChatProvider): ChatDetail {
+  async setProvider(chatId: string, provider: ChatProvider): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
     const messages = this.ledger.getConversation(chat.ledgerThreadId).messages;
     if (chat.provider && messages.length > 0) {
       throw new Error('Chat provider can only be changed before the first message');
     }
+    const previousInstanceId = await this.terminateRuntimeIfRunning(chat, 'provider');
     const updated = this.store.update(chat.id, {
       provider,
+      currentInstanceId: null,
       lastActiveAt: Date.now(),
     });
+    this.emit({ type: 'runtime-cleared', chatId: updated.id, previousInstanceId, chat: updated });
     this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
     return this.detailFor(updated);
   }
 
-  setModel(chatId: string, model: string | null): ChatDetail {
+  async setModel(chatId: string, model: string | null): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
     if (!chat.provider) {
       throw new Error('Set a provider before setting a model');
     }
+    const previousInstanceId = await this.terminateRuntimeIfRunning(chat, 'model');
     const updated = this.store.update(chat.id, {
       model,
+      currentInstanceId: null,
       lastActiveAt: Date.now(),
     });
+    this.emit({ type: 'runtime-cleared', chatId: updated.id, previousInstanceId, chat: updated });
+    this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
+    return this.detailFor(updated);
+  }
+
+  async setReasoning(chatId: string, reasoningEffort: ReasoningEffort | null): Promise<ChatDetail> {
+    this.initialize();
+    const chat = this.requireChat(chatId);
+    if (!chat.provider) {
+      throw new Error('Set a provider before setting a reasoning level');
+    }
+    const previousInstanceId = await this.terminateRuntimeIfRunning(chat, 'reasoning');
+    const updated = this.store.update(chat.id, {
+      reasoningEffort,
+      currentInstanceId: null,
+      lastActiveAt: Date.now(),
+    });
+    this.emit({ type: 'runtime-cleared', chatId: updated.id, previousInstanceId, chat: updated });
     this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
     return this.detailFor(updated);
   }
@@ -252,6 +277,29 @@ export class ChatService {
     return detail;
   }
 
+  private async terminateRuntimeIfRunning(
+    chat: ChatRecord,
+    reason: 'provider' | 'model' | 'reasoning',
+  ): Promise<string | null> {
+    const previousInstanceId = chat.currentInstanceId;
+    if (!previousInstanceId) {
+      return null;
+    }
+    this.bridge.unlink(previousInstanceId);
+    const inst = this.instanceManager.getInstance(previousInstanceId);
+    if (inst && inst.status !== 'terminated') {
+      await this.instanceManager.terminateInstance(previousInstanceId, true).catch((error) => {
+        logger.warn('Failed to terminate chat runtime during config switch', {
+          chatId: chat.id,
+          previousInstanceId,
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    return previousInstanceId;
+  }
+
   private async ensureRuntime(chat: ChatRecord): Promise<Instance> {
     const existing = chat.currentInstanceId
       ? this.instanceManager.getInstance(chat.currentInstanceId)
@@ -268,6 +316,7 @@ export class ChatService {
       yoloMode: chat.yolo,
       provider: chat.provider!,
       modelOverride: chat.model ?? undefined,
+      reasoningEffort: chat.reasoningEffort ?? undefined,
       agentId: 'build',
     });
     this.bridge.link(chat.id, instance.id);

@@ -6,6 +6,7 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createOperatorTables } from '../operator/operator-schema';
 import { createInstance, type FileAttachment, type Instance, type InstanceCreateConfig } from '../../shared/types/instance.types';
+import type { ChatEvent } from '../../shared/types/chat.types';
 import { ChatService } from './chat-service';
 
 describe('ChatService', () => {
@@ -171,7 +172,7 @@ describe('ChatService', () => {
       text: 'Hello',
     });
 
-    expect(() => service.setProvider(chat.chat.id, 'codex')).toThrow(
+    await expect(service.setProvider(chat.chat.id, 'codex')).rejects.toThrow(
       'Chat provider can only be changed before the first message'
     );
   });
@@ -311,6 +312,167 @@ describe('ChatService', () => {
     ]);
   });
 
+  describe('terminate-and-respawn on config setters', () => {
+    it('clears the runtime and emits runtime-cleared on setModel when an instance is alive', async () => {
+      const { service, instanceManager } = createHarness();
+      const events: ChatEvent[] = [];
+      service.events.on('chat:event', (event: ChatEvent) => events.push(event));
+
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Switch model',
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId;
+      expect(runningId).toBeTruthy();
+      events.length = 0;
+
+      const after = await service.setModel(chat.chat.id, 'opus-4-7');
+
+      expect(instanceManager.terminations).toEqual([runningId]);
+      expect(after.chat.currentInstanceId).toBeNull();
+      expect(after.chat.model).toBe('opus-4-7');
+      const runtimeCleared = events.find((e) => e.type === 'runtime-cleared');
+      const chatUpdated = events.find((e) => e.type === 'chat-updated');
+      expect(runtimeCleared).toMatchObject({
+        type: 'runtime-cleared',
+        chatId: chat.chat.id,
+        previousInstanceId: runningId,
+      });
+      expect(chatUpdated).toMatchObject({ type: 'chat-updated', chatId: chat.chat.id });
+      expect(events.indexOf(runtimeCleared!)).toBeLessThan(events.indexOf(chatUpdated!));
+    });
+
+    it('does not call terminateInstance on setModel when no runtime is linked', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'No runtime',
+      });
+
+      const after = await service.setModel(chat.chat.id, 'sonnet-4-6');
+
+      expect(instanceManager.terminations).toEqual([]);
+      expect(after.chat.model).toBe('sonnet-4-6');
+      expect(after.chat.currentInstanceId).toBeNull();
+    });
+
+    it('skips terminate when the linked instance is already terminated', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Already terminated',
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId!;
+      const inst = instanceManager.getInstance(runningId)!;
+      inst.status = 'terminated';
+      instanceManager.terminations.length = 0;
+
+      await service.setModel(chat.chat.id, 'sonnet-4-6');
+
+      expect(instanceManager.terminations).toEqual([]);
+    });
+
+    it('still updates the chat record when terminateInstance rejects', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Terminate fails',
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId!;
+      instanceManager.terminateInstance = async () => {
+        throw new Error('boom');
+      };
+
+      const after = await service.setModel(chat.chat.id, 'haiku');
+
+      expect(after.chat.model).toBe('haiku');
+      expect(after.chat.currentInstanceId).toBeNull();
+      // terminate threw, but model still persisted
+      expect(runningId).toBeTruthy();
+    });
+
+    it('clears the runtime on setProvider when allowed (no messages yet)', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Switch provider',
+      });
+
+      const after = await service.setProvider(chat.chat.id, 'codex');
+
+      expect(after.chat.provider).toBe('codex');
+      expect(instanceManager.terminations).toEqual([]);
+      expect(after.chat.currentInstanceId).toBeNull();
+    });
+
+    it('rejects setReasoning when called on a non-existent chat', async () => {
+      const { service } = createHarness();
+      await expect(
+        service.setReasoning('non-existent-chat', 'high'),
+      ).rejects.toThrow('Chat non-existent-chat not found');
+    });
+
+    it('clears the runtime and persists reasoning on setReasoning', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'codex',
+        currentCwd: '/work/project',
+        name: 'Reasoning chat',
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId!;
+
+      const after = await service.setReasoning(chat.chat.id, 'high');
+
+      expect(instanceManager.terminations).toEqual([runningId]);
+      expect(after.chat.reasoningEffort).toBe('high');
+      expect(after.chat.currentInstanceId).toBeNull();
+    });
+
+    it('persists reasoningEffort on createChat and forwards it on next runtime spawn', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'codex',
+        reasoningEffort: 'high',
+        currentCwd: '/work/project',
+        name: 'Pre-set reasoning',
+      });
+      expect(chat.chat.reasoningEffort).toBe('high');
+
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+
+      const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
+      expect(lastCreate.reasoningEffort).toBe('high');
+    });
+
+    it('forwards updated model and reasoning on the respawned runtime', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'codex',
+        currentCwd: '/work/project',
+        name: 'Respawn fresh',
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'first' });
+      await service.setModel(chat.chat.id, 'gpt-5.5-mini');
+      await service.setReasoning(chat.chat.id, 'medium');
+
+      await service.sendMessage({ chatId: chat.chat.id, text: 'second' });
+
+      const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
+      expect(lastCreate.modelOverride).toBe('gpt-5.5-mini');
+      expect(lastCreate.reasoningEffort).toBe('medium');
+      expect(instanceManager.creates.length).toBe(2);
+    });
+  });
+
   function createHarness(): {
     db: SqliteDriver;
     ledger: ConversationLedgerService;
@@ -339,12 +501,12 @@ describe('ChatService', () => {
 
 class FakeInstanceManager extends EventEmitter {
   readonly creates: InstanceCreateConfig[] = [];
-  readonly inputs: Array<{
+  readonly inputs: {
     instanceId: string | null;
     message: string;
     attachments?: FileAttachment[];
-  }> = [];
-  readonly terminations: Array<string | null> = [];
+  }[] = [];
+  readonly terminations: (string | null)[] = [];
   private readonly instances = new Map<string, Instance>();
 
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {

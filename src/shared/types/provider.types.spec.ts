@@ -64,6 +64,41 @@ describe('provider model lists', () => {
     expect(DEFAULT_MODELS.copilot).toBe(COPILOT_MODELS.GEMINI_3_1_PRO);
     expect(getPrimaryModelForProvider('copilot')).toBe(COPILOT_MODELS.GEMINI_3_1_PRO);
   });
+
+  it('pins the primary default model for every provider that has a static list', () => {
+    for (const [provider, models] of Object.entries(PROVIDER_MODEL_LIST)) {
+      if (models.length === 0) continue;
+      const primary = getPrimaryModelForProvider(provider);
+      const entry = models.find((m) => m.id === primary);
+      expect(entry, `${provider} primary default ${String(primary)} should exist in PROVIDER_MODEL_LIST`).toBeDefined();
+      expect(
+        entry?.pinned,
+        `${provider} primary default ${String(primary)} should be pinned: true so it surfaces in the compact picker's Latest section`,
+      ).toBe(true);
+    }
+  });
+
+  it('caps the pinned set at five entries per provider', () => {
+    for (const [provider, models] of Object.entries(PROVIDER_MODEL_LIST)) {
+      const pinnedCount = models.filter((m) => m.pinned === true).length;
+      expect(
+        pinnedCount,
+        `${provider} has ${pinnedCount} pinned entries; cap is 5 to keep the menu shallow`,
+      ).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('tags every static entry with a family for the Other versions submenu', () => {
+    for (const [provider, models] of Object.entries(PROVIDER_MODEL_LIST)) {
+      if (models.length === 0) continue;
+      for (const model of models) {
+        expect(
+          model.family,
+          `${provider}/${model.id} must declare a family for Other versions sectioning`,
+        ).toBeDefined();
+      }
+    }
+  });
 });
 
 describe('model alias normalization', () => {

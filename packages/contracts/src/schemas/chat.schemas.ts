@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { FileAttachmentSchema } from './common.schemas';
 
 export const ChatProviderSchema = z.enum(['claude', 'codex', 'gemini', 'copilot']);
+export const ChatReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const ChatFileAttachmentSchema = FileAttachmentSchema.extend({
   data: z.string(),
 });
@@ -18,6 +19,7 @@ export const ChatCreatePayloadSchema = z.object({
   name: z.string().max(160).optional(),
   provider: ChatProviderSchema,
   model: z.string().max(160).nullable().optional(),
+  reasoningEffort: ChatReasoningEffortSchema.nullable().optional(),
   currentCwd: z.string().min(1).max(4096),
   yolo: z.boolean().optional(),
 });
@@ -42,6 +44,11 @@ export const ChatSetModelPayloadSchema = z.object({
   model: z.string().min(1).max(160).nullable(),
 });
 
+export const ChatSetReasoningPayloadSchema = z.object({
+  chatId: z.string().min(1).max(200),
+  reasoningEffort: ChatReasoningEffortSchema.nullable(),
+});
+
 export const ChatSetYoloPayloadSchema = z.object({
   chatId: z.string().min(1).max(200),
   yolo: z.boolean(),
@@ -60,5 +67,6 @@ export type ChatRenamePayload = z.infer<typeof ChatRenamePayloadSchema>;
 export type ChatSetCwdPayload = z.infer<typeof ChatSetCwdPayloadSchema>;
 export type ChatSetProviderPayload = z.infer<typeof ChatSetProviderPayloadSchema>;
 export type ChatSetModelPayload = z.infer<typeof ChatSetModelPayloadSchema>;
+export type ChatSetReasoningPayload = z.infer<typeof ChatSetReasoningPayloadSchema>;
 export type ChatSetYoloPayload = z.infer<typeof ChatSetYoloPayloadSchema>;
 export type ChatSendMessagePayload = z.infer<typeof ChatSendMessagePayloadSchema>;

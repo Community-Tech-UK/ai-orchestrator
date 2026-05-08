@@ -8,6 +8,7 @@ function chat(overrides: Partial<ChatRecord> = {}): ChatRecord {
     name: 'Work chat',
     provider: 'claude',
     model: null,
+    reasoningEffort: null,
     currentCwd: '/tmp/project',
     projectId: null,
     yolo: false,

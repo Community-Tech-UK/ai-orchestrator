@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   ChatCreatePayloadSchema,
   ChatProviderSchema,
+  ChatReasoningEffortSchema,
   ChatRenamePayloadSchema,
   ChatSendMessagePayloadSchema,
   ChatSetCwdPayloadSchema,
   ChatSetModelPayloadSchema,
   ChatSetProviderPayloadSchema,
+  ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
 } from '../chat.schemas';
 
@@ -41,7 +43,33 @@ describe('chat schemas', () => {
     expect(ChatSetCwdPayloadSchema.safeParse({ chatId: 'chat-1', cwd: '/next' }).success).toBe(true);
     expect(ChatSetProviderPayloadSchema.safeParse({ chatId: 'chat-1', provider: 'gemini' }).success).toBe(true);
     expect(ChatSetModelPayloadSchema.safeParse({ chatId: 'chat-1', model: null }).success).toBe(true);
+    expect(ChatSetReasoningPayloadSchema.safeParse({ chatId: 'chat-1', reasoningEffort: 'high' }).success).toBe(true);
+    expect(ChatSetReasoningPayloadSchema.safeParse({ chatId: 'chat-1', reasoningEffort: null }).success).toBe(true);
+    expect(ChatSetReasoningPayloadSchema.safeParse({ chatId: 'chat-1', reasoningEffort: 'wat' }).success).toBe(false);
     expect(ChatSetYoloPayloadSchema.safeParse({ chatId: 'chat-1', yolo: false }).success).toBe(true);
+  });
+
+  it('exposes the reasoning-effort enum for UI consumers', () => {
+    expect(ChatReasoningEffortSchema.options).toEqual(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+    expect(ChatReasoningEffortSchema.safeParse('extra').success).toBe(false);
+  });
+
+  it('accepts optional reasoningEffort on create payloads', () => {
+    expect(ChatCreatePayloadSchema.safeParse({
+      provider: 'codex',
+      currentCwd: '/work/project',
+      reasoningEffort: 'high',
+    }).success).toBe(true);
+    expect(ChatCreatePayloadSchema.safeParse({
+      provider: 'codex',
+      currentCwd: '/work/project',
+      reasoningEffort: null,
+    }).success).toBe(true);
+    expect(ChatCreatePayloadSchema.safeParse({
+      provider: 'codex',
+      currentCwd: '/work/project',
+      reasoningEffort: 'wat',
+    }).success).toBe(false);
   });
 
   it('accepts bounded message text and file attachments with data URLs', () => {

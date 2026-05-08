@@ -17,6 +17,7 @@ describe('ChatStore', () => {
     setCwd: vi.fn(),
     setProvider: vi.fn(),
     setModel: vi.fn(),
+    setReasoning: vi.fn(),
     setYolo: vi.fn(),
     sendMessage: vi.fn(),
     onChatEvent: vi.fn((handler: (event: ChatEvent) => void) => {
@@ -63,6 +64,7 @@ function chatRecord(id: string): ChatRecord {
     name: id === 'chat-1' ? 'First chat' : 'Second chat',
     provider: 'claude',
     model: null,
+    reasoningEffort: null,
     currentCwd: `/work/${id}`,
     projectId: null,
     yolo: false,

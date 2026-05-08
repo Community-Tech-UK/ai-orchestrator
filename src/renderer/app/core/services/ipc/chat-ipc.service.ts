@@ -6,6 +6,7 @@ import type {
   ChatProvider,
   ChatRecord,
 } from '../../../../../shared/types/chat.types';
+import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 import {
   ElectronIpcService,
@@ -74,6 +75,13 @@ export class ChatIpcService {
       return { success: false, error: { message: 'Not in Electron' } };
     }
     return this.api.chatSetModel({ chatId, model }) as Promise<IpcResponse<ChatDetail>>;
+  }
+
+  async setReasoning(chatId: string, reasoningEffort: ReasoningEffort | null): Promise<IpcResponse<ChatDetail>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.chatSetReasoning({ chatId, reasoningEffort }) as Promise<IpcResponse<ChatDetail>>;
   }
 
   async setYolo(chatId: string, yolo: boolean): Promise<IpcResponse<ChatDetail>> {

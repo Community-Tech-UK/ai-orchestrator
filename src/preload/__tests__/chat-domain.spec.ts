@@ -20,6 +20,7 @@ describe('chat preload domain', () => {
     await domain.chatSetCwd({ chatId: 'chat-1', cwd: '/next' });
     await domain.chatSetProvider({ chatId: 'chat-1', provider: 'codex' });
     await domain.chatSetModel({ chatId: 'chat-1', model: null });
+    await domain.chatSetReasoning({ chatId: 'chat-1', reasoningEffort: 'high' });
     await domain.chatSetYolo({ chatId: 'chat-1', yolo: true });
     await domain.chatSendMessage({ chatId: 'chat-1', text: 'Hello' });
 
@@ -31,8 +32,9 @@ describe('chat preload domain', () => {
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(6, IPC_CHANNELS.CHAT_SET_CWD, { chatId: 'chat-1', cwd: '/next' });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(7, IPC_CHANNELS.CHAT_SET_PROVIDER, { chatId: 'chat-1', provider: 'codex' });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(8, IPC_CHANNELS.CHAT_SET_MODEL, { chatId: 'chat-1', model: null });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(9, IPC_CHANNELS.CHAT_SET_YOLO, { chatId: 'chat-1', yolo: true });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.CHAT_SEND_MESSAGE, { chatId: 'chat-1', text: 'Hello' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(9, IPC_CHANNELS.CHAT_SET_REASONING, { chatId: 'chat-1', reasoningEffort: 'high' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.CHAT_SET_YOLO, { chatId: 'chat-1', yolo: true });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.CHAT_SEND_MESSAGE, { chatId: 'chat-1', text: 'Hello' });
   });
 
   it('subscribes and unsubscribes chat events using the contract channel', () => {
