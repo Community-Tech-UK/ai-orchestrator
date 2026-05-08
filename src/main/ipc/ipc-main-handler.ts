@@ -98,6 +98,7 @@ import {
   registerOperatorHandlers,
   registerRuntimePluginHandlers,
   registerRtkHandlers,
+  registerLoopHandlers,
 } from './handlers';
 
 const logger = getLogger('IpcMainHandler');
@@ -242,6 +243,9 @@ export class IpcMainHandler {
 
     // RTK token-savings panel
     registerRtkHandlers();
+
+    // Loop Mode (autonomous fix→verify→fix loop)
+    registerLoopHandlers({ windowManager: this.windowManager });
 
     // VCS handlers (Git integration)
     registerVcsHandlers();

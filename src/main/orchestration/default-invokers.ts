@@ -436,3 +436,123 @@ export function registerDefaultWorkflowInvoker(instanceManager: InstanceManager)
     }
   });
 }
+
+// ─── Loop Mode invoker ─────────────────────────────────────────────────────
+
+import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
+import * as fsLoop from 'fs';
+import * as pathLoop from 'path';
+import { getLoopCoordinator } from './loop-coordinator';
+import type { LoopChildResult } from './loop-coordinator';
+import type { LoopFileChange } from '../../shared/types/loop.types';
+
+/**
+ * Best-effort file change detection: shells out to `git diff --numstat HEAD`
+ * inside the workspace, then computes a content hash for each file. Returns
+ * an empty list if not a git repo (the loop still works — progress detector
+ * will gracefully degrade).
+ */
+function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
+  try {
+    const numstat = spawnSync('git', ['diff', '--numstat', 'HEAD'], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    if (numstat.status !== 0 || !numstat.stdout) return [];
+    const out: LoopFileChange[] = [];
+    for (const line of numstat.stdout.trim().split('\n')) {
+      if (!line) continue;
+      const parts = line.split('\t');
+      if (parts.length < 3) continue;
+      const additions = Number.parseInt(parts[0], 10);
+      const deletions = Number.parseInt(parts[1], 10);
+      const relPath = parts[2];
+      const abs = pathLoop.resolve(cwd, relPath);
+      let contentHash = '';
+      try {
+        if (fsLoop.existsSync(abs) && fsLoop.statSync(abs).isFile()) {
+          const buf = fsLoop.readFileSync(abs);
+          contentHash = createHash('sha256').update(buf).digest('hex').slice(0, 16);
+        }
+      } catch { /* ignore */ }
+      out.push({
+        path: relPath,
+        additions: Number.isFinite(additions) ? additions : 0,
+        deletions: Number.isFinite(deletions) ? deletions : 0,
+        contentHash,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Wire `loop:invoke-iteration` to the existing CLI adapter pipeline. The
+ * prompt is sent as a single user message; the response text is captured
+ * along with token usage. File diffs are best-effort via git.
+ *
+ * Tool calls and structured error classification are not captured here in
+ * v1 — those signals will be empty, which the progress detector handles
+ * gracefully (it just doesn't fire G/E without data).
+ */
+export function registerDefaultLoopInvoker(instanceManager: InstanceManager): void {
+  const coordinator = getLoopCoordinator();
+  if (coordinator.listenerCount('loop:invoke-iteration') > 0) return;
+
+  coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+    interface Payload {
+      correlationId: string;
+      loopRunId: string;
+      chatId: string;
+      provider: 'claude' | 'codex';
+      workspaceCwd: string;
+      stage: string;
+      seq: number;
+      prompt: string;
+      callback: (result: LoopChildResult | { error: string }) => void;
+    }
+    const p = payload as Payload;
+    if (!p?.callback || typeof p.callback !== 'function') {
+      logger.warn('loop:invoke-iteration payload missing callback');
+      return;
+    }
+    try {
+      const result = await invokeCliTextResponse({
+        instanceManager,
+        instanceId: undefined,
+        requestedProvider: p.provider,
+        payloadModel: undefined,
+        systemPrompt: undefined,
+        prompt: p.prompt,
+        breakerKey: `loop-orchestration:${p.provider}`,
+        correlationId: p.correlationId,
+      });
+
+      const filesChanged = snapshotFileChangesViaGit(p.workspaceCwd);
+      const childResult: LoopChildResult = {
+        childInstanceId: null,
+        output: result.response,
+        tokens: result.tokens,
+        filesChanged,
+        toolCalls: [],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        exitedCleanly: true,
+      };
+      p.callback(childResult);
+    } catch (err) {
+      const message = logInvocationFailure({
+        correlationId: p.correlationId,
+        invocation: 'Loop iteration invocation',
+        error: err,
+        provider: p.provider,
+      });
+      p.callback({ error: message });
+    }
+  });
+}

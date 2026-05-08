@@ -7,11 +7,19 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { deriveChatRuntimeState, type ChatRuntimeState } from './chat-runtime-state';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import type { PendingSelection } from '../models/compact-model-picker.types';
+
+const DEFAULT_PENDING_SELECTION: PendingSelection = {
+  provider: 'claude',
+  model: null,
+  reasoning: null,
+};
 
 @Component({
   selector: 'app-chat-sidebar',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, CompactModelPickerComponent],
   templateUrl: './chat-sidebar.component.html',
   styleUrl: './chat-sidebar.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -25,8 +33,12 @@ export class ChatSidebarComponent implements OnInit {
 
   showCreate = signal(false);
   name = signal('');
-  provider = signal<ChatProvider>('claude');
-  model = signal('');
+  /**
+   * Form-level provider/model/reasoning state. Replaces the old separate
+   * `provider`/`model` signals; the compact picker reads/writes through
+   * `[(formSelection)]`.
+   */
+  formSelection = signal<PendingSelection>({ ...DEFAULT_PENDING_SELECTION });
   cwd = signal('');
 
   readonly canCreate = computed(() => this.cwd().trim().length > 0 && !this.chatStore.loading());
@@ -39,8 +51,7 @@ export class ChatSidebarComponent implements OnInit {
     const latestCwd = this.chatStore.chats().find((chat) => !!chat.currentCwd)?.currentCwd;
     this.cwd.set(latestCwd || this.settingsStore.settings().defaultWorkingDirectory || '');
     this.name.set('');
-    this.provider.set('claude');
-    this.model.set('');
+    this.formSelection.set({ ...DEFAULT_PENDING_SELECTION });
     this.showCreate.set(true);
   }
 
@@ -56,10 +67,12 @@ export class ChatSidebarComponent implements OnInit {
       return;
     }
     this.clearWorkspaceSelection();
+    const sel = this.formSelection();
     await this.chatStore.create({
       name: this.name().trim() || undefined,
-      provider: this.provider(),
-      model: this.model().trim() || null,
+      provider: sel.provider,
+      model: sel.model ?? null,
+      reasoningEffort: sel.reasoning,
       currentCwd: this.cwd().trim(),
     });
     if (!this.chatStore.error()) {

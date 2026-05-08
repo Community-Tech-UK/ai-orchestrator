@@ -28,4 +28,16 @@ describe('matchesKeybindingWhen', () => {
       instanceRunning: false,
     })).toBe(false);
   });
+
+  it('matches chat-selected clause when chatSelected is true', () => {
+    expect(matchesKeybindingWhen(['chat-selected'], {
+      ...DEFAULT_KEYBINDING_ELIGIBILITY_STATE,
+      chatSelected: true,
+    })).toBe(true);
+
+    expect(matchesKeybindingWhen(['chat-selected'], {
+      ...DEFAULT_KEYBINDING_ELIGIBILITY_STATE,
+      chatSelected: false,
+    })).toBe(false);
+  });
 });

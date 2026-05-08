@@ -35,7 +35,7 @@ import { CommandPaletteComponent } from '../commands/command-palette.component';
 import { CommandHelpHostComponent } from '../commands/command-help-host.component';
 import { SessionPickerHostComponent } from '../sessions/session-picker-host.component';
 import { ResumePickerHostComponent } from '../resume/resume-picker-host.component';
-import { ModelPickerHostComponent } from '../models/model-picker-host.component';
+import { ModelPickerFocusService } from '../models/model-picker-focus.service';
 import { PromptHistorySearchHostComponent } from '../prompt-history/prompt-history-search-host.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
@@ -59,7 +59,6 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
     CommandHelpHostComponent,
     SessionPickerHostComponent,
     ResumePickerHostComponent,
-    ModelPickerHostComponent,
     PromptHistorySearchHostComponent,
     FileExplorerComponent,
     SidebarHeaderComponent,
@@ -86,13 +85,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private viewLayoutService = inject(ViewLayoutService);
   private newSessionDraft = inject(NewSessionDraftService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
+  private modelPickerFocusService = inject(ModelPickerFocusService);
 
   showHistory = signal(false);
   showCommandPalette = signal(false);
   showCommandHelp = signal(false);
   showSessionPicker = signal(false);
   showResumePicker = signal(false);
-  showModelPicker = signal(false);
   showPromptHistorySearch = signal(false);
   showControlPlane = signal(false);
   showSidebar = signal(true);
@@ -103,7 +102,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     || this.showCommandHelp()
     || this.showSessionPicker()
     || this.showResumePicker()
-    || this.showModelPicker()
     || this.showPromptHistorySearch()
     || this.showHistory()
   );
@@ -177,6 +175,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         commandPaletteOpen: this.anyTransientOverlayOpen(),
         historyOpen: this.showHistory(),
         sidebarVisible: this.showSidebar(),
+        chatSelected: !!this.chatStore.selectedChatId(),
       });
     });
   }
@@ -344,11 +343,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
             return;
           }
 
-          if (this.showModelPicker()) {
-            this.showModelPicker.set(false);
-            return;
-          }
-
           if (this.showPromptHistorySearch()) {
             this.showPromptHistorySearch.set(false);
             return;
@@ -409,9 +403,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
       }),
       this.actionDispatch.register({
         id: 'open-model-picker',
-        when: ['instance-selected'],
+        when: ['chat-selected'],
         run: () => {
-          this.showModelPicker.set(true);
+          this.modelPickerFocusService.requestOpen();
         },
       }),
       this.actionDispatch.register({

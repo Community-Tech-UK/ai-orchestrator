@@ -1,45 +1,16 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
-import { BUILTIN_AGENTS } from '../../../../shared/types/agent.types';
 import {
   getModelsForProvider,
-  type ModelDisplayInfo,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
-import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
-import { ProviderStateService } from '../../core/services/provider-state.service';
-import { InstanceStore } from '../../core/state/instance.store';
-import { UsageStore } from '../../core/state/usage.store';
+import { ChatStore } from '../../core/state/chat.store';
 import type { InstanceProvider } from '../../core/state/instance/instance.types';
-import type { OverlayController, OverlayGroup, OverlayItem } from '../overlay/overlay.types';
-import type { ModelPickerItem } from '../../../../shared/types/prompt-history.types';
-
-const PROVIDERS: InstanceProvider[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
-
-const PROVIDER_LABELS: Record<InstanceProvider, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  ollama: 'Ollama',
-  copilot: 'Copilot',
-  cursor: 'Cursor',
-};
-
-const PROVIDER_COLORS: Record<InstanceProvider, string> = {
-  claude: '#d97706',
-  codex: '#10a37f',
-  gemini: '#4285f4',
-  ollama: '#888888',
-  copilot: '#a855f7',
-  cursor: '#0f172a',
-};
-
-export interface ModelPickerProviderOption {
-  id: InstanceProvider;
-  label: string;
-  color: string;
-  available: boolean;
-  disabledReason?: string;
-}
+import type { ChatRecord } from '../../../../shared/types/chat.types';
+import type {
+  CommitTarget,
+  CompactPickerMode,
+  PendingSelection,
+} from './compact-model-picker.types';
 
 export interface ModelPickerReasoningOption {
   id: 'default' | ReasoningEffort;
@@ -47,127 +18,175 @@ export interface ModelPickerReasoningOption {
   description: string;
 }
 
+/**
+ * Compact-model-picker controller. Component-scoped (each
+ * `<app-compact-model-picker>` provides its own instance) so two pickers
+ * mounted simultaneously — sidebar new-chat form + chat-detail bar — keep
+ * independent selection state.
+ *
+ * Two operating modes:
+ *   - `'live-instance'`: bound to a `ChatRecord`. `commitSelection` calls
+ *     `ChatStore.setProvider/setModel/setReasoning` which terminate the
+ *     chat's runtime so the next message spawns a fresh instance with
+ *     the new config.
+ *   - `'pending-create'`: bound to a form before the chat exists.
+ *     `commitSelection` updates an in-memory `PendingSelection` and
+ *     forwards it via the registered callback. No backend call.
+ */
 @Injectable({ providedIn: 'root' })
-export class ModelPickerController implements OverlayController<ModelPickerItem> {
-  private readonly providerState = inject(ProviderStateService);
-  private readonly instanceStore = inject(InstanceStore);
-  private readonly usageStore = inject(UsageStore);
+export class ModelPickerController {
+  private readonly chatStore = inject(ChatStore);
 
-  readonly title = 'Model picker';
-  readonly placeholder = 'Search models or agents...';
-  readonly emptyLabel = 'No models found';
-  readonly query = signal('');
   readonly selectedProviderId = signal<InstanceProvider>('claude');
   readonly selectedModelId = signal('');
   readonly selectedReasoningEffort = signal<ReasoningEffort | null>(null);
+  /** True while a `commitSelection` call is in flight. */
   readonly applying = signal(false);
+
+  readonly pickerMode = signal<CompactPickerMode>('live-instance');
+
+  /** Live ChatRecord bound to the picker in `'live-instance'` mode. */
+  private readonly chat = signal<ChatRecord | null>(null);
+
+  /**
+   * `true` when the bound chat already has at least one durable message.
+   * Drives the lock-on-messages rule — the renderer matches what
+   * `ChatService.setProvider` enforces server-side so the picker can disable
+   * itself before the click instead of throwing on commit.
+   */
+  private readonly chatHasMessages = signal(false);
+
+  /** Pending form state for `'pending-create'` mode (two-way bound). */
+  private readonly pendingSelection = signal<PendingSelection | null>(null);
+
+  /** Callback registered by the host for `'pending-create'` mode. */
+  private pendingSelectionChange: ((selection: PendingSelection) => void) | null = null;
 
   constructor() {
     effect(() => {
-      const selected = this.instanceStore.selectedInstance();
-      const provider = selected?.provider ?? this.activeProvider() ?? 'claude';
+      // Live-instance: mirror the bound chat into the rendering signals
+      // so re-renders pick up provider/model/reasoning whenever the chat
+      // record refreshes (e.g. after a chat-updated event).
+      if (this.pickerMode() !== 'live-instance') return;
+      const c = this.chat();
+      if (!c) return;
+      const provider = (c.provider ?? 'claude') as InstanceProvider;
       this.selectedProviderId.set(provider);
-      this.selectedModelId.set(selected?.currentModel ?? this.defaultModelForProvider(provider));
-      this.selectedReasoningEffort.set(selected?.reasoningEffort ?? null);
+      this.selectedModelId.set(c.model ?? this.defaultModelForProvider(provider));
+      this.selectedReasoningEffort.set(c.reasoningEffort);
+    });
+
+    effect(() => {
+      // Pending-create: mirror the form's selection so the menu renders
+      // the right "current" state.
+      if (this.pickerMode() !== 'pending-create') return;
+      const sel = this.pendingSelection();
+      if (!sel) return;
+      const provider = sel.provider as InstanceProvider;
+      this.selectedProviderId.set(provider);
+      this.selectedModelId.set(sel.model ?? this.defaultModelForProvider(provider));
+      this.selectedReasoningEffort.set(sel.reasoning);
     });
   }
 
-  private readonly activeProvider = computed<InstanceProvider | null>(() => {
-    const selected = this.instanceStore.selectedInstance();
-    if (selected) {
-      return selected.provider;
+  /** Compact-picker setup. Called by `CompactModelPickerComponent`. */
+  setMode(mode: CompactPickerMode): void {
+    this.pickerMode.set(mode);
+  }
+
+  setChat(chat: ChatRecord, hasMessages: boolean): void {
+    this.chat.set(chat);
+    this.chatHasMessages.set(hasMessages);
+  }
+
+  setSelection(selection: PendingSelection): void {
+    this.pendingSelection.set(selection);
+  }
+
+  setSelectionChangeCallback(callback: (selection: PendingSelection) => void): void {
+    this.pendingSelectionChange = callback;
+  }
+
+  /**
+   * Returns a disabled-reason string for the given target, or `undefined`
+   * when the target would be acceptable. Consumed by the menu rows for
+   * per-item gating, and by the bar chips for own-chip gating.
+   */
+  disabledReasonFor(target: CommitTarget): string | undefined {
+    if (this.pickerMode() === 'pending-create') {
+      // Before a chat exists, no rules apply — every selection is just form state.
+      return undefined;
     }
-    const provider = this.providerState.selectedProvider();
-    return provider === 'auto' ? null : provider;
-  });
+    const c = this.chat();
+    const hasMessages = this.chatHasMessages();
 
-  private readonly items = computed<ModelPickerItem[]>(() => {
-    const activeProvider = this.activeProvider();
-    const selected = this.instanceStore.selectedInstance();
-    const modelSwitchUnavailableReason = selected
-      ? getModelSwitchUnavailableReason(selected.status)
-      : undefined;
-    const modelItems = PROVIDERS.flatMap((provider) => {
-      const seen = new Set<string>();
-      return getModelsForProvider(provider)
-        .filter((model) => {
-          if (seen.has(model.id)) return false;
-          seen.add(model.id);
-          return true;
-        })
-        .map((model): ModelPickerItem => ({
-          id: model.id,
-          label: model.name,
-          group: PROVIDER_LABELS[provider],
-          kind: 'model',
-          available: provider === activeProvider && !modelSwitchUnavailableReason,
-          disabledReason: provider === activeProvider
-            ? modelSwitchUnavailableReason
-            : `Requires ${PROVIDER_LABELS[provider]} provider`,
-          tags: [model.tier],
-        }));
-    });
+    if (target.provider !== undefined) {
+      // Lock-on-messages: ChatService.setProvider throws if the chat already
+      // has a provider AND messages exist.
+      if (c?.provider && hasMessages && target.provider !== c.provider) {
+        return 'Provider can only be changed before the first message';
+      }
+    }
 
-    const agentItems = BUILTIN_AGENTS.map((agent): ModelPickerItem => ({
-      id: agent.id,
-      label: agent.name,
-      group: 'Agents',
-      kind: 'agent',
-      available: !!this.instanceStore.selectedInstance(),
-      disabledReason: this.instanceStore.selectedInstance()
-        ? undefined
-        : 'Requires a selected live session',
-      tags: [agent.mode],
-    }));
+    if (target.modelId !== undefined) {
+      const targetProvider = target.provider ?? c?.provider;
+      if (!targetProvider) return 'Pick a provider first';
+    }
 
-    return [...modelItems, ...agentItems];
-  });
+    if (target.reasoning !== undefined) {
+      const targetProvider = target.provider ?? c?.provider;
+      if (!targetProvider) return 'Pick a provider first';
+    }
 
-  readonly providerOptions = computed<ModelPickerProviderOption[]>(() => {
-    const activeProvider = this.activeProvider();
-    const selected = this.instanceStore.selectedInstance();
-    const modelSwitchUnavailableReason = selected
-      ? getModelSwitchUnavailableReason(selected.status)
-      : 'Requires a selected live session';
+    return undefined;
+  }
 
-    return PROVIDERS.map((provider) => ({
-      id: provider,
-      label: PROVIDER_LABELS[provider],
-      color: PROVIDER_COLORS[provider],
-      available: provider === activeProvider && !modelSwitchUnavailableReason,
-      disabledReason: provider === activeProvider
-        ? modelSwitchUnavailableReason
-        : `Requires ${PROVIDER_LABELS[provider]} provider`,
-    }));
-  });
+  /**
+   * Single commit path used by every menu interaction. In live-instance
+   * mode each non-undefined field hits the matching `chatStore.setX`,
+   * which terminates the runtime and persists the value. In pending-create
+   * mode the merged selection is forwarded via the registered callback;
+   * no backend call.
+   *
+   * Returns `true` on success, `false` when the target was disabled.
+   */
+  async commitSelection(target: CommitTarget): Promise<boolean> {
+    if (this.disabledReasonFor(target)) return false;
 
-  readonly selectedProviderOption = computed(() =>
-    this.providerOptions().find((provider) => provider.id === this.selectedProviderId())
-      ?? this.providerOptions()[0],
-  );
+    const mode = this.pickerMode();
 
-  readonly selectedProviderModels = computed<ModelDisplayInfo[]>(() => {
-    const query = this.query().trim().toLowerCase();
-    const seen = new Set<string>();
-    return getModelsForProvider(this.selectedProviderId())
-      .filter((model) => {
-        if (seen.has(model.id)) return false;
-        seen.add(model.id);
-        return true;
-      })
-      .filter((model) => {
-        if (!query) return true;
-        return [model.id, model.name, model.tier].some((value) =>
-          value.toLowerCase().includes(query)
-        );
-      });
-  });
+    if (mode === 'pending-create') {
+      const current = this.pendingSelection();
+      if (!current) return false;
+      const next: PendingSelection = {
+        provider: target.provider ?? current.provider,
+        model: target.modelId !== undefined ? target.modelId : current.model,
+        reasoning: target.reasoning !== undefined ? target.reasoning : current.reasoning,
+      };
+      this.pendingSelection.set(next);
+      this.pendingSelectionChange?.(next);
+      return true;
+    }
 
-  readonly selectedModel = computed(() =>
-    this.selectedProviderModels().find((model) => model.id === this.selectedModelId())
-      ?? getModelsForProvider(this.selectedProviderId()).find((model) => model.id === this.selectedModelId())
-      ?? this.selectedProviderModels()[0],
-  );
+    // 'live-instance'
+    const c = this.chat();
+    if (!c) return false;
+    this.applying.set(true);
+    try {
+      if (target.provider !== undefined && target.provider !== c.provider) {
+        await this.chatStore.setProvider(c.id, target.provider);
+      }
+      if (target.modelId !== undefined && target.modelId !== c.model) {
+        await this.chatStore.setModel(c.id, target.modelId);
+      }
+      if (target.reasoning !== undefined && target.reasoning !== c.reasoningEffort) {
+        await this.chatStore.setReasoning(c.id, target.reasoning);
+      }
+      return true;
+    } finally {
+      this.applying.set(false);
+    }
+  }
 
   readonly reasoningOptions = computed<ModelPickerReasoningOption[]>(() => {
     const provider = this.selectedProviderId();
@@ -199,138 +218,6 @@ export class ModelPickerController implements OverlayController<ModelPickerItem>
 
     return [];
   });
-
-  readonly selectedReasoningId = computed<'default' | ReasoningEffort>(
-    () => this.selectedReasoningEffort() ?? 'default'
-  );
-
-  readonly hasSelectionChanged = computed(() => {
-    const selected = this.instanceStore.selectedInstance();
-    if (!selected) return false;
-    return (
-      selected.currentModel !== this.selectedModelId() ||
-      (selected.reasoningEffort ?? null) !== this.selectedReasoningEffort()
-    );
-  });
-
-  readonly applyDisabledReason = computed(() => {
-    const selected = this.instanceStore.selectedInstance();
-    if (!selected) return 'Requires a selected live session';
-    const provider = this.selectedProviderOption();
-    if (!provider?.available) return provider?.disabledReason ?? 'Provider unavailable';
-    if (!this.selectedModelId()) return 'Select a model version';
-    return undefined;
-  });
-
-  readonly groups = computed<OverlayGroup<ModelPickerItem>[]>(() => {
-    const query = this.query().trim().toLowerCase();
-    const grouped = new Map<string, OverlayItem<ModelPickerItem>[]>();
-
-    for (const item of this.items().filter((candidate) => this.matches(candidate, query))) {
-      const list = grouped.get(item.group) ?? [];
-      list.push(this.toOverlayItem(item));
-      grouped.set(item.group, list);
-    }
-
-    return [...grouped.entries()].map(([id, items]) => ({
-      id,
-      label: id,
-      items: items.sort((left, right) =>
-        Number(right.value.available) - Number(left.value.available) || left.label.localeCompare(right.label),
-      ),
-    }));
-  });
-
-  setQuery(query: string): void {
-    this.query.set(query);
-  }
-
-  selectProvider(providerId: InstanceProvider): void {
-    const provider = this.providerOptions().find((option) => option.id === providerId);
-    if (!provider?.available) return;
-
-    this.selectedProviderId.set(providerId);
-    this.selectedModelId.set(this.defaultModelForProvider(providerId));
-    this.selectedReasoningEffort.set(null);
-  }
-
-  selectModel(modelId: string): void {
-    this.selectedModelId.set(modelId);
-  }
-
-  selectReasoningEffort(effort: 'default' | ReasoningEffort): void {
-    this.selectedReasoningEffort.set(effort === 'default' ? null : effort);
-  }
-
-  async applySelection(): Promise<boolean> {
-    if (this.applyDisabledReason()) return false;
-
-    const selected = this.instanceStore.selectedInstance();
-    const modelId = this.selectedModelId();
-    if (!selected || !modelId) return false;
-
-    this.applying.set(true);
-    try {
-      const reasoningEffort = this.selectedReasoningEffort();
-      await this.instanceStore.changeModel(selected.id, modelId, reasoningEffort);
-      const thinkingSegment = reasoningEffort ? `thinking-${reasoningEffort}` : 'thinking-default';
-      await this.usageStore.record(
-        'model',
-        `${selected.provider}:${modelId}:${thinkingSegment}`,
-        selected.workingDirectory
-      );
-      return true;
-    } finally {
-      this.applying.set(false);
-    }
-  }
-
-  async run(item: OverlayItem<ModelPickerItem>): Promise<boolean> {
-    if (item.disabled) {
-      return false;
-    }
-
-    const selected = this.instanceStore.selectedInstance();
-    if (!selected) {
-      return false;
-    }
-
-    if (item.value.kind === 'agent') {
-      await this.instanceStore.changeAgentMode(selected.id, item.value.id);
-      await this.usageStore.record('model', `agent:${item.value.id}`, selected.workingDirectory);
-      return true;
-    }
-
-    await this.instanceStore.changeModel(selected.id, item.value.id);
-    await this.usageStore.record('model', `${selected.provider}:${item.value.id}`, selected.workingDirectory);
-    return true;
-  }
-
-  private toOverlayItem(item: ModelPickerItem): OverlayItem<ModelPickerItem> {
-    const selected = this.instanceStore.selectedInstance();
-    const isCurrent =
-      item.kind === 'model'
-        ? selected?.currentModel === item.id
-        : selected?.agentId === item.id;
-
-    return {
-      id: `${item.kind}:${item.group}:${item.id}`,
-      label: item.label,
-      description: item.kind === 'model' ? item.id : item.tags?.join(', '),
-      detail: item.tags?.join(' · '),
-      badge: isCurrent ? 'Current' : item.kind === 'agent' ? 'Agent' : item.group,
-      disabled: !item.available,
-      disabledReason: item.disabledReason,
-      keywords: [item.id, item.label, item.group, ...(item.tags ?? [])],
-      value: item,
-    };
-  }
-
-  private matches(item: ModelPickerItem, query: string): boolean {
-    if (!query) return true;
-    return [item.id, item.label, item.group, item.kind, ...(item.tags ?? [])]
-      .some((value) => value.toLowerCase().includes(query));
-  }
 
   private defaultModelForProvider(provider: InstanceProvider): string {
     return getModelsForProvider(provider)[0]?.id ?? '';

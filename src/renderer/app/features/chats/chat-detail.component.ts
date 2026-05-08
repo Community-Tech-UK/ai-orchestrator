@@ -12,11 +12,20 @@ import { OperatorIpcService } from '../../core/services/ipc/operator-ipc.service
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
 import { InputPanelComponent } from '../instance-detail/input-panel.component';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import { LoopControlComponent } from '../loop/loop-control.component';
 
 @Component({
   selector: 'app-chat-detail',
   standalone: true,
-  imports: [FormsModule, OutputStreamComponent, InputPanelComponent, ActivityStatusComponent],
+  imports: [
+    FormsModule,
+    OutputStreamComponent,
+    InputPanelComponent,
+    ActivityStatusComponent,
+    CompactModelPickerComponent,
+    LoopControlComponent,
+  ],
   templateUrl: './chat-detail.component.html',
   styleUrl: './chat-detail.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -30,8 +39,6 @@ export class ChatDetailComponent {
   private readonly operatorIpc = inject(OperatorIpcService);
 
   readonly draftName = signal('');
-  readonly draftProvider = signal<ChatProvider>('claude');
-  readonly draftModel = signal('');
   readonly draftCwd = signal('');
   readonly runs = signal<OperatorRunRecord[]>([]);
   readonly activeRunGraph = signal<OperatorRunGraph | null>(null);
@@ -76,7 +83,7 @@ export class ChatDetailComponent {
     this.currentInstance()?.id ?? this.chat()?.id ?? 'chat'
   );
   readonly providerForUi = computed<ChatProvider>(() =>
-    this.chat()?.provider ?? this.draftProvider()
+    this.chat()?.provider ?? 'claude'
   );
   readonly modelForUi = computed(() =>
     this.chat()?.model ?? undefined
@@ -121,8 +128,6 @@ export class ChatDetailComponent {
     }
 
     this.draftName.set(chat.name);
-    this.draftProvider.set(chat.provider ?? 'claude');
-    this.draftModel.set(chat.model ?? '');
     this.draftCwd.set(chat.currentCwd ?? '');
   });
 
@@ -152,30 +157,6 @@ export class ChatDetailComponent {
       return;
     }
     await this.chatStore.rename(chat.id, name);
-  }
-
-  async applyProvider(provider: string): Promise<void> {
-    const chat = this.chat();
-    if (!chat || this.hasMessages()) {
-      return;
-    }
-    const next = provider as ChatProvider;
-    this.draftProvider.set(next);
-    if (next !== chat.provider) {
-      await this.chatStore.setProvider(chat.id, next);
-    }
-  }
-
-  async saveModel(): Promise<void> {
-    const chat = this.chat();
-    if (!chat?.provider) {
-      return;
-    }
-    const model = this.draftModel().trim() || null;
-    if (model === chat.model) {
-      return;
-    }
-    await this.chatStore.setModel(chat.id, model);
   }
 
   async browseCwd(): Promise<void> {
@@ -227,21 +208,6 @@ export class ChatDetailComponent {
 
   isActiveRun(run: OperatorRunRecord): boolean {
     return run.status === 'queued' || run.status === 'running' || run.status === 'waiting';
-  }
-
-  providerLabel(provider: ChatProvider | null): string {
-    switch (provider) {
-      case 'claude':
-        return 'Claude';
-      case 'codex':
-        return 'Codex';
-      case 'gemini':
-        return 'Gemini';
-      case 'copilot':
-        return 'Copilot';
-      default:
-        return 'Provider';
-    }
   }
 
   cwdLabel(cwd: string | null): string {

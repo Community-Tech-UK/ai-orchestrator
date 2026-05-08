@@ -29,7 +29,10 @@ describe('chat feature templates', () => {
     expect(template).toContain('Setup required');
     expect(template).toContain('[disabled]="!setupComplete() || chatStore.sending()"');
     expect(template).toContain("setupComplete() ? 'Send a message...' : 'Choose provider and project first'");
-    expect(template).toContain('(ngModelChange)="applyProvider($event)"');
+    // Provider + model selection now lives in the compact picker; project (cwd)
+    // selection still uses ngModel + keydown.enter.
+    expect(template).toContain('<app-compact-model-picker');
+    expect(template).toContain('mode="live-instance"');
     expect(template).toContain('(keydown.enter)="applyCwd()"');
   });
 

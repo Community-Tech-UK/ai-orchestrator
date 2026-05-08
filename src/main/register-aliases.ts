@@ -49,6 +49,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/schemas/chat':                    path.join(baseContracts, 'schemas', 'chat.schemas'),
   '@contracts/schemas/mcp-multi-provider':      path.join(baseContracts, 'schemas', 'mcp-multi-provider.schemas'),
   '@contracts/schemas/provider-runtime-events': path.join(baseContracts, 'schemas', 'provider-runtime-events.schemas'),
+  '@contracts/schemas/loop':                    path.join(baseContracts, 'schemas', 'loop.schemas'),
   '@contracts/channels/automation':             path.join(baseContracts, 'channels', 'automation.channels'),
   '@contracts/channels/pause':                  path.join(baseContracts, 'channels', 'pause.channels'),
   '@contracts/channels/voice':                  path.join(baseContracts, 'channels', 'voice.channels'),
@@ -56,6 +57,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/channels/conversation-ledger':     path.join(baseContracts, 'channels', 'conversation-ledger.channels'),
   '@contracts/channels/operator':               path.join(baseContracts, 'channels', 'operator.channels'),
   '@contracts/channels/chat':                   path.join(baseContracts, 'channels', 'chat.channels'),
+  '@contracts/channels/loop':                   path.join(baseContracts, 'channels', 'loop.channels'),
   '@contracts/types/transport':                 path.join(baseContracts, 'types', 'transport.types'),
   '@contracts/types/browser':                   path.join(baseContracts, 'types', 'browser.types'),
 };

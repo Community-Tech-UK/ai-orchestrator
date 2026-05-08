@@ -16,23 +16,10 @@
         (ngModelChange)="name.set($event)"
       />
       <div class="chat-create-row">
-        <select
-          class="chat-create-select"
-          name="provider"
-          [ngModel]="provider()"
-          (ngModelChange)="provider.set($event)"
-        >
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-          <option value="gemini">Gemini</option>
-          <option value="copilot">Copilot</option>
-        </select>
-        <input
-          class="chat-create-input"
-          name="model"
-          placeholder="Model"
-          [ngModel]="model()"
-          (ngModelChange)="model.set($event)"
+        <app-compact-model-picker
+          mode="pending-create"
+          [selection]="formSelection()"
+          (selectionChange)="formSelection.set($event)"
         />
       </div>
       <div class="chat-create-row">

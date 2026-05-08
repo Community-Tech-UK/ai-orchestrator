@@ -172,12 +172,6 @@
     />
   }
 
-  @if (showModelPicker()) {
-    <app-model-picker-host
-      (closeRequested)="showModelPicker.set(false)"
-    />
-  }
-
   @if (showPromptHistorySearch()) {
     <app-prompt-history-search-host
       (closeRequested)="showPromptHistorySearch.set(false)"

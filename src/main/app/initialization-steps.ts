@@ -5,7 +5,9 @@ import {
   registerDefaultReviewInvoker,
   registerDefaultDebateInvoker,
   registerDefaultWorkflowInvoker,
+  registerDefaultLoopInvoker,
 } from '../orchestration/default-invokers';
+import { getLoopStoreService } from '../orchestration/loop-store';
 import { getOrchestratorPluginManager } from '../plugins/plugin-manager';
 import { getObservationIngestor, getObserverAgent, getReflectorAgent } from '../observation';
 import { initializePathValidator } from '../security/path-validator';
@@ -174,6 +176,24 @@ export function createInitializationSteps(
     { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(instanceManager) },
     { name: 'Debate invokers', fn: () => registerDefaultDebateInvoker(instanceManager) },
     { name: 'Workflow invokers', fn: () => registerDefaultWorkflowInvoker(instanceManager) },
+    {
+      name: 'Loop store',
+      fn: () => {
+        try {
+          const service = getLoopStoreService();
+          // Mark any "running" loops as paused on boot so the user can review.
+          const interrupted = service.store.markRunningAsInterruptedOnBoot();
+          if (interrupted > 0) {
+            logger.info(`Loop store: marked ${interrupted} previously-running loop(s) as paused on boot`);
+          }
+        } catch (error) {
+          logger.warn('Loop store initialization failed; Loop Mode IPC will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    { name: 'Loop invokers', fn: () => registerDefaultLoopInvoker(instanceManager) },
     {
       name: 'Child auto-announce',
       fn: () => {

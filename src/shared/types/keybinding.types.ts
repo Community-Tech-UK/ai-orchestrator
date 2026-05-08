@@ -103,7 +103,8 @@ export type KeybindingWhen =
   | 'instance-running'
   | 'command-palette-open'
   | 'history-open'
-  | 'sidebar-visible';
+  | 'sidebar-visible'
+  | 'chat-selected';
 
 export interface KeybindingEligibilityState {
   instanceSelected: boolean;
@@ -112,6 +113,7 @@ export interface KeybindingEligibilityState {
   commandPaletteOpen: boolean;
   historyOpen: boolean;
   sidebarVisible: boolean;
+  chatSelected: boolean;
 }
 
 export const DEFAULT_KEYBINDING_ELIGIBILITY_STATE: KeybindingEligibilityState = {
@@ -121,6 +123,7 @@ export const DEFAULT_KEYBINDING_ELIGIBILITY_STATE: KeybindingEligibilityState = 
   commandPaletteOpen: false,
   historyOpen: false,
   sidebarVisible: true,
+  chatSelected: false,
 };
 
 const SELECT_VISIBLE_INSTANCE_BINDINGS: KeyBinding[] = Array.from({ length: 9 }, (_, index) => {
@@ -393,11 +396,11 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   {
     id: 'open-model-picker',
     name: 'Open Model Picker',
-    description: 'Open the active provider model picker',
+    description: 'Open the model picker for the selected chat',
     keys: { key: 'm', modifiers: ['meta', 'shift'] },
     action: 'open-model-picker',
     context: 'global',
-    when: ['instance-selected'],
+    when: ['chat-selected'],
     category: 'Session',
     customizable: true,
   },
@@ -553,6 +556,8 @@ export function matchesKeybindingWhen(
         return state.historyOpen;
       case 'sidebar-visible':
         return state.sidebarVisible;
+      case 'chat-selected':
+        return state.chatSelected;
       default:
         return false;
     }

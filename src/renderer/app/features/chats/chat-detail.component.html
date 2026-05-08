@@ -23,7 +23,11 @@
       </div>
 
       <div class="chat-runtime-state">
-        <span class="runtime-pill">{{ providerLabel(detail.chat.provider) }}</span>
+        <app-compact-model-picker
+          mode="live-instance"
+          [chat]="detail.chat"
+          [hasMessages]="hasMessages()"
+        />
         @if (currentInstance(); as instance) {
           <span class="runtime-pill status-pill">{{ instance.status }}</span>
         } @else {
@@ -33,35 +37,6 @@
     </header>
 
     <section class="chat-settings" aria-label="Chat settings">
-      <label class="field">
-        <span>Provider</span>
-        <select
-          [ngModel]="draftProvider()"
-          (ngModelChange)="applyProvider($event)"
-          [disabled]="hasMessages()"
-        >
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-          <option value="gemini">Gemini</option>
-          <option value="copilot">Copilot</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span>Model</span>
-        <div class="field-row">
-          <input
-            [ngModel]="draftModel()"
-            (ngModelChange)="draftModel.set($event)"
-            (keydown.enter)="saveModel()"
-            placeholder="Default"
-          />
-          <button type="button" class="compact-button" [disabled]="!detail.chat.provider" (click)="saveModel()">
-            Apply
-          </button>
-        </div>
-      </label>
-
       <label class="field project-field">
         <span>Project</span>
         <div class="field-row">
@@ -153,6 +128,11 @@
         />
       }
     </div>
+
+    <app-loop-control
+      [chatId]="detail.chat.id"
+      [workspaceCwd]="detail.chat.currentCwd"
+    />
 
     <app-input-panel
       [instanceId]="streamInstanceId()"
