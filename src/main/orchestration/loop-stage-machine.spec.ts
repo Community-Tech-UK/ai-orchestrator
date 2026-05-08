@@ -66,6 +66,63 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('Use test fixtures, not the real db');
   });
 
+  it('buildPrompt includes the persistent goal block on every iteration', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'My specific goal text');
+    const iter0 = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    const iter5 = m.buildPrompt({ config: cfg, iterationSeq: 5, pendingInterventions: [] });
+    expect(iter0).toContain('Goal (persistent across iterations)');
+    expect(iter0).toContain('My specific goal text');
+    expect(iter5).toContain('Goal (persistent across iterations)');
+    expect(iter5).toContain('My specific goal text');
+  });
+
+  it('buildPrompt only renders the continuation directive on iter > 0 when iterationPrompt is set', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'goal text');
+    cfg.iterationPrompt = 'please continue, fresh eyes, no shortcuts';
+    const iter0 = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    const iter1 = m.buildPrompt({ config: cfg, iterationSeq: 1, pendingInterventions: [] });
+    expect(iter0).not.toContain('Loop Continuation Directive');
+    expect(iter0).not.toContain('please continue, fresh eyes');
+    expect(iter1).toContain('Loop Continuation Directive');
+    expect(iter1).toContain('please continue, fresh eyes, no shortcuts');
+  });
+
+  it('buildPrompt omits the continuation directive when iterationPrompt is unset', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'just one prompt');
+    cfg.iterationPrompt = undefined;
+    const iter1 = m.buildPrompt({ config: cfg, iterationSeq: 1, pendingInterventions: [] });
+    expect(iter1).not.toContain('Loop Continuation Directive');
+    // Goal block still present so the AI has context.
+    expect(iter1).toContain('Goal (persistent across iterations)');
+    expect(iter1).toContain('just one prompt');
+  });
+
+  it('buildPrompt preserves user prompts when planFile is set (does not silently drop)', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'user goal text');
+    cfg.iterationPrompt = 'user directive text';
+    cfg.planFile = 'PLAN.md';
+    const iter0 = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    const iter1 = m.buildPrompt({ config: cfg, iterationSeq: 1, pendingInterventions: [] });
+    expect(iter0).toContain('user goal text');
+    expect(iter1).toContain('user goal text');
+    expect(iter1).toContain('user directive text');
+    // Plan file is referenced in body too.
+    expect(iter0).toContain('PLAN.md');
+  });
+
+  it('buildPrompt includes the autonomous-mode rules block', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const p = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    expect(p).toContain('Autonomous Mode Rules');
+    expect(p).toContain('Do not ask clarifying questions');
+    expect(p).toContain('BLOCKED.md');
+  });
+
   it('appendIterationLog writes a structured entry', async () => {
     const m = new LoopStageMachine(tmpDir);
     const cfg = defaultLoopConfig(tmpDir, 'x');

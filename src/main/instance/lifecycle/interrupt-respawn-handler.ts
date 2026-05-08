@@ -490,9 +490,9 @@ export class InterruptRespawnHandler {
         hasConversation,
         sessionResumeBlacklisted: resumeBlacklisted,
       });
-      const allowNativeResume = !triggeredByInterrupt;
-      const shouldResume = allowNativeResume
-        && (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork');
+      const canAttemptNativeResume =
+        recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
+      const shouldResume = canAttemptNativeResume;
       const shouldForkSession = shouldResume && recoveryPlan.kind === 'provider-fork';
 
       const newSessionId = shouldResume && shouldForkSession
@@ -630,7 +630,7 @@ export class InterruptRespawnHandler {
           id: generateId(),
           type: 'system' as const,
           content: triggeredByInterrupt
-            ? (actuallyResumed || !allowNativeResume
+            ? (actuallyResumed || !canAttemptNativeResume
                 ? 'Interrupted — waiting for input'
                 : 'Interrupted — session restarted (resume failed)')
             : (actuallyResumed ? 'Session reconnected automatically' : 'Session restarted automatically (resume failed)'),

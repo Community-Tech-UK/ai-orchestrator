@@ -19,7 +19,7 @@ export const LoopProviderSchema = z.enum(['claude', 'codex']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 
-export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H']);
+export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'BLOCKED']);
 export const CompletionSignalIdSchema = z.enum([
   'completed-rename',
   'done-promise',
@@ -80,7 +80,14 @@ export const LoopCompletionConfigSchema = z.object({
 });
 
 export const LoopConfigSchema = z.object({
+  /** The goal/ask. Sent on iteration 0 and is what the loop drives toward. */
   initialPrompt: z.string().min(1, 'initialPrompt cannot be empty'),
+  /** The continuation directive used on iterations 1+. If omitted, the loop
+   *  re-uses `initialPrompt` for every iteration (legacy behaviour). When
+   *  set, iter 0 = goal, iter 1+ = this directive (e.g. "please continue,
+   *  re-review with fresh eyes"). State on disk + the stage machine carry
+   *  context forward between iterations. */
+  iterationPrompt: z.string().optional(),
   planFile: z.string().optional(),
   workspaceCwd: z.string().min(1),
   provider: LoopProviderSchema,
@@ -91,6 +98,13 @@ export const LoopConfigSchema = z.object({
   completion: LoopCompletionConfigSchema,
   allowDestructiveOps: z.boolean(),
   initialStage: LoopStageSchema,
+  /** Wall-clock cap for a single iteration's CLI invocation, ms. The
+   *  outer caps.maxWallTimeMs covers the whole loop run. */
+  iterationTimeoutMs: z.number().int().positive().max(2 * 60 * 60 * 1000).optional(),
+  /** Stream-idle threshold for a single iteration's CLI invocation, ms.
+   *  If stdout is silent for this long, the iteration aborts as "stalled".
+   *  Slower providers / longer thinking phases may need a higher value. */
+  streamIdleTimeoutMs: z.number().int().positive().max(15 * 60 * 1000).optional(),
 });
 
 /** Partial config the renderer may submit; main process fills defaults. */

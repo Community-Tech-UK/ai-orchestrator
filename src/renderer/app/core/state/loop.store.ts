@@ -155,15 +155,32 @@ export class LoopStore {
 
   // ────── commands ──────
 
+  /** Set of chatIds with a start-IPC currently in flight. Prevents the
+   *  store from issuing two LOOP_START requests for the same chat — the
+   *  main process also enforces this, but failing fast in the renderer
+   *  saves a round-trip and makes the error message obvious. */
+  private startingByChat = new Set<string>();
+
   async start(
     chatId: string,
     config: LoopStartConfigInput,
     attachments?: { name: string; data: Uint8Array }[],
   ): Promise<{ ok: boolean; error?: string }> {
-    const r = await this.ipc.start(chatId, config, attachments);
-    if (!r.success) return { ok: false, error: r.error?.message ?? 'unknown error' };
-    if (r.data?.state) this.upsertActive(r.data.state);
-    return { ok: true };
+    if (this.startingByChat.has(chatId)) {
+      return { ok: false, error: 'A loop is already starting for this chat — please wait.' };
+    }
+    if (this.activeByChat().has(chatId)) {
+      return { ok: false, error: 'A loop is already active for this chat — cancel it first.' };
+    }
+    this.startingByChat.add(chatId);
+    try {
+      const r = await this.ipc.start(chatId, config, attachments);
+      if (!r.success) return { ok: false, error: r.error?.message ?? 'unknown error' };
+      if (r.data?.state) this.upsertActive(r.data.state);
+      return { ok: true };
+    } finally {
+      this.startingByChat.delete(chatId);
+    }
   }
 
   async pause(loopRunId: string): Promise<void> { await this.ipc.pause(loopRunId); }

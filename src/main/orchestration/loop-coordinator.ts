@@ -158,15 +158,33 @@ export class LoopCoordinator extends EventEmitter {
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
 
+    // Enforce one-active-loop-per-chat. Without this, double-start races
+    // (Send + Enter, Enter + Enter) can spawn duplicate runs in the same
+    // workspace — they'd fight over STAGE.md, NOTES.md, and the plan file.
+    for (const existing of this.active.values()) {
+      if (existing.chatId !== chatId) continue;
+      if (existing.status === 'running' || existing.status === 'paused') {
+        throw new Error(
+          `A loop is already ${existing.status} for this chat (id ${existing.id}). ` +
+          'Cancel it before starting a new one.',
+        );
+      }
+    }
+
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-    // Persist attachments to the workspace and prepend their paths to the
-    // loop prompt so each iteration's CLI can read them via its file tools.
+    // Persist attachments to the workspace and prepend their paths to BOTH
+    // prompts so every iteration (not just iter 0) sees the file references.
+    // Each iteration is a fresh CLI process — without this, iter 1+ has no
+    // way to know the attachments exist.
     if (attachments && attachments.length > 0) {
       const saved = await saveLoopAttachments(config.workspaceCwd, id, attachments);
       const block = renderAttachmentBlock(saved);
       if (block) {
         config.initialPrompt = `${block}\n\n${config.initialPrompt}`;
+        if (config.iterationPrompt) {
+          config.iterationPrompt = `${block}\n\n${config.iterationPrompt}`;
+        }
       }
       // Best-effort gitignore so attachments aren't accidentally committed.
       void ensureLoopAttachmentsIgnored(config.workspaceCwd);
@@ -263,11 +281,22 @@ export class LoopCoordinator extends EventEmitter {
     return true;
   }
 
-  /** Cancel a running or paused loop. Idempotent. */
+  /**
+   * Cancel a running or paused loop. Idempotent.
+   *
+   * Critically: this terminates state IMMEDIATELY rather than just setting
+   * a flag for `runLoop` to read at the next checkpoint. If the loop is
+   * mid-iteration (`await invokeChild(...)`) on a hung CLI process, the
+   * flag-only path leaves the UI stuck for up to the iteration timeout
+   * (5 minutes). With immediate termination, the renderer sees the loop
+   * cancelled and disappears from the active-loops list right away. The
+   * orphaned in-flight Promise resolves later into a now-idempotent
+   * `terminate()` call that no-ops because the state is already terminal.
+   */
   async cancelLoop(loopRunId: string): Promise<boolean> {
     const state = this.active.get(loopRunId);
     if (!state) return false;
-    if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'error') return false;
+    if (this.isTerminalStatus(state.status)) return false;
     this.cancelFlags.set(loopRunId, true);
     // unblock pause if any
     const gate = this.pauseGates.get(loopRunId);
@@ -275,8 +304,19 @@ export class LoopCoordinator extends EventEmitter {
       gate.resolve();
       this.pauseGates.delete(loopRunId);
     }
-    // The runLoop polling will detect the flag at next checkpoint.
+    // Force-terminate now so the UI escapes a hung in-flight iteration.
+    this.terminate(state, 'cancelled', 'user cancelled');
     return true;
+  }
+
+  private isTerminalStatus(status: LoopState['status']): boolean {
+    return (
+      status === 'completed' ||
+      status === 'cancelled' ||
+      status === 'cap-reached' ||
+      status === 'error' ||
+      status === 'no-progress'
+    );
   }
 
   /** Snapshot of the live loop state. */
@@ -394,7 +434,11 @@ export class LoopCoordinator extends EventEmitter {
   private async runLoop(state: LoopState, stageMachine: LoopStageMachine): Promise<void> {
     while (true) {
       // -- pause / cancel / cap pre-flight --
-      if (this.cancelFlags.get(state.id)) {
+      // If the state was already terminated externally (e.g. cancelLoop
+      // force-terminating because the in-flight iteration was hung), exit
+      // immediately. terminate() is idempotent so the no-op is safe even
+      // if we still call it.
+      if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) {
         this.terminate(state, 'cancelled');
         return;
       }
@@ -410,6 +454,26 @@ export class LoopCoordinator extends EventEmitter {
         this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit });
         this.terminate(state, 'cap-reached', `cap=${capHit}`);
         return;
+      }
+
+      // -- BLOCKED.md handshake --
+      // The autonomous-mode rules tell the AI to write BLOCKED.md and exit
+      // when it genuinely cannot proceed. Honor that contract: if we find
+      // one in the workspace, pause the loop and surface it as a no-progress
+      // banner so the operator can intervene with a hint.
+      const blockedFile = await this.readBlockedFileIfPresent(state.config.workspaceCwd);
+      if (blockedFile && state.status === 'running') {
+        state.status = 'paused';
+        const signal: ProgressSignalEvidence = {
+          id: 'BLOCKED',
+          verdict: 'CRITICAL',
+          message: `BLOCKED.md present: ${blockedFile.message}`,
+          detail: { file: 'BLOCKED.md', excerpt: blockedFile.message },
+        };
+        this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
+        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+        logger.info('Loop paused because the iteration wrote BLOCKED.md', { loopRunId: state.id });
+        continue;
       }
 
       // -- pre-iteration kill switch --
@@ -450,6 +514,18 @@ export class LoopCoordinator extends EventEmitter {
         const msg = err instanceof Error ? err.message : String(err);
         logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(msg), { loopRunId: state.id, seq });
         this.terminate(state, 'error', msg);
+        return;
+      }
+
+      // If the loop was cancelled (or terminated otherwise) while the
+      // iteration was in flight, drop the result silently. Don't accumulate
+      // stats, don't emit iteration-complete, don't run progress detection
+      // — the loop is over from the user's perspective.
+      if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) {
+        logger.info('Iteration completed after loop was cancelled — dropping result', {
+          loopRunId: state.id,
+          seq,
+        });
         return;
       }
 
@@ -662,6 +738,8 @@ export class LoopCoordinator extends EventEmitter {
         seq: state.totalIterations,
         config: state.config,
         prompt,
+        iterationTimeoutMs: state.config.iterationTimeoutMs,
+        streamIdleTimeoutMs: state.config.streamIdleTimeoutMs,
         callback: (result: LoopChildResult | { error: string }) => {
           if (settled) return;
           settled = true;
@@ -691,6 +769,31 @@ export class LoopCoordinator extends EventEmitter {
     };
   }
 
+  /**
+   * Read `BLOCKED.md` from the workspace if it exists. Returns the trimmed
+   * contents (truncated to a reasonable size) so it can be surfaced to the
+   * operator. Returns null when the file is absent or unreadable.
+   *
+   * The convention is: the AI writes BLOCKED.md when genuinely stuck, then
+   * exits. We pause the loop and let the operator intervene. After the
+   * operator resumes, the file is left alone — they can delete it manually
+   * if it's no longer relevant; otherwise the next iteration will trip again.
+   */
+  private async readBlockedFileIfPresent(workspaceCwd: string): Promise<{ message: string } | null> {
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const target = path.join(workspaceCwd, 'BLOCKED.md');
+    try {
+      const raw = await fs.readFile(target, 'utf8');
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      const message = trimmed.length > 4096 ? `${trimmed.slice(0, 4096)}\n…(truncated)` : trimmed;
+      return { message };
+    } catch {
+      return null;
+    }
+  }
+
   private async waitWhilePaused(loopRunId: string): Promise<void> {
     // already pause-emitted by the caller; just wait until resumed.
     await new Promise<void>((resolve) => {
@@ -708,6 +811,11 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
+    // Idempotent: if we're already in a terminal state we must not emit
+    // duplicate cancelled/error events. Without this, a force-terminate from
+    // `cancelLoop` followed by runLoop's own next-iter cancel check would
+    // emit `loop:cancelled` twice and double-clean attachments.
+    if (this.isTerminalStatus(state.status)) return;
     state.status = status;
     state.endedAt = Date.now();
     state.endReason = reason ?? status;

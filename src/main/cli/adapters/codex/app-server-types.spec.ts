@@ -26,10 +26,10 @@ describe('app-server-types constants', () => {
     expect(STREAMING_METHODS.size).toBe(3);
   });
 
-  it('exports DEFAULT_OPT_OUT_NOTIFICATIONS for delta streaming', () => {
-    expect(DEFAULT_OPT_OUT_NOTIFICATIONS).toContain('item/agentMessage/delta');
+  it('keeps assistant deltas enabled while opting out of reasoning deltas', () => {
+    expect(DEFAULT_OPT_OUT_NOTIFICATIONS).not.toContain('item/agentMessage/delta');
     expect(DEFAULT_OPT_OUT_NOTIFICATIONS).toContain('item/reasoning/summaryTextDelta');
-    expect(DEFAULT_OPT_OUT_NOTIFICATIONS.length).toBe(4);
+    expect(DEFAULT_OPT_OUT_NOTIFICATIONS.length).toBe(3);
   });
 
   it('exports SERVICE_NAME for orchestrator identification', () => {

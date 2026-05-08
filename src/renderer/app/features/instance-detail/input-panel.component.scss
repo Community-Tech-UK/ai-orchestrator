@@ -18,6 +18,31 @@
   margin-bottom: 12px;
 }
 
+.loop-start-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: rgba(255, 80, 80, 0.1);
+  border: 1px solid rgba(255, 80, 80, 0.32);
+  font-size: 12px;
+}
+
+.loop-start-error .lse-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  color: #ff6b6b;
+}
+
+.loop-start-error .lse-msg {
+  opacity: 0.9;
+}
+
 .composer-toolbar {
   display: flex;
   align-items: flex-start;
@@ -655,6 +680,22 @@ app-copilot-model-selector {
     opacity: 0.35;
     cursor: not-allowed;
   }
+
+  &.loop-mode {
+    background: rgba(var(--primary-rgb), 0.22);
+    border-color: rgba(var(--primary-rgb), 0.5);
+    color: var(--text-primary);
+  }
+
+  &.loop-mode:hover:not(:disabled) {
+    background: rgba(var(--primary-rgb), 0.32);
+    border-color: rgba(var(--primary-rgb), 0.7);
+  }
+}
+
+.hint-loop {
+  color: var(--primary-color, inherit);
+  opacity: 0.85;
 }
 
 .btn-steer {

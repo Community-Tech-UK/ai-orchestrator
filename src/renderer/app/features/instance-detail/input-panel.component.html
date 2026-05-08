@@ -152,8 +152,15 @@
       [workspaceCwd]="workingDirectory() || ''"
       [firstMessageHint]="message()"
       (dismissed)="onLoopPanelDismissed()"
-      (confirm)="onLoopPanelConfirm($event)"
+      (validityChange)="onLoopValidityChange($event)"
+      (configChange)="onLoopConfigChange($event)"
     />
+    @if (loopStartError(); as err) {
+      <div class="loop-start-error" role="alert">
+        <span class="lse-label">Loop start failed</span>
+        <span class="lse-msg">{{ err }}</span>
+      </div>
+    }
   }
 
   <!-- Input area -->
@@ -281,6 +288,8 @@
       <div class="input-hints">
         @if (showGhostText()) {
           <span class="hint hint-ghost">Tab or → to accept suggestion</span>
+        } @else if (showLoopPanel()) {
+          <span class="hint hint-loop">Enter to start loop, Shift+Enter for new line</span>
         } @else if (isInitializing()) {
           <span class="hint">Enter to queue, Shift+Enter for new line</span>
         } @else if (isRespawning()) {
@@ -297,7 +306,7 @@
         } @else if (isBusy()) {
           <span class="hint hint-interrupt">Esc interrupts without sending</span>
         } @else if (isReplayFallback()) {
-          <span class="hint hint-recovery">Context not restored — re-summarize to continue</span>
+          <span class="hint hint-recovery">Condensed context will attach on send</span>
         } @else {
           <span class="hint">Type / for commands, Cmd+K for palette</span>
         }
@@ -342,11 +351,12 @@
         }
         <button
           class="btn-send"
+          [class.loop-mode]="showLoopPanel()"
           [disabled]="disabled() || !canSend()"
           (click)="onSend()"
-          [title]="isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'"
+          [title]="showLoopPanel() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)')"
         >
-          <span class="send-icon">↑</span>
+          <span class="send-icon">{{ showLoopPanel() ? '🔁' : '↑' }}</span>
         </button>
       </div>
     </div>

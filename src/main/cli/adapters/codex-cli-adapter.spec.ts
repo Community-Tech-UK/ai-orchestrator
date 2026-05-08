@@ -468,6 +468,77 @@ Hey! I'm here. What do you want to tackle?`;
     });
   });
 
+  describe('app-server assistant streaming', () => {
+    it('emits assistant deltas with a stable id and reconciles the final item', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): {
+          turnId: string | null;
+          lastAgentMessage: string;
+          finalAgentOutputId: string | null;
+        };
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      state.turnId = 'turn-1';
+      const outputs: {
+        id: string;
+        content: string;
+        metadata?: Record<string, unknown>;
+        type: string;
+      }[] = [];
+
+      adapter.on('output', (message) => outputs.push(message as typeof outputs[number]));
+
+      internals.handleTurnNotification(state, {
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'item-1',
+          delta: 'Hello ',
+        },
+      });
+      internals.handleTurnNotification(state, {
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          item: {
+            id: 'item-1',
+            type: 'agentMessage',
+            text: 'Hello world',
+          },
+        },
+      });
+
+      expect(outputs).toHaveLength(2);
+      expect(outputs[0]).toMatchObject({
+        type: 'assistant',
+        content: 'Hello ',
+        metadata: {
+          streaming: true,
+          accumulatedContent: 'Hello ',
+          turnId: 'turn-1',
+        },
+      });
+      expect(outputs[1]).toMatchObject({
+        type: 'assistant',
+        content: 'world',
+        metadata: {
+          streaming: true,
+          accumulatedContent: 'Hello world',
+          turnId: 'turn-1',
+        },
+      });
+      expect(outputs[1].id).toBe(outputs[0].id);
+      expect(state.lastAgentMessage).toBe('Hello world');
+      expect(state.finalAgentOutputId).toBe(outputs[0].id);
+    });
+  });
+
   describe('interrupt behavior', () => {
     it('returns already-idle (falls back to SIGINT) when not in app-server mode', () => {
       const adapter = new CodexCliAdapter();

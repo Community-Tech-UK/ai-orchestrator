@@ -389,7 +389,7 @@ export class InstanceDetailComponent {
       || inst.restoreMode === 'resume-unconfirmed'
       || inst.recoveryMethod === 'replay'
     ) {
-      return `Summarize what you were working on for ${providerName}...`;
+      return `Continue with condensed context for ${providerName}...`;
     }
 
     switch (inst.status) {
@@ -1080,25 +1080,42 @@ export class InstanceDetailComponent {
     config: LoopStartConfigInput;
     firstMessage: string;
     attachments: { name: string; data: Uint8Array }[];
+    onResolved: (ok: boolean, error?: string) => void;
   }): Promise<void> {
-    const { config, firstMessage, attachments } = payload;
+    const { config, firstMessage, attachments, onResolved } = payload;
+    // The loop directive (panel prompt) is what's reusable across sessions —
+    // remember that, not the goal-specific textarea content.
+    const directiveForHistory = config.iterationPrompt ?? config.initialPrompt;
     const inst = this.store.selectedInstance();
     if (inst) {
       const r = await this.loopStore.start(inst.id, config, attachments);
       if (r.ok) {
-        this.loopPromptHistory.remember(config.initialPrompt);
+        this.loopPromptHistory.remember(directiveForHistory);
+        onResolved(true);
       } else {
-        this.store.setError(`Loop start failed: ${r.error ?? 'unknown error'}`);
+        const msg = r.error ?? 'unknown error';
+        this.store.setError(`Loop start failed: ${msg}`);
+        onResolved(false, msg);
       }
       return;
     }
+    let lastStartError: string | undefined;
     const ok = await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
       firstMessage,
       config,
       (creating) => this.isCreatingInstance.set(creating),
-      (newChatId) => this.loopStore.start(newChatId, config, attachments),
+      async (newChatId) => {
+        const r = await this.loopStore.start(newChatId, config, attachments);
+        if (!r.ok) lastStartError = r.error;
+        return r;
+      },
     );
-    if (ok) this.loopPromptHistory.remember(config.initialPrompt);
+    if (ok) {
+      this.loopPromptHistory.remember(directiveForHistory);
+      onResolved(true);
+    } else {
+      onResolved(false, lastStartError ?? 'Could not create session for loop.');
+    }
   }
 
   async onLoopStopRequested(): Promise<void> {
@@ -1414,7 +1431,7 @@ export class InstanceDetailComponent {
   onRecoverySummarize(): void {
     const inst = this.instance();
     if (inst) {
-      this.draftService.setDraft(inst.id, 'Summarize what we were working on and continue');
+      this.draftService.setDraft(inst.id, 'Continue from the recovered conversation context.');
       this.recoveryDismissed.set(true);
       this.store.clearInstanceRestoreMode(inst.id);
     }

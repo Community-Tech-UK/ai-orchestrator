@@ -589,6 +589,17 @@ export abstract class BaseCliAdapter extends EventEmitter {
   // ============ Stream Idle Watchdog ============
 
   /**
+   * Override the stream-idle threshold (no-stdout cutoff) at runtime.
+   * Used by callers like Loop Mode that have provider-specific tolerances.
+   * Pass undefined to leave the existing value untouched.
+   */
+  setStreamIdleTimeoutMs(ms: number | undefined): void {
+    if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
+      this.streamIdleTimeoutMs = Math.floor(ms);
+    }
+  }
+
+  /**
    * Start or reset the stream idle watchdog timer.
    * Call this whenever stdout data is received to reset the countdown.
    * @param generation - process generation token; callback is discarded if it doesn't match

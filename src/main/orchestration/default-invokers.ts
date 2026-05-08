@@ -76,6 +76,11 @@ function getCallbackFromPayload<T extends (...args: never[]) => unknown>(
 async function invokeCliTextResponse(params: {
   instanceManager: InstanceManager;
   instanceId?: string;
+  /** Overrides the working directory for the spawned CLI. Required for
+   *  fresh-child invocations (e.g. Loop Mode) where there's no instance
+   *  to inherit it from — without this we'd fall back to `process.cwd()`,
+   *  which is the Electron app's launch directory, not the user's project. */
+  workingDirectory?: string;
   requestedProvider?: string;
   payloadModel?: string;
   systemPrompt?: string;
@@ -83,11 +88,22 @@ async function invokeCliTextResponse(params: {
   context?: string;
   breakerKey: string;
   correlationId: string;
+  /** Optional override for the spawn wall-clock timeout in milliseconds.
+   *  Acts as the outer safety net; stream-idle catches hangs sooner. */
+  timeoutMs?: number;
+  /** Optional override for the stream-idle threshold (no-stdout-for-X-ms
+   *  abort). Inherits the adapter's default when undefined. */
+  streamIdleTimeoutMs?: number;
+  /** Reuse an existing adapter instead of creating + terminating a fresh
+   *  one for every call. Used by Loop Mode's `same-session` contextStrategy
+   *  so the conversation persists across iterations. The caller owns the
+   *  adapter lifecycle when this is set. */
+  reusedAdapter?: unknown;
 }): Promise<ReturnType<typeof normalizeInvocationTextResult>> {
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
     : undefined;
-  const workingDirectory = instance?.workingDirectory || process.cwd();
+  const workingDirectory = params.workingDirectory || instance?.workingDirectory || process.cwd();
   const fallbackProvider = instance?.provider as string | undefined;
   const requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
   const defaultCli = getSettingsManager().getAll().defaultCli;
@@ -99,7 +115,7 @@ async function invokeCliTextResponse(params: {
     model,
     systemPrompt: params.systemPrompt,
     yoloMode: false,
-    timeout: 300000,
+    timeout: params.timeoutMs ?? 300000,
   };
 
   const breaker = getCircuitBreakerRegistry().getBreaker(params.breakerKey, {
@@ -109,22 +125,56 @@ async function invokeCliTextResponse(params: {
 
   const prompt = buildUserPrompt(params.prompt, params.context);
   const response = await breaker.execute(async () => {
-    const adapter = getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
+    // Either reuse the caller's adapter (same-session loop) or create a
+    // fresh one (one-shot — chat orchestration, debate, fresh-child loop).
+    const ownsAdapter = !params.reusedAdapter;
+    const adapter: CliAdapter = (params.reusedAdapter as CliAdapter | undefined)
+      ?? getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
     try {
       if (!isBaseCliAdapterLike(adapter)) {
         throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
       }
-      return await adapter.sendMessage({ role: 'user', content: prompt });
-    } finally {
-      const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
-      if (typeof terminator === 'function') {
-        await terminator.call(adapter, false).catch((cleanupError: unknown) => {
-          logger.warn('One-shot invocation adapter cleanup failed', {
-            correlationId: params.correlationId,
-            cliType,
-            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-          });
+      // Apply per-call stream-idle threshold override if the caller set one.
+      // Default is whatever the adapter was constructed with (env var or 90s).
+      if (typeof params.streamIdleTimeoutMs === 'number') {
+        const setter = (adapter as { setStreamIdleTimeoutMs?: (ms: number) => void }).setStreamIdleTimeoutMs;
+        if (typeof setter === 'function') setter.call(adapter, params.streamIdleTimeoutMs);
+      }
+
+      // Race the actual sendMessage against the adapter's stream-idle
+      // watchdog. The watchdog (in BaseCliAdapter) fires when stdout has
+      // been silent for ~90s — i.e., the CLI is hung, not legitimately
+      // doing work. Without this race, the wall-time timeout (set to a
+      // generous 30 min for loops) is the only escape, and the user
+      // stares at "0 tok" the whole time. Tokens, tool calls, and file
+      // edits all produce stdout, so legitimate long iterations are safe.
+      const sendPromise = (adapter as { sendMessage(m: { role: 'user'; content: string }): Promise<{ content: string; usage?: { totalTokens?: number } }> })
+        .sendMessage({ role: 'user', content: prompt });
+      const idleAbort = new Promise<never>((_, reject) => {
+        const adapterEmitter = adapter as unknown as {
+          once: (evt: string, cb: (...args: unknown[]) => void) => void;
+        };
+        adapterEmitter.once('stream:idle', (info: unknown) => {
+          const meta = (info && typeof info === 'object' ? info : {}) as { timeoutMs?: number };
+          const seconds = meta.timeoutMs ? Math.round(meta.timeoutMs / 1000) : 90;
+          reject(new Error(`CLI stalled — no output for ~${seconds}s. Likely hung (auth, network, or frozen child process).`));
         });
+      });
+      return await Promise.race([sendPromise, idleAbort]);
+    } finally {
+      // Caller owns the lifecycle when reusing an adapter (same-session
+      // loops keep it alive across iterations and tear it down on terminate).
+      if (ownsAdapter) {
+        const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
+        if (typeof terminator === 'function') {
+          await terminator.call(adapter, false).catch((cleanupError: unknown) => {
+            logger.warn('One-shot invocation adapter cleanup failed', {
+              correlationId: params.correlationId,
+              cliType,
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            });
+          });
+        }
       }
     }
   });
@@ -453,6 +503,39 @@ import type { LoopFileChange } from '../../shared/types/loop.types';
  * an empty list if not a git repo (the loop still works — progress detector
  * will gracefully degrade).
  */
+/**
+ * Build a long-lived CLI adapter for `contextStrategy: 'same-session'`
+ * loops. Lifecycle is owned by the loop invoker — created once on the
+ * first iteration of the run, torn down when the coordinator broadcasts
+ * a terminal state. Same spawn options as a fresh-child invocation, but
+ * we pass through the stream-idle override up front since the adapter
+ * is reused.
+ */
+async function createPersistentLoopAdapter(opts: {
+  provider: 'claude' | 'codex';
+  workingDirectory: string;
+  streamIdleTimeoutMs?: number;
+}): Promise<unknown> {
+  const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
+  const model = resolveDefaultModel(cliType, undefined);
+  const adapter = getProviderRuntimeService().createAdapter({
+    cliType,
+    options: {
+      workingDirectory: opts.workingDirectory,
+      model,
+      yoloMode: false,
+      // Generous wall-clock cap so a long iteration doesn't die on a
+      // spawn-level timeout. Stream-idle is the real hang detector.
+      timeout: 30 * 60 * 1000,
+    },
+  });
+  if (typeof opts.streamIdleTimeoutMs === 'number') {
+    const setter = (adapter as { setStreamIdleTimeoutMs?: (ms: number) => void }).setStreamIdleTimeoutMs;
+    if (typeof setter === 'function') setter.call(adapter, opts.streamIdleTimeoutMs);
+  }
+  return adapter;
+}
+
 function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
   try {
     const numstat = spawnSync('git', ['diff', '--numstat', 'HEAD'], {
@@ -503,6 +586,32 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const coordinator = getLoopCoordinator();
   if (coordinator.listenerCount('loop:invoke-iteration') > 0) return;
 
+  // Per-loop persistent adapters for `contextStrategy: 'same-session'`. The
+  // map is keyed by loopRunId; entries are torn down when the coordinator
+  // emits a terminal `loop:state-changed` for the matching run.
+  const persistentLoopAdapters = new Map<string, unknown>();
+
+  const isTerminalLoopStatus = (status: string): boolean =>
+    status === 'completed' || status === 'cancelled' || status === 'cap-reached'
+    || status === 'error' || status === 'no-progress';
+
+  coordinator.on('loop:state-changed', (data: unknown) => {
+    const payload = data as { loopRunId: string; state: { status: string } };
+    if (!isTerminalLoopStatus(payload?.state?.status ?? '')) return;
+    const adapter = persistentLoopAdapters.get(payload.loopRunId);
+    if (!adapter) return;
+    persistentLoopAdapters.delete(payload.loopRunId);
+    const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
+    if (typeof terminator === 'function') {
+      terminator.call(adapter, false).catch((err: unknown) => {
+        logger.warn('Same-session loop adapter teardown failed', {
+          loopRunId: payload.loopRunId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+  });
+
   coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
     interface Payload {
       correlationId: string;
@@ -513,23 +622,72 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       stage: string;
       seq: number;
       prompt: string;
+      config: { contextStrategy?: string };
       callback: (result: LoopChildResult | { error: string }) => void;
+      // Forwarded from LoopConfig — overrides the invoker's defaults.
+      iterationTimeoutMs?: number;
+      streamIdleTimeoutMs?: number;
     }
     const p = payload as Payload;
     if (!p?.callback || typeof p.callback !== 'function') {
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
+
+    // For `contextStrategy: 'same-session'`, lazily create one persistent
+    // adapter per loopRunId and reuse it across iterations so the
+    // conversation persists. Caller (this listener) owns the lifecycle —
+    // teardown happens when the coordinator broadcasts a terminal state.
+    let reusedAdapter: unknown | undefined;
+    const sameSession = p.config?.contextStrategy === 'same-session';
+    if (sameSession) {
+      const existing = persistentLoopAdapters.get(p.loopRunId);
+      if (existing) {
+        reusedAdapter = existing;
+      } else {
+        // The first iteration creates the adapter. We let invokeCliTextResponse
+        // do that the normal way, then capture the resulting adapter ref via
+        // the breaker by routing through a small helper. Simpler approach:
+        // create here directly, then pass it in for subsequent iters too.
+        reusedAdapter = await createPersistentLoopAdapter({
+          provider: p.provider,
+          workingDirectory: p.workspaceCwd,
+          streamIdleTimeoutMs: p.streamIdleTimeoutMs,
+        }).catch((err: unknown) => {
+          logger.warn('Failed to create same-session loop adapter, falling back to fresh-child', {
+            loopRunId: p.loopRunId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        });
+        if (reusedAdapter) {
+          persistentLoopAdapters.set(p.loopRunId, reusedAdapter);
+        }
+      }
+    }
+
     try {
       const result = await invokeCliTextResponse({
         instanceManager,
         instanceId: undefined,
+        // Spawn the CLI inside the loop's workspace, not Electron's CWD.
+        // Without this the AI runs in `/` (or the app bundle path) and
+        // can't see any of the user's project files.
+        workingDirectory: p.workspaceCwd,
         requestedProvider: p.provider,
         payloadModel: undefined,
         systemPrompt: undefined,
         prompt: p.prompt,
         breakerKey: `loop-orchestration:${p.provider}`,
         correlationId: p.correlationId,
+        // Wall-clock cap per iteration — generous by default so legitimate
+        // long work (deep thinking, many tool calls, file edits) isn't
+        // killed. Hung CLIs are caught much faster by the stream-idle
+        // watchdog inside `invokeCliTextResponse` (no stdout for the
+        // configured threshold → abort).
+        timeoutMs: p.iterationTimeoutMs ?? 30 * 60 * 1000,
+        streamIdleTimeoutMs: p.streamIdleTimeoutMs,
+        reusedAdapter,
       });
 
       const filesChanged = snapshotFileChangesViaGit(p.workspaceCwd);

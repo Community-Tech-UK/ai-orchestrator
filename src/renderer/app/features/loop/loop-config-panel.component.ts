@@ -75,14 +75,14 @@ const DEFAULT_COMPLETION = {
 
       @if (firstMessageHint().trim().length > 0) {
         <div class="prepend-hint">
-          <span class="prepend-label">Will be prepended (your message)</span>
+          <span class="prepend-label">Iteration 0 — your goal</span>
           <span class="prepend-body">{{ firstMessageHint().trim() }}</span>
-          <span class="prepend-foot">↓ followed by the loop prompt below</span>
+          <span class="prepend-foot">↓ then iterations 1+ use the directive below</span>
         </div>
       }
 
       <section class="row">
-        <label for="loop-cfg-prompt">{{ firstMessageHint().trim() ? 'Loop prompt (sent on every iteration)' : 'Prompt' }}</label>
+        <label for="loop-cfg-prompt">{{ firstMessageHint().trim() ? 'Loop continuation directive (iter 1+)' : 'Prompt' }}</label>
         <textarea
           id="loop-cfg-prompt"
           rows="3"
@@ -147,6 +147,40 @@ const DEFAULT_COMPLETION = {
             </div>
           </section>
 
+          <section class="row">
+            <label for="loop-cfg-context">Context strategy <span class="hint">(how iterations carry state)</span></label>
+            <select id="loop-cfg-context" [ngModel]="contextStrategy()" (ngModelChange)="contextStrategy.set($event)">
+              <option value="fresh-child">Fresh child — each iter is a new CLI process; state lives on disk (NOTES.md, plan file)</option>
+              <option value="same-session">Same session — keep one CLI alive, conversation persists across iters (Ralph-loop style)</option>
+              <option value="hybrid">Hybrid — not yet implemented; falls back to fresh-child</option>
+            </select>
+          </section>
+
+          <section class="row split">
+            <div>
+              <label for="loop-cfg-iter-timeout">Iteration timeout (min)</label>
+              <input
+                id="loop-cfg-iter-timeout"
+                type="number"
+                min="1"
+                max="120"
+                [ngModel]="iterationTimeoutMin()"
+                (ngModelChange)="iterationTimeoutMin.set($event)"
+              />
+            </div>
+            <div>
+              <label for="loop-cfg-idle-timeout">Stream-idle abort (s)</label>
+              <input
+                id="loop-cfg-idle-timeout"
+                type="number"
+                min="15"
+                max="900"
+                [ngModel]="streamIdleTimeoutSec()"
+                (ngModelChange)="streamIdleTimeoutSec.set($event)"
+              />
+            </div>
+          </section>
+
           <section class="row toggles">
             <label>
               <input type="checkbox" [checked]="requireRename()" (change)="requireRename.set(toggleEvent($event))" />
@@ -168,10 +202,9 @@ const DEFAULT_COMPLETION = {
         <div class="cfg-error">{{ err }}</div>
       }
 
-      <footer>
-        <button type="button" class="btn-secondary" (click)="dismissed.emit()">Cancel</button>
-        <button type="button" class="btn-primary" [disabled]="!canSubmit()" (click)="submit()">Start Loop</button>
-      </footer>
+      <div class="send-hint">
+        Hit <kbd>Enter</kbd> in the message box to start the loop with this config.
+      </div>
     </div>
   `,
   styles: [`
@@ -311,19 +344,24 @@ const DEFAULT_COMPLETION = {
       margin: 8px 0;
       font-size: 12px;
     }
-    footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-    .btn-primary, .btn-secondary {
-      padding: 6px 14px; border-radius: 6px; cursor: pointer; font: inherit;
-      border: 1px solid rgba(255, 255, 255, 0.12); font-size: 13px;
+    .send-hint {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.08);
+      font-size: 11px;
+      opacity: 0.6;
+      text-align: right;
     }
-    .btn-primary {
-      background: var(--primary-color, #5f8ee0);
-      color: #11131a;
-      border-color: var(--primary-color, #5f8ee0);
-      font-weight: 600;
+    .send-hint kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.05);
+      font: inherit;
+      font-family: var(--font-mono, monospace);
+      font-size: 10px;
     }
-    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-secondary { background: transparent; color: inherit; }
     code { background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
   `],
 })
@@ -335,7 +373,13 @@ export class LoopConfigPanelComponent {
   firstMessageHint = input<string>('');
 
   dismissed = output<void>();
-  confirm = output<LoopStartConfigInput>();
+  /** Emits whenever the panel's submittability changes. Lets the host
+   *  enable/disable the Send button without having to viewChild-query us
+   *  (signal-based viewChild + @if has timing surprises). */
+  validityChange = output<boolean>();
+  /** Emits the current built config (or null if invalid) on any change.
+   *  Host uses this to pull the latest config when the user hits Send. */
+  configChange = output<LoopStartConfigInput | null>();
 
   private history = inject(LoopPromptHistoryService);
   recentPrompts = this.history.recent;
@@ -349,12 +393,22 @@ export class LoopConfigPanelComponent {
   verifyCommand = signal('npx tsc --noEmit && npm test --silent');
   provider = signal<'claude' | 'codex'>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
+  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('fresh-child');
+  /** Per-iteration wall-clock cap, exposed in minutes for UI sanity. */
+  iterationTimeoutMin = signal(30);
+  /** Per-iteration stream-idle abort, exposed in seconds for UI sanity. */
+  streamIdleTimeoutSec = signal(90);
   requireRename = signal(true);
   runVerifyTwice = signal(true);
   allowDestructive = signal(false);
   showAdvanced = signal(false);
 
   constructor() {
+    // Scope history to the workspace so directives don't leak across
+    // unrelated projects on the same machine.
+    effect(() => {
+      this.history.setWorkspace(this.workspaceCwd() || null);
+    });
     // Pre-fill the prompt: most recent saved > canonical default.
     // Deliberately don't autofill from the message textarea — that's the
     // user's pending message, not the loop's seed prompt.
@@ -366,6 +420,15 @@ export class LoopConfigPanelComponent {
         return;
       }
       this.prompt.set(DEFAULT_LOOP_PROMPT);
+    });
+    // Push validity + current config up to the host on every change so the
+    // host doesn't need a viewChild reference (which has timing issues with
+    // @if-rendered components).
+    effect(() => {
+      this.validityChange.emit(this.canSubmit());
+    });
+    effect(() => {
+      this.configChange.emit(this.canSubmit() ? this.buildConfig() : null);
     });
   }
 
@@ -388,16 +451,20 @@ export class LoopConfigPanelComponent {
     if (this.prompt() === entry) this.prompt.set('');
   }
 
-  submit(): void {
-    if (!this.canSubmit()) return;
-    const trimmed = this.prompt().trim();
-    const config: LoopStartConfigInput = {
-      initialPrompt: trimmed,
+  /**
+   * Build the current config payload, or return null if validation fails.
+   * Called by the host (input-panel) when the user hits Send while the
+   * panel is open — the panel itself no longer has a Start Loop button.
+   */
+  buildConfig(): LoopStartConfigInput | null {
+    if (!this.canSubmit()) return null;
+    return {
+      initialPrompt: this.prompt().trim(),
       workspaceCwd: this.workspaceCwd(),
       planFile: this.planFile().trim() || undefined,
       provider: this.provider(),
       reviewStyle: this.reviewStyle(),
-      contextStrategy: 'fresh-child',
+      contextStrategy: this.contextStrategy(),
       caps: {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,
@@ -415,7 +482,8 @@ export class LoopConfigPanelComponent {
         requireCompletedFileRename: this.requireRename(),
       },
       allowDestructiveOps: this.allowDestructive(),
+      iterationTimeoutMs: this.iterationTimeoutMin() * 60 * 1000,
+      streamIdleTimeoutMs: this.streamIdleTimeoutSec() * 1000,
     };
-    this.confirm.emit(config);
   }
 }

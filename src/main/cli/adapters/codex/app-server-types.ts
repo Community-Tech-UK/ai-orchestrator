@@ -320,7 +320,9 @@ export interface ThreadItem {
   // Command execution fields
   command?: string;
   aggregated_output?: string;
+  aggregatedOutput?: string | null;
   exit_code?: number;
+  exitCode?: number | null;
   status?: string;
   // Agent message fields
   text?: string;
@@ -467,6 +469,14 @@ export interface TurnCaptureState {
   error: unknown;
   /** All agent messages with lifecycle/phase metadata. */
   messages: { lifecycle: string; phase: string | null; text: string }[];
+  /** Streaming assistant messages keyed by Codex item id. */
+  streamingAgentMessages: Map<string, {
+    outputId: string;
+    content: string;
+    deltaSeen: boolean;
+  }>;
+  /** Output id used for the final root assistant message, if streamed. */
+  finalAgentOutputId: string | null;
   /** File changes from item/completed notifications. */
   fileChanges: ThreadItem[];
   /** Command executions from item/completed notifications. */
@@ -500,9 +510,13 @@ export const STREAMING_METHODS = new Set([
   'thread/compact/start',
 ]);
 
-/** Notification methods we opt out of to simplify processing. */
+/**
+ * Notification methods we opt out of to simplify processing.
+ *
+ * Keep assistant message deltas enabled so the UI can stream visible Codex
+ * responses instead of waiting for the final item/completed event.
+ */
 export const DEFAULT_OPT_OUT_NOTIFICATIONS = [
-  'item/agentMessage/delta',
   'item/reasoning/summaryTextDelta',
   'item/reasoning/summaryPartAdded',
   'item/reasoning/textDelta',

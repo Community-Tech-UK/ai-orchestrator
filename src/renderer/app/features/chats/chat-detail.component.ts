@@ -287,14 +287,23 @@ export class ChatDetailComponent {
     config: LoopStartConfigInput;
     firstMessage: string;
     attachments: { name: string; data: Uint8Array }[];
+    onResolved: (ok: boolean, error?: string) => void;
   }): Promise<void> {
     const chatId = this.detail()?.chat.id;
-    if (!chatId) return;
+    if (!chatId) {
+      payload.onResolved(false, 'No chat selected.');
+      return;
+    }
     const r = await this.loopStore.start(chatId, payload.config, payload.attachments);
     if (r.ok) {
-      this.loopPromptHistory.remember(payload.config.initialPrompt);
+      // Remember the loop directive (what's reusable next time), not the
+      // textarea goal which is task-specific.
+      this.loopPromptHistory.remember(payload.config.iterationPrompt ?? payload.config.initialPrompt);
+      payload.onResolved(true);
     } else {
-      this.chatStore.setError(`Loop start failed: ${r.error ?? 'unknown error'}`);
+      const msg = r.error ?? 'unknown error';
+      this.chatStore.setError(`Loop start failed: ${msg}`);
+      payload.onResolved(false, msg);
     }
   }
 

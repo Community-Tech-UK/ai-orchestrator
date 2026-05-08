@@ -107,19 +107,39 @@ export class LoopStageMachine {
       pendingInterventions.length > 0
         ? `\n\n## User Intervention\nThe operator added the following hint(s) since the last iteration. Treat them as binding direction:\n\n${pendingInterventions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
         : '';
-    const initialPromptBlock = config.planFile
-      ? ''
-      : `\n\n## Original Loop Prompt\n${config.initialPrompt}\n`;
+    // Iteration 0 sees the goal (initialPrompt). Iterations 1+ see the
+    // continuation directive (iterationPrompt) if one was set, falling back
+    // to initialPrompt for legacy/single-prompt loops. State on disk plus
+    // the stage machine carry context forward.
+    //
+    // We also persist the goal (initialPrompt) on every iteration so the
+    // fresh-process AI can re-anchor; without this, iter 1+ relies entirely
+    // on NOTES.md/plan-file reads to reconstruct context, and any iter that
+    // forgot to write notes causes drift.
+    const isFirstIteration = iterationSeq === 0;
+    const goalBlock = `\n\n## Goal (persistent across iterations)\n${config.initialPrompt}\n`;
+    const directiveBlock = !isFirstIteration && config.iterationPrompt
+      ? `\n\n## Loop Continuation Directive\n${config.iterationPrompt}\n`
+      : '';
+    const promptBlocks = `${goalBlock}${directiveBlock}`;
 
     return `# Loop Mode — Iteration ${iterationSeq}
 
 You are running inside an autonomous Loop Mode. State lives on disk; do not rely on chat history. Every iteration is a fresh process.
 
+## Autonomous Mode Rules
+
+There is no human in the loop to answer questions. You must:
+
+1. **Make decisions.** If you are uncertain, choose the option a senior engineer would defend in code review. Document your reasoning in \`NOTES.md\`.
+2. **Do not ask clarifying questions.** They will not be answered — the next iteration is a fresh process and will not see them.
+3. **If you are genuinely blocked** (missing credentials, ambiguous requirements that cannot be resolved by best-judgement, hardware/network you cannot access): write \`BLOCKED.md\` describing exactly what you need, then exit. The loop will pause and wait for the operator.
+
 ## Step 1 — Read your state
 1. Open \`STAGE.md\`. It contains exactly one of: PLAN, REVIEW, IMPLEMENT.
 2. Open ${planRef}.
 3. Open \`NOTES.md\`. It contains the rolling notes from prior iterations.
-4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.${interventions}${initialPromptBlock}
+4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 

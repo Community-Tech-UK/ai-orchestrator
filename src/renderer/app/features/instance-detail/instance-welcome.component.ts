@@ -388,6 +388,7 @@ export class InstanceWelcomeComponent {
     config: LoopStartConfigInput;
     firstMessage: string;
     attachments: { name: string; data: Uint8Array }[];
+    onResolved: (ok: boolean, error?: string) => void;
   }>();
 
   onNodeSelected(nodeId: string | null): void {

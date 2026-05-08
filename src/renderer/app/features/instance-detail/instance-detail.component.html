@@ -84,11 +84,11 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"></line>
               </svg>
               <div class="recovery-banner-body">
-                <span class="recovery-banner-title">Session context not restored</span>
-                <span class="recovery-banner-desc">Your conversation history is shown above, but {{ getProviderDisplayName(inst.provider) }} doesn't have this context. Consider re-summarizing what you were working on.</span>
+                <span class="recovery-banner-title">Session resumed with condensed context</span>
+                <span class="recovery-banner-desc">Your conversation history is shown above. {{ getProviderDisplayName(inst.provider) }} could not prove native context, so a condensed transcript will attach automatically to your next message.</span>
               </div>
               <div class="recovery-banner-actions">
-                <button class="recovery-action recovery-action-primary" (click)="onRecoverySummarize()">Summarize & Continue</button>
+                <button class="recovery-action recovery-action-primary" (click)="onRecoverySummarize()">Continue</button>
                 <button class="recovery-action" (click)="onRecoveryDismiss()">Dismiss</button>
               </div>
             </div>

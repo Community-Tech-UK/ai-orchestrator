@@ -157,6 +157,23 @@ describe('InstanceMessagingStore', () => {
     expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'Seeded prompt', undefined, true);
   });
 
+  it('clears replay recovery markers when the user sends the next message', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({
+      restoreMode: 'replay-fallback',
+      recoveryMethod: 'replay',
+    }));
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+
+    await currentStore.sendInput('inst-1', 'continue');
+
+    const instance = currentStateService.getInstance('inst-1');
+    expect(instance?.restoreMode).toBeUndefined();
+    expect(instance?.recoveryMethod).toBeUndefined();
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue', undefined, false);
+  });
+
   it('routes sends from a superseded edit source to its replacement instance', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

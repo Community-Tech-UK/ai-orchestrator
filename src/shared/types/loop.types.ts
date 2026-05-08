@@ -90,8 +90,12 @@ export interface LoopCompletionConfig {
 }
 
 export interface LoopConfig {
-  /** Free-form prompt or path to a plan file in cwd. Cannot be empty. */
+  /** The goal/ask. Sent on iteration 0 — anchors what the loop drives toward. */
   initialPrompt: string;
+  /** Optional continuation directive used on iterations 1+. If omitted, the
+   *  runtime re-uses `initialPrompt` every iteration. State on disk
+   *  (`NOTES.md`, `STAGE.md`, the plan file) carries context between iters. */
+  iterationPrompt?: string;
   /** Plan file (markdown) the loop should advance until renamed *_Completed.md. */
   planFile?: string;
   /** Working directory for the loop. Defaults to chat's cwd. */
@@ -112,12 +116,24 @@ export interface LoopConfig {
   allowDestructiveOps: boolean;
   /** Optional: agent's initial stage. Default 'PLAN'. */
   initialStage: LoopStage;
+  /** Wall-clock cap per iteration in ms. Defaults applied by the invoker
+   *  if unset (currently 30 minutes). The loop's overall caps.maxWallTimeMs
+   *  is enforced separately at the coordinator level. */
+  iterationTimeoutMs?: number;
+  /** Stream-idle threshold per iteration in ms — silence-of-stdout cutoff
+   *  before the iteration is considered stalled. Inherits the adapter's
+   *  default (90 s) when unset. Bump for slow providers. */
+  streamIdleTimeoutMs?: number;
 }
 
 /** Default config factory. */
 export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): LoopConfig {
   return {
     initialPrompt,
+    // Default to undefined so legacy single-prompt loops keep their existing
+    // behaviour (initialPrompt used on every iteration). The renderer fills
+    // this in when the user types both a textarea goal and a panel directive.
+    iterationPrompt: undefined,
     workspaceCwd,
     provider: 'claude',
     reviewStyle: 'debate',
@@ -161,6 +177,8 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     },
     allowDestructiveOps: false,
     initialStage: 'PLAN',
+    iterationTimeoutMs: undefined,
+    streamIdleTimeoutMs: undefined,
   };
 }
 
@@ -249,7 +267,7 @@ export interface LoopIteration {
  * G: Tool call repetition
  * H: Output similarity
  */
-export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H';
+export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H' | 'BLOCKED';
 
 export interface ProgressSignalEvidence {
   id: ProgressSignalId;

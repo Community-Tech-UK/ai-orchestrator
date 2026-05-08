@@ -4,6 +4,9 @@ import type { IpcResponse } from './types';
 
 export interface LoopConfigInput {
   initialPrompt: string;
+  /** Optional continuation directive used on iterations 1+. If omitted,
+   *  the runtime re-uses `initialPrompt` for every iteration. */
+  iterationPrompt?: string;
   workspaceCwd: string;
   planFile?: string;
   provider?: 'claude' | 'codex';
@@ -27,6 +30,10 @@ export interface LoopConfigInput {
   }>;
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
+  /** Wall-clock cap per iteration (ms). */
+  iterationTimeoutMs?: number;
+  /** Stream-idle threshold per iteration (ms). */
+  streamIdleTimeoutMs?: number;
 }
 
 export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {

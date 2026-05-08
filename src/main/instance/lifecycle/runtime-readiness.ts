@@ -45,7 +45,9 @@ export class RuntimeReadinessCoordinator {
   /**
    * Wait until the just-spawned CLI proves it accepted native resume.
    *
-   * Positive signal: any normalized output event from the adapter.
+   * Positive signal: any normalized output event from the adapter, or a
+   * writable quiet Claude stream. Claude `--print --resume` can accept stdin
+   * without emitting output until the next user message.
    * Negative signal: process liveness failure or a session-not-found error.
    */
   async waitForResumeHealth(
@@ -77,10 +79,17 @@ export class RuntimeReadinessCoordinator {
       const poll = setInterval(() => {
         if (!this.isLive(instanceId, adapter)) {
           finish(false);
+          return;
+        }
+
+        if (this.hasQuietResumeReadiness(adapter)) {
+          finish(true);
         }
       }, pollIntervalMs);
 
-      const timer = setTimeout(() => finish(false), timeoutMs);
+      const timer = setTimeout(() => {
+        finish(this.isLive(instanceId, adapter) && this.hasQuietResumeReadiness(adapter));
+      }, timeoutMs);
 
       stopObserving = observeAdapterRuntimeEvents(adapter, ({ event }) => {
         switch (event.kind) {
@@ -189,6 +198,17 @@ export class RuntimeReadinessCoordinator {
       instance.status !== 'failed' &&
       instance.status !== 'terminated'
     );
+  }
+
+  private hasQuietResumeReadiness(adapter: CliAdapter): boolean {
+    if (adapter.getName() !== 'claude-cli') {
+      return false;
+    }
+
+    const formatter = (adapter as unknown as {
+      formatter?: { isWritable(): boolean } | null;
+    }).formatter;
+    return formatter !== undefined && formatter !== null && formatter.isWritable();
   }
 
   private isSessionNotFoundMessage(message: string): boolean {

@@ -107,6 +107,33 @@ describe('RuntimeReadinessCoordinator', () => {
     await expect(result).resolves.toBe(false);
   });
 
+  it('treats a writable quiet Claude stream as a successful native resume health signal', async () => {
+    vi.useFakeTimers();
+    let writable = false;
+    const adapter = makeAdapter({
+      getName: () => 'claude-cli',
+      formatter: {
+        isWritable: () => writable,
+      },
+    } as Partial<CliAdapter>);
+    const instance = {
+      processId: 123,
+      status: 'initializing',
+    } as Pick<Instance, 'processId' | 'status'>;
+    const coordinator = new RuntimeReadinessCoordinator({
+      getInstance: () => instance,
+      getAdapter: () => adapter,
+    });
+
+    const result = coordinator.waitForResumeHealth('instance-1', 1000, 50);
+
+    await vi.advanceTimersByTimeAsync(50);
+    writable = true;
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(result).resolves.toBe(true);
+  });
+
   it('waits for Claude formatter writability', async () => {
     vi.useFakeTimers();
     let writable = false;

@@ -231,10 +231,7 @@ export class InstanceMessagingStore {
     if (!target) return;
     const { instance, instanceId: targetInstanceId } = target;
 
-    // Clear recovery state on first user message — the user is re-establishing context
-    if (instance.restoreMode) {
-      this.stateService.updateInstance(targetInstanceId, { restoreMode: undefined });
-    }
+    this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
 
     // Reject immediately if instance is in a terminal state — sending will fail
     // and the optimistic busy status would mask the real state from retry logic.
@@ -282,9 +279,7 @@ export class InstanceMessagingStore {
     if (!target) return;
     const { instance, instanceId: targetInstanceId } = target;
 
-    if (instance.restoreMode) {
-      this.stateService.updateInstance(targetInstanceId, { restoreMode: undefined });
-    }
+    this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot steer instance in terminal state', {
@@ -316,9 +311,7 @@ export class InstanceMessagingStore {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance) return;
 
-    if (instance.restoreMode) {
-      this.stateService.updateInstance(instanceId, { restoreMode: undefined });
-    }
+    this.clearRecoveryMarkersOnUserInput(instanceId, instance);
 
     if (isTerminalStatus(instance.status)) {
       console.warn('InstanceMessagingStore: Cannot steer queued message for instance in terminal state', {
@@ -374,6 +367,17 @@ export class InstanceMessagingStore {
         'Steer message queued, but the active turn did not accept an interrupt. It will send when the session is ready.'
       );
     }
+  }
+
+  private clearRecoveryMarkersOnUserInput(instanceId: string, instance: Instance): void {
+    if (!instance.restoreMode && instance.recoveryMethod !== 'replay') {
+      return;
+    }
+
+    this.stateService.updateInstance(instanceId, {
+      restoreMode: undefined,
+      recoveryMethod: instance.recoveryMethod === 'replay' ? undefined : instance.recoveryMethod,
+    });
   }
 
   /**

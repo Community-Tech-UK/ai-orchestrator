@@ -6,7 +6,7 @@ import type {
   ConversationMessageRecord,
   ConversationRole,
 } from '../../shared/types/conversation-ledger.types';
-import type { ChatDetail, ChatEvent, ChatRecord } from '../../shared/types/chat.types';
+import type { ChatEvent, ChatRecord } from '../../shared/types/chat.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import { getConversationLedgerService, type ConversationLedgerService } from '../conversation-ledger';
@@ -99,6 +99,9 @@ export class ChatTranscriptBridge {
     const outputMessage = toOutputMessageFromProviderEnvelope(envelope);
     if (outputMessage) {
       if (outputMessage.type === 'user') {
+        return null;
+      }
+      if (outputMessage.metadata?.['streaming'] === true) {
         return null;
       }
       return this.messageFromOutput(envelope, outputMessage);

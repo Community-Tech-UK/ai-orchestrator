@@ -6,10 +6,16 @@ import { LoopStore } from '../../core/state/loop.store';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <label class="loop-toggle" [class.disabled]="!canInteract()" [class.on]="visuallyOn()" [title]="title()">
-      <span class="lt-icon" aria-hidden="true">🔁</span>
-      <span class="lt-label">Loop</span>
-      <span class="lt-switch" [class.on]="visuallyOn()">
+    <label
+      class="loop-toggle"
+      [class.disabled]="!canInteract()"
+      [class.armed]="panelOpen() && !isActive()"
+      [class.running]="isActive()"
+      [title]="title()"
+    >
+      <span class="lt-icon" aria-hidden="true">{{ isActive() ? '⏵' : '🔁' }}</span>
+      <span class="lt-label">{{ isActive() ? 'Loop running' : (panelOpen() ? 'Loop armed' : 'Loop') }}</span>
+      <span class="lt-switch" [class.armed]="panelOpen() && !isActive()" [class.running]="isActive()">
         <input
           type="checkbox"
           [checked]="visuallyOn()"
@@ -82,8 +88,14 @@ import { LoopStore } from '../../core/state/loop.store';
       transition: transform 0.18s ease;
       pointer-events: none;
     }
-    .lt-switch.on .lt-track { background: var(--primary-color, #d4b45a); }
-    .lt-switch.on .lt-thumb { transform: translateX(12px); }
+    .lt-switch.armed .lt-track { background: var(--primary-color, #d4b45a); }
+    .lt-switch.armed .lt-thumb { transform: translateX(12px); }
+    /* "Running" gets a distinct green to make it unmistakable that a loop is
+     * active vs. armed-but-not-yet-started. */
+    .lt-switch.running .lt-track { background: #4eaa6a; }
+    .lt-switch.running .lt-thumb { transform: translateX(12px); }
+    .loop-toggle.running { border-color: rgba(78, 170, 106, 0.5); }
+    .loop-toggle.running:hover:not(.disabled) { background: rgba(78, 170, 106, 0.12); }
   `],
 })
 export class LoopToggleComponent {
@@ -108,15 +120,17 @@ export class LoopToggleComponent {
 
   canInteract = computed(() => {
     if (this.isActive()) return true;
-    if (!this.workspaceCwd()) return false;
-    return !!this.chatId() || this.hasTypedText();
+    // Just need a working folder. The panel itself always has a prompt
+    // (default canonical or recent), so a loop can start without textarea
+    // content — the panel becomes both iter 0 and iter 1+ in that case.
+    return !!this.workspaceCwd();
   });
 
   title = computed(() => {
     if (this.isActive()) return 'Loop ON — click to stop';
+    if (this.panelOpen()) return 'Click to close the loop config panel';
     if (!this.workspaceCwd()) return 'Pick a working folder to enable Loop Mode';
-    if (!this.chatId() && !this.hasTypedText()) return 'Type a prompt to enable Loop Mode';
-    return 'Click to configure and start an autonomous loop';
+    return 'Click to open the loop config panel';
   });
 
   constructor() {
@@ -124,10 +138,13 @@ export class LoopToggleComponent {
   }
 
   onChange(event: Event): void {
-    const wantOn = (event.target as HTMLInputElement).checked;
-    if (this.isActive() && !wantOn) {
+    if (this.isActive()) {
+      // Active loop → clicking the toggle is always a stop request.
       this.stopRequested.emit();
-    } else if (!this.isActive() && wantOn) {
+    } else {
+      // No active loop → emit `openConfig`; the parent decides whether to
+      // open or close the panel based on its current visibility. This way
+      // the toggle is a single intent ("flip the panel"), not a checkbox.
       this.openConfig.emit();
     }
     // Force-sync the checkbox to authoritative state — Angular re-renders [checked]

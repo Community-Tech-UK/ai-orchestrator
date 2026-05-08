@@ -8,6 +8,9 @@ import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
 export interface LoopStartConfigInput {
   initialPrompt: string;
+  /** Optional continuation directive used on iterations 1+. If omitted,
+   *  the runtime re-uses `initialPrompt` for every iteration. */
+  iterationPrompt?: string;
   workspaceCwd: string;
   planFile?: string;
   provider?: 'claude' | 'codex';
@@ -31,6 +34,10 @@ export interface LoopStartConfigInput {
   }>;
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
+  /** Wall-clock cap per iteration (ms). */
+  iterationTimeoutMs?: number;
+  /** Stream-idle threshold per iteration (ms). */
+  streamIdleTimeoutMs?: number;
 }
 
 @Injectable({ providedIn: 'root' })

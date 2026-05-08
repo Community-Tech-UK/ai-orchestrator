@@ -1015,12 +1015,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       this.emit('output', {
-        id: generateId(),
+        id: turnState.finalAgentOutputId ?? generateId(),
         timestamp: Date.now(),
         type: 'assistant',
         content: extracted.response,
-        metadata: turnState.turnId ? { turnId: turnState.turnId } : undefined,
+        metadata: {
+          ...(turnState.turnId ? { turnId: turnState.turnId } : {}),
+          ...(turnState.finalAgentOutputId ? {
+            streaming: false,
+            accumulatedContent: extracted.response,
+            thinkingExtracted: true,
+          } : {}),
+        },
         thinking: allThinking.length > 0 ? allThinking : undefined,
+        thinkingExtracted: turnState.finalAgentOutputId ? true : undefined,
       });
     }
 
@@ -1437,7 +1445,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
 
         // Emit real-time tool_use events for various item types
-        if (item.type === 'command_execution' && item.command) {
+        if (this.isCommandExecutionItem(item) && item.command) {
           const phase: TurnPhase = VERIFICATION_CMD_PATTERN.test(item.command)
             ? 'verifying'
             : 'running';
@@ -1446,15 +1454,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Running command: ${shorten(item.command, 96)}`,
-            metadata: { streaming: true, phase },
+            metadata: { name: 'Bash', streaming: true, phase },
           });
-        } else if (item.type === 'file_change') {
+        } else if (item.type === 'file_change' || item.type === 'fileChange') {
+          const path = this.getFileChangePath(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_use',
-            content: `Editing file: ${item.path || 'unknown'}`,
-            metadata: { streaming: true, phase: 'editing' as TurnPhase },
+            content: `Editing file: ${path}`,
+            metadata: { name: 'Edit', streaming: true, phase: 'editing' as TurnPhase },
           });
         } else if (item.type === 'enteredReviewMode') {
           this.emit('output', {
@@ -1462,7 +1471,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Reviewer started: ${item.review || 'code review'}`,
-            metadata: { streaming: true, phase: 'reviewing' as TurnPhase },
+            metadata: { name: 'other', streaming: true, phase: 'reviewing' as TurnPhase },
           });
         } else if (item.type === 'mcpToolCall') {
           this.emit('output', {
@@ -1470,7 +1479,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Calling ${item.server || 'mcp'}/${item.tool || item.toolName || 'unknown'}`,
-            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: { name: 'other', streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'dynamicToolCall') {
           this.emit('output', {
@@ -1478,7 +1487,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Running tool: ${item.tool || item.toolName || 'unknown'}`,
-            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: { name: 'other', streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'collabAgentToolCall') {
           const subagentLabels = (item.receiverThreadIds ?? [])
@@ -1491,7 +1500,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             timestamp: Date.now(),
             type: 'tool_use',
             content: summary,
-            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: { name: 'Task', streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'webSearch') {
           this.emit('output', {
@@ -1499,7 +1508,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             timestamp: Date.now(),
             type: 'tool_use',
             content: `Searching: ${shorten(item.query, 96)}`,
-            metadata: { streaming: true, phase: 'investigating' as TurnPhase },
+            metadata: { name: 'WebSearch', streaming: true, phase: 'investigating' as TurnPhase },
           });
         }
         break;
@@ -1539,18 +1548,20 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
 
         // ── Command execution ──
-        if (item.type === 'command_execution') {
+        if (this.isCommandExecutionItem(item)) {
           state.commandExecutions.push(item);
-          if (item.aggregated_output) {
+          const output = this.getCommandAggregatedOutput(item);
+          if (output) {
+            const exitCode = this.getCommandExitCode(item);
             this.emit('output', {
               id: generateId(),
               timestamp: Date.now(),
               type: 'tool_result',
-              content: item.aggregated_output,
+              content: output,
               metadata: {
                 command: item.command,
-                exitCode: item.exit_code,
-                is_error: item.exit_code !== 0,
+                exitCode,
+                is_error: exitCode !== undefined && exitCode !== 0,
               },
             });
           }
@@ -1568,7 +1579,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
             // Only update lastAgentMessage for root thread messages
             if (!threadId || threadId === state.threadId) {
-              state.lastAgentMessage = text;
+              state.lastAgentMessage = this.reconcileCompletedAgentMessage(state, item.id, text);
               if (itemPhase === 'final_answer') {
                 state.finalAnswerSeen = true;
                 this.scheduleInferredCompletion(state);
@@ -1580,12 +1591,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
         // ── File change ──
         if (item.type === 'file_change' || item.type === 'fileChange') {
           state.fileChanges.push(item);
+          const path = this.getFileChangePath(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_result',
-            content: `File ${item.changeType || 'modified'}: ${item.path || 'unknown'}`,
-            metadata: { path: item.path, changeType: item.changeType, is_error: false },
+            content: `File ${item.changeType || 'modified'}: ${path}`,
+            metadata: { path, changeType: item.changeType, is_error: false },
           });
         }
 
@@ -1748,7 +1760,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // alive even when no tool_use/tool_result output events are emitted.
       // Without a heartbeat here, the stuck-process detector fires during
       // long reasoning phases (>120 s with no visible output).
-      case 'item/agentMessage/delta':
+      case 'item/agentMessage/delta': {
+        this.handleAgentMessageDelta(state, params);
+        break;
+      }
       case 'item/reasoning/summaryPartAdded':
       case 'item/reasoning/summaryTextDelta': {
         this.emit('heartbeat');
@@ -1758,6 +1773,116 @@ export class CodexCliAdapter extends BaseCliAdapter {
       default:
         break;
     }
+  }
+
+  private handleAgentMessageDelta(state: TurnCaptureState, params: Record<string, unknown>): void {
+    const threadId = params['threadId'] as string | undefined;
+    if (threadId && threadId !== state.threadId) {
+      return;
+    }
+
+    const delta = typeof params['delta'] === 'string' ? params['delta'] : '';
+    if (!delta) {
+      return;
+    }
+
+    const itemId = typeof params['itemId'] === 'string' ? params['itemId'] : null;
+    this.emitStreamingAgentDelta(state, itemId, delta);
+  }
+
+  private emitStreamingAgentDelta(state: TurnCaptureState, itemId: string | null, delta: string): void {
+    const stream = this.getStreamingAgentMessage(state, itemId);
+    stream.content += delta;
+    stream.deltaSeen = true;
+
+    const extracted = extractThinkingContent(stream.content);
+    const accumulatedContent = extracted.hasThinking ? extracted.response : stream.content;
+    this.emit('output', {
+      id: stream.outputId,
+      timestamp: Date.now(),
+      type: 'assistant',
+      content: delta,
+      metadata: {
+        streaming: true,
+        accumulatedContent,
+        thinkingExtracted: true,
+        phase: 'finalizing' as TurnPhase,
+        ...(state.turnId ? { turnId: state.turnId } : {}),
+      },
+      thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
+      thinkingExtracted: true,
+    });
+  }
+
+  private getStreamingAgentMessage(
+    state: TurnCaptureState,
+    itemId: string | null,
+  ): { outputId: string; content: string; deltaSeen: boolean } {
+    const key = this.getAgentMessageStreamKey(state, itemId);
+    let stream = state.streamingAgentMessages.get(key);
+    if (!stream) {
+      const turnId = state.turnId ?? this.currentTurnId ?? 'turn';
+      stream = {
+        outputId: `codex-agent-message:${state.threadId}:${turnId}:${key}`,
+        content: '',
+        deltaSeen: false,
+      };
+      state.streamingAgentMessages.set(key, stream);
+    }
+    return stream;
+  }
+
+  private findStreamingAgentMessage(
+    state: TurnCaptureState,
+    itemId: string | null,
+  ): { outputId: string; content: string; deltaSeen: boolean } | null {
+    if (itemId) {
+      return state.streamingAgentMessages.get(itemId) ?? null;
+    }
+    if (state.streamingAgentMessages.size === 1) {
+      return Array.from(state.streamingAgentMessages.values())[0] ?? null;
+    }
+    return state.streamingAgentMessages.get(this.getAgentMessageStreamKey(state, null)) ?? null;
+  }
+
+  private getAgentMessageStreamKey(state: TurnCaptureState, itemId: string | null): string {
+    return itemId || state.turnId || this.currentTurnId || 'root-agent-message';
+  }
+
+  private reconcileCompletedAgentMessage(
+    state: TurnCaptureState,
+    itemId: string | undefined,
+    text: string,
+  ): string {
+    const stream = this.findStreamingAgentMessage(state, itemId ?? null);
+    if (!stream?.deltaSeen) {
+      return text;
+    }
+
+    if (text === stream.content || stream.content.startsWith(text)) {
+      state.finalAgentOutputId = stream.outputId;
+      return stream.content;
+    }
+
+    if (text.startsWith(stream.content)) {
+      const suffix = text.slice(stream.content.length);
+      if (suffix) {
+        this.emitStreamingAgentDelta(state, itemId ?? null, suffix);
+      }
+      state.finalAgentOutputId = stream.outputId;
+      return text;
+    }
+
+    logger.warn('Codex assistant final did not match streamed content; using final message as canonical', {
+      itemId,
+      streamedLength: stream.content.length,
+      finalLength: text.length,
+      streamedTail: stream.content.slice(-120),
+      finalTail: text.slice(-120),
+    });
+    stream.content = text;
+    state.finalAgentOutputId = stream.outputId;
+    return text;
   }
 
   /**
@@ -1834,6 +1959,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       reasoningSummary: [],
       error: null,
       messages: [],
+      streamingAgentMessages: new Map(),
+      finalAgentOutputId: null,
       fileChanges: [],
       commandExecutions: [],
       onProgress: null,
@@ -1847,15 +1974,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const toolCalls: CliToolCall[] = [];
 
     for (const cmd of state.commandExecutions) {
+      const exitCode = this.getCommandExitCode(cmd);
       toolCalls.push({
         id: cmd.id || `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: 'command_execution',
         arguments: {
           command: cmd.command,
-          exitCode: cmd.exit_code,
+          exitCode,
           status: cmd.status,
         },
-        result: cmd.aggregated_output || undefined,
+        result: this.getCommandAggregatedOutput(cmd) || undefined,
       });
     }
 
@@ -1872,6 +2000,45 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     return toolCalls;
+  }
+
+  private isCommandExecutionItem(item: ThreadItem): boolean {
+    return item.type === 'command_execution' || item.type === 'commandExecution';
+  }
+
+  private getCommandAggregatedOutput(item: ThreadItem): string | undefined {
+    if (typeof item.aggregated_output === 'string') {
+      return item.aggregated_output;
+    }
+    if (typeof item.aggregatedOutput === 'string') {
+      return item.aggregatedOutput;
+    }
+    return undefined;
+  }
+
+  private getCommandExitCode(item: ThreadItem): number | undefined {
+    if (typeof item.exit_code === 'number') {
+      return item.exit_code;
+    }
+    if (typeof item.exitCode === 'number') {
+      return item.exitCode;
+    }
+    return undefined;
+  }
+
+  private getFileChangePath(item: ThreadItem): string {
+    if (typeof item.path === 'string' && item.path.trim()) {
+      return item.path;
+    }
+    if (Array.isArray(item.changes)) {
+      const firstPath = item.changes
+        .map((change) => change?.path)
+        .find((path): path is string => typeof path === 'string' && path.trim().length > 0);
+      if (firstPath) {
+        return firstPath;
+      }
+    }
+    return 'unknown';
   }
 
   /**

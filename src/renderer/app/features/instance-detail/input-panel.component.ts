@@ -167,34 +167,89 @@ export class InputPanelComponent implements OnDestroy {
     config: LoopStartConfigInput;
     firstMessage: string;
     attachments: { name: string; data: Uint8Array }[];
+    onResolved: (ok: boolean, error?: string) => void;
   }>();
   loopStopRequested = output<void>();
 
   showLoopPanel = signal(false);
+  /** True while a loop start IPC is in flight. Prevents double-start races
+   *  (Send + Enter, Enter + Enter, etc.). Reset by the parent's resolver. */
+  loopStarting = signal(false);
+  /** Last error message from a failed loop start. Surfaced inline above the
+   *  composer so the user knows what happened — input is preserved. */
+  loopStartError = signal<string | null>(null);
 
+  /** Latest config emitted by the panel via (configChange). Null while panel
+   *  is closed or has invalid input. We mirror it here instead of using a
+   *  viewChild because signal-based viewChild + @if has timing surprises. */
+  private latestLoopConfig = signal<LoopStartConfigInput | null>(null);
+  /** Latest validity from the panel via (validityChange). */
+  private latestLoopValid = signal(false);
+
+  /** True when the loop panel is open and its config currently validates. */
+  loopPanelValid = computed(() => {
+    if (!this.showLoopPanel()) return true;
+    return this.latestLoopValid();
+  });
+
+  onLoopConfigChange(config: LoopStartConfigInput | null): void {
+    this.latestLoopConfig.set(config);
+  }
+
+  onLoopValidityChange(valid: boolean): void {
+    this.latestLoopValid.set(valid);
+  }
+
+  /** Toggle the loop config panel open/closed. Called when the loop toggle
+   *  is clicked from a non-active state. */
   onLoopOpenConfig(): void {
-    this.showLoopPanel.set(true);
+    this.showLoopPanel.update((open) => !open);
+  }
+
+  /** The toggle was clicked while a loop is running — propagate up so the
+   *  parent can cancel it via `loopStore.cancel(activeLoopId)`. */
+  onLoopStopRequested(): void {
+    this.loopStopRequested.emit();
   }
 
   onLoopPanelDismissed(): void {
     this.showLoopPanel.set(false);
   }
 
-  async onLoopPanelConfirm(panelConfig: LoopStartConfigInput): Promise<void> {
+  /**
+   * Pull the panel's current config, route textarea/panel prompts to
+   * `initialPrompt` (iter 0) and `iterationPrompt` (iter 1+), serialize
+   * attachments, and emit a loop-start request. Called when the user hits
+   * Send (or Enter) while the panel is open.
+   *
+   * Critically: textarea + panel are NOT cleared until the parent reports
+   * a successful start via `onResolved(true)`. Any IPC/coordinator failure
+   * bounces back through `onResolved(false, message)` and we restore the
+   * panel + show the error so the user doesn't lose work.
+   */
+  private async tryStartLoopFromPanel(): Promise<boolean> {
+    if (this.loopStarting()) return false; // dedupe rapid-fire Send/Enter
+    const panelConfig = this.latestLoopConfig();
+    if (!panelConfig) {
+      // The panel either hasn't reported a valid config yet, or the user
+      // edited it into an invalid state. Surface the panel's own error
+      // (if any) so the user understands why nothing happened.
+      this.loopStartError.set('Loop config is incomplete — fix the prompt or settings above before sending.');
+      return false;
+    }
+
     const firstMessage = this.message().trim();
     const panelPrompt = panelConfig.initialPrompt.trim();
-    const combined = firstMessage
-      ? `${firstMessage}\n\n${panelPrompt}`
-      : panelPrompt;
 
+    // Iter 0 = the goal (textarea). Iter 1+ = the continuation directive
+    // (panel prompt). If textarea is empty, fall back to the panel prompt
+    // for iter 0 too — the loop must have *something* to work toward.
     const finalConfig: LoopStartConfigInput = {
       ...panelConfig,
-      initialPrompt: combined,
+      initialPrompt: firstMessage || panelPrompt,
+      iterationPrompt: firstMessage ? panelPrompt : undefined,
     };
 
-    // Serialize pending files to bytes for IPC transport. The main process
-    // copies these into the workspace's .aio-loop-attachments/<runId>/ folder
-    // so each loop iteration's CLI can read them via its workspace tools.
     const files = this.pendingFiles();
     const attachments = await Promise.all(
       files.map(async (file) => ({
@@ -203,16 +258,27 @@ export class InputPanelComponent implements OnDestroy {
       })),
     );
 
-    this.showLoopPanel.set(false);
-    // Clear the textarea — its content has been consumed (sent as the
-    // session's first user message in welcome flow, or merged into the
-    // loop prompt in active sessions).
-    this.message.set('');
-    this.loopStartRequested.emit({ config: finalConfig, firstMessage, attachments });
-  }
-
-  onLoopStopRequested(): void {
-    this.loopStopRequested.emit();
+    this.loopStarting.set(true);
+    this.loopStartError.set(null);
+    this.loopStartRequested.emit({
+      config: finalConfig,
+      firstMessage,
+      attachments,
+      onResolved: (ok, error) => {
+        this.loopStarting.set(false);
+        if (ok) {
+          // Only clear once the loop is actually running.
+          this.showLoopPanel.set(false);
+          this.message.set('');
+          this.loopStartError.set(null);
+        } else {
+          // Preserve the user's typed goal, panel state, and pending files
+          // so they can fix and retry — do NOT clear anything.
+          this.loopStartError.set(error ?? 'Loop start failed.');
+        }
+      },
+    });
+    return true;
   }
 
   editMode = signal(false);
@@ -616,6 +682,14 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   canSend(): boolean {
+    if (this.loopStarting()) return false; // double-start dedupe
+    if (this.showLoopPanel()) {
+      // When the loop panel is open, Send means "start loop". Validity is
+      // owned by the panel's config, not the textarea — the panel always
+      // has a prompt (default or recent), so the textarea may legitimately
+      // be empty.
+      return this.loopPanelValid();
+    }
     return this.message().trim().length > 0 || this.pendingFilePreviews().length > 0 || this.pendingFolders().length > 0;
   }
 
@@ -1009,6 +1083,15 @@ export class InputPanelComponent implements OnDestroy {
 
   async onSend(): Promise<void> {
     if (!this.canSend() || this.disabled()) return;
+
+    // When the loop config panel is open, Send means "start the loop with
+    // this config + textarea content". This replaces the panel's removed
+    // Start Loop button with a single, unambiguous send action.
+    if (this.showLoopPanel()) {
+      if (!this.loopPanelValid()) return;
+      await this.tryStartLoopFromPanel();
+      return;
+    }
 
     const text = this.message().trim();
 
