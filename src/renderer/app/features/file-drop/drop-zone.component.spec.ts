@@ -274,6 +274,146 @@ describe('DropZoneComponent', () => {
       expect(multiEmit).not.toHaveBeenCalled();
       expect(singleEmit).toHaveBeenCalledWith('/fallback.ts');
     });
+
+    // ============================================
+    // External drag sources (VSCode, Finder, browsers)
+    // ============================================
+
+    it('emits filePathDropped from VSCode codefiles (single)', () => {
+      const emit = vi.spyOn(component.filePathDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'codefiles' ? '["/Users/x/foo.md"]' : '',
+        },
+      }));
+
+      expect(emit).toHaveBeenCalledWith('/Users/x/foo.md');
+    });
+
+    it('emits filePathsDropped from VSCode codefiles (multiple)', () => {
+      const emit = vi.spyOn(component.filePathsDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'codefiles' ? '["/a.ts","/b.ts"]' : '',
+        },
+      }));
+
+      expect(emit).toHaveBeenCalledWith(['/a.ts', '/b.ts']);
+    });
+
+    it('decodes VSCode resourceurls into local paths', () => {
+      const emit = vi.spyOn(component.filePathDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'resourceurls'
+              ? '["file:///Users/x/has%20space.md"]'
+              : '',
+        },
+      }));
+
+      expect(emit).toHaveBeenCalledWith('/Users/x/has space.md');
+    });
+
+    it('decodes text/uri-list (Finder/Chrome cross-app format)', () => {
+      const emit = vi.spyOn(component.filePathsDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'text/uri-list'
+              ? '# comment line\r\nfile:///a.ts\r\nfile:///b.ts\r\n'
+              : '',
+        },
+      }));
+
+      expect(emit).toHaveBeenCalledWith(['/a.ts', '/b.ts']);
+    });
+
+    it('skips non-file URIs in text/uri-list', () => {
+      const single = vi.spyOn(component.filePathDropped, 'emit');
+      const multi = vi.spyOn(component.filePathsDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'text/uri-list'
+              ? 'https://example.com\nfile:///only.ts'
+              : '',
+        },
+      }));
+
+      expect(single).toHaveBeenCalledWith('/only.ts');
+      expect(multi).not.toHaveBeenCalled();
+    });
+
+    it('falls back to text/plain when it looks like an absolute path', () => {
+      const emit = vi.spyOn(component.filePathDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'text/plain' ? '/Users/x/notes.md' : '',
+        },
+      }));
+
+      expect(emit).toHaveBeenCalledWith('/Users/x/notes.md');
+    });
+
+    it('ignores text/plain that is not a path-shaped string', () => {
+      const single = vi.spyOn(component.filePathDropped, 'emit');
+      const multi = vi.spyOn(component.filePathsDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) =>
+            format === 'text/plain'
+              ? 'some pasted sentence\nwith a newline'
+              : '',
+        },
+      }));
+
+      expect(single).not.toHaveBeenCalled();
+      expect(multi).not.toHaveBeenCalled();
+    });
+
+    it('prefers internal explorer formats over external ones', () => {
+      const internal = vi.spyOn(component.filePathDropped, 'emit');
+
+      component.onDrop(makeDragEvent({
+        dataTransfer: {
+          items: [],
+          files: [],
+          getData: (format) => {
+            if (format === 'application/x-file-path') return '/from-explorer.ts';
+            if (format === 'codefiles') return '["/from-vscode.ts"]';
+            return '';
+          },
+        },
+      }));
+
+      expect(internal).toHaveBeenCalledTimes(1);
+      expect(internal).toHaveBeenCalledWith('/from-explorer.ts');
+    });
   });
 
   // ============================================

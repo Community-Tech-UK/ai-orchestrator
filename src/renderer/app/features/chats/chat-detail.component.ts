@@ -15,6 +15,7 @@ import { ActivityStatusComponent } from '../instance-detail/activity-status.comp
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { LoopStore } from '../../core/state/loop.store';
+import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 @Component({
@@ -40,6 +41,7 @@ export class ChatDetailComponent {
   private readonly fileIpc = inject(FileIpcService);
   private readonly operatorIpc = inject(OperatorIpcService);
   private readonly loopStore = inject(LoopStore);
+  private readonly loopPromptHistory = inject(LoopPromptHistoryService);
 
   readonly draftName = signal('');
   readonly draftCwd = signal('');
@@ -285,7 +287,11 @@ export class ChatDetailComponent {
     const chatId = this.detail()?.chat.id;
     if (!chatId) return;
     const r = await this.loopStore.start(chatId, config);
-    if (!r.ok) console.error('Loop start failed:', r.error);
+    if (r.ok) {
+      this.loopPromptHistory.remember(config.initialPrompt);
+    } else {
+      this.chatStore.setError(`Loop start failed: ${r.error ?? 'unknown error'}`);
+    }
   }
 
   async onLoopStopRequested(): Promise<void> {

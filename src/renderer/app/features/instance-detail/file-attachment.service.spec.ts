@@ -3,7 +3,7 @@
  *
  * Covers:
  * - selectAndLoadFiles: dialog + load, cancel, defaultPath passthrough
- * - loadFilesFromPaths: fetch per path, blob → File conversion, naming, error handling
+ * - loadFilesFromPaths: IPC binary read per path → File conversion, naming, error handling
  * - loadDroppedFilesFromPaths: skips directories and missing paths, loads regular files
  * - prependPendingFolders: empty, single, multiple, empty-message handling
  */
@@ -16,18 +16,20 @@ import { ElectronIpcService, FileIpcService } from '../../core/services/ipc';
 describe('FileAttachmentService', () => {
   let service: FileAttachmentService;
   let ipc: { selectFiles: Mock };
-  let fileIpc: { getFileStats: Mock };
-  let fetchMock: Mock;
-  let originalFetch: typeof globalThis.fetch;
+  let fileIpc: { getFileStats: Mock; readFileBytes: Mock };
 
   /**
-   * Build a Response-like object the service's fetch path will accept. Only
-   * .blob() is used.
+   * Build a successful readFileBytes result containing `contents` as raw bytes.
    */
-  function mockFetchResponse(contents: string, type = 'text/plain'): Response {
-    return {
-      blob: async () => new Blob([contents], { type }),
-    } as unknown as Response;
+  function mockBytesResult(contents: string): {
+    buffer: ArrayBuffer;
+    truncated: boolean;
+    totalSize: number;
+  } {
+    const encoded = new TextEncoder().encode(contents);
+    const buffer = new ArrayBuffer(encoded.byteLength);
+    new Uint8Array(buffer).set(encoded);
+    return { buffer, truncated: false, totalSize: encoded.byteLength };
   }
 
   beforeEach(() => {
@@ -36,11 +38,8 @@ describe('FileAttachmentService', () => {
     };
     fileIpc = {
       getFileStats: vi.fn(),
+      readFileBytes: vi.fn(),
     };
-
-    originalFetch = globalThis.fetch;
-    fetchMock = vi.fn();
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
     TestBed.configureTestingModule({
       providers: [
@@ -54,7 +53,6 @@ describe('FileAttachmentService', () => {
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     TestBed.resetTestingModule();
     vi.restoreAllMocks();
   });
@@ -70,7 +68,7 @@ describe('FileAttachmentService', () => {
       const files = await service.selectAndLoadFiles();
 
       expect(files).toEqual([]);
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fileIpc.readFileBytes).not.toHaveBeenCalled();
     });
 
     it('returns [] when the dialog returns an empty array', async () => {
@@ -79,19 +77,19 @@ describe('FileAttachmentService', () => {
       const files = await service.selectAndLoadFiles();
 
       expect(files).toEqual([]);
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fileIpc.readFileBytes).not.toHaveBeenCalled();
     });
 
-    it('loads files via fetch when paths are selected', async () => {
+    it('loads files via IPC when paths are selected', async () => {
       ipc.selectFiles.mockResolvedValue(['/tmp/a.txt', '/tmp/b.txt']);
-      fetchMock
-        .mockResolvedValueOnce(mockFetchResponse('A'))
-        .mockResolvedValueOnce(mockFetchResponse('B'));
+      fileIpc.readFileBytes
+        .mockResolvedValueOnce(mockBytesResult('A'))
+        .mockResolvedValueOnce(mockBytesResult('B'));
 
       const files = await service.selectAndLoadFiles();
 
-      expect(fetchMock).toHaveBeenCalledWith('file:///tmp/a.txt');
-      expect(fetchMock).toHaveBeenCalledWith('file:///tmp/b.txt');
+      expect(fileIpc.readFileBytes).toHaveBeenCalledWith('/tmp/a.txt');
+      expect(fileIpc.readFileBytes).toHaveBeenCalledWith('/tmp/b.txt');
       expect(files).toHaveLength(2);
       expect(files[0].name).toBe('a.txt');
       expect(files[1].name).toBe('b.txt');
@@ -139,22 +137,22 @@ describe('FileAttachmentService', () => {
     it('returns [] for an empty list', async () => {
       const files = await service.loadFilesFromPaths([]);
       expect(files).toEqual([]);
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fileIpc.readFileBytes).not.toHaveBeenCalled();
     });
 
     it('converts each path into a File with the basename as name', async () => {
-      fetchMock.mockResolvedValue(mockFetchResponse('hello', 'text/plain'));
+      fileIpc.readFileBytes.mockResolvedValue(mockBytesResult('hello'));
 
       const files = await service.loadFilesFromPaths(['/deeply/nested/doc.md']);
 
       expect(files).toHaveLength(1);
       expect(files[0]).toBeInstanceOf(File);
       expect(files[0].name).toBe('doc.md');
-      expect(files[0].type).toBe('text/plain');
+      expect(files[0].type).toBe('text/markdown');
     });
 
-    it('falls back to application/octet-stream when blob has no type', async () => {
-      fetchMock.mockResolvedValue(mockFetchResponse('x', ''));
+    it('uses application/octet-stream when extension is unknown', async () => {
+      fileIpc.readFileBytes.mockResolvedValue(mockBytesResult('x'));
 
       const files = await service.loadFilesFromPaths(['/f.bin']);
 
@@ -162,20 +160,19 @@ describe('FileAttachmentService', () => {
     });
 
     it('falls back to "file" as name when path has no basename', async () => {
-      fetchMock.mockResolvedValue(mockFetchResponse(''));
+      fileIpc.readFileBytes.mockResolvedValue(mockBytesResult(''));
 
       const files = await service.loadFilesFromPaths(['']);
 
       expect(files[0].name).toBe('file');
     });
 
-    it('skips files that fail to fetch and keeps the rest', async () => {
-      fetchMock
-        .mockResolvedValueOnce(mockFetchResponse('ok'))
-        .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce(mockFetchResponse('also ok'));
+    it('skips files that fail to load and keeps the rest', async () => {
+      fileIpc.readFileBytes
+        .mockResolvedValueOnce(mockBytesResult('ok'))
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(mockBytesResult('also ok'));
 
-      // Silence the expected console.warn the service emits.
       const warn = vi.spyOn(console, 'warn').mockReturnValue(undefined);
 
       const files = await service.loadFilesFromPaths([
@@ -189,12 +186,8 @@ describe('FileAttachmentService', () => {
       expect(warn).toHaveBeenCalled();
     });
 
-    it('skips files whose .blob() rejects', async () => {
-      fetchMock.mockResolvedValueOnce({
-        blob: async () => {
-          throw new Error('bad blob');
-        },
-      } as unknown as Response);
+    it('skips files whose IPC read throws', async () => {
+      fileIpc.readFileBytes.mockRejectedValueOnce(new Error('bad read'));
 
       const warn = vi.spyOn(console, 'warn').mockReturnValue(undefined);
 
@@ -214,7 +207,7 @@ describe('FileAttachmentService', () => {
       fileIpc.getFileStats.mockImplementation(async (path: string) => ({
         isDirectory: path.endsWith('dir'),
       }));
-      fetchMock.mockResolvedValue(mockFetchResponse('ok'));
+      fileIpc.readFileBytes.mockResolvedValue(mockBytesResult('ok'));
 
       const log = vi.spyOn(console, 'log').mockReturnValue(undefined);
 
@@ -235,19 +228,19 @@ describe('FileAttachmentService', () => {
       const files = await service.loadDroppedFilesFromPaths(['/missing.txt']);
 
       expect(files).toEqual([]);
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fileIpc.readFileBytes).not.toHaveBeenCalled();
     });
 
     it('returns [] when called with no paths', async () => {
       const files = await service.loadDroppedFilesFromPaths([]);
       expect(files).toEqual([]);
       expect(fileIpc.getFileStats).not.toHaveBeenCalled();
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fileIpc.readFileBytes).not.toHaveBeenCalled();
     });
 
     it('loads all when every path is a file', async () => {
       fileIpc.getFileStats.mockResolvedValue({ isDirectory: false });
-      fetchMock.mockResolvedValue(mockFetchResponse('data'));
+      fileIpc.readFileBytes.mockResolvedValue(mockBytesResult('data'));
 
       const files = await service.loadDroppedFilesFromPaths([
         '/a.txt',

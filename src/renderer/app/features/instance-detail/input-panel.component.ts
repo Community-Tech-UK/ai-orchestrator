@@ -29,11 +29,7 @@ import {
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
-import {
-  ProviderSelectorComponent,
-  ProviderType
-} from '../providers/provider-selector.component';
-import { CopilotModelSelectorComponent } from '../providers/copilot-model-selector.component';
+import type { ProviderType } from '../providers/provider-selector.component';
 import { AgentSelectorComponent } from '../agents/agent-selector.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopToggleComponent } from '../loop/loop-toggle.component';
@@ -72,8 +68,6 @@ import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.typ
   selector: 'app-input-panel',
   standalone: true,
   imports: [
-    ProviderSelectorComponent,
-    CopilotModelSelectorComponent,
     AgentSelectorComponent,
     CompactModelPickerComponent,
     LoopToggleComponent,
@@ -184,7 +178,6 @@ export class InputPanelComponent implements OnDestroy {
 
   onLoopPanelConfirm(config: LoopStartConfigInput): void {
     this.showLoopPanel.set(false);
-    this.message.set('');
     this.loopStartRequested.emit(config);
   }
 

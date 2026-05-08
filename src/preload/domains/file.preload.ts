@@ -121,6 +121,15 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     },
 
     /**
+     * Read a file as raw bytes (returned base64-encoded for IPC transport).
+     * Use this when a binary-correct File/Blob is needed in the renderer
+     * (CSP blocks `fetch('file://...')`).
+     */
+    readFileBytes: (path: string, maxBytes?: number): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.FILE_READ_BYTES, { path, maxBytes });
+    },
+
+    /**
      * Write a text file
      */
     writeTextFile: (payload: {

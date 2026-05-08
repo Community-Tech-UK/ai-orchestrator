@@ -3,6 +3,20 @@ import { FormsModule } from '@angular/forms';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-history.service';
 
+// Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
+// We must include all sub-fields whenever caps/completion are sent — Zod's
+// `LoopConfigInputSchema` only makes the top-level keys optional.
+const DEFAULT_CAPS = {
+  maxTokens: 1_000_000,
+  maxToolCallsPerIteration: 200,
+};
+const DEFAULT_COMPLETION = {
+  completedFilenamePattern: '*_[Cc]ompleted.md',
+  donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
+  doneSentinelFile: 'DONE.txt',
+  verifyTimeoutMs: 600_000,
+};
+
 /**
  * Inline accordion panel for configuring and starting a loop.
  *
@@ -32,13 +46,21 @@ import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-his
           <span class="recall-label">Recent</span>
           <div class="recall-chips">
             @for (entry of recentPrompts(); track entry) {
-              <button
-                type="button"
-                class="recall-chip"
-                [class.active]="prompt().trim() === entry"
-                (click)="prompt.set(entry)"
-                [title]="entry"
-              >{{ entry.length > 60 ? (entry.slice(0, 57) + '…') : entry }}</button>
+              <span class="recall-chip-wrap" [class.active]="prompt().trim() === entry">
+                <button
+                  type="button"
+                  class="recall-chip"
+                  (click)="prompt.set(entry)"
+                  [title]="entry"
+                >{{ entry.length > 60 ? (entry.slice(0, 57) + '…') : entry }}</button>
+                <button
+                  type="button"
+                  class="recall-chip-remove"
+                  (click)="onForgetPrompt(entry)"
+                  aria-label="Remove from recent"
+                  title="Remove from recent"
+                >×</button>
+              </span>
             }
             <button
               type="button"
@@ -199,6 +221,21 @@ import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-his
     .recall-chip:hover { background: rgba(255, 255, 255, 0.07); }
     .recall-chip.active { border-color: var(--primary-color, #d4b45a); color: var(--primary-color, #d4b45a); }
     .recall-chip.default { font-style: italic; opacity: 0.85; }
+    .recall-chip-wrap {
+      display: inline-flex; align-items: stretch; gap: 0;
+      border-radius: 999px;
+    }
+    .recall-chip-wrap.active .recall-chip { border-color: var(--primary-color, #d4b45a); color: var(--primary-color, #d4b45a); }
+    .recall-chip-wrap .recall-chip { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+    .recall-chip-remove {
+      padding: 0 8px; font: inherit; font-size: 11px; line-height: 1;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-top-left-radius: 0; border-bottom-left-radius: 0;
+      border-top-right-radius: 999px; border-bottom-right-radius: 999px;
+      color: inherit; opacity: 0.5; cursor: pointer;
+    }
+    .recall-chip-remove:hover { opacity: 1; color: #f7c07a; }
     .row { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
     .row.split { flex-direction: row; gap: 12px; }
     .row.split > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }
@@ -251,7 +288,6 @@ import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-his
 })
 export class LoopConfigPanelComponent {
   workspaceCwd = input.required<string>();
-  initialPromptHint = input<string>('');
 
   dismissed = output<void>();
   confirm = output<LoopStartConfigInput>();
@@ -274,14 +310,11 @@ export class LoopConfigPanelComponent {
   showAdvanced = signal(false);
 
   constructor() {
-    // Pre-fill the prompt: textarea content > most recent saved > canonical default.
+    // Pre-fill the prompt: most recent saved > canonical default.
+    // Deliberately don't autofill from the message textarea — that's the
+    // user's pending message, not the loop's seed prompt.
     effect(() => {
-      const hint = this.initialPromptHint().trim();
       if (this.prompt().trim()) return;
-      if (hint) {
-        this.prompt.set(hint);
-        return;
-      }
       const recent = this.recentPrompts();
       if (recent.length > 0) {
         this.prompt.set(recent[0]);
@@ -305,10 +338,14 @@ export class LoopConfigPanelComponent {
     return (e.target as HTMLInputElement).checked;
   }
 
+  onForgetPrompt(entry: string): void {
+    this.history.forget(entry);
+    if (this.prompt() === entry) this.prompt.set('');
+  }
+
   submit(): void {
     if (!this.canSubmit()) return;
     const trimmed = this.prompt().trim();
-    this.history.remember(trimmed);
     const config: LoopStartConfigInput = {
       initialPrompt: trimmed,
       workspaceCwd: this.workspaceCwd(),
@@ -319,10 +356,16 @@ export class LoopConfigPanelComponent {
       caps: {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,
+        maxTokens: DEFAULT_CAPS.maxTokens,
         maxCostCents: this.maxDollars() * 100,
+        maxToolCallsPerIteration: DEFAULT_CAPS.maxToolCallsPerIteration,
       },
       completion: {
+        completedFilenamePattern: DEFAULT_COMPLETION.completedFilenamePattern,
+        donePromiseRegex: DEFAULT_COMPLETION.donePromiseRegex,
+        doneSentinelFile: DEFAULT_COMPLETION.doneSentinelFile,
         verifyCommand: this.verifyCommand(),
+        verifyTimeoutMs: DEFAULT_COMPLETION.verifyTimeoutMs,
         runVerifyTwice: this.runVerifyTwice(),
         requireCompletedFileRename: this.requireRename(),
       },

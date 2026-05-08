@@ -14,13 +14,16 @@ import {
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { ModelPickerController } from './model-picker.controller';
 import {
-  ProviderMenuComponent,
   PROVIDER_MENU_COLORS,
   PROVIDER_MENU_LABELS,
   DEFAULT_CHAT_PROVIDERS,
 } from './provider-menu.component';
-import { ModelMenuComponent, type ModelMenuSelection } from './model-menu.component';
 import { ModelPickerFocusService } from './model-picker-focus.service';
+import {
+  UnifiedModelMenuComponent,
+  type UnifiedSelection,
+  type UnifiedReasoningOption,
+} from './unified-model-menu.component';
 import {
   getModelsForProvider,
   getPrimaryModelForProvider,
@@ -43,45 +46,33 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
   xhigh: 'Max',
 };
 
-/** Two-control bar replacing the modal + chat-detail row + new-chat-form rows. */
+/**
+ * Single-chip provider+model picker. Renders one trigger button that opens
+ * a unified nested menu: top-level rows are providers (LLMs); each provider
+ * expands to its models; models with reasoning options expand again to an
+ * Intelligence submenu.
+ */
 @Component({
   selector: 'app-compact-model-picker',
   standalone: true,
-  imports: [OverlayModule, ProviderMenuComponent, ModelMenuComponent],
+  imports: [OverlayModule, UnifiedModelMenuComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [ModelPickerController],
   template: `
     <div class="compact-picker" role="group" aria-label="Model selection">
       <button
-        #providerChip
+        #pickerTrigger
         type="button"
-        class="compact-picker__chip compact-picker__chip--provider"
-        [class.is-disabled]="!!providerChipDisabled()"
+        class="compact-picker__chip"
         [attr.aria-haspopup]="'menu'"
-        [attr.aria-expanded]="providerMenuOpen()"
-        [attr.aria-controls]="providerMenuId"
-        [attr.title]="providerChipDisabled() ?? null"
-        [disabled]="!!providerChipDisabled()"
-        (click)="toggleProviderMenu()"
+        [attr.aria-expanded]="menuOpen()"
+        [attr.aria-controls]="menuId"
+        (click)="toggleMenu()"
       >
         <span class="compact-picker__dot" [style.background]="providerColor()"></span>
         <span class="compact-picker__label">{{ providerLabel() }}</span>
-        <span class="compact-picker__chevron" aria-hidden="true">▾</span>
-      </button>
-
-      <button
-        #modelTrigger
-        type="button"
-        class="compact-picker__chip compact-picker__chip--model"
-        [class.is-disabled]="!!modelTriggerDisabled()"
-        [attr.aria-haspopup]="'menu'"
-        [attr.aria-expanded]="modelMenuOpen()"
-        [attr.aria-controls]="modelMenuId"
-        [attr.title]="modelTriggerDisabled() ?? null"
-        [disabled]="!!modelTriggerDisabled()"
-        (click)="toggleModelMenu()"
-      >
-        <span class="compact-picker__label">{{ modelLabel() }}</span>
+        <span class="compact-picker__sep" aria-hidden="true">·</span>
+        <span class="compact-picker__label compact-picker__label--model">{{ modelLabel() }}</span>
         @if (reasoningSuffix()) {
           <span class="compact-picker__reasoning-suffix">· {{ reasoningSuffix() }}</span>
         }
@@ -95,43 +86,25 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
 
     <ng-template
       cdkConnectedOverlay
-      [cdkConnectedOverlayOpen]="providerMenuOpen()"
-      [cdkConnectedOverlayOrigin]="providerChipRef"
+      [cdkConnectedOverlayOpen]="menuOpen()"
+      [cdkConnectedOverlayOrigin]="pickerTriggerRef"
       [cdkConnectedOverlayPositions]="overlayPositions"
       [cdkConnectedOverlayHasBackdrop]="true"
       [cdkConnectedOverlayBackdropClass]="'cdk-overlay-transparent-backdrop'"
-      (backdropClick)="closeProviderMenu()"
-      (overlayKeydown)="onOverlayKeydown($event, 'provider')"
+      (backdropClick)="closeMenu()"
+      (overlayKeydown)="onOverlayKeydown($event)"
     >
-      <app-provider-menu
-        [id]="providerMenuId"
-        [selectedProvider]="selectedPickerProvider()"
+      <app-unified-model-menu
         [providers]="providerList()"
-        [disabledReasonFor]="providerDisabledReasonFor"
-        (providerSelect)="onProviderSelect($event)"
-        (dismiss)="closeProviderMenu()"
-      />
-    </ng-template>
-
-    <ng-template
-      cdkConnectedOverlay
-      [cdkConnectedOverlayOpen]="modelMenuOpen()"
-      [cdkConnectedOverlayOrigin]="modelTriggerRef"
-      [cdkConnectedOverlayPositions]="overlayPositions"
-      [cdkConnectedOverlayHasBackdrop]="true"
-      [cdkConnectedOverlayBackdropClass]="'cdk-overlay-transparent-backdrop'"
-      (backdropClick)="closeModelMenu()"
-      (overlayKeydown)="onOverlayKeydown($event, 'model')"
-    >
-      <app-model-menu
-        [id]="modelMenuId"
-        [provider]="selectedPickerProvider()"
-        [models]="modelsForProvider()"
+        [selectedProvider]="selectedPickerProvider()"
         [selectedModelId]="controller.selectedModelId() || null"
         [selectedReasoning]="controller.selectedReasoningEffort()"
-        [reasoningOptions]="reasoningOptionsForMenu()"
-        (modelSelect)="onModelSelect($event)"
-        (dismiss)="closeModelMenu()"
+        [providerLabels]="providerLabels"
+        [modelsForProvider]="modelsForProviderFn"
+        [reasoningOptionsForProvider]="reasoningOptionsForProviderFn"
+        [disabledReasonForProvider]="providerDisabledReasonFor"
+        (selection)="onUnifiedSelect($event)"
+        (dismiss)="closeMenu()"
       />
     </ng-template>
   `,
@@ -159,12 +132,8 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       max-width: 100%;
       white-space: nowrap;
     }
-    .compact-picker__chip:hover:not(.is-disabled) {
+    .compact-picker__chip:hover {
       background: var(--bg-tertiary, rgba(127,127,127,0.12));
-    }
-    .compact-picker__chip.is-disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
     }
     .compact-picker__dot {
       display: inline-block;
@@ -177,6 +146,13 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       overflow: hidden;
       text-overflow: ellipsis;
       max-width: 220px;
+    }
+    .compact-picker__label--model {
+      color: var(--text-primary, inherit);
+    }
+    .compact-picker__sep {
+      color: var(--text-tertiary, rgba(255,255,255,0.45));
+      font-size: 11px;
     }
     .compact-picker__reasoning-suffix {
       color: var(--text-secondary, rgba(255,255,255,0.65));
@@ -198,8 +174,7 @@ export class CompactModelPickerComponent {
   protected readonly controller = inject(ModelPickerController);
   private readonly focusService = inject(ModelPickerFocusService);
 
-  protected readonly providerMenuId = `compact-model-picker__provider-menu-${idCounter++}`;
-  protected readonly modelMenuId = `compact-model-picker__model-menu-${idCounter++}`;
+  protected readonly menuId = `compact-model-picker__menu-${idCounter++}`;
 
   // Inputs (decorator-based; signal-input metadata is not picked up by the
   // project's vitest setup — see model-menu.component.ts for context).
@@ -223,8 +198,8 @@ export class CompactModelPickerComponent {
     if (c) this.controller.setChat(c, value);
   }
   /**
-   * Optional override of the provider list shown in the chip's menu. Defaults
-   * to `DEFAULT_CHAT_PROVIDERS` (4 providers, no cursor) so existing chat
+   * Optional override of the provider list shown in the menu. Defaults to
+   * `DEFAULT_CHAT_PROVIDERS` (4 providers, no cursor) so existing chat
    * surfaces don't need to opt in. The new-session/instance-draft surface
    * passes the wider list including `cursor`.
    */
@@ -238,13 +213,10 @@ export class CompactModelPickerComponent {
 
   @Output() selectionChange = new EventEmitter<PendingSelection>();
 
-  @ViewChild('providerChip', { static: true, read: ElementRef })
-  protected readonly providerChipRef!: ElementRef<HTMLElement>;
-  @ViewChild('modelTrigger', { static: true, read: ElementRef })
-  protected readonly modelTriggerRef!: ElementRef<HTMLElement>;
+  @ViewChild('pickerTrigger', { static: true, read: ElementRef })
+  protected readonly pickerTriggerRef!: ElementRef<HTMLElement>;
 
-  protected readonly providerMenuOpen = signal(false);
-  protected readonly modelMenuOpen = signal(false);
+  protected readonly menuOpen = signal(false);
   protected readonly statusPill = signal<string | null>(null);
   private statusTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFocusRequest = 0;
@@ -254,13 +226,33 @@ export class CompactModelPickerComponent {
     { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top',    offsetY: 4 },
   ];
 
+  protected readonly providerLabels = PROVIDER_MENU_LABELS;
+
+  /**
+   * Bound `[modelsForProvider]` callback for the unified menu. Always returns
+   * the static `getModelsForProvider` lookup — provider-specific dynamic
+   * model discovery already mutates `PROVIDER_MODEL_LIST` in place, so the
+   * lookup stays current.
+   */
+  protected readonly modelsForProviderFn = (provider: PickerProvider): ModelDisplayInfo[] =>
+    getModelsForProvider(provider);
+
+  /** Bound `[reasoningOptionsForProvider]` callback for the unified menu. */
+  protected readonly reasoningOptionsForProviderFn = (
+    provider: PickerProvider,
+  ): UnifiedReasoningOption[] => {
+    return this.controller
+      .reasoningOptionsForProvider(provider)
+      .map((opt) => ({ id: opt.id, label: opt.label }));
+  };
+
   constructor() {
     // Forward pending-create commits as `selectionChange` events.
     this.controller.setSelectionChangeCallback((sel) => {
       this.selectionChange.emit(sel);
     });
 
-    // mp keybinding — open the model menu when requested.
+    // mp keybinding — open the menu when requested.
     effect(() => {
       const n = this.focusService.request();
       if (n === this.lastFocusRequest) return;
@@ -286,8 +278,8 @@ export class CompactModelPickerComponent {
   });
 
   /**
-   * The list of providers rendered in the chip's menu. Defaults to chat-4
-   * unless the host explicitly passed a wider list via `[providers]`.
+   * The list of providers rendered in the menu. Defaults to chat-4 unless
+   * the host explicitly passed a wider list via `[providers]`.
    */
   protected readonly providerList = computed<PickerProvider[]>(() => {
     return this._providers() ?? DEFAULT_CHAT_PROVIDERS;
@@ -306,7 +298,7 @@ export class CompactModelPickerComponent {
   protected readonly modelLabel = computed(() => {
     const id = this.controller.selectedModelId();
     if (!id) return 'Select model';
-    const list = this.modelsForProvider();
+    const list = this.modelsForProviderFn(this.selectedPickerProvider());
     return list.find((m) => m.id === id)?.name ?? id;
   });
 
@@ -315,34 +307,7 @@ export class CompactModelPickerComponent {
     return r ? REASONING_LABELS[r] ?? r : null;
   });
 
-  protected readonly modelsForProvider = computed<ModelDisplayInfo[]>(() => {
-    const provider = this.controller.selectedProviderId();
-    return getModelsForProvider(provider);
-  });
-
-  protected readonly reasoningOptionsForMenu = computed(() =>
-    this.controller.reasoningOptions().map((opt) => ({ id: opt.id, label: opt.label })),
-  );
-
-  // --- Disabled gating ---
-
-  protected readonly providerChipDisabled = computed<string | undefined>(() => {
-    if (this._mode() === 'pending-create') return undefined;
-    const c = this._chat();
-    if (!c) return 'Pick a chat first';
-    // Chip is disabled only when no provider switch would be allowed at all
-    // (i.e. lock-on-messages applies + a provider is set).
-    if (c.provider && this._hasMessages()) {
-      return 'Provider can only be changed before the first message';
-    }
-    return undefined;
-  });
-
-  protected readonly modelTriggerDisabled = computed<string | undefined>(() => {
-    const provider = this.controller.selectedProviderId();
-    if (!provider) return 'Pick a provider first';
-    return undefined;
-  });
+  // --- Provider gating (lock-on-messages) ---
 
   protected readonly providerDisabledReasonFor = (provider: PickerProvider): string | undefined => {
     return this.controller.disabledReasonFor({ provider });
@@ -350,66 +315,83 @@ export class CompactModelPickerComponent {
 
   // --- Menu toggle ---
 
-  protected toggleProviderMenu(): void {
-    if (this.providerChipDisabled()) return;
-    this.modelMenuOpen.set(false);
-    this.providerMenuOpen.update((v) => !v);
+  protected toggleMenu(): void {
+    this.menuOpen.update((v) => !v);
   }
 
-  protected toggleModelMenu(): void {
-    if (this.modelTriggerDisabled()) return;
-    this.providerMenuOpen.set(false);
-    this.modelMenuOpen.update((v) => !v);
+  protected closeMenu(): void {
+    this.menuOpen.set(false);
   }
 
-  protected closeProviderMenu(): void { this.providerMenuOpen.set(false); }
-  protected closeModelMenu(): void { this.modelMenuOpen.set(false); }
-
+  /**
+   * External entry-point used by the `mp` keybinding. Kept under the
+   * legacy name for back-compat with `ModelPickerFocusService`.
+   */
   openModelMenu(): void {
-    if (this.modelTriggerDisabled()) return;
-    this.providerMenuOpen.set(false);
-    this.modelMenuOpen.set(true);
+    this.menuOpen.set(true);
   }
 
   // --- Commit handlers ---
 
-  protected async onProviderSelect(provider: PickerProvider): Promise<void> {
-    this.providerMenuOpen.set(false);
-    // Provider switch resets the model to the new provider's primary default
-    // and clears reasoning (matches the legacy modal's `selectProvider`
-    // behavior). Without the reset, the chat would keep the OLD provider's
-    // model id, which is invalid for the new provider's runtime.
-    const newDefaultModel = getPrimaryModelForProvider(provider) ?? null;
-    const ok = await this.controller.commitSelection({
-      provider,
-      modelId: newDefaultModel,
-      reasoning: null,
-    });
-    if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[provider]}`);
-  }
+  protected async onUnifiedSelect(selection: UnifiedSelection): Promise<void> {
+    this.menuOpen.set(false);
+    if (selection.kind === 'provider') {
+      // Provider switch resets the model to the new provider's primary
+      // default and clears reasoning (matches the legacy modal's
+      // `selectProvider` behavior). Without the reset, the chat would keep
+      // the OLD provider's model id, which is invalid for the new
+      // provider's runtime.
+      const newDefaultModel = getPrimaryModelForProvider(selection.provider) ?? null;
+      const ok = await this.controller.commitSelection({
+        provider: selection.provider,
+        modelId: newDefaultModel,
+        reasoning: null,
+      });
+      if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
+      return;
+    }
 
-  protected async onModelSelect(selection: ModelMenuSelection): Promise<void> {
-    this.modelMenuOpen.set(false);
-    const target = selection.reasoning !== undefined
-      ? { modelId: selection.modelId, reasoning: selection.reasoning }
-      : { modelId: selection.modelId };
-    const ok = await this.controller.commitSelection(target);
+    if (selection.kind === 'model') {
+      const switchingProvider = selection.provider !== this.controller.selectedProviderId();
+      // Switching provider via a model click resets reasoning; same-provider
+      // model switches preserve the current reasoning level.
+      const ok = await this.controller.commitSelection({
+        provider: selection.provider,
+        modelId: selection.modelId,
+        ...(switchingProvider ? { reasoning: null } : {}),
+      });
+      if (ok) {
+        const label =
+          this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.name
+          ?? selection.modelId;
+        const reasoning = switchingProvider ? null : this.controller.selectedReasoningEffort();
+        const reasoningSuffix = reasoning ? ` · ${REASONING_LABELS[reasoning]}` : '';
+        const restartHint = this._chat()?.currentInstanceId ? ' — runtime restarting' : '';
+        this.flashStatus(`Switched to ${label}${reasoningSuffix}${restartHint}`);
+      }
+      return;
+    }
+
+    // selection.kind === 'reasoning' — commit provider+model+reasoning.
+    const ok = await this.controller.commitSelection({
+      provider: selection.provider,
+      modelId: selection.modelId,
+      reasoning: selection.level,
+    });
     if (ok) {
-      const label = this.modelsForProvider().find((m) => m.id === selection.modelId)?.name
+      const label =
+        this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.name
         ?? selection.modelId;
-      const reasoningSuffix = selection.reasoning
-        ? ` · ${REASONING_LABELS[selection.reasoning]}`
-        : '';
+      const reasoningSuffix = selection.level ? ` · ${REASONING_LABELS[selection.level]}` : '';
       const restartHint = this._chat()?.currentInstanceId ? ' — runtime restarting' : '';
       this.flashStatus(`Switched to ${label}${reasoningSuffix}${restartHint}`);
     }
   }
 
-  protected onOverlayKeydown(event: KeyboardEvent, which: 'provider' | 'model'): void {
+  protected onOverlayKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.stopPropagation();
-      if (which === 'provider') this.closeProviderMenu();
-      else this.closeModelMenu();
+      this.closeMenu();
     }
   }
 

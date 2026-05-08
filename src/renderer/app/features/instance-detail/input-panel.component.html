@@ -150,7 +150,6 @@
     <app-loop-config-panel
       class="loop-panel-host"
       [workspaceCwd]="workingDirectory() || ''"
-      [initialPromptHint]="message()"
       (dismissed)="onLoopPanelDismissed()"
       (confirm)="onLoopPanelConfirm($event)"
     />

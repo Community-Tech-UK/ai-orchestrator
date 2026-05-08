@@ -6,13 +6,13 @@ import { LoopStore } from '../../core/state/loop.store';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <label class="loop-toggle" [class.disabled]="!canInteract()" [class.on]="isActive()" [title]="title()">
+    <label class="loop-toggle" [class.disabled]="!canInteract()" [class.on]="visuallyOn()" [title]="title()">
       <span class="lt-icon" aria-hidden="true">🔁</span>
       <span class="lt-label">Loop</span>
-      <span class="lt-switch" [class.on]="isActive()">
+      <span class="lt-switch" [class.on]="visuallyOn()">
         <input
           type="checkbox"
-          [checked]="isActive() || panelOpen()"
+          [checked]="visuallyOn()"
           [disabled]="!canInteract()"
           (change)="onChange($event)"
         />
@@ -104,6 +104,8 @@ export class LoopToggleComponent {
 
   isActive = computed(() => !!this.active());
 
+  visuallyOn = computed(() => this.isActive() || this.panelOpen());
+
   canInteract = computed(() => {
     if (this.isActive()) return true;
     if (!this.workspaceCwd()) return false;
@@ -123,16 +125,15 @@ export class LoopToggleComponent {
 
   onChange(event: Event): void {
     const wantOn = (event.target as HTMLInputElement).checked;
-
     if (this.isActive() && !wantOn) {
       this.stopRequested.emit();
-      (event.target as HTMLInputElement).checked = true;
-      return;
-    }
-
-    if (!this.isActive() && wantOn) {
+    } else if (!this.isActive() && wantOn) {
       this.openConfig.emit();
-      (event.target as HTMLInputElement).checked = this.panelOpen();
     }
+    // Force-sync the checkbox to authoritative state — Angular re-renders [checked]
+    // on the next tick, but the DOM event has already mutated it.
+    queueMicrotask(() => {
+      (event.target as HTMLInputElement).checked = this.visuallyOn();
+    });
   }
 }

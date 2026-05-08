@@ -121,6 +121,11 @@ export const FileReadTextPayloadSchema = z.object({
   maxBytes: z.number().int().min(1).max(5_242_880).optional(),
 });
 
+export const FileReadBytesPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+  maxBytes: z.number().int().min(1).max(50_000_000).optional(),
+});
+
 export const FileWriteTextPayloadSchema = z.object({
   path: z.string().min(1).max(4096),
   content: z.string().max(50_000_000),

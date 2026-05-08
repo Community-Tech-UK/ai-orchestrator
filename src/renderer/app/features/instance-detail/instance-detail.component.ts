@@ -41,6 +41,7 @@ import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { LoopStore } from '../../core/state/loop.store';
+import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { QuickActionDispatcherService } from '../orchestration/quick-action-dispatcher.service';
 import { TodoStore } from '../../core/state/todo.store';
@@ -112,6 +113,7 @@ export class InstanceDetailComponent {
   private crossModelReviewService = inject(CrossModelReviewIpcService);
   private quickActionDispatcher = inject(QuickActionDispatcherService);
   private loopStore = inject(LoopStore);
+  private loopPromptHistory = inject(LoopPromptHistoryService);
   private automationStore = inject(AutomationStore);
   readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
   private fileAttachment = inject(FileAttachmentService);
@@ -1078,14 +1080,19 @@ export class InstanceDetailComponent {
     const inst = this.store.selectedInstance();
     if (inst) {
       const r = await this.loopStore.start(inst.id, config);
-      if (!r.ok) console.error('Loop start failed:', r.error);
+      if (r.ok) {
+        this.loopPromptHistory.remember(config.initialPrompt);
+      } else {
+        this.store.setError(`Loop start failed: ${r.error ?? 'unknown error'}`);
+      }
       return;
     }
-    await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
+    const ok = await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
       config,
       (creating) => this.isCreatingInstance.set(creating),
       (newChatId) => this.loopStore.start(newChatId, config),
     );
+    if (ok) this.loopPromptHistory.remember(config.initialPrompt);
   }
 
   async onLoopStopRequested(): Promise<void> {

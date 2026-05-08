@@ -8,6 +8,7 @@ export const FILE_CHANNELS = {
   FILE_READ_DIR: 'file:read-dir',
   FILE_GET_STATS: 'file:get-stats',
   FILE_READ_TEXT: 'file:read-text',
+  FILE_READ_BYTES: 'file:read-bytes',
   FILE_WRITE_TEXT: 'file:write-text',
   FILE_OPEN_PATH: 'file:open-path',
   FILE_COPY_TO_CLIPBOARD: 'file:copy-to-clipboard',

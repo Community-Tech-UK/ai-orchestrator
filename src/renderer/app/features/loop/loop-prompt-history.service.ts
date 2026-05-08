@@ -27,6 +27,13 @@ export class LoopPromptHistoryService {
     this.save(next);
   }
 
+  forget(prompt: string): void {
+    const next = this.state().filter((p) => p !== prompt);
+    if (next.length === this.state().length) return;
+    this.state.set(next);
+    this.save(next);
+  }
+
   private load(): string[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);

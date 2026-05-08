@@ -252,6 +252,89 @@ export class DropZoneComponent {
     const filePath = event.dataTransfer?.getData('application/x-file-path');
     if (filePath) {
       this.filePathDropped.emit(filePath);
+      return;
+    }
+
+    // External drag sources (VSCode, Finder, browsers) use cross-app MIME
+    // types instead of our internal application/x-file-* formats. VSCode in
+    // particular sets `codefiles` (POSIX paths), `resourceurls` (file:// URIs),
+    // and the standard `text/uri-list`; native File objects are NOT provided.
+    const externalPaths = this.extractExternalPaths(event.dataTransfer);
+    if (externalPaths.length === 1) {
+      this.filePathDropped.emit(externalPaths[0]);
+    } else if (externalPaths.length > 1) {
+      this.filePathsDropped.emit(externalPaths);
+    }
+  }
+
+  private extractExternalPaths(dt: DataTransfer | null | undefined): string[] {
+    if (!dt) return [];
+
+    // VSCode-specific: array of POSIX paths, no URI decoding needed.
+    const codeFiles = this.parseStringArray(dt.getData('codefiles'));
+    if (codeFiles.length > 0) return codeFiles;
+
+    // VSCode-specific: array of file:// URIs.
+    const resourceUrls = this.parseStringArray(dt.getData('resourceurls'));
+    if (resourceUrls.length > 0) {
+      const paths = resourceUrls
+        .map((u) => this.fileUriToPath(u))
+        .filter((p): p is string => p !== null);
+      if (paths.length > 0) return paths;
+    }
+
+    // Standard cross-app format (Finder, GNOME Files, Chrome). Newline-separated,
+    // and per RFC 2483 may include comment lines starting with '#'.
+    const uriList = dt.getData('text/uri-list');
+    if (uriList) {
+      const paths = uriList
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('#'))
+        .map((line) => this.fileUriToPath(line))
+        .filter((p): p is string => p !== null);
+      if (paths.length > 0) return paths;
+    }
+
+    // Last resort: text/plain. Accept only single-line strings that look like
+    // an absolute path or file:// URI, to avoid misinterpreting dragged text.
+    const text = dt.getData('text/plain').trim();
+    if (
+      text &&
+      !text.includes('\n') &&
+      (text.startsWith('file://') ||
+        text.startsWith('/') ||
+        /^[A-Za-z]:[\\/]/.test(text))
+    ) {
+      const path = text.startsWith('file://') ? this.fileUriToPath(text) : text;
+      if (path) return [path];
+    }
+
+    return [];
+  }
+
+  private parseStringArray(json: string): string[] {
+    if (!json) return [];
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((v): v is string => typeof v === 'string');
+      }
+    } catch {
+      // Malformed JSON: caller falls through to the next format.
+    }
+    return [];
+  }
+
+  private fileUriToPath(uri: string): string | null {
+    if (!uri.startsWith('file://')) return null;
+    try {
+      const url = new URL(uri);
+      const decoded = decodeURIComponent(url.pathname);
+      // Windows: URL.pathname is "/C:/foo" — strip the leading slash.
+      return /^\/[A-Za-z]:/.test(decoded) ? decoded.slice(1) : decoded;
+    } catch {
+      return null;
     }
   }
 

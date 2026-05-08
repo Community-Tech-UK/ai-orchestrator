@@ -72,6 +72,34 @@ export class FileIpcService {
   }
 
   /**
+   * Read a file's raw bytes via IPC. Returns null if the call fails.
+   * The main process returns the bytes base64-encoded; this method decodes
+   * them back into a fresh ArrayBuffer for the renderer (CSP blocks
+   * `fetch('file://...')`, so callers can't load files directly).
+   */
+  async readFileBytes(
+    path: string,
+    maxBytes?: number
+  ): Promise<{ buffer: ArrayBuffer; truncated: boolean; totalSize: number } | null> {
+    if (!this.api) return null;
+    const response = await this.api.readFileBytes(path, maxBytes);
+    if (!response.success) return null;
+    const data = response.data as {
+      base64: string;
+      byteLength: number;
+      totalSize: number;
+      truncated: boolean;
+    };
+    const binary = atob(data.base64);
+    const buffer = new ArrayBuffer(binary.length);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < binary.length; i++) {
+      view[i] = binary.charCodeAt(i);
+    }
+    return { buffer, truncated: data.truncated, totalSize: data.totalSize };
+  }
+
+  /**
    * Open a file or folder with the system's default application
    */
   async openPath(path: string): Promise<boolean> {

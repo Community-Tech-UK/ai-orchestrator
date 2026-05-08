@@ -17,6 +17,7 @@ import {
   FileCopyToClipboardPayloadSchema,
   FileGetStatsPayloadSchema,
   FileOpenPathPayloadSchema,
+  FileReadBytesPayloadSchema,
   FileReadDirPayloadSchema,
   FileReadTextPayloadSchema,
   FileWriteTextPayloadSchema,
@@ -442,6 +443,50 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
             content: contentBuf.toString('utf-8'),
             truncated,
             size: buf.byteLength
+          }
+        };
+      }
+    )
+  );
+
+  // Read file content as raw bytes (base64-encoded) — with path validation.
+  // Used for renderer-side File/Blob construction without violating CSP via file:// fetch.
+  ipcMain.handle(
+    IPC_CHANNELS.FILE_READ_BYTES,
+    validatedHandler(
+      IPC_CHANNELS.FILE_READ_BYTES,
+      FileReadBytesPayloadSchema,
+      async (payload): Promise<IpcResponse> => {
+        const pathResult = validatePath(payload.path);
+        if (!pathResult.valid) {
+          return {
+            success: false,
+            error: {
+              code: 'PATH_VALIDATION_FAILED',
+              message: pathResult.error!,
+              timestamp: Date.now()
+            }
+          };
+        }
+
+        const fs = await import('fs/promises');
+
+        const maxBytes = Math.max(
+          1,
+          Math.min(payload.maxBytes ?? 50_000_000, 50_000_000)
+        );
+        const buf = await fs.readFile(pathResult.resolved);
+        const truncated = buf.byteLength > maxBytes;
+        const contentBuf = truncated ? buf.subarray(0, maxBytes) : buf;
+
+        return {
+          success: true,
+          data: {
+            path: payload.path,
+            base64: contentBuf.toString('base64'),
+            byteLength: contentBuf.byteLength,
+            totalSize: buf.byteLength,
+            truncated
           }
         };
       }

@@ -21,6 +21,10 @@ export class ChatStore {
   readonly loading = this._loading.asReadonly();
   readonly sending = this._sending.asReadonly();
   readonly error = this._error.asReadonly();
+
+  setError(message: string | null): void {
+    this._error.set(message);
+  }
   readonly selectedDetail = computed(() => {
     const id = this._selectedChatId();
     return id ? this._details().get(id) ?? null : null;
