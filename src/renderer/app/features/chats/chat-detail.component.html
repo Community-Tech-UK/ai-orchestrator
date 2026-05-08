@@ -129,10 +129,7 @@
       }
     </div>
 
-    <app-loop-control
-      [chatId]="detail.chat.id"
-      [workspaceCwd]="detail.chat.currentCwd"
-    />
+    <app-loop-control [chatId]="detail.chat.id" />
 
     <app-input-panel
       [instanceId]="streamInstanceId()"
@@ -149,9 +146,12 @@
       [provider]="providerForUi()"
       [currentModel]="modelForUi()"
       [workingDirectory]="detail.chat.currentCwd"
+      [loopChatId]="detail.chat.id"
       [isReplayFallback]="false"
       (sendMessage)="onSendMessage($event)"
       (steerMessage)="onSteerMessage($event)"
+      (loopStartRequested)="onLoopStartRequested($event)"
+      (loopStopRequested)="onLoopStopRequested()"
     />
   </section>
 } @else {

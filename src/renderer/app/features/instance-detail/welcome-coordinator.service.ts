@@ -11,6 +11,7 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 export interface WelcomeProjectContext {
   branch: string | null;
@@ -170,6 +171,32 @@ export class WelcomeCoordinatorService {
     }
 
     await this.finalizeWelcomeLaunch(plan);
+    return true;
+  }
+
+  async onWelcomeStartSessionWithLoop(
+    config: LoopStartConfigInput,
+    onCreatingChange: (creating: boolean) => void,
+    startLoop: (chatId: string) => Promise<{ ok: boolean; error?: string }>,
+  ): Promise<boolean> {
+    const plan = this.prepareWelcomeLaunch(config.initialPrompt);
+    if (!plan) return false;
+
+    onCreatingChange(true);
+    const instanceId = await this.store.createInstanceWithMessageAndReturnId(plan.config);
+    if (!instanceId) {
+      onCreatingChange(false);
+      this.clearWelcomeNodeSelection();
+      return false;
+    }
+
+    await this.finalizeWelcomeLaunch(plan);
+
+    const r = await startLoop(instanceId);
+    if (!r.ok) {
+      this.store.setError(r.error || 'Loop start failed.');
+      return false;
+    }
     return true;
   }
 

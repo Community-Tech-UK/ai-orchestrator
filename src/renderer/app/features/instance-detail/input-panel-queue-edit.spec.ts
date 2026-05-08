@@ -78,6 +78,16 @@ class AgentSelectorStubComponent {
   @Output() agentSelected = new EventEmitter<unknown>();
 }
 
+@Component({
+  selector: 'app-loop-toggle',
+  standalone: true,
+  template: '',
+})
+class LoopToggleStubComponent {
+  @Input() chatId: string | null = null;
+  @Input() workspaceCwd: string | null = null;
+}
+
 describe('InputPanelComponent queued message editing', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
 
@@ -94,6 +104,7 @@ describe('InputPanelComponent queued message editing', () => {
           ProviderSelectorStubComponent,
           CopilotModelSelectorStubComponent,
           AgentSelectorStubComponent,
+          LoopToggleStubComponent,
         ],
       },
     });

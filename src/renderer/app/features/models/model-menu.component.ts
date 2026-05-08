@@ -10,7 +10,7 @@ import {
 import { NestedMenuComponent } from '../../shared/menu/nested-menu.component';
 import type { MenuItem, MenuModel, MenuSection } from '../../shared/menu/menu.types';
 import type { ModelDisplayInfo, ReasoningEffort } from '../../../../shared/types/provider.types';
-import type { ChatProvider } from '../../../../shared/types/chat.types';
+import type { PickerProvider } from './compact-model-picker.types';
 
 /**
  * The shape attached to each `MenuItem.payload`. Lets us tell apart a row
@@ -65,13 +65,13 @@ export class ModelMenuComponent {
   // template bindings fail with NG0303 "isn't a known property". @Input
   // decorators emit metadata via TypeScript's decorator emit and work
   // unconditionally.
-  private readonly _provider = signal<ChatProvider>('claude');
+  private readonly _provider = signal<PickerProvider>('claude');
   private readonly _models = signal<ModelDisplayInfo[]>([]);
   private readonly _selectedModelId = signal<string | null>(null);
   private readonly _selectedReasoning = signal<ReasoningEffort | null>(null);
   private readonly _reasoningOptions = signal<ModelMenuReasoningOption[]>([]);
 
-  @Input() set provider(value: ChatProvider) { this._provider.set(value); }
+  @Input() set provider(value: PickerProvider) { this._provider.set(value); }
   @Input() set models(value: ModelDisplayInfo[]) { this._models.set(value ?? []); }
   @Input() set selectedModelId(value: string | null) { this._selectedModelId.set(value); }
   @Input() set selectedReasoning(value: ReasoningEffort | null) { this._selectedReasoning.set(value); }

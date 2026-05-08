@@ -68,6 +68,12 @@ export class ChatSidebarComponent implements OnInit {
     }
     this.clearWorkspaceSelection();
     const sel = this.formSelection();
+    if (sel.provider === 'cursor') {
+      // Defensive: the chat-sidebar's picker only shows 4 providers, but the
+      // shared PendingSelection type is wide enough to include cursor (used
+      // by the new-session/instance-draft surface). Narrow here.
+      return;
+    }
     await this.chatStore.create({
       name: this.name().trim() || undefined,
       provider: sel.provider,

@@ -174,6 +174,11 @@ export class ModelPickerController {
     this.applying.set(true);
     try {
       if (target.provider !== undefined && target.provider !== c.provider) {
+        // Chats only support ChatProvider (excludes cursor). The picker's
+        // wider `PickerProvider` is for the instance-draft surface; on chat
+        // surfaces the menu only renders the 4 chat providers, so a cursor
+        // value here would be a programming error. Guard at runtime.
+        if (target.provider === 'cursor') return false;
         await this.chatStore.setProvider(c.id, target.provider);
       }
       if (target.modelId !== undefined && target.modelId !== c.model) {
@@ -188,8 +193,16 @@ export class ModelPickerController {
     }
   }
 
-  readonly reasoningOptions = computed<ModelPickerReasoningOption[]>(() => {
-    const provider = this.selectedProviderId();
+  readonly reasoningOptions = computed<ModelPickerReasoningOption[]>(() =>
+    this.reasoningOptionsForProvider(this.selectedProviderId()),
+  );
+
+  /**
+   * Per-provider reasoning options. Public so the unified menu can render
+   * intelligence submenus for any provider (not just the currently-selected
+   * one) when the user hovers a non-current provider's model.
+   */
+  reasoningOptionsForProvider(provider: string): ModelPickerReasoningOption[] {
     const defaults: ModelPickerReasoningOption[] = [
       { id: 'default', label: 'Default', description: 'Let the provider decide' },
     ];
@@ -217,7 +230,7 @@ export class ModelPickerController {
     }
 
     return [];
-  });
+  }
 
   private defaultModelForProvider(provider: InstanceProvider): string {
     return getModelsForProvider(provider)[0]?.id ?? '';

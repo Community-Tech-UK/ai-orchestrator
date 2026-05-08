@@ -55,16 +55,12 @@
     <div class="composer-toolbar draft-mode">
       <div class="composer-defaults">
         <div class="default-controls">
-          <app-provider-selector
-            [provider]="selectedProvider()"
-            (providerSelected)="onProviderSelected($event)"
+          <app-compact-model-picker
+            mode="pending-create"
+            [providers]="draftPickerProviders"
+            [selection]="draftPickerSelection()"
+            (selectionChange)="onCompactPickerSelectionChange($event)"
           />
-          @if (selectedProvider() === 'copilot') {
-            <app-copilot-model-selector
-              [model]="selectedModel()"
-              (modelSelected)="onModelSelected($event)"
-            />
-          }
           <app-agent-selector
             [selectedAgentId]="selectedAgentId()"
             (agentSelected)="onAgentSelected($event)"
@@ -150,6 +146,16 @@
     </div>
   }
 
+  @if (showLoopPanel()) {
+    <app-loop-config-panel
+      class="loop-panel-host"
+      [workspaceCwd]="workingDirectory() || ''"
+      [initialPromptHint]="message()"
+      (dismissed)="onLoopPanelDismissed()"
+      (confirm)="onLoopPanelConfirm($event)"
+    />
+  }
+
   <!-- Input area -->
   <div class="input-row">
     <div class="textarea-wrapper" [class.has-ghost]="showGhostText()">
@@ -187,6 +193,14 @@
         >
           <span class="attach-icon">+</span>
         </button>
+        <app-loop-toggle
+          [chatId]="loopChatId()"
+          [workspaceCwd]="workingDirectory()"
+          [hasTypedText]="message().length > 0"
+          [panelOpen]="showLoopPanel()"
+          (openConfig)="onLoopOpenConfig()"
+          (stopRequested)="onLoopStopRequested()"
+        />
         @if (showWakeupControls()) {
           <div class="wakeup-control">
             <button

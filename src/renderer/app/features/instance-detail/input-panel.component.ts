@@ -35,6 +35,17 @@ import {
 } from '../providers/provider-selector.component';
 import { CopilotModelSelectorComponent } from '../providers/copilot-model-selector.component';
 import { AgentSelectorComponent } from '../agents/agent-selector.component';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import { LoopToggleComponent } from '../loop/loop-toggle.component';
+import { LoopConfigPanelComponent } from '../loop/loop-config-panel.component';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import {
+  DEFAULT_INSTANCE_PROVIDERS,
+} from '../models/provider-menu.component';
+import type {
+  PendingSelection,
+  PickerProvider,
+} from '../models/compact-model-picker.types';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -60,7 +71,14 @@ import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.typ
 @Component({
   selector: 'app-input-panel',
   standalone: true,
-  imports: [ProviderSelectorComponent, CopilotModelSelectorComponent, AgentSelectorComponent],
+  imports: [
+    ProviderSelectorComponent,
+    CopilotModelSelectorComponent,
+    AgentSelectorComponent,
+    CompactModelPickerComponent,
+    LoopToggleComponent,
+    LoopConfigPanelComponent,
+  ],
   templateUrl: './input-panel.component.html',
   styleUrl: './input-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -100,6 +118,7 @@ export class InputPanelComponent implements OnDestroy {
   provider = input<InstanceProvider>('claude');
   currentModel = input<string | undefined>(undefined);
   workingDirectory = input<string | null>(null);
+  loopChatId = input<string | null>(null);
   isReplayFallback = input<boolean>(false);
   showWakeupControls = input<boolean>(false);
   hasThreadWakeups = input<boolean>(false);
@@ -150,6 +169,28 @@ export class InputPanelComponent implements OnDestroy {
     attachments?: OutputMessage['attachments'];
     retryMode: 'transcript-only';
   }>();
+  loopStartRequested = output<LoopStartConfigInput>();
+  loopStopRequested = output<void>();
+
+  showLoopPanel = signal(false);
+
+  onLoopOpenConfig(): void {
+    this.showLoopPanel.set(true);
+  }
+
+  onLoopPanelDismissed(): void {
+    this.showLoopPanel.set(false);
+  }
+
+  onLoopPanelConfirm(config: LoopStartConfigInput): void {
+    this.showLoopPanel.set(false);
+    this.message.set('');
+    this.loopStartRequested.emit(config);
+  }
+
+  onLoopStopRequested(): void {
+    this.loopStopRequested.emit();
+  }
 
   editMode = signal(false);
   private stashedDraft = signal<string | null>(null);
@@ -306,6 +347,37 @@ export class InputPanelComponent implements OnDestroy {
 
   onAgentSelected(agent: AgentProfile): void {
     this.newSessionDraft.setAgentId(agent.id);
+  }
+
+  /**
+   * The compact picker's two-way selection bound to the draft composer.
+   * Maps the new-session draft's `auto`/`null` provider to the picker's
+   * default `'claude'` (which the user can change). Reads update the
+   * picker via `[selection]`; writes flow back through
+   * `onCompactPickerSelectionChange`.
+   */
+  readonly draftPickerSelection = computed<PendingSelection>(() => {
+    const provider = this.newSessionDraft.provider();
+    const pickerProvider: PickerProvider = (provider && provider !== 'auto')
+      ? (provider as PickerProvider)
+      : 'claude';
+    return {
+      provider: pickerProvider,
+      model: this.newSessionDraft.model(),
+      reasoning: this.newSessionDraft.reasoningEffort(),
+    };
+  });
+
+  /** Provider list shown in the compact picker on the new-session surface. */
+  readonly draftPickerProviders: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
+
+  onCompactPickerSelectionChange(selection: PendingSelection): void {
+    // Order matters: setProvider clears model+reasoning to per-provider
+    // remembered defaults. Apply provider first, then overwrite model and
+    // reasoning with the picker's chosen values.
+    this.newSessionDraft.setProvider(selection.provider);
+    this.newSessionDraft.setModel(selection.model);
+    this.newSessionDraft.setReasoningEffort(selection.reasoning);
   }
 
   /** Effective YOLO mode: draft override ?? settings default */

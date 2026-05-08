@@ -13,7 +13,12 @@ import {
 } from '@angular/core';
 import { OverlayModule, ConnectedPosition } from '@angular/cdk/overlay';
 import { ModelPickerController } from './model-picker.controller';
-import { ProviderMenuComponent, PROVIDER_MENU_COLORS, PROVIDER_MENU_LABELS } from './provider-menu.component';
+import {
+  ProviderMenuComponent,
+  PROVIDER_MENU_COLORS,
+  PROVIDER_MENU_LABELS,
+  DEFAULT_CHAT_PROVIDERS,
+} from './provider-menu.component';
 import { ModelMenuComponent, type ModelMenuSelection } from './model-menu.component';
 import { ModelPickerFocusService } from './model-picker-focus.service';
 import {
@@ -22,8 +27,12 @@ import {
   type ModelDisplayInfo,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
-import type { ChatRecord, ChatProvider } from '../../../../shared/types/chat.types';
-import type { CompactPickerMode, PendingSelection } from './compact-model-picker.types';
+import type { ChatRecord } from '../../../../shared/types/chat.types';
+import type {
+  CompactPickerMode,
+  PendingSelection,
+  PickerProvider,
+} from './compact-model-picker.types';
 
 const REASONING_LABELS: Record<ReasoningEffort, string> = {
   none: 'Off',
@@ -96,7 +105,8 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
     >
       <app-provider-menu
         [id]="providerMenuId"
-        [selectedProvider]="selectedChatProvider()"
+        [selectedProvider]="selectedPickerProvider()"
+        [providers]="providerList()"
         [disabledReasonFor]="providerDisabledReasonFor"
         (providerSelect)="onProviderSelect($event)"
         (dismiss)="closeProviderMenu()"
@@ -115,7 +125,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
     >
       <app-model-menu
         [id]="modelMenuId"
-        [provider]="selectedChatProvider()"
+        [provider]="selectedPickerProvider()"
         [models]="modelsForProvider()"
         [selectedModelId]="controller.selectedModelId() || null"
         [selectedReasoning]="controller.selectedReasoningEffort()"
@@ -197,6 +207,7 @@ export class CompactModelPickerComponent {
   private readonly _chat = signal<ChatRecord | null>(null);
   private readonly _hasMessages = signal(false);
   private readonly _selection = signal<PendingSelection | null>(null);
+  private readonly _providers = signal<PickerProvider[] | null>(null);
 
   @Input() set mode(value: CompactPickerMode) {
     this._mode.set(value);
@@ -210,6 +221,15 @@ export class CompactModelPickerComponent {
     this._hasMessages.set(value);
     const c = this._chat();
     if (c) this.controller.setChat(c, value);
+  }
+  /**
+   * Optional override of the provider list shown in the chip's menu. Defaults
+   * to `DEFAULT_CHAT_PROVIDERS` (4 providers, no cursor) so existing chat
+   * surfaces don't need to opt in. The new-session/instance-draft surface
+   * passes the wider list including `cursor`.
+   */
+  @Input() set providers(value: PickerProvider[] | null | undefined) {
+    this._providers.set(value && value.length > 0 ? value : null);
   }
   @Input() set selection(value: PendingSelection | null | undefined) {
     this._selection.set(value ?? null);
@@ -255,22 +275,31 @@ export class CompactModelPickerComponent {
   // --- Bar rendering ---
 
   /**
-   * Chat-side provider type. The controller stores `InstanceProvider`
-   * (which includes `'ollama'`); chats only allow `ChatProvider`. The
-   * compact picker never surfaces ollama, so the cast is safe.
+   * Provider type as the picker UI sees it. The controller stores
+   * `InstanceProvider` (which includes `'ollama'`); the picker never
+   * surfaces ollama. Chat surfaces filter further to ChatProvider; the
+   * new-session/instance-draft surface accepts cursor.
    */
-  protected readonly selectedChatProvider = computed<ChatProvider>(() => {
+  protected readonly selectedPickerProvider = computed<PickerProvider>(() => {
     const p = this.controller.selectedProviderId();
-    return (p === 'ollama' ? 'claude' : p) as ChatProvider;
+    return (p === 'ollama' ? 'claude' : p) as PickerProvider;
+  });
+
+  /**
+   * The list of providers rendered in the chip's menu. Defaults to chat-4
+   * unless the host explicitly passed a wider list via `[providers]`.
+   */
+  protected readonly providerList = computed<PickerProvider[]>(() => {
+    return this._providers() ?? DEFAULT_CHAT_PROVIDERS;
   });
 
   protected readonly providerLabel = computed(() => {
-    const p = this.selectedChatProvider();
+    const p = this.selectedPickerProvider();
     return PROVIDER_MENU_LABELS[p] ?? p;
   });
 
   protected readonly providerColor = computed(() => {
-    const p = this.selectedChatProvider();
+    const p = this.selectedPickerProvider();
     return PROVIDER_MENU_COLORS[p] ?? '#888';
   });
 
@@ -315,7 +344,7 @@ export class CompactModelPickerComponent {
     return undefined;
   });
 
-  protected readonly providerDisabledReasonFor = (provider: ChatProvider): string | undefined => {
+  protected readonly providerDisabledReasonFor = (provider: PickerProvider): string | undefined => {
     return this.controller.disabledReasonFor({ provider });
   };
 
@@ -344,7 +373,7 @@ export class CompactModelPickerComponent {
 
   // --- Commit handlers ---
 
-  protected async onProviderSelect(provider: ChatProvider): Promise<void> {
+  protected async onProviderSelect(provider: PickerProvider): Promise<void> {
     this.providerMenuOpen.set(false);
     // Provider switch resets the model to the new provider's primary default
     // and clears reasoning (matches the legacy modal's `selectProvider`

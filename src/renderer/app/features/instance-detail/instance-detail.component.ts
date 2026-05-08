@@ -39,6 +39,9 @@ import { CrossModelReviewPanelComponent } from './cross-model-review-panel.compo
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
+import { LoopControlComponent } from '../loop/loop-control.component';
+import { LoopStore } from '../../core/state/loop.store';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { QuickActionDispatcherService } from '../orchestration/quick-action-dispatcher.service';
 import { TodoStore } from '../../core/state/todo.store';
 import { AutomationStore } from '../../core/state/automation.store';
@@ -90,7 +93,8 @@ interface HistoryPreviewView {
     ProviderDiagnosticsPanelComponent,
     RemoteBrowseModalComponent,
     OrchestrationHudComponent,
-    ChildDiagnosticBundleModalComponent
+    ChildDiagnosticBundleModalComponent,
+    LoopControlComponent
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',
@@ -107,6 +111,7 @@ export class InstanceDetailComponent {
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
   private quickActionDispatcher = inject(QuickActionDispatcherService);
+  private loopStore = inject(LoopStore);
   private automationStore = inject(AutomationStore);
   readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
   private fileAttachment = inject(FileAttachmentService);
@@ -1067,6 +1072,27 @@ export class InstanceDetailComponent {
       message,
       (creating) => this.isCreatingInstance.set(creating),
     );
+  }
+
+  async onLoopStartRequested(config: LoopStartConfigInput): Promise<void> {
+    const inst = this.store.selectedInstance();
+    if (inst) {
+      const r = await this.loopStore.start(inst.id, config);
+      if (!r.ok) console.error('Loop start failed:', r.error);
+      return;
+    }
+    await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
+      config,
+      (creating) => this.isCreatingInstance.set(creating),
+      (newChatId) => this.loopStore.start(newChatId, config),
+    );
+  }
+
+  async onLoopStopRequested(): Promise<void> {
+    const inst = this.store.selectedInstance();
+    if (!inst) return;
+    const a = this.loopStore.activeForChat(inst.id)();
+    if (a) await this.loopStore.cancel(a.id);
   }
 
   async onWelcomeStartSessionWithWorkflow(event: {

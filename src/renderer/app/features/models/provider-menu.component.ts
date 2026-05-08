@@ -5,39 +5,45 @@ import {
   Input,
   Output,
   computed,
+  signal,
 } from '@angular/core';
 import { NestedMenuComponent } from '../../shared/menu/nested-menu.component';
 import type { MenuItem, MenuModel } from '../../shared/menu/menu.types';
-import type { ChatProvider } from '../../../../shared/types/chat.types';
+import type { PickerProvider } from './compact-model-picker.types';
 
 /**
- * Fixed presentation order for the picker.
- *
- * Excludes `auto` (the picker always pins a concrete provider) and
- * `cursor` (Cursor isn't part of `ChatProvider` today — chats route only
- * through `claude / codex / gemini / copilot`). If chat-side cursor
- * support is added later, the entry can be added here.
+ * Default chat-side provider order. Excludes `auto` (picker always pins
+ * a concrete provider) and `cursor` (chats don't currently support cursor).
+ * The new-session/instance-draft surface passes a wider list including
+ * cursor via the `providers` input.
  */
-const PROVIDERS: ChatProvider[] = ['claude', 'codex', 'gemini', 'copilot'];
+export const DEFAULT_CHAT_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'gemini', 'copilot'];
 
-const PROVIDER_LABELS: Record<ChatProvider, string> = {
+/** Full provider order — used by the new-session/instance-draft surface. */
+export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+
+const PROVIDER_LABELS: Record<PickerProvider, string> = {
   claude: 'Claude',
   codex: 'Codex',
   gemini: 'Gemini',
   copilot: 'Copilot',
+  cursor: 'Cursor',
 };
 
-const PROVIDER_COLORS: Record<ChatProvider, string> = {
+const PROVIDER_COLORS: Record<PickerProvider, string> = {
   claude: '#d97706',
   codex: '#10a37f',
   gemini: '#4285f4',
   copilot: '#a855f7',
+  cursor: '#0f172a',
 };
 
 /**
- * Popover content for the compact picker's provider chip. Renders the
- * five chat providers as a flat `<app-nested-menu>` and reports the
- * selected provider via `(providerSelect)`.
+ * Popover content for the compact picker's provider chip.
+ *
+ * The list of providers is configurable so the same component serves
+ * both the chat-creation form (4 providers) and the new-session form
+ * (5 providers, including cursor).
  */
 @Component({
   selector: 'app-provider-menu',
@@ -54,26 +60,44 @@ const PROVIDER_COLORS: Record<ChatProvider, string> = {
   `,
 })
 export class ProviderMenuComponent {
-  @Input({ required: true }) selectedProvider!: ChatProvider | null;
-  @Input() disabledReasonFor: (provider: ChatProvider) => string | undefined = () => undefined;
+  // @Input setters write into private signals so `menuModel` (a computed)
+  // reacts to input changes. Plain @Input fields would only be picked up
+  // on first read and the computed would cache the stale value.
+  private readonly _selectedProvider = signal<PickerProvider | null>(null);
+  private readonly _providers = signal<PickerProvider[]>(DEFAULT_CHAT_PROVIDERS);
+  private readonly _disabledReasonFor = signal<(provider: PickerProvider) => string | undefined>(() => undefined);
 
-  @Output() providerSelect = new EventEmitter<ChatProvider>();
+  @Input({ required: true }) set selectedProvider(value: PickerProvider | null) {
+    this._selectedProvider.set(value);
+  }
+  @Input() set providers(value: PickerProvider[] | undefined | null) {
+    this._providers.set(value && value.length > 0 ? value : DEFAULT_CHAT_PROVIDERS);
+  }
+  @Input() set disabledReasonFor(fn: ((provider: PickerProvider) => string | undefined) | undefined | null) {
+    this._disabledReasonFor.set(fn ?? (() => undefined));
+  }
+
+  @Output() providerSelect = new EventEmitter<PickerProvider>();
   @Output() dismiss = new EventEmitter<void>();
 
-  readonly menuModel = computed<MenuModel<{ provider: ChatProvider; color: string }>>(() => ({
-    sections: [{
-      id: 'providers',
-      items: PROVIDERS.map((provider) => ({
-        id: provider,
-        label: PROVIDER_LABELS[provider],
-        selected: provider === this.selectedProvider,
-        disabledReason: this.disabledReasonFor(provider),
-        payload: { provider, color: PROVIDER_COLORS[provider] },
-      } as MenuItem<{ provider: ChatProvider; color: string }>)),
-    }],
-  }));
+  readonly menuModel = computed<MenuModel<{ provider: PickerProvider; color: string }>>(() => {
+    const selected = this._selectedProvider();
+    const disabled = this._disabledReasonFor();
+    return {
+      sections: [{
+        id: 'providers',
+        items: this._providers().map((provider) => ({
+          id: provider,
+          label: PROVIDER_LABELS[provider],
+          selected: provider === selected,
+          disabledReason: disabled(provider),
+          payload: { provider, color: PROVIDER_COLORS[provider] },
+        } as MenuItem<{ provider: PickerProvider; color: string }>)),
+      }],
+    };
+  });
 
-  onSelect(item: MenuItem<{ provider: ChatProvider; color: string }>): void {
+  onSelect(item: MenuItem<{ provider: PickerProvider; color: string }>): void {
     if (!item.payload) return;
     this.providerSelect.emit(item.payload.provider);
   }
@@ -81,4 +105,4 @@ export class ProviderMenuComponent {
 
 export const PROVIDER_MENU_LABELS = PROVIDER_LABELS;
 export const PROVIDER_MENU_COLORS = PROVIDER_COLORS;
-export const PROVIDER_MENU_ORDER = PROVIDERS;
+export const PROVIDER_MENU_ORDER = DEFAULT_CHAT_PROVIDERS;

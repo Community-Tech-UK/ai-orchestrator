@@ -1,7 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { ProviderMenuComponent, PROVIDER_MENU_ORDER } from './provider-menu.component';
-import type { ChatProvider } from '../../../../shared/types/chat.types';
+import {
+  ProviderMenuComponent,
+  PROVIDER_MENU_ORDER,
+  DEFAULT_INSTANCE_PROVIDERS,
+} from './provider-menu.component';
+import type { PickerProvider } from './compact-model-picker.types';
 
 describe('ProviderMenuComponent', () => {
   let fixture: ComponentFixture<ProviderMenuComponent>;
@@ -34,7 +38,7 @@ describe('ProviderMenuComponent', () => {
 
   it('disables providers per disabledReasonFor and surfaces reason via title', () => {
     fixture.componentRef.setInput('selectedProvider', 'claude');
-    fixture.componentRef.setInput('disabledReasonFor', (p: ChatProvider) =>
+    fixture.componentRef.setInput('disabledReasonFor', (p: PickerProvider) =>
       p === 'codex' ? 'Provider can only be changed before the first message' : undefined,
     );
     fixture.detectChanges();
@@ -48,7 +52,7 @@ describe('ProviderMenuComponent', () => {
   it('emits providerSelect with the chosen provider on row click', () => {
     fixture.componentRef.setInput('selectedProvider', 'claude');
     fixture.detectChanges();
-    let emitted: ChatProvider | null = null;
+    let emitted: PickerProvider | null = null;
     fixture.componentInstance.providerSelect.subscribe((p) => (emitted = p));
 
     const rows = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__body')) as HTMLElement[];
@@ -59,7 +63,7 @@ describe('ProviderMenuComponent', () => {
 
   it('does not emit for a disabled provider', () => {
     fixture.componentRef.setInput('selectedProvider', 'claude');
-    fixture.componentRef.setInput('disabledReasonFor', (p: ChatProvider) =>
+    fixture.componentRef.setInput('disabledReasonFor', (p: PickerProvider) =>
       p === 'codex' ? 'no' : undefined,
     );
     fixture.detectChanges();
@@ -70,5 +74,38 @@ describe('ProviderMenuComponent', () => {
     rows.find((r) => r.textContent?.includes('Codex'))!.click();
 
     expect(emitted).toBe(false);
+  });
+
+  it('renders the wider 5-provider list when given DEFAULT_INSTANCE_PROVIDERS', () => {
+    fixture.componentRef.setInput('selectedProvider', 'claude');
+    fixture.componentRef.setInput('providers', DEFAULT_INSTANCE_PROVIDERS);
+    fixture.detectChanges();
+
+    const labels = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__label'))
+      .map((el) => (el as HTMLElement).textContent?.trim());
+    expect(labels).toEqual(['Claude', 'Codex', 'Gemini', 'Copilot', 'Cursor']);
+  });
+
+  it('emits cursor when chosen on the wider list', () => {
+    fixture.componentRef.setInput('selectedProvider', 'claude');
+    fixture.componentRef.setInput('providers', DEFAULT_INSTANCE_PROVIDERS);
+    fixture.detectChanges();
+    let emitted: PickerProvider | null = null;
+    fixture.componentInstance.providerSelect.subscribe((p) => (emitted = p));
+
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__body')) as HTMLElement[];
+    rows.find((r) => r.textContent?.includes('Cursor'))!.click();
+
+    expect(emitted).toBe('cursor');
+  });
+
+  it('falls back to chat-4 when given an empty providers list', () => {
+    fixture.componentRef.setInput('selectedProvider', 'claude');
+    fixture.componentRef.setInput('providers', []);
+    fixture.detectChanges();
+
+    const labels = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__label'))
+      .map((el) => (el as HTMLElement).textContent?.trim());
+    expect(labels).toEqual(['Claude', 'Codex', 'Gemini', 'Copilot']);
   });
 });

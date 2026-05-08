@@ -1,5 +1,10 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import {
+  getPrimaryModelForProvider,
+  normalizeModelForProvider,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+} from '../../../../shared/types/provider.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import { ProviderStateService, type ProviderType } from './provider-state.service';
 
@@ -20,6 +25,7 @@ export class NewSessionDraftService {
   readonly prompt = computed(() => this.activeDraft().prompt);
   readonly provider = computed(() => this.activeDraft().provider);
   readonly model = computed(() => this.activeDraft().model);
+  readonly reasoningEffort = computed(() => this.activeDraft().reasoningEffort);
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
   readonly agentId = computed(() => this.activeDraft().agentId);
@@ -74,6 +80,7 @@ export class NewSessionDraftService {
           prompt: currentDraft.prompt,
           provider: currentDraft.provider,
           model: this.normalizeDraftModel(currentDraft.provider, currentDraft.model),
+          reasoningEffort: currentDraft.reasoningEffort,
           yoloMode: currentDraft.yoloMode,
           agentId: currentDraft.agentId,
           pendingFolders: [...currentDraft.pendingFolders],
@@ -84,6 +91,7 @@ export class NewSessionDraftService {
           prompt: '',
           provider: null,
           model: null,
+          reasoningEffort: null,
           yoloMode: null,
           agentId: getDefaultAgent().id,
           pendingFolders: [],
@@ -137,7 +145,9 @@ export class NewSessionDraftService {
         nextModel = this.normalizeDraftModel(provider, null);
       }
 
-      if (draft.provider === provider && draft.model === nextModel) {
+      const sameProvider = draft.provider === provider;
+      const nextReasoning = sameProvider ? draft.reasoningEffort : null;
+      if (sameProvider && draft.model === nextModel && draft.reasoningEffort === nextReasoning) {
         return draft;
       }
 
@@ -145,6 +155,8 @@ export class NewSessionDraftService {
         ...draft,
         provider,
         model: nextModel,
+        // Reasoning is per-provider — wipe it on provider switch.
+        reasoningEffort: nextReasoning,
         updatedAt: Date.now(),
       };
     });
@@ -169,6 +181,19 @@ export class NewSessionDraftService {
       return {
         ...draft,
         model: nextModel,
+        updatedAt: Date.now(),
+      };
+    });
+  }
+
+  setReasoningEffort(reasoningEffort: ReasoningEffort | null): void {
+    this.updateActiveDraft((draft) => {
+      if (draft.reasoningEffort === reasoningEffort) {
+        return draft;
+      }
+      return {
+        ...draft,
+        reasoningEffort,
         updatedAt: Date.now(),
       };
     });
@@ -404,6 +429,7 @@ export class NewSessionDraftService {
         provider,
         typeof draft?.model === 'string' && draft.model.trim().length > 0 ? draft.model : null,
       ),
+      reasoningEffort: this.isReasoningEffort(draft?.reasoningEffort) ? draft.reasoningEffort : null,
       nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
       agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
@@ -414,6 +440,10 @@ export class NewSessionDraftService {
         : [],
       updatedAt: typeof draft?.updatedAt === 'number' ? draft.updatedAt : Date.now(),
     };
+  }
+
+  private isReasoningEffort(value: unknown): value is ReasoningEffort {
+    return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
   }
 
   private patchState(updater: (current: NewSessionDraftStoreState) => NewSessionDraftStoreState): void {
@@ -477,6 +507,7 @@ export class NewSessionDraftService {
       prompt: '',
       provider: null,
       model: null,
+      reasoningEffort: null,
       nodeId: null,
       yoloMode: null,
       agentId: getDefaultAgent().id,
@@ -596,6 +627,7 @@ interface NewSessionDraftState {
   prompt: string;
   provider: ProviderType | null;
   model: string | null;
+  reasoningEffort: ReasoningEffort | null;
   nodeId: string | null;
   yoloMode: boolean | null; // null = use settings default
   agentId: string;
@@ -614,6 +646,7 @@ interface PersistedNewSessionDraft {
   prompt: string;
   provider: ProviderType | null;
   model: string | null;
+  reasoningEffort?: ReasoningEffort | null;
   nodeId?: string | null;
   yoloMode?: boolean | null;
   agentId?: string;

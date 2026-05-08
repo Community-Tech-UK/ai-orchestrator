@@ -2,7 +2,7 @@ import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
 
-interface LoopConfigInput {
+export interface LoopConfigInput {
   initialPrompt: string;
   workspaceCwd: string;
   planFile?: string;

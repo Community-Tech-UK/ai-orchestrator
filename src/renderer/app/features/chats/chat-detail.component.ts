@@ -14,6 +14,8 @@ import { InputPanelComponent } from '../instance-detail/input-panel.component';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
+import { LoopStore } from '../../core/state/loop.store';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 @Component({
   selector: 'app-chat-detail',
@@ -37,6 +39,7 @@ export class ChatDetailComponent {
   private readonly settingsStore = inject(SettingsStore);
   private readonly fileIpc = inject(FileIpcService);
   private readonly operatorIpc = inject(OperatorIpcService);
+  private readonly loopStore = inject(LoopStore);
 
   readonly draftName = signal('');
   readonly draftCwd = signal('');
@@ -276,6 +279,20 @@ export class ChatDetailComponent {
 
   private asThinking(value: unknown): ThinkingContent[] | undefined {
     return Array.isArray(value) ? value as ThinkingContent[] : undefined;
+  }
+
+  async onLoopStartRequested(config: LoopStartConfigInput): Promise<void> {
+    const chatId = this.detail()?.chat.id;
+    if (!chatId) return;
+    const r = await this.loopStore.start(chatId, config);
+    if (!r.ok) console.error('Loop start failed:', r.error);
+  }
+
+  async onLoopStopRequested(): Promise<void> {
+    const chatId = this.detail()?.chat.id;
+    if (!chatId) return;
+    const a = this.loopStore.activeForChat(chatId)();
+    if (a) await this.loopStore.cancel(a.id);
   }
 
   private async loadRunsForThread(threadId: string | null): Promise<void> {

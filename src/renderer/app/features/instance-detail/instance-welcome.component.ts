@@ -14,6 +14,7 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { InputPanelComponent } from './input-panel.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 interface WelcomeProjectContext {
   branch: string | null;
@@ -110,11 +111,14 @@ interface WelcomeProjectContext {
                 placeholder="Plan the work, review code, investigate a bug, or coordinate a multi-agent task..."
                 [pendingFiles]="pendingFiles()"
                 [pendingFolders]="pendingFolders()"
+                [workingDirectory]="workingDirectory() || null"
+                [loopChatId]="null"
                 (sendMessage)="sendMessage.emit($event)"
                 (startSessionWithWorkflow)="startSessionWithWorkflow.emit($event)"
                 (removeFile)="removeFile.emit($event)"
                 (removeFolder)="removeFolder.emit($event)"
                 (addFiles)="addFiles.emit()"
+                (loopStartRequested)="loopStartRequested.emit($event)"
               />
             </div>
           </div>
@@ -380,6 +384,7 @@ export class InstanceWelcomeComponent {
   discardDraft = output<void>();
   addFiles = output<void>();
   browseRemote = output<string>();
+  loopStartRequested = output<LoopStartConfigInput>();
 
   onNodeSelected(nodeId: string | null): void {
     this.selectedNodeId.set(nodeId);

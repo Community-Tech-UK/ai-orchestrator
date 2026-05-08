@@ -247,6 +247,8 @@
             </div>
           }
 
+          <app-loop-control [chatId]="inst.id" />
+
           <!-- Input panel (composer) -->
           <app-input-panel
             [instanceId]="inst.id"
@@ -263,6 +265,7 @@
             [provider]="inst.provider"
             [currentModel]="inst.currentModel"
             [workingDirectory]="inst.workingDirectory"
+            [loopChatId]="inst.id"
             [isReplayFallback]="isReplayFallback()"
             [showWakeupControls]="true"
             [hasThreadWakeups]="threadWakeups().length > 0"
@@ -278,6 +281,8 @@
             (editQueuedMessage)="onEditQueuedMessage($event)"
             (steerQueuedMessage)="onSteerQueuedMessage($event)"
             (resendEdited)="onResendEdited($event)"
+            (loopStartRequested)="onLoopStartRequested($event)"
+            (loopStopRequested)="onLoopStopRequested()"
           />
         </div>
       </app-drop-zone>
@@ -386,6 +391,7 @@
         (discardDraft)="onWelcomeDiscardDraft()"
         (addFiles)="onWelcomeAddFiles()"
         (browseRemote)="onWelcomeBrowseRemote($event)"
+        (loopStartRequested)="onLoopStartRequested($event)"
       />
     }
     <app-remote-browse-modal
