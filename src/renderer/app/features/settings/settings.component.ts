@@ -22,6 +22,7 @@ import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.compone
 import { ProviderQuotaSettingsTabComponent } from './provider-quota-settings-tab.component';
 import { NetworkSettingsTabComponent } from './network-settings-tab.component';
 import { DoctorSettingsTabComponent } from './doctor-settings-tab.component';
+import { RtkSavingsTabComponent } from './rtk-savings-tab.component';
 import { McpPageComponent } from '../mcp/mcp-page.component';
 import { HooksPageComponent } from '../hooks/hooks-page.component';
 import { WorktreePageComponent } from '../worktree/worktree-page.component';
@@ -46,6 +47,7 @@ type SettingsTab =
   | 'doctor'
   | 'cli-health'
   | 'provider-quota'
+  | 'rtk-savings'
   | 'models'
   | 'mcp'
   | 'hooks'
@@ -92,6 +94,7 @@ const NAV_ITEMS: SettingsNavItem[] = [
   { id: 'cli-health', label: 'CLI Health', group: 'Advanced' },
   { id: 'doctor', label: 'Doctor', group: 'Advanced' },
   { id: 'provider-quota', label: 'Provider Quota', group: 'Advanced' },
+  { id: 'rtk-savings', label: 'RTK Savings', group: 'Advanced' },
   { id: 'remote-nodes', label: 'Remote Nodes', group: 'Advanced' },
   { id: 'ecosystem', label: 'Ecosystem', group: 'Advanced' },
   { id: 'advanced', label: 'Advanced', group: 'Advanced' },
@@ -122,6 +125,7 @@ function isSettingsTab(value: string | null): value is SettingsTab {
     RemoteNodesSettingsTabComponent,
     CliHealthSettingsTabComponent,
     ProviderQuotaSettingsTabComponent,
+    RtkSavingsTabComponent,
     McpPageComponent,
     HooksPageComponent,
     WorktreePageComponent,
@@ -217,6 +221,9 @@ function isSettingsTab(value: string | null): value is SettingsTab {
             }
             @case ('provider-quota') {
               <app-provider-quota-settings-tab />
+            }
+            @case ('rtk-savings') {
+              <app-rtk-savings-tab />
             }
             @case ('models') {
               <app-models-page />

@@ -28,6 +28,7 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
 const logger = getLogger('GeminiCliAdapter');
 
@@ -55,6 +56,10 @@ export interface GeminiCliConfig {
   browserGatewaySettingsPath?: string;
   /** Alias for yolo (used by adapter factory) */
   yoloMode?: boolean;
+  /** When true, prepend the RTK awareness prompt to message content so the
+   *  model prefixes shell commands with `rtk`. Gemini runs exec-per-message
+   *  so the awareness is reinjected on every call (it's small — ~500 chars). */
+  rtkEnabled?: boolean;
 }
 
 /**
@@ -557,9 +562,15 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     // Handle attachments - Gemini doesn't have --file, but images work differently
     // Images would need to be handled via the prompt or a different mechanism
 
-    // Add the prompt as positional argument (required for non-interactive mode)
+    // Add the prompt as positional argument (required for non-interactive mode).
+    // When RTK is enabled, prepend the awareness block so the model prefixes
+    // shell commands with `rtk`. Gemini has no programmatic PreToolUse hook;
+    // each call is a fresh process so awareness is injected every turn.
     if (message.content) {
-      args.push(message.content);
+      const promptText = this.cliConfig.rtkEnabled
+        ? `${wrapRtkAwareness()}\n\n${message.content}`
+        : message.content;
+      args.push(promptText);
     }
 
     return args;

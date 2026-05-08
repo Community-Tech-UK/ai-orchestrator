@@ -72,6 +72,7 @@ import {
 import type { PermissionRegistry } from '../../orchestration/permission-registry';
 import type { PermissionDecision, PermissionRequest } from '../../../shared/types/permission-registry.types';
 import { buildCliSpawnOptions } from '../cli-environment';
+import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import type { ProviderConcurrencyLimiter } from '../provider-concurrency-limiter';
 
 const logger = getLogger('AcpCliAdapter');
@@ -180,6 +181,11 @@ export interface AcpCliAdapterConfig extends Omit<CliAdapterConfig, 'command' | 
   command?: string;
   model?: string;
   systemPrompt?: string;
+  /** When true, prepend the RTK awareness prompt on the first turn so the
+   *  model prefixes shell commands with `rtk`. ACP-backed providers
+   *  (Copilot, Cursor) lack a Claude-style PreToolUse hook surface, so
+   *  awareness-via-prompt is the integration point. */
+  rtkEnabled?: boolean;
   workingDirectory: string;
   sessionId?: string;
   resume?: boolean;
@@ -303,6 +309,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private currentPromptRequestId: string | null = null;
   private lastResumeAttemptResult: ResumeAttemptResult | undefined;
   private systemPromptSent = false;
+  /** Whether RTK awareness has been injected on this session (first turn only). */
+  private rtkAwarenessSent = false;
   /** Release function returned by `ProviderConcurrencyLimiter.acquire`.
    *  Set in `spawn()` when concurrency gating is configured, invoked
    *  exactly once on the first of {terminate, exit, spawn-failure}. */
@@ -610,6 +618,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     this.currentPrompt = null;
     this.currentPromptRequestId = null;
     this.systemPromptSent = false;
+    this.rtkAwarenessSent = false;
     this.toolCalls.clear();
     this.stdoutBuffer = '';
     await super.terminate(graceful);
@@ -1882,6 +1891,11 @@ export class AcpCliAdapter extends BaseCliAdapter {
         });
       }
       this.systemPromptSent = true;
+    }
+
+    if (!this.acpConfig.resume && !this.rtkAwarenessSent && this.acpConfig.rtkEnabled) {
+      prompt.push({ type: 'text', text: wrapRtkAwareness() });
+      this.rtkAwarenessSent = true;
     }
 
     if (message.content) {

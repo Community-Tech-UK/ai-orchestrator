@@ -1,6 +1,7 @@
 import type { ConversationLedgerConversation } from './conversation-ledger.types';
 import type { FileAttachment, Instance } from './instance.types';
 import type { SupportedProvider } from './mcp-scopes.types';
+import type { ReasoningEffort } from './provider.types';
 
 export type ChatProvider = SupportedProvider;
 
@@ -9,6 +10,7 @@ export interface ChatRecord {
   name: string;
   provider: ChatProvider | null;
   model: string | null;
+  reasoningEffort: ReasoningEffort | null;
   currentCwd: string | null;
   projectId: string | null;
   yolo: boolean;
@@ -29,6 +31,7 @@ export interface ChatCreateInput {
   name?: string;
   provider: ChatProvider;
   model?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
   currentCwd: string;
   yolo?: boolean;
 }
@@ -52,6 +55,11 @@ export interface ChatSetProviderInput {
 export interface ChatSetModelInput {
   chatId: string;
   model: string | null;
+}
+
+export interface ChatSetReasoningInput {
+  chatId: string;
+  reasoningEffort: ReasoningEffort | null;
 }
 
 export interface ChatSetYoloInput {

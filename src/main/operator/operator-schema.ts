@@ -107,6 +107,7 @@ export function createOperatorTables(db: SqliteDriver): void {
       name TEXT NOT NULL,
       provider TEXT,
       model TEXT,
+      reasoning_effort TEXT,
       current_cwd TEXT,
       project_id TEXT,
       yolo INTEGER NOT NULL DEFAULT 0,
@@ -124,4 +125,21 @@ export function createOperatorTables(db: SqliteDriver): void {
     CREATE INDEX IF NOT EXISTS idx_chats_ledger_thread
       ON chats(ledger_thread_id);
   `);
+
+  ensureChatsReasoningEffortColumn(db);
+}
+
+interface TableInfoRow {
+  name: string;
+}
+
+function ensureChatsReasoningEffortColumn(db: SqliteDriver): void {
+  const columns = db
+    .prepare('PRAGMA table_info(chats)')
+    .all() as TableInfoRow[];
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  if (!columnNames.has('reasoning_effort')) {
+    db.exec('ALTER TABLE chats ADD COLUMN reasoning_effort TEXT');
+  }
 }

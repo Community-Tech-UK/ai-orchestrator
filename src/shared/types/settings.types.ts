@@ -113,8 +113,8 @@ export interface AppSettings {
   mcpAllowWorldWritableParent: boolean;
 
   // RTK (Rust Token Killer) — compresses LLM-bound shell command output 60–90%.
-  // See bigchange_rtk_integration.md for details. Off by default in v1; flip on
-  // after dogfood validation.
+  // See bigchange_rtk_integration.md for details. On by default; users can opt out
+  // via the RTK Savings settings tab.
   rtkEnabled: boolean;
   /** When true, never use a system-installed rtk; only the bundled binary. */
   rtkBundledOnly: boolean;
@@ -205,7 +205,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcpAllowWorldWritableParent: false,
 
   // RTK
-  rtkEnabled: false,
+  rtkEnabled: true,
   rtkBundledOnly: false,
 };
 
@@ -231,7 +231,7 @@ export interface SettingMetadata {
   label: string;
   description: string;
   type: 'boolean' | 'string' | 'number' | 'select' | 'directory' | 'multi-select';
-  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review' | 'network' | 'mcp';
+  category: 'general' | 'orchestration' | 'memory' | 'display' | 'advanced' | 'review' | 'network' | 'mcp' | 'rtk';
   options?: { value: string | number; label: string }[];
   min?: number;
   max?: number;
@@ -287,8 +287,8 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
       { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
       { value: 'gpt-5.2', label: 'GPT-5.2' },
       { value: 'o3', label: 'OpenAI o3' },
-      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
-      { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro (Preview)' },
+      { value: 'gemini-3-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
+      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (canonical ID — currently capacity-limited)' },
       { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Preview)' },
       { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' }
@@ -673,6 +673,20 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Permit writes to MCP config folders whose parent directory is world-writable',
     type: 'boolean',
     category: 'mcp',
+  },
+  {
+    key: 'rtkEnabled',
+    label: 'Enable RTK token-saving rewrites',
+    description: 'Compress LLM-bound shell command output 60–90% via the rtk binary. Requires app restart to take effect on running instances.',
+    type: 'boolean',
+    category: 'rtk',
+  },
+  {
+    key: 'rtkBundledOnly',
+    label: 'Use bundled rtk only',
+    description: 'Always use the rtk binary shipped with this app, never a system-installed rtk on PATH. Useful for reproducibility.',
+    type: 'boolean',
+    category: 'rtk',
   },
 ];
 

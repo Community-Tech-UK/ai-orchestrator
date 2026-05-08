@@ -1,11 +1,13 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { ChatProvider, ChatRecord } from '../../shared/types/chat.types';
+import { REASONING_EFFORTS, type ReasoningEffort } from '../../shared/types/provider.types';
 
 interface ChatRow {
   id: string;
   name: string;
   provider: string | null;
   model: string | null;
+  reasoning_effort: string | null;
   current_cwd: string | null;
   project_id: string | null;
   yolo: number;
@@ -21,6 +23,7 @@ export interface ChatInsertInput {
   name: string;
   provider: ChatProvider | null;
   model?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
   currentCwd: string | null;
   projectId?: string | null;
   yolo?: boolean;
@@ -35,6 +38,7 @@ export interface ChatUpdateInput {
   name?: string;
   provider?: ChatProvider | null;
   model?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
   currentCwd?: string | null;
   projectId?: string | null;
   yolo?: boolean;
@@ -77,15 +81,16 @@ export class ChatStore {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO chats (
-        id, name, provider, model, current_cwd, project_id, yolo,
+        id, name, provider, model, reasoning_effort, current_cwd, project_id, yolo,
         ledger_thread_id, current_instance_id, created_at, last_active_at,
         archived_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.name,
       input.provider,
       input.model ?? null,
+      input.reasoningEffort ?? null,
       input.currentCwd,
       input.projectId ?? null,
       input.yolo ? 1 : 0,
@@ -109,6 +114,7 @@ export class ChatStore {
         name = ?,
         provider = ?,
         model = ?,
+        reasoning_effort = ?,
         current_cwd = ?,
         project_id = ?,
         yolo = ?,
@@ -121,6 +127,7 @@ export class ChatStore {
       input.name ?? existing.name,
       input.provider !== undefined ? input.provider : existing.provider,
       input.model !== undefined ? input.model : existing.model,
+      input.reasoningEffort !== undefined ? input.reasoningEffort : existing.reasoningEffort,
       input.currentCwd !== undefined ? input.currentCwd : existing.currentCwd,
       input.projectId !== undefined ? input.projectId : existing.projectId,
       input.yolo !== undefined ? (input.yolo ? 1 : 0) : (existing.yolo ? 1 : 0),
@@ -144,6 +151,7 @@ function rowToChatRecord(row: ChatRow): ChatRecord {
     name: row.name,
     provider: isChatProvider(row.provider) ? row.provider : null,
     model: row.model,
+    reasoningEffort: isReasoningEffort(row.reasoning_effort) ? row.reasoning_effort : null,
     currentCwd: row.current_cwd,
     projectId: row.project_id,
     yolo: row.yolo === 1,
@@ -157,4 +165,8 @@ function rowToChatRecord(row: ChatRow): ChatRecord {
 
 function isChatProvider(value: string | null): value is ChatProvider {
   return value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot';
+}
+
+function isReasoningEffort(value: string | null): value is ReasoningEffort {
+  return value !== null && (REASONING_EFFORTS as readonly string[]).includes(value);
 }

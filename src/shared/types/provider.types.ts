@@ -349,8 +349,10 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // MODEL_CAPACITY_EXHAUSTED for the canonical `gemini-3.1-pro-preview`
     // ID, while the older alias is server-side routed to the same Gemini
     // 3.1 Pro infrastructure through a non-saturated bucket.
-    { id: GOOGLE_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful' },
-    { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
+    // Labels reflect what the SERVER actually serves (per stats.models in the
+    // CLI's stream-json output), not the wire string we send.
+    { id: GOOGLE_MODELS.GEMINI_3_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful' },
+    { id: GOOGLE_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (canonical ID — currently capacity-limited)', tier: 'powerful' },
     { id: GOOGLE_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced' },
     { id: GOOGLE_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful' },
     { id: GOOGLE_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast' },

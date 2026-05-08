@@ -73,6 +73,7 @@ import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
+import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -136,6 +137,15 @@ export interface CodexCliConfig {
   timeout?: number;
   /** Working directory */
   workingDir?: string;
+  /** When true, prepend the RTK awareness prompt to message content so the
+   *  model prefixes shell commands with `rtk`. Codex has no programmatic
+   *  PreToolUse hook, so awareness-via-prompt is the integration surface.
+   *  See bigchange_rtk_integration.md and src/main/cli/rtk/rtk-awareness.ts. */
+  rtkEnabled?: boolean;
+  /** Additional environment variables for the spawned `codex` process.
+   *  Used to extend PATH so the bundled rtk binary is reachable when
+   *  rtkEnabled is true. */
+  env?: Record<string, string>;
 }
 
 /**
@@ -244,6 +254,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private turnInProgress = false;
   /** Whether the system prompt has been sent (app-server mode, first turn only). */
   private systemPromptSent = false;
+  /** Whether the RTK awareness prompt has been sent. Sent once per session,
+   *  independently of systemPrompt (which has a separate size cap). */
+  private rtkAwarenessSent = false;
 
   // ─── Exec mode state ──────────────────────────────────────────────
   private conversationHistory: CodexConversationEntry[] = [];
@@ -271,6 +284,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       cwd: config.workingDir,
       timeout: config.timeout || 300000,
       sessionPersistence: !config.ephemeral,
+      env: config.env,
     };
     super(adapterConfig);
 
@@ -861,6 +875,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // The new thread has no prior context — the next turn must re-send the
     // system prompt so the model behaves consistently.
     this.systemPromptSent = false;
+    this.rtkAwarenessSent = false;
 
     // Refresh the persisted cursor so a later app restart resumes against the
     // live thread instead of the dead one.
@@ -928,6 +943,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
         content = `[SYSTEM INSTRUCTIONS]\n${prompt}\n[/SYSTEM INSTRUCTIONS]\n\n${content}`;
       }
       this.systemPromptSent = true;
+    }
+
+    // Inject RTK awareness on the first turn when the feature is enabled.
+    // Codex has no programmatic PreToolUse hook, so awareness-via-prompt is
+    // the integration surface — keeps shell commands prefixed with `rtk`.
+    if (!this.rtkAwarenessSent && this.cliConfig.rtkEnabled) {
+      content = `${wrapRtkAwareness()}\n\n${content}`;
+      this.rtkAwarenessSent = true;
     }
 
     // Start the turn and capture notifications
@@ -1926,6 +1949,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.resumeCursor = null;
       // System prompt + conversation history are re-sent on a fresh thread.
       this.systemPromptSent = false;
+      this.rtkAwarenessSent = false;
 
       await this.execSendMessageInner(message, attachments);
     }
@@ -2487,6 +2511,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
           content,
         ].join('\n');
       }
+    }
+
+    // Inject RTK awareness on the first non-resume exec turn.  Same rationale
+    // as in the app-server path: Codex has no PreToolUse hook, so we steer the
+    // model via a small prompt block instructing it to prefix shell commands
+    // with `rtk`.
+    if (
+      !this.shouldUseResumeCommand() &&
+      !this.rtkAwarenessSent &&
+      this.cliConfig.rtkEnabled
+    ) {
+      content = [wrapRtkAwareness(), '', content].join('\n');
+      this.rtkAwarenessSent = true;
     }
 
     return {

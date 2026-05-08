@@ -20,11 +20,14 @@ import {
   type RtkSavingsSummary,
   type RtkStatusData,
 } from '../../core/services/ipc/rtk-ipc.service';
+import { SettingsStore } from '../../core/state/settings.store';
+import { SettingRowComponent } from './setting-row.component';
+import type { AppSettings } from '../../../../shared/types/settings.types';
 
 @Component({
   selector: 'app-rtk-savings-tab',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, SettingRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="rtk-tab">
@@ -41,6 +44,20 @@ import {
           {{ loading() ? 'Refreshing…' : 'Refresh' }}
         </button>
       </header>
+
+      <div class="rtk-toggles">
+        @for (setting of settingsStore.rtkSettings(); track setting.key) {
+          <app-setting-row
+            [setting]="setting"
+            [value]="settingsStore.get(setting.key)"
+            (valueChange)="onSettingChange($event)"
+          />
+        }
+        <p class="rtk-hint">
+          Changes take effect for newly spawned instances. Restart any running
+          instance to pick up a flipped flag.
+        </p>
+      </div>
 
       @if (error(); as err) {
         <div class="error-banner">{{ err }}</div>
@@ -167,10 +184,17 @@ import {
     .rtk-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono, monospace); }
     .empty { color: var(--color-text-secondary, #888); font-size: 13px; }
     .empty code { background: var(--color-bg-elevated, #1e1e1e); padding: 1px 4px; border-radius: 3px; }
+    .rtk-toggles {
+      display: grid; gap: 4px; padding: 8px 12px;
+      background: var(--color-bg-elevated, #1e1e1e);
+      border: 1px solid var(--color-border, #333); border-radius: 4px;
+    }
+    .rtk-hint { margin: 4px 0 0; color: var(--color-text-secondary, #888); font-size: 12px; }
   `],
 })
 export class RtkSavingsTabComponent implements OnInit {
   private readonly ipc = inject(RtkIpcService);
+  protected readonly settingsStore = inject(SettingsStore);
 
   protected readonly loading = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -179,6 +203,13 @@ export class RtkSavingsTabComponent implements OnInit {
 
   ngOnInit(): void {
     void this.refresh();
+  }
+
+  onSettingChange(event: { key: string; value: unknown }): void {
+    this.settingsStore.set(
+      event.key as keyof AppSettings,
+      event.value as AppSettings[keyof AppSettings],
+    );
   }
 
   async refresh(): Promise<void> {

@@ -15,7 +15,7 @@ import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { CliDetectionService, CliType } from '../cli-detection';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
@@ -172,6 +172,31 @@ function withBrowserGatewayProvider(
   };
 }
 
+/**
+ * Prepend the directory containing the resolved rtk binary onto PATH so the
+ * model's shell tool can invoke `rtk <cmd>` and find the bundled binary even
+ * when the user hasn't installed rtk system-wide. Mutates and returns `env`.
+ *
+ * Also sets `RTK_TELEMETRY_DISABLED=1` so child invocations of `rtk` don't
+ * leak usage data. Both env vars are belt-and-braces — ineffective when
+ * options.rtk is absent, so callers can call this unconditionally.
+ */
+function extendEnvWithRtk(
+  env: Record<string, string>,
+  rtk: UnifiedSpawnOptions['rtk'],
+): Record<string, string> {
+  if (!rtk?.enabled || !rtk.binaryPath) return env;
+  const rtkDir = dirname(rtk.binaryPath);
+  const currentPath = env['PATH'] ?? process.env['PATH'] ?? '';
+  const sep = process.platform === 'win32' ? ';' : ':';
+  const parts = currentPath ? currentPath.split(sep) : [];
+  if (!parts.includes(rtkDir)) {
+    env['PATH'] = [rtkDir, ...parts].join(sep);
+  }
+  env['RTK_TELEMETRY_DISABLED'] = '1';
+  return env;
+}
+
 function writeGeminiBrowserGatewaySettings(
   options: BrowserGatewayMcpConfigOptions | undefined,
 ): string | undefined {
@@ -313,6 +338,8 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
         withBrowserGatewayProvider(options.browserGatewayMcp, 'codex'),
       )
     : null;
+  const codexEnv: Record<string, string> = {};
+  extendEnvWithRtk(codexEnv, options.rtk);
   const codexConfig: CodexCliConfig = {
     // AI Orchestrator owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
@@ -328,6 +355,8 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     timeout: options.timeout,
     outputSchema: options.outputSchema,
     reasoningEffort: options.reasoningEffort,
+    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
+    ...(Object.keys(codexEnv).length > 0 ? { env: codexEnv } : {}),
     ...(mcpServersConfigToml ? { mcpServersConfigToml } : {}),
   };
   return new CodexCliAdapter(codexConfig);
@@ -338,6 +367,11 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
  */
 export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdapter {
   const browserGatewaySettingsPath = writeGeminiBrowserGatewaySettings(options.browserGatewayMcp);
+  const env: Record<string, string> = {};
+  if (browserGatewaySettingsPath) {
+    env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = browserGatewaySettingsPath;
+  }
+  extendEnvWithRtk(env, options.rtk);
   const geminiConfig: GeminiCliConfig = {
     workingDir: options.workingDirectory,
     model: options.model,
@@ -346,14 +380,9 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
     // from the registry. The orchestrator is the approval layer for child instances.
     yoloMode: options.yoloMode ?? true,
     timeout: options.timeout,
-    ...(browserGatewaySettingsPath
-      ? {
-          env: {
-            GEMINI_CLI_SYSTEM_SETTINGS_PATH: browserGatewaySettingsPath,
-          },
-          browserGatewaySettingsPath,
-        }
-      : {}),
+    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+    ...(browserGatewaySettingsPath ? { browserGatewaySettingsPath } : {}),
   };
   return new GeminiCliAdapter(geminiConfig);
 }
@@ -391,6 +420,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     // Code's Copilot Chat session list indexes that state directory.
     env['COPILOT_HOME'] = copilotHomeDir;
   }
+  extendEnvWithRtk(env, options.rtk);
   const browserGatewayMcpServers = options.browserGatewayMcp
     ? buildBrowserGatewayAcpMcpServers(
         withBrowserGatewayProvider(options.browserGatewayMcp, 'copilot'),
@@ -423,6 +453,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     ],
     model: options.model,
     systemPrompt: options.systemPrompt,
+    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
     requestTimeoutMs: 20_000,
     concurrencyAcquireTimeoutMs: 30_000,
@@ -452,6 +483,8 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
         withBrowserGatewayProvider(options.browserGatewayMcp, 'cursor'),
       )
     : [];
+  const env: Record<string, string> = {};
+  extendEnvWithRtk(env, options.rtk);
   return new AcpCliAdapter({
     adapterName: 'cursor-acp',
     command: 'cursor-agent',
@@ -459,12 +492,14 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
+    ...(Object.keys(env).length > 0 ? { env } : {}),
     mcpServers: [
       ...(options.mcpServers ?? []),
       ...browserGatewayMcpServers,
     ],
     model: options.model,
     systemPrompt: options.systemPrompt,
+    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     timeout: options.timeout,
     // Same rationale as createCopilotAdapter: keep the ACP permission
     // auto-timeout active so `session/request_permission` hangs surface
