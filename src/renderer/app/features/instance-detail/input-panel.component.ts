@@ -171,6 +171,7 @@ export class InputPanelComponent implements OnDestroy {
   }>();
   loopStopRequested = output<void>();
 
+  loopArmed = signal(false);
   showLoopPanel = signal(false);
   /** True while a loop start IPC is in flight. Prevents double-start races
    *  (Send + Enter, Enter + Enter, etc.). Reset by the parent's resolver. */
@@ -186,9 +187,9 @@ export class InputPanelComponent implements OnDestroy {
   /** Latest validity from the panel via (validityChange). */
   private latestLoopValid = signal(false);
 
-  /** True when the loop panel is open and its config currently validates. */
+  /** True when the currently armed loop config validates. */
   loopPanelValid = computed(() => {
-    if (!this.showLoopPanel()) return true;
+    if (!this.loopArmed()) return true;
     return this.latestLoopValid();
   });
 
@@ -200,10 +201,17 @@ export class InputPanelComponent implements OnDestroy {
     this.latestLoopValid.set(valid);
   }
 
-  /** Toggle the loop config panel open/closed. Called when the loop toggle
-   *  is clicked from a non-active state. */
+  /** Toggle Loop Mode armed/unarmed. Called when the loop toggle is clicked
+   *  from a non-active state. */
   onLoopOpenConfig(): void {
-    this.showLoopPanel.update((open) => !open);
+    if (this.loopArmed()) {
+      this.loopArmed.set(false);
+      this.showLoopPanel.set(false);
+      this.loopStartError.set(null);
+      return;
+    }
+    this.loopArmed.set(true);
+    this.showLoopPanel.set(true);
   }
 
   /** The toggle was clicked while a loop is running — propagate up so the
@@ -234,6 +242,7 @@ export class InputPanelComponent implements OnDestroy {
       // The panel either hasn't reported a valid config yet, or the user
       // edited it into an invalid state. Surface the panel's own error
       // (if any) so the user understands why nothing happened.
+      this.showLoopPanel.set(true);
       this.loopStartError.set('Loop config is incomplete — fix the prompt or settings above before sending.');
       return false;
     }
@@ -268,12 +277,15 @@ export class InputPanelComponent implements OnDestroy {
         this.loopStarting.set(false);
         if (ok) {
           // Only clear once the loop is actually running.
+          this.loopArmed.set(false);
           this.showLoopPanel.set(false);
           this.message.set('');
           this.loopStartError.set(null);
         } else {
           // Preserve the user's typed goal, panel state, and pending files
           // so they can fix and retry — do NOT clear anything.
+          this.loopArmed.set(true);
+          this.showLoopPanel.set(true);
           this.loopStartError.set(error ?? 'Loop start failed.');
         }
       },
@@ -683,12 +695,12 @@ export class InputPanelComponent implements OnDestroy {
 
   canSend(): boolean {
     if (this.loopStarting()) return false; // double-start dedupe
-    if (this.showLoopPanel()) {
+    if (this.loopArmed()) {
       // When the loop panel is open, Send means "start loop". Validity is
-      // owned by the panel's config, not the textarea — the panel always
-      // has a prompt (default or recent), so the textarea may legitimately
-      // be empty.
-      return this.loopPanelValid();
+      // owned by the panel's config, not the textarea. Keep the button
+      // clickable so an invalid/missing config surfaces an inline error
+      // instead of falling through to normal send.
+      return true;
     }
     return this.message().trim().length > 0 || this.pendingFilePreviews().length > 0 || this.pendingFolders().length > 0;
   }
@@ -1087,8 +1099,7 @@ export class InputPanelComponent implements OnDestroy {
     // When the loop config panel is open, Send means "start the loop with
     // this config + textarea content". This replaces the panel's removed
     // Start Loop button with a single, unambiguous send action.
-    if (this.showLoopPanel()) {
-      if (!this.loopPanelValid()) return;
+    if (this.loopArmed()) {
       await this.tryStartLoopFromPanel();
       return;
     }

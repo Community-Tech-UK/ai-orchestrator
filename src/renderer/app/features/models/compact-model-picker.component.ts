@@ -336,36 +336,32 @@ export class CompactModelPickerComponent {
   protected async onUnifiedSelect(selection: UnifiedSelection): Promise<void> {
     this.menuOpen.set(false);
     if (selection.kind === 'provider') {
-      // Provider switch resets the model to the new provider's primary
-      // default and clears reasoning (matches the legacy modal's
-      // `selectProvider` behavior). Without the reset, the chat would keep
-      // the OLD provider's model id, which is invalid for the new
-      // provider's runtime.
+      // Provider row clicks reset the model to the new provider's primary
+      // default and select the provider's highest intelligence level when
+      // one exists. Without the model reset, the chat would keep the OLD
+      // provider's model id, which is invalid for the new provider's runtime.
       const newDefaultModel = getPrimaryModelForProvider(selection.provider) ?? null;
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,
-        reasoning: null,
+        reasoning: this.highestReasoningForProvider(selection.provider),
       });
       if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
       return;
     }
 
     if (selection.kind === 'model') {
-      const switchingProvider = selection.provider !== this.controller.selectedProviderId();
-      // Switching provider via a model click resets reasoning; same-provider
-      // model switches preserve the current reasoning level.
+      const highestReasoning = this.highestReasoningForProvider(selection.provider);
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: selection.modelId,
-        ...(switchingProvider ? { reasoning: null } : {}),
+        reasoning: highestReasoning,
       });
       if (ok) {
         const label =
           this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.name
           ?? selection.modelId;
-        const reasoning = switchingProvider ? null : this.controller.selectedReasoningEffort();
-        const reasoningSuffix = reasoning ? ` · ${REASONING_LABELS[reasoning]}` : '';
+        const reasoningSuffix = highestReasoning ? ` · ${REASONING_LABELS[highestReasoning]}` : '';
         const restartHint = this._chat()?.currentInstanceId ? ' — runtime restarting' : '';
         this.flashStatus(`Switched to ${label}${reasoningSuffix}${restartHint}`);
       }
@@ -402,6 +398,15 @@ export class CompactModelPickerComponent {
       this.statusPill.set(null);
       this.statusTimer = null;
     }, 2000);
+  }
+
+  private highestReasoningForProvider(provider: PickerProvider): ReasoningEffort | null {
+    const explicitLevels = this.controller
+      .reasoningOptionsForProvider(provider)
+      .map((opt) => opt.id)
+      .filter((id): id is ReasoningEffort => id !== 'default');
+
+    return explicitLevels[explicitLevels.length - 1] ?? null;
   }
 }
 

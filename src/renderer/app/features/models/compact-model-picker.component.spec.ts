@@ -142,13 +142,13 @@ describe('CompactModelPickerComponent', () => {
     }).onUnifiedSelect({ kind: 'model', provider: 'codex', modelId: 'gpt-5.5' });
 
     expect(emitted).toEqual([
-      { provider: 'codex', model: 'gpt-5.5', reasoning: null },
+      { provider: 'codex', model: 'gpt-5.5', reasoning: 'xhigh' },
     ]);
     // pending-create should NOT touch chatStore.
     expect(chatStore.setModel).not.toHaveBeenCalled();
   });
 
-  it('cross-provider model commit clears reasoning (resets to null)', async () => {
+  it('cross-provider model commit uses the new provider highest reasoning', async () => {
     fixture.componentRef.setInput('mode', 'pending-create');
     fixture.componentRef.setInput('selection', {
       provider: 'codex',
@@ -165,8 +165,40 @@ describe('CompactModelPickerComponent', () => {
     }).onUnifiedSelect({ kind: 'model', provider: 'claude', modelId: 'sonnet' });
 
     expect(emitted).toEqual([
-      { provider: 'claude', model: 'sonnet', reasoning: null },
+      { provider: 'claude', model: 'sonnet', reasoning: 'xhigh' },
     ]);
+  });
+
+  it('live provider row commits the provider default model with highest reasoning', async () => {
+    fixture.componentRef.setInput('mode', 'live-instance');
+    fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet', reasoningEffort: null }));
+    fixture.detectChanges();
+
+    await (fixture.componentInstance as unknown as {
+      onUnifiedSelect: (s: UnifiedSelection) => Promise<void>;
+    }).onUnifiedSelect({ kind: 'provider', provider: 'codex' });
+
+    expect(chatStore.setProvider).toHaveBeenCalledWith('chat-1', 'codex');
+    expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5');
+    expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'xhigh');
+  });
+
+  it('live model row commits the selected model with highest reasoning', async () => {
+    fixture.componentRef.setInput('mode', 'live-instance');
+    fixture.componentRef.setInput('chat', chatRecord({
+      provider: 'codex',
+      model: 'gpt-5.2',
+      reasoningEffort: 'medium',
+    }));
+    fixture.detectChanges();
+
+    await (fixture.componentInstance as unknown as {
+      onUnifiedSelect: (s: UnifiedSelection) => Promise<void>;
+    }).onUnifiedSelect({ kind: 'model', provider: 'codex', modelId: 'gpt-5.5-mini' });
+
+    expect(chatStore.setProvider).not.toHaveBeenCalled();
+    expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5-mini');
+    expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'xhigh');
   });
 
   it('reasoning-leaf commit emits provider+model+reasoning together', async () => {

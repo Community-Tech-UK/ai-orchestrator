@@ -14,9 +14,18 @@ const MAX_ENTRIES = 3;
  * default when there is no typed text and no recall history.
  */
 export const DEFAULT_LOOP_PROMPT =
+  "Continue toward the user's goal. Read relevant files before changing code, " +
+  'choose the maintainable architecture, and make concrete progress this turn. ' +
+  'If implementing a plan, update the code and tests until the plan is fully implemented. ' +
+  'Verify with the appropriate checks. If a plan file is fully implemented and verified, ' +
+  'rename it with _completed. Before stopping, review your own work with fresh eyes. ' +
+  'Fix any issues you find. If blocked, explain the blocker clearly and stop.';
+
+const LEGACY_DEFAULT_LOOP_PROMPTS = [
   "Please continue. Choose the best architectural decision — don't be lazy, don't take shortcuts. " +
   'Re-review your work with completely fresh eyes after each stage and fix any issues. ' +
-  'When a plan file is fully implemented, rename it with `_Completed`.';
+  'When a plan file is fully implemented, rename it with `_Completed`.',
+];
 
 /**
  * Hash a workspace path into a short, opaque bucket id. Filesystem-friendly
@@ -32,6 +41,15 @@ function bucketFor(workspaceCwd: string | null): string {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(36);
+}
+
+function normalizeStoredPrompt(prompt: string): string | null {
+  const trimmed = prompt.trim();
+  if (!trimmed) return null;
+  if (LEGACY_DEFAULT_LOOP_PROMPTS.includes(trimmed)) {
+    return DEFAULT_LOOP_PROMPT;
+  }
+  return trimmed;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -89,7 +107,15 @@ export class LoopPromptHistoryService {
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
-      return parsed.filter((v): v is string => typeof v === 'string').slice(0, MAX_ENTRIES);
+      const next: string[] = [];
+      for (const value of parsed) {
+        if (typeof value !== 'string') continue;
+        const prompt = normalizeStoredPrompt(value);
+        if (!prompt || next.includes(prompt)) continue;
+        next.push(prompt);
+        if (next.length >= MAX_ENTRIES) break;
+      }
+      return next;
     } catch {
       return [];
     }

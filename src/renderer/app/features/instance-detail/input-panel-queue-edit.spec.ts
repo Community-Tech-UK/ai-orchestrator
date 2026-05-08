@@ -86,6 +86,10 @@ class AgentSelectorStubComponent {
 class LoopToggleStubComponent {
   @Input() chatId: string | null = null;
   @Input() workspaceCwd: string | null = null;
+  @Input() hasTypedText = false;
+  @Input() panelOpen = false;
+  @Output() openConfig = new EventEmitter<void>();
+  @Output() stopRequested = new EventEmitter<void>();
 }
 
 describe('InputPanelComponent queued message editing', () => {
@@ -225,6 +229,45 @@ describe('InputPanelComponent queued message editing', () => {
     expect(commandStore.executeCommand).not.toHaveBeenCalled();
     expect(component.message()).toBe('');
     expect(error).toBeNull();
+  });
+
+  it('does not fall back to normal send when loop is armed but the config panel is hidden', async () => {
+    const component = fixture.componentInstance;
+    const sent: string[] = [];
+    const loopStarts: { config: { initialPrompt: string }; firstMessage: string }[] = [];
+    (component as unknown as {
+      sendMessage: { subscribe(callback: (text: string) => void): void };
+      loopStartRequested: {
+        subscribe(callback: (event: { config: { initialPrompt: string }; firstMessage: string }) => void): void;
+      };
+    }).sendMessage.subscribe((text) => sent.push(text));
+    (component as unknown as {
+      loopStartRequested: {
+        subscribe(callback: (event: { config: { initialPrompt: string }; firstMessage: string }) => void): void;
+      };
+    }).loopStartRequested.subscribe((event) => loopStarts.push(event));
+
+    component.onLoopOpenConfig();
+    component.onLoopValidityChange(true);
+    component.onLoopConfigChange({
+      initialPrompt: 'continue until done',
+      workspaceCwd: '/tmp/project',
+      provider: 'claude',
+      contextStrategy: 'same-session',
+    });
+    component.onLoopPanelDismissed();
+    component.message.set('implement the plan');
+
+    await component.onSend();
+
+    expect(sent).toEqual([]);
+    expect(loopStarts).toHaveLength(1);
+    expect(loopStarts[0]).toMatchObject({
+      firstMessage: 'implement the plan',
+      config: {
+        initialPrompt: 'implement the plan',
+      },
+    });
   });
 
   it('emits send while initializing so callers can queue during restore', async () => {

@@ -20,14 +20,19 @@ const hoisted = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   terminate: vi.fn(),
   setStreamIdleTimeoutMs: vi.fn(),
+  setResume: vi.fn(),
   createAdapter: vi.fn(),
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
+  ensureHookScript: vi.fn(),
+  ensureRtkDeferHookScript: vi.fn(),
+  getRtkRuntime: vi.fn(),
   loopCoordinatorRef: { current: null as unknown as EventEmitter },
   adapterRef: { current: null as unknown as EventEmitter & {
     sendMessage: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
     setStreamIdleTimeoutMs: ReturnType<typeof vi.fn>;
+    setResume: ReturnType<typeof vi.fn>;
   } },
 }));
 
@@ -58,11 +63,23 @@ vi.mock('../providers/provider-runtime-service', () => ({
 }));
 
 vi.mock('../core/config/settings-manager', () => ({
-  getSettingsManager: vi.fn(() => ({ getAll: () => ({ defaultCli: 'claude' }) })),
+  getSettingsManager: vi.fn(() => ({
+    get: (key: string) => (key === 'rtkEnabled' ? true : key === 'rtkBundledOnly' ? false : undefined),
+    getAll: () => ({ defaultCli: 'claude' }),
+  })),
 }));
 
 vi.mock('../core/circuit-breaker', () => ({
   getCircuitBreakerRegistry: vi.fn(() => ({ getBreaker: hoisted.getBreaker })),
+}));
+
+vi.mock('../cli/hooks/hook-path-resolver', () => ({
+  ensureHookScript: hoisted.ensureHookScript,
+  ensureRtkDeferHookScript: hoisted.ensureRtkDeferHookScript,
+}));
+
+vi.mock('../cli/rtk/rtk-runtime', () => ({
+  getRtkRuntime: hoisted.getRtkRuntime,
 }));
 
 vi.mock('../core/failover-error', () => ({ coerceToFailoverError: vi.fn(() => null) }));
@@ -79,8 +96,15 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.sendMessage.mockReset();
     hoisted.terminate.mockReset().mockResolvedValue(undefined);
     hoisted.setStreamIdleTimeoutMs.mockReset();
+    hoisted.setResume.mockReset();
     hoisted.createAdapter.mockReset();
     hoisted.resolveCliType.mockReset().mockResolvedValue('claude');
+    hoisted.ensureHookScript.mockReset().mockReturnValue('/defer-hook.mjs');
+    hoisted.ensureRtkDeferHookScript.mockReset().mockReturnValue('/rtk-defer-hook.mjs');
+    hoisted.getRtkRuntime.mockReset().mockReturnValue({
+      isAvailable: vi.fn(() => true),
+      binaryPath: vi.fn(() => '/usr/local/bin/rtk'),
+    });
     hoisted.getBreaker.mockImplementation(() => ({
       execute: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
     }));
@@ -90,10 +114,12 @@ describe('Loop Mode invoker plumbing', () => {
       sendMessage: typeof hoisted.sendMessage;
       terminate: typeof hoisted.terminate;
       setStreamIdleTimeoutMs: typeof hoisted.setStreamIdleTimeoutMs;
+      setResume: typeof hoisted.setResume;
     };
     adapterEmitter.sendMessage = hoisted.sendMessage;
     adapterEmitter.terminate = hoisted.terminate;
     adapterEmitter.setStreamIdleTimeoutMs = hoisted.setStreamIdleTimeoutMs;
+    adapterEmitter.setResume = hoisted.setResume;
     hoisted.adapterRef.current = adapterEmitter;
     hoisted.createAdapter.mockReturnValue(adapterEmitter);
   });
@@ -142,6 +168,20 @@ describe('Loop Mode invoker plumbing', () => {
 
     const callArg = hoisted.createAdapter.mock.calls[0][0];
     expect(callArg.options.timeout).toBe(7 * 60 * 1000);
+  });
+
+  it('forwards the normal defer permission hook and RTK spawn config to loop child adapters', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
+
+    const result = emitIteration({});
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    const callArg = hoisted.createAdapter.mock.calls[0][0];
+    expect(callArg.options.permissionHookPath).toBe('/rtk-defer-hook.mjs');
+    expect(callArg.options.rtk).toEqual({ enabled: true, binaryPath: '/usr/local/bin/rtk' });
   });
 
   it('falls back to a generous 30-minute default when iterationTimeoutMs is unset', async () => {
@@ -237,6 +277,53 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
       // Adapter is NOT torn down between iterations — it's reused.
       expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
+    it('switches a reused Claude adapter into resume mode after the first same-session iteration', async () => {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter0 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-resume::0',
+          loopRunId: 'loop-resume',
+          chatId: 'chat-resume',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter0;
+
+      expect(hoisted.setResume).toHaveBeenCalledWith(true);
+      hoisted.setResume.mockClear();
+
+      const iter1 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-resume::1',
+          loopRunId: 'loop-resume',
+          chatId: 'chat-resume',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 1,
+          prompt: 'iter 1',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter1;
+
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
     });
 
     it('tears down the persistent adapter when the loop reaches a terminal state', async () => {

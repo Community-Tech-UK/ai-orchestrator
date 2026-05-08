@@ -145,7 +145,7 @@ interface WelcomeProjectContext {
       .welcome-view {
         display: flex;
         flex: 1;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         padding: 40px 32px;
         background:
@@ -154,7 +154,9 @@ interface WelcomeProjectContext {
           linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 22%),
           var(--bg-primary);
         position: relative;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
 
       .welcome-shell {
@@ -164,6 +166,7 @@ interface WelcomeProjectContext {
         gap: 26px;
         position: relative;
         z-index: 1;
+        margin-block: auto;
       }
 
       .welcome-copy {

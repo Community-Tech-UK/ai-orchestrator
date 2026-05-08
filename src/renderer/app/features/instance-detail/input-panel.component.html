@@ -204,7 +204,7 @@
           [chatId]="loopChatId()"
           [workspaceCwd]="workingDirectory()"
           [hasTypedText]="message().length > 0"
-          [panelOpen]="showLoopPanel()"
+          [panelOpen]="loopArmed()"
           (openConfig)="onLoopOpenConfig()"
           (stopRequested)="onLoopStopRequested()"
         />
@@ -288,7 +288,7 @@
       <div class="input-hints">
         @if (showGhostText()) {
           <span class="hint hint-ghost">Tab or → to accept suggestion</span>
-        } @else if (showLoopPanel()) {
+        } @else if (loopArmed()) {
           <span class="hint hint-loop">Enter to start loop, Shift+Enter for new line</span>
         } @else if (isInitializing()) {
           <span class="hint">Enter to queue, Shift+Enter for new line</span>
@@ -351,12 +351,12 @@
         }
         <button
           class="btn-send"
-          [class.loop-mode]="showLoopPanel()"
+          [class.loop-mode]="loopArmed()"
           [disabled]="disabled() || !canSend()"
           (click)="onSend()"
-          [title]="showLoopPanel() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)')"
+          [title]="loopArmed() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)')"
         >
-          <span class="send-icon">{{ showLoopPanel() ? '🔁' : '↑' }}</span>
+          <span class="send-icon">{{ loopArmed() ? '🔁' : '↑' }}</span>
         </button>
       </div>
     </div>

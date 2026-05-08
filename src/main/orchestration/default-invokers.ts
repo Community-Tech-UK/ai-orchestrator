@@ -94,6 +94,8 @@ async function invokeCliTextResponse(params: {
   /** Optional override for the stream-idle threshold (no-stdout-for-X-ms
    *  abort). Inherits the adapter's default when undefined. */
   streamIdleTimeoutMs?: number;
+  permissionHookPath?: string;
+  rtk?: UnifiedSpawnOptions['rtk'];
   /** Reuse an existing adapter instead of creating + terminating a fresh
    *  one for every call. Used by Loop Mode's `same-session` contextStrategy
    *  so the conversation persists across iterations. The caller owns the
@@ -115,6 +117,8 @@ async function invokeCliTextResponse(params: {
     model,
     systemPrompt: params.systemPrompt,
     yoloMode: false,
+    permissionHookPath: params.permissionHookPath,
+    rtk: params.rtk,
     timeout: params.timeoutMs ?? 300000,
   };
 
@@ -493,16 +497,62 @@ import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fsLoop from 'fs';
 import * as pathLoop from 'path';
+import { ensureHookScript, ensureRtkDeferHookScript } from '../cli/hooks/hook-path-resolver';
+import { getRtkRuntime } from '../cli/rtk/rtk-runtime';
 import { getLoopCoordinator } from './loop-coordinator';
 import type { LoopChildResult } from './loop-coordinator';
 import type { LoopFileChange } from '../../shared/types/loop.types';
 
-/**
- * Best-effort file change detection: shells out to `git diff --numstat HEAD`
- * inside the workspace, then computes a content hash for each file. Returns
- * an empty list if not a git repo (the loop still works — progress detector
- * will gracefully degrade).
- */
+let loopRtkHookEligibility: boolean | null = null;
+
+/** Resolve the same permission/RTK spawn options normal interactive instances use. */
+function shouldUseLoopRtkHook(): boolean {
+  if (loopRtkHookEligibility !== null) return loopRtkHookEligibility;
+  const enabled = getSettingsManager().get('rtkEnabled');
+  if (!enabled) {
+    loopRtkHookEligibility = false;
+    return false;
+  }
+  const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
+  const runtime = getRtkRuntime({ bundledOnly });
+  loopRtkHookEligibility = runtime.isAvailable();
+  return loopRtkHookEligibility;
+}
+
+function getLoopPermissionHookPath(yoloMode: boolean): string | undefined {
+  if (yoloMode) return undefined;
+  if (shouldUseLoopRtkHook()) {
+    try {
+      return ensureRtkDeferHookScript();
+    } catch (err) {
+      logger.warn('Failed to resolve RTK defer hook path for loop child, falling back to defer-only', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  try {
+    return ensureHookScript();
+  } catch (err) {
+    logger.warn('Failed to resolve defer permission hook path for loop child, skipping', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+function getLoopRtkSpawnConfig(): UnifiedSpawnOptions['rtk'] {
+  if (!shouldUseLoopRtkHook()) return undefined;
+  const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
+  const runtime = getRtkRuntime({ bundledOnly });
+  if (!runtime.isAvailable()) return undefined;
+  return { enabled: true, binaryPath: runtime.binaryPath() };
+}
+
+function enableAdapterResume(adapter: unknown): void {
+  const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
+  if (typeof setResume === 'function') setResume.call(adapter, true);
+}
+
 /**
  * Build a long-lived CLI adapter for `contextStrategy: 'same-session'`
  * loops. Lifecycle is owned by the loop invoker — created once on the
@@ -524,6 +574,8 @@ async function createPersistentLoopAdapter(opts: {
       workingDirectory: opts.workingDirectory,
       model,
       yoloMode: false,
+      permissionHookPath: getLoopPermissionHookPath(false),
+      rtk: getLoopRtkSpawnConfig(),
       // Generous wall-clock cap so a long iteration doesn't die on a
       // spawn-level timeout. Stream-idle is the real hang detector.
       timeout: 30 * 60 * 1000,
@@ -536,6 +588,12 @@ async function createPersistentLoopAdapter(opts: {
   return adapter;
 }
 
+/**
+ * Best-effort file change detection: shells out to `git diff --numstat HEAD`
+ * inside the workspace, then computes a content hash for each file. Returns
+ * an empty list if not a git repo (the loop still works — progress detector
+ * will gracefully degrade).
+ */
 function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
   try {
     const numstat = spawnSync('git', ['diff', '--numstat', 'HEAD'], {
@@ -687,8 +745,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // configured threshold → abort).
         timeoutMs: p.iterationTimeoutMs ?? 30 * 60 * 1000,
         streamIdleTimeoutMs: p.streamIdleTimeoutMs,
+        permissionHookPath: reusedAdapter ? undefined : getLoopPermissionHookPath(false),
+        rtk: reusedAdapter ? undefined : getLoopRtkSpawnConfig(),
         reusedAdapter,
       });
+      if (sameSession && reusedAdapter) {
+        enableAdapterResume(reusedAdapter);
+      }
 
       const filesChanged = snapshotFileChangesViaGit(p.workspaceCwd);
       const childResult: LoopChildResult = {

@@ -43,3 +43,9 @@ benchmarks/orchestrator-benchmark/dist/
 # Git worktrees
 .worktrees/
 .superpowers/
+
+# Loop Mode runtime state (the loop coordinator writes these into the
+# workspace where it runs; they are per-iteration memory, not source).
+/STAGE.md
+/NOTES.md
+/ITERATION_LOG.md
