@@ -1076,10 +1076,15 @@ export class InstanceDetailComponent {
     );
   }
 
-  async onLoopStartRequested(config: LoopStartConfigInput): Promise<void> {
+  async onLoopStartRequested(payload: {
+    config: LoopStartConfigInput;
+    firstMessage: string;
+    attachments: { name: string; data: Uint8Array }[];
+  }): Promise<void> {
+    const { config, firstMessage, attachments } = payload;
     const inst = this.store.selectedInstance();
     if (inst) {
-      const r = await this.loopStore.start(inst.id, config);
+      const r = await this.loopStore.start(inst.id, config, attachments);
       if (r.ok) {
         this.loopPromptHistory.remember(config.initialPrompt);
       } else {
@@ -1088,9 +1093,10 @@ export class InstanceDetailComponent {
       return;
     }
     const ok = await this.welcomeCoordinator.onWelcomeStartSessionWithLoop(
+      firstMessage,
       config,
       (creating) => this.isCreatingInstance.set(creating),
-      (newChatId) => this.loopStore.start(newChatId, config),
+      (newChatId) => this.loopStore.start(newChatId, config, attachments),
     );
     if (ok) this.loopPromptHistory.remember(config.initialPrompt);
   }

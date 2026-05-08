@@ -384,7 +384,11 @@ export class InstanceWelcomeComponent {
   discardDraft = output<void>();
   addFiles = output<void>();
   browseRemote = output<string>();
-  loopStartRequested = output<LoopStartConfigInput>();
+  loopStartRequested = output<{
+    config: LoopStartConfigInput;
+    firstMessage: string;
+    attachments: { name: string; data: Uint8Array }[];
+  }>();
 
   onNodeSelected(nodeId: string | null): void {
     this.selectedNodeId.set(nodeId);

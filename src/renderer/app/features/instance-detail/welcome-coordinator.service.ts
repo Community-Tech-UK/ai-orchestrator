@@ -175,11 +175,17 @@ export class WelcomeCoordinatorService {
   }
 
   async onWelcomeStartSessionWithLoop(
+    firstMessage: string,
     config: LoopStartConfigInput,
     onCreatingChange: (creating: boolean) => void,
     startLoop: (chatId: string) => Promise<{ ok: boolean; error?: string }>,
   ): Promise<boolean> {
-    const plan = this.prepareWelcomeLaunch(config.initialPrompt);
+    // The session's first user message uses the textarea content (with any
+    // attached files via prepareWelcomeLaunch). If the user opened the loop
+    // panel without typing anything, fall back to the loop's prompt so the
+    // session has something to anchor on in chat history.
+    const sessionMessage = firstMessage.trim() || config.initialPrompt;
+    const plan = this.prepareWelcomeLaunch(sessionMessage);
     if (!plan) return false;
 
     onCreatingChange(true);

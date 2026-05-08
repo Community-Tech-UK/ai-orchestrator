@@ -202,9 +202,21 @@ export const LoopRunSummarySchema = z.object({
 
 // ============ IPC payload schemas ============
 
+export const LoopAttachmentSchema = z.object({
+  /** Original filename. Sanitized server-side before being written to disk. */
+  name: z.string().min(1),
+  /** Raw file bytes. Renderer reads File.arrayBuffer() and wraps in Uint8Array. */
+  data: z.instanceof(Uint8Array),
+});
+
 export const LoopStartPayloadSchema = z.object({
   chatId: z.string().min(1),
   config: LoopConfigInputSchema,
+  /** Optional attachments. The coordinator copies these into
+   *  `<workspaceCwd>/.aio-loop-attachments/<loopRunId>/` and prepends the
+   *  loop's initialPrompt with their relative paths so each iteration's
+   *  CLI can read them via its workspace tools. */
+  attachments: z.array(LoopAttachmentSchema).optional(),
 });
 
 export const LoopByIdPayloadSchema = z.object({
@@ -235,6 +247,7 @@ export type LoopStatePayload = z.infer<typeof LoopStateSchema>;
 export type LoopIterationPayload = z.infer<typeof LoopIterationSchema>;
 export type LoopRunSummaryPayload = z.infer<typeof LoopRunSummarySchema>;
 export type LoopStartPayload = z.infer<typeof LoopStartPayloadSchema>;
+export type LoopAttachment = z.infer<typeof LoopAttachmentSchema>;
 export type LoopByIdPayload = z.infer<typeof LoopByIdPayloadSchema>;
 export type LoopInterveneePayload = z.infer<typeof LoopInterveneePayloadSchema>;
 export type LoopListByChatPayload = z.infer<typeof LoopListByChatPayloadSchema>;

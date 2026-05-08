@@ -37,8 +37,12 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
   };
 
   return {
-    loopStart: (chatId: string, config: LoopConfigInput): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.LOOP_START, { chatId, config }),
+    loopStart: (
+      chatId: string,
+      config: LoopConfigInput,
+      attachments?: { name: string; data: Uint8Array }[],
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_START, { chatId, config, attachments }),
     loopPause: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_PAUSE, { loopRunId }),
     loopResume: (loopRunId: string): Promise<IpcResponse> =>

@@ -283,12 +283,16 @@ export class ChatDetailComponent {
     return Array.isArray(value) ? value as ThinkingContent[] : undefined;
   }
 
-  async onLoopStartRequested(config: LoopStartConfigInput): Promise<void> {
+  async onLoopStartRequested(payload: {
+    config: LoopStartConfigInput;
+    firstMessage: string;
+    attachments: { name: string; data: Uint8Array }[];
+  }): Promise<void> {
     const chatId = this.detail()?.chat.id;
     if (!chatId) return;
-    const r = await this.loopStore.start(chatId, config);
+    const r = await this.loopStore.start(chatId, payload.config, payload.attachments);
     if (r.ok) {
-      this.loopPromptHistory.remember(config.initialPrompt);
+      this.loopPromptHistory.remember(payload.config.initialPrompt);
     } else {
       this.chatStore.setError(`Loop start failed: ${r.error ?? 'unknown error'}`);
     }

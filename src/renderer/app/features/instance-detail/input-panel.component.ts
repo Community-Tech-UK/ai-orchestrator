@@ -163,7 +163,11 @@ export class InputPanelComponent implements OnDestroy {
     attachments?: OutputMessage['attachments'];
     retryMode: 'transcript-only';
   }>();
-  loopStartRequested = output<LoopStartConfigInput>();
+  loopStartRequested = output<{
+    config: LoopStartConfigInput;
+    firstMessage: string;
+    attachments: { name: string; data: Uint8Array }[];
+  }>();
   loopStopRequested = output<void>();
 
   showLoopPanel = signal(false);
@@ -176,9 +180,35 @@ export class InputPanelComponent implements OnDestroy {
     this.showLoopPanel.set(false);
   }
 
-  onLoopPanelConfirm(config: LoopStartConfigInput): void {
+  async onLoopPanelConfirm(panelConfig: LoopStartConfigInput): Promise<void> {
+    const firstMessage = this.message().trim();
+    const panelPrompt = panelConfig.initialPrompt.trim();
+    const combined = firstMessage
+      ? `${firstMessage}\n\n${panelPrompt}`
+      : panelPrompt;
+
+    const finalConfig: LoopStartConfigInput = {
+      ...panelConfig,
+      initialPrompt: combined,
+    };
+
+    // Serialize pending files to bytes for IPC transport. The main process
+    // copies these into the workspace's .aio-loop-attachments/<runId>/ folder
+    // so each loop iteration's CLI can read them via its workspace tools.
+    const files = this.pendingFiles();
+    const attachments = await Promise.all(
+      files.map(async (file) => ({
+        name: file.name,
+        data: new Uint8Array(await file.arrayBuffer()),
+      })),
+    );
+
     this.showLoopPanel.set(false);
-    this.loopStartRequested.emit(config);
+    // Clear the textarea — its content has been consumed (sent as the
+    // session's first user message in welcome flow, or merged into the
+    // loop prompt in active sessions).
+    this.message.set('');
+    this.loopStartRequested.emit({ config: finalConfig, firstMessage, attachments });
   }
 
   onLoopStopRequested(): void {

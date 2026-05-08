@@ -44,6 +44,13 @@ import {
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
+import {
+  saveLoopAttachments,
+  cleanupLoopAttachments,
+  renderAttachmentBlock,
+  ensureLoopAttachmentsIgnored,
+} from './loop-attachments';
+import type { LoopAttachment } from '@contracts/schemas/loop';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -142,12 +149,28 @@ export class LoopCoordinator extends EventEmitter {
    * the returned `LoopState` (e.g. via LoopStore) — the coordinator only
    * holds it in memory.
    */
-  async startLoop(chatId: string, partialConfig: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }): Promise<LoopState> {
+  async startLoop(
+    chatId: string,
+    partialConfig: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
+    attachments?: LoopAttachment[],
+  ): Promise<LoopState> {
     const config = this.materializeConfig(partialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
 
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
+
+    // Persist attachments to the workspace and prepend their paths to the
+    // loop prompt so each iteration's CLI can read them via its file tools.
+    if (attachments && attachments.length > 0) {
+      const saved = await saveLoopAttachments(config.workspaceCwd, id, attachments);
+      const block = renderAttachmentBlock(saved);
+      if (block) {
+        config.initialPrompt = `${block}\n\n${config.initialPrompt}`;
+      }
+      // Best-effort gitignore so attachments aren't accidentally committed.
+      void ensureLoopAttachmentsIgnored(config.workspaceCwd);
+    }
     const watcher = new CompletedFileWatcher(config.workspaceCwd, config.completion.completedFilenamePattern);
     watcher.start();
     // catch existing rename-target if it was created during a previous run
@@ -698,6 +721,8 @@ export class LoopCoordinator extends EventEmitter {
     if (status === 'error') this.emit('loop:error', { loopRunId: state.id, error: reason ?? 'unknown error' });
     this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
     logger.info('Loop terminated', { loopRunId: state.id, status, reason });
+    // Best-effort cleanup of any attachment files we wrote into the workspace.
+    void cleanupLoopAttachments(state.config.workspaceCwd, state.id);
   }
 
   /** Deep-ish clone for safe broadcast — strips cycles and large arrays. */

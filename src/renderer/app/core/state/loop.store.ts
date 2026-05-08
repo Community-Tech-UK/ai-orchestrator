@@ -155,8 +155,12 @@ export class LoopStore {
 
   // ────── commands ──────
 
-  async start(chatId: string, config: LoopStartConfigInput): Promise<{ ok: boolean; error?: string }> {
-    const r = await this.ipc.start(chatId, config);
+  async start(
+    chatId: string,
+    config: LoopStartConfigInput,
+    attachments?: { name: string; data: Uint8Array }[],
+  ): Promise<{ ok: boolean; error?: string }> {
+    const r = await this.ipc.start(chatId, config, attachments);
     if (!r.success) return { ok: false, error: r.error?.message ?? 'unknown error' };
     if (r.data?.state) this.upsertActive(r.data.state);
     return { ok: true };

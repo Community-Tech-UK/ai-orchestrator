@@ -73,8 +73,16 @@ const DEFAULT_COMPLETION = {
         </div>
       }
 
+      @if (firstMessageHint().trim().length > 0) {
+        <div class="prepend-hint">
+          <span class="prepend-label">Will be prepended (your message)</span>
+          <span class="prepend-body">{{ firstMessageHint().trim() }}</span>
+          <span class="prepend-foot">↓ followed by the loop prompt below</span>
+        </div>
+      }
+
       <section class="row">
-        <label for="loop-cfg-prompt">Prompt</label>
+        <label for="loop-cfg-prompt">{{ firstMessageHint().trim() ? 'Loop prompt (sent on every iteration)' : 'Prompt' }}</label>
         <textarea
           id="loop-cfg-prompt"
           rows="3"
@@ -236,6 +244,39 @@ const DEFAULT_COMPLETION = {
       color: inherit; opacity: 0.5; cursor: pointer;
     }
     .recall-chip-remove:hover { opacity: 1; color: #f7c07a; }
+
+    .prepend-hint {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 10px 12px;
+      margin: 4px 0 10px;
+      border-left: 3px solid var(--primary-color, #d4b45a);
+      background: rgba(212, 180, 90, 0.06);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .prepend-label {
+      font-family: var(--font-mono, monospace);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      color: var(--primary-color, #d4b45a);
+    }
+    .prepend-body {
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 88px;
+      overflow: auto;
+      line-height: 1.4;
+      opacity: 0.92;
+    }
+    .prepend-foot {
+      font-size: 10px;
+      opacity: 0.55;
+      font-style: italic;
+    }
     .row { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
     .row.split { flex-direction: row; gap: 12px; }
     .row.split > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }
@@ -288,6 +329,10 @@ const DEFAULT_COMPLETION = {
 })
 export class LoopConfigPanelComponent {
   workspaceCwd = input.required<string>();
+  /** The composer's current textarea content. Shown as a "will be prepended"
+   *  preview so the user knows their message is being combined with the loop
+   *  prompt. Doesn't autofill the prompt field — that belongs to the user. */
+  firstMessageHint = input<string>('');
 
   dismissed = output<void>();
   confirm = output<LoopStartConfigInput>();

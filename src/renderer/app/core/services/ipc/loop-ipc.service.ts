@@ -45,9 +45,13 @@ export class LoopIpcService {
     return this.base.getNgZone();
   }
 
-  async start(chatId: string, config: LoopStartConfigInput): Promise<IpcResponse<{ state: LoopStatePayload }>> {
+  async start(
+    chatId: string,
+    config: LoopStartConfigInput,
+    attachments?: { name: string; data: Uint8Array }[],
+  ): Promise<IpcResponse<{ state: LoopStatePayload }>> {
     if (!this.api) return notInElectron();
-    return this.api.loopStart(chatId, config) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
+    return this.api.loopStart(chatId, config, attachments) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
   }
 
   async pause(loopRunId: string): Promise<IpcResponse> {

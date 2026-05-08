@@ -59,11 +59,15 @@ export function registerLoopHandlers(deps: { windowManager: WindowManager }): vo
   ipcMain.handle(IPC_CHANNELS.LOOP_START, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopStartPayloadSchema, payload, 'LOOP_START');
-      const state = await coordinator.startLoop(validated.chatId, {
-        ...validated.config,
-        initialPrompt: validated.config.initialPrompt,
-        workspaceCwd: validated.config.workspaceCwd,
-      });
+      const state = await coordinator.startLoop(
+        validated.chatId,
+        {
+          ...validated.config,
+          initialPrompt: validated.config.initialPrompt,
+          workspaceCwd: validated.config.workspaceCwd,
+        },
+        validated.attachments,
+      );
       try { store.upsertRun(state); } catch (err) {
         logger.warn('Initial upsertRun failed', { error: String(err) });
       }
