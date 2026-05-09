@@ -91,6 +91,16 @@ export class CompactionCoordinator extends EventEmitter {
   // Native compaction capability lookup
   private supportsNativeCompactionForInstance: ((instanceId: string) => boolean) | null = null;
 
+  /**
+   * Lookup that returns true when the adapter handles its own context
+   * compaction internally (e.g. Claude CLI auto-compacts at the model's own
+   * threshold). When true, `onContextUpdate` will NOT auto-trigger compaction
+   * for that instance — the orchestrator defers to the adapter's internal
+   * path. Manual `compactInstance()` calls are unaffected; users can still
+   * force compaction explicitly.
+   */
+  private selfManagedAutoCompactionForInstance: ((instanceId: string) => boolean) | null = null;
+
   private static instance: CompactionCoordinator | null = null;
 
   private constructor() {
@@ -120,11 +130,21 @@ export class CompactionCoordinator extends EventEmitter {
     nativeCompact?: CompactionStrategy;
     restartCompact?: CompactionStrategy;
     supportsNativeCompaction?: (instanceId: string) => boolean;
+    /**
+     * Lookup that returns true when the adapter manages its own internal
+     * auto-compaction (e.g. Claude CLI in stream-json mode). When true,
+     * `onContextUpdate` will skip auto-triggering compaction for that
+     * instance. Manual `compactInstance()` is NOT affected.
+     */
+    selfManagesAutoCompaction?: (instanceId: string) => boolean;
   }): void {
     if (options.nativeCompact) this.nativeCompactStrategy = options.nativeCompact;
     if (options.restartCompact) this.restartCompactStrategy = options.restartCompact;
     if (options.supportsNativeCompaction) {
       this.supportsNativeCompactionForInstance = options.supportsNativeCompaction;
+    }
+    if (options.selfManagesAutoCompaction) {
+      this.selfManagedAutoCompactionForInstance = options.selfManagesAutoCompaction;
     }
   }
 
@@ -154,6 +174,12 @@ export class CompactionCoordinator extends EventEmitter {
       this.dismissedWarnings.delete(instanceId);
     }
 
+    // If the adapter self-manages auto-compaction (e.g. Claude CLI compacts
+    // internally at the model's threshold), suppress orchestrator-driven
+    // auto-trigger entirely. Warnings still fire so the UI reflects pressure;
+    // manual `compactInstance()` remains available for explicit user action.
+    const selfManaged = this.isSelfManagedAutoCompaction(instanceId);
+
     // Check circuit breaker — skip auto-compaction if tripped
     if (this.isCircuitBreakerTripped(instanceId)) {
       // Still emit warnings for the UI, but don't try to auto-compact
@@ -172,7 +198,11 @@ export class CompactionCoordinator extends EventEmitter {
         level: 'emergency' as const,
       });
 
-      if (this.autoCompactEnabled && !this.compactingInstances.has(instanceId)) {
+      if (
+        !selfManaged
+        && this.autoCompactEnabled
+        && !this.compactingInstances.has(instanceId)
+      ) {
         void this.triggerBlockingCompact(instanceId, usage);
       }
       return;
@@ -190,9 +220,10 @@ export class CompactionCoordinator extends EventEmitter {
       }
 
       if (
-        this.autoCompactEnabled &&
-        !this.compactingInstances.has(instanceId) &&
-        !this.backgroundCompactingInstances.has(instanceId)
+        !selfManaged
+        && this.autoCompactEnabled
+        && !this.compactingInstances.has(instanceId)
+        && !this.backgroundCompactingInstances.has(instanceId)
       ) {
         void this.triggerBackgroundCompact(instanceId, usage);
       }
@@ -355,6 +386,19 @@ export class CompactionCoordinator extends EventEmitter {
     } else {
       this.resetCircuitBreaker(instanceId);
     }
+  }
+
+  /**
+   * Returns true when the adapter manages its own internal auto-compaction
+   * (e.g. Claude CLI compacts at the model's threshold). Used to suppress
+   * orchestrator-driven auto-trigger in `onContextUpdate`. Manual
+   * `compactInstance()` is unaffected.
+   *
+   * Public so tests and callers can verify the gating decision without
+   * depending on private state.
+   */
+  isSelfManagedAutoCompaction(instanceId: string): boolean {
+    return this.selfManagedAutoCompactionForInstance?.(instanceId) ?? false;
   }
 
   // ── Circuit Breaker ──

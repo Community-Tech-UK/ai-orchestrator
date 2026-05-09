@@ -103,13 +103,19 @@ export class CliUpdatePollService {
           cli,
           displayName: CLI_REGISTRY[cli]?.displayName ?? cli,
           currentVersion: plan.currentVersion ?? detectedByName.get(cli)?.version,
+          // Outdated-detection (querying the registry/brew/etc. for a newer
+          // version) is not yet implemented. Until it is, no entry can claim
+          // an update is *needed* — only that an updater is configured. The
+          // pill's `count` is computed from this flag, so it stays at 0 and
+          // the title-bar pill stays hidden.
+          updateAvailable: false,
           updatePlan: plan,
         });
       }
 
       this.state = {
         generatedAt: Date.now(),
-        count: entries.length,
+        count: entries.filter((entry) => entry.updateAvailable === true).length,
         entries,
       };
     } catch (error) {

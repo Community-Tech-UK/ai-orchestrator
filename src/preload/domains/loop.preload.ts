@@ -68,6 +68,7 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     onLoopStateChanged: sub(ch.LOOP_STATE_CHANGED),
     onLoopStarted: sub(ch.LOOP_STARTED),
     onLoopIterationStarted: sub(ch.LOOP_ITERATION_STARTED),
+    onLoopActivity: sub(ch.LOOP_ACTIVITY),
     onLoopIterationComplete: sub(ch.LOOP_ITERATION_COMPLETE),
     onLoopPausedNoProgress: sub(ch.LOOP_PAUSED_NO_PROGRESS),
     onLoopClaimedDoneButFailed: sub(ch.LOOP_CLAIMED_DONE_BUT_FAILED),

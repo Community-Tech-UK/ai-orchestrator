@@ -14,7 +14,7 @@ export type LoopReviewStyle =
   | 'debate'         // 3-agent in-process debate (Claude only)
   | 'star-chamber';  // Claude + Codex (Gemini deliberately excluded)
 
-/** Where the iteration's LLM context comes from. v1 only ships fresh-child. */
+/** Where the iteration's LLM context comes from. */
 export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 
 /** Provider for child iterations. v1 supports Claude default, Codex for star-chamber. */
@@ -76,17 +76,18 @@ export interface LoopCompletionConfig {
   /** Sentinel file that indicates "done". */
   doneSentinelFile: string;         // default 'DONE.txt'
   /** Verify command (run before stop). Empty disables verify. */
-  verifyCommand: string;            // default 'npx tsc --noEmit && npm test --silent'
+  verifyCommand: string;            // default empty; loop prompt asks agent to run appropriate checks
   /** Verify timeout in ms. */
   verifyTimeoutMs: number;          // default 600_000 (10 min)
   /** Run verify twice (anti-flake) before final stop. */
   runVerifyTwice: boolean;          // default true
   /**
    * Belt-and-braces: also require a *_Completed.md rename to actually have
-   * happened during the loop before stopping. Defaults to true; the user
-   * specifically wants ironclad break-out.
+   * happened during the loop before stopping. This is useful for explicit
+   * plan-file workflows, but it is not the general default because many loop
+   * runs are direct continuation tasks with no plan file to rename.
    */
-  requireCompletedFileRename: boolean; // default true
+  requireCompletedFileRename: boolean; // default false
 }
 
 export interface LoopConfig {
@@ -104,7 +105,7 @@ export interface LoopConfig {
   provider: LoopProvider;
   /** Review style at REVIEW stage. */
   reviewStyle: LoopReviewStyle;
-  /** Context strategy. v1 only supports fresh-child. */
+  /** Context strategy. */
   contextStrategy: LoopContextStrategy;
   /** Hard absolute caps. */
   caps: LoopHardCaps;
@@ -114,15 +115,15 @@ export interface LoopConfig {
   completion: LoopCompletionConfig;
   /** Allow destructive ops inside the loop (rm -rf, force-push). Default false. */
   allowDestructiveOps: boolean;
-  /** Optional: agent's initial stage. Default 'PLAN'. */
+  /** Optional: agent's initial stage. Default 'IMPLEMENT'. */
   initialStage: LoopStage;
   /** Wall-clock cap per iteration in ms. Defaults applied by the invoker
    *  if unset (currently 30 minutes). The loop's overall caps.maxWallTimeMs
    *  is enforced separately at the coordinator level. */
   iterationTimeoutMs?: number;
-  /** Stream-idle threshold per iteration in ms — silence-of-stdout cutoff
-   *  before the iteration is considered stalled. Inherits the adapter's
-   *  default (90 s) when unset. Bump for slow providers. */
+  /** Stream-idle advisory threshold per iteration in ms. The adapter emits
+   *  warnings when stdout is silent this long, but Loop Mode relies on the
+   *  per-iteration wall-clock timeout as the hard abort path. */
   streamIdleTimeoutMs?: number;
 }
 
@@ -137,7 +138,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     workspaceCwd,
     provider: 'claude',
     reviewStyle: 'debate',
-    contextStrategy: 'fresh-child',
+    contextStrategy: 'same-session',
     caps: {
       maxIterations: 50,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
@@ -170,13 +171,13 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
       doneSentinelFile: 'DONE.txt',
-      verifyCommand: 'npx tsc --noEmit && npm test --silent',
+      verifyCommand: '',
       verifyTimeoutMs: 600_000,
       runVerifyTwice: true,
-      requireCompletedFileRename: true,
+      requireCompletedFileRename: false,
     },
     allowDestructiveOps: false,
-    initialStage: 'PLAN',
+    initialStage: 'IMPLEMENT',
     iterationTimeoutMs: undefined,
     streamIdleTimeoutMs: undefined,
   };
@@ -322,6 +323,25 @@ export interface LoopState {
   pendingInterventions: string[];
   /** Whether a *_Completed.md rename has been observed during this run. */
   completedFileRenameObserved: boolean;
+  /**
+   * Workspace snapshot captured at startLoop. Used to differentiate
+   * "evidence the agent finished during this run" from "stale artefact
+   * left over from a prior run". Without these snapshots, completion
+   * signals like done-sentinel and plan-checklist would trigger immediately
+   * on iteration 0 whenever a workspace already contains a DONE.txt or a
+   * fully-ticked PLAN.md — terminating the loop with zero useful work.
+   *
+   * Not persisted in SQL columns: re-captured fresh on resume, which is
+   * the correct semantic (the workspace may have changed during the pause).
+   */
+  doneSentinelPresentAtStart: boolean;
+  /**
+   * True iff the configured planFile (if any) had all checkbox items
+   * checked at startLoop. When true, a "fully checked" plan-checklist is
+   * already the baseline state and is NOT treated as in-run completion.
+   * False when no planFile is configured or the plan was incomplete.
+   */
+  planChecklistFullyCheckedAtStart: boolean;
   /** Tracks tokens since last test-pass-count improvement. */
   tokensSinceLastTestImprovement: number;
   /** Highest test-pass-count seen so far. */
@@ -337,6 +357,7 @@ export interface LoopState {
 export type LoopStreamEvent =
   | { type: 'started'; loopRunId: string; chatId: string }
   | { type: 'iteration-started'; loopRunId: string; seq: number; stage: LoopStage }
+  | { type: 'activity'; event: LoopActivityEvent }
   | { type: 'iteration-complete'; loopRunId: string; seq: number; verdict: LoopVerdict }
   | { type: 'paused-no-progress'; loopRunId: string; signal: ProgressSignalEvidence }
   | { type: 'claimed-done-but-failed'; loopRunId: string; signal: CompletionSignalId; failure: string }
@@ -345,6 +366,27 @@ export type LoopStreamEvent =
   | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' }
   | { type: 'cancelled'; loopRunId: string }
   | { type: 'error'; loopRunId: string; error: string };
+
+export type LoopActivityKind =
+  | 'spawned'
+  | 'status'
+  | 'tool_use'
+  | 'assistant'
+  | 'system'
+  | 'error'
+  | 'stream-idle'
+  | 'complete'
+  | 'heartbeat';
+
+export interface LoopActivityEvent {
+  loopRunId: string;
+  seq: number;
+  stage: LoopStage | string;
+  kind: LoopActivityKind;
+  message: string;
+  timestamp: number;
+  detail?: Record<string, unknown>;
+}
 
 // ============ Helpers ============
 
@@ -358,4 +400,11 @@ export interface LoopRunSummary {
   startedAt: number;
   endedAt: number | null;
   endReason: string | null;
+  /** The goal/ask the loop was started with (iteration 0 prompt). Pulled
+   *  from the persisted config so the renderer can let users copy/inspect/
+   *  reattempt past prompts even after an app reload. */
+  initialPrompt: string;
+  /** Optional continuation directive used on iterations 1+. Null when the
+   *  loop re-used `initialPrompt` for every iteration. */
+  iterationPrompt: string | null;
 }

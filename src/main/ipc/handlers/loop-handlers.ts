@@ -14,10 +14,15 @@ import { getLoopStore } from '../../orchestration/loop-store';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
 import type { LoopState } from '../../../shared/types/loop.types';
+import type { InstanceManager } from '../../instance/instance-manager';
+import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 
 const logger = getLogger('LoopHandlers');
 
-export function registerLoopHandlers(deps: { windowManager: WindowManager }): void {
+export function registerLoopHandlers(deps: {
+  windowManager: WindowManager;
+  instanceManager: InstanceManager;
+}): void {
   const coordinator = getLoopCoordinator();
   const store = getLoopStore();
 
@@ -45,6 +50,7 @@ export function registerLoopHandlers(deps: { windowManager: WindowManager }): vo
   });
   coordinator.on('loop:started', (data: unknown) => send(IPC_CHANNELS.LOOP_STARTED, data));
   coordinator.on('loop:iteration-started', (data: unknown) => send(IPC_CHANNELS.LOOP_ITERATION_STARTED, data));
+  coordinator.on('loop:activity', (data: unknown) => send(IPC_CHANNELS.LOOP_ACTIVITY, data));
   coordinator.on('loop:iteration-complete', (data: unknown) => send(IPC_CHANNELS.LOOP_ITERATION_COMPLETE, data));
   coordinator.on('loop:paused-no-progress', (data: unknown) => send(IPC_CHANNELS.LOOP_PAUSED_NO_PROGRESS, data));
   coordinator.on('loop:claimed-done-but-failed', (data: unknown) => send(IPC_CHANNELS.LOOP_CLAIMED_DONE_BUT_FAILED, data));
@@ -59,6 +65,10 @@ export function registerLoopHandlers(deps: { windowManager: WindowManager }): vo
   ipcMain.handle(IPC_CHANNELS.LOOP_START, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopStartPayloadSchema, payload, 'LOOP_START');
+      const existingSessionContext = buildExistingSessionContext(
+        deps.instanceManager,
+        validated.chatId,
+      );
       const state = await coordinator.startLoop(
         validated.chatId,
         {
@@ -67,6 +77,7 @@ export function registerLoopHandlers(deps: { windowManager: WindowManager }): vo
           workspaceCwd: validated.config.workspaceCwd,
         },
         validated.attachments,
+        { existingSessionContext },
       );
       try { store.upsertRun(state); } catch (err) {
         logger.warn('Initial upsertRun failed', { error: String(err) });
@@ -154,6 +165,37 @@ export function registerLoopHandlers(deps: { windowManager: WindowManager }): vo
       return errorResponse('LOOP_GET_ITERATIONS_FAILED', error);
     }
   });
+}
+
+export function buildExistingSessionContext(
+  instanceManager: InstanceManager,
+  chatId: string,
+): string | undefined {
+  const instance = instanceManager.getInstance(chatId);
+  if (!instance || instance.outputBuffer.length === 0) {
+    return undefined;
+  }
+
+  const context = buildReplayContinuityMessage(instance.outputBuffer, {
+    reason: 'loop-existing-session',
+    maxTurns: 24,
+    maxCharsPerMessage: 1000,
+  });
+  if (!context) {
+    return undefined;
+  }
+
+  logger.info('Attached existing session context to loop start', {
+    chatId,
+    messageCount: instance.outputBuffer.length,
+    contextLength: context.length,
+  });
+
+  return [
+    context,
+    '',
+    'Use this as prior context from the existing visible session. It is read-only background; the loop goal remains the current task.',
+  ].join('\n');
 }
 
 function errorResponse(code: string, error: unknown): IpcResponse {

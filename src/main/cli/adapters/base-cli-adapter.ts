@@ -85,12 +85,35 @@ export interface AdapterRuntimeCapabilities {
   supportsResume: boolean;
   /** Supports forking a resumed session into a new session ID */
   supportsForkSession: boolean;
-  /** Supports provider-native context compaction */
+  /**
+   * Adapter exposes a programmatic `compactContext()` hook the orchestrator
+   * can call to actively trigger a real compaction (e.g. Codex app-server's
+   * `thread/compact/start` JSON-RPC call). Adapters MUST implement
+   * `compactContext()` when this is true; otherwise the orchestrator has no
+   * way to actually compact and will fall through to restart-with-summary.
+   *
+   * NOTE: this flag is **only** about the existence of a callable hook. It is
+   * NOT a statement about whether the adapter auto-compacts on its own — that
+   * is `selfManagedAutoCompaction` below.
+   */
   supportsNativeCompaction: boolean;
   /** Supports interactive permission/input-required prompts */
   supportsPermissionPrompts: boolean;
   /** Supports defer-based permission flow via PreToolUse hooks (Claude CLI 2.1.90+) */
   supportsDeferPermission: boolean;
+  /**
+   * Adapter manages its own context-pressure compaction internally — it will
+   * compact at the model/CLI's own threshold and surface that on the output
+   * stream (e.g. Claude CLI's headless `--input-format stream-json` mode
+   * auto-compacts at the model's internal threshold; Codex app-server emits
+   * `thread/compacted`). When true, the orchestrator's auto-trigger
+   * (background/blocking thresholds in CompactionCoordinator) is suppressed
+   * for this adapter — only manual user-driven compaction (Compact button,
+   * IPC `instance:compact`) runs the strategy chain.
+   *
+   * Default: false (orchestrator drives compaction).
+   */
+  selfManagedAutoCompaction?: boolean;
 }
 
 /**
@@ -495,6 +518,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
+      selfManagedAutoCompaction: false,
     };
   }
 

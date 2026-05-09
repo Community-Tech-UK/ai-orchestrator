@@ -58,6 +58,8 @@ function makeState(workspaceCwd: string, over: Partial<LoopState> = {}): LoopSta
     currentStage: 'IMPLEMENT',
     pendingInterventions: [],
     completedFileRenameObserved: false,
+    doneSentinelPresentAtStart: false,
+    planChecklistFullyCheckedAtStart: false,
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,
@@ -67,23 +69,77 @@ function makeState(workspaceCwd: string, over: Partial<LoopState> = {}): LoopSta
 }
 
 describe('LoopCompletionDetector.observe', () => {
-  it('reports done-promise when output contains the marker', async () => {
+  it('reports done-promise when output contains the marker (IMPLEMENT stage)', async () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir);
-    const iter = makeIteration({ outputExcerpt: 'I think we are done.\n<promise>DONE</promise>\n' });
+    const iter = makeIteration({ stage: 'IMPLEMENT', outputExcerpt: 'I think we are done.\n<promise>DONE</promise>\n' });
     const sigs = await det.observe({ iteration: iter, config: state.config, state });
     expect(sigs.some((s) => s.id === 'done-promise' && s.sufficient)).toBe(true);
   });
 
-  it('reports done-sentinel when DONE.txt exists', async () => {
+  it('done-promise is NOT sufficient in PLAN stage', async () => {
     const det = new LoopCompletionDetector();
-    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'finished');
     const state = makeState(tmpDir);
-    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    const iter = makeIteration({ stage: 'PLAN', outputExcerpt: '<promise>DONE</promise>' });
+    const sigs = await det.observe({ iteration: iter, config: state.config, state });
+    const sig = sigs.find((s) => s.id === 'done-promise');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(false);
+  });
+
+  it('done-promise is NOT sufficient in REVIEW stage', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeState(tmpDir);
+    const iter = makeIteration({ stage: 'REVIEW', outputExcerpt: '<promise>DONE</promise>' });
+    const sigs = await det.observe({ iteration: iter, config: state.config, state });
+    const sig = sigs.find((s) => s.id === 'done-promise');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(false);
+  });
+
+  it('reports done-sentinel when DONE.txt is created during the run (IMPLEMENT stage)', async () => {
+    const det = new LoopCompletionDetector();
+    // Sentinel did NOT exist at startLoop — agent just created it.
+    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'finished');
+    const state = makeState(tmpDir, { doneSentinelPresentAtStart: false });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
     expect(sigs.some((s) => s.id === 'done-sentinel' && s.sufficient)).toBe(true);
   });
 
-  it('reports plan-checklist when PLAN.md is fully checked', async () => {
+  it('does NOT report done-sentinel when DONE.txt already existed at startLoop (stale)', async () => {
+    const det = new LoopCompletionDetector();
+    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'left over from a prior run');
+    const state = makeState(tmpDir, { doneSentinelPresentAtStart: true });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'done-sentinel')).toBeUndefined();
+  });
+
+  it('done-sentinel is NOT sufficient in REVIEW stage even when in-run created', async () => {
+    const det = new LoopCompletionDetector();
+    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'finished');
+    const state = makeState(tmpDir, { doneSentinelPresentAtStart: false });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'REVIEW' }), config: state.config, state });
+    const sig = sigs.find((s) => s.id === 'done-sentinel');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(false);
+  });
+
+  it('reports plan-checklist when PLAN.md becomes fully checked during the run (IMPLEMENT stage)', async () => {
+    const det = new LoopCompletionDetector();
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '# Plan\n\n- [x] one\n- [x] two\n- [x] three\n',
+    );
+    // Plan was NOT fully checked at startLoop — agent ticked the last box.
+    const state = makeState(tmpDir, {
+      config: { ...defaultLoopConfig(tmpDir, 'do thing'), planFile: 'PLAN.md' },
+      planChecklistFullyCheckedAtStart: false,
+    });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
+    expect(sigs.some((s) => s.id === 'plan-checklist' && s.sufficient)).toBe(true);
+  });
+
+  it('does NOT report plan-checklist when PLAN.md was already fully checked at startLoop (stale)', async () => {
     const det = new LoopCompletionDetector();
     fs.writeFileSync(
       path.join(tmpDir, 'PLAN.md'),
@@ -91,16 +147,42 @@ describe('LoopCompletionDetector.observe', () => {
     );
     const state = makeState(tmpDir, {
       config: { ...defaultLoopConfig(tmpDir, 'do thing'), planFile: 'PLAN.md' },
+      planChecklistFullyCheckedAtStart: true,
     });
-    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
-    expect(sigs.some((s) => s.id === 'plan-checklist' && s.sufficient)).toBe(true);
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'plan-checklist')).toBeUndefined();
   });
 
-  it('reports completed-rename via state when watcher observed it', async () => {
+  it('plan-checklist is NOT sufficient in PLAN stage', async () => {
+    const det = new LoopCompletionDetector();
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '# Plan\n\n- [x] one\n- [x] two\n',
+    );
+    const state = makeState(tmpDir, {
+      config: { ...defaultLoopConfig(tmpDir, 'do thing'), planFile: 'PLAN.md' },
+      planChecklistFullyCheckedAtStart: false,
+    });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'PLAN' }), config: state.config, state });
+    const sig = sigs.find((s) => s.id === 'plan-checklist');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(false);
+  });
+
+  it('reports completed-rename via state when watcher observed it (IMPLEMENT stage)', async () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir, { completedFileRenameObserved: true });
-    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
     expect(sigs.some((s) => s.id === 'completed-rename' && s.sufficient)).toBe(true);
+  });
+
+  it('completed-rename is NOT sufficient in REVIEW stage', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeState(tmpDir, { completedFileRenameObserved: true });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'REVIEW' }), config: state.config, state });
+    const sig = sigs.find((s) => s.id === 'completed-rename');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(false);
   });
 
   it('flags self-declared as auxiliary (sufficient: false)', async () => {
@@ -134,19 +216,20 @@ describe('LoopCompletionDetector.passesBeltAndBraces', () => {
   it('false when require-rename is on and rename not observed', () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir);
+    state.config.completion.requireCompletedFileRename = true;
     expect(det.passesBeltAndBraces(state, state.config)).toBe(false);
   });
 
   it('true when require-rename is on and rename was observed', () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir, { completedFileRenameObserved: true });
+    state.config.completion.requireCompletedFileRename = true;
     expect(det.passesBeltAndBraces(state, state.config)).toBe(true);
   });
 
-  it('true unconditionally when require-rename is off', () => {
+  it('true by default when no explicit completed-file rename is required', () => {
     const det = new LoopCompletionDetector();
     const cfg = defaultLoopConfig(tmpDir, 'do thing');
-    cfg.completion.requireCompletedFileRename = false;
     const state = makeState(tmpDir, { config: cfg });
     expect(det.passesBeltAndBraces(state, cfg)).toBe(true);
   });

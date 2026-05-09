@@ -128,7 +128,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultYoloMode: false,
   defaultWorkingDirectory: '',
   defaultCli: 'auto',
-  defaultModel: 'opus',
+  defaultModel: 'opus[1m]',
   defaultModelByProvider: {},
   theme: 'dark',
 

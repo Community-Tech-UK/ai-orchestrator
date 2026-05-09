@@ -1098,6 +1098,7 @@ export const IPC_CHANNELS = {
   // Events (main → renderer)
   LOOP_STARTED: 'loop:started',
   LOOP_ITERATION_STARTED: 'loop:iteration-started',
+  LOOP_ACTIVITY: 'loop:activity',
   LOOP_ITERATION_COMPLETE: 'loop:iteration-complete',
   LOOP_PAUSED_NO_PROGRESS: 'loop:paused-no-progress',
   LOOP_CLAIMED_DONE_BUT_FAILED: 'loop:claimed-done-but-failed',

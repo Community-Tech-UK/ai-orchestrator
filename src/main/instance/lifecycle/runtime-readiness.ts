@@ -20,6 +20,7 @@ const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
   supportsNativeCompaction: false,
   supportsPermissionPrompts: false,
   supportsDeferPermission: false,
+  selfManagedAutoCompaction: false,
 };
 
 export interface RuntimeReadinessDeps {

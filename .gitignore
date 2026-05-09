@@ -49,3 +49,5 @@ benchmarks/orchestrator-benchmark/dist/
 /STAGE.md
 /NOTES.md
 /ITERATION_LOG.md
+# AI Orchestrator loop attachments
+.aio-loop-attachments/

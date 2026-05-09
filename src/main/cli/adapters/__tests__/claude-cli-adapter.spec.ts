@@ -145,6 +145,61 @@ describe('ClaudeCliAdapter', () => {
     });
   });
 
+  describe('parseOutput — token extraction across CLI schema versions', () => {
+    /**
+     * Regression: Loop Mode reported `tokens: 0` for every iteration on
+     * Claude CLI 2.1.x because the parser only knew the legacy
+     * `system / context_usage` schema, which the CLI no longer emits.
+     * Per-turn usage now lives on `assistant.message.usage`, and the final
+     * authoritative tally lives on `result.usage`. The parser must extract
+     * from both paths.
+     */
+    it('extracts tokens from the result.usage tally (Claude CLI 2.1.x)', () => {
+      const ndjson = [
+        '{"type":"system","subtype":"init","session_id":"s","model":"sonnet"}',
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":3,"output_tokens":2}}}',
+        '{"type":"result","subtype":"success","is_error":false,"result":"Hi","usage":{"input_tokens":3,"output_tokens":6,"cache_creation_input_tokens":24998,"cache_read_input_tokens":0},"total_cost_usd":0.0938}',
+      ].join('\n');
+      const out = adapter.parseOutput(ndjson);
+      expect(out.content).toBe('Hi');
+      // result.usage wins over per-turn assistant.message.usage.
+      expect(out.usage.totalTokens).toBe(9); // input+output, not cache.
+      expect(out.usage.inputTokens).toBe(3);
+      expect(out.usage.outputTokens).toBe(6);
+      expect(out.usage.cost).toBeCloseTo(0.0938);
+    });
+
+    it('falls back to summed assistant.message.usage when no result message', () => {
+      const ndjson = [
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":3,"output_tokens":4}}}',
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":2,"output_tokens":5}}}',
+      ].join('\n');
+      const out = adapter.parseOutput(ndjson);
+      expect(out.content).toBe('ab');
+      expect(out.usage.totalTokens).toBe(14); // (3+4) + (2+5)
+      expect(out.usage.inputTokens).toBe(5);
+      expect(out.usage.outputTokens).toBe(9);
+    });
+
+    it('still honours legacy system/context_usage schema as a final fallback', () => {
+      const ndjson = [
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}',
+        '{"type":"system","subtype":"context_usage","usage":{"total_tokens":42}}',
+      ].join('\n');
+      const out = adapter.parseOutput(ndjson);
+      expect(out.content).toBe('hi');
+      expect(out.usage.totalTokens).toBe(42);
+    });
+
+    it('returns 0 tokens (no field) when no usage data present', () => {
+      const ndjson =
+        '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"silent"}]}}';
+      const out = adapter.parseOutput(ndjson);
+      expect(out.content).toBe('silent');
+      expect(out.usage.totalTokens).toBeUndefined();
+    });
+  });
+
   describe('identity', () => {
     it('reports the correct adapter name', () => {
       expect(adapter.getName()).toBe('claude-cli');
@@ -163,7 +218,12 @@ describe('ClaudeCliAdapter', () => {
       const rt = adapter.getRuntimeCapabilities();
       expect(rt.supportsResume).toBe(true);
       expect(rt.supportsForkSession).toBe(true);
-      expect(rt.supportsNativeCompaction).toBe(true);
+      // Claude CLI in headless `--input-format stream-json` mode has no
+      // programmatic compaction hook (slash commands aren't intercepted),
+      // so we don't claim a callable native compaction. Auto-compaction is
+      // self-managed by the CLI at the model's internal threshold.
+      expect(rt.supportsNativeCompaction).toBe(false);
+      expect(rt.selfManagedAutoCompaction).toBe(true);
       expect(rt.supportsPermissionPrompts).toBe(true);
     });
   });

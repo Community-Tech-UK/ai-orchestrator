@@ -43,6 +43,61 @@ interface LoopRunRow {
   end_evidence_json: string | null;
 }
 
+/** Subset of `loop_runs` columns used to build a `LoopRunSummary`. */
+interface RunSummaryRow {
+  id: string;
+  chat_id: string;
+  status: string;
+  total_iterations: number;
+  total_tokens: number;
+  total_cost_cents: number;
+  started_at: number;
+  ended_at: number | null;
+  end_reason: string | null;
+  config_json: string;
+}
+
+/**
+ * Convert a `loop_runs` row to a `LoopRunSummary`, parsing the persisted
+ * `config_json` to recover `initialPrompt` / `iterationPrompt`. The blob is
+ * the source of truth for the prompts — there are no dedicated columns for
+ * them, which means past runs created before this surface was added still
+ * yield a usable prompt without a migration.
+ *
+ * `config_json` should always parse cleanly (it was written by us), but if
+ * it ever fails (corrupt row, manual edit, partial write) we fall back to
+ * empty strings so the list view still renders.
+ */
+function rowToRunSummary(row: RunSummaryRow): LoopRunSummary {
+  let initialPrompt = '';
+  let iterationPrompt: string | null = null;
+  try {
+    const parsed = JSON.parse(row.config_json) as Partial<LoopConfig>;
+    if (typeof parsed.initialPrompt === 'string') initialPrompt = parsed.initialPrompt;
+    if (typeof parsed.iterationPrompt === 'string' && parsed.iterationPrompt.length > 0) {
+      iterationPrompt = parsed.iterationPrompt;
+    }
+  } catch (err) {
+    logger.warn('rowToRunSummary: failed to parse config_json', {
+      loopRunId: row.id,
+      error: String(err),
+    });
+  }
+  return {
+    id: row.id,
+    chatId: row.chat_id,
+    status: row.status as LoopStatus,
+    totalIterations: row.total_iterations,
+    totalTokens: row.total_tokens,
+    totalCostCents: row.total_cost_cents,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    endReason: row.end_reason,
+    initialPrompt,
+    iterationPrompt,
+  };
+}
+
 interface LoopIterationRow {
   id: string;
   loop_run_id: string;
@@ -147,44 +202,24 @@ export class LoopStore {
 
   getRunSummary(loopRunId: string): LoopRunSummary | null {
     const row = this.db
-      .prepare('SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents, started_at, ended_at, end_reason FROM loop_runs WHERE id = ?')
-      .get<{ id: string; chat_id: string; status: string; total_iterations: number; total_tokens: number; total_cost_cents: number; started_at: number; ended_at: number | null; end_reason: string | null }>(loopRunId);
+      .prepare('SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents, started_at, ended_at, end_reason, config_json FROM loop_runs WHERE id = ?')
+      .get<RunSummaryRow>(loopRunId);
     if (!row) return null;
-    return {
-      id: row.id,
-      chatId: row.chat_id,
-      status: row.status as LoopStatus,
-      totalIterations: row.total_iterations,
-      totalTokens: row.total_tokens,
-      totalCostCents: row.total_cost_cents,
-      startedAt: row.started_at,
-      endedAt: row.ended_at,
-      endReason: row.end_reason,
-    };
+    return rowToRunSummary(row);
   }
 
   listRunsForChat(chatId: string, limit = 25): LoopRunSummary[] {
     const rows = this.db
       .prepare(`
         SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents,
-               started_at, ended_at, end_reason
+               started_at, ended_at, end_reason, config_json
         FROM loop_runs
         WHERE chat_id = ?
         ORDER BY started_at DESC
         LIMIT ?
       `)
-      .all<{ id: string; chat_id: string; status: string; total_iterations: number; total_tokens: number; total_cost_cents: number; started_at: number; ended_at: number | null; end_reason: string | null }>(chatId, limit);
-    return rows.map((row) => ({
-      id: row.id,
-      chatId: row.chat_id,
-      status: row.status as LoopStatus,
-      totalIterations: row.total_iterations,
-      totalTokens: row.total_tokens,
-      totalCostCents: row.total_cost_cents,
-      startedAt: row.started_at,
-      endedAt: row.ended_at,
-      endReason: row.end_reason,
-    }));
+      .all<RunSummaryRow>(chatId, limit);
+    return rows.map(rowToRunSummary);
   }
 
   /** Re-hydrate paused/running loops at app startup. */

@@ -375,4 +375,35 @@ describe('RemoteCliAdapter', () => {
       expect(permHandler).toHaveBeenCalledWith(payload);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 11. getRuntimeCapabilities — compaction semantics
+  // ---------------------------------------------------------------------------
+  describe('getRuntimeCapabilities (compaction)', () => {
+    it('claude branch: no callable native compaction, but self-managed auto-compaction', () => {
+      const remoteClaude = new RemoteCliAdapter(connection, TARGET_NODE_ID, 'claude', DEFAULT_OPTIONS);
+      const caps = remoteClaude.getRuntimeCapabilities();
+
+      // Remote proxies to a Claude CLI on the worker node, which runs in
+      // headless `--input-format stream-json` mode. There's no programmatic
+      // `compactContext()` hook the orchestrator can call — so
+      // `supportsNativeCompaction` must stay false to avoid the old broken
+      // `sendInput('/compact')` fallback. The remote Claude self-manages its
+      // own internal auto-compaction.
+      expect(caps.supportsNativeCompaction).toBe(false);
+      expect(caps.selfManagedAutoCompaction).toBe(true);
+      // No `compactContext` method — orchestrator-driven manual compaction
+      // should fall through to restart-with-summary.
+      expect(
+        (remoteClaude as unknown as { compactContext?: unknown }).compactContext,
+      ).toBeUndefined();
+    });
+
+    it('codex branch: orchestrator drives compaction (no self-managed flag)', () => {
+      const remoteCodex = new RemoteCliAdapter(connection, TARGET_NODE_ID, 'codex', DEFAULT_OPTIONS);
+      const caps = remoteCodex.getRuntimeCapabilities();
+      expect(caps.supportsNativeCompaction).toBe(false);
+      expect(caps.selfManagedAutoCompaction).toBe(false);
+    });
+  });
 });

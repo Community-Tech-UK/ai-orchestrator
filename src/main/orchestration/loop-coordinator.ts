@@ -93,6 +93,15 @@ interface IterationHookContext {
 
 export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | void;
 
+export interface LoopRuntimeContext {
+  /**
+   * Prior visible-session transcript used as read-only background for loop
+   * children. Kept outside LoopState/config so it is not shown as the user's
+   * goal or persisted as loop configuration.
+   */
+  existingSessionContext?: string;
+}
+
 export class LoopCoordinator extends EventEmitter {
   private static instance: LoopCoordinator | null = null;
 
@@ -101,6 +110,7 @@ export class LoopCoordinator extends EventEmitter {
   private cancelFlags = new Map<string, boolean>();
   private histories = new Map<string, LoopIteration[]>();
   private watchers = new Map<string, CompletedFileWatcher>();
+  private runtimeContexts = new Map<string, LoopRuntimeContext>();
   private iterationHooks: LoopIterationHook[] = [];
 
   private progressDetector = new LoopProgressDetector();
@@ -123,6 +133,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.cancelFlags.clear();
       this.instance.histories.clear();
       this.instance.watchers.clear();
+      this.instance.runtimeContexts.clear();
       this.instance.iterationHooks = [];
       this.instance.removeAllListeners();
       this.instance = null;
@@ -153,6 +164,7 @@ export class LoopCoordinator extends EventEmitter {
     chatId: string,
     partialConfig: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
     attachments?: LoopAttachment[],
+    runtimeContext?: LoopRuntimeContext,
   ): Promise<LoopState> {
     const config = this.materializeConfig(partialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
@@ -191,15 +203,43 @@ export class LoopCoordinator extends EventEmitter {
     }
     const watcher = new CompletedFileWatcher(config.workspaceCwd, config.completion.completedFilenamePattern);
     watcher.start();
-    // catch existing rename-target if it was created during a previous run
+    // Log pre-existing matches for observability, but do NOT treat them as
+    // evidence of completion. The completion semantic we care about is "the
+    // rename happened during *this* run" — anything that pre-existed is noise
+    // (typical workspaces accumulate `*_completed.md` plan files over time
+    // and would otherwise instantly false-positive iteration 0). The chokidar
+    // watcher uses `ignoreInitial: true`, so genuine in-run renames will fire
+    // an `add` event and flip state.completedFileRenameObserved correctly.
     const existing = watcher.scanOnce();
-    const completedRenameSeen = !!existing;
-    if (completedRenameSeen) {
-      logger.info('Loop start: existing *_Completed.md found in workspace', { id, file: existing });
+    if (existing) {
+      logger.info(
+        'Loop start: pre-existing *_Completed.md present in workspace — ignored (only in-run renames count)',
+        { id, file: existing },
+      );
     }
 
     const stageMachine = new LoopStageMachine(config.workspaceCwd);
     const initialStage = await stageMachine.bootstrap(config);
+
+    // Snapshot the workspace's "starting state" so completion signals can
+    // distinguish in-run progress from stale artefacts left over from prior
+    // runs. Captured after bootstrap so it reflects post-cleanup state
+    // (bootstrap unlinks any lingering `DONE.txt`). The snapshot lives on
+    // `LoopState` and is the only baseline the detector consults — it never
+    // re-measures.
+    const snapshot = await stageMachine.captureStartupSnapshot(config);
+    if (snapshot.doneSentinelPresent) {
+      logger.warn(
+        'Loop start: done-sentinel survived bootstrap unlink — ignored (only in-run creation counts)',
+        { id, sentinel: config.completion.doneSentinelFile },
+      );
+    }
+    if (snapshot.planChecklistFullyChecked) {
+      logger.info(
+        'Loop start: planFile already fully checked — ignored (only an in-run transition counts)',
+        { id, planFile: config.planFile },
+      );
+    }
 
     const state: LoopState = {
       id,
@@ -213,7 +253,11 @@ export class LoopCoordinator extends EventEmitter {
       totalCostCents: 0,
       currentStage: initialStage,
       pendingInterventions: [],
-      completedFileRenameObserved: completedRenameSeen,
+      // Always start false — see scan note above. Only in-run rename events
+      // flip this to true (via watcher.onCompleted below).
+      completedFileRenameObserved: false,
+      doneSentinelPresentAtStart: snapshot.doneSentinelPresent,
+      planChecklistFullyCheckedAtStart: snapshot.planChecklistFullyChecked,
       tokensSinceLastTestImprovement: 0,
       highestTestPassCount: 0,
       iterationsOnCurrentStage: 0,
@@ -223,6 +267,11 @@ export class LoopCoordinator extends EventEmitter {
     this.histories.set(id, []);
     this.watchers.set(id, watcher);
     this.cancelFlags.set(id, false);
+    if (runtimeContext?.existingSessionContext?.trim()) {
+      this.runtimeContexts.set(id, {
+        existingSessionContext: runtimeContext.existingSessionContext.trim(),
+      });
+    }
 
     // Wire watcher to mutate state.
     watcher.onCompleted((filePath) => {
@@ -502,6 +551,7 @@ export class LoopCoordinator extends EventEmitter {
         config: state.config,
         iterationSeq: seq,
         pendingInterventions: state.pendingInterventions,
+        existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
       });
       const consumedInterventions = state.pendingInterventions.splice(0, state.pendingInterventions.length);
 
@@ -755,6 +805,17 @@ export class LoopCoordinator extends EventEmitter {
 
   private materializeConfig(p: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }): LoopConfig {
     const base = defaultLoopConfig(p.workspaceCwd, p.initialPrompt);
+    // Belt-and-braces default: when a plan file is configured, require its
+    // *_Completed.md rename to actually happen during the run before we accept
+    // any completion signal. The renderer always sends an explicit value via
+    // `p.completion.requireCompletedFileRename`, so user choice still wins;
+    // this only auto-enables for programmatic callers (tests, future MCP entry
+    // points) that omit the field. Without this gate, a stale Completed.md
+    // from a prior run combined with an unconfigured verify command can
+    // terminate the loop on iteration 0.
+    if (p.planFile && p.completion?.requireCompletedFileRename === undefined) {
+      base.completion.requireCompletedFileRename = true;
+    }
     return {
       ...base,
       ...p,
@@ -825,6 +886,7 @@ export class LoopCoordinator extends EventEmitter {
       void watcher.stop();
       this.watchers.delete(state.id);
     }
+    this.runtimeContexts.delete(state.id);
     if (status === 'cancelled') this.emit('loop:cancelled', { loopRunId: state.id });
     if (status === 'error') this.emit('loop:error', { loopRunId: state.id, error: reason ?? 'unknown error' });
     this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });

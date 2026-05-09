@@ -207,6 +207,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       supportsNativeCompaction: false,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
+      selfManagedAutoCompaction: false,
     };
   }
 
@@ -2047,17 +2048,28 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (instance.status !== 'busy') return;
     // Skip if under threshold
     if (usage.percentage < 80) return;
-    // Skip adapters that handle context pressure themselves. Claude CLI and
-    // Codex in app-server mode emit their own compaction events
-    // (`thread/compacted` for Codex) when they hit the model's internal
-    // threshold. Our proactive 80% warning is redundant noise for those and
+    // Skip adapters that handle context pressure themselves. Claude CLI
+    // (auto-compacts at the model's internal threshold) and Codex in
+    // app-server mode (emits `thread/compacted`) surface their own compaction
+    // events. Our proactive 80% warning is redundant noise for those and
     // injects "delegate to children" guidance that's misleading when the
     // adapter is about to auto-compact anyway. Non-compacting adapters
     // (Cursor, Copilot, Gemini, Codex exec mode) still get the warning
     // because they have no in-band recovery path.
+    //
+    // Codex app-server's `supportsNativeCompaction` is also true (it has a
+    // callable `thread/compact/start` hook), so we honour either signal here
+    // — the gate is "does the adapter manage its own context pressure in
+    // some way?", not "does the orchestrator have a programmatic hook?".
     const adapter = this.deps.getAdapter(instanceId);
-    if (adapter && this.getAdapterRuntimeCapabilities(adapter).supportsNativeCompaction) {
-      return;
+    if (adapter) {
+      const capabilities = this.getAdapterRuntimeCapabilities(adapter);
+      if (
+        capabilities.selfManagedAutoCompaction === true
+        || capabilities.supportsNativeCompaction
+      ) {
+        return;
+      }
     }
 
     this.contextWarningIssued.add(instanceId);

@@ -194,6 +194,19 @@ export interface CliUpdatePillEntry {
   cli: string;
   displayName: string;
   currentVersion?: string;
+  /**
+   * The latest version known to be available for this CLI, when we've been
+   * able to query a registry. `undefined` means "not checked yet" — distinct
+   * from "checked and current".
+   */
+  latestVersion?: string;
+  /**
+   * True only when we've confirmed an update is actually available
+   * (latestVersion > currentVersion). The title-bar pill counts only entries
+   * with this flag set, so it stays hidden when we merely *could* run an
+   * updater but don't yet know whether one is needed.
+   */
+  updateAvailable?: boolean;
   updatePlan: CliUpdatePlanSummary;
 }
 

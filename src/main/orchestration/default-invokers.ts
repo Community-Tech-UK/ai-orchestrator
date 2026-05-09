@@ -49,6 +49,147 @@ function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { se
   return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
 }
 
+type LoopInvocationActivityKind =
+  | 'spawned'
+  | 'status'
+  | 'tool_use'
+  | 'assistant'
+  | 'system'
+  | 'error'
+  | 'stream-idle'
+  | 'complete'
+  | 'heartbeat';
+
+interface LoopInvocationActivity {
+  kind: LoopInvocationActivityKind;
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
+function attachInvocationActivity(
+  adapter: CliAdapter,
+  sink: (activity: LoopInvocationActivity) => void,
+): () => void {
+  const emitter = adapter as unknown as {
+    on?: (event: string, handler: (...args: unknown[]) => void) => void;
+    off?: (event: string, handler: (...args: unknown[]) => void) => void;
+    removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+  };
+  if (typeof emitter.on !== 'function') return () => { /* noop */ };
+
+  const removers: Array<() => void> = [];
+  const listen = (event: string, handler: (...args: unknown[]) => void) => {
+    emitter.on!(event, handler);
+    removers.push(() => {
+      if (typeof emitter.off === 'function') emitter.off(event, handler);
+      else if (typeof emitter.removeListener === 'function') emitter.removeListener(event, handler);
+    });
+  };
+
+  listen('spawned', (pid) => {
+    sink({
+      kind: 'spawned',
+      message: `CLI child spawned${typeof pid === 'number' ? ` (pid ${pid})` : ''}`,
+      detail: typeof pid === 'number' ? { pid } : undefined,
+    });
+  });
+  listen('status', (status) => {
+    sink({
+      kind: 'status',
+      message: `CLI status: ${String(status)}`,
+      detail: { status: String(status) },
+    });
+  });
+  listen('heartbeat', () => {
+    sink({ kind: 'heartbeat', message: 'CLI heartbeat received' });
+  });
+  listen('stream:idle', (info) => {
+    const meta = isRecord(info) ? info : {};
+    const timeoutMs = typeof meta['timeoutMs'] === 'number' ? meta['timeoutMs'] : undefined;
+    const seconds = timeoutMs ? Math.round(timeoutMs / 1000) : null;
+    sink({
+      kind: 'stream-idle',
+      message: seconds
+        ? `No CLI output for ${seconds}s; still waiting for the iteration to finish`
+        : 'No CLI output recently; still waiting for the iteration to finish',
+      detail: { ...meta },
+    });
+  });
+  listen('output', (output) => {
+    sink(describeAdapterOutput(output));
+  });
+  listen('complete', (response) => {
+    const meta = isRecord(response) ? response : {};
+    const usage = isRecord(meta['usage']) ? meta['usage'] : {};
+    sink({
+      kind: 'complete',
+      message: 'CLI response complete',
+      detail: {
+        tokens: typeof usage['totalTokens'] === 'number' ? usage['totalTokens'] : undefined,
+      },
+    });
+  });
+  listen('error', (error) => {
+    sink({
+      kind: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  return () => {
+    for (const remove of removers.splice(0)) remove();
+  };
+}
+
+function describeAdapterOutput(output: unknown): LoopInvocationActivity {
+  if (typeof output === 'string') {
+    return { kind: 'assistant', message: summarizeActivityText(output) };
+  }
+  if (!isRecord(output)) {
+    return { kind: 'system', message: summarizeActivityText(String(output)) };
+  }
+
+  const type = typeof output['type'] === 'string' ? output['type'] : 'output';
+  const content = typeof output['content'] === 'string' ? output['content'] : '';
+  const metadata = isRecord(output['metadata']) ? output['metadata'] : {};
+  if (type === 'tool_use') {
+    const name = typeof metadata['name'] === 'string' ? metadata['name'] : undefined;
+    return {
+      kind: 'tool_use',
+      message: summarizeActivityText(name ? `Using tool: ${name}` : content || 'Using tool'),
+      detail: metadata,
+    };
+  }
+  if (type === 'error') {
+    return { kind: 'error', message: summarizeActivityText(content || 'CLI emitted an error'), detail: metadata };
+  }
+  if (type === 'assistant') {
+    return { kind: 'assistant', message: summarizeActivityText(content || 'Assistant output received'), detail: metadata };
+  }
+  return {
+    kind: 'system',
+    message: summarizeActivityText(content || `CLI output: ${type}`),
+    detail: metadata,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function summarizeActivityText(value: string, max = 280): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 1)}…`;
+}
+
+async function terminateCliAdapter(adapter: unknown, graceful: boolean): Promise<void> {
+  const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> } | null | undefined)?.terminate;
+  if (typeof terminator === 'function') {
+    await terminator.call(adapter, graceful);
+  }
+}
+
 function buildUserPrompt(userPrompt: string, context?: string): string {
   if (!context || !context.trim()) return userPrompt;
   return `${context.trim()}\n\n---\n\n${userPrompt}`;
@@ -89,11 +230,12 @@ async function invokeCliTextResponse(params: {
   breakerKey: string;
   correlationId: string;
   /** Optional override for the spawn wall-clock timeout in milliseconds.
-   *  Acts as the outer safety net; stream-idle catches hangs sooner. */
+   *  Acts as the outer safety net for the invocation. */
   timeoutMs?: number;
-  /** Optional override for the stream-idle threshold (no-stdout-for-X-ms
-   *  abort). Inherits the adapter's default when undefined. */
+  /** Optional override for the adapter's stream-idle warning threshold. */
   streamIdleTimeoutMs?: number;
+  /** Run the child non-interactively, auto-approving CLI tool permissions. */
+  yoloMode?: boolean;
   permissionHookPath?: string;
   rtk?: UnifiedSpawnOptions['rtk'];
   /** Reuse an existing adapter instead of creating + terminating a fresh
@@ -101,6 +243,9 @@ async function invokeCliTextResponse(params: {
    *  so the conversation persists across iterations. The caller owns the
    *  adapter lifecycle when this is set. */
   reusedAdapter?: unknown;
+  activity?: (activity: LoopInvocationActivity) => void;
+  onAdapterReady?: (adapter: CliAdapter) => (() => void) | void;
+  cleanupAdapter?: (adapter: CliAdapter, graceful: boolean) => Promise<void>;
 }): Promise<ReturnType<typeof normalizeInvocationTextResult>> {
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
@@ -116,7 +261,7 @@ async function invokeCliTextResponse(params: {
     workingDirectory,
     model,
     systemPrompt: params.systemPrompt,
-    yoloMode: false,
+    yoloMode: params.yoloMode ?? false,
     permissionHookPath: params.permissionHookPath,
     rtk: params.rtk,
     timeout: params.timeoutMs ?? 300000,
@@ -134,6 +279,17 @@ async function invokeCliTextResponse(params: {
     const ownsAdapter = !params.reusedAdapter;
     const adapter: CliAdapter = (params.reusedAdapter as CliAdapter | undefined)
       ?? getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
+    const untrackAdapter = params.onAdapterReady?.(adapter) ?? (() => { /* noop */ });
+    const detachActivity = params.activity
+      ? attachInvocationActivity(adapter, params.activity)
+      : () => { /* noop */ };
+    params.activity?.({
+      kind: ownsAdapter ? 'spawned' : 'status',
+      message: ownsAdapter
+        ? `Starting ${cliType} loop child in ${workingDirectory}`
+        : `Reusing ${cliType} loop child in ${workingDirectory}`,
+      detail: { cliType, workingDirectory, reused: !ownsAdapter },
+    });
     try {
       if (!isBaseCliAdapterLike(adapter)) {
         throw new Error(`CLI adapter "${cliType}" does not support one-shot sendMessage`);
@@ -145,41 +301,28 @@ async function invokeCliTextResponse(params: {
         if (typeof setter === 'function') setter.call(adapter, params.streamIdleTimeoutMs);
       }
 
-      // Race the actual sendMessage against the adapter's stream-idle
-      // watchdog. The watchdog (in BaseCliAdapter) fires when stdout has
-      // been silent for ~90s — i.e., the CLI is hung, not legitimately
-      // doing work. Without this race, the wall-time timeout (set to a
-      // generous 30 min for loops) is the only escape, and the user
-      // stares at "0 tok" the whole time. Tokens, tool calls, and file
-      // edits all produce stdout, so legitimate long iterations are safe.
-      const sendPromise = (adapter as { sendMessage(m: { role: 'user'; content: string }): Promise<{ content: string; usage?: { totalTokens?: number } }> })
+      // Stream-idle is intentionally advisory here. Claude CLI can be quiet
+      // for minutes during real planning/thinking phases before emitting the
+      // next JSON chunk, so treating the adapter's no-stdout watchdog as a
+      // hard failure kills valid Loop Mode work. The per-call wall-clock
+      // timeout remains the actual safety net.
+      return await (adapter as { sendMessage(m: { role: 'user'; content: string }): Promise<{ content: string; usage?: { totalTokens?: number } }> })
         .sendMessage({ role: 'user', content: prompt });
-      const idleAbort = new Promise<never>((_, reject) => {
-        const adapterEmitter = adapter as unknown as {
-          once: (evt: string, cb: (...args: unknown[]) => void) => void;
-        };
-        adapterEmitter.once('stream:idle', (info: unknown) => {
-          const meta = (info && typeof info === 'object' ? info : {}) as { timeoutMs?: number };
-          const seconds = meta.timeoutMs ? Math.round(meta.timeoutMs / 1000) : 90;
-          reject(new Error(`CLI stalled — no output for ~${seconds}s. Likely hung (auth, network, or frozen child process).`));
-        });
-      });
-      return await Promise.race([sendPromise, idleAbort]);
     } finally {
+      detachActivity();
       // Caller owns the lifecycle when reusing an adapter (same-session
       // loops keep it alive across iterations and tear it down on terminate).
       if (ownsAdapter) {
-        const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
-        if (typeof terminator === 'function') {
-          await terminator.call(adapter, false).catch((cleanupError: unknown) => {
-            logger.warn('One-shot invocation adapter cleanup failed', {
-              correlationId: params.correlationId,
-              cliType,
-              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-            });
+        const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
+        await cleanup(adapter, false).catch((cleanupError: unknown) => {
+          logger.warn('One-shot invocation adapter cleanup failed', {
+            correlationId: params.correlationId,
+            cliType,
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
           });
-        }
+        });
       }
+      untrackAdapter();
     }
   });
 
@@ -497,56 +640,9 @@ import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fsLoop from 'fs';
 import * as pathLoop from 'path';
-import { ensureHookScript, ensureRtkDeferHookScript } from '../cli/hooks/hook-path-resolver';
-import { getRtkRuntime } from '../cli/rtk/rtk-runtime';
 import { getLoopCoordinator } from './loop-coordinator';
 import type { LoopChildResult } from './loop-coordinator';
 import type { LoopFileChange } from '../../shared/types/loop.types';
-
-let loopRtkHookEligibility: boolean | null = null;
-
-/** Resolve the same permission/RTK spawn options normal interactive instances use. */
-function shouldUseLoopRtkHook(): boolean {
-  if (loopRtkHookEligibility !== null) return loopRtkHookEligibility;
-  const enabled = getSettingsManager().get('rtkEnabled');
-  if (!enabled) {
-    loopRtkHookEligibility = false;
-    return false;
-  }
-  const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
-  const runtime = getRtkRuntime({ bundledOnly });
-  loopRtkHookEligibility = runtime.isAvailable();
-  return loopRtkHookEligibility;
-}
-
-function getLoopPermissionHookPath(yoloMode: boolean): string | undefined {
-  if (yoloMode) return undefined;
-  if (shouldUseLoopRtkHook()) {
-    try {
-      return ensureRtkDeferHookScript();
-    } catch (err) {
-      logger.warn('Failed to resolve RTK defer hook path for loop child, falling back to defer-only', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-  try {
-    return ensureHookScript();
-  } catch (err) {
-    logger.warn('Failed to resolve defer permission hook path for loop child, skipping', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
-  }
-}
-
-function getLoopRtkSpawnConfig(): UnifiedSpawnOptions['rtk'] {
-  if (!shouldUseLoopRtkHook()) return undefined;
-  const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
-  const runtime = getRtkRuntime({ bundledOnly });
-  if (!runtime.isAvailable()) return undefined;
-  return { enabled: true, binaryPath: runtime.binaryPath() };
-}
 
 function enableAdapterResume(adapter: unknown): void {
   const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
@@ -573,11 +669,11 @@ async function createPersistentLoopAdapter(opts: {
     options: {
       workingDirectory: opts.workingDirectory,
       model,
-      yoloMode: false,
-      permissionHookPath: getLoopPermissionHookPath(false),
-      rtk: getLoopRtkSpawnConfig(),
+      // Loop children are hidden one-shot processes. They cannot surface
+      // permission cards, so non-YOLO Bash hooks can deadlock the whole loop.
+      yoloMode: true,
       // Generous wall-clock cap so a long iteration doesn't die on a
-      // spawn-level timeout. Stream-idle is the real hang detector.
+      // spawn-level timeout.
       timeout: 30 * 60 * 1000,
     },
   });
@@ -648,21 +744,47 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // map is keyed by loopRunId; entries are torn down when the coordinator
   // emits a terminal `loop:state-changed` for the matching run.
   const persistentLoopAdapters = new Map<string, unknown>();
+  const activeLoopAdapters = new Map<string, Set<unknown>>();
+  const terminatedAdapters = new WeakSet<object>();
 
   const isTerminalLoopStatus = (status: string): boolean =>
     status === 'completed' || status === 'cancelled' || status === 'cap-reached'
     || status === 'error' || status === 'no-progress';
 
+  const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
+    if (adapter && typeof adapter === 'object') {
+      if (terminatedAdapters.has(adapter)) return;
+      terminatedAdapters.add(adapter);
+    }
+    await terminateCliAdapter(adapter, graceful);
+  };
+
+  const trackActiveAdapter = (loopRunId: string, adapter: unknown): (() => void) => {
+    if (adapter && typeof adapter === 'object') {
+      terminatedAdapters.delete(adapter);
+    }
+    const set = activeLoopAdapters.get(loopRunId) ?? new Set<unknown>();
+    set.add(adapter);
+    activeLoopAdapters.set(loopRunId, set);
+    return () => {
+      const current = activeLoopAdapters.get(loopRunId);
+      if (!current) return;
+      current.delete(adapter);
+      if (current.size === 0) activeLoopAdapters.delete(loopRunId);
+    };
+  };
+
   coordinator.on('loop:state-changed', (data: unknown) => {
     const payload = data as { loopRunId: string; state: { status: string } };
     if (!isTerminalLoopStatus(payload?.state?.status ?? '')) return;
-    const adapter = persistentLoopAdapters.get(payload.loopRunId);
-    if (!adapter) return;
+    const adapters = new Set<unknown>(activeLoopAdapters.get(payload.loopRunId) ?? []);
+    const persistentAdapter = persistentLoopAdapters.get(payload.loopRunId);
+    if (persistentAdapter) adapters.add(persistentAdapter);
+    activeLoopAdapters.delete(payload.loopRunId);
     persistentLoopAdapters.delete(payload.loopRunId);
-    const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
-    if (typeof terminator === 'function') {
-      terminator.call(adapter, false).catch((err: unknown) => {
-        logger.warn('Same-session loop adapter teardown failed', {
+    for (const adapter of adapters) {
+      terminateTrackedAdapter(adapter, false).catch((err: unknown) => {
+        logger.warn('Loop adapter teardown failed', {
           loopRunId: payload.loopRunId,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -691,6 +813,20 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
+    const emitActivity = (activity: LoopInvocationActivity) => {
+      coordinator.emit('loop:activity', {
+        loopRunId: p.loopRunId,
+        seq: p.seq,
+        stage: p.stage,
+        timestamp: Date.now(),
+        ...activity,
+      });
+    };
+    emitActivity({
+      kind: 'status',
+      message: `Iteration ${p.seq} starting in ${p.workspaceCwd}`,
+      detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'fresh-child' },
+    });
 
     // For `contextStrategy: 'same-session'`, lazily create one persistent
     // adapter per loopRunId and reuse it across iterations so the
@@ -740,14 +876,15 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         correlationId: p.correlationId,
         // Wall-clock cap per iteration — generous by default so legitimate
         // long work (deep thinking, many tool calls, file edits) isn't
-        // killed. Hung CLIs are caught much faster by the stream-idle
-        // watchdog inside `invokeCliTextResponse` (no stdout for the
-        // configured threshold → abort).
+        // killed. The CLI adapter may still emit stream-idle warnings, but
+        // the wall-clock timeout is the actual abort path.
         timeoutMs: p.iterationTimeoutMs ?? 30 * 60 * 1000,
         streamIdleTimeoutMs: p.streamIdleTimeoutMs,
-        permissionHookPath: reusedAdapter ? undefined : getLoopPermissionHookPath(false),
-        rtk: reusedAdapter ? undefined : getLoopRtkSpawnConfig(),
+        yoloMode: true,
         reusedAdapter,
+        activity: emitActivity,
+        onAdapterReady: (adapter) => trackActiveAdapter(p.loopRunId, adapter),
+        cleanupAdapter: (adapter, graceful) => terminateTrackedAdapter(adapter, graceful),
       });
       if (sameSession && reusedAdapter) {
         enableAdapterResume(reusedAdapter);

@@ -8,7 +8,6 @@ const logger = getLogger('CompactionRuntime');
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
-  sendInput?: (message: string) => Promise<void>;
 }
 
 export function setupCompactionCoordinator(
@@ -20,21 +19,20 @@ export function setupCompactionCoordinator(
   coordinator.configure({
     nativeCompact: async (instanceId: string) => {
       const adapter = instanceManager.getAdapter(instanceId) as NativeCompactionAdapter | undefined;
-      if (!adapter) {
+      if (!adapter || typeof adapter.compactContext !== 'function') {
+        // Honest false. The previous implementation fell through to
+        // `sendInput('/compact')` here, but Claude CLI in
+        // `--input-format stream-json` mode does not intercept slash
+        // commands — `/compact` was forwarded to the model as user text and
+        // the model replied with an explanation instead of compacting. With
+        // no real hook, returning false lets the coordinator fall through to
+        // the restart-with-summary strategy for manual triggers, which
+        // performs an actual compaction.
         return false;
       }
 
       try {
-        if (typeof adapter.compactContext === 'function') {
-          return await adapter.compactContext();
-        }
-
-        if (typeof adapter.sendInput === 'function') {
-          await adapter.sendInput('/compact');
-          return true;
-        }
-
-        return false;
+        return await adapter.compactContext();
       } catch (error) {
         logger.warn('Native compaction strategy failed', {
           instanceId,
@@ -46,6 +44,10 @@ export function setupCompactionCoordinator(
     supportsNativeCompaction: (instanceId: string) => {
       const capabilities = instanceManager.getAdapterRuntimeCapabilities(instanceId);
       return capabilities?.supportsNativeCompaction ?? false;
+    },
+    selfManagesAutoCompaction: (instanceId: string) => {
+      const capabilities = instanceManager.getAdapterRuntimeCapabilities(instanceId);
+      return capabilities?.selfManagedAutoCompaction === true;
     },
     restartCompact: async (instanceId: string) => {
       const compactor = ContextCompactor.getInstance();

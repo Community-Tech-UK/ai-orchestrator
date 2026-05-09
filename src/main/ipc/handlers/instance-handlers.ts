@@ -72,12 +72,18 @@ function getQueueStore(): Store<QueueStoreShape> {
 function serializeInstance(
   instance: object & { communicationTokens?: unknown }
 ): Record<string, unknown> {
+  const record = { ...(instance as Record<string, unknown>) };
+  const communicationTokens = record['communicationTokens'];
+  delete record['readyPromise'];
+  delete record['respawnPromise'];
+  delete record['abortController'];
+
   return {
-    ...instance,
+    ...record,
     communicationTokens:
-      instance.communicationTokens instanceof Map
-        ? Object.fromEntries(instance.communicationTokens)
-        : instance.communicationTokens
+      communicationTokens instanceof Map
+        ? Object.fromEntries(communicationTokens)
+        : communicationTokens
   };
 }
 

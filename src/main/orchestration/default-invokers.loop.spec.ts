@@ -6,7 +6,9 @@
  *   (not process.cwd())
  * - iterationTimeoutMs override flows through to the spawn options as `timeout`
  * - streamIdleTimeoutMs override calls the adapter's setStreamIdleTimeoutMs
- * - stream:idle event aborts the iteration with a meaningful error
+ * - stream:idle event is advisory and does not abort a valid long iteration
+ * - loop child invocations run in YOLO mode because hidden child processes
+ *   cannot surface permission prompts
  */
 
 import { EventEmitter } from 'events';
@@ -24,9 +26,6 @@ const hoisted = vi.hoisted(() => ({
   createAdapter: vi.fn(),
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
-  ensureHookScript: vi.fn(),
-  ensureRtkDeferHookScript: vi.fn(),
-  getRtkRuntime: vi.fn(),
   loopCoordinatorRef: { current: null as unknown as EventEmitter },
   adapterRef: { current: null as unknown as EventEmitter & {
     sendMessage: ReturnType<typeof vi.fn>;
@@ -73,15 +72,6 @@ vi.mock('../core/circuit-breaker', () => ({
   getCircuitBreakerRegistry: vi.fn(() => ({ getBreaker: hoisted.getBreaker })),
 }));
 
-vi.mock('../cli/hooks/hook-path-resolver', () => ({
-  ensureHookScript: hoisted.ensureHookScript,
-  ensureRtkDeferHookScript: hoisted.ensureRtkDeferHookScript,
-}));
-
-vi.mock('../cli/rtk/rtk-runtime', () => ({
-  getRtkRuntime: hoisted.getRtkRuntime,
-}));
-
 vi.mock('../core/failover-error', () => ({ coerceToFailoverError: vi.fn(() => null) }));
 vi.mock('../../shared/types/provider.types', () => ({ getDefaultModelForCli: vi.fn(() => 'default-model') }));
 
@@ -99,12 +89,6 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.setResume.mockReset();
     hoisted.createAdapter.mockReset();
     hoisted.resolveCliType.mockReset().mockResolvedValue('claude');
-    hoisted.ensureHookScript.mockReset().mockReturnValue('/defer-hook.mjs');
-    hoisted.ensureRtkDeferHookScript.mockReset().mockReturnValue('/rtk-defer-hook.mjs');
-    hoisted.getRtkRuntime.mockReset().mockReturnValue({
-      isAvailable: vi.fn(() => true),
-      binaryPath: vi.fn(() => '/usr/local/bin/rtk'),
-    });
     hoisted.getBreaker.mockImplementation(() => ({
       execute: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
     }));
@@ -170,7 +154,7 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.timeout).toBe(7 * 60 * 1000);
   });
 
-  it('forwards the normal defer permission hook and RTK spawn config to loop child adapters', async () => {
+  it('runs loop child adapters in YOLO mode without hidden permission hooks', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
 
@@ -180,8 +164,9 @@ describe('Loop Mode invoker plumbing', () => {
     await result;
 
     const callArg = hoisted.createAdapter.mock.calls[0][0];
-    expect(callArg.options.permissionHookPath).toBe('/rtk-defer-hook.mjs');
-    expect(callArg.options.rtk).toEqual({ enabled: true, binaryPath: '/usr/local/bin/rtk' });
+    expect(callArg.options.yoloMode).toBe(true);
+    expect(callArg.options.permissionHookPath).toBeUndefined();
+    expect(callArg.options.rtk).toBeUndefined();
   });
 
   it('falls back to a generous 30-minute default when iterationTimeoutMs is unset', async () => {
@@ -209,10 +194,12 @@ describe('Loop Mode invoker plumbing', () => {
     expect(hoisted.setStreamIdleTimeoutMs).toHaveBeenCalledWith(240_000);
   });
 
-  it('aborts the iteration with a stalled error when adapter emits stream:idle', async () => {
+  it('does not abort the iteration when adapter emits stream:idle before the CLI finishes', async () => {
     registerDefaultLoopInvoker({} as never);
-    // sendMessage returns a never-resolving promise — simulate a hung CLI.
-    hoisted.sendMessage.mockImplementation(() => new Promise(() => { /* hang */ }));
+    let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
+    hoisted.sendMessage.mockImplementation(() => new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
 
     const finished = emitIteration({});
 
@@ -222,10 +209,86 @@ describe('Loop Mode invoker plumbing', () => {
 
     hoisted.adapterRef.current.emit('stream:idle', { adapter: 'claude', timeoutMs: 90_000, pid: 1234 });
 
+    let settled = false;
+    void finished.then(() => {
+      settled = true;
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(settled).toBe(false);
+
+    resolveSend({ content: 'ok after quiet thinking', usage: { totalTokens: 7 } });
     const callbackResult = await finished;
-    expect(callbackResult).toMatchObject({ error: expect.stringMatching(/stalled/i) });
-    // Adapter is still terminated even when we abort early via the race.
+    expect(callbackResult).toMatchObject({
+      output: 'ok after quiet thinking',
+      tokens: 7,
+      exitedCleanly: true,
+    });
     expect(hoisted.terminate).toHaveBeenCalled();
+  });
+
+  it('emits live loop activity from child adapter output while an iteration is running', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const activities: Array<{ kind: string; message: string; loopRunId: string; seq: number }> = [];
+    hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
+      activities.push(activity as { kind: string; message: string; loopRunId: string; seq: number });
+    });
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('output', {
+        type: 'tool_use',
+        content: 'Using tool: Read',
+        metadata: { name: 'Read' },
+      });
+      hoisted.adapterRef.current.emit('output', {
+        type: 'assistant',
+        content: 'I am reading the project files before changing code.',
+      });
+      return { content: 'ok', usage: { totalTokens: 3 } };
+    });
+
+    const result = emitIteration({ workspaceCwd: '/Users/test/Minecraft' });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          loopRunId: 'loop-1',
+          seq: 0,
+          kind: 'tool_use',
+          message: 'Using tool: Read',
+        }),
+        expect.objectContaining({
+          loopRunId: 'loop-1',
+          seq: 0,
+          kind: 'assistant',
+          message: 'I am reading the project files before changing code.',
+        }),
+      ]),
+    );
+  });
+
+  it('terminates an in-flight fresh child when the loop enters a terminal state', async () => {
+    registerDefaultLoopInvoker({} as never);
+    let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
+    hoisted.sendMessage.mockImplementation(() => new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
+
+    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
+      loopRunId: 'loop-1',
+      state: { status: 'cancelled' },
+    });
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(hoisted.terminate).toHaveBeenCalledWith(false);
+
+    resolveSend({ content: 'late result after cancellation', usage: { totalTokens: 1 } });
+    await finished;
   });
 
   describe('contextStrategy: same-session', () => {

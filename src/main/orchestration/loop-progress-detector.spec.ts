@@ -63,6 +63,8 @@ function makeState(over: Partial<LoopState> = {}): LoopState {
     currentStage: 'IMPLEMENT',
     pendingInterventions: [],
     completedFileRenameObserved: false,
+    doneSentinelPresentAtStart: false,
+    planChecklistFullyCheckedAtStart: false,
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,

@@ -3,7 +3,7 @@ import type {
   LoopRunSummaryPayload,
   LoopStatePayload,
 } from '@contracts/schemas/loop';
-import { LoopIpcService, type LoopStartConfigInput } from '../services/ipc/loop-ipc.service';
+import { LoopIpcService, type LoopActivityPayload, type LoopStartConfigInput } from '../services/ipc/loop-ipc.service';
 
 /**
  * One active loop per chat in v1. The store holds:
@@ -39,6 +39,20 @@ export interface LoopFinalSummary {
   costCents: number;
   startedAt: number;
   endedAt: number;
+  /** The goal/ask the loop was started with (iteration 0 prompt). Captured
+   *  so the user can copy/inspect it after the loop ends without having to
+   *  re-open the loop config panel. */
+  initialPrompt: string;
+  /** Optional continuation directive used on iterations 1+. Empty when the
+   *  loop re-used `initialPrompt` for every iteration. */
+  iterationPrompt?: string;
+}
+
+export interface LoopRunningIteration {
+  loopRunId: string;
+  seq: number;
+  stage: string;
+  startedAt: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -53,6 +67,10 @@ export class LoopStore {
   private summaryByChat = signal<Map<string, LoopFinalSummary | null>>(new Map());
   /** Map of chatId → recent runs list (for history view if shown). */
   private runsByChat = signal<Map<string, LoopRunSummaryPayload[]>>(new Map());
+  /** Map of loopRunId → currently running iteration. */
+  private runningIterationByLoop = signal<Map<string, LoopRunningIteration>>(new Map());
+  /** Map of loopRunId → recent child CLI activity events. */
+  private activityByLoop = signal<Map<string, LoopActivityPayload[]>>(new Map());
 
   private wired = false;
 
@@ -69,6 +87,18 @@ export class LoopStore {
 
   runsForChat = (chatId: string) =>
     computed(() => this.runsByChat().get(chatId) ?? []);
+
+  runningIterationForChat = (chatId: string) =>
+    computed(() => {
+      const active = this.activeByChat().get(chatId);
+      return active ? this.runningIterationByLoop().get(active.id) ?? null : null;
+    });
+
+  activityForChat = (chatId: string) =>
+    computed(() => {
+      const active = this.activeByChat().get(chatId);
+      return active ? this.activityByLoop().get(active.id) ?? [] : [];
+    });
 
   isRunningForChat = (chatId: string) =>
     computed(() => {
@@ -97,13 +127,34 @@ export class LoopStore {
           costCents: state.totalCostCents,
           startedAt: state.startedAt,
           endedAt: state.endedAt ?? Date.now(),
+          initialPrompt: state.config.initialPrompt,
+          iterationPrompt: state.config.iterationPrompt,
         });
+        this.clearRunningIteration(state.id);
         this.clearActive(state.chatId);
       } else {
         this.upsertActive(state);
         // if we re-entered a non-terminal state, clear any banner (the no-progress
         // banner stays until user resumes/cancels — leave it).
       }
+    });
+
+    this.ipc.onIterationStarted(({ loopRunId, seq, stage }) => {
+      const chatId = this.findChatIdForLoop(loopRunId);
+      if (!chatId) return;
+      this.setRunningIteration({ loopRunId, seq, stage, startedAt: Date.now() });
+      this.updateActiveByLoop(loopRunId, (state) => ({
+        ...state,
+        currentStage: stage as LoopStatePayload['currentStage'],
+      }));
+    });
+
+    this.ipc.onActivity((activity) => {
+      this.addActivity(activity);
+    });
+
+    this.ipc.onIterationComplete(({ loopRunId }) => {
+      this.clearRunningIteration(loopRunId);
     });
 
     this.ipc.onPausedNoProgress(({ loopRunId, signal }) => {
@@ -221,6 +272,16 @@ export class LoopStore {
     this.activeByChat.set(map);
   }
 
+  private updateActiveByLoop(loopRunId: string, update: (state: LoopStatePayload) => LoopStatePayload): void {
+    const map = new Map(this.activeByChat());
+    for (const [chatId, state] of map) {
+      if (state.id !== loopRunId) continue;
+      map.set(chatId, update(state));
+      this.activeByChat.set(map);
+      return;
+    }
+  }
+
   private upsertSummary(chatId: string, summary: LoopFinalSummary): void {
     const map = new Map(this.summaryByChat());
     map.set(chatId, summary);
@@ -231,6 +292,25 @@ export class LoopStore {
     const map = new Map(this.bannerByChat());
     map.set(chatId, banner);
     this.bannerByChat.set(map);
+  }
+
+  private setRunningIteration(iteration: LoopRunningIteration): void {
+    const map = new Map(this.runningIterationByLoop());
+    map.set(iteration.loopRunId, iteration);
+    this.runningIterationByLoop.set(map);
+  }
+
+  private clearRunningIteration(loopRunId: string): void {
+    const map = new Map(this.runningIterationByLoop());
+    map.delete(loopRunId);
+    this.runningIterationByLoop.set(map);
+  }
+
+  private addActivity(activity: LoopActivityPayload): void {
+    const map = new Map(this.activityByLoop());
+    const next = [...(map.get(activity.loopRunId) ?? []), activity].slice(-80);
+    map.set(activity.loopRunId, next);
+    this.activityByLoop.set(map);
   }
 
   private findChatIdForLoop(loopRunId: string): string | null {

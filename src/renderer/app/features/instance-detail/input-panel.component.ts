@@ -34,6 +34,7 @@ import { AgentSelectorComponent } from '../agents/agent-selector.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopToggleComponent } from '../loop/loop-toggle.component';
 import { LoopConfigPanelComponent } from '../loop/loop-config-panel.component';
+import { LoopPanelOpenerService } from '../loop/loop-panel-opener.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import {
   DEFAULT_INSTANCE_PROVIDERS,
@@ -91,6 +92,7 @@ export class InputPanelComponent implements OnDestroy {
   private keybindingService = inject(KeybindingService);
   private orchestrationIpc = inject(OrchestrationIpcService);
   private promptHistoryStore = inject(PromptHistoryStore);
+  private loopPanelOpener = inject(LoopPanelOpenerService);
   protected voice = inject(VoiceConversationStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
@@ -175,6 +177,11 @@ export class InputPanelComponent implements OnDestroy {
 
   loopArmed = signal(false);
   showLoopPanel = signal(false);
+  /** Seed value pushed into the loop-config panel's `seedPrompt` input
+   *  when the user clicks "Reattempt" on a past loop run. Bumped via a
+   *  monotonic id (consumed alongside `LoopPanelOpenerService.pending`)
+   *  so two reattempts of the same prompt still re-seed the panel. */
+  protected pendingSeedPrompt = signal<string | null>(null);
   /** True while a loop start IPC is in flight. Prevents double-start races
    *  (Send + Enter, Enter + Enter, etc.). Reset by the parent's resolver. */
   loopStarting = signal(false);
@@ -210,6 +217,7 @@ export class InputPanelComponent implements OnDestroy {
       this.loopArmed.set(false);
       this.showLoopPanel.set(false);
       this.loopStartError.set(null);
+      this.pendingSeedPrompt.set(null);
       return;
     }
     this.loopArmed.set(true);
@@ -224,6 +232,7 @@ export class InputPanelComponent implements OnDestroy {
 
   onLoopPanelDismissed(): void {
     this.showLoopPanel.set(false);
+    this.pendingSeedPrompt.set(null);
   }
 
   /**
@@ -619,6 +628,37 @@ export class InputPanelComponent implements OnDestroy {
       untracked(() => {
         this.applyRecalledEntry(requested);
         this.promptHistoryStore.clearRequestedRecallEntry(requested);
+      });
+    });
+
+    // ────── "Reattempt past run" → open loop config panel pre-filled ──────
+    //
+    // The loop-control component publishes a request via
+    // LoopPanelOpenerService when the user clicks Reattempt on a past
+    // loop run. We consume requests targeting *this chat* and apply the
+    // seed: textarea (iter 0 goal) + panel prompt (iter 1+ directive).
+    //
+    // `consume()` clears the pending request after we read it so the
+    // effect doesn't re-fire on unrelated re-renders. The service issues
+    // a fresh `id` per `open()` call so consecutive Reattempts of the
+    // same prompt still re-seed the panel.
+    effect(() => {
+      const pending = this.loopPanelOpener.pending();
+      const id = this.loopChatId();
+      if (!pending || !id || pending.chatId !== id) return;
+      untracked(() => {
+        const consumed = this.loopPanelOpener.consume(id);
+        if (!consumed) return;
+        // Open the panel and arm the loop toggle so the UI matches state.
+        this.loopArmed.set(true);
+        this.showLoopPanel.set(true);
+        this.loopStartError.set(null);
+        // Seed iter 0 (textarea) when the past run had a distinct goal.
+        if (consumed.seedMessage != null) {
+          this.message.set(consumed.seedMessage);
+        }
+        // Seed iter 1+ (panel prompt) — passed via [seedPrompt] input.
+        this.pendingSeedPrompt.set(consumed.seedPrompt ?? null);
       });
     });
 

@@ -280,9 +280,15 @@ export class RemoteCliAdapter extends EventEmitter {
         return {
           supportsResume: true,
           supportsForkSession: true,
-          supportsNativeCompaction: true,
+          // Remote proxies to a Claude CLI on the worker node, which runs in
+          // headless `--input-format stream-json` mode. Slash commands are not
+          // intercepted in that mode — there's no programmatic compaction hook
+          // we can call. Mirror the local Claude adapter: no native hook, but
+          // the remote Claude self-manages its own internal auto-compaction.
+          supportsNativeCompaction: false,
           supportsPermissionPrompts: true,
           supportsDeferPermission: false, // Remote doesn't run local hooks
+          selfManagedAutoCompaction: true,
         };
       case 'codex':
         return {
@@ -291,6 +297,7 @@ export class RemoteCliAdapter extends EventEmitter {
           supportsNativeCompaction: false,
           supportsPermissionPrompts: false,
           supportsDeferPermission: false,
+          selfManagedAutoCompaction: false,
         };
       default:
         return {
@@ -299,6 +306,7 @@ export class RemoteCliAdapter extends EventEmitter {
           supportsNativeCompaction: false,
           supportsPermissionPrompts: false,
           supportsDeferPermission: false,
+          selfManagedAutoCompaction: false,
         };
     }
   }

@@ -265,6 +265,38 @@ describe('instance-handlers', () => {
   });
 
   // ----------------------------------------------------------
+  // INSTANCE_CREATE_WITH_MESSAGE
+  // ----------------------------------------------------------
+
+  describe('INSTANCE_CREATE_WITH_MESSAGE', () => {
+    it('strips non-cloneable lifecycle fields from create-with-message responses', async () => {
+      const fakeInstance = {
+        id: 'inst-with-message',
+        displayName: 'With Message',
+        communicationTokens: new Map([['token-key', 'token-value']]),
+        readyPromise: Promise.resolve(),
+        respawnPromise: Promise.resolve(),
+        abortController: new AbortController(),
+      };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE, {
+        workingDirectory: '/projects/my-app',
+        message: 'Hello Claude',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.['id']).toBe('inst-with-message');
+      expect(result.data?.['communicationTokens']).toEqual({ 'token-key': 'token-value' });
+      expect(result.data).not.toHaveProperty('readyPromise');
+      expect(result.data).not.toHaveProperty('respawnPromise');
+      expect(result.data).not.toHaveProperty('abortController');
+    });
+  });
+
+  // ----------------------------------------------------------
   // INSTANCE_LIST
   // ----------------------------------------------------------
 

@@ -101,9 +101,9 @@ export const LoopConfigSchema = z.object({
   /** Wall-clock cap for a single iteration's CLI invocation, ms. The
    *  outer caps.maxWallTimeMs covers the whole loop run. */
   iterationTimeoutMs: z.number().int().positive().max(2 * 60 * 60 * 1000).optional(),
-  /** Stream-idle threshold for a single iteration's CLI invocation, ms.
-   *  If stdout is silent for this long, the iteration aborts as "stalled".
-   *  Slower providers / longer thinking phases may need a higher value. */
+  /** Stream-idle advisory threshold for a single iteration's CLI invocation,
+   *  ms. The adapter may log/report silence, but the iteration's wall-clock
+   *  timeout remains the hard abort path. */
   streamIdleTimeoutMs: z.number().int().positive().max(15 * 60 * 1000).optional(),
 });
 
@@ -196,6 +196,11 @@ export const LoopStateSchema = z.object({
   endEvidence: z.record(z.string(), z.unknown()).optional(),
   pendingInterventions: z.array(z.string()),
   completedFileRenameObserved: z.boolean(),
+  /** True iff DONE.txt existed at startLoop. Defends against stale sentinels
+   *  from a prior run by ensuring done-sentinel only fires on a transition. */
+  doneSentinelPresentAtStart: z.boolean(),
+  /** True iff configured planFile was already fully checked at startLoop. */
+  planChecklistFullyCheckedAtStart: z.boolean(),
   tokensSinceLastTestImprovement: z.number().int().nonnegative(),
   highestTestPassCount: z.number().int().nonnegative(),
   iterationsOnCurrentStage: z.number().int().nonnegative(),
@@ -212,6 +217,13 @@ export const LoopRunSummarySchema = z.object({
   startedAt: z.number().int(),
   endedAt: z.number().int().nullable(),
   endReason: z.string().nullable(),
+  /** The goal/ask the loop was started with (iteration 0 prompt). Surfaced
+   *  so the renderer can let users copy/inspect/reattempt past prompts even
+   *  after an app reload, without needing to re-open the original config. */
+  initialPrompt: z.string(),
+  /** Optional continuation directive used on iterations 1+. Null when the
+   *  loop re-used `initialPrompt` for every iteration. */
+  iterationPrompt: z.string().nullable(),
 });
 
 // ============ IPC payload schemas ============

@@ -318,9 +318,20 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return {
       supportsResume: true,
       supportsForkSession: true,
-      supportsNativeCompaction: true,
+      // Claude CLI is launched with `--print --input-format stream-json`, where
+      // slash commands are NOT intercepted by the CLI — they are forwarded to
+      // the model as plain user text. There is therefore no programmatic hook
+      // we can call to actively trigger a real compaction; this stays false.
+      supportsNativeCompaction: false,
       supportsPermissionPrompts: true,
       supportsDeferPermission: this.shouldUsePermissionHook(),
+      // Claude CLI auto-compacts internally at the model's own threshold and
+      // surfaces that on the output stream. Tell the orchestrator to skip its
+      // background/blocking auto-trigger for Claude — only manual user-driven
+      // compaction (Compact button / IPC `instance:compact`) should run the
+      // strategy chain (which falls through to restart-with-summary because
+      // there is no native hook).
+      selfManagedAutoCompaction: true,
     };
   }
 
@@ -596,7 +607,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const id = this.generateResponseId();
     const toolCalls: CliToolCall[] = [];
     let content = '';
-    let usage: CliUsage = {};
+    // We accumulate tokens across all assistant turns as a fallback. Some CLI
+    // versions emit the authoritative `result` message at the end with the
+    // final tally; older versions emit `system / context_usage` (kept here for
+    // backward compatibility); current 2.1.x versions place per-turn counts on
+    // each `assistant.message.usage`. We prefer `result.usage` when present
+    // because it's the final authoritative count after all turns settle.
+    let assistantInput = 0;
+    let assistantOutput = 0;
+    let assistantSawAny = false;
+    let resultUsage: CliUsage | null = null;
+    let legacySystemTotal: number | undefined;
+    let costUsd: number | undefined;
 
     // Parse all NDJSON lines
     const lines = raw.split('\n').filter((line) => line.trim());
@@ -626,20 +648,60 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               arguments: tool.input || {}
             });
           }
+
+          // Per-turn token usage (Claude CLI 2.1.x schema). Cache tokens are
+          // not double-counted: we only sum the new-generation portions
+          // (input_tokens + output_tokens) for our totalTokens metric.
+          if (msg.message.usage) {
+            assistantSawAny = true;
+            assistantInput += msg.message.usage.input_tokens ?? 0;
+            assistantOutput += msg.message.usage.output_tokens ?? 0;
+          }
         }
 
+        // Authoritative final tally (Claude CLI 2.1.x). The CLI emits one
+        // `{type:"result", usage:{...}, total_cost_usd}` line at the end of
+        // each turn. Prefer this over per-assistant accumulation. Cache
+        // tokens are NOT folded into totalTokens — they reflect billing
+        // (cached reads are cheaper / writes are billed once) and would
+        // double-count actual generation if added here.
+        if (msg.type === 'result' && msg.usage) {
+          resultUsage = {
+            inputTokens: msg.usage.input_tokens,
+            outputTokens: msg.usage.output_tokens,
+            totalTokens:
+              (msg.usage.input_tokens ?? 0) + (msg.usage.output_tokens ?? 0),
+          };
+        }
+        if (msg.type === 'result' && typeof msg.total_cost_usd === 'number') {
+          costUsd = msg.total_cost_usd;
+        }
+
+        // Legacy schema (older Claude CLI). Kept for backward compatibility.
         if (
           msg.type === 'system' &&
           msg.subtype === 'context_usage' &&
           msg.usage
         ) {
-          usage = {
-            totalTokens: msg.usage.total_tokens
-          };
+          legacySystemTotal = msg.usage.total_tokens;
         }
       } catch {
         // Ignore non-JSON lines
       }
+    }
+
+    const usage: CliUsage = resultUsage
+      ?? (assistantSawAny
+        ? {
+            inputTokens: assistantInput,
+            outputTokens: assistantOutput,
+            totalTokens: assistantInput + assistantOutput,
+          }
+        : (legacySystemTotal !== undefined
+          ? { totalTokens: legacySystemTotal }
+          : {}));
+    if (costUsd !== undefined) {
+      usage.cost = costUsd;
     }
 
     return {

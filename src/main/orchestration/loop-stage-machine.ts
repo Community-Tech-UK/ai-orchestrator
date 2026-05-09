@@ -21,6 +21,51 @@ const ARTIFACT_FILES = ['STAGE.md', 'NOTES.md', 'ITERATION_LOG.md'] as const;
 
 const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
 
+/**
+ * Parsed view of a markdown plan-file's checkbox state. Single source of
+ * truth shared by `LoopStageMachine.captureStartupSnapshot` and
+ * `LoopCompletionDetector.observe` so the baseline measurement matches the
+ * runtime measurement bit-for-bit.
+ */
+export interface PlanChecklistState {
+  /** `[x]` or `[X]` items. */
+  checked: number;
+  /** `[ ]` items. */
+  unchecked: number;
+  /** `checked + unchecked`. */
+  total: number;
+  /** True iff the file has at least one item and none are unchecked. */
+  fullyChecked: boolean;
+}
+
+/**
+ * Parse markdown checkboxes (`- [x]`, `- [ ]`, `* [X]`, etc.) out of a plan
+ * file. Pure function — exposed as a static so the completion detector and
+ * the coordinator's startup snapshot use *exactly* the same regex. If they
+ * ever drifted, "did this transition during the run?" comparisons would
+ * break silently.
+ */
+export function parsePlanChecklist(text: string): PlanChecklistState {
+  const checked = (text.match(/^\s*[-*]\s*\[[xX]\]/gm) || []).length;
+  const unchecked = (text.match(/^\s*[-*]\s*\[\s\]/gm) || []).length;
+  const total = checked + unchecked;
+  return { checked, unchecked, total, fullyChecked: total > 0 && unchecked === 0 };
+}
+
+/**
+ * Workspace snapshot captured by `LoopStageMachine.captureStartupSnapshot`
+ * and stored on `LoopState`. Each flag answers "was this artefact already in
+ * its 'completed' shape before the agent did any work?" The detector ignores
+ * completion signals when the corresponding flag is true so a stale
+ * artefact from a prior run can't terminate the loop on iteration 0.
+ */
+export interface LoopStartupSnapshot {
+  /** `config.completion.doneSentinelFile` existed when the snapshot ran. */
+  doneSentinelPresent: boolean;
+  /** `config.planFile` existed and every `[ ]/[x]` item was already ticked. */
+  planChecklistFullyChecked: boolean;
+}
+
 export class LoopStageMachine {
   constructor(public readonly cwd: string) {}
 
@@ -53,6 +98,18 @@ export class LoopStageMachine {
       }
     }
 
+    // Delete sentinel file left by a prior loop run. A stale DONE.txt would
+    // immediately fire the done-sentinel completion signal on the first
+    // IMPLEMENT iteration of the new run, stopping the loop before it does
+    // any work.
+    if (config.completion.doneSentinelFile) {
+      try {
+        await fsp.unlink(path.join(this.cwd, config.completion.doneSentinelFile));
+      } catch {
+        // Not present — fine.
+      }
+    }
+
     return resolvedStage;
   }
 
@@ -79,6 +136,48 @@ export class LoopStageMachine {
     }
   }
 
+  /**
+   * Capture the workspace's "starting state" so the completion detector can
+   * tell in-run progress apart from stale artefacts left over from prior
+   * runs. Designed to run *after* `bootstrap` (which itself unlinks any
+   * lingering `DONE.txt`), so the snapshot reflects post-cleanup truth.
+   *
+   * Both flags here gate the corresponding completion signal in
+   * `LoopCompletionDetector.observe`:
+   *   - `doneSentinelPresent` → `done-sentinel`
+   *   - `planChecklistFullyChecked` → `plan-checklist`
+   *
+   * This is the single canonical place that captures the snapshot. The
+   * coordinator stores the result on `LoopState` and never re-measures.
+   */
+  async captureStartupSnapshot(config: LoopConfig): Promise<LoopStartupSnapshot> {
+    const doneSentinelPresent = config.completion.doneSentinelFile
+      ? await this.fileExists(config.completion.doneSentinelFile)
+      : false;
+    let planChecklistFullyChecked = false;
+    if (config.planFile) {
+      const text = await this.readPlan(config);
+      if (text !== null) {
+        planChecklistFullyChecked = parsePlanChecklist(text).fullyChecked;
+      }
+    }
+    return { doneSentinelPresent, planChecklistFullyChecked };
+  }
+
+  /**
+   * Internal helper — workspace-relative existence check. Kept private so
+   * callers go through `captureStartupSnapshot` rather than re-implementing
+   * the path-resolution boilerplate.
+   */
+  private async fileExists(relativePath: string): Promise<boolean> {
+    try {
+      await fsp.access(path.join(this.cwd, relativePath));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Read NOTES.md. Empty string if missing. */
   async readNotes(): Promise<string> {
     try {
@@ -98,8 +197,9 @@ export class LoopStageMachine {
     config: LoopConfig;
     iterationSeq: number;
     pendingInterventions: string[];
+    existingSessionContext?: string;
   }): string {
-    const { config, iterationSeq, pendingInterventions } = args;
+    const { config, iterationSeq, pendingInterventions, existingSessionContext } = args;
     const planRef = config.planFile
       ? `the plan in \`${config.planFile}\` (referred to below as PLAN.md)`
       : 'the prompt below';
@@ -117,15 +217,22 @@ export class LoopStageMachine {
     // on NOTES.md/plan-file reads to reconstruct context, and any iter that
     // forgot to write notes causes drift.
     const isFirstIteration = iterationSeq === 0;
+    const existingSessionContextBlock = existingSessionContext?.trim()
+      && (isFirstIteration || config.contextStrategy !== 'same-session')
+      ? `\n\n## Existing Session Context (read-only background)\n${existingSessionContext.trim()}\n`
+      : '';
     const goalBlock = `\n\n## Goal (persistent across iterations)\n${config.initialPrompt}\n`;
     const directiveBlock = !isFirstIteration && config.iterationPrompt
       ? `\n\n## Loop Continuation Directive\n${config.iterationPrompt}\n`
       : '';
-    const promptBlocks = `${goalBlock}${directiveBlock}`;
+    const promptBlocks = `${existingSessionContextBlock}${goalBlock}${directiveBlock}`;
+    const contextModeLine = config.contextStrategy === 'same-session'
+      ? 'You are running inside an autonomous Loop Mode using one persistent child CLI session across iterations. State still belongs on disk so the loop can recover if the process restarts.'
+      : 'You are running inside an autonomous Loop Mode. State lives on disk; do not rely on chat history. Every iteration is a fresh process.';
 
     return `# Loop Mode — Iteration ${iterationSeq}
 
-You are running inside an autonomous Loop Mode. State lives on disk; do not rely on chat history. Every iteration is a fresh process.
+${contextModeLine}
 
 ## Autonomous Mode Rules
 
@@ -145,20 +252,20 @@ There is no human in the loop to answer questions. You must:
 
 Based on the value of STAGE.md:
 
-- **PLAN** — Continue or improve the plan. Choose the best architectural decisions. Do not be lazy. Do not take shortcuts. If a plan does not exist yet, draft one.
+- **PLAN** — Continue or improve the plan. Choose the best architectural decisions. Do not take shortcuts. If a plan does not exist yet, draft one.
 - **REVIEW** — Re-read the plan with completely fresh eyes. Treat the plan as if a stranger wrote it. Identify and fix issues. Improve clarity, completeness, and correctness. If the plan is sound, say so explicitly.
-- **IMPLEMENT** — Implement the next chunk of the plan. Use best architecture. Do not take shortcuts. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run the verify command if you can.
+- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.
 
 Honor every safety rail: do not run destructive operations (\`rm -rf\`, \`git push --force\`, schema drops) unless the loop config explicitly allows them — this loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations.
 
 ## Step 3 — Advance state at the end of the iteration
 
 If the work for the current STAGE is complete:
-- PLAN done → write \`REVIEW\` into STAGE.md.
-- REVIEW done → write \`IMPLEMENT\` into STAGE.md.
+- PLAN done → write \`REVIEW\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
+- REVIEW done → write \`IMPLEMENT\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
 - IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into STAGE.md (loop back through review).
 - IMPLEMENT done **and plan is fully implemented & verified** →
-    1. Run the verify command (\`${config.completion.verifyCommand || '(none configured)'}\`). It must pass.
+    1. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize them. Verification must pass.
     2. Append \`<promise>DONE</promise>\` on its own line at the end of your output.
     3. If a plan file exists, rename it: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
     4. Write \`DONE.txt\` containing the date — this is the sentinel.
@@ -171,7 +278,7 @@ Append a one-paragraph summary of this iteration to \`NOTES.md\`. Keep it terse 
 
 ## Step 5 — Exit
 
-Exit the iteration. The loop coordinator will spawn the next one with a fresh context.
+Exit the iteration. The loop coordinator will continue according to the configured context strategy.
 
 ---
 

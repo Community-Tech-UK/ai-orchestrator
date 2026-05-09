@@ -1,11 +1,46 @@
 import { SlicePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  OnDestroy,
+  signal,
+  untracked,
+} from '@angular/core';
+import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopStore } from '../../core/state/loop.store';
+import {
+  activityKindLabel,
+  formatCostCents,
+  humanDuration,
+  humanTokens,
+  shortTime,
+  terminalStatusLabel,
+} from './loop-formatters.util';
+import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 
+/**
+ * Shows the Loop Mode HUD for one chat:
+ *  - banner       — pause / verify-failed alerts (when applicable)
+ *  - active strip — running/paused loop status + activity feed
+ *  - past runs    — persistent history with copy/reattempt actions
+ *  - summary      — "Loop ended" card, in-session, with copy actions
+ *
+ * Past runs and the summary card both display prompt-related controls,
+ * but they target different user goals: the summary is the just-ended
+ * notification (dismissable, in-memory), while the past-runs panel is
+ * the durable history surface that survives reload. They live as
+ * separate components so each one's UI state (collapsed/expanded,
+ * "Copied ✓" flashes) is owned by the component that uses it and is
+ * naturally reset on chat switch via component instance lifecycle.
+ */
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe],
+  imports: [SlicePipe, LoopPastRunsPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -36,11 +71,12 @@ import { LoopStore } from '../../core/state/loop.store';
       <div class="loop-status" [class.paused]="a.status === 'paused'">
         <span class="ls-icon">{{ a.status === 'paused' ? '⏸' : '🔁' }}</span>
         <span class="ls-text">
-          Loop · iter {{ a.totalIterations }}/{{ a.config.caps.maxIterations }}
-          · stage {{ a.currentStage }}
-          · {{ humanDuration(elapsed()) }}
-          · {{ humanTokens(a.totalTokens) }}
-          · &dollar;{{ (a.totalCostCents / 100).toFixed(2) }}
+          Loop · {{ runningIteration() ? ('iter ' + runningIteration()!.seq + ' running') : ('completed ' + a.totalIterations) }}/{{ a.config.caps.maxIterations }}
+          · stage {{ runningIteration()?.stage ?? a.currentStage }}
+          · current {{ runningIteration() ? duration(currentIterationElapsed()) : 'idle' }}
+          · total {{ duration(elapsed()) }}
+          · {{ tokens(a.totalTokens) }}
+          · {{ cost(a.totalCostCents) }}
         </span>
         <span class="ls-actions">
           @if (a.status === 'running') {
@@ -52,21 +88,79 @@ import { LoopStore } from '../../core/state/loop.store';
           <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop">Stop</button>
         </span>
       </div>
+
+      <div class="loop-activity">
+        <div class="la-title">
+          <span>Live loop activity</span>
+          <code>{{ a.config.workspaceCwd }}</code>
+        </div>
+        @if (activity().length > 0) {
+          <div class="la-list">
+            @for (event of recentActivity(); track event.timestamp + event.kind + event.message) {
+              <div class="la-row" [class.error]="event.kind === 'error'" [class.warn]="event.kind === 'stream-idle'">
+                <span class="la-time">{{ time(event.timestamp) }}</span>
+                <span class="la-kind">{{ kindLabel(event.kind) }}</span>
+                <span class="la-message">{{ event.message }}</span>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="la-empty">Waiting for child CLI output. If this stays empty, the child has not emitted any stream events yet.</div>
+        }
+      </div>
     }
+
+    <app-loop-past-runs-panel
+      [chatId]="chatId()"
+      [loopRunning]="!!active()"
+      [terminalSummaryRunId]="lastTerminalSummaryId()"
+    />
 
     @if (summary(); as s) {
       <div class="loop-summary">
         <div class="lsum-title">
-          Loop ended — {{ statusLabel(s.status) }}
+          Loop ended — {{ summaryStatusLabel(s.status) }}
           <button type="button" class="lsum-close" (click)="onDismissSummary()" aria-label="Dismiss">×</button>
         </div>
         <div class="lsum-line">
-          {{ s.iterations }} iterations · {{ humanDuration(s.endedAt - s.startedAt) }} · {{ humanTokens(s.tokens) }} · &dollar;{{ (s.costCents / 100).toFixed(2) }}
+          {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ tokens(s.tokens) }} · {{ cost(s.costCents) }}
         </div>
         <div class="lsum-reason">Reason: {{ s.reason }}</div>
+        <div class="lsum-prompt-actions">
+          <button
+            type="button"
+            class="lsum-prompt-btn"
+            (click)="promptExpanded.set(!promptExpanded())"
+            [attr.aria-expanded]="promptExpanded()"
+          >{{ promptExpanded() ? 'Hide prompt' : 'Show prompt' }}</button>
+          <button
+            type="button"
+            class="lsum-prompt-btn"
+            (click)="onCopyInitialPrompt(s.initialPrompt)"
+            [disabled]="!s.initialPrompt"
+            [title]="copiedSummaryPart() === 'initial' ? 'Copied!' : 'Copy the iteration-0 prompt'"
+          >{{ copiedSummaryPart() === 'initial' ? 'Copied ✓' : 'Copy prompt' }}</button>
+          @if (summaryHasDistinctIterationPrompt(s)) {
+            <button
+              type="button"
+              class="lsum-prompt-btn"
+              (click)="onCopyIterationPrompt(s.iterationPrompt!)"
+              [title]="copiedSummaryPart() === 'iteration' ? 'Copied!' : 'Copy the iteration-1+ continuation directive'"
+            >{{ copiedSummaryPart() === 'iteration' ? 'Copied ✓' : 'Copy continuation' }}</button>
+          }
+        </div>
+        @if (promptExpanded()) {
+          <div class="lsum-prompt-block">
+            <div class="lsum-prompt-label">Iteration 0 prompt</div>
+            <pre class="lsum-prompt-pre">{{ s.initialPrompt }}</pre>
+            @if (summaryHasDistinctIterationPrompt(s)) {
+              <div class="lsum-prompt-label">Iteration 1+ continuation</div>
+              <pre class="lsum-prompt-pre">{{ s.iterationPrompt }}</pre>
+            }
+          </div>
+        }
       </div>
     }
-
   `,
   styles: [`
     .loop-status {
@@ -85,6 +179,54 @@ import { LoopStore } from '../../core/state/loop.store';
       cursor: pointer;
     }
     .ls-stop { color: #f78c7c !important; }
+
+    .loop-activity {
+      margin: -2px 0 6px;
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.035);
+      border-radius: 6px;
+      font-size: 11px;
+    }
+    .la-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+      opacity: 0.75;
+      font-weight: 600;
+    }
+    .la-title code {
+      max-width: 58%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 400;
+    }
+    .la-list { display: flex; flex-direction: column; gap: 3px; }
+    .la-row {
+      display: grid;
+      grid-template-columns: 54px 72px minmax(0, 1fr);
+      gap: 8px;
+      line-height: 1.35;
+      opacity: 0.82;
+    }
+    .la-row.error { color: #f78c7c; }
+    .la-row.warn { color: #f7c07a; }
+    .la-time, .la-kind {
+      font-family: var(--font-mono, monospace);
+      font-size: 10px;
+      opacity: 0.7;
+      text-transform: uppercase;
+    }
+    .la-message {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .la-empty { opacity: 0.55; }
 
     .loop-banner {
       display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
@@ -113,16 +255,64 @@ import { LoopStore } from '../../core/state/loop.store';
     .lsum-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0; }
     .lsum-line { margin-top: 4px; opacity: 0.85; }
     .lsum-reason { margin-top: 2px; opacity: 0.65; font-size: 11px; }
+    .lsum-prompt-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .lsum-prompt-btn {
+      padding: 3px 8px; font-size: 11px; font: inherit;
+      background: rgba(255,255,255,0.05); color: inherit;
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
+      cursor: pointer;
+    }
+    .lsum-prompt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .lsum-prompt-block {
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 4px;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .lsum-prompt-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      opacity: 0.6;
+      margin-bottom: 2px;
+    }
+    .lsum-prompt-label + .lsum-prompt-pre { margin-top: 0; }
+    .lsum-prompt-pre {
+      margin: 0 0 8px 0;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: inherit;
+    }
+    .lsum-prompt-pre:last-child { margin-bottom: 0; }
     code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); border-radius: 3px; }
   `],
 })
-export class LoopControlComponent {
+export class LoopControlComponent implements OnDestroy {
   chatId = input<string | null>(null);
 
   protected store = inject(LoopStore);
+  private clipboard = inject(CLIPBOARD_SERVICE);
 
-  // tick driver — re-render the elapsed time once per second
+  /** 1Hz tick that drives elapsed-time recomputation in the active strip. */
   private tick = signal(0);
+  private tickHandle: ReturnType<typeof setInterval> | null = null;
+
+  /** Summary card UI state — owned by this component because the card
+   *  itself is owned here. */
+  protected promptExpanded = signal(false);
+  protected copiedSummaryPart = signal<'initial' | 'iteration' | null>(null);
+  private copyClearHandle: ReturnType<typeof setTimeout> | null = null;
+  private lastSummaryRunId: string | null = null;
+
+  /** Latest terminal summary's run id, propagated to the past-runs panel
+   *  so it knows when to re-pull history. Null while no summary is shown. */
+  lastTerminalSummaryId = computed<string | null>(() => this.summary()?.loopRunId ?? null);
 
   active = computed(() => {
     const id = this.chatId();
@@ -139,17 +329,102 @@ export class LoopControlComponent {
     return id ? this.store.summaryForChat(id)() : null;
   });
 
+  runningIteration = computed(() => {
+    const id = this.chatId();
+    return id ? this.store.runningIterationForChat(id)() : null;
+  });
+
+  activity = computed(() => {
+    const id = this.chatId();
+    return id ? this.store.activityForChat(id)() : [];
+  });
+
+  recentActivity = computed(() => this.activity().slice(-8).reverse());
+
   elapsed = computed(() => {
-    this.tick(); // re-read on tick
+    this.tick();
     const a = this.active();
     if (!a) return 0;
     return Date.now() - a.startedAt;
   });
 
+  currentIterationElapsed = computed(() => {
+    this.tick();
+    const running = this.runningIteration();
+    if (!running) return 0;
+    return Date.now() - running.startedAt;
+  });
+
   constructor() {
     this.store.ensureWired();
-    setInterval(() => this.tick.update((t) => t + 1), 1000);
+    this.tickHandle = setInterval(() => this.tick.update((t) => t + 1), 1000);
+
+    // Reset the summary card's prompt-expansion + Copied flag when a
+    // new summary appears, so a fresh loop run doesn't inherit the
+    // previous run's UI state.
+    effect(() => {
+      const s = this.summary();
+      const runId = s?.loopRunId ?? null;
+      if (runId === this.lastSummaryRunId) return;
+      untracked(() => {
+        this.lastSummaryRunId = runId;
+        this.promptExpanded.set(false);
+        this.copiedSummaryPart.set(null);
+        if (this.copyClearHandle) {
+          clearTimeout(this.copyClearHandle);
+          this.copyClearHandle = null;
+        }
+      });
+    });
   }
+
+  ngOnDestroy(): void {
+    if (this.tickHandle) clearInterval(this.tickHandle);
+    if (this.copyClearHandle) clearTimeout(this.copyClearHandle);
+  }
+
+  // ────── summary card actions ──────
+
+  async onCopyInitialPrompt(prompt: string): Promise<void> {
+    await this.copySummaryPrompt(prompt, 'initial', 'iteration-0 prompt');
+  }
+
+  async onCopyIterationPrompt(prompt: string): Promise<void> {
+    await this.copySummaryPrompt(prompt, 'iteration', 'continuation directive');
+  }
+
+  /** Tightened helper used by the "Copy prompt" / "Copy continuation"
+   *  buttons. Shared logic kept here (rather than in the formatters
+   *  util) because it touches Angular signals + the clipboard service. */
+  private async copySummaryPrompt(
+    prompt: string,
+    which: 'initial' | 'iteration',
+    label: string,
+  ): Promise<void> {
+    if (!prompt) return;
+    const result = await this.clipboard.copyText(prompt, { label });
+    if (!result.ok) return;
+    this.copiedSummaryPart.set(which);
+    if (this.copyClearHandle) clearTimeout(this.copyClearHandle);
+    this.copyClearHandle = setTimeout(() => {
+      this.copiedSummaryPart.set(null);
+      this.copyClearHandle = null;
+    }, 1800);
+  }
+
+  /** Centralized predicate so the template doesn't repeat the
+   *  null/empty/equality dance — and so a future contract change
+   *  (e.g. iterationPrompt becoming required) can be absorbed in one
+   *  place. */
+  summaryHasDistinctIterationPrompt(s: { initialPrompt: string; iterationPrompt?: string | null }): boolean {
+    return (
+      typeof s.iterationPrompt === 'string'
+      && s.iterationPrompt.length > 0
+      && s.iterationPrompt !== s.initialPrompt
+    );
+  }
+
+  // ────── loop control actions ──────
 
   async onPause(): Promise<void> {
     const a = this.active(); if (!a) return;
@@ -183,29 +458,16 @@ export class LoopControlComponent {
     if (id) this.store.dismissSummary(id);
   }
 
-  // ────── formatters ──────
+  // ────── presentational helpers (delegate to pure utils) ──────
+  // Methods rather than direct util references so the template binds
+  // cleanly without `import {…}` inside the @Component decorator.
 
-  humanDuration(ms: number): string {
-    if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
-    const mins = Math.floor(ms / 60_000);
-    if (mins < 60) return `${mins}m${Math.floor((ms % 60_000) / 1000)}s`;
-    const hours = Math.floor(mins / 60);
-    return `${hours}h${mins % 60}m`;
-  }
-
-  humanTokens(n: number): string {
-    if (n < 1000) return `${n} tok`;
-    if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k tok`;
-    return `${(n / 1_000_000).toFixed(2)}M tok`;
-  }
-
-  statusLabel(status: 'completed' | 'cancelled' | 'cap-reached' | 'error' | 'no-progress'): string {
-    switch (status) {
-      case 'completed': return 'completed ✓';
-      case 'cancelled': return 'cancelled';
-      case 'cap-reached': return 'cap reached';
-      case 'error': return 'error';
-      case 'no-progress': return 'no progress';
-    }
+  protected duration(ms: number): string { return humanDuration(ms); }
+  protected tokens(n: number): string    { return humanTokens(n); }
+  protected cost(cents: number): string  { return formatCostCents(cents); }
+  protected time(ts: number): string     { return shortTime(ts); }
+  protected kindLabel(kind: string): string { return activityKindLabel(kind); }
+  protected summaryStatusLabel(status: 'completed' | 'cancelled' | 'cap-reached' | 'error' | 'no-progress'): string {
+    return terminalStatusLabel(status);
   }
 }

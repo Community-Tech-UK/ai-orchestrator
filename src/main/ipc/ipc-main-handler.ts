@@ -245,7 +245,10 @@ export class IpcMainHandler {
     registerRtkHandlers();
 
     // Loop Mode (autonomous fix→verify→fix loop)
-    registerLoopHandlers({ windowManager: this.windowManager });
+    registerLoopHandlers({
+      windowManager: this.windowManager,
+      instanceManager: this.instanceManager,
+    });
 
     // VCS handlers (Git integration)
     registerVcsHandlers();
@@ -702,16 +705,20 @@ export class IpcMainHandler {
   private serializeInstance(instance: unknown): Record<string, unknown> {
     const record = (
       typeof instance === 'object' && instance !== null
-        ? instance
+        ? { ...(instance as Record<string, unknown>) }
         : {}
-    ) as Record<string, unknown> & { communicationTokens?: unknown };
+    ) as Record<string, unknown>;
+    const communicationTokens = record['communicationTokens'];
+    delete record['readyPromise'];
+    delete record['respawnPromise'];
+    delete record['abortController'];
 
     return {
       ...record,
       communicationTokens:
-        record.communicationTokens instanceof Map
-          ? Object.fromEntries(record.communicationTokens)
-          : record.communicationTokens
+        communicationTokens instanceof Map
+          ? Object.fromEntries(communicationTokens)
+          : communicationTokens
     };
   }
 }

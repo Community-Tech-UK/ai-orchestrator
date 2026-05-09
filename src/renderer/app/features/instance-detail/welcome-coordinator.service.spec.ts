@@ -9,6 +9,7 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import { OrchestrationIpcService } from '../../core/services/ipc';
 import { FileAttachmentService } from './file-attachment.service';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
+import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 
 describe('WelcomeCoordinatorService workflow launch', () => {
   let service: WelcomeCoordinatorService;
@@ -119,7 +120,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: '/repo',
       agentId: 'build',
       provider: 'claude',
-      model: 'opus',
+      model: CLAUDE_MODELS.OPUS_1M,
       forceNodeId: undefined,
     });
     expect(orchestration.workflowCanTransition).toHaveBeenCalledWith({
@@ -159,7 +160,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       workingDirectory: '/repo',
       agentId: 'build',
       provider: 'claude',
-      model: 'opus',
+      model: CLAUDE_MODELS.OPUS_1M,
       forceNodeId: undefined,
     });
     expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();

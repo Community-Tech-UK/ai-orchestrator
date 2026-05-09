@@ -331,8 +331,11 @@ export interface ModelDisplayInfo {
  */
 export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   claude: [
-    { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
+    // Order matters: getPrimaryModelForProvider returns [0]; OPUS_1M is the
+    // default new-session model so users get the 1M context window without
+    // having to manually pick the [1m] variant every time.
     { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
+    { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_45, name: 'Opus 4.5', tier: 'powerful', family: 'Opus' },

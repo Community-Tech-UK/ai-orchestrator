@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator } from './loop-coordinator';
-import type { LoopChildResult } from '../../shared/types/loop.types';
+import type { LoopChildResult } from './loop-coordinator';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -71,6 +71,51 @@ describe('LoopCoordinator double-start guard', () => {
     expect(b.chatId).toBe('chat-B');
     coordinator.cancelLoop(a.id);
     coordinator.cancelLoop(b.id);
+  });
+});
+
+describe('LoopCoordinator runtime context', () => {
+  it('injects existing-session context into the child prompt without storing it in config', async () => {
+    const marker = 'runtime-existing-session-marker';
+    let resolvePrompt!: (prompt: string) => void;
+    const promptSeen = new Promise<string>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    const coord = new LoopCoordinator();
+    coord.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { prompt: string; callback: (result: LoopChildResult) => void };
+      resolvePrompt(p.prompt);
+      p.callback({
+        childInstanceId: null,
+        output: 'ok',
+        tokens: 1,
+        filesChanged: [],
+        toolCalls: [],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        exitedCleanly: true,
+      });
+    });
+
+    const state = await coord.startLoop(
+      'chat-context',
+      {
+        initialPrompt: 'current loop goal',
+        workspaceCwd: workspace,
+      },
+      undefined,
+      { existingSessionContext: marker },
+    );
+    const prompt = await promptSeen;
+
+    expect(state.config.initialPrompt).toBe('current loop goal');
+    expect(state.config.initialPrompt).not.toContain(marker);
+    expect(prompt).toContain('Existing Session Context (read-only background)');
+    expect(prompt).toContain(marker);
+    expect(prompt).toContain('current loop goal');
+
+    await coord.cancelLoop(state.id);
   });
 });
 

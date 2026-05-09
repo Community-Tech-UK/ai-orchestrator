@@ -17,6 +17,8 @@ describe('CliUpdatePillComponent', () => {
         cli: 'claude',
         displayName: 'Claude Code',
         currentVersion: '1.0.0',
+        latestVersion: '1.1.0',
+        updateAvailable: true,
         updatePlan: {
           cli: 'claude',
           displayName: 'Claude Code',
@@ -42,6 +44,8 @@ describe('CliUpdatePillComponent', () => {
           cli: 'claude',
           displayName: 'Claude Code',
           currentVersion: '1.0.0',
+          latestVersion: '1.1.0',
+          updateAvailable: true,
           updatePlan: {
             cli: 'claude',
             displayName: 'Claude Code',
@@ -68,12 +72,60 @@ describe('CliUpdatePillComponent', () => {
     expect(store.init).toHaveBeenCalledOnce();
     const button = fixture.nativeElement.querySelector('.cli-update-pill') as HTMLButtonElement | null;
 
-    expect(button?.textContent).toContain('1 updater');
-    expect(button?.title).toContain('Claude Code 1.0.0: claude update');
+    expect(button?.textContent).toContain('Update CLI');
+    expect(button?.title).toContain('Claude Code 1.0.0 → 1.1.0: claude update');
+  });
+
+  it('pluralises when multiple updates are pending', () => {
+    state.set({
+      generatedAt: 3,
+      count: 2,
+      entries: [
+        {
+          cli: 'claude',
+          displayName: 'Claude Code',
+          currentVersion: '1.0.0',
+          latestVersion: '1.1.0',
+          updateAvailable: true,
+          updatePlan: { cli: 'claude', displayName: 'Claude Code', supported: true, displayCommand: 'claude update' },
+        },
+        {
+          cli: 'codex',
+          displayName: 'OpenAI Codex',
+          currentVersion: '0.5.0',
+          latestVersion: '0.6.0',
+          updateAvailable: true,
+          updatePlan: { cli: 'codex', displayName: 'OpenAI Codex', supported: true, displayCommand: 'npm install -g @openai/codex@latest' },
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('.cli-update-pill') as HTMLButtonElement | null;
+    expect(button?.textContent).toContain('Update CLIs');
   });
 
   it('hides when there are no pending updates', () => {
     state.set({ generatedAt: 2, count: 0, entries: [] });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.cli-update-pill')).toBeNull();
+  });
+
+  it('hides when entries exist but none have updateAvailable=true', () => {
+    state.set({
+      generatedAt: 4,
+      count: 0,
+      entries: [
+        {
+          cli: 'claude',
+          displayName: 'Claude Code',
+          currentVersion: '1.0.0',
+          updateAvailable: false,
+          updatePlan: { cli: 'claude', displayName: 'Claude Code', supported: true, displayCommand: 'claude update' },
+        },
+      ],
+    });
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.cli-update-pill')).toBeNull();

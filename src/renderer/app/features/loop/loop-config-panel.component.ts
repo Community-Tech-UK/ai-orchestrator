@@ -36,7 +36,7 @@ const DEFAULT_COMPLETION = {
       <header>
         <div class="header-titles">
           <h2>Loop Mode</h2>
-          <span class="subtitle">Iterate until verify passes — caps and review style apply.</span>
+          <span class="subtitle">Iterate toward the goal — caps and review style apply.</span>
         </div>
         <button type="button" class="close" (click)="dismissed.emit()" aria-label="Close">×</button>
       </header>
@@ -156,6 +156,15 @@ const DEFAULT_COMPLETION = {
             </select>
           </section>
 
+          <section class="row">
+            <label for="loop-cfg-stage">Start stage <span class="hint">(default continues work directly)</span></label>
+            <select id="loop-cfg-stage" [ngModel]="initialStage()" (ngModelChange)="initialStage.set($event)">
+              <option value="IMPLEMENT">Implement — continue toward the goal</option>
+              <option value="PLAN">Plan — write or improve a plan first</option>
+              <option value="REVIEW">Review — re-read the plan before implementation</option>
+            </select>
+          </section>
+
           <section class="row split">
             <div>
               <label for="loop-cfg-iter-timeout">Iteration timeout (min)</label>
@@ -169,7 +178,7 @@ const DEFAULT_COMPLETION = {
               />
             </div>
             <div>
-              <label for="loop-cfg-idle-timeout">Stream-idle abort (s)</label>
+              <label for="loop-cfg-idle-timeout">Stream-idle warning (s)</label>
               <input
                 id="loop-cfg-idle-timeout"
                 type="number"
@@ -184,7 +193,7 @@ const DEFAULT_COMPLETION = {
           <section class="row toggles">
             <label>
               <input type="checkbox" [checked]="requireRename()" (change)="requireRename.set(toggleEvent($event))" />
-              Require <code>*_Completed.md</code> rename before stopping
+              Require <code>*_Completed.md</code> plan rename before stopping
             </label>
             <label>
               <input type="checkbox" [checked]="runVerifyTwice()" (change)="runVerifyTwice.set(toggleEvent($event))" />
@@ -371,6 +380,13 @@ export class LoopConfigPanelComponent {
    *  preview so the user knows their message is being combined with the loop
    *  prompt. Doesn't autofill the prompt field — that belongs to the user. */
   firstMessageHint = input<string>('');
+  /** External pre-fill for the prompt textarea. Set by the host when the
+   *  user clicks "Reattempt" on a past loop run so they don't have to
+   *  re-type or paste. A non-null/non-empty value overwrites the recall
+   *  fallback. The host bumps this signal each time it wants a fresh seed
+   *  applied (e.g. consecutive Reattempts on different runs); we react to
+   *  every update rather than only the initial value. */
+  seedPrompt = input<string | null>(null);
 
   dismissed = output<void>();
   /** Emits whenever the panel's submittability changes. Lets the host
@@ -390,15 +406,16 @@ export class LoopConfigPanelComponent {
   maxIterations = signal(50);
   maxHours = signal(8);
   maxDollars = signal(10);
-  verifyCommand = signal('npx tsc --noEmit && npm test --silent');
+  verifyCommand = signal('');
   provider = signal<'claude' | 'codex'>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
-  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('fresh-child');
+  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
+  initialStage = signal<'PLAN' | 'REVIEW' | 'IMPLEMENT'>('IMPLEMENT');
   /** Per-iteration wall-clock cap, exposed in minutes for UI sanity. */
   iterationTimeoutMin = signal(30);
-  /** Per-iteration stream-idle abort, exposed in seconds for UI sanity. */
-  streamIdleTimeoutSec = signal(90);
-  requireRename = signal(true);
+  /** Per-iteration stream-idle warning, exposed in seconds for UI sanity. */
+  streamIdleTimeoutSec = signal(300);
+  requireRename = signal(false);
   runVerifyTwice = signal(true);
   allowDestructive = signal(false);
   showAdvanced = signal(false);
@@ -408,6 +425,17 @@ export class LoopConfigPanelComponent {
     // unrelated projects on the same machine.
     effect(() => {
       this.history.setWorkspace(this.workspaceCwd() || null);
+    });
+    // External seed (from "Reattempt past run") — overwrites the prompt
+    // textarea unconditionally on every change. We trust the host to only
+    // bump the seed when it really wants the panel to update; the host
+    // uses a request-id pattern to avoid stomping on user typing across
+    // unrelated re-renders.
+    effect(() => {
+      const seed = this.seedPrompt();
+      if (seed != null && seed.length > 0) {
+        this.prompt.set(seed);
+      }
     });
     // Pre-fill the prompt: most recent saved > canonical default.
     // Deliberately don't autofill from the message textarea — that's the
@@ -465,6 +493,7 @@ export class LoopConfigPanelComponent {
       provider: this.provider(),
       reviewStyle: this.reviewStyle(),
       contextStrategy: this.contextStrategy(),
+      initialStage: this.initialStage(),
       caps: {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,

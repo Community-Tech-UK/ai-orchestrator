@@ -24,6 +24,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
+import { parsePlanChecklist } from './loop-stage-machine';
 import type {
   CompletionSignalEvidence,
   LoopConfig,
@@ -34,10 +35,14 @@ import type {
 const logger = getLogger('LoopCompletionDetector');
 
 /**
- * Watches a workspace for `*_Completed.md` files. Reports both:
- *  - new appearance of a *_Completed.md file (rename target)
- *  - existence at start (catches the case where the rename happened during a
- *    crash-recover window).
+ * Watches a workspace for `*_Completed.md` files. Fires `onCompleted` only on
+ * NEW appearances during the run — chokidar's `ignoreInitial: true` ensures
+ * pre-existing matches are not reported. This is intentional: many workspaces
+ * accumulate stale `*_completed.md` plan files over time, and counting them
+ * as "the agent finished this run" is a false positive that has terminated
+ * loops on iteration 0 with zero tokens spent. `scanOnce()` is retained for
+ * observability logging only — the coordinator uses it to log "FYI a stale
+ * file is present" without seeding completion state.
  *
  * The watcher is idempotent — `start()` returns the existing watcher if
  * already running. Designed to be owned by the LoopCoordinator for the
@@ -92,8 +97,12 @@ export class CompletedFileWatcher {
         try { l(filePath); } catch (err) { logger.warn('CompletedFileWatcher listener threw', { error: String(err) }); }
       }
     };
+    // Listen to `add` only. A `mv X.md X_Completed.md` rename is reported by
+    // chokidar as `unlink('X.md')` + `add('X_Completed.md')`, so renames are
+    // covered. We deliberately do NOT listen to `change`: editing a
+    // pre-existing `*_Completed.md` (e.g. appending a "what we did" note)
+    // would otherwise trip completion on the edit, not on a rename.
     this.watcher.on('add', fire);
-    this.watcher.on('change', fire);
   }
 
   async stop(): Promise<void> {
@@ -143,12 +152,21 @@ export class LoopCompletionDetector {
     const { iteration, config, state } = input;
     const out: CompletionSignalEvidence[] = [];
 
+    // Completion signals are only actionable (sufficient to stop the loop)
+    // when the agent is actually in the IMPLEMENT stage. In PLAN and REVIEW
+    // stages, an agent emitting DONE has gone off-script — most commonly after
+    // a context compaction mid-iteration. We still record the signals for
+    // observability but mark them as insufficient so the loop continues.
+    const isImplement = iteration.stage === 'IMPLEMENT';
+
     // 1. *_Completed.md rename — owned by the watcher, recorded in state.
     if (state.completedFileRenameObserved) {
       out.push({
         id: 'completed-rename',
-        sufficient: true,
-        detail: 'A *_Completed.md rename was observed during the loop',
+        sufficient: isImplement,
+        detail: isImplement
+          ? 'A *_Completed.md rename was observed during the loop'
+          : 'A *_Completed.md rename was observed, but stage is not IMPLEMENT — ignoring',
       });
     }
 
@@ -158,23 +176,35 @@ export class LoopCompletionDetector {
       if (re.test(iteration.outputExcerpt)) {
         out.push({
           id: 'done-promise',
-          sufficient: true,
-          detail: 'Output contained <promise>DONE</promise>',
+          sufficient: isImplement,
+          detail: isImplement
+            ? 'Output contained <promise>DONE</promise>'
+            : 'Output contained <promise>DONE</promise>, but stage is not IMPLEMENT — ignoring',
         });
       }
     } catch (e) {
       logger.warn('done-promise regex invalid; skipping', { regex: config.completion.donePromiseRegex, error: String(e) });
     }
 
-    // 3. DONE sentinel
-    if (config.completion.doneSentinelFile) {
+    // 3. DONE sentinel.
+    //
+    // Staleness guard: if the sentinel was already present at startLoop, it's
+    // a leftover from a prior run, not evidence the agent finished this run.
+    // The coordinator captured `state.doneSentinelPresentAtStart` once at
+    // boot — we only fire when the sentinel is currently present AND was
+    // absent at start. (Edits to a pre-existing sentinel mid-run are
+    // intentionally not treated as evidence; the agent should delete and
+    // re-create it if they really mean a fresh signal.)
+    if (config.completion.doneSentinelFile && !state.doneSentinelPresentAtStart) {
       const sentinel = path.resolve(config.workspaceCwd, config.completion.doneSentinelFile);
       try {
         await fsp.access(sentinel);
         out.push({
           id: 'done-sentinel',
-          sufficient: true,
-          detail: `Sentinel file exists: ${config.completion.doneSentinelFile}`,
+          sufficient: isImplement,
+          detail: isImplement
+            ? `Sentinel file created during run: ${config.completion.doneSentinelFile}`
+            : `Sentinel file created during run: ${config.completion.doneSentinelFile}, but stage is not IMPLEMENT — ignoring`,
         });
       } catch {
         // not present — fine
@@ -190,19 +220,28 @@ export class LoopCompletionDetector {
       });
     }
 
-    // 6. plan-checklist 100%
-    if (config.planFile) {
+    // 6. plan-checklist 100%.
+    //
+    // Staleness guard: if the planFile was already fully ticked at startLoop
+    // (e.g. someone committed a "done" plan and started a new loop on top
+    // of it), that's not evidence the agent finished this run. We only fire
+    // when the checklist transitions from "had unchecked items" → "fully
+    // checked" during the run. `state.planChecklistFullyCheckedAtStart` is
+    // captured once by `LoopStageMachine.captureStartupSnapshot` at boot;
+    // we use the same `parsePlanChecklist` function here so the runtime
+    // measurement matches the baseline measurement exactly.
+    if (config.planFile && !state.planChecklistFullyCheckedAtStart) {
       const planPath = path.resolve(config.workspaceCwd, config.planFile);
       try {
         const text = await fsp.readFile(planPath, 'utf8');
-        const checked = (text.match(/^\s*[-*]\s*\[[xX]\]/gm) || []).length;
-        const unchecked = (text.match(/^\s*[-*]\s*\[\s\]/gm) || []).length;
-        const total = checked + unchecked;
-        if (total > 0 && unchecked === 0) {
+        const { checked, fullyChecked } = parsePlanChecklist(text);
+        if (fullyChecked) {
           out.push({
             id: 'plan-checklist',
-            sufficient: true,
-            detail: `All ${checked} checklist items in ${config.planFile} are checked`,
+            sufficient: isImplement,
+            detail: isImplement
+              ? `All ${checked} checklist items in ${config.planFile} were checked during this run`
+              : `All ${checked} checklist items in ${config.planFile} were checked during this run, but stage is not IMPLEMENT — ignoring`,
           });
         }
       } catch {
@@ -284,14 +323,13 @@ export class LoopCompletionDetector {
   }
 
   /**
-   * Belt-and-braces gate. Per user request: completion isn't real until
-   * the *_Completed.md rename has actually happened during this run.
-   * If `requireCompletedFileRename` is true, refuse to stop unless the
-   * watcher saw the rename.
+   * Belt-and-braces gate. When the user explicitly enables completed-file
+   * enforcement, completion isn't accepted until a *_Completed.md rename has
+   * actually happened during this run. General continuation loops leave this
+   * off because there may be no plan file to rename.
    */
   passesBeltAndBraces(state: LoopState, config: LoopConfig): boolean {
     if (!config.completion.requireCompletedFileRename) return true;
     return state.completedFileRenameObserved;
   }
 }
-

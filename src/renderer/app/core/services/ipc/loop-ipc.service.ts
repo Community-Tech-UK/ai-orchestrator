@@ -6,6 +6,16 @@ import type {
 } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
+export interface LoopActivityPayload {
+  loopRunId: string;
+  seq: number;
+  stage: string;
+  kind: 'spawned' | 'status' | 'tool_use' | 'assistant' | 'system' | 'error' | 'stream-idle' | 'complete' | 'heartbeat';
+  message: string;
+  timestamp: number;
+  detail?: Record<string, unknown>;
+}
+
 export interface LoopStartConfigInput {
   initialPrompt: string;
   /** Optional continuation directive used on iterations 1+. If omitted,
@@ -114,6 +124,12 @@ export class LoopIpcService {
   onIterationStarted(cb: (data: { loopRunId: string; seq: number; stage: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopIterationStarted((p) => this.ngZone.run(() => cb(p as { loopRunId: string; seq: number; stage: string })));
+  }
+  onActivity(cb: (data: LoopActivityPayload) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    const subscribe = (this.api as unknown as { onLoopActivity?: (cb: (p: unknown) => void) => () => void }).onLoopActivity;
+    if (typeof subscribe !== 'function') return () => { /* noop */ };
+    return subscribe((p) => this.ngZone.run(() => cb(p as LoopActivityPayload)));
   }
   onIterationComplete(cb: (data: { loopRunId: string; seq: number; verdict: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
