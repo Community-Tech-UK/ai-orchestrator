@@ -39,6 +39,9 @@ export class InstanceListStore {
   private ipc = inject(ElectronIpcService);
   private historyStore = inject(HistoryStore);
 
+  private static readonly CREATE_INSTANCE_EVENT_FALLBACK_TIMEOUT_MS = 10_000;
+  private static readonly CREATE_INSTANCE_EVENT_POLL_MS = 50;
+
   // File size limits (Anthropic API limits)
   private static readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024;     // 5MB for images
   private static readonly MAX_FILE_SIZE = 30 * 1024 * 1024;      // 30MB for other files
@@ -101,11 +104,20 @@ export class InstanceListStore {
    * Create a new instance
    */
   async createInstance(config: CreateInstanceConfig): Promise<void> {
+    await this.createInstanceAndReturnId(config);
+  }
+
+  /**
+   * Create a new instance, returning the new instance ID.
+   */
+  async createInstanceAndReturnId(config: CreateInstanceConfig): Promise<string | null> {
     console.log('InstanceListStore: createInstance called with:', config);
     this.stateService.setLoading(true);
+    const beforeIds = new Set(this.stateService.state().instances.keys());
+    const eventFallback = this.watchCreatedInstanceFromState(beforeIds, config);
 
     try {
-      const result = await this.ipc.createInstance({
+      const payload = {
         workingDirectory: config.workingDirectory || '.',
         displayName: config.displayName,
         parentInstanceId: config.parentId,
@@ -114,18 +126,44 @@ export class InstanceListStore {
         provider: config.provider,
         model: config.model,
         forceNodeId: config.forceNodeId,
-      });
-      console.log('InstanceListStore: createInstance result:', result);
-      this.stateService.setLoading(false);
-      if (result.success) {
-        this.syncInstanceFromResponse(result.data, true);
-      } else {
-        this.stateService.setError(result.error?.message || 'Failed to create instance');
+      };
+      const result = await Promise.race([
+        this.ipc.createInstance(payload).then((response) => ({
+          kind: 'response' as const,
+          response,
+        })),
+        eventFallback.promise.then((instanceId) => ({
+          kind: 'event' as const,
+          instanceId,
+        })),
+      ]);
+      eventFallback.cancel();
+
+      if (result.kind === 'event') {
+        this.stateService.setLoading(false);
+        if (result.instanceId) {
+          this.stateService.setSelectedInstance(result.instanceId);
+          return result.instanceId;
+        }
+        this.stateService.setError('Failed to create instance');
+        return null;
       }
+
+      const response = result.response;
+      console.log('InstanceListStore: createInstance result:', response);
+      this.stateService.setLoading(false);
+      if (response.success) {
+        return this.syncInstanceFromResponse(response.data, true);
+      } else {
+        this.stateService.setError(response.error?.message || 'Failed to create instance');
+      }
+      return null;
     } catch (error) {
+      eventFallback.cancel();
       console.error('InstanceListStore: createInstance error:', error);
       this.stateService.setLoading(false);
       this.stateService.setError('Failed to create instance');
+      return null;
     }
   }
 
@@ -449,6 +487,71 @@ export class InstanceListStore {
     }
 
     return instance.id;
+  }
+
+  private watchCreatedInstanceFromState(
+    beforeIds: Set<string>,
+    config: CreateInstanceConfig,
+  ): { promise: Promise<string | null>; cancel: () => void } {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let settle: (value: string | null) => void = () => undefined;
+    let settled = false;
+
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (interval) clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
+      settle(value);
+    };
+
+    const promise = new Promise<string | null>((resolve) => {
+      settle = resolve;
+      interval = setInterval(() => {
+        const instanceId = this.findCreatedInstanceFromState(beforeIds, config);
+        if (instanceId) {
+          finish(instanceId);
+        }
+      }, InstanceListStore.CREATE_INSTANCE_EVENT_POLL_MS);
+      timeout = setTimeout(
+        () => finish(null),
+        InstanceListStore.CREATE_INSTANCE_EVENT_FALLBACK_TIMEOUT_MS,
+      );
+    });
+
+    return {
+      promise,
+      cancel: () => finish(null),
+    };
+  }
+
+  private findCreatedInstanceFromState(
+    beforeIds: Set<string>,
+    config: CreateInstanceConfig,
+  ): string | null {
+    const expectedWorkingDirectory = config.workingDirectory
+      ? this.normalizePathForComparison(config.workingDirectory)
+      : null;
+    const expectedParentId = config.parentId ?? null;
+
+    for (const instance of this.stateService.state().instances.values()) {
+      if (beforeIds.has(instance.id)) continue;
+      if ((instance.parentId ?? null) !== expectedParentId) continue;
+      if (
+        expectedWorkingDirectory
+        && this.normalizePathForComparison(instance.workingDirectory) !== expectedWorkingDirectory
+      ) {
+        continue;
+      }
+      return instance.id;
+    }
+
+    return null;
+  }
+
+  private normalizePathForComparison(path: string): string {
+    return path.trim().replace(/\\/g, '/').replace(/\/+$/, '');
   }
 
   /**

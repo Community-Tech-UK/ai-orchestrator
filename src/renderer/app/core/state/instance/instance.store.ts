@@ -552,6 +552,11 @@ export class InstanceStore implements OnDestroy {
     return this.listStore.createInstance(config);
   }
 
+  /** Create a new instance, returning the new instance ID. */
+  async createInstanceAndReturnId(config: CreateInstanceConfig): Promise<string | null> {
+    return this.listStore.createInstanceAndReturnId(config);
+  }
+
   /** Create instance and immediately send a message */
   async createInstanceWithMessage(
     options: CreateInstanceWithMessageOptions,

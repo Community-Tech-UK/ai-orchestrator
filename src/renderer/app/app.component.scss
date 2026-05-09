@@ -55,18 +55,13 @@
   flex-wrap: wrap;
   margin: 0 1rem;
   padding: 0.625rem 0.875rem;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid rgba(234, 179, 8, 0.35);
   background: rgba(234, 179, 8, 0.12);
   color: var(--text-primary, #e5e5e5);
-  cursor: pointer;
   font: inherit;
   text-align: left;
   z-index: 1001;
-}
-
-.startup-banner:hover {
-  background: rgba(234, 179, 8, 0.18);
 }
 
 .startup-banner.failed {
@@ -81,15 +76,55 @@
 }
 
 .startup-banner-body {
+  flex: 1 1 20rem;
   font-size: 0.8125rem;
   color: var(--text-secondary, #cbd5e1);
 }
 
-.startup-banner-cta {
+.startup-banner-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.startup-banner-cta,
+.startup-banner-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--accent, #7aa2f7);
+  cursor: pointer;
+  font: inherit;
+}
+
+.startup-banner-cta {
+  padding: 0.25rem 0;
   font-size: 0.8125rem;
   font-weight: 700;
-  color: var(--accent, #7aa2f7);
+}
+
+.startup-banner-cta:hover {
+  color: var(--accent-hover, #9ab8ff);
+}
+
+.startup-banner-dismiss {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.startup-banner-dismiss:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #e5e5e5);
+}
+
+.startup-banner-dismiss svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
 }
 
 .app-main {

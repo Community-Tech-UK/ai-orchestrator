@@ -13,6 +13,7 @@ import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 describe('WelcomeCoordinatorService workflow launch', () => {
   let service: WelcomeCoordinatorService;
   let store: {
+    createInstanceAndReturnId: ReturnType<typeof vi.fn>;
     createInstanceWithMessageAndReturnId: ReturnType<typeof vi.fn>;
     setError: ReturnType<typeof vi.fn>;
   };
@@ -39,6 +40,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
 
   beforeEach(() => {
     store = {
+      createInstanceAndReturnId: vi.fn().mockResolvedValue('inst-new'),
       createInstanceWithMessageAndReturnId: vi.fn().mockResolvedValue('inst-new'),
       setError: vi.fn(),
     };
@@ -129,6 +131,44 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       instanceId: 'inst-new',
       templateId: 'pr-review',
       source: 'nl-suggestion',
+    });
+    expect(newSessionDraft.clearActiveComposer).toHaveBeenCalled();
+    expect(recentDirs.addDirectory).toHaveBeenCalledWith('/repo', undefined);
+    expect(creatingStates).toEqual([true]);
+  });
+
+  it('creates a blank welcome session before starting loop mode', async () => {
+    const creatingStates: boolean[] = [];
+    const startLoop = vi.fn().mockResolvedValue({ ok: true });
+
+    const launched = await service.onWelcomeStartSessionWithLoop(
+      'Please implement this plan',
+      {
+        initialPrompt: 'Please implement this plan',
+        iterationPrompt: 'Continue until done',
+        workspaceCwd: '/repo',
+        provider: 'claude',
+        contextStrategy: 'fresh-child',
+      },
+      (creating) => creatingStates.push(creating),
+      startLoop,
+    );
+
+    expect(launched).toBe(true);
+    expect(store.createInstanceAndReturnId).toHaveBeenCalledWith({
+      workingDirectory: '/repo',
+      agentId: 'build',
+      provider: 'claude',
+      model: 'opus',
+      forceNodeId: undefined,
+    });
+    expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();
+    expect(startLoop).toHaveBeenCalledWith('inst-new', {
+      initialPrompt: 'Folders:\nplans\n\nPlease implement this plan',
+      iterationPrompt: 'Folders:\nplans\n\nContinue until done',
+      workspaceCwd: '/repo',
+      provider: 'claude',
+      contextStrategy: 'fresh-child',
     });
     expect(newSessionDraft.clearActiveComposer).toHaveBeenCalled();
     expect(recentDirs.addDirectory).toHaveBeenCalledWith('/repo', undefined);

@@ -9,19 +9,32 @@
     <app-provider-quota-chip />
   </div>
 
-  @if (startupCapabilities() && startupCapabilities()!.status !== 'ready') {
-    <button
-      type="button"
+  @if (startupBannerReport(); as report) {
+    <section
       class="startup-banner"
-      [class.failed]="startupCapabilities()!.status === 'failed'"
-      (click)="openDoctorForBanner()"
+      [class.failed]="report.status === 'failed'"
+      role="status"
+      aria-live="polite"
     >
       <span class="startup-banner-title">
-        Startup checks: {{ startupCapabilities()!.status }}
+        Startup checks: {{ report.status }}
       </span>
       <span class="startup-banner-body">{{ startupCapabilitySummary() }}</span>
-      <span class="startup-banner-cta">Open Doctor</span>
-    </button>
+      <span class="startup-banner-actions">
+        <button type="button" class="startup-banner-cta" (click)="openDoctorForBanner()">Open Doctor</button>
+        <button
+          type="button"
+          class="startup-banner-dismiss"
+          aria-label="Dismiss startup checks banner"
+          title="Dismiss"
+          (click)="dismissStartupBanner()"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.3 3.2 8 6.9l3.7-3.7 1.1 1.1L9.1 8l3.7 3.7-1.1 1.1L8 9.1l-3.7 3.7-1.1-1.1L6.9 8 3.2 4.3l1.1-1.1Z" />
+          </svg>
+        </button>
+      </span>
+    </section>
   }
 
   @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {

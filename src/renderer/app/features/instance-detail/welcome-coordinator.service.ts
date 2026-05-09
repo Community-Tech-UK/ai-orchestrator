@@ -178,31 +178,39 @@ export class WelcomeCoordinatorService {
     firstMessage: string,
     config: LoopStartConfigInput,
     onCreatingChange: (creating: boolean) => void,
-    startLoop: (chatId: string) => Promise<{ ok: boolean; error?: string }>,
+    startLoop: (chatId: string, loopConfig: LoopStartConfigInput) => Promise<{ ok: boolean; error?: string }>,
   ): Promise<boolean> {
-    // The session's first user message uses the textarea content (with any
-    // attached files via prepareWelcomeLaunch). If the user opened the loop
-    // panel without typing anything, fall back to the loop's prompt so the
-    // session has something to anchor on in chat history.
+    // The loop coordinator must be the first consumer of the user's prompt.
+    // Creating the session with an initial message starts a normal provider
+    // turn before Loop Mode has acknowledged, which makes the UI look like
+    // Loop silently disappeared.
     const sessionMessage = firstMessage.trim() || config.initialPrompt;
     const plan = this.prepareWelcomeLaunch(sessionMessage);
     if (!plan) return false;
 
     onCreatingChange(true);
-    const instanceId = await this.store.createInstanceWithMessageAndReturnId(plan.config);
+    const instanceId = await this.store.createInstanceAndReturnId({
+      workingDirectory: plan.effectiveWorkingDir,
+      agentId: plan.config.agentId,
+      provider: plan.config.provider,
+      model: plan.config.model,
+      forceNodeId: plan.forceNodeId,
+    });
     if (!instanceId) {
       onCreatingChange(false);
       this.clearWelcomeNodeSelection();
       return false;
     }
 
-    await this.finalizeWelcomeLaunch(plan);
-
-    const r = await startLoop(instanceId);
+    const loopConfig = this.buildWelcomeLoopConfig(config, plan);
+    const r = await startLoop(instanceId, loopConfig);
     if (!r.ok) {
       this.store.setError(r.error || 'Loop start failed.');
       return false;
     }
+    void this.finalizeWelcomeLaunch(plan).catch((error) => {
+      console.warn('Failed to finalize welcome loop launch', error);
+    });
     return true;
   }
 
@@ -312,6 +320,24 @@ export class WelcomeCoordinatorService {
       },
       effectiveWorkingDir,
       forceNodeId,
+    };
+  }
+
+  private buildWelcomeLoopConfig(
+    config: LoopStartConfigInput,
+    plan: WelcomeLaunchPlan,
+  ): LoopStartConfigInput {
+    const folders = this.pendingFolders();
+    const prependFolders = (prompt: string) =>
+      this.fileAttachment.prependPendingFolders(prompt, folders);
+
+    return {
+      ...config,
+      workspaceCwd: plan.effectiveWorkingDir,
+      initialPrompt: prependFolders(config.initialPrompt),
+      iterationPrompt: config.iterationPrompt
+        ? prependFolders(config.iterationPrompt)
+        : undefined,
     };
   }
 

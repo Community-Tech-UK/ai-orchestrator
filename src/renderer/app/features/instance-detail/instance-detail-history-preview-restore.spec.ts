@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,8 +16,17 @@ import { TodoStore } from '../../core/state/todo.store';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { InstanceDetailComponent } from './instance-detail.component';
+import { LoopStore } from '../../core/state/loop.store';
+import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
+import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import type { ConversationData, ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { Instance, OutputMessage } from '../../core/state/instance/instance.types';
+
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const instanceDetailTemplate = readFileSync(
+  resolve(specDirectory, './instance-detail.component.html'),
+  'utf8',
+);
 
 await resolveComponentResources((url) => {
   if (url.endsWith('.html') || url.endsWith('.scss')) {
@@ -44,6 +56,12 @@ describe('InstanceDetailComponent history preview restore send', () => {
     getMessageQueue: ReturnType<typeof vi.fn>;
     isInstanceCompacting: ReturnType<typeof vi.fn>;
   };
+  let loopStore: {
+    start: ReturnType<typeof vi.fn>;
+  };
+  let loopPromptHistory: {
+    remember: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     historyStore = {
@@ -63,6 +81,12 @@ describe('InstanceDetailComponent history preview restore send', () => {
       getQueuedMessageCount: vi.fn(() => 0),
       getMessageQueue: vi.fn(() => []),
       isInstanceCompacting: vi.fn(() => false),
+    };
+    loopStore = {
+      start: vi.fn(),
+    };
+    loopPromptHistory = {
+      remember: vi.fn(),
     };
 
     TestBed.resetTestingModule();
@@ -92,6 +116,8 @@ describe('InstanceDetailComponent history preview restore send', () => {
         { provide: TodoStore, useValue: createTodoStoreMock() },
         { provide: WelcomeCoordinatorService, useValue: createWelcomeCoordinatorMock() },
         { provide: FileAttachmentService, useValue: { prependPendingFolders: (message: string) => message } },
+        { provide: LoopStore, useValue: loopStore },
+        { provide: LoopPromptHistoryService, useValue: loopPromptHistory },
       ],
     }).compileComponents();
 
@@ -138,6 +164,34 @@ describe('InstanceDetailComponent history preview restore send', () => {
     expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Continue once restored', []);
     expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('restored-1');
   });
+
+  it('wires loop starts from the history preview composer', () => {
+    expect(instanceDetailTemplate).toContain('(loopStartRequested)="onHistoryPreviewLoopStartRequested($event)"');
+  });
+
+  it('restores a history preview before starting a loop', async () => {
+    historyStore.restoreEntry.mockResolvedValue({
+      success: true,
+      instanceId: 'restored-1',
+      restoredMessages: createConversation().messages,
+    });
+    loopStore.start.mockResolvedValue({ ok: true });
+
+    const resolved: { ok: boolean; error?: string }[] = [];
+    const config = validLoopConfig();
+
+    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({
+      config,
+      firstMessage: 'Continue once restored',
+      attachments: [],
+      onResolved: (ok, error) => resolved.push({ ok, error }),
+    });
+
+    expect(historyStore.restoreEntry).toHaveBeenCalledWith('history-1', '/tmp/project');
+    expect(loopStore.start).toHaveBeenCalledWith('restored-1', config, []);
+    expect(loopPromptHistory.remember).toHaveBeenCalledWith('Continue until done');
+    expect(resolved).toEqual([{ ok: true, error: undefined }]);
+  });
 });
 
 function createConversation(): ConversationData {
@@ -166,6 +220,16 @@ function createConversation(): ConversationData {
         content: 'First',
       },
     ],
+  };
+}
+
+function validLoopConfig(): LoopStartConfigInput {
+  return {
+    initialPrompt: 'Continue once restored',
+    iterationPrompt: 'Continue until done',
+    workspaceCwd: '/tmp/project',
+    provider: 'claude',
+    contextStrategy: 'same-session',
   };
 }
 

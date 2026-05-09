@@ -2,7 +2,7 @@
  * Root Application Component
  */
 
-import { ChangeDetectionStrategy, Component, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { Router, RouterOutlet } from '@angular/router';
 import { ElectronIpcService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
@@ -23,6 +23,8 @@ import type {
   StartupCapabilityReport,
 } from '../../shared/types/startup-capability.types';
 import type { DoctorSectionId } from '../../shared/types/diagnostics.types';
+
+const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
 declare global {
   interface Window {
@@ -64,6 +66,18 @@ export class AppComponent implements OnInit, OnDestroy {
 
   isMacOS = false;
   readonly startupCapabilities = signal<StartupCapabilityReport | null>(null);
+  private readonly dismissedStartupBannerFingerprint = signal<string | null>(
+    this.readDismissedStartupBannerFingerprint(),
+  );
+  protected readonly startupBannerReport = computed(() => {
+    const report = this.startupCapabilities();
+    if (!report || report.status === 'ready') {
+      return null;
+    }
+
+    const fingerprint = this.startupCapabilityReportFingerprint(report);
+    return fingerprint === this.dismissedStartupBannerFingerprint() ? null : report;
+  });
   protected readonly resumeToast = signal<ResumeEvent | null>(null);
 
   constructor() {
@@ -77,6 +91,12 @@ export class AppComponent implements OnInit, OnDestroy {
           this.resumeToast.set(null);
         }
       }, 4500);
+    });
+
+    effect(() => {
+      if (this.startupCapabilities()?.status === 'ready' && this.dismissedStartupBannerFingerprint()) {
+        this.clearDismissedStartupBannerFingerprint();
+      }
     });
   }
 
@@ -158,6 +178,17 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
+  dismissStartupBanner(): void {
+    const report = this.startupCapabilities();
+    if (!report) {
+      return;
+    }
+
+    const fingerprint = this.startupCapabilityReportFingerprint(report);
+    this.dismissedStartupBannerFingerprint.set(fingerprint);
+    this.writeDismissedStartupBannerFingerprint(fingerprint);
+  }
+
   private pickHighestSeverityFailingCheck(
     checks: StartupCapabilityCheck[],
   ): StartupCapabilityCheck | null {
@@ -176,6 +207,65 @@ export class AppComponent implements OnInit, OnDestroy {
     if (checkId.startsWith('provider.')) return 'provider-health';
     if (checkId === 'subsystem.browser-automation') return 'browser-automation';
     return 'startup-capabilities';
+  }
+
+  private startupCapabilityReportFingerprint(report: StartupCapabilityReport): string {
+    const failingChecks = report.checks
+      .filter((check) => check.status !== 'ready' && check.status !== 'disabled')
+      .map((check) => ({
+        critical: check.critical,
+        id: check.id,
+        status: check.status,
+        summary: check.summary,
+      }))
+      .sort((a, b) =>
+        a.id.localeCompare(b.id)
+        || a.status.localeCompare(b.status)
+        || a.summary.localeCompare(b.summary)
+        || Number(a.critical) - Number(b.critical)
+      );
+
+    return JSON.stringify({
+      status: report.status,
+      checks: failingChecks,
+    });
+  }
+
+  private readDismissedStartupBannerFingerprint(): string | null {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    try {
+      return window.localStorage.getItem(STARTUP_BANNER_DISMISSAL_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  private writeDismissedStartupBannerFingerprint(fingerprint: string): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(STARTUP_BANNER_DISMISSAL_STORAGE_KEY, fingerprint);
+    } catch {
+      // Dismissal still works for the current renderer session.
+    }
+  }
+
+  private clearDismissedStartupBannerFingerprint(): void {
+    this.dismissedStartupBannerFingerprint.set(null);
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.removeItem(STARTUP_BANNER_DISMISSAL_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures; the in-memory signal is already reset.
+    }
   }
 }
 

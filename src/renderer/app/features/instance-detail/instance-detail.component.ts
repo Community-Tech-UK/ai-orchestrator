@@ -734,6 +734,46 @@ export class InstanceDetailComponent {
     }
   }
 
+  async onHistoryPreviewLoopStartRequested(payload: {
+    config: LoopStartConfigInput;
+    firstMessage: string;
+    attachments: { name: string; data: Uint8Array }[];
+    onResolved: (ok: boolean, error?: string) => void;
+  }): Promise<void> {
+    const preview = this.historyPreview();
+    if (!preview) {
+      payload.onResolved(false, 'No history preview selected.');
+      return;
+    }
+
+    try {
+      const instanceId = await this.ensureHistoryPreviewRestored();
+      if (!instanceId) {
+        payload.onResolved(false, this.historyPreviewError() || 'Could not restore history entry for loop.');
+        return;
+      }
+
+      const r = await this.loopStore.start(instanceId, payload.config, payload.attachments);
+      if (!r.ok) {
+        const msg = r.error ?? 'unknown error';
+        this.historyPreviewError.set(`Loop start failed: ${msg}`);
+        payload.onResolved(false, msg);
+        return;
+      }
+
+      this.loopPromptHistory.remember(payload.config.iterationPrompt ?? payload.config.initialPrompt);
+      this.draftService.clearDraft(preview.id);
+      this.draftService.clearPendingFiles(preview.id);
+      this.draftService.clearPendingFolders(preview.id);
+      payload.onResolved(true);
+      this.selectRestoredHistoryPreview(preview.id, instanceId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.historyPreviewError.set(`Loop start failed: ${msg}`);
+      payload.onResolved(false, msg);
+    }
+  }
+
   onSteerMessage(message: string): void {
     const inst = this.instance();
     if (!inst) return;
@@ -1105,8 +1145,8 @@ export class InstanceDetailComponent {
         firstMessage,
         config,
         (creating) => this.isCreatingInstance.set(creating),
-        async (newChatId) => {
-          const r = await this.loopStore.start(newChatId, config, attachments);
+        async (newChatId, loopConfig) => {
+          const r = await this.loopStore.start(newChatId, loopConfig, attachments);
           if (!r.ok) lastStartError = r.error;
           return r;
         },

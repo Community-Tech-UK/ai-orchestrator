@@ -9,6 +9,7 @@ describe('InstanceListStore', () => {
   let store: InstanceListStore;
   let stateService: InstanceStateService;
   let ipc: {
+    createInstance: ReturnType<typeof vi.fn>;
     restartInstance: ReturnType<typeof vi.fn>;
     restartFreshInstance: ReturnType<typeof vi.fn>;
     changeModel: ReturnType<typeof vi.fn>;
@@ -19,6 +20,24 @@ describe('InstanceListStore', () => {
 
   beforeEach(() => {
     ipc = {
+      createInstance: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          id: 'created-instance',
+          displayName: 'Created instance',
+          createdAt: 1,
+          historyThreadId: 'thread-created',
+          parentId: null,
+          childrenIds: [],
+          status: 'idle',
+          lastActivity: 2,
+          sessionId: 'session-created',
+          workingDirectory: '/tmp/project',
+          yoloMode: false,
+          provider: 'claude',
+          outputBuffer: [],
+        },
+      }),
       restartInstance: vi.fn().mockResolvedValue({ success: true }),
       restartFreshInstance: vi.fn().mockResolvedValue({ success: true }),
       changeModel: vi.fn().mockResolvedValue({ success: true }),
@@ -135,6 +154,64 @@ describe('InstanceListStore', () => {
 
     expect(stateService.getInstance('restored-instance')).toBeDefined();
     expect(stateService.state().selectedInstanceId).toBeNull();
+  });
+
+  it('returns the created instance id when creating a blank instance', async () => {
+    const id = await store.createInstanceAndReturnId({
+      workingDirectory: '/tmp/project',
+      agentId: 'build',
+      provider: 'claude',
+      model: 'opus',
+    });
+
+    expect(id).toBe('created-instance');
+    expect(ipc.createInstance).toHaveBeenCalledWith({
+      workingDirectory: '/tmp/project',
+      displayName: undefined,
+      parentInstanceId: undefined,
+      yoloMode: undefined,
+      agentId: 'build',
+      provider: 'claude',
+      model: 'opus',
+      forceNodeId: undefined,
+    });
+    expect(stateService.getInstance('created-instance')).toBeDefined();
+    expect(stateService.state().selectedInstanceId).toBe('created-instance');
+  });
+
+  it('returns the created instance id from state when the create invoke does not resolve', async () => {
+    ipc.createInstance.mockReturnValue(new Promise(() => undefined));
+
+    const pending = store.createInstanceAndReturnId({
+      workingDirectory: '/tmp/project',
+      agentId: 'build',
+      provider: 'claude',
+    });
+
+    stateService.addInstance(
+      store.deserializeInstance({
+        id: 'event-created-instance',
+        displayName: 'Event-created instance',
+        createdAt: 1,
+        historyThreadId: 'thread-event-created',
+        parentId: null,
+        childrenIds: [],
+        status: 'idle',
+        lastActivity: 2,
+        sessionId: 'session-event-created',
+        workingDirectory: '/tmp/project',
+        yoloMode: false,
+        provider: 'claude',
+        outputBuffer: [],
+      }),
+      false,
+    );
+
+    const id = await pending;
+
+    expect(id).toBe('event-created-instance');
+    expect(stateService.state().loading).toBe(false);
+    expect(stateService.state().selectedInstanceId).toBe('event-created-instance');
   });
 
   it('preserves transcript and diff stats on resume restart', async () => {
