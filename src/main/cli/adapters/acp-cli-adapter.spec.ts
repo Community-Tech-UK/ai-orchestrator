@@ -409,16 +409,45 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
-  it('ignores malformed available command updates and keeps the ACP session usable', async () => {
+  it('treats available_commands_update + session_info_update as silent metadata, not chat output', async () => {
+    // Regression: cursor-agent ACP sends `availableCommands` (camelCase per
+    // the current spec) plus a `session_info_update` carrying the auto-
+    // generated session title. Older code (a) treated the camelCase field
+    // as malformed and emitted a red chat error, (b) returned an empty
+    // command list and rendered "Available commands: none advertised." as
+    // a system bubble, and (c) JSON.stringify'd the session_info_update
+    // straight into the chat. All three should now stay out of the chat.
     const proc = createInitializedAgentHarness();
 
     proc.onRequest('session/prompt', (message) => {
+      // Real cursor-agent payload (camelCase, populated list).
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'available_commands_update',
+          availableCommands: [
+            { name: 'simplify', description: 'Find low-info comments…' },
+            { name: 'shell', description: 'Run a literal shell command.' },
+          ],
+        },
+      });
+      // Real cursor-agent auto-title metadata.
+      proc.notify('session/update', {
+        sessionId: 'sess-acp-1',
+        update: {
+          sessionUpdate: 'session_info_update',
+          title: 'Orchestrator Optimizer',
+        },
+      });
+      // Legacy ACP-draft payload (no commands array at all). Should also
+      // stay silent — informational metadata, not a protocol violation.
       proc.notify('session/update', {
         sessionId: 'sess-acp-1',
         update: {
           sessionUpdate: 'available_commands_update',
         },
       });
+      // Real model output continues normally.
       proc.notify('session/update', {
         sessionId: 'sess-acp-1',
         update: {
@@ -435,7 +464,7 @@ describe('AcpCliAdapter', () => {
     });
     await adapter.spawn();
 
-    const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
+    const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
     const errors: Error[] = [];
     adapter.on('output', (message: { type: string; content: string; metadata?: Record<string, unknown> }) => {
       outputs.push(message);
@@ -446,14 +475,30 @@ describe('AcpCliAdapter', () => {
 
     expect(response.content).toBe('Still alive.');
     expect(errors).toHaveLength(0);
+
+    // No "Malformed ACP available commands update" red bubble.
+    const malformedBubble = outputs.find((o) =>
+      typeof o.content === 'string' && o.content.includes('Malformed ACP available commands update'),
+    );
+    expect(malformedBubble).toBeUndefined();
+
+    // No "Available commands: none advertised." follow-up bubble.
+    const noneAdvertisedBubble = outputs.find((o) =>
+      typeof o.content === 'string' && o.content.includes('none advertised'),
+    );
+    expect(noneAdvertisedBubble).toBeUndefined();
+
+    // No raw-JSON dump of session metadata into the chat.
+    const rawSessionInfoBubble = outputs.find((o) =>
+      typeof o.content === 'string' && o.content.includes('"session_info_update"'),
+    );
+    expect(rawSessionInfoBubble).toBeUndefined();
+
+    // The actual assistant content must still come through.
     expect(outputs).toContainEqual(
       expect.objectContaining({
-        type: 'error',
-        content: expect.stringContaining('Malformed ACP available commands update'),
-        metadata: expect.objectContaining({
-          source: 'acp-protocol-error',
-          recoverable: true,
-        }),
+        type: 'assistant',
+        content: 'Still alive.',
       }),
     );
 

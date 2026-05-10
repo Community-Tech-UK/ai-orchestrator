@@ -187,15 +187,69 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
     />
 
     @if (summary(); as s) {
-      <div class="loop-summary">
+      <div class="loop-summary" [attr.data-status]="s.status">
         <div class="lsum-title">
-          Loop ended — {{ summaryStatusLabel(s.status) }}
+          <span class="lsum-title-text">
+            Loop ended — <span class="lsum-status-pill" [attr.data-status]="s.status">{{ summaryStatusLabel(s.status) }}</span>
+          </span>
           <button type="button" class="lsum-close" (click)="onDismissSummary()" aria-label="Dismiss">×</button>
         </div>
         <div class="lsum-line">
           {{ s.iterations }} iterations · {{ duration(s.endedAt - s.startedAt) }} · {{ tokens(s.tokens) }} · {{ cost(s.costCents) }}
         </div>
         <div class="lsum-reason">Reason: {{ s.reason }}</div>
+
+        @if (s.lastIteration; as li) {
+          <div class="lsum-recap">
+            <div class="lsum-recap-stats">
+              <span class="lsum-stat">
+                <span class="lsum-stat-label">Files changed</span>
+                <span class="lsum-stat-value">{{ li.filesChanged.length }}</span>
+              </span>
+              @if (li.testPassCount !== null || li.testFailCount !== null) {
+                <span class="lsum-stat">
+                  <span class="lsum-stat-label">Tests</span>
+                  <span class="lsum-stat-value" [class.bad]="(li.testFailCount ?? 0) > 0">
+                    {{ li.testPassCount ?? 0 }} passed{{ (li.testFailCount ?? 0) > 0 ? ', ' + li.testFailCount + ' failed' : '' }}
+                  </span>
+                </span>
+              }
+              @if (li.verifyStatus !== 'not-run') {
+                <span class="lsum-stat">
+                  <span class="lsum-stat-label">Verify</span>
+                  <span class="lsum-stat-value" [class.bad]="li.verifyStatus === 'failed'" [class.ok]="li.verifyStatus === 'passed'">
+                    {{ li.verifyStatus }}
+                  </span>
+                </span>
+              }
+            </div>
+
+            @if (li.filesChanged.length > 0) {
+              <ul class="lsum-files">
+                @for (file of li.filesChanged | slice:0:8; track file.path) {
+                  <li class="lsum-file">
+                    <code>{{ file.path }}</code>
+                    <span class="lsum-file-diff">
+                      <span class="lsum-file-add">+{{ file.additions }}</span>
+                      <span class="lsum-file-del">-{{ file.deletions }}</span>
+                    </span>
+                  </li>
+                }
+                @if (li.filesChanged.length > 8) {
+                  <li class="lsum-file lsum-file-more">+{{ li.filesChanged.length - 8 }} more</li>
+                }
+              </ul>
+            }
+
+            @if (li.outputExcerpt) {
+              <div class="lsum-recap-output">
+                <div class="lsum-recap-label">Final response (iter {{ li.seq }} · {{ li.stage }})</div>
+                <pre class="lsum-recap-pre">{{ li.outputExcerpt }}</pre>
+              </div>
+            }
+          </div>
+        }
+
         <div class="lsum-prompt-actions">
           <button
             type="button"
@@ -444,10 +498,104 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
       border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
       background: rgba(255,255,255,0.04); font-size: 12px;
     }
-    .lsum-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+    /* Status-themed surface — completed gets a green tint so a successful
+     * loop pops visually instead of looking the same as a cancelled one.
+     * Other terminal states keep the neutral base. */
+    .loop-summary[data-status="completed"] {
+      border-color: rgba(142, 220, 142, 0.45);
+      background: rgba(142, 220, 142, 0.10);
+    }
+    .loop-summary[data-status="error"] {
+      border-color: rgba(247, 140, 124, 0.45);
+      background: rgba(247, 140, 124, 0.08);
+    }
+    .loop-summary[data-status="cap-reached"],
+    .loop-summary[data-status="no-progress"] {
+      border-color: rgba(247, 192, 122, 0.45);
+      background: rgba(247, 192, 122, 0.08);
+    }
+    .lsum-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; gap: 8px; }
+    .lsum-title-text { display: inline-flex; align-items: center; gap: 6px; }
+    .lsum-status-pill {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      padding: 1px 6px; border-radius: 3px;
+      background: rgba(255,255,255,0.08);
+      font-weight: 700;
+    }
+    .lsum-status-pill[data-status="completed"]   { color: #8edc8e; background: rgba(142,220,142,0.18); }
+    .lsum-status-pill[data-status="cancelled"]   { color: #c8b482; background: rgba(200,180,130,0.16); }
+    .lsum-status-pill[data-status="cap-reached"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
+    .lsum-status-pill[data-status="error"]       { color: #f78c7c; background: rgba(247,140,124,0.18); }
+    .lsum-status-pill[data-status="no-progress"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
     .lsum-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0; }
     .lsum-line { margin-top: 4px; opacity: 0.85; }
     .lsum-reason { margin-top: 2px; opacity: 0.65; font-size: 11px; }
+
+    .lsum-recap {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(255,255,255,0.12);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .lsum-recap-stats {
+      display: flex; flex-wrap: wrap; gap: 4px 14px;
+      font-size: 11px;
+    }
+    .lsum-stat { display: inline-flex; align-items: baseline; gap: 4px; }
+    .lsum-stat-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      opacity: 0.55;
+    }
+    .lsum-stat-value { font-weight: 600; opacity: 0.95; }
+    .lsum-stat-value.ok  { color: #8edc8e; }
+    .lsum-stat-value.bad { color: #f78c7c; }
+    .lsum-files {
+      list-style: none;
+      margin: 0; padding: 4px 0 0;
+      display: flex; flex-direction: column; gap: 2px;
+      font-size: 11px;
+    }
+    .lsum-file {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      padding: 1px 0;
+    }
+    .lsum-file code {
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 11px;
+      background: none; padding: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      min-width: 0; flex: 1;
+    }
+    .lsum-file-diff {
+      display: inline-flex; gap: 6px;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    .lsum-file-add { color: #8edc8e; }
+    .lsum-file-del { color: #f78c7c; }
+    .lsum-file-more { opacity: 0.55; font-style: italic; }
+    .lsum-recap-output { display: flex; flex-direction: column; gap: 3px; }
+    .lsum-recap-label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      opacity: 0.55;
+    }
+    .lsum-recap-pre {
+      margin: 0;
+      padding: 8px 10px;
+      max-height: 280px;
+      overflow: auto;
+      background: rgba(0,0,0,0.28);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 4px;
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: inherit;
+    }
     .lsum-prompt-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
     .lsum-prompt-btn {
       padding: 3px 8px; font-size: 11px; font: inherit;

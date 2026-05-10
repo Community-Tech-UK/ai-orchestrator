@@ -1145,16 +1145,32 @@ export class AcpCliAdapter extends BaseCliAdapter {
         break;
       case 'available_commands_update':
         {
+          // Slash-command discovery (cursor-agent advertises ~25; copilot
+          // varies). This is metadata about what the agent knows how to do,
+          // not conversation content — surfacing it as a chat bubble was
+          // pure noise. Parse it for diagnostics; if the agent ever exposes
+          // a command palette in the UI, this is the hook to wire up.
           const commands = this.normalizeAvailableCommands(rawUpdate);
-          this.emitStructuredOutput('system', this.renderAvailableCommands(commands), {
-            sessionUpdate,
-            commands,
+          logger.debug('ACP available_commands_update', {
+            sessionId,
+            commandCount: commands.length,
           });
         }
         break;
       case 'config_option_update':
       case 'session_info_update':
-        this.emitStructuredOutput('system', JSON.stringify(rawUpdate), { sessionUpdate });
+        // Session metadata (auto-generated title, summary, mode/model
+        // defaults). Older code dumped raw JSON into the chat — e.g.
+        // `{"sessionUpdate":"session_info_update","title":"Orchestrator
+        // Optimizer"}` showed up as a system bubble while the user was
+        // trying to follow a real conversation. Suppress; future work can
+        // route `title`/`summary` to a dedicated event so the UI can
+        // rename the instance tab.
+        logger.debug('ACP session metadata update', {
+          sessionId,
+          sessionUpdate,
+          rawUpdate,
+        });
         break;
       default:
         logger.debug('Ignoring ACP session update variant', {
@@ -1596,18 +1612,27 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
   }
 
-  private normalizeAvailableCommands(update: Record<string, unknown>): AcpAvailableCommandsUpdate['commands'] {
-    const commands = update['commands'];
-    if (!Array.isArray(commands)) {
-      this.emitRecoverableProtocolError('Malformed ACP available commands update', {
-        sessionUpdate: 'available_commands_update',
-        field: 'commands',
-        expected: 'array',
+  private normalizeAvailableCommands(
+    update: Record<string, unknown>,
+  ): NonNullable<AcpAvailableCommandsUpdate['availableCommands']> {
+    // ACP spec field name is `availableCommands` (camelCase). Older drafts
+    // used the bare `commands` key — accept both so we work against
+    // cursor-agent (canonical), copilot, and any older agents in the wild.
+    const candidate = update['availableCommands'] ?? update['commands'];
+    if (!Array.isArray(candidate)) {
+      // The slash-command catalog is informational and optional. A missing
+      // or non-array payload is not a real protocol violation — older code
+      // surfaced a red "Malformed ACP available commands update" bubble in
+      // the chat, which scared users off perfectly working sessions
+      // (cursor's payload uses `availableCommands` so the lookup against
+      // `commands` always missed). Log for diagnostics and move on.
+      logger.debug('ACP available_commands_update missing commands array', {
+        keys: Object.keys(update),
       });
       return [];
     }
 
-    return commands.flatMap((command) => {
+    return candidate.flatMap((command) => {
       if (typeof command === 'string' && command.trim()) {
         return [{ name: command.trim() }];
       }
@@ -1668,17 +1693,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return parts ? `- ${entry.content} (${parts})` : `- ${entry.content}`;
     });
     return ['Plan:', ...lines].join('\n');
-  }
-
-  private renderAvailableCommands(commands: AcpAvailableCommandsUpdate['commands']): string {
-    if (commands.length === 0) {
-      return 'Available commands: none advertised.';
-    }
-
-    const lines = commands.map((command) =>
-      command.description ? `- ${command.name}: ${command.description}` : `- ${command.name}`,
-    );
-    return ['Available commands:', ...lines].join('\n');
   }
 
   private buildPermissionPrompt(pending: AcpPendingPermissionRequest): string {

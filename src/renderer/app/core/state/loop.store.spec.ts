@@ -195,6 +195,70 @@ describe('LoopStore', () => {
     });
   });
 
+  it('snapshots the last iteration onto the terminal summary so the card can recap without an extra IPC', () => {
+    store.ensureWired();
+    const base = activeState();
+    const last = loopIteration({
+      seq: 3,
+      stage: 'IMPLEMENT',
+      outputExcerpt: 'Implemented and verified the change.',
+      filesChanged: [
+        { path: 'src/a.ts', additions: 12, deletions: 3, contentHash: 'a' },
+        { path: 'src/b.ts', additions: 4, deletions: 0, contentHash: 'b' },
+      ],
+      testPassCount: 42,
+      testFailCount: 0,
+      verifyStatus: 'passed',
+      verifyOutputExcerpt: 'all checks passed',
+      progressVerdict: 'OK',
+    });
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...base,
+        status: 'completed',
+        totalIterations: 4,
+        endedAt: 1778310600000,
+        lastIteration: last,
+      },
+    }));
+
+    expect(store.summaryForChat('chat-1')()).toMatchObject({
+      status: 'completed',
+      lastIteration: {
+        seq: 3,
+        stage: 'IMPLEMENT',
+        outputExcerpt: 'Implemented and verified the change.',
+        testPassCount: 42,
+        testFailCount: 0,
+        verifyStatus: 'passed',
+        verifyOutputExcerpt: 'all checks passed',
+        progressVerdict: 'OK',
+        filesChanged: [
+          { path: 'src/a.ts', additions: 12, deletions: 3 },
+          { path: 'src/b.ts', additions: 4, deletions: 0 },
+        ],
+      },
+    });
+  });
+
+  it('leaves lastIteration undefined when the loop terminated before any iteration completed', () => {
+    store.ensureWired();
+    const base = activeState();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...base,
+        status: 'cancelled',
+        totalIterations: 0,
+        endedAt: 1778310300000,
+        // no lastIteration provided
+      },
+    }));
+
+    expect(store.summaryForChat('chat-1')()?.lastIteration).toBeUndefined();
+  });
+
   it('exposes runningChatIds for list-view consumers and tracks paused loops', () => {
     store.ensureWired();
 

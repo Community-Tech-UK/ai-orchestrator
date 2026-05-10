@@ -483,12 +483,22 @@ export interface AcpConfigOptionUpdate {
   configOptions: AcpSessionConfigOption[];
 }
 
+export interface AcpAvailableCommand {
+  name: string;
+  description?: string;
+}
+
 export interface AcpAvailableCommandsUpdate {
   sessionUpdate: 'available_commands_update';
-  commands: Array<{
-    name: string;
-    description?: string;
-  }>;
+  /**
+   * Slash-command catalog the agent advertises. The current ACP spec uses
+   * `availableCommands` (camelCase, plural). Earlier drafts and a handful of
+   * implementations used the bare `commands` key; the runtime normalizer
+   * accepts either, but new code should use `availableCommands`.
+   */
+  availableCommands?: AcpAvailableCommand[];
+  /** @deprecated Legacy alias for `availableCommands` from older ACP drafts. */
+  commands?: AcpAvailableCommand[];
 }
 
 export type AcpSessionUpdate =

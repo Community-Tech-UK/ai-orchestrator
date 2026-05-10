@@ -31,6 +31,27 @@ export interface LoopBannerClaimedFailed {
 
 export type LoopBanner = LoopBannerNoProgress | LoopBannerClaimedFailed;
 
+/**
+ * Compact snapshot of the loop's final iteration. Captured into the
+ * summary card so the renderer can show "what was changed / what the
+ * agent said at the end" without a follow-up `getIterations` IPC.
+ *
+ * This is intentionally a subset of `LoopIterationPayload` — only the
+ * fields the summary card needs — so a future iteration-shape change
+ * doesn't ripple into store consumers that just want a recap.
+ */
+export interface LoopFinalSummaryLastIteration {
+  seq: number;
+  stage: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
+  outputExcerpt: string;
+  filesChanged: { path: string; additions: number; deletions: number }[];
+  testPassCount: number | null;
+  testFailCount: number | null;
+  verifyStatus: 'not-run' | 'passed' | 'failed';
+  verifyOutputExcerpt: string;
+  progressVerdict: 'OK' | 'WARN' | 'CRITICAL';
+}
+
 export interface LoopFinalSummary {
   loopRunId: string;
   status: 'completed' | 'cancelled' | 'cap-reached' | 'error' | 'no-progress';
@@ -47,6 +68,11 @@ export interface LoopFinalSummary {
   /** Optional continuation directive used on iterations 1+. Empty when the
    *  loop re-used `initialPrompt` for every iteration. */
   iterationPrompt?: string;
+  /** Snapshot of the loop's final iteration so the summary card can show
+   *  the agent's closing message + diff stats without round-tripping to
+   *  the main process. Absent when the loop terminated before any
+   *  iteration completed. */
+  lastIteration?: LoopFinalSummaryLastIteration;
 }
 
 export interface LoopRunningIteration {
@@ -156,6 +182,7 @@ export class LoopStore {
           endedAt: state.endedAt ?? Date.now(),
           initialPrompt: state.config.initialPrompt,
           iterationPrompt: state.config.iterationPrompt,
+          lastIteration: snapshotLastIteration(state.lastIteration),
         });
         this.clearRunningIteration(state.id);
         this.clearActive(state.chatId);
@@ -355,4 +382,37 @@ export class LoopStore {
     }
     return null;
   }
+}
+
+/** Truncate the agent's final response so the summary card never blows
+ *  out — the full text is always available via Inspect trace. */
+const MAX_SUMMARY_OUTPUT_CHARS = 4_000;
+/** Truncate verify command output similarly. Verify dumps can be huge
+ *  (full test logs); the trace inspector keeps the unabridged copy. */
+const MAX_SUMMARY_VERIFY_CHARS = 1_500;
+
+function snapshotLastIteration(
+  iteration: LoopStatePayload['lastIteration'],
+): LoopFinalSummaryLastIteration | undefined {
+  if (!iteration) return undefined;
+  return {
+    seq: iteration.seq,
+    stage: iteration.stage,
+    outputExcerpt: truncateForSummary(iteration.outputExcerpt, MAX_SUMMARY_OUTPUT_CHARS),
+    filesChanged: iteration.filesChanged.map((file) => ({
+      path: file.path,
+      additions: file.additions,
+      deletions: file.deletions,
+    })),
+    testPassCount: iteration.testPassCount,
+    testFailCount: iteration.testFailCount,
+    verifyStatus: iteration.verifyStatus,
+    verifyOutputExcerpt: truncateForSummary(iteration.verifyOutputExcerpt, MAX_SUMMARY_VERIFY_CHARS),
+    progressVerdict: iteration.progressVerdict,
+  };
+}
+
+function truncateForSummary(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 18).trimEnd()}\n…(truncated)`;
 }
