@@ -373,6 +373,7 @@ export type LoopActivityKind =
   | 'tool_use'
   | 'assistant'
   | 'system'
+  | 'input_required'
   | 'error'
   | 'stream-idle'
   | 'complete'

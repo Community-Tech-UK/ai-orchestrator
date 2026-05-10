@@ -44,6 +44,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
         <span
           class="provider-badge"
           [class.provider-busy]="showActivitySpinner()"
+          [class.provider-looping]="isLooping()"
           [class.provider-hibernated]="isHibernated()"
           [class.provider-needs-attention]="needsAttention()"
           [style.color]="providerVisual().color"
@@ -276,6 +277,39 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       border-right-color: var(--provider-color, currentColor);
       animation: provider-spin 0.8s linear infinite;
       opacity: 0.85;
+    }
+
+    /* Loop spinner — distinct from the normal busy ring so a session that's
+       inside a loop is visually obvious even if the underlying CLI happens
+       to be idle between iterations.
+
+       Visual differentiators vs. .provider-busy:
+       - Fixed loop colour (cyan-violet) regardless of provider, so you can
+         spot loops at a glance across the rail.
+       - Two opposing arc segments (top + bottom) instead of the busy ring's
+         single quarter, signalling "running on a cycle".
+       - Slower rotation reads as steady automation, not active turn work.
+
+       When a session is BOTH busy AND looping, the loop colour wins (loop
+       takes precedence) — that's intentional: the loop is the higher-level
+       activity, and we don't want the spinner to flicker provider colour
+       on/off as iterations transition between busy and idle.
+    */
+    .provider-badge.provider-looping::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: var(--loop-spinner-color);
+      border-bottom-color: var(--loop-spinner-color);
+      animation: provider-spin 1.4s linear infinite;
+      opacity: 0.95;
+    }
+
+    .provider-badge.provider-looping {
+      --loop-spinner-color: #a78bfa; /* violet — distinct from provider hues */
+      position: relative;
     }
 
     /* Dim the provider icon when the instance is hibernated so it reads as inactive
@@ -627,6 +661,12 @@ export class InstanceRowComponent {
   // Drag state
   isDraggable = input<boolean>(false);
 
+  /** True when this session has a non-terminal Loop Mode run (running or
+   *  paused). Drives a distinct spinner ring so a looping session reads as
+   *  busy in the rail even when the underlying CLI is briefly idle between
+   *  iterations. */
+  isLooping = input<boolean>(false);
+
   // Outputs
   instanceSelect = output<string>();
   terminate = output<string>();
@@ -689,6 +729,7 @@ export class InstanceRowComponent {
     this.instance().status === 'waiting_for_permission'
   );
   readonly showActivitySpinner = computed(() =>
+    this.isLooping() ||
     this.instance().status === 'busy' ||
     this.instance().status === 'processing' ||
     this.instance().status === 'thinking_deeply' ||
@@ -736,6 +777,17 @@ export class InstanceRowComponent {
   });
 
   readonly activityLabel = computed(() => {
+    const base = this.statusActivityLabel();
+    if (this.isLooping()) {
+      // Surface the loop in the tooltip so the violet ring isn't a mystery.
+      // When the underlying status also has a label (e.g. "Working"), append
+      // it so we communicate both layers — "Loop running · Working".
+      return base ? `Loop running · ${base}` : 'Loop running';
+    }
+    return base;
+  });
+
+  private readonly statusActivityLabel = computed(() => {
     switch (this.instance().status) {
       case 'busy':
         return 'Working';

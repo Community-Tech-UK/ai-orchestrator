@@ -45,6 +45,7 @@ export function shortTime(timestamp: number): string {
 export function activityKindLabel(kind: string): string {
   switch (kind) {
     case 'tool_use': return 'tool';
+    case 'input_required': return 'input';
     case 'stream-idle': return 'quiet';
     default: return kind;
   }

@@ -19,6 +19,7 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 import { InstanceStore, type Instance } from '../../core/state/instance.store';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { HistoryStore } from '../../core/state/history.store';
+import { LoopStore } from '../../core/state/loop.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
@@ -102,6 +103,7 @@ export class InstanceListComponent implements OnDestroy {
   private host = inject(ElementRef<HTMLElement>);
   private store = inject(InstanceStore);
   private historyStore = inject(HistoryStore);
+  private loopStore = inject(LoopStore);
   private recentDirectoriesService = inject(RecentDirectoriesIpcService);
   private fileIpc = inject(FileIpcService);
   private historyIpc = inject(HistoryIpcService);
@@ -133,6 +135,18 @@ export class InstanceListComponent implements OnDestroy {
   protected contextMenuY = signal(0);
   protected contextMenuItems = signal<ContextMenuItem[]>([]);
   selectedId = this.store.selectedInstanceId;
+  /**
+   * Set of instance ids that currently have a non-terminal Loop Mode run.
+   * Each row reads `loopingInstanceIds().has(item.instance.id)` from the
+   * template — one Set lookup per row, no extra computeds allocated.
+   *
+   * NOTE: chats started from `chat-detail` are keyed by chat id, while
+   * chats started from `instance-detail` are keyed by instance id. The
+   * project rail surfaces instances, so only the latter naturally line up;
+   * that's the right behaviour here — a loop attached to a free-standing
+   * chat record (no live instance) has no row to decorate.
+   */
+  loopingInstanceIds = this.loopStore.runningChatIds;
   hasActiveFilters = computed(() =>
     this.statusFilter() !== 'all'
       || this.locationFilter() !== 'all'
@@ -389,6 +403,10 @@ export class InstanceListComponent implements OnDestroy {
     this.visibleInstanceResolver.setProjectGroupsSource(this.projectGroups);
     void this.historyStore.loadHistory();
     void this.loadRecentDirectories();
+    // Subscribe to loop IPC events so the rail can show the loop spinner
+    // for sessions that aren't currently selected. ensureWired is
+    // idempotent — safe to call from multiple components.
+    this.loopStore.ensureWired();
 
     effect(() => {
       const selected = this.store.selectedInstance();

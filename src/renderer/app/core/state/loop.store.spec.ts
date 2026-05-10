@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import type { LoopStatePayload } from '@contracts/schemas/loop';
+import type { LoopIterationPayload, LoopStatePayload } from '@contracts/schemas/loop';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoopIpcService, type LoopActivityPayload, type LoopStartConfigInput } from '../services/ipc/loop-ipc.service';
 import { LoopStore } from './loop.store';
@@ -23,6 +23,7 @@ describe('LoopStore', () => {
     intervene: ReturnType<typeof vi.fn>;
     cancel: ReturnType<typeof vi.fn>;
     listRunsForChat: ReturnType<typeof vi.fn>;
+    getIterations: ReturnType<typeof vi.fn>;
     onStateChanged: ReturnType<typeof vi.fn>;
     onIterationStarted: ReturnType<typeof vi.fn>;
     onActivity: ReturnType<typeof vi.fn>;
@@ -55,6 +56,7 @@ describe('LoopStore', () => {
       intervene: vi.fn(),
       cancel: vi.fn(),
       listRunsForChat: vi.fn(),
+      getIterations: vi.fn(),
       onStateChanged: vi.fn((cb) => subscribe(listeners.stateChanged, cb)),
       onIterationStarted: vi.fn((cb) => subscribe(listeners.iterationStarted, cb)),
       onActivity: vi.fn((cb) => subscribe(listeners.activity, cb)),
@@ -130,6 +132,7 @@ describe('LoopStore', () => {
       message: 'Read src/main/orchestration/default-invokers.ts',
       timestamp: 1778310000000,
     }]);
+    expect(store.activityForLoop('loop-1')()).toEqual(store.activityForChat('chat-1')());
   });
 
   it('clears running activity linkage when the loop reaches a terminal state', () => {
@@ -192,6 +195,40 @@ describe('LoopStore', () => {
     });
   });
 
+  it('exposes runningChatIds for list-view consumers and tracks paused loops', () => {
+    store.ensureWired();
+
+    expect(store.runningChatIds().size).toBe(0);
+
+    // Loop becomes active for chat-1 → should appear in the set.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: activeState(),
+    }));
+    expect(store.runningChatIds().has('chat-1')).toBe(true);
+
+    // Pausing keeps the chat in the running set — paused is non-terminal,
+    // and the rail spinner should keep showing so the user knows the loop
+    // is still attached, just not advancing right now.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    expect(store.runningChatIds().has('chat-1')).toBe(true);
+
+    // Terminal state clears it.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'completed',
+        totalIterations: 3,
+        endedAt: 1778310300000,
+      },
+    }));
+    expect(store.runningChatIds().has('chat-1')).toBe(false);
+  });
+
   it('leaves iterationPrompt undefined when the loop reused initialPrompt', () => {
     store.ensureWired();
     const base = activeState();
@@ -213,6 +250,19 @@ describe('LoopStore', () => {
     const summary = store.summaryForChat('chat-1')();
     expect(summary?.initialPrompt).toBe('one-prompt-fits-all');
     expect(summary?.iterationPrompt).toBeUndefined();
+  });
+
+  it('refreshes persisted loop iterations for inspection', async () => {
+    const iteration = loopIteration({ seq: 2, outputExcerpt: 'full enough evidence' });
+    ipc.getIterations.mockResolvedValueOnce({
+      success: true,
+      data: { iterations: [iteration] },
+    });
+
+    await store.refreshIterations('loop-1');
+
+    expect(ipc.getIterations).toHaveBeenCalledWith('loop-1');
+    expect(store.iterationsForLoop('loop-1')()).toEqual([iteration]);
   });
 });
 
@@ -270,5 +320,33 @@ function activeState(): LoopStatePayload {
       iterationTimeoutMs: 3_600_000,
       streamIdleTimeoutMs: 300_000,
     },
+  };
+}
+
+function loopIteration(overrides: Partial<LoopIterationPayload> = {}): LoopIterationPayload {
+  return {
+    id: 'iter-loop-1-0',
+    loopRunId: 'loop-1',
+    seq: 0,
+    stage: 'IMPLEMENT',
+    startedAt: 1778310000000,
+    endedAt: 1778310060000,
+    childInstanceId: 'child-1',
+    tokens: 1000,
+    costCents: 2,
+    filesChanged: [],
+    toolCalls: [],
+    errors: [],
+    testPassCount: null,
+    testFailCount: null,
+    workHash: 'hash',
+    outputSimilarityToPrev: null,
+    outputExcerpt: 'iteration output',
+    progressVerdict: 'OK',
+    progressSignals: [],
+    completionSignalsFired: [],
+    verifyStatus: 'not-run',
+    verifyOutputExcerpt: '',
+    ...overrides,
   };
 }

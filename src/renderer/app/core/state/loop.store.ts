@@ -1,5 +1,6 @@
 import { computed, Injectable, signal, inject } from '@angular/core';
 import type {
+  LoopIterationPayload,
   LoopRunSummaryPayload,
   LoopStatePayload,
 } from '@contracts/schemas/loop';
@@ -67,6 +68,8 @@ export class LoopStore {
   private summaryByChat = signal<Map<string, LoopFinalSummary | null>>(new Map());
   /** Map of chatId → recent runs list (for history view if shown). */
   private runsByChat = signal<Map<string, LoopRunSummaryPayload[]>>(new Map());
+  /** Map of loopRunId → persisted iteration records. */
+  private iterationsByLoop = signal<Map<string, LoopIterationPayload[]>>(new Map());
   /** Map of loopRunId → currently running iteration. */
   private runningIterationByLoop = signal<Map<string, LoopRunningIteration>>(new Map());
   /** Map of loopRunId → recent child CLI activity events. */
@@ -88,6 +91,12 @@ export class LoopStore {
   runsForChat = (chatId: string) =>
     computed(() => this.runsByChat().get(chatId) ?? []);
 
+  iterationsForLoop = (loopRunId: string) =>
+    computed(() => this.iterationsByLoop().get(loopRunId) ?? []);
+
+  activityForLoop = (loopRunId: string) =>
+    computed(() => this.activityByLoop().get(loopRunId) ?? []);
+
   runningIterationForChat = (chatId: string) =>
     computed(() => {
       const active = this.activeByChat().get(chatId);
@@ -105,6 +114,24 @@ export class LoopStore {
       const a = this.activeByChat().get(chatId);
       return !!a && (a.status === 'running' || a.status === 'paused');
     });
+
+  /**
+   * Set of chatIds that currently have a non-terminal loop (running or paused).
+   *
+   * This is the "list view" selector — preferred over `isRunningForChat(id)`
+   * for places that render many sessions at once (e.g. the project rail), so
+   * we don't allocate a new computed per row on every change-detection pass.
+   * Consumers do `runningChatIds().has(instanceId)` instead.
+   */
+  readonly runningChatIds = computed(() => {
+    const ids = new Set<string>();
+    for (const [chatId, state] of this.activeByChat()) {
+      if (state.status === 'running' || state.status === 'paused') {
+        ids.add(chatId);
+      }
+    }
+    return ids;
+  });
 
   // ────── lifecycle ──────
 
@@ -245,6 +272,15 @@ export class LoopStore {
       const map = new Map(this.runsByChat());
       map.set(chatId, r.data.runs);
       this.runsByChat.set(map);
+    }
+  }
+
+  async refreshIterations(loopRunId: string): Promise<void> {
+    const r = await this.ipc.getIterations(loopRunId);
+    if (r.success && r.data?.iterations) {
+      const map = new Map(this.iterationsByLoop());
+      map.set(loopRunId, r.data.iterations);
+      this.iterationsByLoop.set(map);
     }
   }
 

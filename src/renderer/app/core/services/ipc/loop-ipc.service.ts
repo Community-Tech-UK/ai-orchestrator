@@ -10,7 +10,7 @@ export interface LoopActivityPayload {
   loopRunId: string;
   seq: number;
   stage: string;
-  kind: 'spawned' | 'status' | 'tool_use' | 'assistant' | 'system' | 'error' | 'stream-idle' | 'complete' | 'heartbeat';
+  kind: 'spawned' | 'status' | 'tool_use' | 'assistant' | 'system' | 'input_required' | 'error' | 'stream-idle' | 'complete' | 'heartbeat';
   message: string;
   timestamp: number;
   detail?: Record<string, unknown>;

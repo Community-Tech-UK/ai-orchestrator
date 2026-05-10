@@ -195,6 +195,88 @@ describe('ChatService', () => {
     expect(instanceManager.inputs).toEqual([]);
   });
 
+  it('appends durable synthetic system events without spawning a runtime', async () => {
+    const { service, instanceManager } = createHarness();
+    const events: ChatEvent[] = [];
+    service.events.on('chat:event', (event: ChatEvent) => events.push(event));
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Loop summary',
+    });
+    events.length = 0;
+
+    const detail = service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-summary:loop-1',
+      nativeTurnId: 'loop:loop-1',
+      phase: 'loop_summary',
+      content: 'Loop ended - completed\n\nIterations: 2',
+      metadata: {
+        kind: 'loop-summary',
+        loopRunId: 'loop-1',
+      },
+    });
+
+    expect(instanceManager.creates).toEqual([]);
+    expect(detail.conversation.messages).toEqual([
+      expect.objectContaining({
+        nativeMessageId: 'loop-summary:loop-1',
+        nativeTurnId: 'loop:loop-1',
+        role: 'system',
+        phase: 'loop_summary',
+        content: expect.stringContaining('Loop ended - completed'),
+        sequence: 1,
+        rawJson: {
+          metadata: {
+            kind: 'loop-summary',
+            loopRunId: 'loop-1',
+          },
+        },
+      }),
+    ]);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'transcript-updated',
+        chatId: chat.chat.id,
+      }),
+    ]);
+  });
+
+  it('keeps synthetic system events idempotent by native message id', async () => {
+    const { service } = createHarness();
+    const events: ChatEvent[] = [];
+    service.events.on('chat:event', (event: ChatEvent) => events.push(event));
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Loop summary dedupe',
+    });
+    events.length = 0;
+
+    service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-summary:loop-1',
+      content: 'first',
+      metadata: { kind: 'loop-summary' },
+    });
+    service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-summary:loop-1',
+      content: 'second should not replace first',
+      metadata: { kind: 'loop-summary' },
+    });
+
+    expect(service.getChat(chat.chat.id).conversation.messages).toEqual([
+      expect.objectContaining({
+        nativeMessageId: 'loop-summary:loop-1',
+        content: 'first',
+        sequence: 1,
+      }),
+    ]);
+    expect(events.filter((event) => event.type === 'transcript-updated')).toHaveLength(1);
+  });
+
   it('recovers chats and transcripts across service restart without restoring stale runtimes', async () => {
     const firstDb = defaultDriverFactory(':memory:');
     createOperatorTables(firstDb);

@@ -36,6 +36,16 @@ export interface ChatServiceConfig {
   eventBus?: EventEmitter;
 }
 
+export interface ChatSystemEventInput {
+  chatId: string;
+  nativeMessageId: string;
+  nativeTurnId?: string;
+  phase?: string;
+  content: string;
+  createdAt?: number;
+  metadata?: Record<string, unknown>;
+}
+
 export class ChatService {
   private static instance: ChatService | null = null;
   readonly events: EventEmitter;
@@ -268,6 +278,40 @@ export class ChatService {
       currentInstanceId: instance.id,
       lastActiveAt: Date.now(),
     });
+    const detail = this.detailFor(updated);
+    this.emit({
+      type: 'transcript-updated',
+      chatId: updated.id,
+      detail,
+    });
+    return detail;
+  }
+
+  appendSystemEvent(input: ChatSystemEventInput): ChatDetail {
+    this.initialize();
+    const chat = this.requireChat(input.chatId);
+    const existing = this.ledger
+      .getConversation(chat.ledgerThreadId)
+      .messages
+      .some((message) => message.nativeMessageId === input.nativeMessageId);
+    if (existing) {
+      return this.detailFor(chat);
+    }
+
+    this.ledger.appendMessage(chat.ledgerThreadId, {
+      nativeMessageId: input.nativeMessageId,
+      nativeTurnId: input.nativeTurnId,
+      role: 'system',
+      phase: input.phase ?? null,
+      content: input.content,
+      createdAt: input.createdAt ?? Date.now(),
+      tokenInput: null,
+      tokenOutput: null,
+      rawRef: null,
+      rawJson: input.metadata ? { metadata: input.metadata } : null,
+      sourceChecksum: null,
+    });
+    const updated = this.store.update(chat.id, { lastActiveAt: Date.now() });
     const detail = this.detailFor(updated);
     this.emit({
       type: 'transcript-updated',

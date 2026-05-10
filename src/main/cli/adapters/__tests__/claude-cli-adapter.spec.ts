@@ -503,6 +503,131 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
 
       await expect(sendPromise).resolves.toMatchObject({ content: 'ok' });
     });
+
+    it('returns partial output on timeout when the message opts in', async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new ClaudeCliAdapter({ timeout: 100 });
+        const onComplete = vi.fn();
+        adapter.on('complete', onComplete);
+        const sendPromise = adapter.sendMessage({
+          role: 'user',
+          content: 'loop iteration',
+          metadata: { allowPartialOnTimeout: true },
+        });
+
+        await Promise.resolve();
+        const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
+        proc.stdout.emit(
+          'data',
+          Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":"partial work"}],"usage":{"input_tokens":5,"output_tokens":7}}}\n'),
+        );
+
+        await vi.advanceTimersByTimeAsync(100);
+
+        await expect(sendPromise).resolves.toMatchObject({
+          content: 'partial work',
+          metadata: {
+            timedOut: true,
+            timeoutMs: 100,
+          },
+          usage: {
+            totalTokens: 12,
+          },
+        });
+        expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGKILL');
+        expect(onComplete).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: 'partial work',
+            metadata: expect.objectContaining({ timedOut: true }),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('extends the timeout while a loop child has recent stdout activity', async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new ClaudeCliAdapter({ timeout: 100 });
+        const onOutput = vi.fn();
+        adapter.on('output', onOutput);
+        const sendPromise = adapter.sendMessage({
+          role: 'user',
+          content: 'loop iteration',
+          metadata: {
+            allowPartialOnTimeout: true,
+            continueWhileActiveOnTimeout: true,
+            activeTimeoutMs: 50,
+          },
+        });
+        let settled = false;
+        sendPromise.finally(() => {
+          settled = true;
+        });
+
+        await Promise.resolve();
+        const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
+        proc.stdout.emit(
+          'data',
+          Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":"initial work"}]}}\n'),
+        );
+        await vi.advanceTimersByTimeAsync(99);
+        proc.stdout.emit(
+          'data',
+          Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":" still active"}]}}\n'),
+        );
+
+        await vi.advanceTimersByTimeAsync(1);
+        await Promise.resolve();
+
+        expect(settled).toBe(false);
+        expect(killSpy).not.toHaveBeenCalled();
+        expect(onOutput).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'system',
+            content: expect.stringContaining('still active'),
+            metadata: expect.objectContaining({ timeoutExtended: true }),
+          }),
+        );
+
+        proc.stdout.emit(
+          'data',
+          Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":" done"}]}}\n'),
+        );
+        proc.emit('close', 0);
+
+        await expect(sendPromise).resolves.toMatchObject({
+          content: 'initial work still active done',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the existing timeout rejection behavior unless partial timeout is explicitly enabled', async () => {
+      vi.useFakeTimers();
+      try {
+        const adapter = new ClaudeCliAdapter({ timeout: 100 });
+        const sendPromise = adapter.sendMessage({ role: 'user', content: 'normal invocation' });
+
+        await Promise.resolve();
+        const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
+        proc.stdout.emit(
+          'data',
+          Buffer.from('{"type":"assistant","message":{"content":[{"type":"text","text":"partial work"}]}}\n'),
+        );
+
+        const rejection = expect(sendPromise).rejects.toThrow('Claude CLI timeout');
+        await vi.advanceTimersByTimeAsync(100);
+
+        await rejection;
+        expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGKILL');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('terminate', () => {

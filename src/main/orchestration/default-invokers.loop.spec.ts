@@ -20,6 +20,7 @@ import type { LoopChildResult } from './loop-coordinator';
 // loop coordinator is constructed inside beforeEach instead.
 const hoisted = vi.hoisted(() => ({
   sendMessage: vi.fn(),
+  sendRaw: vi.fn(),
   terminate: vi.fn(),
   setStreamIdleTimeoutMs: vi.fn(),
   setResume: vi.fn(),
@@ -29,6 +30,7 @@ const hoisted = vi.hoisted(() => ({
   loopCoordinatorRef: { current: null as unknown as EventEmitter },
   adapterRef: { current: null as unknown as EventEmitter & {
     sendMessage: ReturnType<typeof vi.fn>;
+    sendRaw: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
     setStreamIdleTimeoutMs: ReturnType<typeof vi.fn>;
     setResume: ReturnType<typeof vi.fn>;
@@ -84,6 +86,7 @@ describe('Loop Mode invoker plumbing', () => {
     // listener registry.
     hoisted.loopCoordinatorRef.current = new EventEmitter();
     hoisted.sendMessage.mockReset();
+    hoisted.sendRaw.mockReset().mockResolvedValue(undefined);
     hoisted.terminate.mockReset().mockResolvedValue(undefined);
     hoisted.setStreamIdleTimeoutMs.mockReset();
     hoisted.setResume.mockReset();
@@ -101,6 +104,7 @@ describe('Loop Mode invoker plumbing', () => {
       setResume: typeof hoisted.setResume;
     };
     adapterEmitter.sendMessage = hoisted.sendMessage;
+    adapterEmitter.sendRaw = hoisted.sendRaw;
     adapterEmitter.terminate = hoisted.terminate;
     adapterEmitter.setStreamIdleTimeoutMs = hoisted.setStreamIdleTimeoutMs;
     adapterEmitter.setResume = hoisted.setResume;
@@ -152,6 +156,28 @@ describe('Loop Mode invoker plumbing', () => {
 
     const callArg = hoisted.createAdapter.mock.calls[0][0];
     expect(callArg.options.timeout).toBe(7 * 60 * 1000);
+  });
+
+  it('marks loop sendMessage calls as activity-aware timeout eligible', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
+
+    const result = emitIteration({});
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(hoisted.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'user',
+        content: expect.stringContaining('do the thing'),
+        metadata: {
+          allowPartialOnTimeout: true,
+          continueWhileActiveOnTimeout: true,
+          activeTimeoutMs: 300_000,
+        },
+      }),
+    );
   });
 
   it('runs loop child adapters in YOLO mode without hidden permission hooks', async () => {
@@ -268,6 +294,119 @@ describe('Loop Mode invoker plumbing', () => {
     );
   });
 
+  it('surfaces hidden input_required prompts and auto-answers ordinary loop questions', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const activities: Array<{ kind: string; message: string; loopRunId: string; seq: number }> = [];
+    hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
+      activities.push(activity as { kind: string; message: string; loopRunId: string; seq: number });
+    });
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('input_required', {
+        id: 'ask-1',
+        prompt: 'Which enemy should be implemented next?',
+        metadata: { type: 'ask_user_question' },
+      });
+      return { content: 'ok', usage: { totalTokens: 3 } };
+    });
+
+    const result = emitIteration({ workspaceCwd: '/Users/test/Minecraft' });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'input_required',
+          message: expect.stringContaining('Which enemy should be implemented next?'),
+        }),
+        expect.objectContaining({
+          kind: 'status',
+          message: 'Auto-answering hidden loop question with autonomous-mode guidance',
+        }),
+      ]),
+    );
+    expect(hoisted.sendRaw).toHaveBeenCalledWith(
+      expect.stringContaining('Loop Mode is unattended'),
+    );
+  });
+
+  it('does not auto-answer hidden permission prompts', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const activities: Array<{ kind: string; message: string }> = [];
+    hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
+      activities.push(activity as { kind: string; message: string });
+    });
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('input_required', {
+        id: 'perm-1',
+        prompt: 'Permission required',
+        metadata: { type: 'deferred_permission' },
+      });
+      return { content: 'ok', usage: { totalTokens: 3 } };
+    });
+
+    const result = emitIteration({});
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(hoisted.sendRaw).not.toHaveBeenCalled();
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'error',
+          message: expect.stringContaining('cannot auto-answer'),
+        }),
+        expect.objectContaining({
+          kind: 'status',
+          message: expect.stringContaining('Terminating hidden loop child after input request'),
+        }),
+      ]),
+    );
+  });
+
+  it('terminates hidden loop children when an ordinary question cannot be auto-answered', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendRaw.mockRejectedValueOnce(new Error('stdin closed'));
+    const activities: Array<{ kind: string; message: string }> = [];
+    hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
+      activities.push(activity as { kind: string; message: string });
+    });
+    let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
+    hoisted.sendMessage.mockImplementation(() => {
+      hoisted.adapterRef.current.emit('input_required', {
+        id: 'ask-1',
+        prompt: 'Which enemy should be implemented next?',
+        metadata: { type: 'ask_user_question' },
+      });
+      return new Promise((resolve) => {
+        resolveSend = resolve;
+      });
+    });
+
+    const result = emitIteration({});
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'error',
+          message: expect.stringContaining('Failed to auto-answer hidden loop question: stdin closed'),
+        }),
+        expect.objectContaining({
+          kind: 'status',
+          message: expect.stringContaining('Terminating hidden loop child after input request'),
+        }),
+      ]),
+    );
+    expect(hoisted.terminate).toHaveBeenCalledWith(false);
+
+    resolveSend({ content: 'partial output after question', usage: { totalTokens: 2 } });
+    await result;
+  });
+
   it('terminates an in-flight fresh child when the loop enters a terminal state', async () => {
     registerDefaultLoopInvoker({} as never);
     let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
@@ -340,6 +479,24 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
       // Adapter is NOT torn down between iterations — it's reused.
       expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
+    it('uses configured timeout when creating a same-session adapter', async () => {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const result = emitIteration({
+        config: { contextStrategy: 'same-session' },
+        iterationTimeoutMs: 12 * 60 * 1000,
+        streamIdleTimeoutMs: 123_000,
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await result;
+
+      const callArg = hoisted.createAdapter.mock.calls[0][0];
+      expect(callArg.options.timeout).toBe(12 * 60 * 1000);
+      expect(hoisted.setStreamIdleTimeoutMs).toHaveBeenCalledWith(123_000);
     });
 
     it('switches a reused Claude adapter into resume mode after the first same-session iteration', async () => {

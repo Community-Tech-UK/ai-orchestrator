@@ -55,6 +55,7 @@ type LoopInvocationActivityKind =
   | 'tool_use'
   | 'assistant'
   | 'system'
+  | 'input_required'
   | 'error'
   | 'stream-idle'
   | 'complete'
@@ -66,9 +67,14 @@ interface LoopInvocationActivity {
   detail?: Record<string, unknown>;
 }
 
+const LOOP_AUTONOMOUS_INPUT_RESPONSE =
+  'Loop Mode is unattended. Do not wait for human input. Make the best reasonable assumption a senior engineer would defend, document it in NOTES.md, and continue. If the work is genuinely blocked, write BLOCKED.md with the exact blocker and exit the iteration.';
+const LOOP_DEFAULT_ACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
+
 function attachInvocationActivity(
   adapter: CliAdapter,
   sink: (activity: LoopInvocationActivity) => void,
+  options: { autoAnswerInputRequired?: boolean } = {},
 ): () => void {
   const emitter = adapter as unknown as {
     on?: (event: string, handler: (...args: unknown[]) => void) => void;
@@ -118,14 +124,89 @@ function attachInvocationActivity(
   listen('output', (output) => {
     sink(describeAdapterOutput(output));
   });
+  listen('input_required', (payload) => {
+    const data = isRecord(payload) ? payload : {};
+    const metadata = isRecord(data['metadata']) ? data['metadata'] : {};
+    const prompt = typeof data['prompt'] === 'string' ? data['prompt'] : 'CLI requested input';
+    const promptType = typeof metadata['type'] === 'string' ? metadata['type'] : 'input_required';
+    sink({
+      kind: 'input_required',
+      message: summarizeActivityText(`CLI requested input (${promptType}): ${prompt}`),
+      detail: {
+        ...metadata,
+        id: typeof data['id'] === 'string' ? data['id'] : undefined,
+        prompt,
+      },
+    });
+
+    if (!options.autoAnswerInputRequired) {
+      return;
+    }
+
+    const terminateHiddenInputWait = (reason: string): void => {
+      const terminate = (adapter as unknown as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
+      if (typeof terminate !== 'function') {
+        return;
+      }
+      sink({
+        kind: 'status',
+        message: `Terminating hidden loop child after input request: ${reason}`,
+        detail: { promptType },
+      });
+      terminate.call(adapter, false).catch((error: unknown) => {
+        sink({
+          kind: 'error',
+          message: `Failed to terminate hidden loop child after input request: ${error instanceof Error ? error.message : String(error)}`,
+          detail: { promptType },
+        });
+      });
+    };
+
+    const canAutoAnswer =
+      promptType !== 'permission_denial' &&
+      promptType !== 'deferred_permission' &&
+      promptType !== 'mcp_elicitation' &&
+      promptType !== 'acp_elicitation';
+    const sendRaw = (adapter as unknown as { sendRaw?: (text: string) => Promise<void> }).sendRaw;
+    if (!canAutoAnswer || typeof sendRaw !== 'function') {
+      sink({
+        kind: 'error',
+        message: canAutoAnswer
+          ? 'Loop child requested input, but this adapter cannot receive an automatic response'
+          : `Loop child requested ${promptType}; cannot auto-answer that safely in hidden Loop Mode`,
+        detail: { promptType, prompt },
+      });
+      terminateHiddenInputWait(canAutoAnswer ? 'adapter cannot receive automatic response' : `${promptType} cannot be answered safely`);
+      return;
+    }
+
+    sink({
+      kind: 'status',
+      message: 'Auto-answering hidden loop question with autonomous-mode guidance',
+      detail: { promptType },
+    });
+    sendRaw.call(adapter, LOOP_AUTONOMOUS_INPUT_RESPONSE).catch((error: unknown) => {
+      sink({
+        kind: 'error',
+        message: `Failed to auto-answer hidden loop question: ${error instanceof Error ? error.message : String(error)}`,
+        detail: { promptType },
+      });
+      terminateHiddenInputWait('automatic response failed');
+    });
+  });
   listen('complete', (response) => {
     const meta = isRecord(response) ? response : {};
     const usage = isRecord(meta['usage']) ? meta['usage'] : {};
+    const metadata = isRecord(meta['metadata']) ? meta['metadata'] : {};
     sink({
       kind: 'complete',
-      message: 'CLI response complete',
+      message: metadata['timedOut'] === true
+        ? 'CLI iteration timeout reached after partial output; continuing from partial result'
+        : 'CLI response complete',
       detail: {
         tokens: typeof usage['totalTokens'] === 'number' ? usage['totalTokens'] : undefined,
+        timedOut: metadata['timedOut'] === true ? true : undefined,
+        timeoutMs: typeof metadata['timeoutMs'] === 'number' ? metadata['timeoutMs'] : undefined,
       },
     });
   });
@@ -236,6 +317,14 @@ async function invokeCliTextResponse(params: {
   streamIdleTimeoutMs?: number;
   /** Run the child non-interactively, auto-approving CLI tool permissions. */
   yoloMode?: boolean;
+  /** Return partial CLI output instead of failing if a loop iteration hits its wall-clock cap. */
+  allowPartialOnTimeout?: boolean;
+  /** Treat the wall-clock timeout as a checkpoint while recent CLI output proves the child is active. */
+  continueWhileActiveOnTimeout?: boolean;
+  /** Recent-output window used to decide whether a timed-out loop child is still active. */
+  activeTimeoutMs?: number;
+  /** Hidden loop workers cannot ask the user; ordinary clarification prompts get an autonomous response. */
+  autoAnswerInputRequired?: boolean;
   permissionHookPath?: string;
   rtk?: UnifiedSpawnOptions['rtk'];
   /** Reuse an existing adapter instead of creating + terminating a fresh
@@ -281,7 +370,9 @@ async function invokeCliTextResponse(params: {
       ?? getProviderRuntimeService().createAdapter({ cliType, options: spawnOptions });
     const untrackAdapter = params.onAdapterReady?.(adapter) ?? (() => { /* noop */ });
     const detachActivity = params.activity
-      ? attachInvocationActivity(adapter, params.activity)
+      ? attachInvocationActivity(adapter, params.activity, {
+          autoAnswerInputRequired: params.autoAnswerInputRequired,
+        })
       : () => { /* noop */ };
     params.activity?.({
       kind: ownsAdapter ? 'spawned' : 'status',
@@ -304,10 +395,22 @@ async function invokeCliTextResponse(params: {
       // Stream-idle is intentionally advisory here. Claude CLI can be quiet
       // for minutes during real planning/thinking phases before emitting the
       // next JSON chunk, so treating the adapter's no-stdout watchdog as a
-      // hard failure kills valid Loop Mode work. The per-call wall-clock
-      // timeout remains the actual safety net.
-      return await (adapter as { sendMessage(m: { role: 'user'; content: string }): Promise<{ content: string; usage?: { totalTokens?: number } }> })
-        .sendMessage({ role: 'user', content: prompt });
+      // hard failure kills valid Loop Mode work. Loop Mode can opt into
+      // treating the wall-clock timeout as a checkpoint while recent stdout
+      // proves the child is still active.
+      const sendMetadata: CliMessage['metadata'] | undefined = params.allowPartialOnTimeout
+        ? {
+            allowPartialOnTimeout: true,
+            ...(params.continueWhileActiveOnTimeout ? { continueWhileActiveOnTimeout: true } : {}),
+            ...(typeof params.activeTimeoutMs === 'number' ? { activeTimeoutMs: params.activeTimeoutMs } : {}),
+          }
+        : undefined;
+      return await (adapter as { sendMessage(m: CliMessage): Promise<CliResponse> })
+        .sendMessage({
+          role: 'user',
+          content: prompt,
+          metadata: sendMetadata,
+        });
     } finally {
       detachActivity();
       // Caller owns the lifecycle when reusing an adapter (same-session
@@ -660,6 +763,7 @@ function enableAdapterResume(adapter: unknown): void {
 async function createPersistentLoopAdapter(opts: {
   provider: 'claude' | 'codex';
   workingDirectory: string;
+  timeoutMs?: number;
   streamIdleTimeoutMs?: number;
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
@@ -674,7 +778,7 @@ async function createPersistentLoopAdapter(opts: {
       yoloMode: true,
       // Generous wall-clock cap so a long iteration doesn't die on a
       // spawn-level timeout.
-      timeout: 30 * 60 * 1000,
+      timeout: opts.timeoutMs ?? 30 * 60 * 1000,
     },
   });
   if (typeof opts.streamIdleTimeoutMs === 'number') {
@@ -827,6 +931,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       message: `Iteration ${p.seq} starting in ${p.workspaceCwd}`,
       detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'fresh-child' },
     });
+    const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
+    const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
 
     // For `contextStrategy: 'same-session'`, lazily create one persistent
     // adapter per loopRunId and reuse it across iterations so the
@@ -846,7 +952,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         reusedAdapter = await createPersistentLoopAdapter({
           provider: p.provider,
           workingDirectory: p.workspaceCwd,
-          streamIdleTimeoutMs: p.streamIdleTimeoutMs,
+          timeoutMs: loopIterationTimeoutMs,
+          streamIdleTimeoutMs: loopActiveTimeoutMs,
         }).catch((err: unknown) => {
           logger.warn('Failed to create same-session loop adapter, falling back to fresh-child', {
             loopRunId: p.loopRunId,
@@ -874,13 +981,18 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         prompt: p.prompt,
         breakerKey: `loop-orchestration:${p.provider}`,
         correlationId: p.correlationId,
-        // Wall-clock cap per iteration — generous by default so legitimate
-        // long work (deep thinking, many tool calls, file edits) isn't
-        // killed. The CLI adapter may still emit stream-idle warnings, but
-        // the wall-clock timeout is the actual abort path.
-        timeoutMs: p.iterationTimeoutMs ?? 30 * 60 * 1000,
-        streamIdleTimeoutMs: p.streamIdleTimeoutMs,
+        // Wall-clock checkpoint per iteration — generous by default so
+        // legitimate long work (deep thinking, many tool calls, file edits)
+        // isn't killed. If the child is still producing output near the
+        // checkpoint, the adapter keeps waiting until it goes quiet past the
+        // stream-idle threshold.
+        timeoutMs: loopIterationTimeoutMs,
+        streamIdleTimeoutMs: loopActiveTimeoutMs,
         yoloMode: true,
+        allowPartialOnTimeout: true,
+        continueWhileActiveOnTimeout: true,
+        activeTimeoutMs: loopActiveTimeoutMs,
+        autoAnswerInputRequired: true,
         reusedAdapter,
         activity: emitActivity,
         onAdapterReady: (adapter) => trackActiveAdapter(p.loopRunId, adapter),

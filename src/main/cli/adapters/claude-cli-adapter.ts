@@ -443,6 +443,122 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     await this.primeCliVersion();
 
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const allowPartialOnTimeout = message.metadata?.['allowPartialOnTimeout'] === true;
+      const continueWhileActiveOnTimeout = message.metadata?.['continueWhileActiveOnTimeout'] === true;
+      const activeTimeoutMsRaw = message.metadata?.['activeTimeoutMs'];
+      const timeoutMs = this.config.timeout ?? 300000;
+      const activeTimeoutMs =
+        typeof activeTimeoutMsRaw === 'number' && Number.isFinite(activeTimeoutMsRaw) && activeTimeoutMsRaw > 0
+          ? Math.floor(activeTimeoutMsRaw)
+          : timeoutMs;
+      let hasOutputActivity = false;
+      let lastActivityAt = startTime;
+      let timeoutExtensionCount = 0;
+
+      const cleanupAfterSettle = (): void => {
+        this.process = null;
+        this.formatter = null;
+        this.parser.reset();
+      };
+
+      const finishResolve = (response: CliResponse): void => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        this.emit('complete', response);
+        resolve(response);
+      };
+
+      const finishReject = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        reject(error);
+      };
+
+      const terminateTimedOutProcess = (): void => {
+        this.terminate(false).catch((error: unknown) => {
+          logger.warn('Failed to terminate timed-out Claude CLI process', {
+            sessionId: this.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      };
+
+      const scheduleTimeout = (delayMs: number): void => {
+        timeout = setTimeout(handleTimeout, Math.max(1, delayMs));
+      };
+
+      const handleTimeout = (): void => {
+        timeout = undefined;
+        if (!this.process || settled) {
+          return;
+        }
+
+        const idleMs = Date.now() - lastActivityAt;
+        if (continueWhileActiveOnTimeout && hasOutputActivity && idleMs < activeTimeoutMs) {
+          timeoutExtensionCount += 1;
+          const nextDelayMs = Math.max(1, Math.min(timeoutMs, activeTimeoutMs - idleMs));
+          const idleSeconds = Math.max(0, Math.round(idleMs / 1000));
+          this.emit('output', {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content: `Claude CLI is still active (${idleSeconds}s since last output); extending iteration watchdog.`,
+            metadata: {
+              timeoutExtended: true,
+              idleMs,
+              activeTimeoutMs,
+              timeoutMs,
+              extensionCount: timeoutExtensionCount,
+            },
+          });
+          logger.info('Claude CLI reached timeout checkpoint but is still active; extending watchdog', {
+            sessionId: this.sessionId,
+            timeoutMs,
+            idleMs,
+            activeTimeoutMs,
+            extensionCount: timeoutExtensionCount,
+          });
+          scheduleTimeout(nextDelayMs);
+          return;
+        }
+
+        if (allowPartialOnTimeout && this.outputBuffer.trim().length > 0) {
+          const duration = Date.now() - startTime;
+          const response = this.parseOutput(this.outputBuffer);
+          response.usage = {
+            ...response.usage,
+            duration
+          };
+          response.metadata = {
+            ...response.metadata,
+            timedOut: true,
+            timeoutMs,
+            idleMs,
+            activeTimeoutMs,
+            timeoutExtensions: timeoutExtensionCount,
+          };
+          if (!response.content.trim()) {
+            response.content = 'Claude CLI reached the iteration timeout after emitting activity but before producing a final assistant message. Treat the workspace state and tool activity as the partial result, then continue from disk state in the next loop iteration.';
+          }
+          logger.warn('Claude CLI timeout after partial output; returning partial response', {
+            sessionId: this.sessionId,
+            timeoutMs,
+            idleMs,
+            activeTimeoutMs,
+            outputLength: this.outputBuffer.length,
+          });
+          finishResolve(response);
+        } else {
+          finishReject(new Error('Claude CLI timeout'));
+        }
+
+        terminateTimedOutProcess();
+      };
+
       const args = this.buildArgs(message);
       this.process = this.spawnProcess(args);
 
@@ -507,11 +623,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         }
       };
 
-      sendInput().catch(reject);
+      sendInput().catch((error: unknown) => {
+        finishReject(error instanceof Error ? error : new Error(String(error)));
+      });
 
       // Handle stdout (NDJSON stream)
       this.process.stdout?.on('data', (chunk: Buffer) => {
         const raw = chunk.toString();
+        hasOutputActivity = true;
+        lastActivityAt = Date.now();
         this.outputBuffer += raw;
 
         const messages = this.parser.parse(raw);
@@ -528,6 +648,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       // Handle exit
       this.process.on('close', (code) => {
+        if (settled) {
+          cleanupAfterSettle();
+          return;
+        }
+
         // Flush remaining buffer
         const remaining = this.parser.flush();
         for (const msg of remaining) {
@@ -542,26 +667,22 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             ...response.usage,
             duration
           };
-          this.emit('complete', response);
-          resolve(response);
+          finishResolve(response);
         } else {
-          reject(new Error(`Claude CLI exited with code ${code}`));
+          finishReject(new Error(`Claude CLI exited with code ${code}`));
         }
 
-        this.process = null;
-        this.formatter = null;
-        this.parser.reset();
+        cleanupAfterSettle();
       });
 
-      // Timeout handling
-      const timeout = setTimeout(() => {
-        if (this.process) {
-          this.process.kill('SIGTERM');
-          reject(new Error('Claude CLI timeout'));
-        }
-      }, this.config.timeout);
+      // Timeout handling. Loop Mode opts into activity-aware checkpoints:
+      // the wall-clock timeout only returns a partial result once the child
+      // has also been quiet past the configured stream-idle threshold.
+      scheduleTimeout(timeoutMs);
 
-      this.process.on('close', () => clearTimeout(timeout));
+      this.process.on('close', () => {
+        if (timeout) clearTimeout(timeout);
+      });
     });
   }
 

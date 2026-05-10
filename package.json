@@ -24,7 +24,7 @@
     "electron:build": "node scripts/fetch-rtk-binaries.js && electron-builder",
     "fetch:rtk": "node scripts/fetch-rtk-binaries.js",
     "localbuild": "npm run rebuild:native && npm run build && node scripts/localbuild.js",
-    "test": "node scripts/run-tests-with-native-restore.js",
+    "test": "node scripts/check-node.js && node scripts/verify-package-exports.js && vitest run",
     "test:unit": "vitest",
     "test:unit:run": "vitest run",
     "test:coverage": "vitest --coverage",

@@ -295,6 +295,7 @@
                           [isSelected]="selectedId() === item.instance.id"
                           [lastActivityLabel]="selectedId() === item.instance.id ? formatRelativeTime(item.instance.lastActivity) : null"
                           [isDraggable]="item.depth === 0"
+                          [isLooping]="loopingInstanceIds().has(item.instance.id)"
                           (instanceSelect)="onSelectInstance($event)"
                           (terminate)="onTerminateInstance($event)"
                           (restart)="onRestartInstance($event)"

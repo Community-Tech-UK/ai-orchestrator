@@ -11,11 +11,13 @@ import {
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getLoopStore } from '../../orchestration/loop-store';
+import { buildLoopTerminalChatSummary } from '../../orchestration/loop-chat-summary';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
 import type { LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
+import { getChatService } from '../../chats';
 
 const logger = getLogger('LoopHandlers');
 
@@ -25,6 +27,7 @@ export function registerLoopHandlers(deps: {
 }): void {
   const coordinator = getLoopCoordinator();
   const store = getLoopStore();
+  const chatService = getChatService({ instanceManager: deps.instanceManager });
 
   // ────── one-time wiring: persist + bridge events to renderer ──────
 
@@ -46,6 +49,17 @@ export function registerLoopHandlers(deps: {
   // Forward state changes to renderer.
   coordinator.on('loop:state-changed', (data: { loopRunId: string; state: LoopState }) => {
     try { store.upsertRun(data.state); } catch { /* logged below */ }
+    if (isTerminalLoopStatus(data.state.status)) {
+      try {
+        chatService.appendSystemEvent(buildLoopTerminalChatSummary(data.state));
+      } catch (err) {
+        logger.warn('Failed to append loop terminal summary to chat', {
+          loopRunId: data.loopRunId,
+          chatId: data.state.chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     send(IPC_CHANNELS.LOOP_STATE_CHANGED, data);
   });
   coordinator.on('loop:started', (data: unknown) => send(IPC_CHANNELS.LOOP_STARTED, data));
@@ -207,4 +221,15 @@ function errorResponse(code: string, error: unknown): IpcResponse {
       timestamp: Date.now(),
     },
   };
+}
+
+function isTerminalLoopStatus(status: LoopState['status']): boolean {
+  return (
+    status === 'completed'
+    || status === 'cancelled'
+    || status === 'cap-reached'
+    || status === 'error'
+    || status === 'no-progress'
+    || status === 'verify-failed'
+  );
 }
