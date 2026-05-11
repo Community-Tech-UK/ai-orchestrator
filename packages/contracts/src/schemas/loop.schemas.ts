@@ -76,6 +76,26 @@ export const LoopProgressThresholdsSchema = z.object({
   warnEscalationCount: z.number().int().min(2).max(50),
 });
 
+/**
+ * Severity levels used by the fresh-eyes cross-model review gate to decide
+ * whether a finding blocks completion. Mirrors `HeadlessReviewSeverity`
+ * from `src/main/cli-entrypoints/review-command-output.ts`.
+ */
+export const LoopReviewSeveritySchema = z.enum(['critical', 'high', 'medium', 'low']);
+
+/**
+ * Optional configuration block on `LoopCompletionConfig.crossModelReview`.
+ * Mirrors `LoopCrossModelReviewConfig` in `src/shared/types/loop.types.ts`.
+ * Both surfaces must stay in lockstep — see AGENTS.md "Type vs schema drift".
+ */
+export const LoopCrossModelReviewConfigSchema = z.object({
+  enabled: z.boolean(),
+  reviewers: z.array(z.string().min(1)).optional(),
+  blockingSeverities: z.array(LoopReviewSeveritySchema).min(1),
+  timeoutSeconds: z.number().int().positive().max(60 * 60),
+  reviewDepth: z.enum(['structured', 'tiered']),
+});
+
 export const LoopCompletionConfigSchema = z.object({
   completedFilenamePattern: z.string().min(1),
   donePromiseRegex: z.string().min(1),
@@ -84,6 +104,10 @@ export const LoopCompletionConfigSchema = z.object({
   verifyTimeoutMs: z.number().int().positive().max(60 * 60 * 1000),
   runVerifyTwice: z.boolean(),
   requireCompletedFileRename: z.boolean(),
+  /** Optional. When set, the loop coordinator runs a different CLI provider
+   *  as a fresh-eyes reviewer before accepting completion. Blocking findings
+   *  re-open the loop with the findings injected as user interventions. */
+  crossModelReview: LoopCrossModelReviewConfigSchema.optional(),
 });
 
 export const LoopConfigSchema = z.object({
