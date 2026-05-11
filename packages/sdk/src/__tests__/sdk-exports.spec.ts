@@ -2,56 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
-  BaseProvider,
   defineTool,
   type NotifierPlugin,
   type OrchestratorHooks,
-  type ProviderAttachment,
   type ProviderCapabilities,
   type ProviderConfig,
   type ProviderSessionOptions,
   type ProviderStatus,
+  type SystemMessageConfig,
   type TrackerPlugin,
   type ToolContext,
   type ToolModule,
 } from '@sdk';
-
-// @ts-expect-error wave2-task9 — provider + capabilities declared in Task 9
-class TestProvider extends BaseProvider {
-  getType() {
-    return 'openai-compatible' as const;
-  }
-
-  getCapabilities(): ProviderCapabilities {
-    return {
-      toolExecution: true,
-      streaming: true,
-      multiTurn: true,
-      vision: false,
-      fileAttachments: true,
-      functionCalling: false,
-      builtInCodeTools: false,
-    };
-  }
-
-  async checkStatus(): Promise<ProviderStatus> {
-    return {
-      type: this.getType(),
-      available: true,
-      authenticated: true,
-    };
-  }
-
-  async initialize(_options: ProviderSessionOptions): Promise<void> {
-    this.isActive = true;
-  }
-
-  async sendMessage(_message: string, _attachments?: ProviderAttachment[]): Promise<void> {}
-
-  async terminate(): Promise<void> {
-    this.isActive = false;
-  }
-}
 
 describe('SDK exports', () => {
   it('exports tool authoring helpers', async () => {
@@ -129,18 +91,43 @@ describe('SDK exports', () => {
     });
   });
 
-  it('exports provider extension points', async () => {
+  it('exports provider config and status types', () => {
     const config: ProviderConfig = {
       type: 'openai-compatible',
       name: 'Test Provider',
       enabled: true,
     };
 
-    const provider = new TestProvider(config);
-    expect(provider.getType()).toBe('openai-compatible');
-    await provider.initialize({ workingDirectory: '/tmp/project' });
-    expect(provider.isRunning()).toBe(true);
-    await provider.terminate();
-    expect(provider.isRunning()).toBe(false);
+    const status: ProviderStatus = {
+      type: config.type,
+      available: true,
+      authenticated: true,
+    };
+
+    const caps: ProviderCapabilities = {
+      toolExecution: true,
+      streaming: true,
+      multiTurn: true,
+      vision: false,
+      fileAttachments: true,
+      functionCalling: false,
+      builtInCodeTools: false,
+    };
+
+    const opts: ProviderSessionOptions = {
+      workingDirectory: '/tmp/project',
+      model: 'gpt-4o',
+      systemMessageConfig: {
+        mode: 'customize',
+        sections: {
+          tone: { action: 'replace', content: 'Be concise.' },
+        },
+      } satisfies SystemMessageConfig,
+    };
+
+    expect(config.type).toBe('openai-compatible');
+    expect(status.available).toBe(true);
+    expect(caps.streaming).toBe(true);
+    expect(opts.systemMessageConfig?.mode).toBe('customize');
   });
 });

@@ -9,8 +9,8 @@ import { trace, type Tracer } from '@opentelemetry/api';
 import type { SpanExporter } from '@opentelemetry/sdk-trace-base';
 import {
   BasicTracerProvider,
+  BatchSpanProcessor,
   ConsoleSpanExporter,
-  SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -53,9 +53,11 @@ export function initTracer(options?: TracerOptions): Tracer {
       exporters.push(new ConsoleSpanExporter());
     }
 
+    // Use BatchSpanProcessor for all exporters to avoid blocking the event loop
+    // per span (SimpleSpanProcessor calls export synchronously on each span.end()).
     provider = new BasicTracerProvider({
       resource,
-      spanProcessors: exporters.map((exporter) => new SimpleSpanProcessor(exporter)),
+      spanProcessors: exporters.map((exporter) => new BatchSpanProcessor(exporter)),
     });
 
     trace.setGlobalTracerProvider(provider);

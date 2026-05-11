@@ -249,19 +249,43 @@ describe('SessionDiffTracker', () => {
       expect(stats.files['relative.txt']).toBeDefined();
     });
 
-    it('ignores files outside the working directory', () => {
+    it('ignores non-artifact files outside the working directory', () => {
       const outsideDir = makeTmpDir();
       try {
-        const outsideFile = path.join(outsideDir, 'outside.txt');
-        writeFile(outsideFile, 'top secret\n');
+        const outsideFile = path.join(outsideDir, 'outside.js');
+        writeFile(outsideFile, 'console.log(1)\n');
 
         tracker.captureBaseline(outsideFile);
-        writeFile(outsideFile, 'top secret\nmore secrets\n');
+        writeFile(outsideFile, 'console.log(1)\nconsole.log(2)\n');
 
         const stats = tracker.computeDiff();
 
         expect(stats.totalAdded).toBe(0);
         expect(Object.keys(stats.files)).toHaveLength(0);
+      } finally {
+        rmDir(outsideDir);
+      }
+    });
+
+    it('tracks artifact files outside the working directory', () => {
+      // Artifact-type files (e.g. .md, .pdf, generated images) are sometimes
+      // dropped in /tmp by agents — surface them so the user can find them.
+      const outsideDir = makeTmpDir();
+      try {
+        const outsideArtifact = path.join(outsideDir, 'plan.md');
+        writeFile(outsideArtifact, '# Initial\n');
+
+        tracker.captureBaseline(outsideArtifact);
+        writeFile(outsideArtifact, '# Initial\n## Step 1\n');
+
+        const stats = tracker.computeDiff();
+
+        expect(stats.totalAdded).toBeGreaterThan(0);
+        // The map key is a relative path, which for an outside-cwd file will
+        // start with `..` — the renderer resolves it back to absolute via cwd.
+        const keys = Object.keys(stats.files);
+        expect(keys).toHaveLength(1);
+        expect(keys[0]).toMatch(/plan\.md$/);
       } finally {
         rmDir(outsideDir);
       }

@@ -59,6 +59,13 @@ export const LoopProgressThresholdsSchema = z.object({
   errorRepeatCriticalInWindow: z.number().int().min(2).max(20),
   tokensWithoutProgressWarn: z.number().int().min(1000),
   tokensWithoutProgressCritical: z.number().int().min(1000),
+  /**
+   * Opt-in to signal F (token-burn-without-test-progress). Defaults to
+   * false so existing persisted configs (which never had this field) and
+   * new programmatic callers that omit it both behave the same way: no
+   * automatic pause on token spend alone.
+   */
+  pauseOnTokenBurn: z.boolean().default(false),
   toolRepeatWarnPerIteration: z.number().int().min(2).max(1000),
   toolRepeatCriticalPerIteration: z.number().int().min(2).max(1000),
   testStagnationWarnIterations: z.number().int().min(1).max(50),

@@ -218,6 +218,8 @@ export class CliDetectionService {
   private cache: DetectionResult | null = null;
   private cacheTimeout = 60000; // 1 minute cache
   private cacheTime = 0;
+  private inFlightNormal: Promise<DetectionResult> | null = null;
+  private inFlightForced: Promise<DetectionResult> | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() {}
@@ -242,7 +244,7 @@ export class CliDetectionService {
   async detectAll(forceRefresh = false): Promise<DetectionResult> {
     logger.debug('detectAll called', { forceRefresh, home: process.env['HOME'] });
 
-    // Check cache
+    // Check cache (only for non-forced calls)
     if (!forceRefresh && this.cache) {
       const age = Date.now() - this.cacheTime;
       if (age < this.cacheTimeout) {
@@ -251,6 +253,33 @@ export class CliDetectionService {
       }
     }
 
+    // Deduplicate concurrent scans: return the in-flight promise if one is running.
+    if (forceRefresh) {
+      if (this.inFlightForced) {
+        logger.debug('Reusing in-flight forced scan');
+        return this.inFlightForced;
+      }
+    } else {
+      if (this.inFlightNormal) {
+        logger.debug('Reusing in-flight normal scan');
+        return this.inFlightNormal;
+      }
+    }
+
+    const scan = this.runScan();
+
+    if (forceRefresh) {
+      this.inFlightForced = scan;
+      scan.finally(() => { this.inFlightForced = null; });
+    } else {
+      this.inFlightNormal = scan;
+      scan.finally(() => { this.inFlightNormal = null; });
+    }
+
+    return scan;
+  }
+
+  private async runScan(): Promise<DetectionResult> {
     // Detect only supported CLIs (ones with provider implementations)
     const cliTypes = SUPPORTED_CLIS;
     logger.debug('Checking CLIs', { cliTypes });
@@ -473,7 +502,7 @@ export class CliDetectionService {
             result.version = versionMatch?.[1];
             result.path = command;
             result.authenticated = !output.includes('not authenticated');
-            logger.info('CLI detected', { command, version: result.version });
+            logger.debug('CLI detected', { command, version: result.version });
           } else {
             result.error = stderr.trim() || 'Command failed';
             logger.debug('CLI not detected', { command, error: result.error });

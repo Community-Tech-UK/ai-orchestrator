@@ -4,6 +4,7 @@ import { getSessionContinuityManagerIfInitialized } from '../session/session-con
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getPoolManager } from '../process/pool-manager';
 import { getLogger } from '../logging/logger';
+import { readPriorWatchdogReport } from '../runtime/main-process-watchdog';
 
 const logger = getLogger('RuntimeDiagnostics');
 const MAIN_PROCESS_MONITOR_INTERVAL_MS = 1000;
@@ -22,6 +23,16 @@ export function installRuntimeDiagnostics(): void {
   }
 
   runtimeDiagnosticsInstalled = true;
+
+  const priorReport = readPriorWatchdogReport(app.getPath('userData'));
+  if (priorReport) {
+    logger.warn('Prior run had a main-thread stall detected by watchdog', {
+      stallDetectedAt: new Date(priorReport.stallDetectedAt).toISOString(),
+      stalledForMs: priorReport.stalledForMs,
+      appVersion: priorReport.appVersion,
+      lastMetrics: priorReport.lastMetrics,
+    });
+  }
 
   app.on('child-process-gone', (_event, details) => {
     if (details.reason === 'clean-exit') {

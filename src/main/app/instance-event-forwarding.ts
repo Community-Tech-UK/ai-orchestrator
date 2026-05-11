@@ -25,11 +25,14 @@ import { getLoadBalancer } from '../process/load-balancer';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { recordProviderRuntimeEventSpan } from '../observability/otel-spans';
+import { getProviderRuntimeTraceSink } from '../observability/provider-runtime-trace-sink';
+import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import type { Instance } from '../../shared/types/instance.types';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 const logger = getLogger('InstanceEventForwarding');
 
@@ -59,10 +62,40 @@ function toSlice(instance: Instance): InstanceSlice {
   };
 }
 
+type ContinuityTask =
+  | { kind: 'state'; instanceId: string; update: Record<string, unknown> }
+  | { kind: 'entry'; instanceId: string; entry: { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; timestamp: number } };
+
 export function setupInstanceEventForwarding(options: InstanceEventForwardingOptions): void {
   const { instanceManager, windowManager, isStatelessExecProvider, getNodeLatencyForInstance } = options;
   const observer = getRemoteObserverServer();
   const repoJobs = getRepoJobService();
+  const traceSink = getProviderRuntimeTraceSink();
+
+  // Continuity updates run off the hot event path. State updates coalesce per
+  // instance (bounded queue, drop when full); entry ordering is preserved.
+  const continuityQueue = new BoundedAsyncQueue<ContinuityTask>({
+    name: 'session-continuity',
+    maxSize: 2_000,
+    concurrency: 1,
+    process: async (task) => {
+      try {
+        const continuity = getSessionContinuityManager();
+        if (task.kind === 'state') {
+          continuity.updateState(task.instanceId, task.update as Parameters<typeof continuity.updateState>[1]);
+        } else {
+          continuity.addConversationEntry(task.instanceId, task.entry);
+        }
+      } catch {
+        // Continuity failures are non-critical; log once per interval via the queue's own metrics.
+      }
+    },
+    onDrop: (_, reason) => {
+      if (reason === 'capacity') {
+        logger.debug('Continuity queue dropped task (capacity)');
+      }
+    },
+  });
 
   instanceManager.on('instance:created', (instance) => {
     windowManager.sendToRenderer('instance:created', instance);
@@ -107,53 +140,57 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     observer.publishInstanceState(update as Record<string, unknown>);
   });
 
-  instanceManager.on('provider:normalized-event', (envelope) => {
+  instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
     const instance = instanceManager.getInstance(envelope.instanceId);
-    const enrichedEnvelope = envelope.model || !instance?.currentModel
+    const enrichedEnvelope: ProviderRuntimeEventEnvelope = envelope.model || !instance?.currentModel
       ? envelope
       : { ...envelope, model: instance.currentModel };
     if (process.env['NODE_ENV'] !== 'production') {
       ProviderRuntimeEventEnvelopeSchema.parse(enrichedEnvelope);
     }
 
+    // Lightweight OTel span only for diagnostic event kinds (error/complete/context/exit).
+    // High-frequency output events route to the NDJSON trace sink instead.
     recordProviderRuntimeEventSpan(enrichedEnvelope);
+    traceSink.enqueue(enrichedEnvelope);
+
+    // Renderer IPC — the only synchronous operation in this hot path.
     windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, enrichedEnvelope);
+
     const message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
-    if (!message) {
-      return;
-    }
+    if (!message) return;
 
     observer.publishInstanceOutput(enrichedEnvelope.instanceId, message);
-    try {
-      const continuity = getSessionContinuityManager();
-      if (instance) {
-        const stateUpdate: Parameters<typeof continuity.updateState>[1] = {
-          sessionId: instance.sessionId,
-          historyThreadId: instance.historyThreadId,
-          provider: instance.provider,
-          displayName: instance.displayName,
-          workingDirectory: instance.workingDirectory,
-        };
-        if (instance.currentModel) {
-          stateUpdate.modelId = instance.currentModel;
-        }
-        continuity.updateState(envelope.instanceId, stateUpdate);
-      }
-      if (
-        message.type === 'user' ||
-        message.type === 'assistant' ||
-        message.type === 'tool_use' ||
-        message.type === 'tool_result'
-      ) {
-        continuity.addConversationEntry(envelope.instanceId, {
+
+    // Session continuity runs off-path through a bounded queue.
+    if (instance) {
+      const stateUpdate: Record<string, unknown> = {
+        sessionId: instance.sessionId,
+        historyThreadId: instance.historyThreadId,
+        provider: instance.provider,
+        displayName: instance.displayName,
+        workingDirectory: instance.workingDirectory,
+      };
+      if (instance.currentModel) stateUpdate['modelId'] = instance.currentModel;
+      continuityQueue.enqueue({ kind: 'state', instanceId: envelope.instanceId, update: stateUpdate });
+    }
+
+    if (
+      message.type === 'user' ||
+      message.type === 'assistant' ||
+      message.type === 'tool_use' ||
+      message.type === 'tool_result'
+    ) {
+      continuityQueue.enqueue({
+        kind: 'entry',
+        instanceId: envelope.instanceId,
+        entry: {
           id: message.id || `msg-${Date.now()}`,
-          role: message.type === 'user' ? 'user' : message.type === 'assistant' ? 'assistant' : 'tool',
+          role: (message.type === 'user' ? 'user' : message.type === 'assistant' ? 'assistant' : 'tool') as 'user' | 'assistant' | 'tool',
           content: message.content || '',
           timestamp: message.timestamp || Date.now(),
-        });
-      }
-    } catch {
-      logger.warn('Failed to track conversation entry', { instanceId: envelope.instanceId });
+        },
+      });
     }
   });
 

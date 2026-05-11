@@ -230,16 +230,33 @@ describe('signal E — error repeat', () => {
 });
 
 describe('signal F — token burn without progress', () => {
-  it('CRITICAL when accumulated tokens >= critical', () => {
+  // Signal F is opt-in. The default-config thresholds (T) ship with
+  // pauseOnTokenBurn:false, so we explicitly enable it for the cases
+  // that exercise the firing paths. Suppression-by-default is a
+  // separately-named case so a regression on either branch is obvious.
+  const T_ON: typeof T = { ...T, pauseOnTokenBurn: true };
+
+  it('returns null by default (opt-in flag is off)', () => {
     const state = makeState({ tokensSinceLastTestImprovement: T.tokensWithoutProgressCritical });
-    const sig = signalF_tokenBurn(state, [], makeIteration(), T);
+    expect(signalF_tokenBurn(state, [], makeIteration(), T)).toBeNull();
+  });
+
+  it('returns null even on 3-iters-of-10k-tokens when opt-in flag is off', () => {
+    const history = [makeIteration({ tokens: 11000 }), makeIteration({ tokens: 12000 })];
+    const current = makeIteration({ tokens: 13000 });
+    expect(signalF_tokenBurn(makeState(), history, current, T)).toBeNull();
+  });
+
+  it('CRITICAL when accumulated tokens >= critical (with opt-in)', () => {
+    const state = makeState({ tokensSinceLastTestImprovement: T_ON.tokensWithoutProgressCritical });
+    const sig = signalF_tokenBurn(state, [], makeIteration(), T_ON);
     expect(sig?.verdict).toBe('CRITICAL');
   });
 
-  it('CRITICAL when 3 iterations each > 10k tokens', () => {
+  it('CRITICAL when 3 iterations each > 10k tokens (with opt-in)', () => {
     const history = [makeIteration({ tokens: 11000 }), makeIteration({ tokens: 12000 })];
     const current = makeIteration({ tokens: 13000 });
-    const sig = signalF_tokenBurn(makeState(), history, current, T);
+    const sig = signalF_tokenBurn(makeState(), history, current, T_ON);
     expect(sig?.verdict).toBe('CRITICAL');
   });
 });

@@ -54,6 +54,18 @@ export interface LoopProgressThresholds {
   /** Tokens spent without test-pass improvement. */
   tokensWithoutProgressWarn: number;        // default 25_000
   tokensWithoutProgressCritical: number;    // default 60_000
+  /**
+   * Opt-in to signal F (token-burn-without-test-progress).
+   *
+   * Default `false`. When false, signal F is suppressed entirely — the
+   * detector never WARNs/CRITICALs on token spend alone, so the loop will
+   * not pause just because a lot of tokens were used since the last test
+   * pass count rose. Many useful tasks (e.g. implementing a new module
+   * that has no tests yet) legitimately spend tens of thousands of tokens
+   * without moving the test counter, and pausing on that is a usability
+   * footgun. Set to true to opt back into the original strict heuristic.
+   */
+  pauseOnTokenBurn: boolean;                // default false
   /** Within-iteration tool repetition. */
   toolRepeatWarnPerIteration: number;       // default 5
   toolRepeatCriticalPerIteration: number;   // default 8
@@ -158,6 +170,10 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       errorRepeatCriticalInWindow: 4,
       tokensWithoutProgressWarn: 25_000,
       tokensWithoutProgressCritical: 60_000,
+      // Default OFF: too many real tasks spend tokens without moving the
+      // test pass count, and the user shouldn't have to babysit the loop.
+      // Renderer panel exposes a checkbox to opt-in for tests-driven flows.
+      pauseOnTokenBurn: false,
       toolRepeatWarnPerIteration: 5,
       toolRepeatCriticalPerIteration: 8,
       testStagnationWarnIterations: 3,

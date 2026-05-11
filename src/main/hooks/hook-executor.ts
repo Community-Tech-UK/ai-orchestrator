@@ -27,7 +27,19 @@ export interface PromptHook {
   model?: string;
 }
 
-export type HookHandler = CommandHook | PromptHook;
+/**
+ * External binary hook (claude2.md §12.6).
+ * Receives HookExecutionContext as JSON on stdin, writes
+ * `{ ok: boolean; message?: string }` JSON to stdout.
+ */
+export interface ExecutableHook {
+  type: 'executable';
+  executablePath: string;
+  timeout?: number;
+  env?: Record<string, string>;
+}
+
+export type HookHandler = CommandHook | PromptHook | ExecutableHook;
 
 export interface HookConfig {
   id: string;
@@ -125,6 +137,8 @@ export class HookExecutor extends EventEmitter {
           hook.handler as PromptHook,
           context
         );
+      } else if (hook.handler.type === 'executable') {
+        return await this.executeExternalBinary(hook, hook.handler as unknown as ExecutableHook, context, startTime);
       } else {
         return {
           hookId: hook.id,
@@ -449,6 +463,95 @@ export class HookExecutor extends EventEmitter {
     return null;
   }
 
+  // ============ External Binary Execution ============
+  // (claude2.md §12.6: user-written Python/Bash hooks, cross-language)
+
+  private executeExternalBinary(
+    hook: HookConfig,
+    handler: ExecutableHook,
+    context: HookExecutionContext,
+    startTime: number,
+  ): Promise<HookExecutorResult> {
+    return new Promise((resolve) => {
+      const timeout = handler.timeout ?? this.config.defaultTimeout;
+      const env: Record<string, string> = { ...process.env, ...(handler.env ?? {}) } as Record<string, string>;
+
+      const child = spawn(handler.executablePath, [], {
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, timeout);
+
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          resolve({
+            hookId: hook.id,
+            success: false,
+            error: `Executable hook timed out after ${timeout}ms`,
+            duration: Date.now() - startTime,
+            timestamp: startTime,
+          });
+          return;
+        }
+        if (code !== 0) {
+          resolve({
+            hookId: hook.id,
+            success: false,
+            error: stderr.trim() || `Executable hook exited with code ${code}`,
+            duration: Date.now() - startTime,
+            timestamp: startTime,
+          });
+          return;
+        }
+        try {
+          const result = JSON.parse(stdout.trim()) as { ok?: boolean; message?: string };
+          resolve({
+            hookId: hook.id,
+            success: result.ok !== false,
+            output: result.message,
+            duration: Date.now() - startTime,
+            timestamp: startTime,
+          });
+        } catch {
+          resolve({
+            hookId: hook.id,
+            success: true,
+            output: stdout.trim() || undefined,
+            duration: Date.now() - startTime,
+            timestamp: startTime,
+          });
+        }
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        resolve({
+          hookId: hook.id,
+          success: false,
+          error: `Failed to spawn executable: ${err.message}`,
+          duration: Date.now() - startTime,
+          timestamp: startTime,
+        });
+      });
+
+      // Write context to stdin and close it
+      child.stdin.write(JSON.stringify(context));
+      child.stdin.end();
+    });
+  }
+
   // ============ Prompt Execution ============
 
   private async executePrompt(
@@ -471,8 +574,6 @@ export class HookExecutor extends EventEmitter {
       };
     }
 
-    // Placeholder for actual LLM evaluation
-    // In real implementation, this would call the LLM API
     try {
       const result = await this.evaluatePrompt(prompt, handler.model);
 

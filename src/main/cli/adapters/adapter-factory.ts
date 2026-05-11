@@ -11,6 +11,7 @@
 import { ClaudeCliAdapter, ClaudeCliSpawnOptions } from './claude-cli-adapter';
 import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
+import { OllamaCliAdapter } from './ollama-cli-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
@@ -218,7 +219,7 @@ function writeGeminiBrowserGatewaySettings(
 /**
  * Adapter type union - the concrete adapter types
  */
-export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | AcpCliAdapter | RemoteCliAdapter;
+export type CliAdapter = ClaudeCliAdapter | CodexCliAdapter | GeminiCliAdapter | OllamaCliAdapter | AcpCliAdapter | RemoteCliAdapter;
 
 /**
  * Maps settings CliType to detection CliType
@@ -516,6 +517,19 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
 }
 
 /**
+ * Creates an Ollama adapter that communicates with the local Ollama REST API.
+ * Requires a running Ollama daemon (ollama serve or Ollama.app).
+ */
+export function createOllamaAdapter(options: UnifiedSpawnOptions): OllamaCliAdapter {
+  return new OllamaCliAdapter({
+    model: options.model,
+    systemPrompt: options.systemPrompt,
+    workingDir: options.workingDirectory,
+    timeout: options.timeout,
+  });
+}
+
+/**
  * Creates a CLI adapter for the specified type
  * Returns a ClaudeCliAdapter for Claude, or the appropriate adapter for other types
  */
@@ -547,9 +561,7 @@ export function createCliAdapter(
       return createCursorAdapter(options);
 
     case 'ollama':
-      // Ollama doesn't have a full CLI adapter yet, fall back to Claude
-      logger.warn('Ollama adapter not implemented, falling back to Claude');
-      return createClaudeAdapter(options);
+      return createOllamaAdapter(options);
 
     default:
       throw new Error(`Unknown CLI type: ${cliType}`);

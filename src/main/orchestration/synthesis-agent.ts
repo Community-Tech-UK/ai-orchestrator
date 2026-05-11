@@ -368,24 +368,89 @@ export class SynthesisAgent extends EventEmitter {
     responses: AgentResponse[],
     analysis: { agreements: AgreementPoint[]; disagreements: DisagreementPoint[] }
   ): Promise<string> {
-    // Placeholder for debate-style synthesis
-    // Would involve multiple rounds of critique and defense
     const parts: string[] = [];
 
     parts.push('## Debate Synthesis\n');
-    parts.push(`Analyzed ${responses.length} perspectives:\n`);
+    parts.push(`*${responses.length} perspectives analyzed — ${analysis.agreements.length} agreements, ${analysis.disagreements.length} open disputes*\n`);
 
-    // Summarize each position
-    for (const response of responses) {
-      parts.push(`**${response.agentId}** (confidence: ${Math.round(response.confidence * 100)}%):`);
-      parts.push(response.content.slice(0, 200) + '...\n');
+    // 1. Present each position with confidence weighting
+    parts.push('### Positions\n');
+    const sorted = [...responses].sort((a, b) => b.confidence - a.confidence);
+    for (const r of sorted) {
+      const pct = Math.round(r.confidence * 100);
+      const excerpt = r.content.length > 300 ? r.content.slice(0, 297) + '…' : r.content;
+      parts.push(`**${r.agentId}** (${pct}% confidence):\n${excerpt}\n`);
     }
 
-    // Final synthesis
-    parts.push('### Synthesis\n');
+    // 2. Resolved agreements
+    if (analysis.agreements.length > 0) {
+      parts.push('### Points of Agreement\n');
+      for (const a of analysis.agreements) {
+        parts.push(`- **${a.topic}** *(${Math.round(a.confidence * 100)}% confidence, supported by ${a.supportingAgents.length} agent${a.supportingAgents.length !== 1 ? 's' : ''})*`);
+      }
+      parts.push('');
+    }
+
+    // 3. Dispute resolution
+    if (analysis.disagreements.length > 0) {
+      parts.push('### Disputed Points\n');
+      for (const d of analysis.disagreements) {
+        parts.push(`**${d.topic}**:`);
+        for (const [agentId, position] of d.positions) {
+          parts.push(`  - *${agentId}*: ${position.slice(0, 150)}${position.length > 150 ? '…' : ''}`);
+        }
+        // Resolve by majority vote among agents whose position appears in agreements
+        const resolution = this.resolveDispute(d, responses);
+        if (resolution) {
+          parts.push(`  → **Resolution**: ${resolution}`);
+          d.resolution = resolution;
+          d.resolutionReasoning = 'Resolved by confidence-weighted majority';
+        } else {
+          parts.push(`  → **Unresolved** — requires human judgement`);
+        }
+        parts.push('');
+      }
+    }
+
+    // 4. Final verdict
+    parts.push('### Final Verdict\n');
     parts.push(this.synthesizeConsensus(analysis, this.config));
 
     return parts.join('\n');
+  }
+
+  /**
+   * Resolve a dispute by confidence-weighted majority among the agents
+   * whose stated position best matches any agreement point.
+   */
+  private resolveDispute(dispute: DisagreementPoint, responses: AgentResponse[]): string | null {
+    if (dispute.positions.size === 0) return null;
+
+    // Tally confidence for each position variant
+    const tally = new Map<string, number>();
+    for (const [agentId, position] of dispute.positions) {
+      const response = responses.find(r => r.agentId === agentId);
+      const weight = response?.confidence ?? 0.5;
+      const key = position.slice(0, 80); // normalise by prefix
+      tally.set(key, (tally.get(key) ?? 0) + weight);
+    }
+
+    // Pick the highest-weighted position
+    let bestPos = '';
+    let bestWeight = 0;
+    for (const [pos, weight] of tally) {
+      if (weight > bestWeight) {
+        bestWeight = weight;
+        bestPos = pos;
+      }
+    }
+
+    // Only assert resolution when there's a meaningful lead (> 30% of total weight)
+    const totalWeight = [...tally.values()].reduce((s, w) => s + w, 0);
+    if (bestWeight / totalWeight >= 0.55) {
+      return bestPos + (bestPos.length >= 80 ? '…' : '');
+    }
+    return null;
   }
 
   private groupSimilarAgreements(agreements: AgreementPoint[]): Map<string, AgreementPoint[]> {

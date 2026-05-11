@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/crates/oxc_linter/src/rules/schema.json",
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-console": "off",
+    "no-debugger": "error",
+    "eqeqeq": "warn",
+    "prefer-const": "warn",
+    "no-var": "error",
+    "no-duplicate-imports": "error",
+    "no-undef": "off",
+    "typescript": {
+      "no-explicit-any": "warn",
+      "no-unused-vars": "warn",
+      "prefer-as-const": "warn",
+      "no-require-imports": "warn"
+    }
+  },
+  "globals": {
+    "process": "readonly",
+    "console": "readonly",
+    "__dirname": "readonly",
+    "__filename": "readonly",
+    "require": "readonly",
+    "module": "readonly",
+    "exports": "readonly",
+    "Buffer": "readonly",
+    "setTimeout": "readonly",
+    "clearTimeout": "readonly",
+    "setInterval": "readonly",
+    "clearInterval": "readonly",
+    "Promise": "readonly"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "node_modules/**",
+    "*.js",
+    "*.mjs",
+    "*.cjs",
+    "src/renderer/**"
+  ]
+}

@@ -1,9 +1,79 @@
 import type { ChatSystemEventInput } from '../chats/chat-service';
 import type { LoopIteration, LoopState } from '../../shared/types/loop.types';
 
-const MAX_GOAL_CHARS = 1_500;
 const MAX_EXCERPT_CHARS = 2_000;
 const MAX_FILE_PATHS = 8;
+
+/**
+ * Build the "loop kickoff" chat event.
+ *
+ * Persisted to the chat ledger at loop start so the user's original prompt is
+ * visible in the chat history immediately — and survives even if the loop is
+ * cancelled, errors out, or is killed before reaching a terminal state (which
+ * would otherwise be the only path that emits {@link buildLoopTerminalChatSummary}).
+ *
+ * Emitted with `role: 'user'` so the chat renders the prompt as a user bubble:
+ * semantically this *is* the user's message — the textarea content they hit
+ * "Start" with. Operational details (workspace, provider, caps) live in
+ * `metadata` only; they're already shown live by the loop HUD, so duplicating
+ * them in the visible content would just clutter the bubble.
+ *
+ * The `nativeMessageId` (`loop-start:<id>`) is distinct from the terminal
+ * summary (`loop-summary:<id>`) so both coexist in the transcript; they share
+ * `nativeTurnId` (`loop:<id>`) so renderers can group them as one turn.
+ */
+export function buildLoopStartChatEvent(state: LoopState): ChatSystemEventInput {
+  return {
+    chatId: state.chatId,
+    nativeMessageId: `loop-start:${state.id}`,
+    nativeTurnId: `loop:${state.id}`,
+    phase: 'loop_start',
+    role: 'user',
+    content: state.config.initialPrompt,
+    createdAt: state.startedAt,
+    metadata: {
+      kind: 'loop-start',
+      loopRunId: state.id,
+      workspaceCwd: state.config.workspaceCwd,
+      provider: state.config.provider,
+      reviewStyle: state.config.reviewStyle,
+      iterationCap: state.config.caps.maxIterations,
+      maxWallTimeMs: state.config.caps.maxWallTimeMs,
+    },
+  };
+}
+
+/**
+ * Build a chat event for a mid-loop user intervention ("Inject hint").
+ *
+ * Mirrors {@link buildLoopStartChatEvent}: the user typed this message, so it
+ * renders as a user bubble. The coordinator doesn't track per-intervention ids
+ * (its queue is just `string[]`), so the caller is responsible for passing a
+ * unique `interventionId` per call — a single loop can have many nudges, and
+ * the chat ledger's `nativeMessageId` dedupe would silently drop colliding
+ * ones.
+ */
+export function buildLoopInterveneChatEvent(input: {
+  state: LoopState;
+  interventionId: string;
+  message: string;
+  createdAt?: number;
+}): ChatSystemEventInput {
+  return {
+    chatId: input.state.chatId,
+    nativeMessageId: `loop-intervene:${input.state.id}:${input.interventionId}`,
+    nativeTurnId: `loop:${input.state.id}`,
+    phase: 'loop_intervene',
+    role: 'user',
+    content: input.message,
+    createdAt: input.createdAt ?? Date.now(),
+    metadata: {
+      kind: 'loop-intervene',
+      loopRunId: input.state.id,
+      interventionId: input.interventionId,
+    },
+  };
+}
 
 export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventInput {
   const last = state.lastIteration;
@@ -11,9 +81,6 @@ export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventI
     `Loop ended - ${state.status}`,
     '',
     ...summaryLines(state, last),
-    '',
-    'Goal:',
-    truncate(state.config.initialPrompt.trim(), MAX_GOAL_CHARS) || '(empty)',
     ...evidenceLines(last),
   ].join('\n');
 

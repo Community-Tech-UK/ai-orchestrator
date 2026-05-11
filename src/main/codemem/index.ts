@@ -12,6 +12,7 @@ import { PeriodicScan } from './periodic-scan';
 import { AgentLspFacade, type WorkspaceLspState } from './agent-lsp-facade';
 import { workspaceHashForPath } from './symbol-id';
 import { LspWorkerGateway } from '../lsp-worker/gateway-rpc';
+import { IndexWorkerGateway } from './index-worker-gateway';
 import { createCodememMcpTools } from './mcp-tools';
 
 export class CodememService {
@@ -22,6 +23,7 @@ export class CodememService {
   readonly indexManager: CodeIndexManager;
   readonly periodicScan: PeriodicScan;
   readonly gateway: LspWorkerGateway;
+  readonly indexWorkerGateway: IndexWorkerGateway;
   readonly facade: AgentLspFacade;
   private readonly activeWatchers = new Set<string>();
   private readonly workspaceLspState = new Map<string, WorkspaceLspState>();
@@ -33,6 +35,7 @@ export class CodememService {
     this.indexManager = new CodeIndexManager({ store: this.store });
     this.periodicScan = new PeriodicScan({ store: this.store, mgr: this.indexManager });
     this.gateway = new LspWorkerGateway();
+    this.indexWorkerGateway = new IndexWorkerGateway();
     this.facade = new AgentLspFacade({
       store: this.store,
       gateway: this.gateway,
@@ -51,10 +54,14 @@ export class CodememService {
     if (this.isLspEnabled()) {
       await this.gateway.start();
     }
+
+    if (this.isIndexingEnabled()) {
+      await this.indexWorkerGateway.start();
+    }
   }
 
   async shutdown(): Promise<void> {
-    await this.indexManager.stop();
+    await this.indexWorkerGateway.stop();
     await this.gateway.stop();
     if (McpServer.getInstance().isStarted()) {
       McpServer.getInstance().stop();
@@ -108,23 +115,32 @@ export class CodememService {
       return { ready: false, filePath: null };
     }
 
-    const workspaceRoot = await this.ensureWorkspace(workspacePath);
-    if (!this.isLspEnabled()) {
-      this.workspaceLspState.set(workspaceRoot.workspaceHash, 'lsp_unavailable');
+    // Indexing runs in the index worker so the main event loop is not blocked.
+    // If the gateway is unavailable or times out, return degraded gracefully.
+    const indexResult = await this.indexWorkerGateway.warmWorkspace(workspacePath, timeoutMs);
+    const workspaceHash = workspaceHashForPath(path.resolve(workspacePath));
+
+    if (!indexResult.indexed) {
+      this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
       return { ready: false, filePath: null };
     }
 
-    this.workspaceLspState.set(workspaceRoot.workspaceHash, 'warming');
+    if (!this.isLspEnabled()) {
+      this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
+      return { ready: false, filePath: null };
+    }
+
+    this.workspaceLspState.set(workspaceHash, 'warming');
     try {
       const result = await this.gateway.ready(
-        workspaceRoot.absPath,
-        workspaceRoot.primaryLanguage ?? 'typescript',
+        indexResult.absPath,
+        indexResult.primaryLanguage,
         timeoutMs,
       );
-      this.workspaceLspState.set(workspaceRoot.workspaceHash, result.ready ? 'ready' : 'lsp_unavailable');
+      this.workspaceLspState.set(workspaceHash, result.ready ? 'ready' : 'lsp_unavailable');
       return result;
     } catch {
-      this.workspaceLspState.set(workspaceRoot.workspaceHash, 'lsp_unavailable');
+      this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
       return { ready: false, filePath: null };
     }
   }

@@ -58,3 +58,76 @@ export function normalizeCrossPlatformPath(filePath: string): string {
 export function crossPlatformPathsEqual(left: string, right: string): boolean {
   return normalizeCrossPlatformPath(left) === normalizeCrossPlatformPath(right);
 }
+
+/**
+ * Resolve a (possibly relative, possibly `../`-prefixed) path against a base
+ * directory, returning an absolute path. Works in the renderer without
+ * depending on Node's `path` module.
+ *
+ * - If `relativePath` is already absolute (POSIX `/` or Windows drive prefix
+ *   or UNC `\\…`), it is returned as-is (after light normalization).
+ * - Otherwise it is joined onto `baseDir` and `.`/`..` segments are collapsed.
+ *
+ * Examples:
+ *   resolveRelativePath('/Users/me/proj', 'PLAN.md')          → '/Users/me/proj/PLAN.md'
+ *   resolveRelativePath('/Users/me/proj', '../docs/foo.md')   → '/Users/me/docs/foo.md'
+ *   resolveRelativePath('/Users/me/proj', '/tmp/plan.md')     → '/tmp/plan.md'
+ *   resolveRelativePath('/Users/me/proj', 'a/./b/../c.md')    → '/Users/me/proj/a/c.md'
+ */
+export function resolveRelativePath(baseDir: string, relativePath: string): string {
+  if (!relativePath) return baseDir;
+
+  const isAbsolutePosix = relativePath.startsWith('/');
+  const isAbsoluteWindows = /^[A-Za-z]:[\\/]/.test(relativePath);
+  const isUNC = relativePath.startsWith('\\\\') || relativePath.startsWith('//');
+  if (isAbsolutePosix || isAbsoluteWindows || isUNC) {
+    return relativePath;
+  }
+
+  // Detect Windows base for separator handling.
+  const isWindowsBase = /^[A-Za-z]:[\\/]/.test(baseDir) || baseDir.startsWith('\\\\');
+  const sep = isWindowsBase ? '\\' : '/';
+
+  // Normalize separators to `/` for processing; we'll re-apply `sep` at the end
+  // when needed.
+  const combined = (baseDir + '/' + relativePath).replace(/[\\/]+/g, '/');
+  const segments = combined.split('/');
+  const stack: string[] = [];
+  for (const segment of segments) {
+    if (segment === '' || segment === '.') {
+      // Preserve a leading empty segment so absolute paths keep their leading `/`.
+      if (stack.length === 0 && segment === '') {
+        stack.push('');
+      }
+      continue;
+    }
+    if (segment === '..') {
+      // Don't pop past the root (`['']`) or past a Windows drive letter
+      // (`['C:']`).
+      const top = stack[stack.length - 1];
+      if (stack.length > 1 && top !== '..') {
+        stack.pop();
+      } else if (stack.length === 1 && top === '') {
+        // At POSIX root — stay at root.
+      } else if (stack.length === 1 && /^[A-Za-z]:$/.test(top ?? '')) {
+        // At Windows drive root — stay at drive root.
+      } else {
+        stack.push('..');
+      }
+      continue;
+    }
+    stack.push(segment);
+  }
+
+  // Re-apply the appropriate separator for the platform implied by the base.
+  if (isWindowsBase) {
+    // Stack[0] should be like `C:`; join the rest with `\`.
+    if (stack.length > 0 && /^[A-Za-z]:$/.test(stack[0])) {
+      return stack[0] + sep + stack.slice(1).join(sep);
+    }
+    return stack.join(sep);
+  }
+
+  // POSIX: stack[0] is '' for absolute paths so the join naturally starts with `/`.
+  return stack.join('/');
+}

@@ -69,12 +69,15 @@ function makeState(workspaceCwd: string, over: Partial<LoopState> = {}): LoopSta
 }
 
 describe('LoopCompletionDetector.observe', () => {
-  it('reports done-promise when output contains the marker (IMPLEMENT stage)', async () => {
+  it('reports done-promise as auxiliary only when output contains the marker (IMPLEMENT stage)', async () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir);
     const iter = makeIteration({ stage: 'IMPLEMENT', outputExcerpt: 'I think we are done.\n<promise>DONE</promise>\n' });
     const sigs = await det.observe({ iteration: iter, config: state.config, state });
-    expect(sigs.some((s) => s.id === 'done-promise' && s.sufficient)).toBe(true);
+    const sig = sigs.find((s) => s.id === 'done-promise');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(false);
+    expect(sig?.detail).toContain('waiting for durable completion evidence');
   });
 
   it('done-promise is NOT sufficient in PLAN stage', async () => {

@@ -79,6 +79,24 @@ export class TrainingLoop extends EventEmitter {
   private epochHistory: EpochStats[] = [];
   private isTraining = false;
 
+  /**
+   * Log-linear policy weights: one scalar per operation type.
+   * π(op | context) ∝ exp(policyWeights[op])
+   * Updated via GRPO gradient ascent each training batch.
+   */
+  private policyWeights: Record<MemoryOperation, number> = {
+    ADD: 0.0,
+    UPDATE: 0.0,
+    DELETE: 0.0,
+    NOOP: 0.0,
+  };
+
+  /**
+   * Value baseline: exponential moving average of rewards.
+   * Used to estimate state value V(s) ≈ E[r], reducing gradient variance.
+   */
+  private valueBias = 0.0;
+
   private defaultConfig: TrainingConfig = {
     stage: 1,
     learningRate: 1e-4,
@@ -296,30 +314,126 @@ export class TrainingLoop extends EventEmitter {
   }
 
   private async computeMetrics(batch: TrainingBatch): Promise<TrainingMetrics> {
-    // Placeholder - actual implementation computes gradients
     const rewards = batch.examples.map(e => e.reward);
-    const rewardMean = rewards.reduce((a, b) => a + b, 0) / rewards.length;
-    const rewardStd = Math.sqrt(
-      rewards.reduce((sum, r) => sum + Math.pow(r - rewardMean, 2), 0) / rewards.length
-    ) || 1;
+    const n = rewards.length || 1;
+    const rewardMean = rewards.reduce((a, b) => a + b, 0) / n;
+    const rewardVar = rewards.reduce((sum, r) => sum + (r - rewardMean) ** 2, 0) / n;
+    const rewardStd = Math.sqrt(rewardVar) || 1;
 
-    // Simulated metrics based on stage
-    const stageFactor = this.currentStage / 3;
+    // Compute GRPO advantages per example
+    const advantages = this.computeGroupAdvantages(batch);
+
+    // Softmax policy distribution from current weights
+    const softmax = this.computeSoftmax(this.policyWeights);
+
+    // Policy loss: negative GRPO objective = -mean(advantage * log π(a))
+    // For each example: advantage_i * (1 - softmax[op_i])  [diagonal of softmax gradient]
+    let policyLossSum = 0;
+    let gradSumSq = 0;
+    const gradients: Record<MemoryOperation, number> = { ADD: 0, UPDATE: 0, DELETE: 0, NOOP: 0 };
+
+    for (const example of batch.examples) {
+      const adv = advantages.get(example.id) ?? 0;
+      const op = example.operation;
+      // GRPO gradient: adv * (e_op - softmax) — gradient of log π w.r.t. weights
+      for (const key of Object.keys(softmax) as MemoryOperation[]) {
+        const indicator = key === op ? 1 : 0;
+        const g = adv * (indicator - softmax[key]);
+        gradients[key] += g;
+        gradSumSq += g * g;
+      }
+      // Policy loss contribution: -adv * log(softmax[op])
+      const logProb = Math.log(Math.max(softmax[op], 1e-10));
+      policyLossSum += -adv * logProb;
+    }
+
+    const policyLoss = policyLossSum / n;
+
+    // Value loss: variance of rewards (measures how well baseline tracks actual returns)
+    const valueLoss = rewardVar;
+
+    // Entropy of the softmax distribution: -sum(p * log(p))
+    const entropy = -Object.values(softmax).reduce(
+      (sum, p) => sum + (p > 0 ? p * Math.log(p) : 0),
+      0,
+    );
+
+    // Gradient norm (L2) of the accumulated gradient before the update step
+    const gradNorm = Math.min(Math.sqrt(gradSumSq / n), this.config.maxGradNorm);
+
+    // Combined loss (policy + value coefficient * value loss)
+    const loss = policyLoss + this.config.valueCoefficient * valueLoss
+      - this.config.entropyCoefficient * entropy;
 
     return {
-      loss: 0.5 - stageFactor * 0.1 + Math.random() * 0.1,
-      policyLoss: 0.3 - stageFactor * 0.05 + Math.random() * 0.05,
-      valueLoss: 0.2 - stageFactor * 0.03 + Math.random() * 0.05,
-      entropy: 0.5 + stageFactor * 0.1,
+      loss: Math.max(0, loss),
+      policyLoss: Math.max(0, policyLoss),
+      valueLoss,
+      entropy,
       rewardMean,
       rewardStd,
-      gradNorm: 0.3 + Math.random() * 0.2,
+      gradNorm,
     };
   }
 
-  private async updateWeights(_metrics: TrainingMetrics): Promise<void> {
-    // Placeholder - actual implementation updates model weights
-    // This would interface with the actual RL model
+  private async updateWeights(metrics: TrainingMetrics): Promise<void> {
+    const batch = this.trainingBuffer.slice(0, this.config.batchSize);
+    if (batch.length === 0) return;
+
+    const fakeBatch: TrainingBatch = { examples: batch, stage: this.currentStage, batchId: 'update' };
+    const advantages = this.computeGroupAdvantages(fakeBatch);
+    const softmax = this.computeSoftmax(this.policyWeights);
+    const n = batch.length || 1;
+
+    // Accumulate GRPO policy gradients
+    const gradients: Record<MemoryOperation, number> = { ADD: 0, UPDATE: 0, DELETE: 0, NOOP: 0 };
+    for (const example of batch) {
+      const adv = advantages.get(example.id) ?? 0;
+      const op = example.operation;
+      for (const key of Object.keys(softmax) as MemoryOperation[]) {
+        const indicator = key === op ? 1 : 0;
+        gradients[key] += adv * (indicator - softmax[key]);
+      }
+    }
+
+    // Clip gradient by maxGradNorm
+    const rawNorm = Math.sqrt(
+      Object.values(gradients).reduce((s, g) => s + g * g, 0),
+    );
+    const clipScale = rawNorm > this.config.maxGradNorm ? this.config.maxGradNorm / rawNorm : 1;
+
+    // Gradient ascent step (maximise reward) on log-linear policy weights
+    for (const key of Object.keys(gradients) as MemoryOperation[]) {
+      this.policyWeights[key] += this.config.learningRate * (gradients[key] / n) * clipScale;
+    }
+
+    // Update EMA value baseline
+    const alpha = 0.05;
+    this.valueBias = alpha * metrics.rewardMean + (1 - alpha) * this.valueBias;
+
+    // Log updated policy distribution
+    const updatedSoftmax = this.computeSoftmax(this.policyWeights);
+    this.emit('weights:updated', {
+      policyWeights: { ...this.policyWeights },
+      policyDistribution: updatedSoftmax,
+      valueBias: this.valueBias,
+      gradNorm: metrics.gradNorm,
+    });
+  }
+
+  /**
+   * Compute softmax distribution over operation types from log-linear weights.
+   */
+  private computeSoftmax(weights: Record<MemoryOperation, number>): Record<MemoryOperation, number> {
+    const ops = Object.keys(weights) as MemoryOperation[];
+    const maxW = Math.max(...ops.map(op => weights[op]));
+    const exps = ops.map(op => ({ op, e: Math.exp(weights[op] - maxW) }));
+    const sum = exps.reduce((s, { e }) => s + e, 0) || 1;
+    const result = {} as Record<MemoryOperation, number>;
+    for (const { op, e } of exps) {
+      result[op] = e / sum;
+    }
+    return result;
   }
 
   private checkStageAdvancement(): void {

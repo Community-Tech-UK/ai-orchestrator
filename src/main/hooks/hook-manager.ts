@@ -51,6 +51,15 @@ export class HookManager extends EventEmitter {
   private executionHistory: HookExecutorResult[] = [];
   private maxHistorySize = 1000;
   private approvalsFilePath: string;
+  /**
+   * Fingerprint cache for event-level deduplication.
+   * Multi-provider events (e.g. SessionStart firing once per adapter) must
+   * not double-fire hook chains. Keyed on a coarse fingerprint of
+   * (event, instanceId, toolName, 500ms bucket). Entries expire after 2s.
+   * (claude2.md §24: hook lifecycle deduplication)
+   */
+  private readonly dedupCache = new Map<string, number>();
+  private static readonly DEDUP_WINDOW_MS = 2_000;
 
   private defaultConfig: HookManagerConfig = {
     enabled: true,
@@ -146,12 +155,35 @@ export class HookManager extends EventEmitter {
 
   // ============ Hook Execution ============
 
+  private makeEventFingerprint(event: HookEvent, context: HookExecutionContext): string {
+    const bucket = Math.floor(Date.now() / 500);
+    return `${event}|${context.instanceId ?? ''}|${context.toolName ?? ''}|${bucket}`;
+  }
+
   async triggerHooks(
     event: HookEvent,
     context: HookExecutionContext
   ): Promise<HookExecutorResult[]> {
     if (!this.config.enabled) {
       return [];
+    }
+
+    // Deduplicate within a 500ms bucket to prevent double-fire from
+    // multi-provider events emitting the same lifecycle signal twice.
+    const now = Date.now();
+    const fp = this.makeEventFingerprint(event, context);
+    const last = this.dedupCache.get(fp);
+    if (last !== undefined && now - last < HookManager.DEDUP_WINDOW_MS) {
+      logger.debug('Hook event deduplicated', { event, instanceId: context.instanceId });
+      return [];
+    }
+    this.dedupCache.set(fp, now);
+    // Evict stale entries to prevent unbounded growth.
+    if (this.dedupCache.size > 200) {
+      const cutoff = now - HookManager.DEDUP_WINDOW_MS;
+      for (const [key, ts] of this.dedupCache) {
+        if (ts < cutoff) this.dedupCache.delete(key);
+      }
     }
 
     const matchingHooks = this.findMatchingHooks(event, context);

@@ -91,6 +91,8 @@ export class CritiqueAgent extends EventEmitter {
   private config: CritiqueConfig;
   private critiqueHistory: CritiqueResult[] = [];
   private maxHistorySize = 500;
+  /** Maps request ID → original content for similarity lookups during reflection. */
+  private contentCache = new Map<string, string>();
 
   private defaultConfig: CritiqueConfig = {
     enableSelfCritique: true,
@@ -124,6 +126,13 @@ export class CritiqueAgent extends EventEmitter {
 
   async critique(request: CritiqueRequest): Promise<CritiqueResult> {
     const startTime = Date.now();
+
+    // Cache content for later reflection similarity lookups
+    this.contentCache.set(request.id, request.content);
+    if (this.contentCache.size > this.maxHistorySize) {
+      const firstKey = this.contentCache.keys().next().value;
+      if (firstKey !== undefined) this.contentCache.delete(firstKey);
+    }
 
     this.emit('critique:started', { requestId: request.id });
 
@@ -628,9 +637,25 @@ export class CritiqueAgent extends EventEmitter {
       .map(([key]) => key);
   }
 
-  private calculateContentSimilarity(_id: string, _content: string): number {
-    // Placeholder - would use actual content comparison
-    return 0.3;
+  private calculateContentSimilarity(requestId: string, content: string): number {
+    const cached = this.contentCache.get(requestId);
+    if (!cached) return 0;
+    return this.jaccardSimilarity(cached, content);
+  }
+
+  /** Jaccard similarity on word tokens (lowercased, punctuation stripped). */
+  private jaccardSimilarity(a: string, b: string): number {
+    const tokenize = (s: string) =>
+      new Set(s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean));
+    const setA = tokenize(a);
+    const setB = tokenize(b);
+    if (setA.size === 0 && setB.size === 0) return 1;
+    let intersection = 0;
+    for (const token of setA) {
+      if (setB.has(token)) intersection++;
+    }
+    const union = setA.size + setB.size - intersection;
+    return union > 0 ? intersection / union : 0;
   }
 
   // ============ Utilities ============

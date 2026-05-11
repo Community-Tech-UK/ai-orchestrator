@@ -52,6 +52,9 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('REVIEW');
     expect(p).toContain('IMPLEMENT');
     expect(p).toContain('echo hi');
+    expect(p).toContain('Completion Inventory');
+    expect(p).toContain('Write `DONE.txt`');
+    expect(p.indexOf('Write `DONE.txt`')).toBeLessThan(p.indexOf('Append `<promise>DONE</promise>`'));
   });
 
   it('buildPrompt embeds pending interventions verbatim', () => {

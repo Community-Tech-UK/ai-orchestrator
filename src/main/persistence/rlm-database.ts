@@ -9,6 +9,8 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { app } from 'electron';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
+import * as os from 'node:os';
 import { EventEmitter } from 'events';
 import type {
   ContextStoreRow,
@@ -57,7 +59,15 @@ export class RLMDatabase extends EventEmitter {
 
   private constructor(config: RLMDatabaseConfig = {}) {
     super();
-    const userDataPath = app?.getPath?.('userData') || path.join(process.cwd(), '.rlm-data');
+    // In Electron, use the standard userData path. Outside Electron (dev/test),
+    // derive a stable per-project path under ~/.aio/{hash}/ keyed on the
+    // project root, so parallel worktrees never share the same database.
+    // (claude3.md §6: hash-based per-checkout data directory)
+    const userDataPath = app?.getPath?.('userData') ?? (() => {
+      const projectRoot = process.cwd();
+      const hash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 12);
+      return path.join(os.homedir(), '.aio', hash);
+    })();
 
     this.config = {
       dbPath: config.dbPath || path.join(userDataPath, 'rlm', 'rlm.db'),
@@ -102,6 +112,7 @@ export class RLMDatabase extends EventEmitter {
     }
     db.pragma(`cache_size = -${this.config.cacheSize! * 1024}`);
     db.pragma('foreign_keys = ON');
+    db.pragma('busy_timeout = 5000');
 
     createTables(db);
     createMigrationsTable(db);

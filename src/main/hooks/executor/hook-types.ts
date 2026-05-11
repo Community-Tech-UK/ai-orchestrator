@@ -31,7 +31,8 @@ export interface EnhancedHookConfig {
 }
 
 export interface EnhancedHookHandler {
-  type: 'command' | 'prompt' | 'script' | 'function';
+  /** command=shell, script=file, prompt=LLM, function=registry, executable=external binary (stdin/stdout JSON) */
+  type: 'command' | 'prompt' | 'script' | 'function' | 'executable';
   /** Command string for 'command' type */
   command?: string;
   /** Script path for 'script' type */
@@ -42,6 +43,8 @@ export interface EnhancedHookHandler {
   model?: string;
   /** Function name for 'function' type */
   functionName?: string;
+  /** Absolute path to external executable for 'executable' type. Receives context as JSON on stdin; writes {ok,message} JSON to stdout. */
+  executablePath?: string;
   /** Capture and stream output */
   streamOutput?: boolean;
   /** Environment variables */

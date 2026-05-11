@@ -41,6 +41,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage } from './output-stream-message-collapse';
+import { isLoopOriginatedUserMessage as detectLoopOriginatedUserMessage } from './loop-message-detection';
 
 type RenderedMarkdown = ReturnType<MarkdownService['render']>;
 
@@ -760,6 +761,18 @@ export class OutputStreamComponent {
 
   protected shouldShowUserMessageToggle(message: OutputMessage): boolean {
     return shouldCollapseUserMessage(message);
+  }
+
+  /**
+   * User-role messages that originate from the loop machinery (the loop kickoff
+   * prompt and mid-loop "Inject hint" nudges) render in the transcript as user
+   * bubbles, but "Edit and resend" isn't meaningful for them — the loop owns
+   * the runtime, not the chat send path. We disable the affordance instead of
+   * hiding it so the user gets a tooltip explaining why, rather than a missing
+   * button they have to wonder about.
+   */
+  protected isLoopOriginatedUserMessage(message: OutputMessage): boolean {
+    return detectLoopOriginatedUserMessage(message);
   }
 
   protected isUserMessageExpanded(messageId: string): boolean {

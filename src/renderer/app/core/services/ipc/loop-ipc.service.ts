@@ -42,6 +42,35 @@ export interface LoopStartConfigInput {
     runVerifyTwice: boolean;
     requireCompletedFileRename: boolean;
   }>;
+  /**
+   * Progress-detector thresholds. Optional; if omitted, the main process
+   * applies the canonical defaults from `defaultLoopConfig()`. When set,
+   * Zod requires the full strict shape (matching `LoopProgressThresholds`)
+   * so the renderer should spread the canonical defaults and override only
+   * what it actually changes.
+   */
+  progressThresholds?: {
+    identicalHashWarnConsecutive: number;
+    identicalHashCriticalConsecutive: number;
+    identicalHashCriticalWindow: number;
+    similarityWarnMean: number;
+    similarityCriticalMean: number;
+    stageWarnIterations: { PLAN: number; REVIEW: number; IMPLEMENT: number };
+    stageCriticalIterations: { PLAN: number; REVIEW: number; IMPLEMENT: number };
+    errorRepeatWarnInWindow: number;
+    errorRepeatCriticalInWindow: number;
+    tokensWithoutProgressWarn: number;
+    tokensWithoutProgressCritical: number;
+    pauseOnTokenBurn: boolean;
+    toolRepeatWarnPerIteration: number;
+    toolRepeatCriticalPerIteration: number;
+    testStagnationWarnIterations: number;
+    testStagnationCriticalIterations: number;
+    churnRatioWarn: number;
+    churnRatioCritical: number;
+    warnEscalationWindow: number;
+    warnEscalationCount: number;
+  };
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
   /** Wall-clock cap per iteration (ms). */

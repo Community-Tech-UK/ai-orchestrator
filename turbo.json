@@ -1,0 +1,64 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["src/**/*.ts", "tsconfig*.json"],
+      "outputs": []
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**/*.ts", "tsconfig*.json"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**/*.ts", "**/*.spec.ts", "**/*.test.ts", "vitest.config.ts"],
+      "outputs": ["coverage/**"]
+    },
+    "lint": {
+      "inputs": ["src/**/*.ts", ".oxlintrc.json", "eslint.config.*"],
+      "outputs": []
+    },
+    "verify:ipc": {
+      "dependsOn": ["build"],
+      "inputs": ["src/preload/**/*.ts", "packages/contracts/src/channels/**/*.ts"],
+      "outputs": []
+    },
+    "verify:exports": {
+      "dependsOn": ["build"],
+      "inputs": ["packages/*/package.json"],
+      "outputs": []
+    },
+    "check:contracts": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "packages/contracts/src/schemas/**/*.ts",
+        "packages/contracts/package.json",
+        "tsconfig.json",
+        "tsconfig.electron.json",
+        "src/main/register-aliases.ts",
+        "vitest.config.ts"
+      ],
+      "outputs": []
+    },
+    "generate:aliases": {
+      "inputs": ["tsconfig.electron.json", "scripts/generate-register-aliases.js"],
+      "outputs": ["src/main/register-aliases.ts"]
+    },
+    "generate:ipc": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "packages/contracts/src/channels/**/*.ts",
+        "packages/contracts/src/schemas/**/*.ts",
+        "scripts/generate-preload-channels.js"
+      ],
+      "outputs": ["src/preload/channels.ts"]
+    },
+    "verify:architecture": {
+      "inputs": ["src/**/*.ts", "scripts/generate-architecture-inventory.js"],
+      "outputs": ["docs/architecture-inventory.json"]
+    }
+  }
+}

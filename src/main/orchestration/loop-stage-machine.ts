@@ -246,7 +246,8 @@ There is no human in the loop to answer questions. You must:
 1. Open \`STAGE.md\`. It contains exactly one of: PLAN, REVIEW, IMPLEMENT.
 2. Open ${planRef}.
 3. Open \`NOTES.md\`. It contains the rolling notes from prior iterations.
-4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.${interventions}${promptBlocks}
+4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.
+5. If no plan file is configured and the goal is broad, maintain a \`## Completion Inventory\` section in \`NOTES.md\`: list discovered concrete work items, check them off only when fully implemented and verified, and add newly discovered items instead of losing them between iterations.${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
@@ -254,7 +255,7 @@ Based on the value of STAGE.md:
 
 - **PLAN** — Continue or improve the plan. Choose the best architectural decisions. Do not take shortcuts. If a plan does not exist yet, draft one.
 - **REVIEW** — Re-read the plan with completely fresh eyes. Treat the plan as if a stranger wrote it. Identify and fix issues. Improve clarity, completeness, and correctness. If the plan is sound, say so explicitly.
-- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.
+- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. For broad goals such as "implement everything", first build or update the \`NOTES.md\` completion inventory by searching for unfinished implementations (for example TODO/FIXME, "not implemented", placeholder, stub, fake/mock behavior in production paths, constant returns standing in for real logic). Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.
 
 Honor every safety rail: do not run destructive operations (\`rm -rf\`, \`git push --force\`, schema drops) unless the loop config explicitly allows them — this loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations.
 
@@ -264,11 +265,12 @@ If the work for the current STAGE is complete:
 - PLAN done → write \`REVIEW\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
 - REVIEW done → write \`IMPLEMENT\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
 - IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into STAGE.md (loop back through review).
-- IMPLEMENT done **and plan is fully implemented & verified** →
-    1. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize them. Verification must pass.
-    2. Append \`<promise>DONE</promise>\` on its own line at the end of your output.
-    3. If a plan file exists, rename it: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
-    4. Write \`DONE.txt\` containing the date — this is the sentinel.
+- IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
+    1. Confirm there are no unchecked plan items or unchecked \`NOTES.md\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope.
+    2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize them. Verification must pass.
+    3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
+    4. Write \`DONE.txt\` containing the date — this durable sentinel is required for no-plan loops.
+    5. Append \`<promise>DONE</promise>\` on its own line at the end of your output only after the durable marker above exists.
 
 If you are blocked and need a human, write \`BLOCKED.md\` describing what you need, then exit.
 

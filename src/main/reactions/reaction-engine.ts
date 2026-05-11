@@ -13,8 +13,12 @@
  */
 
 import { EventEmitter } from 'events';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
+
+const execFileAsync = promisify(execFile);
 import { fetchPREnrichmentBatch, formatCIFailureMessage, formatReviewMessage } from '../vcs/remotes/github-pr-poller';
 import { parseGitHostWorkItemUrl } from '../vcs/remotes/git-host-connector';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -400,15 +404,51 @@ export class ReactionEngine extends EventEmitter {
       }
 
       case 'auto-merge': {
-        // Placeholder: auto-merge not yet implemented, fall back to notify
-        const event = this.emitEvent(state, eventType, data, message);
+        const mergeSuccess = await this.attemptAutoMerge(data);
+        if (mergeSuccess) {
+          this.emit('reaction:auto-merged', { instanceId: state.instanceId, prNumber: data.number, repo: `${data.owner}/${data.repo}` });
+          return { reactionType: reactionKey, success: true, action: 'auto-merge', message, escalated: false };
+        }
+        // Merge failed — fall back to human notification
+        const event = this.emitEvent(state, eventType, data, `Auto-merge failed for PR #${data.number}. ${message}`);
         await this.notifyHuman(event, priority);
-        return { reactionType: reactionKey, success: true, action: 'auto-merge', message, escalated: false };
+        return { reactionType: reactionKey, success: false, action: 'auto-merge', message, escalated: false };
       }
 
       case 'ignore':
       default:
         return { reactionType: reactionKey, success: true, action: 'ignore', escalated: false };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Auto-merge
+  // -------------------------------------------------------------------------
+
+  /**
+   * Attempt to merge a PR using the `gh` CLI.
+   * Requires the `gh` CLI to be authenticated and available on PATH.
+   * Uses squash merge to keep history clean.
+   */
+  private async attemptAutoMerge(data: PREnrichmentData): Promise<boolean> {
+    const repo = `${data.owner}/${data.repo}`;
+    try {
+      await execFileAsync('gh', [
+        'pr', 'merge',
+        String(data.number),
+        '--squash',
+        '--auto',
+        '--repo', repo,
+      ], { timeout: 30_000 });
+      logger.info('Auto-merged PR via gh CLI', { repo, prNumber: data.number });
+      return true;
+    } catch (err) {
+      logger.warn('Auto-merge via gh CLI failed', {
+        repo,
+        prNumber: data.number,
+        error: (err as Error).message,
+      });
+      return false;
     }
   }
 

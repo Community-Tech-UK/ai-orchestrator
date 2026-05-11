@@ -3,14 +3,15 @@
  *
  * Implements `plan_loop_mode.md` § B (Robust break-out detection).
  *
- * Six signals are observed; **none of them stops the loop on their own**.
- * When any sufficient signal fires, the coordinator runs the configured
- * verify command. Only when verify passes (twice, by default, to guard
- * against flakes) does the loop actually stop.
+ * Six signals are observed; output-only claims do not stop the loop on their
+ * own. When any durable sufficient signal fires, the coordinator runs the
+ * configured verify command. Only when verify passes (twice, by default, to
+ * guard against flakes) does the loop actually stop.
  *
  * Signals:
  *   1. completed-rename — `*_Completed.md` rename observed (watcher state)
  *   2. done-promise     — `<promise>DONE</promise>` in iteration output
+ *                          (acknowledgement only; never sufficient alone)
  *   3. done-sentinel    — `DONE.txt` exists in workspace at iteration end
  *   4. all-green        — verify passes after previously-failing iteration
  *   5. self-declared    — output literal "TASK COMPLETE" / "DONE" — auxiliary
@@ -170,15 +171,21 @@ export class LoopCompletionDetector {
       });
     }
 
-    // 2. done-promise marker
+    // 2. done-promise marker.
+    //
+    // This is deliberately NOT sufficient by itself. It is just text emitted
+    // by the child process; accepting it as terminal means a single optimistic
+    // final answer can end the loop with no durable workspace evidence. The
+    // agent prompt requires a durable marker as well (DONE.txt, plan checklist,
+    // or completed-plan rename), and those signals are what can stop the loop.
     try {
       const re = new RegExp(config.completion.donePromiseRegex, 'i');
       if (re.test(iteration.outputExcerpt)) {
         out.push({
           id: 'done-promise',
-          sufficient: isImplement,
+          sufficient: false,
           detail: isImplement
-            ? 'Output contained <promise>DONE</promise>'
+            ? 'Output contained <promise>DONE</promise>; waiting for durable completion evidence'
             : 'Output contained <promise>DONE</promise>, but stage is not IMPLEMENT — ignoring',
         });
       }
@@ -323,10 +330,10 @@ export class LoopCompletionDetector {
   }
 
   /**
-   * Belt-and-braces gate. When the user explicitly enables completed-file
-   * enforcement, completion isn't accepted until a *_Completed.md rename has
-   * actually happened during this run. General continuation loops leave this
-   * off because there may be no plan file to rename.
+   * Belt-and-braces gate. When completed-file enforcement is enabled,
+   * completion isn't accepted until a *_Completed.md rename has actually
+   * happened during this run. General continuation loops leave this off
+   * because there may be no plan file to rename.
    */
   passesBeltAndBraces(state: LoopState, config: LoopConfig): boolean {
     if (!config.completion.requireCompletedFileRename) return true;

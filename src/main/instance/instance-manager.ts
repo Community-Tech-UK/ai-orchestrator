@@ -12,6 +12,8 @@
 
 import { EventEmitter } from 'events';
 import { createHash, randomUUID } from 'node:crypto';
+import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
+import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
@@ -46,11 +48,13 @@ import {
   isInstanceSettled,
 } from './instance-state-machine';
 import { InstanceContextManager } from './instance-context';
+import type { InstanceContextPort } from './instance-context-port';
 import { InstanceEventAggregator } from './instance-event-aggregator';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
+import { StaleRuntimeReconciler } from './stale-runtime-reconciler';
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -193,11 +197,12 @@ export class InstanceManager extends EventEmitter {
   private state: InstanceStateManager;
   private lifecycle: InstanceLifecycleManager;
   private communication: InstanceCommunicationManager;
-  private context: InstanceContextManager;
+  private context: InstanceContextPort;
   private orchestrationMgr: InstanceOrchestrationManager;
   private persistence: InstancePersistenceManager;
   private warmStart: WarmStartManager;
   private stuckDetector: StuckProcessDetector;
+  private staleReconciler: StaleRuntimeReconciler;
   private lifecycleEvents = new InstanceEventAggregator();
 
   // Tracking
@@ -205,7 +210,9 @@ export class InstanceManager extends EventEmitter {
   private completedChildNotifications = new Set<string>();
   private settings = getSettingsManager();
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
-  private providerRuntimeSeqByInstance = new Map<string, number>();
+  private readonly providerEventBus = new ProviderRuntimeEventBus(
+    (envelope) => this.emit('provider:normalized-event', envelope),
+  );
   private settledTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private settledLastEventAt = new Map<string, number>();
   private settledLastEmittedKey = new Map<string, string>();
@@ -213,7 +220,10 @@ export class InstanceManager extends EventEmitter {
     this.interruptActiveTurnsForPause();
   };
 
-  constructor(private readonly windowManager?: Pick<WindowManager, 'sendToRenderer'>) {
+  constructor(
+    private readonly windowManager?: Pick<WindowManager, 'sendToRenderer'>,
+    contextPort?: InstanceContextPort,
+  ) {
     super();
 
     // Initialize the warm-start manager. The spawnAdapter callback creates a
@@ -242,7 +252,7 @@ export class InstanceManager extends EventEmitter {
 
     // Initialize sub-managers with dependencies
     this.state = new InstanceStateManager();
-    this.context = new InstanceContextManager();
+    this.context = contextPort ?? new InstanceContextManager();
     this.orchestrationMgr = new InstanceOrchestrationManager({
       getInstance: (id) => this.state.getInstance(id),
       getInstanceCount: () => this.state.getInstanceCount(),
@@ -257,6 +267,15 @@ export class InstanceManager extends EventEmitter {
         return adapter?.isRunning() ?? false;
       },
       hasExternalActivity: (id) => this.orchestrationMgr.hasActiveWork(id),
+    });
+    this.staleReconciler = StaleRuntimeReconciler.getInstance({
+      getInstances: () => this.state.getAllInstances(),
+      markRuntimeLost: (id) => {
+        const inst = this.state.getInstance(id);
+        if (!inst) return;
+        inst.processId = null;
+        this.updateInstanceStatus(id, 'error', { reason: 'runtime_lost' });
+      },
     });
 
     // Communication manager needs dependencies
@@ -488,7 +507,7 @@ export class InstanceManager extends EventEmitter {
     });
     this.lifecycle.on('removed', (instanceId) => {
       const instance = this.state.getInstance(instanceId);
-      this.providerRuntimeSeqByInstance.delete(instanceId);
+      this.providerEventBus.removeInstance(instanceId);
       this.clearSettledTracking(instanceId);
       this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emit('instance:removed', instanceId);
@@ -1058,9 +1077,7 @@ export class InstanceManager extends EventEmitter {
       return;
     }
 
-    const envelope: ProviderRuntimeEventEnvelope = {
-      eventId: randomUUID(),
-      seq: this.nextProviderRuntimeSeq(instanceId),
+    const pending: PendingEnvelope = {
       timestamp: options?.timestamp ?? Date.now(),
       provider,
       instanceId,
@@ -1070,7 +1087,7 @@ export class InstanceManager extends EventEmitter {
       event,
     };
 
-    this.emit('provider:normalized-event', envelope);
+    this.providerEventBus.enqueue(pending);
   }
 
   private resolveRuntimeEventTurnId(
@@ -1082,12 +1099,6 @@ export class InstanceManager extends EventEmitter {
     }
 
     return instance?.activeTurnId;
-  }
-
-  private nextProviderRuntimeSeq(instanceId: string): number {
-    const next = this.providerRuntimeSeqByInstance.get(instanceId) ?? 0;
-    this.providerRuntimeSeqByInstance.set(instanceId, next + 1);
-    return next;
   }
 
   private resolveProviderName(
@@ -1129,6 +1140,10 @@ export class InstanceManager extends EventEmitter {
 
   getAllInstances(): Instance[] {
     return this.state.getAllInstances();
+  }
+
+  getProviderEventBusMetrics() {
+    return this.providerEventBus.metrics();
   }
 
   getAllInstancesForIpc(): Record<string, unknown>[] {

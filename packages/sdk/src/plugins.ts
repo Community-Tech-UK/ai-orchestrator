@@ -175,6 +175,93 @@ export type OrchestratorHooks = {
   ) => void | Promise<void>;
 };
 
+// ── Typed hook callbacks ──────────────────────────────────────────────────────
+// Inspired by copilot-sdk typed hook pattern. These hooks return structured
+// results so the runtime can distinguish 'deny' vs 'ask' vs 'allow-with-modification'
+// without re-prompting. Use TypedHookCallbacks when you need the response value;
+// use OrchestratorHooks for fire-and-forget side-effects.
+
+/** Category of the resource being accessed. */
+export type PermissionRequestKind =
+  | 'shell'
+  | 'write'
+  | 'read'
+  | 'mcp'
+  | 'custom-tool'
+  | 'url'
+  | 'memory'
+  | 'hook';
+
+/** How the permission decision was reached. */
+export type PermissionResultKind =
+  | 'approved'
+  | 'denied-interactively-by-user'
+  | 'denied-by-rules'
+  | 'allowed-by-rules'
+  | 'pending';
+
+/** Structured result returned by pre-tool typed hooks. */
+export interface PreToolUseDecision {
+  /** Explicit permission action; omit to leave the decision to the next handler. */
+  permissionDecision?: 'allow' | 'deny' | 'ask';
+  /** How the decision was reached (for audit + agent learning). */
+  resultKind?: PermissionResultKind;
+  /** Replacement args to use instead of the original (only honoured when `permissionDecision === 'allow'`). */
+  modifiedArgs?: Record<string, unknown>;
+  /** Extra context surfaced to the user in the permission UI. */
+  additionalContext?: string;
+}
+
+export interface PreToolUseHookInput {
+  instanceId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  requestKind: PermissionRequestKind;
+}
+
+export interface PostToolUseHookInput {
+  instanceId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  durationMs: number;
+  errorMessage?: string;
+}
+
+export interface PostToolUseDecision {
+  /** Suppress this tool result from the agent's context (e.g. secret redaction). */
+  suppressResult?: boolean;
+  /** Replacement result content if the original must be sanitised. */
+  replacementResult?: unknown;
+}
+
+export interface UserPromptSubmittedHookInput {
+  instanceId: string;
+  prompt: string;
+  attachmentCount: number;
+}
+
+export interface UserPromptDecision {
+  /** Reject the prompt before it reaches the provider (e.g. PII filter). */
+  deny?: boolean;
+  /** Replacement prompt if the original must be rewritten. */
+  replacementPrompt?: string;
+  /** Injected context appended to the prompt before sending. */
+  additionalContext?: string;
+}
+
+/**
+ * Typed hook callbacks that return structured decisions.
+ * The runtime calls these before/after tool execution and before prompt submission.
+ * Returning `undefined` (or not registering a hook) defers to the next handler.
+ */
+export interface TypedHookCallbacks {
+  onPreToolUse?: (input: PreToolUseHookInput) => Promise<PreToolUseDecision | undefined>;
+  onPostToolUse?: (input: PostToolUseHookInput) => Promise<PostToolUseDecision | undefined>;
+  onUserPromptSubmitted?: (input: UserPromptSubmittedHookInput) => Promise<UserPromptDecision | undefined>;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface TrackerPlugin {
   track(event: PluginTrackerEvent): void | Promise<void>;
 }
@@ -207,6 +294,9 @@ export interface SdkPluginContext {
 
 export interface PluginModuleDefinition<T = unknown> {
   hooks?: OrchestratorHooks;
+  /** Typed callbacks with structured return values (preferred over fire-and-forget hooks
+   *  for permission-critical operations like pre-tool-use and prompt submission). */
+  typedHooks?: TypedHookCallbacks;
   detect?: (
     ctx: SdkPluginContext,
   ) => boolean | Promise<boolean>;

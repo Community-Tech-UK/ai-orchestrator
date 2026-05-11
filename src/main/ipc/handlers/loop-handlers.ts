@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -11,7 +12,11 @@ import {
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getLoopStore } from '../../orchestration/loop-store';
-import { buildLoopTerminalChatSummary } from '../../orchestration/loop-chat-summary';
+import {
+  buildLoopInterveneChatEvent,
+  buildLoopStartChatEvent,
+  buildLoopTerminalChatSummary,
+} from '../../orchestration/loop-chat-summary';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
 import type { LoopState } from '../../../shared/types/loop.types';
@@ -62,7 +67,26 @@ export function registerLoopHandlers(deps: {
     }
     send(IPC_CHANNELS.LOOP_STATE_CHANGED, data);
   });
-  coordinator.on('loop:started', (data: unknown) => send(IPC_CHANNELS.LOOP_STARTED, data));
+  coordinator.on('loop:started', (data: { loopRunId: string; chatId: string }) => {
+    try {
+      const state = coordinator.getLoop(data.loopRunId);
+      if (state) {
+        chatService.appendSystemEvent(buildLoopStartChatEvent(state));
+      } else {
+        logger.warn('loop:started fired but coordinator has no live state — chat start event skipped', {
+          loopRunId: data.loopRunId,
+          chatId: data.chatId,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to append loop start event to chat', {
+        loopRunId: data.loopRunId,
+        chatId: data.chatId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    send(IPC_CHANNELS.LOOP_STARTED, data);
+  });
   coordinator.on('loop:iteration-started', (data: unknown) => send(IPC_CHANNELS.LOOP_ITERATION_STARTED, data));
   coordinator.on('loop:activity', (data: unknown) => send(IPC_CHANNELS.LOOP_ACTIVITY, data));
   coordinator.on('loop:iteration-complete', (data: unknown) => send(IPC_CHANNELS.LOOP_ITERATION_COMPLETE, data));
@@ -130,6 +154,29 @@ export function registerLoopHandlers(deps: {
     try {
       const validated = validateIpcPayload(LoopInterveneePayloadSchema, payload, 'LOOP_INTERVENE');
       const ok = coordinator.intervene(validated.loopRunId, validated.message);
+      if (ok) {
+        const state = coordinator.getLoop(validated.loopRunId);
+        if (state) {
+          try {
+            // randomUUID — not Date.now() — so two interventions in the same
+            // millisecond don't collide on nativeMessageId. A collision would
+            // be silently swallowed by appendSystemEvent's dedupe and the
+            // second nudge would vanish from chat history, which is exactly
+            // the failure mode this whole change exists to fix.
+            chatService.appendSystemEvent(buildLoopInterveneChatEvent({
+              state,
+              interventionId: randomUUID(),
+              message: validated.message,
+            }));
+          } catch (err) {
+            logger.warn('Failed to append loop intervention to chat', {
+              loopRunId: validated.loopRunId,
+              chatId: state.chatId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
       return { success: true, data: { ok } };
     } catch (error) {
       return errorResponse('LOOP_INTERVENE_FAILED', error);

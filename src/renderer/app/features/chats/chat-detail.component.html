@@ -131,6 +131,12 @@
 
     <app-loop-control [chatId]="detail.chat.id" />
 
+    <app-session-artifacts-strip
+      [diffStats]="currentInstance()?.diffStats ?? null"
+      [workingDirectory]="detail.chat.currentCwd"
+      [chatId]="detail.chat.id"
+    />
+
     <app-input-panel
       [instanceId]="streamInstanceId()"
       [disabled]="!setupComplete() || chatStore.sending()"

@@ -1351,13 +1351,15 @@ export class InstanceCommunicationManager extends EventEmitter {
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
         const previous = instance.contextUsage;
-        logger.info('[CONTEXT_EVENT] applying', {
-          instanceId,
-          previousUsed: previous?.used,
-          previousTotal: previous?.total,
-          incomingUsed: usage.used,
-          incomingTotal: usage.total,
-        });
+        if (previous?.used !== usage.used || previous?.total !== usage.total) {
+          logger.debug('[CONTEXT_EVENT] applying', {
+            instanceId,
+            previousUsed: previous?.used,
+            previousTotal: previous?.total,
+            incomingUsed: usage.used,
+            incomingTotal: usage.total,
+          });
+        }
         instance.contextUsage = usage;
         // Prefer the lifetime spend counter; fall back to occupancy for
         // adapters that don't emit cumulativeTokens (e.g. Claude).

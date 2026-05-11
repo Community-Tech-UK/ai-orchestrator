@@ -272,6 +272,9 @@ export class InterruptRespawnHandler {
       instance.interruptRequestId = generateId();
       instance.interruptRequestedAt = requestedAt;
       instance.interruptPhase = interruptResult.status === 'escalated' ? 'escalated' : 'accepted';
+      // Bump message generation so wake messages are only consumed by the
+      // freshly-spawned process, not the dying one still in its grace period.
+      instance.messageGenerationId = (instance.messageGenerationId ?? 0) + 1;
       instance.activeTurnId = interruptResult.turnId ?? instance.activeTurnId;
       this.emitInterruptBoundary(instance, {
         phase: 'requested',

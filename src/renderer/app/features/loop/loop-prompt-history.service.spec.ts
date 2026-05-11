@@ -6,6 +6,15 @@ const LEGACY_DEFAULT_LOOP_PROMPT =
   'Re-review your work with completely fresh eyes after each stage and fix any issues. ' +
   'When a plan file is fully implemented, rename it with `_Completed`.';
 
+const PRE_INVENTORY_DEFAULT_LOOP_PROMPT =
+  "Continue toward the user's goal. Read relevant files before changing code, " +
+  'choose the maintainable architecture, and make concrete progress this turn.\n\n' +
+  'If implementing a plan, update the code and tests until the plan is fully implemented. ' +
+  'Verify with the appropriate checks. If a plan file is fully implemented and verified, ' +
+  'rename it with _completed.\n\n' +
+  'Before stopping, review your own work with fresh eyes. Fix any issues you find. ' +
+  'If blocked, explain the blocker clearly and stop.';
+
 const PREVIOUS_DEFAULT_LOOP_PROMPT =
   "Continue toward the user's goal. Read relevant files before changing code, " +
   'choose the maintainable architecture, and make concrete progress this turn. ' +
@@ -31,6 +40,7 @@ describe('LoopPromptHistoryService', () => {
 
   it('migrates built-in default prompts when they appear in recent history', () => {
     localStorage.setItem('loop:recent-prompts', JSON.stringify([
+      PRE_INVENTORY_DEFAULT_LOOP_PROMPT,
       LEGACY_DEFAULT_LOOP_PROMPT,
       PREVIOUS_DEFAULT_LOOP_PROMPT,
       VERBOSE_DEFAULT_LOOP_PROMPT,
@@ -39,5 +49,7 @@ describe('LoopPromptHistoryService', () => {
     const service = new LoopPromptHistoryService();
 
     expect(service.recent()).toEqual([DEFAULT_LOOP_PROMPT]);
+    expect(DEFAULT_LOOP_PROMPT).toContain('completion inventory');
+    expect(DEFAULT_LOOP_PROMPT).toContain('Do not stop after a partial slice');
   });
 });

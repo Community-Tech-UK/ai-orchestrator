@@ -44,6 +44,12 @@ export interface ChatSystemEventInput {
   content: string;
   createdAt?: number;
   metadata?: Record<string, unknown>;
+  /**
+   * Ledger role for the appended event. Defaults to `'system'`. Use `'user'`
+   * for synthesized events that represent the user's intent (e.g. the loop
+   * kickoff prompt) so they render as user bubbles in the transcript.
+   */
+  role?: 'user' | 'system';
 }
 
 export class ChatService {
@@ -301,7 +307,7 @@ export class ChatService {
     this.ledger.appendMessage(chat.ledgerThreadId, {
       nativeMessageId: input.nativeMessageId,
       nativeTurnId: input.nativeTurnId,
-      role: 'system',
+      role: input.role ?? 'system',
       phase: input.phase ?? null,
       content: input.content,
       createdAt: input.createdAt ?? Date.now(),

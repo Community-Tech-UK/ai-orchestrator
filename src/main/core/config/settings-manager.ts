@@ -15,6 +15,14 @@ import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators'
 const logger = getLogger('SettingsManager');
 
 /**
+ * Ordered config source hierarchy — later sources take precedence.
+ * Merge order: User (global) -> Project (repo-local) -> Local (gitignored) -> Env -> CLI args.
+ * Motivated by claw-code ConfigSource enum (claude2.md section 9.1).
+ */
+export const CONFIG_SOURCE_PRECEDENCE = ['user', 'project', 'local', 'env', 'cli'] as const;
+export type ConfigSourceLevel = typeof CONFIG_SOURCE_PRECEDENCE[number];
+
+/**
  * Legacy app name for migration purposes
  */
 const LEGACY_APP_NAME = 'claude-orchestrator';

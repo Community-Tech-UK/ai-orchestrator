@@ -4,8 +4,9 @@ import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.serv
 import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-history.service';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
-// We must include all sub-fields whenever caps/completion are sent — Zod's
-// `LoopConfigInputSchema` only makes the top-level keys optional.
+// We must include all sub-fields whenever caps/completion/progressThresholds
+// are sent — Zod's `LoopConfigInputSchema` only makes the top-level keys
+// optional, so an empty `progressThresholds: {}` would fail validation.
 const DEFAULT_CAPS = {
   maxTokens: 1_000_000,
   maxToolCallsPerIteration: 200,
@@ -15,6 +16,32 @@ const DEFAULT_COMPLETION = {
   donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
   doneSentinelFile: 'DONE.txt',
   verifyTimeoutMs: 600_000,
+};
+/** Mirrors defaultLoopConfig().progressThresholds. We only ever ship this
+ *  to the main process when the user opts into a non-default toggle (today
+ *  that's just `pauseOnTokenBurn`), because Zod requires the full strict
+ *  shape if the field is present at all. */
+const DEFAULT_PROGRESS_THRESHOLDS = {
+  identicalHashWarnConsecutive: 2,
+  identicalHashCriticalConsecutive: 3,
+  identicalHashCriticalWindow: 3,
+  similarityWarnMean: 0.85,
+  similarityCriticalMean: 0.92,
+  stageWarnIterations: { PLAN: 3, REVIEW: 2, IMPLEMENT: 8 },
+  stageCriticalIterations: { PLAN: 5, REVIEW: 3, IMPLEMENT: 12 },
+  errorRepeatWarnInWindow: 3,
+  errorRepeatCriticalInWindow: 4,
+  tokensWithoutProgressWarn: 25_000,
+  tokensWithoutProgressCritical: 60_000,
+  pauseOnTokenBurn: false,
+  toolRepeatWarnPerIteration: 5,
+  toolRepeatCriticalPerIteration: 8,
+  testStagnationWarnIterations: 3,
+  testStagnationCriticalIterations: 5,
+  churnRatioWarn: 0.30,
+  churnRatioCritical: 0.50,
+  warnEscalationWindow: 5,
+  warnEscalationCount: 3,
 };
 
 /**
@@ -192,12 +219,22 @@ const DEFAULT_COMPLETION = {
 
           <section class="row toggles">
             <label>
-              <input type="checkbox" [checked]="requireRename()" (change)="requireRename.set(toggleEvent($event))" />
+              <input
+                type="checkbox"
+                [checked]="effectiveRequireRename()"
+                [disabled]="planFileRequiresRename()"
+                (change)="requireRename.set(toggleEvent($event))"
+              />
               Require <code>*_Completed.md</code> plan rename before stopping
             </label>
             <label>
               <input type="checkbox" [checked]="runVerifyTwice()" (change)="runVerifyTwice.set(toggleEvent($event))" />
               Run verify command twice (anti-flake)
+            </label>
+            <label>
+              <input type="checkbox" [checked]="pauseOnTokenBurn()" (change)="pauseOnTokenBurn.set(toggleEvent($event))" />
+              Pause if many tokens spent without test progress
+              <span class="hint">(opt-in; tests-driven runs only)</span>
             </label>
             <label class="warn">
               <input type="checkbox" [checked]="allowDestructive()" (change)="allowDestructive.set(toggleEvent($event))" />
@@ -417,8 +454,14 @@ export class LoopConfigPanelComponent {
   streamIdleTimeoutSec = signal(300);
   requireRename = signal(false);
   runVerifyTwice = signal(true);
+  /** Opt-in for signal F (token-burn-without-test-progress). Default off so
+   *  legitimate non-test-driven loops (new module scaffolds, refactors with
+   *  no test deltas, doc/asset generation) don't pause spuriously. */
+  pauseOnTokenBurn = signal(false);
   allowDestructive = signal(false);
   showAdvanced = signal(false);
+  planFileRequiresRename = computed(() => this.planFile().trim().length > 0);
+  effectiveRequireRename = computed(() => this.planFileRequiresRename() || this.requireRename());
 
   constructor() {
     // Scope history to the workspace so directives don't leak across
@@ -486,10 +529,11 @@ export class LoopConfigPanelComponent {
    */
   buildConfig(): LoopStartConfigInput | null {
     if (!this.canSubmit()) return null;
+    const planFile = this.planFile().trim() || undefined;
     return {
       initialPrompt: this.prompt().trim(),
       workspaceCwd: this.workspaceCwd(),
-      planFile: this.planFile().trim() || undefined,
+      planFile,
       provider: this.provider(),
       reviewStyle: this.reviewStyle(),
       contextStrategy: this.contextStrategy(),
@@ -508,8 +552,20 @@ export class LoopConfigPanelComponent {
         verifyCommand: this.verifyCommand(),
         verifyTimeoutMs: DEFAULT_COMPLETION.verifyTimeoutMs,
         runVerifyTwice: this.runVerifyTwice(),
-        requireCompletedFileRename: this.requireRename(),
+        requireCompletedFileRename: this.effectiveRequireRename(),
       },
+      // Only override progressThresholds when the user has opted into a
+      // non-default behaviour. Otherwise omit it entirely so the main
+      // process applies its own canonical defaults — keeps the IPC payload
+      // small and leaves the source of truth in one place.
+      ...(this.pauseOnTokenBurn()
+        ? {
+            progressThresholds: {
+              ...DEFAULT_PROGRESS_THRESHOLDS,
+              pauseOnTokenBurn: true,
+            },
+          }
+        : {}),
       allowDestructiveOps: this.allowDestructive(),
       iterationTimeoutMs: this.iterationTimeoutMin() * 60 * 1000,
       streamIdleTimeoutMs: this.streamIdleTimeoutSec() * 1000,

@@ -29,6 +29,7 @@ import { getSafeStorage } from './safe-storage-accessor';
 import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compaction-policy';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
+import { getSessionPersistenceQueue } from './session-persistence-queue';
 
 const logger = getLogger('SessionContinuity');
 
@@ -569,7 +570,7 @@ export class SessionContinuityManager extends EventEmitter {
     const state = this.instanceToState(instance);
     this.sessionStates.set(instance.id, state);
     this.dirty.add(instance.id);
-    await this.appendSessionEvent(instance.id, 'tracking_started', {
+    this.appendSessionEvent(instance.id, 'tracking_started', {
       workingDirectory: state.workingDirectory,
       provider: state.provider ?? 'unknown',
     });
@@ -631,7 +632,7 @@ export class SessionContinuityManager extends EventEmitter {
     }
 
     if (state) {
-      await this.appendSessionEvent(instanceId, 'tracking_stopped', {
+      this.appendSessionEvent(instanceId, 'tracking_stopped', {
         archived: archive,
       });
     }
@@ -745,7 +746,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     Object.assign(state, normalizedUpdates);
     this.dirty.add(instanceId);
-    await this.appendSessionEvent(instanceId, 'state_updated', normalizedUpdates as Record<string, unknown>);
+    this.appendSessionEvent(instanceId, 'state_updated', normalizedUpdates as Record<string, unknown>);
 
     this.emit('state:updated', { instanceId, updates: normalizedUpdates });
   }
@@ -781,7 +782,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     state.conversationHistory.push(entry);
     this.stateActivityTimestamps.set(instanceId, entry.timestamp);
-    await this.appendSessionEvent(instanceId, 'conversation_entry', {
+    this.appendSessionEvent(instanceId, 'conversation_entry', {
       role: entry.role,
       timestamp: entry.timestamp,
     });
@@ -802,7 +803,7 @@ export class SessionContinuityManager extends EventEmitter {
       if (result.compactedCount > 0) {
         state.conversationHistory = result.entries;
         this.lastCompactionAt.set(instanceId, Date.now());
-        await this.appendSessionEvent(instanceId, 'compaction_applied', {
+        this.appendSessionEvent(instanceId, 'compaction_applied', {
           compactedCount: result.compactedCount,
           reason: decision.reason,
         });
@@ -843,7 +844,7 @@ export class SessionContinuityManager extends EventEmitter {
       (v) => this.normalizeLookupIdentifier(v),
     );
     if (snapshot) {
-      await this.appendSessionEvent(instanceId, 'snapshot_created', {
+      this.appendSessionEvent(instanceId, 'snapshot_created', {
         snapshotId: snapshot.id,
         trigger,
       });
@@ -1170,7 +1171,7 @@ export class SessionContinuityManager extends EventEmitter {
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
       await measureAsync('session.save', () => this.writePayload(stateFile, state));
       this.dirty.delete(instanceId);
-      await this.appendSessionEvent(instanceId, 'state_saved', {
+      this.appendSessionEvent(instanceId, 'state_saved', {
         source: state.lastWriteSource ?? 'unknown',
         timestamp: state.lastWriteTimestamp ?? Date.now(),
       });
@@ -1483,6 +1484,9 @@ export class SessionContinuityManager extends EventEmitter {
   shutdown(): void {
     this.autoSave.stop();
 
+    // Flush any buffered event-log entries (fire-and-forget; Electron is quitting).
+    void getSessionPersistenceQueue().shutdown({ drain: false });
+
     // Best-effort synchronous save of all dirty states
     for (const instanceId of this.dirty) {
       const state = this.sessionStates.get(instanceId);
@@ -1542,36 +1546,17 @@ export class SessionContinuityManager extends EventEmitter {
     }
   }
 
-  private async appendSessionEvent(
+  private appendSessionEvent(
     instanceId: string,
     type: string,
     payload: Record<string, unknown>,
-  ): Promise<void> {
+  ): void {
     const state = this.sessionStates.get(instanceId);
-    if (!state) {
-      return;
-    }
+    if (!state) return;
 
     const logPath = this.storagePaths.getSessionEventLogPath(state.workingDirectory, instanceId);
-    try {
-      await fs.promises.mkdir(path.dirname(logPath), { recursive: true });
-      await fs.promises.appendFile(
-        logPath,
-        JSON.stringify({
-          type,
-          instanceId,
-          timestamp: Date.now(),
-          payload,
-        }) + '\n',
-        'utf-8',
-      );
-    } catch (error) {
-      logger.warn('Failed to append session event log entry', {
-        instanceId,
-        type,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const line = JSON.stringify({ type, instanceId, timestamp: Date.now(), payload });
+    getSessionPersistenceQueue().enqueueEvent(logPath, line);
   }
 }
 

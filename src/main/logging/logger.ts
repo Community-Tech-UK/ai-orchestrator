@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
+import { LogWriterClient } from './log-writer-client';
 
 /**
  * Safely get the Electron app userData path.
@@ -319,7 +320,7 @@ export class LogManager extends EventEmitter {
   private maxBufferSize = 10000;
   private logFile: string;
   private currentFileSize = 0;
-  private writeQueue = Promise.resolve();
+  private logWriterClient: LogWriterClient | null = null;
 
   constructor(config: Partial<LoggerConfig> = {}) {
     super();
@@ -338,6 +339,13 @@ export class LogManager extends EventEmitter {
 
     if (this.config.enableFile) {
       this.ensureLogDirectory();
+      this.initFileSize();
+      this.logWriterClient = new LogWriterClient({
+        logFile: this.logFile,
+        maxFileSize: this.config.maxFileSize,
+        maxFiles: this.config.maxFiles,
+        currentFileSize: this.currentFileSize,
+      });
     }
   }
 
@@ -348,6 +356,22 @@ export class LogManager extends EventEmitter {
     const logDir = path.dirname(this.logFile);
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
+    }
+  }
+
+  /**
+   * Stat existing log file to initialize currentFileSize.
+   * Rotates synchronously at construction if the file is already over the limit.
+   */
+  private initFileSize(): void {
+    try {
+      const stat = fs.statSync(this.logFile);
+      this.currentFileSize = stat.size;
+      if (this.currentFileSize >= this.config.maxFileSize) {
+        this.rotateLogFile();
+      }
+    } catch {
+      // File doesn't exist yet; currentFileSize stays 0.
     }
   }
 
@@ -473,25 +497,10 @@ export class LogManager extends EventEmitter {
   }
 
   /**
-   * Write log entry to file (async via write queue to prevent interleaving)
+   * Write log entry to file via the log-writer worker client.
    */
   private writeToFile(entry: LogEntry): void {
-    const line = JSON.stringify(entry) + '\n';
-    const lineSize = Buffer.byteLength(line);
-
-    this.writeQueue = this.writeQueue.then(async () => {
-      try {
-        // Check if rotation is needed
-        if (this.currentFileSize + lineSize > this.config.maxFileSize) {
-          this.rotateLogFile();
-        }
-
-        await fs.promises.appendFile(this.logFile, line);
-        this.currentFileSize += lineSize;
-      } catch (err) {
-        console.error('Failed to write log:', err);
-      }
-    });
+    this.logWriterClient?.writeLine(JSON.stringify(entry));
   }
 
   /**

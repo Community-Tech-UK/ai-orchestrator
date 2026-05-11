@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
 import {
@@ -56,13 +57,16 @@ import { getWorkflowManager } from '../workflows/workflow-manager';
 import { getPermissionManager } from '../security/permission-manager';
 import { PermissionDecisionStore } from '../security/permission-decision-store';
 import { WorkflowPersistence } from '../workflows/workflow-persistence';
-import { initializeCodemem } from '../codemem';
+import { initializeCodemem, getCodemem } from '../codemem';
 import { initializeAutomations } from '../automations';
 import { initializeBrowserGatewayRuntime } from '../browser-gateway';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
 import { initializePauseFeatureRuntime } from './pause-feature-bootstrap';
+import { initializeMainProcessWatchdog } from '../runtime/main-process-watchdog';
+import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
+import { getContextWorkerClient } from '../instance/context-worker-client';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 
@@ -155,6 +159,29 @@ export function createInitializationSteps(
       },
     },
     { name: 'Runtime diagnostics', fn: () => installRuntimeDiagnostics() },
+    {
+      name: 'Main process watchdog',
+      fn: () => {
+        const lagMonitor = getEventLoopLagMonitor();
+        lagMonitor.start();
+        const watchdog = initializeMainProcessWatchdog({
+          userDataPath: app.getPath('userData'),
+          appVersion: app.getVersion(),
+          metricsProvider: {
+            getEventLoopLagP95Ms: () => lagMonitor.snapshot().p95Ms,
+            getEventLoopLagMaxMs: () => lagMonitor.snapshot().maxMs,
+            getProviderBusEmitted: () => instanceManager.getProviderEventBusMetrics().emitted,
+            getProviderBusDroppedStatus: () => instanceManager.getProviderEventBusMetrics().droppedStatus,
+            getContextWorkerInFlight: () => { try { return getContextWorkerClient().getMetrics().inFlight; } catch { return 0; } },
+            getContextWorkerDegraded: () => { try { return getContextWorkerClient().getMetrics().degraded; } catch { return false; } },
+            getIndexWorkerInFlight: () => { try { return getCodemem().indexWorkerGateway.getMetrics().inFlight; } catch { return 0; } },
+            getIndexWorkerDegraded: () => { try { return getCodemem().indexWorkerGateway.getMetrics().degraded; } catch { return false; } },
+            getActiveInstanceCount: () => instanceManager.getAllInstances().filter((i) => i.status !== 'terminated').length,
+          },
+        });
+        watchdog.start();
+      },
+    },
     { name: 'Pause feature', fn: () => initializePauseFeatureRuntime() },
     { name: 'Hook approvals', fn: () => getHookManager().loadApprovals() },
     {

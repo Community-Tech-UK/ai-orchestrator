@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
+import { IPC_CHANNELS } from '@contracts/channels';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import { defaultLoopConfig, type LoopState } from '../../../../shared/types/loop.types';
 import { buildExistingSessionContext, registerLoopHandlers } from '../loop-handlers';
+import { ipcMain } from 'electron';
 
 const hoisted = vi.hoisted(() => ({
   coordinator: {
@@ -156,6 +158,163 @@ describe('registerLoopHandlers terminal summaries', () => {
     expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
   });
 });
+
+describe('registerLoopHandlers start events', () => {
+  it('appends a durable chat event the moment a loop starts so it stays visible if it never reaches a terminal state', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.getLoop.mockReturnValue(startState);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const startHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:started'
+    )?.[1] as ((data: { loopRunId: string; chatId: string }) => void) | undefined;
+
+    startHandler?.({ loopRunId: startState.id, chatId: startState.chatId });
+
+    expect(hoisted.coordinator.getLoop).toHaveBeenCalledWith(startState.id);
+    expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 'chat-1',
+        nativeMessageId: 'loop-start:loop-1',
+        phase: 'loop_start',
+        role: 'user',
+        content: 'Build the thing.',
+      }),
+    );
+    expect(windowManager.sendToRenderer).toHaveBeenCalledWith(
+      'loop:started',
+      { loopRunId: startState.id, chatId: startState.chatId },
+    );
+  });
+
+  it('still forwards the loop:started event to the renderer when the coordinator has no live state', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.coordinator.getLoop.mockReturnValue(undefined);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const startHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:started'
+    )?.[1] as ((data: { loopRunId: string; chatId: string }) => void) | undefined;
+
+    startHandler?.({ loopRunId: 'loop-orphan', chatId: 'chat-orphan' });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+    expect(windowManager.sendToRenderer).toHaveBeenCalledWith(
+      'loop:started',
+      { loopRunId: 'loop-orphan', chatId: 'chat-orphan' },
+    );
+  });
+
+  it('swallows chat-append failures so renderer notifications still fire', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.getLoop.mockReturnValue(startState);
+    hoisted.chatService.appendSystemEvent.mockImplementationOnce(() => {
+      throw new Error('chat missing');
+    });
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const startHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:started'
+    )?.[1] as ((data: { loopRunId: string; chatId: string }) => void) | undefined;
+
+    expect(() =>
+      startHandler?.({ loopRunId: startState.id, chatId: startState.chatId }),
+    ).not.toThrow();
+    expect(windowManager.sendToRenderer).toHaveBeenCalledWith(
+      'loop:started',
+      { loopRunId: startState.id, chatId: startState.chatId },
+    );
+  });
+});
+
+describe('LOOP_INTERVENE handler', () => {
+  it('persists the user nudge as a user-role chat event when the coordinator accepts it', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.intervene.mockReturnValue(true);
+    hoisted.coordinator.getLoop.mockReturnValue(state);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_INTERVENE);
+
+    const response = await handler({}, { loopRunId: state.id, message: 'try a different angle' });
+
+    expect(hoisted.coordinator.intervene).toHaveBeenCalledWith(state.id, 'try a different angle');
+    expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: state.chatId,
+        nativeTurnId: 'loop:loop-1',
+        phase: 'loop_intervene',
+        role: 'user',
+        content: 'try a different angle',
+        nativeMessageId: expect.stringMatching(/^loop-intervene:loop-1:[0-9a-f-]{8,}/i),
+      }),
+    );
+    expect(response).toEqual({ success: true, data: { ok: true } });
+  });
+
+  it('does not append a chat event when the coordinator rejects the intervention', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.coordinator.intervene.mockReturnValue(false);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_INTERVENE);
+
+    const response = await handler({}, { loopRunId: 'loop-gone', message: 'too late' });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+    expect(response).toEqual({ success: true, data: { ok: false } });
+  });
+
+  it('generates a distinct interventionId per call so rapid double-clicks both land in the transcript', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.intervene.mockReturnValue(true);
+    hoisted.coordinator.getLoop.mockReturnValue(state);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_INTERVENE);
+
+    await handler({}, { loopRunId: state.id, message: 'first' });
+    await handler({}, { loopRunId: state.id, message: 'second' });
+
+    expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledTimes(2);
+    const firstId = (hoisted.chatService.appendSystemEvent.mock.calls[0]?.[0] as { nativeMessageId: string }).nativeMessageId;
+    const secondId = (hoisted.chatService.appendSystemEvent.mock.calls[1]?.[0] as { nativeMessageId: string }).nativeMessageId;
+    expect(firstId).not.toBe(secondId);
+  });
+});
+
+type IpcHandler = (event: unknown, payload: unknown) => Promise<{ success: boolean; data?: unknown }>;
+
+function findIpcHandler(channel: string): IpcHandler {
+  const handleMock = ipcMain.handle as unknown as { mock: { calls: [string, IpcHandler][] } };
+  const call = handleMock.mock.calls.find(([registeredChannel]) => registeredChannel === channel);
+  if (!call) {
+    throw new Error(`No IPC handler registered for ${channel}`);
+  }
+  return call[1];
+}
 
 function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
   return {

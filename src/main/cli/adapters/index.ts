@@ -31,3 +31,6 @@ export { CopilotCliAdapter, CopilotCliConfig, CopilotCliAdapterEvents, CopilotMo
 
 // ACP CLI adapter
 export { AcpCliAdapter, AcpCliAdapterConfig } from './acp-cli-adapter';
+
+// Ollama adapter
+export { OllamaCliAdapter, OllamaCliConfig } from './ollama-cli-adapter';

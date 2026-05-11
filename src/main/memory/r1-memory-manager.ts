@@ -491,12 +491,39 @@ Reasoning: <brief explanation>
   // ============ Utilities ============
 
   private async computeEmbedding(text: string): Promise<number[]> {
-    // Placeholder - actual implementation calls embedding API
-    // Return mock embedding based on text hash for consistency
-    const hash = this.simpleHash(text);
-    return new Array(this.config.embeddingDimension).fill(0).map((_, i) => {
-      return Math.sin((hash + i) * 0.1) * 0.5 + 0.5;
-    });
+    // Hash-based bigram embedding (hashing trick).
+    // Tokens and adjacent word pairs each vote into an embedding bucket via
+    // their hash, producing an embedding that captures co-occurrence patterns
+    // without requiring an external API.  Cosine similarity of two such
+    // vectors correlates with lexical/topical overlap.
+    const dim = this.config.embeddingDimension;
+    const embedding = new Float64Array(dim);
+
+    const tokens = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return Array.from({ length: dim }, () => 0);
+    }
+
+    // Unigrams
+    for (const token of tokens) {
+      const h = this.simpleHash(token);
+      const idx = Math.abs(h) % dim;
+      embedding[idx] += 1;
+    }
+
+    // Bigrams (adjacent word pairs for local context)
+    for (let i = 0; i < tokens.length - 1; i++) {
+      const bigram = `${tokens[i]}_${tokens[i + 1]}`;
+      const h = this.simpleHash(bigram);
+      const idx = Math.abs(h) % dim;
+      embedding[idx] += 0.5;
+    }
+
+    // L2-normalise
+    let norm = 0;
+    for (let i = 0; i < dim; i++) norm += embedding[i] * embedding[i];
+    norm = Math.sqrt(norm) || 1;
+    return Array.from(embedding, v => v / norm);
   }
 
   private simpleHash(text: string): number {
@@ -558,25 +585,85 @@ Reasoning: <brief explanation>
     prompt: string,
     existingRelevant: MemoryEntry[]
   ): Promise<MemoryManagerDecision> {
-    // Placeholder - actual implementation calls trained model
-    // For now, use simple heuristics
+    // Heuristic memory manager: uses token overlap and content structure
+    // to decide ADD / UPDATE / DELETE / NOOP without an LLM API call.
 
-    // If no existing relevant entries, likely ADD
+    // Extract candidate content from the structured prompt
+    const candidateSection = prompt.split('## Candidate Information')[1]
+      ?.split('## Existing')[0]?.trim() ?? '';
+    const candidateTokens = this.tokenize(candidateSection);
+
     if (existingRelevant.length === 0) {
+      // No related entries — novel information worth storing
+      if (candidateTokens.size < 3) {
+        return { operation: 'NOOP', confidence: 0.8, reasoning: 'Candidate too brief to store' };
+      }
       return {
         operation: 'ADD',
-        content: prompt.split('## Candidate Information')[1]?.split('## Existing')[0]?.trim() || '',
-        confidence: 0.7,
-        reasoning: 'Novel information worth remembering',
+        content: candidateSection,
+        confidence: 0.75,
+        reasoning: 'Novel information with no existing match',
       };
     }
 
-    // If very similar entry exists, NOOP
+    // Find the best-matching existing entry by Jaccard overlap
+    let bestEntry: MemoryEntry | null = null;
+    let bestOverlap = 0;
+    for (const entry of existingRelevant) {
+      const entryTokens = this.tokenize(entry.content);
+      const intersection = [...candidateTokens].filter(t => entryTokens.has(t)).length;
+      const union = candidateTokens.size + entryTokens.size - intersection;
+      const overlap = union > 0 ? intersection / union : 0;
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestEntry = entry;
+      }
+    }
+
+    // High overlap → already stored, NOOP
+    if (bestOverlap >= 0.7) {
+      return {
+        operation: 'NOOP',
+        entryId: bestEntry?.id,
+        confidence: 0.85,
+        reasoning: `Highly similar entry already exists (overlap ${Math.round(bestOverlap * 100)}%)`,
+      };
+    }
+
+    // Moderate overlap → candidate extends/updates existing entry
+    if (bestOverlap >= 0.35 && bestEntry) {
+      const merged = `${bestEntry.content}\n\n${candidateSection}`.trim();
+      return {
+        operation: 'UPDATE',
+        entryId: bestEntry.id,
+        content: merged,
+        confidence: 0.7,
+        reasoning: `Candidate extends existing entry (overlap ${Math.round(bestOverlap * 100)}%)`,
+      };
+    }
+
+    // Low overlap + candidate is substantial → add as new entry
+    if (candidateTokens.size >= 5) {
+      return {
+        operation: 'ADD',
+        content: candidateSection,
+        confidence: 0.65,
+        reasoning: 'Distinct new information despite related context',
+      };
+    }
+
     return {
       operation: 'NOOP',
       confidence: 0.6,
-      reasoning: 'Similar information already exists',
+      reasoning: 'Candidate too brief or too similar to existing entries',
     };
+  }
+
+  /** Tokenize text into a Set of lowercase word tokens. */
+  private tokenize(text: string): Set<string> {
+    return new Set(
+      text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean)
+    );
   }
 
   private logOperation(decision: MemoryManagerDecision, taskId: string): void {

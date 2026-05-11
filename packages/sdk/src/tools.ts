@@ -34,6 +34,9 @@ export interface ToolDefinition<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   readonly description: string;
   readonly schema: TSchema;
   readonly safety: ToolSafetyMetadata;
+  /** When true, the permission gate is bypassed for this tool invocation.
+   *  Reserve for read-only, non-destructive tools (e.g. get_workspace_status). */
+  readonly skipPermission?: boolean;
   readonly __isToolDefinition: true;
   execute(args: z.infer<TSchema>, ctx: ToolContext): unknown | Promise<unknown>;
 }
@@ -43,6 +46,9 @@ export interface ToolDefinitionConfig<TSchema extends z.ZodTypeAny> {
   description: string;
   args: TSchema;
   safety?: ToolSafetyMetadata;
+  /** When true, the permission gate is bypassed for this tool invocation.
+   *  Only safe for read-only tools; never set on tools that write or delete. */
+  skipPermission?: boolean;
   execute: (
     args: z.infer<TSchema>,
     ctx: ToolContext,
@@ -57,6 +63,7 @@ export function defineTool<TSchema extends z.ZodTypeAny>(
     description: config.description,
     schema: config.args,
     safety: config.safety ?? { ...DEFAULT_SAFETY },
+    skipPermission: config.skipPermission,
     execute: config.execute,
     __isToolDefinition: true,
   };

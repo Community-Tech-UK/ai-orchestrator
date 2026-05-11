@@ -178,6 +178,7 @@ function activeState(): LoopStatePayload {
         errorRepeatCriticalInWindow: 3,
         tokensWithoutProgressWarn: 10_000,
         tokensWithoutProgressCritical: 20_000,
+        pauseOnTokenBurn: false,
         toolRepeatWarnPerIteration: 20,
         toolRepeatCriticalPerIteration: 40,
         testStagnationWarnIterations: 3,

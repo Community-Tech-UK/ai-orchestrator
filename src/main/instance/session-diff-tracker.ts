@@ -15,6 +15,7 @@ import * as path from 'path';
 import { diffLines } from 'diff';
 import { getLogger } from '../logging/logger';
 import type { FileDiffEntry, SessionDiffStats } from '../../shared/types/instance.types';
+import { isArtifactPath } from '../../shared/utils/artifact-extensions';
 
 const logger = getLogger('SessionDiffTracker');
 
@@ -119,10 +120,15 @@ export class SessionDiffTracker {
       ? filePath
       : path.resolve(this.workingDirectory, filePath);
 
-    // Ignore files outside the working directory.
+    // Files outside the working directory are only tracked if they are
+    // user-facing artifacts (documentation, generated assets, exports).
+    // Agents sometimes drop these into /tmp or absolute paths, and we want
+    // them to surface in the chat UI so the user can find them. Code files
+    // outside cwd stay ignored to avoid polluting per-session diff stats.
     const rel = path.relative(this.workingDirectory, absolute);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      logger.debug('captureBaseline: ignoring file outside working directory', {
+    const outsideCwd = rel.startsWith('..') || path.isAbsolute(rel);
+    if (outsideCwd && !isArtifactPath(absolute)) {
+      logger.debug('captureBaseline: ignoring non-artifact file outside working directory', {
         filePath: absolute,
         workingDirectory: this.workingDirectory,
       });

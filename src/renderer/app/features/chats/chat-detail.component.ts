@@ -14,6 +14,7 @@ import { InputPanelComponent } from '../instance-detail/input-panel.component';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
+import { SessionArtifactsStripComponent } from './session-artifacts-strip.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
@@ -28,6 +29,7 @@ import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.serv
     ActivityStatusComponent,
     CompactModelPickerComponent,
     LoopControlComponent,
+    SessionArtifactsStripComponent,
   ],
   templateUrl: './chat-detail.component.html',
   styleUrl: './chat-detail.component.scss',

@@ -285,6 +285,14 @@ export interface Instance {
   restartEpoch: number;
   /** Monotonic adapter-listener generation used to reject stale adapter events. */
   adapterGeneration?: number;
+  /**
+   * Monotonically-increasing message-generation counter.  Bumped on every
+   * interrupt so queued wake messages are only consumed by the fresh process.
+   * Prevents the race where a dying container (still in its SIGTERM grace
+   * period) steals the message intended for its replacement.
+   * (claude3.md §15 — `on_wake` column for respawn race elimination)
+   */
+  messageGenerationId?: number;
   /** Provider-native turn ID currently producing output, when available. */
   activeTurnId?: string;
   /** Current interrupt request id, if an interrupt/cancel is in progress. */

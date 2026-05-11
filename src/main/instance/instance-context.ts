@@ -32,6 +32,7 @@ import type {
   RankedSection,
   UnifiedMemoryContextInfo
 } from './instance-types';
+import type { InstanceContextPort } from './instance-context-port';
 
 const logger = getLogger('InstanceContext');
 
@@ -83,7 +84,7 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   unifiedMemoryQueryTimeoutMs: 1000
 };
 
-export class InstanceContextManager {
+export class InstanceContextManager implements InstanceContextPort {
   private rlm: RLMContextManager;
   private unifiedMemory = getUnifiedMemory();
   private settings = getSettingsManager();

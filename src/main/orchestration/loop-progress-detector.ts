@@ -419,6 +419,12 @@ export function signalE_errorRepeat(
  * Tracked in `state.tokensSinceLastTestImprovement` (incremented by the
  * coordinator and reset whenever the highest test-pass-count increases).
  * Also flag when 3 iterations in a row each spend > 10k tokens.
+ *
+ * Opt-in via `th.pauseOnTokenBurn`. Default false: many useful tasks
+ * legitimately spend lots of tokens without moving the test pass count
+ * (e.g. implementing a brand-new module before tests exist), so pausing
+ * on that signal alone created a frustrating "loop keeps stopping" UX.
+ * The user explicitly enables this when their task is tests-driven.
  */
 export function signalF_tokenBurn(
   state: LoopState,
@@ -426,6 +432,11 @@ export function signalF_tokenBurn(
   current: LoopIteration,
   th: LoopProgressThresholds,
 ): ProgressSignalEvidence | null {
+  // Hard suppress when the user hasn't opted in. We exit BEFORE the
+  // accumulator check so that neither WARN-escalation accounting nor
+  // the "3×10k tokens in a row" branch can pause the loop on token burn.
+  if (!th.pauseOnTokenBurn) return null;
+
   const accumulated = state.tokensSinceLastTestImprovement;
 
   if (accumulated >= th.tokensWithoutProgressCritical) {
