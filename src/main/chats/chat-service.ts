@@ -50,6 +50,14 @@ export interface ChatSystemEventInput {
    * kickoff prompt) so they render as user bubbles in the transcript.
    */
   role?: 'user' | 'system';
+  /**
+   * When `true`, run the same `maybeAutoName(chat, content)` heuristic that
+   * `sendMessage` runs on first-message arrival — derives the chat title from
+   * the content if the chat is still `'Untitled chat'`. Intended for synthetic
+   * user-role events that semantically *are* the user's first message (loop
+   * kickoff prompts). No-op when the chat already has a custom name.
+   */
+  autoName?: boolean;
 }
 
 export class ChatService {
@@ -304,7 +312,12 @@ export class ChatService {
       return this.detailFor(chat);
     }
 
-    this.ledger.appendMessage(chat.ledgerThreadId, {
+    const autoNamed = input.autoName ? maybeAutoName(chat, input.content) : null;
+    const workingChat = autoNamed
+      ? this.store.update(chat.id, { name: autoNamed, lastActiveAt: Date.now() })
+      : chat;
+
+    this.ledger.appendMessage(workingChat.ledgerThreadId, {
       nativeMessageId: input.nativeMessageId,
       nativeTurnId: input.nativeTurnId,
       role: input.role ?? 'system',
@@ -317,14 +330,27 @@ export class ChatService {
       rawJson: input.metadata ? { metadata: input.metadata } : null,
       sourceChecksum: null,
     });
-    const updated = this.store.update(chat.id, { lastActiveAt: Date.now() });
+    const updated = this.store.update(workingChat.id, { lastActiveAt: Date.now() });
     const detail = this.detailFor(updated);
+    if (autoNamed) {
+      this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
+    }
     this.emit({
       type: 'transcript-updated',
       chatId: updated.id,
       detail,
     });
     return detail;
+  }
+
+  /**
+   * Non-throwing lookup. Mirrors `requireChat` but returns `null` when the
+   * chat doesn't exist, so callers can branch (e.g. dispatch to an instance
+   * path when the id turns out to be an instance id, not a chat id).
+   */
+  tryGetChat(chatId: string): ChatRecord | null {
+    this.initialize();
+    return this.store.get(chatId);
   }
 
   private async terminateRuntimeIfRunning(

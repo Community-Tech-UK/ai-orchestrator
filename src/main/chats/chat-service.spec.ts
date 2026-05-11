@@ -243,6 +243,51 @@ describe('ChatService', () => {
     ]);
   });
 
+  it('auto-renames an Untitled chat from a user-role synthetic event when autoName is true', async () => {
+    const { service } = createHarness();
+    const events: ChatEvent[] = [];
+    service.events.on('chat:event', (event: ChatEvent) => events.push(event));
+    // No name → defaults to "Untitled chat"
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+    });
+    expect(chat.chat.name).toBe('Untitled chat');
+    events.length = 0;
+
+    service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-start:loop-99',
+      role: 'user',
+      content: 'Ship the dark mode fix',
+      autoName: true,
+      metadata: { kind: 'loop-start', loopRunId: 'loop-99' },
+    });
+
+    const refreshed = service.getChat(chat.chat.id);
+    expect(refreshed.chat.name).toBe('Ship the dark mode fix');
+    expect(events.some((event) => event.type === 'chat-updated')).toBe(true);
+  });
+
+  it('leaves a manually-named chat alone even when autoName is true (matches sendMessage semantics)', async () => {
+    const { service } = createHarness();
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'My focused chat',
+    });
+
+    service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-start:loop-100',
+      role: 'user',
+      content: 'A new prompt that should not rename',
+      autoName: true,
+    });
+
+    expect(service.getChat(chat.chat.id).chat.name).toBe('My focused chat');
+  });
+
   it('keeps synthetic system events idempotent by native message id', async () => {
     const { service } = createHarness();
     const events: ChatEvent[] = [];

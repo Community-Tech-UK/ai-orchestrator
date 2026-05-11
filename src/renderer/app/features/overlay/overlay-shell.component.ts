@@ -87,6 +87,9 @@ import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from '
                       @if (item.detail) {
                         <span class="overlay-row-detail">{{ item.detail }}</span>
                       }
+                      @if (item.shortcut) {
+                        <span class="overlay-row-shortcut">{{ item.shortcut }}</span>
+                      }
                       @if (item.badge) {
                         <span class="overlay-row-badge">{{ item.badge }}</span>
                       }
@@ -241,6 +244,16 @@ import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from '
 
     kbd {
       padding: 2px 5px;
+    }
+
+    .overlay-row-shortcut {
+      flex-shrink: 0;
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text-muted);
+      font: 11px var(--font-mono);
+      letter-spacing: 0.02em;
     }
 
     .overlay-footer {

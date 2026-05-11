@@ -9,6 +9,22 @@ import { registerBootstrapModule } from './index';
 
 export function registerMemoryBootstrap(): void {
   registerBootstrapModule({
+    name: 'Project story directory',
+    domain: 'memory',
+    failureMode: 'degraded',
+    init: () => {
+      // Ensure the `.aio/` git-trackable project memory directory exists
+      // (decisions.md, lessons.md, handovers.md). Idempotent: skips files
+      // that already exist. See src/main/memory/project-story-convention.ts.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { ensureProjectStoryDir } = require(
+        '../memory/project-story-convention',
+      ) as typeof import('../memory/project-story-convention');
+      ensureProjectStoryDir();
+    },
+  });
+
+  registerBootstrapModule({
     name: 'Memory agents',
     domain: 'memory',
     failureMode: 'degraded',

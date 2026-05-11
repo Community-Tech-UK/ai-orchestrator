@@ -4,19 +4,27 @@
  */
 
 import { Injectable, signal } from '@angular/core';
+import { readStorage, writeStorage, removeStorage, type StorageField } from '../../shared/utils/typed-storage';
 
 export interface ViewLayout {
   sidebarWidth: number;
   fileExplorerWidth: number;
+  historySidebarWidth: number;
 }
 
 const DEFAULT_LAYOUT: ViewLayout = {
   sidebarWidth: 320,
   fileExplorerWidth: 260,
+  historySidebarWidth: 350,
 };
 
-const STORAGE_KEY = 'view-layout';
 const DEBOUNCE_MS = 500;
+
+const LAYOUT_FIELD: StorageField<ViewLayout> = {
+  key: 'view-layout',
+  version: 2,
+  defaultValue: DEFAULT_LAYOUT,
+};
 
 @Injectable({
   providedIn: 'root',
@@ -35,6 +43,11 @@ export class ViewLayoutService {
     return this.layout().fileExplorerWidth;
   }
 
+  /** Get current history sidebar width */
+  get historySidebarWidth(): number {
+    return this.layout().historySidebarWidth;
+  }
+
   /** Update sidebar width with debounced persistence */
   setSidebarWidth(width: number): void {
     const clamped = Math.max(250, Math.min(460, width));
@@ -49,51 +62,31 @@ export class ViewLayoutService {
     this.debounceSave();
   }
 
+  /** Update history sidebar width with debounced persistence */
+  setHistorySidebarWidth(width: number): void {
+    const clamped = Math.max(240, Math.min(560, width));
+    this.layout.update(l => ({ ...l, historySidebarWidth: clamped }));
+    this.debounceSave();
+  }
+
   /** Reset all layout to defaults */
   reset(): void {
     this.layout.set({ ...DEFAULT_LAYOUT });
     this.saveNow();
 
-    // Also clear the individual localStorage keys that components may have set
-    try {
-      localStorage.removeItem('sidebarWidth');
-      localStorage.removeItem('file-explorer-width');
-      localStorage.removeItem('instance-list-order');
-    } catch {
-      // Ignore storage errors
-    }
+    removeStorage('sidebarWidth');
+    removeStorage('file-explorer-width');
+    removeStorage('instance-list-order');
   }
 
   /** Load layout from localStorage */
   private load(): ViewLayout {
-    try {
-      // Try the unified key first
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-      return {
-        sidebarWidth:
-          parsed.sidebarWidth === 390
-            ? DEFAULT_LAYOUT.sidebarWidth
-            : parsed.sidebarWidth ?? DEFAULT_LAYOUT.sidebarWidth,
-        fileExplorerWidth: parsed.fileExplorerWidth ?? DEFAULT_LAYOUT.fileExplorerWidth,
-      };
-      }
-
-      // Fall back to individual keys for migration
-      const sidebarWidth = localStorage.getItem('sidebarWidth');
-      const fileExplorerWidth = localStorage.getItem('file-explorer-width');
-
-      return {
-        sidebarWidth:
-          sidebarWidth && parseInt(sidebarWidth, 10) !== 390
-            ? parseInt(sidebarWidth, 10)
-            : DEFAULT_LAYOUT.sidebarWidth,
-        fileExplorerWidth: fileExplorerWidth ? parseInt(fileExplorerWidth, 10) : DEFAULT_LAYOUT.fileExplorerWidth,
-      };
-    } catch {
-      return { ...DEFAULT_LAYOUT };
+    const stored = readStorage(LAYOUT_FIELD);
+    // Guard against the old stale sidebarWidth=390 default that was in early builds.
+    if (stored.sidebarWidth === 390) {
+      return { ...stored, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth };
     }
+    return stored;
   }
 
   /** Debounced save to localStorage */
@@ -108,14 +101,6 @@ export class ViewLayoutService {
 
   /** Save immediately to localStorage */
   private saveNow(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.layout()));
-
-      // Also update the individual keys for backwards compatibility
-      localStorage.setItem('sidebarWidth', this.layout().sidebarWidth.toString());
-      localStorage.setItem('file-explorer-width', this.layout().fileExplorerWidth.toString());
-    } catch {
-      // Ignore storage errors
-    }
+    writeStorage(LAYOUT_FIELD, this.layout());
   }
 }

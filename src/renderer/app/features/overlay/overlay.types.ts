@@ -6,6 +6,7 @@ export interface OverlayItem<T = unknown> {
   description?: string;
   detail?: string;
   badge?: string;
+  shortcut?: string;
   disabled?: boolean;
   disabledReason?: string;
   keywords?: string[];

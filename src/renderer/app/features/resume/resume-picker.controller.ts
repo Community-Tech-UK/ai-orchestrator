@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { matchesOverlayQuery } from '../../shared/utils/overlay-search';
 import type { HistoryRestoreResult } from '../../../../shared/types/history.types';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -180,15 +181,14 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
   }
 
   private matches(item: ResumePickerItem, query: string): boolean {
-    if (!query) return true;
-    return [
+    return matchesOverlayQuery([
       item.title,
       item.subtitle,
       item.projectPath ?? '',
       item.provider ?? '',
       item.kind,
       item.snippets?.map(snippet => snippet.excerpt).join(' ') ?? '',
-    ].some((value) => value.toLowerCase().includes(query));
+    ], query);
   }
 
   private score(item: ResumePickerItem): number {

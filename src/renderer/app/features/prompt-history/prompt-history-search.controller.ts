@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { matchesOverlayQuery } from '../../shared/utils/overlay-search';
 import { InstanceStore } from '../../core/state/instance.store';
 import {
   PromptHistoryStore,
@@ -153,12 +154,11 @@ export class PromptHistorySearchController implements OverlayController<PromptHi
   }
 
   private matches(entry: PromptHistoryEntry, query: string): boolean {
-    if (!query) return true;
-    return [
+    return matchesOverlayQuery([
       entry.text,
       entry.projectPath ?? '',
       entry.provider ?? '',
       entry.model ?? '',
-    ].some((value) => value.toLowerCase().includes(query));
+    ], query);
   }
 }

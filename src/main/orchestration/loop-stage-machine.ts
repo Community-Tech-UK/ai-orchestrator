@@ -64,6 +64,57 @@ export interface LoopStartupSnapshot {
   doneSentinelPresent: boolean;
   /** `config.planFile` existed and every `[ ]/[x]` item was already ticked. */
   planChecklistFullyChecked: boolean;
+  /**
+   * Root-level `.md` files that look like uncompleted planning documents.
+   * Excludes:
+   *   - files already matching the completion pattern (`*_[Cc]ompleted.md`)
+   *   - the well-known project doc denylist (README, CHANGELOG, LICENSE,
+   *     AGENTS, CLAUDE, NOTES, STAGE, ITERATION_LOG, DESIGN, DEVELOPMENT, …)
+   *
+   * Used by the coordinator to auto-enable `requireCompletedFileRename`
+   * belt-and-braces when the caller did not explicitly set it. The agent's
+   * default prompt already instructs it to rename a fully-implemented plan
+   * with `_completed` before stopping; this surface ensures the loop does
+   * not accept a bare `DONE.txt` sentinel in workspaces where renames are
+   * obviously expected.
+   */
+  uncompletedPlanFilesAtStart: string[];
+}
+
+/**
+ * Root-level `.md` filenames that are **not** plan files. These are stable
+ * project docs that we never expect the agent to rename to `_completed`.
+ * Match is case-insensitive on the basename.
+ */
+const PROJECT_DOC_DENYLIST = new Set<string>([
+  'readme.md',
+  'changelog.md',
+  'license.md',
+  'agents.md',
+  'claude.md',
+  'design.md',
+  'development.md',
+  'architecture.md',
+  'contributing.md',
+  'code_of_conduct.md',
+  'security.md',
+  'support.md',
+  'notes.md',
+  'stage.md',
+  'iteration_log.md',
+  'todo.md',
+  'roadmap.md',
+]);
+
+function looksLikeCompletedRename(basename: string): boolean {
+  return /_[Cc]ompleted\.md$/.test(basename);
+}
+
+function isPlanLikeMarkdown(basename: string): boolean {
+  if (!basename.toLowerCase().endsWith('.md')) return false;
+  if (PROJECT_DOC_DENYLIST.has(basename.toLowerCase())) return false;
+  if (looksLikeCompletedRename(basename)) return false;
+  return true;
 }
 
 export class LoopStageMachine {
@@ -161,7 +212,32 @@ export class LoopStageMachine {
         planChecklistFullyChecked = parsePlanChecklist(text).fullyChecked;
       }
     }
-    return { doneSentinelPresent, planChecklistFullyChecked };
+    const uncompletedPlanFilesAtStart = await this.scanUncompletedPlanFiles();
+    return {
+      doneSentinelPresent,
+      planChecklistFullyChecked,
+      uncompletedPlanFilesAtStart,
+    };
+  }
+
+  /**
+   * Scan the workspace root for `.md` files that look like uncompleted
+   * planning docs (see `isPlanLikeMarkdown` denylist). Best-effort —
+   * unreadable directories return [].
+   */
+  private async scanUncompletedPlanFiles(): Promise<string[]> {
+    try {
+      const entries = await fsp.readdir(this.cwd, { withFileTypes: true });
+      const out: string[] = [];
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (isPlanLikeMarkdown(entry.name)) out.push(entry.name);
+      }
+      out.sort();
+      return out;
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -198,11 +274,28 @@ export class LoopStageMachine {
     iterationSeq: number;
     pendingInterventions: string[];
     existingSessionContext?: string;
+    /**
+     * Uncompleted plan-like `.md` filenames at the workspace root, captured
+     * once at startLoop. When non-empty the prompt explicitly tells the
+     * agent which files it is expected to rename with `_completed` before
+     * declaring done — this is the operator's contract with the loop.
+     */
+    uncompletedPlanFilesAtStart?: string[];
   }): string {
-    const { config, iterationSeq, pendingInterventions, existingSessionContext } = args;
+    const {
+      config,
+      iterationSeq,
+      pendingInterventions,
+      existingSessionContext,
+      uncompletedPlanFilesAtStart = [],
+    } = args;
     const planRef = config.planFile
       ? `the plan in \`${config.planFile}\` (referred to below as PLAN.md)`
       : 'the prompt below';
+    const uncompletedPlansBlock =
+      uncompletedPlanFilesAtStart.length > 0
+        ? `\n\n## Uncompleted Plan Files Detected\nThe workspace root contained these uncompleted plan-like markdown files when the loop started:\n${uncompletedPlanFilesAtStart.map((f) => `  - \`${f}\``).join('\n')}\n\nThe loop coordinator has auto-enabled the \`requireCompletedFileRename\` gate. Writing \`DONE.txt\` alone is **not sufficient** — at least one of these files must be renamed to \`<name>_completed.md\` during the run before the loop will accept a stop signal. When you finish implementing all addressable items in a file, perform the rename (\`mv <name>.md <name>_completed.md\` or \`git mv\` if tracked). Items explicitly deferred to future architectural specs do not block the rename — document them in NOTES.md and rename anyway.\n`
+        : '';
     const interventions =
       pendingInterventions.length > 0
         ? `\n\n## User Intervention\nThe operator added the following hint(s) since the last iteration. Treat them as binding direction:\n\n${pendingInterventions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
@@ -247,7 +340,7 @@ There is no human in the loop to answer questions. You must:
 2. Open ${planRef}.
 3. Open \`NOTES.md\`. It contains the rolling notes from prior iterations.
 4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.
-5. If no plan file is configured and the goal is broad, maintain a \`## Completion Inventory\` section in \`NOTES.md\`: list discovered concrete work items, check them off only when fully implemented and verified, and add newly discovered items instead of losing them between iterations.${interventions}${promptBlocks}
+5. If no plan file is configured and the goal is broad, maintain a \`## Completion Inventory\` section in \`NOTES.md\`: list discovered concrete work items, check them off only when fully implemented and verified, and add newly discovered items instead of losing them between iterations.${uncompletedPlansBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 

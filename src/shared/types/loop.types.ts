@@ -100,6 +100,54 @@ export interface LoopCompletionConfig {
    * runs are direct continuation tasks with no plan file to rename.
    */
   requireCompletedFileRename: boolean; // default false
+  /**
+   * Mandatory fresh-eyes cross-model review before accepting completion.
+   *
+   * When the agent declares done (sufficient signal + verify passed +
+   * belt-and-braces passed), the coordinator invokes
+   * `CrossModelReviewService.runHeadlessReview` against a different CLI
+   * provider. Any finding whose severity is in `blockingSeverities`
+   * cancels the stop, injects the finding as a user intervention, and
+   * lets the loop continue iterating. This automates the "check again
+   * with fresh eyes until no issues" pattern.
+   *
+   * Auto-enables when `uncompletedPlanFilesAtStart.length > 0` and the
+   * caller did not explicitly set this block — same trigger as
+   * `requireCompletedFileRename`. Explicit `{ enabled: false }` from
+   * the caller is always respected.
+   *
+   * Optional — when undefined, the coordinator applies the auto-detection
+   * rule. When defined, the caller's settings win.
+   */
+  crossModelReview?: LoopCrossModelReviewConfig;
+}
+
+export interface LoopCrossModelReviewConfig {
+  enabled: boolean;
+  /**
+   * Provider names to use as reviewers, e.g. `['gemini', 'codex']`.
+   * If empty/unset, the review service picks from available CLIs.
+   */
+  reviewers?: string[];
+  /**
+   * Severities that block completion. Any finding at or above these levels
+   * causes the loop to continue with the finding injected as an
+   * intervention. Default: `['critical', 'high']`.
+   */
+  blockingSeverities: ('critical' | 'high' | 'medium' | 'low')[];
+  /** Per-review wall-clock timeout. Default 90s. */
+  timeoutSeconds: number;
+  /** Review depth — see CrossModelReviewService. Default 'structured'. */
+  reviewDepth: 'structured' | 'tiered';
+}
+
+export function defaultCrossModelReviewConfig(): LoopCrossModelReviewConfig {
+  return {
+    enabled: true,
+    blockingSeverities: ['critical', 'high'],
+    timeoutSeconds: 90,
+    reviewDepth: 'structured',
+  };
 }
 
 export interface LoopConfig {
@@ -358,6 +406,17 @@ export interface LoopState {
    * False when no planFile is configured or the plan was incomplete.
    */
   planChecklistFullyCheckedAtStart: boolean;
+  /**
+   * Root-level `.md` files that look like uncompleted planning docs at
+   * startLoop. Empty when the workspace has none. Drives auto-enabling
+   * of `requireCompletedFileRename`: when this list is non-empty and the
+   * caller did not explicitly set `requireCompletedFileRename`, the
+   * coordinator treats DONE.txt-alone as insufficient and demands at
+   * least one `*_Completed.md` rename to fire during the run. This is
+   * what catches the failure mode where an agent writes `DONE.txt` but
+   * forgets to rename the plan files it was asked to implement.
+   */
+  uncompletedPlanFilesAtStart: string[];
   /** Tracks tokens since last test-pass-count improvement. */
   tokensSinceLastTestImprovement: number;
   /** Highest test-pass-count seen so far. */

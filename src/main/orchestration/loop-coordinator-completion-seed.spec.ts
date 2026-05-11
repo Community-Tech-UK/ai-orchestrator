@@ -216,7 +216,84 @@ describe('LoopCoordinator startup workspace snapshot', () => {
     });
 
     try {
+      expect(state.uncompletedPlanFilesAtStart).toEqual([]);
       expect(state.planChecklistFullyCheckedAtStart).toBe(false);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  });
+});
+
+describe('LoopCoordinator auto-enables requireCompletedFileRename from uncompleted plan files', () => {
+  it('flips requireCompletedFileRename to true when uncompleted plan .md files are present and the caller did not configure it', async () => {
+    writeFileSync(join(workspace, 'claude-review.md'), '# review\n');
+    writeFileSync(join(workspace, 'gemini-review.md'), '# review\n');
+
+    const state = await coordinator.startLoop('chat-multi-plan-auto', {
+      initialPrompt: 'implement all the review files',
+      workspaceCwd: workspace,
+    });
+
+    try {
+      expect(state.uncompletedPlanFilesAtStart.sort()).toEqual([
+        'claude-review.md',
+        'gemini-review.md',
+      ]);
+      expect(state.config.completion.requireCompletedFileRename).toBe(true);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('keeps requireCompletedFileRename=false when only denylisted docs (README/AGENTS/...) are present', async () => {
+    writeFileSync(join(workspace, 'README.md'), '# Readme\n');
+    writeFileSync(join(workspace, 'AGENTS.md'), '# Agents\n');
+    writeFileSync(join(workspace, 'NOTES.md'), '# Notes\n');
+
+    const state = await coordinator.startLoop('chat-only-docs', {
+      initialPrompt: 'continuation task',
+      workspaceCwd: workspace,
+    });
+
+    try {
+      expect(state.uncompletedPlanFilesAtStart).toEqual([]);
+      expect(state.config.completion.requireCompletedFileRename).toBe(false);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('respects an explicit caller false even when uncompleted plan files exist', async () => {
+    writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
+    const baseCompletion = defaultLoopConfig(workspace, 'x').completion;
+
+    const state = await coordinator.startLoop('chat-explicit-false', {
+      initialPrompt: 'do work',
+      workspaceCwd: workspace,
+      completion: { ...baseCompletion, requireCompletedFileRename: false },
+    });
+
+    try {
+      expect(state.uncompletedPlanFilesAtStart).toEqual(['plan.md']);
+      // Caller said false explicitly — coordinator must not override.
+      expect(state.config.completion.requireCompletedFileRename).toBe(false);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('ignores files already matching the completion suffix', async () => {
+    writeFileSync(join(workspace, 'already_completed.md'), '# Done\n');
+    writeFileSync(join(workspace, 'other_Completed.md'), '# Done\n');
+
+    const state = await coordinator.startLoop('chat-only-completed', {
+      initialPrompt: 'do work',
+      workspaceCwd: workspace,
+    });
+
+    try {
+      expect(state.uncompletedPlanFilesAtStart).toEqual([]);
+      expect(state.config.completion.requireCompletedFileRename).toBe(false);
     } finally {
       coordinator.cancelLoop(state.id);
     }

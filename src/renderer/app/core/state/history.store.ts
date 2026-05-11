@@ -3,6 +3,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { matchesOverlayQuery } from '../../shared/utils/overlay-search';
 import { HistoryIpcService } from '../services/ipc/history-ipc.service';
 import type {
   AdvancedHistorySearchInput,
@@ -104,10 +105,12 @@ export class HistoryStore {
     if (!query) return entries;
 
     return entries.filter(entry =>
-      entry.displayName.toLowerCase().includes(query) ||
-      entry.firstUserMessage.toLowerCase().includes(query) ||
-      entry.lastUserMessage.toLowerCase().includes(query) ||
-      entry.workingDirectory.toLowerCase().includes(query)
+      matchesOverlayQuery([
+        entry.displayName,
+        entry.firstUserMessage,
+        entry.lastUserMessage,
+        entry.workingDirectory,
+      ], query)
     );
   });
 

@@ -3,6 +3,7 @@
  */
 
 import { ChangeDetectionStrategy, Component, computed, effect, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { ToastService } from './core/services/toast.service';
 import { Router, RouterOutlet } from '@angular/router';
 import { ElectronIpcService } from './core/services/ipc';
 import { PerfInstrumentationService } from './core/services/perf-instrumentation.service';
@@ -60,6 +61,7 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly settingsStore = inject(SettingsStore);
   protected readonly pauseStore = inject(PauseStore);
   private pauseRendererController = inject(PauseRendererController);
+  protected readonly toastService = inject(ToastService);
 
   private menuListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;

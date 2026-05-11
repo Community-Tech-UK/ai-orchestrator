@@ -8,6 +8,7 @@ import {
   inject,
   output,
   OnInit,
+  OnDestroy,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -15,6 +16,7 @@ import { Router } from '@angular/router';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { HistoryListComponent } from './history-list.component';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
@@ -33,7 +35,8 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
       role="button"
       aria-label="Close history sidebar"
     >
-    <aside class="history-sidebar" [class.open]="true">
+    <aside class="history-sidebar" [class.open]="true" [style.width.px]="viewLayout.historySidebarWidth">
+      <div class="resize-handle" (mousedown)="startResize($event)"></div>
       <div class="sidebar-header">
         <h2>Conversation History</h2>
         <div class="header-actions">
@@ -138,7 +141,6 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
       top: 0;
       left: 0;
       bottom: 0;
-      width: 350px;
       background: var(--bg-primary);
       border-right: 1px solid var(--border-color);
       display: flex;
@@ -149,6 +151,21 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
 
       &.open {
         transform: translateX(0);
+      }
+    }
+
+    .resize-handle {
+      position: absolute;
+      top: 0;
+      right: -4px;
+      bottom: 0;
+      width: 8px;
+      cursor: col-resize;
+      z-index: 10;
+
+      &:hover,
+      &:active {
+        background: rgba(var(--primary-rgb), 0.25);
       }
     }
 
@@ -378,12 +395,15 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
     }
   `],
 })
-export class HistorySidebarComponent implements OnInit {
+export class HistorySidebarComponent implements OnInit, OnDestroy {
   store = inject(HistoryStore);
   instanceStore = inject(InstanceStore);
+  viewLayout = inject(ViewLayoutService);
   private router = inject(Router);
   private fileIpc = inject(FileIpcService);
   closeHistory = output<void>();
+
+  private resizeCleanup: (() => void) | null = null;
 
   // Confirmation dialog state
   showConfirmDialog = signal(false);
@@ -396,6 +416,29 @@ export class HistorySidebarComponent implements OnInit {
 
   ngOnInit(): void {
     this.store.loadHistory();
+  }
+
+  ngOnDestroy(): void {
+    this.resizeCleanup?.();
+  }
+
+  startResize(event: MouseEvent): void {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = this.viewLayout.historySidebarWidth;
+
+    const onMove = (e: MouseEvent) => {
+      this.viewLayout.setHistorySidebarWidth(startWidth + (e.clientX - startX));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      this.resizeCleanup = null;
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    this.resizeCleanup = onUp;
   }
 
   async loadBundle(): Promise<void> {

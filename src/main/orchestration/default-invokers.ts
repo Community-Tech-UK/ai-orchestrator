@@ -934,13 +934,33 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
     const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
 
-    // For `contextStrategy: 'same-session'`, lazily create one persistent
-    // adapter per loopRunId and reuse it across iterations so the
-    // conversation persists. Caller (this listener) owns the lifecycle —
-    // teardown happens when the coordinator broadcasts a terminal state.
+    // Adapter selection priority for this iteration:
+    //   1. The parent instance's existing adapter, when `p.chatId` resolves to
+    //      a live instance. This is the path that makes loops "proper sessions":
+    //      the CLI process is the instance's CLI, its session file on disk gets
+    //      every turn, and the session survives restart through the normal
+    //      session-continuity / history-restore machinery. The loop coordinator
+    //      borrows the adapter — it does NOT own its lifecycle, so we explicitly
+    //      skip the trackActiveAdapter / cleanupAdapter wiring below.
+    //   2. A `same-session` persistent loop adapter — pre-fix legacy path for
+    //      loops with no parent instance (chat-detail loops where the chat has
+    //      no live runtime; pure-workspace loops). Owned by this listener.
+    //   3. Fresh per-iteration adapter (the default fresh-child path inside
+    //      invokeCliTextResponse).
     let reusedAdapter: unknown | undefined;
+    let borrowedFromInstance = false;
+
+    // Defensive `?.` access — tests pass a stub `instanceManager` without
+    // these methods. Production InstanceManager always has them.
+    const liveInstance = instanceManager.getInstance?.(p.chatId);
+    const liveAdapter = liveInstance ? instanceManager.getAdapter?.(p.chatId) : undefined;
+    if (liveAdapter && isBaseCliAdapterLike(liveAdapter)) {
+      reusedAdapter = liveAdapter;
+      borrowedFromInstance = true;
+    }
+
     const sameSession = p.config?.contextStrategy === 'same-session';
-    if (sameSession) {
+    if (!reusedAdapter && sameSession) {
       const existing = persistentLoopAdapters.get(p.loopRunId);
       if (existing) {
         reusedAdapter = existing;
@@ -970,7 +990,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     try {
       const result = await invokeCliTextResponse({
         instanceManager,
-        instanceId: undefined,
+        // When borrowing the parent instance's adapter, pass the instance id so
+        // invokeCliTextResponse can pick up workspace/provider defaults from it
+        // rather than relying solely on the loop's workspaceCwd. The adapter
+        // itself is already the one wired to the instance's outputBuffer, so
+        // assistant stream events flow into the instance's transcript as a
+        // normal turn would.
+        instanceId: borrowedFromInstance ? p.chatId : undefined,
         // Spawn the CLI inside the loop's workspace, not Electron's CWD.
         // Without this the AI runs in `/` (or the app bundle path) and
         // can't see any of the user's project files.
@@ -995,10 +1021,18 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         autoAnswerInputRequired: true,
         reusedAdapter,
         activity: emitActivity,
-        onAdapterReady: (adapter) => trackActiveAdapter(p.loopRunId, adapter),
-        cleanupAdapter: (adapter, graceful) => terminateTrackedAdapter(adapter, graceful),
+        // Track + clean up adapters the loop owns. The instance's adapter is
+        // borrowed (the instance owns its own lifecycle) so we skip both hooks
+        // — otherwise the loop's terminal-state listener would terminate the
+        // user's session CLI when the loop ends.
+        onAdapterReady: borrowedFromInstance
+          ? undefined
+          : (adapter) => trackActiveAdapter(p.loopRunId, adapter),
+        cleanupAdapter: borrowedFromInstance
+          ? undefined
+          : (adapter, graceful) => terminateTrackedAdapter(adapter, graceful),
       });
-      if (sameSession && reusedAdapter) {
+      if (sameSession && reusedAdapter && !borrowedFromInstance) {
         enableAdapterResume(reusedAdapter);
       }
 

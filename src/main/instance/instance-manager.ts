@@ -1856,6 +1856,51 @@ export class InstanceManager extends EventEmitter {
     this.emitOutputMessage(instanceId, msg);
   }
 
+  /**
+   * Append a user-role message to the instance's output buffer as if the user
+   * had typed it — but without sending anything to the CLI. Used by the loop
+   * coordinator to record its kickoff prompt and intervene nudges in the
+   * transcript without triggering a duplicate CLI invocation (the loop owns
+   * the CLI lifecycle separately).
+   *
+   * When `autoTitle: true` is passed and the instance hasn't been manually
+   * renamed, kicks off the same fire-and-forget auto-title flow that a normal
+   * `sendInput()` call would.
+   */
+  appendSyntheticUserMessage(
+    instanceId: string,
+    content: string,
+    options: {
+      metadata?: Record<string, unknown>;
+      autoTitle?: boolean;
+    } = {},
+  ): void {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) return;
+    const msg: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'user',
+      content,
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+    };
+    this.emitOutputMessage(instanceId, msg);
+
+    if (options.autoTitle && !instance.isRenamed) {
+      getAutoTitleService().maybeGenerateTitle(
+        instanceId,
+        content,
+        (id, title) => {
+          if (instance.isRenamed) return;
+          instance.displayName = title;
+          this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
+          getSessionContinuityManager().updateState(id, { displayName: title });
+        },
+        instance.isRenamed,
+      ).catch(() => { /* non-critical */ });
+    }
+  }
+
   queueContinuityPreamble(instanceId: string, preamble: string): void {
     this.communication.queueContinuityPreamble(instanceId, preamble);
   }

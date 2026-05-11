@@ -69,6 +69,70 @@ export function registerOrchestrationBootstrap(): void {
       bridge.wireVerifyCoordinator(getMultiVerifyCoordinator());
       bridge.wireDebateCoordinator(getDebateCoordinator());
       bridge.wireParallelWorktreeCoordinator(getParallelWorktreeCoordinator());
+
+      // Wire OrchestrationWAL and JobJournal as observers on the engine.
+      // Both are append-only mirrors: WAL captures every mutation for audit,
+      // JobJournal tracks long-lived debate/consensus/multi-verify jobs so
+      // status survives daemon restarts. Failures here are non-fatal.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getOrchestrationWAL } = require('../orchestration/orchestration-wal') as typeof import('../orchestration/orchestration-wal');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getJobJournal } = require('../orchestration/job-journal') as typeof import('../orchestration/job-journal');
+      try {
+        const wal = getOrchestrationWAL();
+        const journal = getJobJournal();
+        engine.on('event:appended', (event) => {
+          try {
+            wal.append({
+              ts: event.timestamp,
+              kind: event.type,
+              instanceId:
+                typeof event.metadata?.instanceId === 'string'
+                  ? event.metadata.instanceId
+                  : undefined,
+              runId: event.aggregateId,
+              payload: event.payload,
+            });
+          } catch { /* WAL is best-effort */ }
+
+          // Job lifecycle: map known terminal events to journal states.
+          // We deliberately match exact event names (NOT suffixes) because
+          // events like `debate.round_completed` are intermediate, not terminal.
+          try {
+            const eventType = String(event.type);
+            const aggregateId = event.aggregateId;
+            const startEvents = new Set<string>([
+              'debate.started',
+              'verification.requested',
+              'consensus.started',
+            ]);
+            const completeEvents = new Set<string>([
+              'debate.completed',
+              'verification.completed',
+              'consensus.completed',
+            ]);
+            if (startEvents.has(eventType)) {
+              journal.start(aggregateId, eventType, { event: eventType });
+            } else if (completeEvents.has(eventType)) {
+              const payload = event.payload as Record<string, unknown> | undefined;
+              const err = payload?.['error'];
+              if (typeof err === 'string' && err.length > 0) {
+                journal.fail(aggregateId, err, { event: eventType });
+              } else {
+                journal.complete(aggregateId, { event: eventType });
+              }
+            } else if (eventType === 'verification.cancelled') {
+              journal.fail(aggregateId, 'cancelled', { event: eventType });
+            }
+          } catch { /* journal is best-effort */ }
+        });
+      } catch (err) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getLogger } = require('../logging/logger') as typeof import('../logging/logger');
+        getLogger('OrchestrationBootstrap').warn('Failed to attach WAL/JobJournal observers', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     },
   });
 }

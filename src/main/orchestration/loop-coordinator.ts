@@ -26,7 +26,9 @@ import { createHash, randomUUID } from 'crypto';
 import { getLogger } from '../logging/logger';
 import {
   defaultLoopConfig,
+  defaultCrossModelReviewConfig,
   type LoopConfig,
+  type LoopCrossModelReviewConfig,
   type LoopErrorRecord,
   type LoopFileChange,
   type LoopIteration,
@@ -93,6 +95,132 @@ interface IterationHookContext {
 
 export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | void;
 
+/**
+ * Severity of a fresh-eyes review finding. Mirrors
+ * `HeadlessReviewFinding.severity` from
+ * `src/main/cli-entrypoints/review-command-output.ts` but is kept as a local
+ * type so this module does not pull in the headless-review surface at
+ * import time (LoopCoordinator runs in tests that mock the review service).
+ */
+export type FreshEyesSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export interface FreshEyesFinding {
+  title: string;
+  body: string;
+  severity: FreshEyesSeverity;
+  file?: string;
+  confidence: number;
+}
+
+export interface FreshEyesReviewerInput {
+  loopRunId: string;
+  workspaceCwd: string;
+  /** The user's actual goal — fed to the reviewer as taskDescription. */
+  goal: string;
+  /** Excerpt of the iteration output that claimed completion. */
+  iterationOutput: string;
+  /** Files changed across the run (best-effort, can be empty). */
+  filesChangedThisIteration: readonly string[];
+  /** Plan files that started uncompleted in this run. */
+  uncompletedPlanFilesAtStart: readonly string[];
+  /** Verify output passed-in for context. */
+  verifyOutputExcerpt: string;
+  /** Coordinator's signal that fired this completion attempt. */
+  signal: string;
+  /** Review configuration (reviewers, severities, depth, timeout). */
+  config: LoopCrossModelReviewConfig;
+}
+
+export interface FreshEyesReviewerResult {
+  findings: FreshEyesFinding[];
+  /** Provider names actually used as reviewers. Empty when none available. */
+  reviewersUsed: string[];
+  /** Plain-English summary returned by the review service. */
+  summary: string;
+  /** Whether the underlying review infrastructure failed entirely. */
+  infrastructureError?: string;
+}
+
+export type FreshEyesReviewer = (
+  input: FreshEyesReviewerInput,
+) => Promise<FreshEyesReviewerResult>;
+
+/**
+ * Default implementation — lazily imports `CrossModelReviewService` and
+ * dispatches a headless review. Returns an empty findings list when the
+ * service has no reviewers available (degrades safely).
+ */
+const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
+  // Lazy import to avoid pulling the review service into test paths that
+  // mock `getCrossModelReviewService`.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getCrossModelReviewService } = require(
+    './cross-model-review-service',
+  ) as typeof import('./cross-model-review-service');
+  const service = getCrossModelReviewService();
+
+  const filesBlock =
+    input.filesChangedThisIteration.length > 0
+      ? `\n\nFiles changed in this iteration:\n${input.filesChangedThisIteration.slice(0, 50).map((f) => `  - ${f}`).join('\n')}`
+      : '';
+  const plansBlock =
+    input.uncompletedPlanFilesAtStart.length > 0
+      ? `\n\nPlan files that existed at loop start (the agent was asked to address these):\n${input.uncompletedPlanFilesAtStart.map((f) => `  - ${f}`).join('\n')}`
+      : '';
+
+  const content =
+    `# Fresh-eyes review request\n\n` +
+    `A long-running autonomous loop has signalled completion via "${input.signal}" and ` +
+    `verify passed. Before the loop terminates, please review the workspace with fresh eyes.\n\n` +
+    `## What to look for\n` +
+    `- Items the goal asked for that are NOT actually implemented in code (orphan modules, stubs returning constants, "completed" docs with no real wiring).\n` +
+    `- Specs that say one thing but code does another.\n` +
+    `- Half-done features or TODOs left behind.\n` +
+    `- Integration gaps: new code that is never imported or invoked outside its own tests.\n\n` +
+    `## What "ready_for_done" means here\n` +
+    `Mark a finding as **critical** or **high** severity ONLY for blocking issues that would make a reasonable reviewer say "no, this isn't done yet."\n` +
+    `Use **medium** or **low** for nice-to-haves, style nits, or follow-up suggestions — those do not block completion.\n\n` +
+    `## Iteration output (what the agent said it did)\n${input.iterationOutput}${filesBlock}${plansBlock}\n\n` +
+    `## Verify output\n${input.verifyOutputExcerpt}\n`;
+
+  try {
+    const result = await service.runHeadlessReview({
+      target: `loop:${input.loopRunId}`,
+      cwd: input.workspaceCwd,
+      content,
+      taskDescription: input.goal,
+      reviewers: input.config.reviewers,
+      reviewDepth: input.config.reviewDepth,
+      timeoutSeconds: input.config.timeoutSeconds,
+    });
+
+    return {
+      findings: result.findings.map((f) => ({
+        title: f.title,
+        body: f.body,
+        severity: f.severity,
+        file: f.file,
+        confidence: f.confidence,
+      })),
+      reviewersUsed: result.reviewers
+        .filter((r) => r.status === 'used')
+        .map((r) => r.provider),
+      summary: result.summary,
+      infrastructureError:
+        result.infrastructureErrors && result.infrastructureErrors.length > 0
+          ? result.infrastructureErrors.join('; ')
+          : undefined,
+    };
+  } catch (err) {
+    return {
+      findings: [],
+      reviewersUsed: [],
+      summary: 'Fresh-eyes review threw.',
+      infrastructureError: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
 export interface LoopRuntimeContext {
   /**
    * Prior visible-session transcript used as read-only background for loop
@@ -115,6 +243,18 @@ export class LoopCoordinator extends EventEmitter {
 
   private progressDetector = new LoopProgressDetector();
   private completionDetector = new LoopCompletionDetector();
+  /**
+   * Injectable cross-model fresh-eyes reviewer. Defaults to the production
+   * implementation that calls `CrossModelReviewService.runHeadlessReview`,
+   * but tests (and future alternate runners) can swap it out without
+   * mocking the entire orchestration service.
+   */
+  private freshEyesReviewer: FreshEyesReviewer = defaultFreshEyesReviewer;
+
+  /** Override the fresh-eyes reviewer (tests / DI). */
+  setFreshEyesReviewer(reviewer: FreshEyesReviewer): void {
+    this.freshEyesReviewer = reviewer;
+  }
 
   static getInstance(): LoopCoordinator {
     if (!this.instance) this.instance = new LoopCoordinator();
@@ -166,6 +306,17 @@ export class LoopCoordinator extends EventEmitter {
     attachments?: LoopAttachment[],
     runtimeContext?: LoopRuntimeContext,
   ): Promise<LoopState> {
+    // Remember whether the caller explicitly configured belt-and-braces.
+    // `materializeConfig` collapses `undefined` into a concrete boolean so
+    // this is our only chance to distinguish "default off" from
+    // "user said off".  Used after the startup snapshot to auto-enable the
+    // rename gate when uncompleted plan files are found in the workspace.
+    const userExplicitlySetCompletedRename =
+      partialConfig.completion?.requireCompletedFileRename !== undefined;
+    // Same idea for cross-model fresh-eyes review: only auto-enable when
+    // the caller did not give us a concrete config block.
+    const userExplicitlySetCrossModelReview =
+      partialConfig.completion?.crossModelReview !== undefined;
     const config = this.materializeConfig(partialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
@@ -240,6 +391,39 @@ export class LoopCoordinator extends EventEmitter {
         { id, planFile: config.planFile },
       );
     }
+    // Auto-enable belt-and-braces when the workspace contains uncompleted
+    // plan-like markdown files at start and the caller did not explicitly
+    // pin `requireCompletedFileRename`. Without this, a DONE.txt sentinel
+    // alone can terminate the loop even when the prompt asked the agent to
+    // rename plan files with `_completed` — the default prompt promises
+    // "rename it with _completed before stopping" and this gate enforces
+    // that contract on the loop side.
+    if (
+      !userExplicitlySetCompletedRename &&
+      !config.completion.requireCompletedFileRename &&
+      snapshot.uncompletedPlanFilesAtStart.length > 0
+    ) {
+      config.completion.requireCompletedFileRename = true;
+      logger.info(
+        'Loop start: auto-enabled requireCompletedFileRename — uncompleted plan files present',
+        { id, count: snapshot.uncompletedPlanFilesAtStart.length, files: snapshot.uncompletedPlanFilesAtStart.slice(0, 8) },
+      );
+    }
+    // Auto-enable mandatory fresh-eyes cross-model review for the same
+    // trigger: if the workspace had uncompleted plan files and the caller
+    // did not explicitly configure the review block, default it on.
+    // This is the loop's automated "check again with fresh eyes" gate.
+    if (
+      !userExplicitlySetCrossModelReview &&
+      !config.completion.crossModelReview &&
+      snapshot.uncompletedPlanFilesAtStart.length > 0
+    ) {
+      config.completion.crossModelReview = defaultCrossModelReviewConfig();
+      logger.info(
+        'Loop start: auto-enabled crossModelReview — uncompleted plan files present',
+        { id, blockingSeverities: config.completion.crossModelReview.blockingSeverities },
+      );
+    }
 
     const state: LoopState = {
       id,
@@ -258,6 +442,7 @@ export class LoopCoordinator extends EventEmitter {
       completedFileRenameObserved: false,
       doneSentinelPresentAtStart: snapshot.doneSentinelPresent,
       planChecklistFullyCheckedAtStart: snapshot.planChecklistFullyChecked,
+      uncompletedPlanFilesAtStart: snapshot.uncompletedPlanFilesAtStart,
       tokensSinceLastTestImprovement: 0,
       highestTestPassCount: 0,
       iterationsOnCurrentStage: 0,
@@ -552,6 +737,7 @@ export class LoopCoordinator extends EventEmitter {
         iterationSeq: seq,
         pendingInterventions: state.pendingInterventions,
         existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
+        uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
       });
       const consumedInterventions = state.pendingInterventions.splice(0, state.pendingInterventions.length);
 
@@ -692,7 +878,17 @@ export class LoopCoordinator extends EventEmitter {
             }
           }
           if (v2.status === 'passed' && this.completionDetector.passesBeltAndBraces(state, state.config)) {
-            stopWithSignal = candidate;
+            // Fresh-eyes cross-model review gate. The previous loop bug was
+            // that DONE.txt + passing verify was enough to stop, even when
+            // the actual goal hadn't been substantively addressed (orphan
+            // code, missed renames, half-done specs). This hook calls a
+            // different CLI provider with the iteration output + workspace
+            // context and asks "is this really done?". Any blocking finding
+            // becomes a user intervention and the loop continues.
+            const reviewBlocked = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
+            if (!reviewBlocked) {
+              stopWithSignal = candidate;
+            }
           } else if (v2.status === 'passed') {
             // verify passes but belt-and-braces (rename) hasn't happened yet —
             // surface so the agent can do the rename, but don't stop.
@@ -758,6 +954,109 @@ export class LoopCoordinator extends EventEmitter {
       // -- minimum sleep guard so the fs watcher can settle --
       await sleep(1500);
     }
+  }
+
+  /**
+   * Run the cross-model fresh-eyes review gate. Returns `true` if any
+   * blocking finding was raised — meaning the loop must continue instead
+   * of stopping. Returns `false` if the review either:
+   *   - is disabled in config
+   *   - returned no blocking findings
+   *   - failed to find any reviewers (infrastructure unavailable)
+   *
+   * When blocking findings are raised, they are injected verbatim into
+   * `state.pendingInterventions` so the next iteration treats them as
+   * binding direction.
+   */
+  private async runFreshEyesReviewGate(
+    state: LoopState,
+    signalId: string,
+    iteration: LoopIteration,
+    verifyOutput: string,
+  ): Promise<boolean> {
+    const reviewCfg = state.config.completion.crossModelReview;
+    if (!reviewCfg || !reviewCfg.enabled) return false;
+
+    this.emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
+    let reviewResult: FreshEyesReviewerResult;
+    try {
+      reviewResult = await this.freshEyesReviewer({
+        loopRunId: state.id,
+        workspaceCwd: state.config.workspaceCwd,
+        goal: state.config.initialPrompt,
+        iterationOutput: iteration.outputExcerpt,
+        filesChangedThisIteration: iteration.filesChanged.map((f) => f.path),
+        uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
+        verifyOutputExcerpt: verifyOutput.slice(0, 4096),
+        signal: signalId,
+        config: reviewCfg,
+      });
+    } catch (err) {
+      // Reviewer threw — don't pretend the gate held; log and let the loop
+      // stop. We deliberately do NOT block on reviewer failures because
+      // that would let a misconfigured reviewer pin the loop open forever.
+      logger.warn('Fresh-eyes reviewer threw — letting completion proceed', {
+        loopRunId: state.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.emit('loop:fresh-eyes-review-failed', {
+        loopRunId: state.id,
+        signal: signalId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+
+    const blocking = reviewResult.findings.filter((f) =>
+      (reviewCfg.blockingSeverities as readonly string[]).includes(f.severity),
+    );
+
+    if (blocking.length === 0) {
+      this.emit('loop:fresh-eyes-review-passed', {
+        loopRunId: state.id,
+        signal: signalId,
+        reviewersUsed: reviewResult.reviewersUsed,
+        nonBlockingFindings: reviewResult.findings.length,
+        summary: reviewResult.summary,
+        infrastructureError: reviewResult.infrastructureError,
+      });
+      logger.info('Fresh-eyes review passed', {
+        loopRunId: state.id,
+        signal: signalId,
+        reviewersUsed: reviewResult.reviewersUsed,
+        findings: reviewResult.findings.length,
+      });
+      return false;
+    }
+
+    // Blocking findings — inject as interventions and continue the loop.
+    const interventionMessage =
+      `Fresh-eyes cross-model review (${reviewResult.reviewersUsed.join(', ') || 'reviewers'}) ` +
+      `blocked completion with ${blocking.length} ${blocking.length === 1 ? 'issue' : 'issues'} ` +
+      `(severities: ${[...new Set(blocking.map((f) => f.severity))].join(', ')}):\n\n` +
+      blocking
+        .map(
+          (f, i) =>
+            `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}${f.file ? ` (${f.file})` : ''}\n   ${f.body}`,
+        )
+        .join('\n\n') +
+      `\n\nAddress each item, then re-attempt completion.`;
+
+    state.pendingInterventions.push(interventionMessage);
+    this.emit('loop:fresh-eyes-review-blocked', {
+      loopRunId: state.id,
+      signal: signalId,
+      reviewersUsed: reviewResult.reviewersUsed,
+      blockingFindings: blocking,
+      summary: reviewResult.summary,
+    });
+    logger.info('Fresh-eyes review blocked completion — injected interventions', {
+      loopRunId: state.id,
+      signal: signalId,
+      blocking: blocking.length,
+      severities: [...new Set(blocking.map((f) => f.severity))],
+    });
+    return true;
   }
 
   // ============ Internal — child invocation (extensibility) ============

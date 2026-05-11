@@ -4,9 +4,12 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { SkillStore } from '../../core/state/skill.store';
 import { UsageStore } from '../../core/state/usage.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
+import { KeybindingService } from '../../core/services/keybinding.service';
 import { parseArgsFromQuery } from '../../../../shared/utils/command-args';
 import type { CommandCategory } from '../../../../shared/types/command.types';
+import { formatKeyBinding } from '../../../../shared/types/keybinding.types';
 import type { OverlayController, OverlayGroup, OverlayItem } from '../overlay/overlay.types';
+import { matchesOverlayQuery, scoreOverlayQuery } from '../../shared/utils/overlay-search';
 
 const CATEGORY_LABELS: Record<CommandCategory, string> = {
   review: 'Review',
@@ -28,6 +31,7 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
   private skillStore = inject(SkillStore);
   private usageStore = inject(UsageStore);
   private actionDispatch = inject(ActionDispatchService);
+  private keybindingService = inject(KeybindingService);
 
   readonly title: string = 'Command palette';
   readonly placeholder: string = 'Search commands...';
@@ -93,12 +97,19 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
   protected toItem(command: ExtendedCommand): OverlayItem<ExtendedCommand> {
     const eligibility = this.commandStore.commandEligibility(command);
     const aliases = command.aliases?.length ? `Aliases: ${command.aliases.map((alias) => `/${alias}`).join(', ')}` : undefined;
+    const commandBinding = this.keybindingService.allBindings().find(
+      (b) => b.action === `command:${command.name}`,
+    );
+    const shortcut = commandBinding
+      ? formatKeyBinding(commandBinding, this.keybindingService.isMac)
+      : (command.shortcut ?? undefined);
     return {
       id: command.id,
       label: `/${command.name}`,
       description: command.description,
       detail: command.usage ?? aliases,
       badge: command.isSkill ? 'Skill' : command.builtIn ? 'Built-in' : command.category,
+      shortcut,
       disabled: !eligibility.eligible,
       disabledReason: eligibility.reason,
       keywords: [command.name, command.description, ...(command.aliases ?? []), command.category ?? ''],
@@ -107,15 +118,14 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
   }
 
   private matches(command: ExtendedCommand, query: string): boolean {
-    if (!query) return true;
-    return [
+    return matchesOverlayQuery([
       command.name,
       command.description,
       command.category ?? '',
       command.usage ?? '',
       ...(command.aliases ?? []),
       ...(command.examples ?? []),
-    ].some((value) => value.toLowerCase().includes(query));
+    ], query);
   }
 
   private score(command: ExtendedCommand, query: string): number {
@@ -124,10 +134,12 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
     let score = this.usageStore.frecency('command', command.id) * 10;
     if (command.rankHints?.pinned) score += 1000;
     if (query) {
-      if (name === query) score += 500;
-      if (name.startsWith(query)) score += 300;
-      if (aliases.includes(query)) score += 450;
-      if (aliases.some((alias) => alias.startsWith(query))) score += 220;
+      score += scoreOverlayQuery([command.name, command.description, command.category ?? ''], query) * 5;
+      const q = query.toLowerCase();
+      if (name === q) score += 500;
+      else if (name.startsWith(q)) score += 300;
+      if (aliases.includes(q)) score += 450;
+      else if (aliases.some((alias) => alias.startsWith(q))) score += 220;
     }
     score += (command.rankHints?.weight ?? 1) * 10;
     return score;

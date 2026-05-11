@@ -4,6 +4,7 @@
 
 import {
   Component,
+  HostListener,
   inject,
   signal,
   OnInit,
@@ -649,6 +650,17 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     } catch (error) {
       console.error('Failed to load pending user action requests:', error);
     }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDocumentKeydown(event: KeyboardEvent): void {
+    if (event.key < '1' || event.key > '9') return;
+    const selectRequest = this.pendingRequests().find((r) => r.requestType === 'select_option');
+    if (!selectRequest?.options) return;
+    const index = parseInt(event.key, 10) - 1;
+    const option = selectRequest.options[index];
+    if (!option || this.isResponding()) return;
+    void this.onSelectOption(selectRequest, option.id);
   }
 
   getRequestIcon(requestType: string): string {

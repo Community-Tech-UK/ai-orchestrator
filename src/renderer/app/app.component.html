@@ -54,4 +54,12 @@
       Sending {{ toast.queuedTotal }} queued message{{ toast.queuedTotal === 1 ? '' : 's' }}
     </div>
   }
+
+  @if (toastService.toasts().length > 0) {
+    <div class="toast-stack" role="status" aria-live="polite">
+      @for (toast of toastService.toasts(); track toast.id) {
+        <div class="toast-item" [class.toast-error]="toast.type === 'error'">{{ toast.text }}</div>
+      }
+    </div>
+  }
 </div>

@@ -60,6 +60,7 @@ function makeState(workspaceCwd: string, over: Partial<LoopState> = {}): LoopSta
     completedFileRenameObserved: false,
     doneSentinelPresentAtStart: false,
     planChecklistFullyCheckedAtStart: false,
+    uncompletedPlanFilesAtStart: [],
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,

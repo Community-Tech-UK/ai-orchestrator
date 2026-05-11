@@ -208,6 +208,10 @@ export const LoopStateSchema = z.object({
   doneSentinelPresentAtStart: z.boolean(),
   /** True iff configured planFile was already fully checked at startLoop. */
   planChecklistFullyCheckedAtStart: z.boolean(),
+  /** Root-level uncompleted plan-like *.md filenames present at startLoop.
+   *  Used to auto-enable requireCompletedFileRename when uncompleted plans
+   *  exist and the caller didn't explicitly configure the rename gate. */
+  uncompletedPlanFilesAtStart: z.array(z.string()).default([]),
   tokensSinceLastTestImprovement: z.number().int().nonnegative(),
   highestTestPassCount: z.number().int().nonnegative(),
   iterationsOnCurrentStage: z.number().int().nonnegative(),

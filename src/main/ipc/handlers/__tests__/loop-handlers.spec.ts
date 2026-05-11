@@ -26,6 +26,7 @@ const hoisted = vi.hoisted(() => ({
   },
   chatService: {
     appendSystemEvent: vi.fn(),
+    tryGetChat: vi.fn(),
   },
 }));
 
@@ -63,14 +64,26 @@ function makeConfig(initialPrompt = 'Please continue the current implementation.
   };
 }
 
-function makeInstanceManager(outputBuffer: unknown[]): InstanceManager {
+function makeInstanceManager(
+  outputBuffer: unknown[],
+  overrides: Partial<{
+    getInstance: ReturnType<typeof vi.fn>;
+    appendSyntheticUserMessage: ReturnType<typeof vi.fn>;
+    emitSystemMessage: ReturnType<typeof vi.fn>;
+  }> = {},
+): InstanceManager {
   return {
-    getInstance: vi.fn(() => ({ outputBuffer })),
+    getInstance: overrides.getInstance ?? vi.fn(() => ({ outputBuffer })),
+    appendSyntheticUserMessage: overrides.appendSyntheticUserMessage ?? vi.fn(),
+    emitSystemMessage: overrides.emitSystemMessage ?? vi.fn(),
   } as unknown as InstanceManager;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: behave as if state.chatId is a real chat. Individual tests can
+  // override this to exercise the instance-id fallback path.
+  hoisted.chatService.tryGetChat.mockReturnValue({ id: 'chat-1' });
 });
 
 describe('buildExistingSessionContext', () => {
@@ -183,11 +196,47 @@ describe('registerLoopHandlers start events', () => {
         phase: 'loop_start',
         role: 'user',
         content: 'Build the thing.',
+        autoName: true,
       }),
     );
     expect(windowManager.sendToRenderer).toHaveBeenCalledWith(
       'loop:started',
       { loopRunId: startState.id, chatId: startState.chatId },
+    );
+  });
+
+  it('falls back to InstanceManager.appendSyntheticUserMessage when state.chatId is an instance id (instance-detail loop)', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const appendSyntheticUserMessage = vi.fn();
+    const instanceManager = makeInstanceManager([], {
+      getInstance: vi.fn(() => ({ id: 'inst-1', outputBuffer: [] })),
+      appendSyntheticUserMessage,
+    });
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.getLoop.mockReturnValue(startState);
+    // The chatId on state is actually an instance id, so tryGetChat returns null.
+    hoisted.chatService.tryGetChat.mockReturnValue(null);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const startHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:started'
+    )?.[1] as ((data: { loopRunId: string; chatId: string }) => void) | undefined;
+
+    startHandler?.({ loopRunId: startState.id, chatId: startState.chatId });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+    expect(appendSyntheticUserMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'Build the thing.',
+      expect.objectContaining({
+        autoTitle: true,
+        metadata: expect.objectContaining({
+          kind: 'loop-start',
+          loopRunId: 'loop-1',
+        }),
+      }),
     );
   });
 
@@ -303,6 +352,67 @@ describe('LOOP_INTERVENE handler', () => {
     const secondId = (hoisted.chatService.appendSystemEvent.mock.calls[1]?.[0] as { nativeMessageId: string }).nativeMessageId;
     expect(firstId).not.toBe(secondId);
   });
+
+  it('falls back to InstanceManager.appendSyntheticUserMessage for instance-detail loops', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const appendSyntheticUserMessage = vi.fn();
+    const instanceManager = makeInstanceManager([], {
+      getInstance: vi.fn(() => ({ id: 'inst-1', outputBuffer: [] })),
+      appendSyntheticUserMessage,
+    });
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.intervene.mockReturnValue(true);
+    hoisted.coordinator.getLoop.mockReturnValue(state);
+    hoisted.chatService.tryGetChat.mockReturnValue(null);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_INTERVENE);
+
+    await handler({}, { loopRunId: state.id, message: 'pivot to plan B' });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+    expect(appendSyntheticUserMessage).toHaveBeenCalledWith(
+      state.chatId,
+      'pivot to plan B',
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          kind: 'loop-intervene',
+          loopRunId: 'loop-1',
+        }),
+      }),
+    );
+  });
+});
+
+describe('terminal summary instance-id fallback', () => {
+  it('routes the terminal summary to InstanceManager.emitSystemMessage for instance-detail loops', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const emitSystemMessage = vi.fn();
+    const instanceManager = makeInstanceManager([], {
+      getInstance: vi.fn(() => ({ id: 'inst-1', outputBuffer: [] })),
+      emitSystemMessage,
+    });
+    hoisted.chatService.tryGetChat.mockReturnValue(null);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const state = makeLoopState();
+    const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:state-changed'
+    )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
+
+    stateHandler?.({ loopRunId: state.id, state });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+    expect(emitSystemMessage).toHaveBeenCalledWith(
+      state.chatId,
+      expect.stringContaining('Loop ended - completed'),
+      expect.objectContaining({ kind: 'loop-summary', loopRunId: 'loop-1' }),
+    );
+  });
 });
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<{ success: boolean; data?: unknown }>;
@@ -333,6 +443,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     completedFileRenameObserved: false,
     doneSentinelPresentAtStart: false,
     planChecklistFullyCheckedAtStart: false,
+    uncompletedPlanFilesAtStart: [],
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,

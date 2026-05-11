@@ -41,6 +41,28 @@ describe('LoopStageMachine', () => {
     expect(stage).toBe('IMPLEMENT');
   });
 
+  it('buildPrompt includes "Uncompleted Plan Files Detected" block when given uncompleted plans', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+      uncompletedPlanFilesAtStart: ['claude2.md', 'gemini.md'],
+    });
+    expect(p).toContain('Uncompleted Plan Files Detected');
+    expect(p).toContain('`claude2.md`');
+    expect(p).toContain('`gemini.md`');
+    expect(p).toContain('requireCompletedFileRename');
+  });
+
+  it('buildPrompt omits the uncompleted-plans block when none are provided', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const p = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    expect(p).not.toContain('Uncompleted Plan Files Detected');
+  });
+
   it('buildPrompt mentions stage transitions and the verify command', () => {
     const m = new LoopStageMachine(tmpDir);
     const cfg = defaultLoopConfig(tmpDir, 'x');
@@ -230,7 +252,24 @@ describe('LoopStageMachine.captureStartupSnapshot', () => {
     const m = new LoopStageMachine(tmpDir);
     const cfg = defaultLoopConfig(tmpDir, 'x');
     const snap = await m.captureStartupSnapshot(cfg);
-    expect(snap).toEqual({ doneSentinelPresent: false, planChecklistFullyChecked: false });
+    expect(snap).toEqual({
+      doneSentinelPresent: false,
+      planChecklistFullyChecked: false,
+      uncompletedPlanFilesAtStart: [],
+    });
+  });
+
+  it('lists uncompleted plan-like .md files but excludes denylist + already-completed names', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'my-plan.md'), '# Plan\n');
+    fs.writeFileSync(path.join(tmpDir, 'README.md'), '# Readme\n');           // denylisted
+    fs.writeFileSync(path.join(tmpDir, 'NOTES.md'), '# Notes\n');             // denylisted
+    fs.writeFileSync(path.join(tmpDir, 'STAGE.md'), 'IMPLEMENT\n');           // denylisted
+    fs.writeFileSync(path.join(tmpDir, 'feature_completed.md'), '# Done\n'); // already completed
+    fs.writeFileSync(path.join(tmpDir, 'other_Completed.md'), '# Done\n');   // already completed (cap C)
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const snap = await m.captureStartupSnapshot(cfg);
+    expect(snap.uncompletedPlanFilesAtStart).toEqual(['my-plan.md']);
   });
 
   it('detects a stale DONE.txt that survived bootstrap (e.g. unlink failed)', async () => {

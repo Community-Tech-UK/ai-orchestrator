@@ -1,10 +1,15 @@
 /**
  * Plan-mode tool primitives — plan_enter, plan_exit, plan_approve.
  *
- * Exposes the existing PlanModeManager as callable agent tools so debate
- * coordinators and orchestration agents can explicitly enter/exit plan mode
- * instead of encoding it implicitly.  Mirrors opencode's plan.ts + plan-enter.txt
- * / plan-exit.txt convention (claude3.md §12).
+ * Exposes the existing InstanceManager-owned PlanModeManager as callable agent
+ * tools so debate coordinators and orchestration agents can explicitly enter/
+ * exit plan mode instead of encoding it implicitly.  Mirrors opencode's
+ * plan.ts + plan-enter.txt / plan-exit.txt convention (claude3.md §12).
+ *
+ * The factory delegates to the *real* PlanModeManager owned by each
+ * Instance's lifecycle (via InstanceManager.{enterPlanMode,exitPlanMode,
+ * approvePlan}) rather than creating a parallel one — this ensures the tools
+ * mutate the same state the IPC handlers and lifecycle observe.
  *
  * When plan_enter is called:
  *   - The instance transitions to planMode.state = 'planning'.
@@ -16,24 +21,26 @@
  *   - Transitions back to planMode.enabled = false.
  *   - Passes through an optional `force` flag for coordinator overrides.
  *
- * Usage: call `createPlanModeTools(instanceManager)` at startup and register
- * the returned tools with the ToolRegistry.
+ * Usage: call `createPlanModeTools(instanceManager)` at startup; the returned
+ * `tools` array can be exposed to in-process agent code or adapted to any
+ * outbound tool catalog.
  */
 
 import { z } from 'zod';
-import { EventEmitter } from 'events';
 import { defineTool } from './define-tool';
-import { PlanModeManager } from '../instance/lifecycle/plan-mode-manager';
 import type { Instance } from '../../shared/types/instance.types';
 
+/**
+ * The subset of InstanceManager the tools need.  Kept narrow so tests can
+ * provide a stub without dragging in the full manager.
+ */
 export interface PlanModeToolDeps {
-  getInstance(id: string): Instance | undefined;
+  enterPlanMode(instanceId: string): Instance;
+  exitPlanMode(instanceId: string, force?: boolean): Instance;
+  approvePlan(instanceId: string, planContent?: string): Instance;
 }
 
 export function createPlanModeTools(deps: PlanModeToolDeps) {
-  const emitter = new EventEmitter();
-  const manager = new PlanModeManager({ getInstance: deps.getInstance }, emitter);
-
   const planEnterTool = defineTool({
     id: 'plan_enter',
     description:
@@ -46,7 +53,7 @@ export function createPlanModeTools(deps: PlanModeToolDeps) {
     }),
     safety: { isConcurrencySafe: false, isReadOnly: false, isDestructive: false },
     execute(args) {
-      const instance = manager.enterPlanMode(args.instanceId);
+      const instance = deps.enterPlanMode(args.instanceId);
       return { ok: true, planMode: instance.planMode };
     },
   });
@@ -69,7 +76,7 @@ export function createPlanModeTools(deps: PlanModeToolDeps) {
     }),
     safety: { isConcurrencySafe: false, isReadOnly: false, isDestructive: false },
     execute(args) {
-      const instance = manager.exitPlanMode(args.instanceId, args.force ?? false);
+      const instance = deps.exitPlanMode(args.instanceId, args.force ?? false);
       return { ok: true, planMode: instance.planMode };
     },
   });
@@ -89,10 +96,34 @@ export function createPlanModeTools(deps: PlanModeToolDeps) {
     }),
     safety: { isConcurrencySafe: false, isReadOnly: false, isDestructive: false },
     execute(args) {
-      const instance = manager.approvePlan(args.instanceId, args.planContent);
+      const instance = deps.approvePlan(args.instanceId, args.planContent);
       return { ok: true, planMode: instance.planMode };
     },
   });
 
-  return { planEnterTool, planExitTool, planApproveTool, manager, emitter };
+  return {
+    planEnterTool,
+    planExitTool,
+    planApproveTool,
+    tools: [planEnterTool, planExitTool, planApproveTool],
+  };
+}
+
+let cached: ReturnType<typeof createPlanModeTools> | null = null;
+
+/**
+ * Register the plan-mode tool factory once at startup with a live
+ * InstanceManager.  Subsequent calls return the cached tools.
+ */
+export function registerPlanModeTools(deps: PlanModeToolDeps): ReturnType<typeof createPlanModeTools> {
+  if (!cached) cached = createPlanModeTools(deps);
+  return cached;
+}
+
+export function getPlanModeTools(): ReturnType<typeof createPlanModeTools> | null {
+  return cached;
+}
+
+export function _resetPlanModeToolsForTesting(): void {
+  cached = null;
 }

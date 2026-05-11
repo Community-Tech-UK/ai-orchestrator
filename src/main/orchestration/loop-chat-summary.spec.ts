@@ -175,6 +175,7 @@ function makeState(overrides: Partial<LoopState> = {}): LoopState {
     completedFileRenameObserved: false,
     doneSentinelPresentAtStart: false,
     planChecklistFullyCheckedAtStart: false,
+    uncompletedPlanFilesAtStart: [],
     tokensSinceLastTestImprovement: 0,
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,

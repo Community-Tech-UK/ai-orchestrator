@@ -350,6 +350,22 @@ export function createInitializationSteps(
       fn: async () => {
         const crossModelReview = getCrossModelReviewService();
         crossModelReview.setInstanceManager(instanceManager);
+        // Install the headless review execution host so `runHeadlessReview`
+        // can dispatch prompts to alternative CLI providers from inside the
+        // running app (not just from the standalone `review` CLI entrypoint).
+        // Without this, runHeadlessReview returns the "host not configured"
+        // stub and the loop's fresh-eyes review gate is a no-op.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { ProviderReviewExecutionHost } = require(
+            '../review/review-execution-host',
+          ) as typeof import('../review/review-execution-host');
+          crossModelReview.setReviewExecutionHost(new ProviderReviewExecutionHost());
+        } catch (err) {
+          logger.warn('Failed to install ProviderReviewExecutionHost', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         await crossModelReview.initialize();
         registerCrossModelReviewIpcHandlers();
       },
@@ -485,6 +501,91 @@ export function createInitializationSteps(
           permissionRegistry.clearForInstance(instanceId);
           getOrchestrationSnapshotManager().clearForInstance(instanceId);
         });
+
+        // Durable approval store — mirrors PermissionRegistry events into
+        // SQLite so pending approvals survive crash/restart and can be
+        // audited.  Side-car observer; PermissionRegistry remains the
+        // synchronous source of truth.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { DurableApprovalStore } = require(
+            '../orchestration/durable-approval-store',
+          ) as typeof import('../orchestration/durable-approval-store');
+          const store = new DurableApprovalStore(getRLMDatabase().getRawDb());
+
+          permissionRegistry.on('permission:requested', (req: {
+            id: string;
+            instanceId: string;
+            action: string;
+            createdAt: number;
+            timeoutMs: number;
+            description?: string;
+            toolName?: string;
+            details?: Record<string, unknown>;
+          }) => {
+            try {
+              store.create({
+                approvalId: req.id,
+                instanceId: req.instanceId,
+                actionKind: req.action,
+                payload: {
+                  description: req.description,
+                  toolName: req.toolName,
+                  details: req.details,
+                },
+                expiresAt: req.createdAt + req.timeoutMs,
+              });
+            } catch (err) {
+              logger.warn('Failed to persist pending approval', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          });
+
+          permissionRegistry.on('permission:resolved', (decision: {
+            requestId: string;
+            granted: boolean;
+            decidedBy: string;
+          }) => {
+            try {
+              store.resolve(
+                decision.requestId,
+                decision.granted ? 'approved' : 'denied',
+                decision.decidedBy,
+              );
+            } catch (err) {
+              logger.warn('Failed to persist approval resolution', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          });
+
+          logger.info('Durable approval store wired to permission registry');
+        } catch (err) {
+          logger.warn('Failed to initialize durable approval store', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        // Register plan-mode agent tools bound to the live InstanceManager.
+        // The returned ToolDefinitions can be exposed to debate coordinators
+        // and orchestration agents that need explicit plan-mode control.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { registerPlanModeTools } = require(
+            '../tools/plan-mode-tool',
+          ) as typeof import('../tools/plan-mode-tool');
+          registerPlanModeTools({
+            enterPlanMode: (id) => instanceManager.enterPlanMode(id),
+            exitPlanMode: (id, force) => instanceManager.exitPlanMode(id, force),
+            approvePlan: (id, content) => instanceManager.approvePlan(id, content),
+          });
+          logger.info('Plan-mode tools registered against InstanceManager');
+        } catch (err) {
+          logger.warn('Failed to register plan-mode tools', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
 
         logger.info('Cross-project patterns initialized');
       },
