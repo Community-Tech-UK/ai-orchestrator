@@ -38,6 +38,9 @@ import { ResumePickerHostComponent } from '../resume/resume-picker-host.componen
 import { ModelPickerFocusService } from '../models/model-picker-focus.service';
 import { PromptHistorySearchHostComponent } from '../prompt-history/prompt-history-search-host.component';
 import { FileExplorerComponent } from '../file-explorer/file-explorer.component';
+import { SourceControlComponent } from '../source-control/source-control.component';
+import { isSourceControlEligible } from '../source-control/source-control-eligibility';
+import { SourceControlStore } from '../../core/state/source-control.store';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SidebarHeaderComponent } from './sidebar-header.component';
 import { SidebarNavComponent } from './sidebar-nav.component';
@@ -61,6 +64,7 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
     ResumePickerHostComponent,
     PromptHistorySearchHostComponent,
     FileExplorerComponent,
+    SourceControlComponent,
     SidebarHeaderComponent,
     SidebarActionsComponent,
     SidebarNavComponent,
@@ -86,6 +90,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private newSessionDraft = inject(NewSessionDraftService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private modelPickerFocusService = inject(ModelPickerFocusService);
+  sourceControlStore = inject(SourceControlStore);
 
   showHistory = signal(false);
   showCommandPalette = signal(false);
@@ -96,6 +101,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   showControlPlane = signal(false);
   showSidebar = signal(true);
   showFileExplorer = signal(false);
+  showSourceControl = signal(false);
 
   private readonly anyTransientOverlayOpen = computed(() =>
     this.showCommandPalette()
@@ -131,6 +137,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
     !!this.store.selectedInstance() && !this.chatStore.selectedChatId() && !this.isBenchmarkMode()
   );
 
+  // Source Control has stricter eligibility than File Explorer: it also
+  // excludes remote instances (Tier D in the Phase 2 plan) and missing
+  // working directories (panel would land on an empty state). Implemented
+  // as a pure predicate in `source-control-eligibility.ts` so the rule is
+  // unit-testable without Angular DI.
+  canShowSourceControl = computed(() => {
+    const instance = this.store.selectedInstance();
+    return isSourceControlEligible({
+      hasSelectedInstance: !!instance,
+      hasSelectedChat: !!this.chatStore.selectedChatId(),
+      isBenchmarkMode: this.isBenchmarkMode(),
+      isRemote: instance?.executionLocation?.type === 'remote',
+      workingDirectory: instance?.workingDirectory ?? null,
+    });
+  });
+
   hasWorkspaceSelection = computed(() =>
     !!this.chatStore.selectedChatId() || !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
   );
@@ -151,6 +173,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
     effect(() => {
       if (!this.canShowFileExplorer()) {
         this.showFileExplorer.set(false);
+      }
+    });
+
+    effect(() => {
+      if (!this.canShowSourceControl()) {
+        this.showSourceControl.set(false);
+      }
+    });
+
+    // Eager-load source control state on every eligible instance change.
+    // This is what makes the header pip accurate before the user even
+    // opens the panel. The store has stale-response protection so rapid
+    // instance switches don't cause cross-contamination.
+    effect(() => {
+      if (this.canShowSourceControl()) {
+        void this.sourceControlStore.loadForRoot(this.selectedInstanceWorkingDir());
+      } else {
+        void this.sourceControlStore.loadForRoot(null);
       }
     });
 
@@ -430,6 +470,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(null);
     this.showFileExplorer.set(false);
+    this.showSourceControl.set(false);
     void this.chatStore.selectFirstChat();
   }
 
@@ -448,6 +489,15 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
 
     this.showFileExplorer.update((open) => !open);
+  }
+
+  toggleSourceControl(): void {
+    if (!this.canShowSourceControl()) {
+      this.showSourceControl.set(false);
+      return;
+    }
+
+    this.showSourceControl.update((open) => !open);
   }
 
   navigateToSettings(): void {

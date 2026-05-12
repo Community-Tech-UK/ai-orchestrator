@@ -79,7 +79,11 @@
           <app-instance-detail
             [canShowFileExplorer]="canShowFileExplorer()"
             [isFileExplorerOpen]="showFileExplorer()"
+            [canShowSourceControl]="canShowSourceControl()"
+            [isSourceControlOpen]="showSourceControl()"
+            [sourceControlChangeCount]="sourceControlStore.totalChangeCount()"
             (toggleFileExplorer)="toggleFileExplorer()"
+            (toggleSourceControl)="toggleSourceControl()"
           />
         }
       </div>
@@ -123,12 +127,27 @@
                 {{ showFileExplorer() ? 'Hide Files' : 'Show Files' }}
               </button>
             }
+            <!--
+              Source Control no longer has a control-plane chip — the canonical
+              entry point is the git-branch icon in the instance header
+              (Phase 2a decision: single source of truth, less chrome).
+            -->
           </div>
 
           <app-sidebar-nav />
         </section>
       }
     </main>
+
+    <!-- Source Control (right side, sits LEFT of File Explorer).
+         The store owns the working-directory state and is eagerly populated
+         by an effect above whenever a local instance is selected — the
+         panel is a pure view consuming the store. -->
+    @if (canShowSourceControl() && showSourceControl()) {
+      <app-source-control
+        (closeRequested)="showSourceControl.set(false)"
+      />
+    }
 
     <!-- File Explorer Sidebar (right side) - only show when an instance is selected -->
     @if (canShowFileExplorer() && showFileExplorer()) {

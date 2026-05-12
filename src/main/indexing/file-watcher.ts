@@ -14,6 +14,7 @@ import type {
 } from '../../shared/types/codebase.types';
 import { DEFAULT_FILE_WATCHER_CONFIG, shouldIncludeFile, DEFAULT_INDEXING_CONFIG } from './config';
 import { CodebaseIndexingService, getCodebaseIndexingService } from './indexing-service';
+import { buildWatchIgnoredMatchers } from '../workspace/watcher/watch-ignore';
 
 // ============================================================================
 // Types
@@ -33,9 +34,9 @@ export class CodebaseFileWatcher extends EventEmitter {
   private config: FileWatcherConfig;
   private indexingService: CodebaseIndexingService;
 
-  private watchers: Map<string, FSWatcher> = new Map();
-  private pendingChanges: Map<string, Map<string, PendingChange>> = new Map();
-  private processTimers: Map<string, NodeJS.Timeout> = new Map();
+  private watchers = new Map<string, FSWatcher>();
+  private pendingChanges = new Map<string, Map<string, PendingChange>>();
+  private processTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(config: Partial<FileWatcherConfig> = {}) {
     super();
@@ -54,7 +55,7 @@ export class CodebaseFileWatcher extends EventEmitter {
     const absolutePath = path.resolve(rootPath);
 
     const watcher = watch(absolutePath, {
-      ignored: this.config.ignorePatterns,
+      ignored: buildWatchIgnoredMatchers(absolutePath, this.config.ignorePatterns),
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {

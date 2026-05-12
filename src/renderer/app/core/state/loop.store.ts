@@ -170,6 +170,17 @@ export class LoopStore {
 
     this.ipc.onStateChanged(({ state }) => {
       if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'cap-reached' || state.status === 'error' || state.status === 'no-progress') {
+        // The loop is over — clear any lingering paused-no-progress / claimed-failed
+        // banner now. Otherwise the orange bar stays on screen with buttons
+        // (Resume anyway / Stop / Inject hint) that all early-return because
+        // `active()` becomes undefined the moment we call clearActive() below,
+        // making the bar look broken to the user.
+        //
+        // Must run BEFORE clearActive(), because findChatIdForLoop() (used by
+        // the per-event clearers like onCancelled) walks activeByChat and
+        // would no longer be able to map this loopRunId back to a chat.
+        this.setBanner(state.chatId, null);
+
         // record final summary, clear active
         this.upsertSummary(state.chatId, {
           loopRunId: state.id,

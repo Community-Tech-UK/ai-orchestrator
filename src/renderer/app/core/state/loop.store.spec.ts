@@ -135,6 +135,39 @@ describe('LoopStore', () => {
     expect(store.activityForLoop('loop-1')()).toEqual(store.activityForChat('chat-1')());
   });
 
+  it('clears the no-progress banner when the loop reaches a terminal state', () => {
+    // Reproduces the "I cant press any of the buttons in the orange bar" report:
+    // when a paused-no-progress loop is then cancelled (or terminates as
+    // 'no-progress'), the banner used to linger on screen with buttons that
+    // silently no-opped because `active()` had been cleared by the same
+    // state-change. The banner must clear in lockstep with the active state.
+    store.ensureWired();
+
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'D-prime', message: 'Tests unchanged at null pass for 5 iterations', verdict: 'CRITICAL' },
+    }));
+    expect(store.bannerForChat('chat-1')()).not.toBeNull();
+
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'cancelled',
+        totalIterations: 1,
+        endedAt: 1778310300000,
+        endReason: 'user cancelled',
+      },
+    }));
+
+    expect(store.bannerForChat('chat-1')()).toBeNull();
+    expect(store.activeForChat('chat-1')()).toBeUndefined();
+  });
+
   it('clears running activity linkage when the loop reaches a terminal state', () => {
     store.ensureWired();
     listeners.stateChanged.forEach((cb) => cb({

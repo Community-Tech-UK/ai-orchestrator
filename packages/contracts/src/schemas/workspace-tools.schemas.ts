@@ -122,3 +122,39 @@ export const VcsGetBlamePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   filePath: FilePathSchema,
 });
+
+export const VcsFindReposPayloadSchema = z.object({
+  rootPath: DirectoryPathSchema,
+  /**
+   * Optional extra directory basenames to skip in addition to the built-in
+   * defaults (.git, node_modules, dist, build, out, target, coverage, etc.).
+   */
+  ignorePatterns: z.array(z.string().min(1).max(200)).max(200).optional(),
+});
+
+/**
+ * Replace the set of repos the main-process `GitStatusWatcher` is
+ * tracking. Passing `repoPaths: []` stops all watchers (e.g. when the
+ * instance is deselected).
+ */
+export const VcsWatchReposPayloadSchema = z.object({
+  repoPaths: z.array(DirectoryPathSchema).max(500),
+});
+
+/**
+ * Phase 2d (item 7) — stage / unstage write actions.
+ *
+ * Paths are passed to git after the `--` separator, so they cannot be
+ * interpreted as flags. Each path uses `FilePathSchema` (non-empty,
+ * ≤2000 chars). The list itself is capped at 5000 entries to avoid
+ * accidental enormous batches from a buggy renderer multiselect.
+ */
+export const VcsStageFilesPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+  filePaths: z.array(FilePathSchema).min(1).max(5000),
+});
+
+export const VcsUnstageFilesPayloadSchema = z.object({
+  workingDirectory: WorkingDirectorySchema,
+  filePaths: z.array(FilePathSchema).min(1).max(5000),
+});

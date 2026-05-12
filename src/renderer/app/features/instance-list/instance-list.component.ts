@@ -671,6 +671,23 @@ export class InstanceListComponent implements OnDestroy {
       },
     ];
 
+    if (supportsResume) {
+      // Only meaningful when the provider supports session resume — otherwise
+      // a plain restart is already a fresh restart.
+      items.push({
+        id: 'restart-session-fresh',
+        label: 'Restart (fresh context)',
+        disabled: instance.status === 'initializing',
+        action: () => void this.store.restartFreshInstance(instance.id),
+      });
+    }
+
+    items.push({
+      id: 'create-child-session',
+      label: 'Create child session',
+      action: () => void this.store.createChildInstance(instance.id),
+    });
+
     if (hasChildren) {
       items.push({
         id: 'toggle-children',

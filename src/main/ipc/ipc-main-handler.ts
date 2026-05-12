@@ -250,8 +250,9 @@ export class IpcMainHandler {
       instanceManager: this.instanceManager,
     });
 
-    // VCS handlers (Git integration)
-    registerVcsHandlers();
+    // VCS handlers (Git integration). windowManager is required for the
+    // VCS_STATUS_CHANGED event push from GitStatusWatcher.
+    registerVcsHandlers({ windowManager: this.windowManager });
 
     // Snapshot handlers (File revert)
     registerSnapshotHandlers();

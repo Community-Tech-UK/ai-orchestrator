@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as chokidar from 'chokidar';
 import { getLogger } from '../../logging/logger';
+import { buildWatchIgnoredMatchers, DEFAULT_WATCH_IGNORE_PATTERNS } from './watch-ignore';
 
 const logger = getLogger('FileWatcher');
 
@@ -55,17 +56,7 @@ export interface WatchSession {
 }
 
 const DEFAULT_OPTIONS: WatchOptions = {
-  ignored: [
-    '**/node_modules/**',
-    '**/.git/**',
-    '**/dist/**',
-    '**/build/**',
-    '**/.cache/**',
-    '**/coverage/**',
-    '**/*.log',
-    '**/.DS_Store',
-    '**/Thumbs.db',
-  ],
+  ignored: [...DEFAULT_WATCH_IGNORE_PATTERNS],
   useGitignore: true,
   persistent: true,
   depth: 10,
@@ -78,9 +69,9 @@ const DEFAULT_OPTIONS: WatchOptions = {
  * File Watcher Manager
  */
 export class FileWatcherManager extends EventEmitter {
-  private sessions: Map<string, WatchSession> = new Map();
-  private maxEventBuffer: number = 1000;
-  private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private sessions = new Map<string, WatchSession>();
+  private maxEventBuffer = 1000;
+  private debounceTimers = new Map<string, NodeJS.Timeout>();
 
   /**
    * Start watching a directory
@@ -89,7 +80,14 @@ export class FileWatcherManager extends EventEmitter {
     directory: string,
     options: WatchOptions = {}
   ): Promise<WatchSession> {
-    const opts = { ...DEFAULT_OPTIONS, ...options };
+    const opts = {
+      ...DEFAULT_OPTIONS,
+      ...options,
+      ignored: [
+        ...(DEFAULT_OPTIONS.ignored ?? []),
+        ...(options.ignored ?? []),
+      ],
+    };
     const sessionId = crypto.randomUUID();
 
     // Build ignored patterns
@@ -113,7 +111,7 @@ export class FileWatcherManager extends EventEmitter {
 
     // Create chokidar watcher
     const watcher = chokidar.watch(directory, {
-      ignored,
+      ignored: buildWatchIgnoredMatchers(directory, ignored),
       persistent: opts.persistent,
       depth: opts.depth,
       ignoreInitial: opts.ignoreInitial,
@@ -277,7 +275,7 @@ export class FileWatcherManager extends EventEmitter {
   /**
    * Get recent changes for a session
    */
-  getRecentChanges(sessionId: string, limit: number = 50): FileChangeEvent[] {
+  getRecentChanges(sessionId: string, limit = 50): FileChangeEvent[] {
     const session = this.sessions.get(sessionId);
     if (!session) return [];
     return session.eventBuffer.slice(-limit);

@@ -83,7 +83,7 @@ function attachInvocationActivity(
   };
   if (typeof emitter.on !== 'function') return () => { /* noop */ };
 
-  const removers: Array<() => void> = [];
+  const removers: (() => void)[] = [];
   const listen = (event: string, handler: (...args: unknown[]) => void) => {
     emitter.on!(event, handler);
     removers.push(() => {
@@ -1032,7 +1032,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           ? undefined
           : (adapter, graceful) => terminateTrackedAdapter(adapter, graceful),
       });
-      if (sameSession && reusedAdapter && !borrowedFromInstance) {
+      if (sameSession && reusedAdapter) {
         enableAdapterResume(reusedAdapter);
       }
 

@@ -109,6 +109,17 @@ export class FileIpcService {
   }
 
   /**
+   * Open the system terminal at the given directory.
+   *
+   * Returns an `IpcResponse` so callers can surface a useful error message
+   * when no terminal emulator is available on Linux, etc.
+   */
+  async openTerminalAtPath(path: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.openTerminalAtPath(path);
+  }
+
+  /**
    * Copy a file or folder reference to the system clipboard for paste in the OS file manager
    */
   async copyFileToClipboard(path: string): Promise<IpcResponse> {
@@ -224,6 +235,23 @@ export class FileIpcService {
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.editorOpen(filePath, options);
+  }
+
+  /**
+   * Open a file in the configured editor (routes to the handled EDITOR_OPEN_FILE channel).
+   */
+  async editorOpenFile(filePath: string, options?: Record<string, unknown>): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.editorOpenFile({ filePath, options });
+  }
+
+  /**
+   * Open a file at a specific line in the configured editor
+   * (routes to the handled EDITOR_OPEN_FILE_AT_LINE channel).
+   */
+  async editorOpenFileAtLine(filePath: string, line: number, column?: number): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.editorOpenFileAtLine({ filePath, line, column });
   }
 
   /**

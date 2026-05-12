@@ -136,6 +136,16 @@ export const FileOpenPathPayloadSchema = z.object({
   path: z.string().min(1).max(4096),
 });
 
+/**
+ * Payload for opening the user's terminal application at a working directory.
+ * The renderer passes a directory; the main process spawns the platform-native
+ * terminal there (Terminal.app on macOS, Windows Terminal/cmd on Windows,
+ * x-terminal-emulator or common terminals on Linux).
+ */
+export const FileOpenTerminalPayloadSchema = z.object({
+  path: z.string().min(1).max(4096),
+});
+
 export const FileCopyToClipboardPayloadSchema = z.object({
   path: z.string().min(1).max(4096),
 });

@@ -47,8 +47,12 @@
         margin-bottom: 4px;
       }
 
-      /* #4: Continuation messages tuck tight */
-      .message.continuation {
+      /* #4: Continuation messages tuck tight.
+         Skip user bubbles: their header is never rendered (template gates
+         it behind `type !== 'user'`), so zeroing the top padding makes the
+         bubble visually asymmetric — shorter on top — when a user sends
+         two messages within TIME_GAP_THRESHOLD (e.g. a steer follow-up). */
+      .message.continuation:not(.message-user) {
         margin-top: -2px;
         padding-top: 0;
       }

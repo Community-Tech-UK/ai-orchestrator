@@ -859,6 +859,60 @@ export class VcsManager {
     }
     return this.execGitAsync(args, { timeoutMs: options.timeoutMs });
   }
+
+  // ============================================
+  // Stage / Unstage (Phase 2d — item 7)
+  // ============================================
+
+  /**
+   * Stage one or more files (`git add -- <paths>`).
+   *
+   * Always uses the `--` separator before the path list so paths that
+   * look like options (`-foo.txt`, `--something`) can never be parsed as
+   * git flags. Empty `paths` is a no-op and resolves without spawning git.
+   *
+   * Returns the command's stdout/stderr/exit envelope via the audit hook
+   * pattern (`execGitAsync`).
+   */
+  async stageFiles(paths: string[]): Promise<GitCommandResult> {
+    if (paths.length === 0) {
+      return noopGitCommandResult(this.workingDirectory, ['add', '--']);
+    }
+    return this.execGitAsync(['add', '--', ...paths]);
+  }
+
+  /**
+   * Unstage one or more files (`git restore --staged -- <paths>`).
+   *
+   * Note: only the **staged** side is touched. The worktree contents are
+   * preserved exactly. This is the inverse of `stageFiles`.
+   *
+   * Empty `paths` is a no-op.
+   */
+  async unstageFiles(paths: string[]): Promise<GitCommandResult> {
+    if (paths.length === 0) {
+      return noopGitCommandResult(this.workingDirectory, ['restore', '--staged', '--']);
+    }
+    return this.execGitAsync(['restore', '--staged', '--', ...paths]);
+  }
+}
+
+/**
+ * Synthetic "no-op" command result for the empty-paths shortcut in
+ * `stageFiles` / `unstageFiles`. Returning a real GitCommandResult shape
+ * keeps the audit hook semantics consistent (`exitCode: 0`, empty
+ * stdout/stderr, zero duration) and avoids forcing callers to special-case
+ * an extra union type.
+ */
+function noopGitCommandResult(cwd: string, args: string[]): GitCommandResult {
+  return {
+    stdout: '',
+    stderr: '',
+    durationMs: 0,
+    args: [...args],
+    cwd,
+    exitCode: 0,
+  };
 }
 
 function commandOutput(error: unknown, key: 'stdout' | 'stderr'): string {

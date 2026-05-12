@@ -107,6 +107,14 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     },
 
     /**
+     * Open the system terminal (Terminal.app, Windows Terminal/cmd, or the
+     * Linux x-terminal-emulator) at the given directory.
+     */
+    openTerminalAtPath: (path: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.FILE_OPEN_TERMINAL, { path });
+    },
+
+    /**
      * Copy a file or folder reference to the system clipboard
      */
     copyFileToClipboard: (path: string): Promise<IpcResponse> => {

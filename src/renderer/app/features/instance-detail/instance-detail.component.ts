@@ -121,6 +121,10 @@ export class InstanceDetailComponent {
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
   toggleFileExplorer = output<void>();
+  canShowSourceControl = input(false);
+  isSourceControlOpen = input(false);
+  sourceControlChangeCount = input(0);
+  toggleSourceControl = output<void>();
 
   /** Reference to the input panel for triggering edit mode from the output stream. */
   private inputPanel = viewChild(InputPanelComponent);
@@ -959,13 +963,10 @@ export class InstanceDetailComponent {
     this.draftService.removePendingFolder(preview.id, folder);
   }
 
-  onRestart(): void {
-    const inst = this.instance();
-    if (inst) {
-      this.store.restartInstance(inst.id);
-    }
-  }
-
+  // Note: restart / terminate / create-child have moved to the session
+  // right-click menu in the instance list, which calls the store directly.
+  // `onRestartFresh` is kept because the recovery banner below the header
+  // calls it from a dedicated "Restart (fresh context)" button.
   onRestartFresh(): void {
     const inst = this.instance();
     if (inst) {
@@ -1062,13 +1063,6 @@ export class InstanceDetailComponent {
     }
   }
 
-  onTerminate(): void {
-    const inst = this.instance();
-    if (inst) {
-      this.store.terminateInstance(inst.id);
-    }
-  }
-
   async onInterrupt(): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
@@ -1095,13 +1089,6 @@ export class InstanceDetailComponent {
           console.error('Force-terminate + restart failed after rejected interrupt', err);
         }
       }
-    }
-  }
-
-  onCreateChild(): void {
-    const inst = this.instance();
-    if (inst) {
-      this.store.createChildInstance(inst.id);
     }
   }
 

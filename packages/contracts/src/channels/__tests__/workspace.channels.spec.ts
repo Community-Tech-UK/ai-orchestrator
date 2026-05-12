@@ -4,6 +4,11 @@ describe('WORKSPACE_CHANNELS', () => {
   it('has VCS channels', () => {
     expect(WORKSPACE_CHANNELS.VCS_IS_REPO).toBe('vcs:is-repo');
     expect(WORKSPACE_CHANNELS.VCS_GET_DIFF).toBe('vcs:get-diff');
+    expect(WORKSPACE_CHANNELS.VCS_FIND_REPOS).toBe('vcs:find-repos');
+    expect(WORKSPACE_CHANNELS.VCS_WATCH_REPOS).toBe('vcs:watch-repos');
+    expect(WORKSPACE_CHANNELS.VCS_STATUS_CHANGED).toBe('vcs:status-changed');
+    expect(WORKSPACE_CHANNELS.VCS_STAGE_FILES).toBe('vcs:stage-files');
+    expect(WORKSPACE_CHANNELS.VCS_UNSTAGE_FILES).toBe('vcs:unstage-files');
   });
 
   it('has worktree channels', () => {

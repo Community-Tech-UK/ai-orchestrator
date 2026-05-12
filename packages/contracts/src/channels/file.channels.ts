@@ -11,6 +11,7 @@ export const FILE_CHANNELS = {
   FILE_READ_BYTES: 'file:read-bytes',
   FILE_WRITE_TEXT: 'file:write-text',
   FILE_OPEN_PATH: 'file:open-path',
+  FILE_OPEN_TERMINAL: 'file:open-terminal',
   FILE_COPY_TO_CLIPBOARD: 'file:copy-to-clipboard',
 
   // Ecosystem operations (file-based extensibility)

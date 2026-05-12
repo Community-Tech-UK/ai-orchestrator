@@ -10,16 +10,20 @@ export interface ViewLayout {
   sidebarWidth: number;
   fileExplorerWidth: number;
   historySidebarWidth: number;
+  sourceControlWidth: number;
 }
 
 const DEFAULT_LAYOUT: ViewLayout = {
   sidebarWidth: 320,
   fileExplorerWidth: 260,
   historySidebarWidth: 350,
+  sourceControlWidth: 320,
 };
 
 const DEBOUNCE_MS = 500;
 
+// Keep version: 2 so existing user widths are preserved. New optional fields
+// are filled in by merging DEFAULT_LAYOUT first in `load()` below.
 const LAYOUT_FIELD: StorageField<ViewLayout> = {
   key: 'view-layout',
   version: 2,
@@ -48,6 +52,11 @@ export class ViewLayoutService {
     return this.layout().historySidebarWidth;
   }
 
+  /** Get current source control panel width */
+  get sourceControlWidth(): number {
+    return this.layout().sourceControlWidth;
+  }
+
   /** Update sidebar width with debounced persistence */
   setSidebarWidth(width: number): void {
     const clamped = Math.max(250, Math.min(460, width));
@@ -69,6 +78,13 @@ export class ViewLayoutService {
     this.debounceSave();
   }
 
+  /** Update source control panel width with debounced persistence */
+  setSourceControlWidth(width: number): void {
+    const clamped = Math.max(220, Math.min(500, width));
+    this.layout.update(l => ({ ...l, sourceControlWidth: clamped }));
+    this.debounceSave();
+  }
+
   /** Reset all layout to defaults */
   reset(): void {
     this.layout.set({ ...DEFAULT_LAYOUT });
@@ -82,11 +98,14 @@ export class ViewLayoutService {
   /** Load layout from localStorage */
   private load(): ViewLayout {
     const stored = readStorage(LAYOUT_FIELD);
+    // Merge with defaults so newly-added fields (e.g. sourceControlWidth)
+    // pick up their default when reading an older payload that predates them.
+    const merged: ViewLayout = { ...DEFAULT_LAYOUT, ...stored };
     // Guard against the old stale sidebarWidth=390 default that was in early builds.
-    if (stored.sidebarWidth === 390) {
-      return { ...stored, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth };
+    if (merged.sidebarWidth === 390) {
+      return { ...merged, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth };
     }
-    return stored;
+    return merged;
   }
 
   /** Debounced save to localStorage */

@@ -67,6 +67,12 @@
                 >
                   Open in {{ systemFolderLabel() }}
                 </button>
+                <button
+                  class="open-menu-item"
+                  (click)="openInTerminal()"
+                >
+                  Open in Terminal
+                </button>
               </div>
               <button
                 type="button"
@@ -76,62 +82,19 @@
               ></button>
             }
           </div>
-          <div class="restart-menu-shell">
-            <button
-              class="btn-action btn-restart-primary"
-              [title]="restartPrimaryTooltip()"
-              (click)="onRestartPrimary($event)"
-              [disabled]="isStartingOrRecovering()"
-            >
-              {{ supportsResume() ? '↻ Restart' : '↻ Restart (fresh only)' }}
-            </button>
-            @if (supportsResume()) {
-              <button
-                type="button"
-                class="btn-action btn-restart-caret"
-                title="More restart options"
-                [disabled]="isStartingOrRecovering()"
-                (click)="onToggleRestartMenu($event)"
-              >
-                ▾
-              </button>
-            }
-            @if (showRestartMenu()) {
-              <div class="restart-menu">
-                <button
-                  class="restart-menu-item"
-                  (click)="restart.emit(); showRestartMenu.set(false)"
-                >
-                  Restart (resume context)
-                </button>
-                <button
-                  class="restart-menu-item"
-                  (click)="restartFresh.emit(); showRestartMenu.set(false)"
-                >
-                  Restart (fresh context)
-                </button>
-              </div>
-              <button
-                type="button"
-                class="restart-menu-backdrop"
-                aria-label="Close restart menu"
-                (click)="showRestartMenu.set(false)"
-              ></button>
-            }
-          </div>
           <button
-            class="btn-action btn-danger"
-            title="Terminate instance"
-            (click)="terminate.emit()"
+            class="btn-action btn-icon btn-terminal"
+            title="Open in Terminal"
+            aria-label="Open in Terminal"
+            [disabled]="!instance().workingDirectory"
+            (click)="openInTerminal()"
           >
-            × Terminate
-          </button>
-          <button
-            class="btn-action btn-primary"
-            title="Create child instance"
-            (click)="createChild.emit()"
-          >
-            + Child
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="m7 9 3 3-3 3" />
+              <path d="M13 15h4" />
+            </svg>
           </button>
           @if (canShowFileExplorer()) {
             <button
@@ -144,6 +107,28 @@
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H10l2 2h7.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-10Z"/>
               </svg>
+            </button>
+          }
+          @if (canShowSourceControl()) {
+            <button
+              class="btn-action btn-icon btn-source-control"
+              [class.active]="isSourceControlOpen()"
+              [class.has-changes]="sourceControlChangeCount() > 0"
+              [title]="sourceControlButtonTitle()"
+              aria-label="Toggle source control"
+              (click)="toggleSourceControl.emit()"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="2.2" />
+                <circle cx="6" cy="18" r="2.2" />
+                <circle cx="18" cy="6" r="2.2" />
+                <line x1="6" y1="8.2" x2="6" y2="15.8" />
+                <path d="M18 8.2c0 5.4-4.2 8.4-9 9.4" />
+              </svg>
+              @if (sourceControlChangeCount() > 0) {
+                <span class="source-control-pip" aria-hidden="true">{{ sourceControlPipLabel() }}</span>
+              }
             </button>
           }
         </div>

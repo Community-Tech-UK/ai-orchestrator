@@ -254,7 +254,7 @@ describe('Loop Mode invoker plumbing', () => {
 
   it('emits live loop activity from child adapter output while an iteration is running', async () => {
     registerDefaultLoopInvoker({} as never);
-    const activities: Array<{ kind: string; message: string; loopRunId: string; seq: number }> = [];
+    const activities: { kind: string; message: string; loopRunId: string; seq: number }[] = [];
     hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
       activities.push(activity as { kind: string; message: string; loopRunId: string; seq: number });
     });
@@ -296,7 +296,7 @@ describe('Loop Mode invoker plumbing', () => {
 
   it('surfaces hidden input_required prompts and auto-answers ordinary loop questions', async () => {
     registerDefaultLoopInvoker({} as never);
-    const activities: Array<{ kind: string; message: string; loopRunId: string; seq: number }> = [];
+    const activities: { kind: string; message: string; loopRunId: string; seq: number }[] = [];
     hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
       activities.push(activity as { kind: string; message: string; loopRunId: string; seq: number });
     });
@@ -333,7 +333,7 @@ describe('Loop Mode invoker plumbing', () => {
 
   it('does not auto-answer hidden permission prompts', async () => {
     registerDefaultLoopInvoker({} as never);
-    const activities: Array<{ kind: string; message: string }> = [];
+    const activities: { kind: string; message: string }[] = [];
     hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
       activities.push(activity as { kind: string; message: string });
     });
@@ -369,7 +369,7 @@ describe('Loop Mode invoker plumbing', () => {
   it('terminates hidden loop children when an ordinary question cannot be auto-answered', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.sendRaw.mockRejectedValueOnce(new Error('stdin closed'));
-    const activities: Array<{ kind: string; message: string }> = [];
+    const activities: { kind: string; message: string }[] = [];
     hoisted.loopCoordinatorRef.current.on('loop:activity', (activity) => {
       activities.push(activity as { kind: string; message: string });
     });
@@ -431,6 +431,63 @@ describe('Loop Mode invoker plumbing', () => {
   });
 
   describe('contextStrategy: same-session', () => {
+    it('switches a borrowed parent Claude adapter into resume mode after the first same-session iteration', async () => {
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+        })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter0 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-borrowed::0',
+          loopRunId: 'loop-borrowed',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter0;
+
+      expect(hoisted.createAdapter).not.toHaveBeenCalled();
+      expect(hoisted.terminate).not.toHaveBeenCalled();
+      expect(hoisted.setResume).toHaveBeenCalledWith(true);
+      hoisted.setResume.mockClear();
+
+      const iter1 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-borrowed::1',
+          loopRunId: 'loop-borrowed',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 1,
+          prompt: 'iter 1',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter1;
+
+      expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
+      expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
+    });
+
     it('reuses the same adapter across iterations and skips per-iteration termination', async () => {
       registerDefaultLoopInvoker({} as never);
       hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });

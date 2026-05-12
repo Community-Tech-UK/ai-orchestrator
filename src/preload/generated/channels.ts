@@ -52,6 +52,7 @@ export const IPC_CHANNELS = {
   FILE_READ_BYTES: 'file:read-bytes',
   FILE_WRITE_TEXT: 'file:write-text',
   FILE_OPEN_PATH: 'file:open-path',
+  FILE_OPEN_TERMINAL: 'file:open-terminal',
   FILE_COPY_TO_CLIPBOARD: 'file:copy-to-clipboard',
 
   // Ecosystem operations (file-based extensibility)
@@ -840,6 +841,11 @@ export const IPC_CHANNELS = {
   VCS_GET_FILE_HISTORY: 'vcs:get-file-history',
   VCS_GET_FILE_AT_COMMIT: 'vcs:get-file-at-commit',
   VCS_GET_BLAME: 'vcs:get-blame',
+  VCS_FIND_REPOS: 'vcs:find-repos',
+  VCS_WATCH_REPOS: 'vcs:watch-repos',
+  VCS_STATUS_CHANGED: 'vcs:status-changed',
+  VCS_STAGE_FILES: 'vcs:stage-files',
+  VCS_UNSTAGE_FILES: 'vcs:unstage-files',
 
   // Git Worktree operations
   WORKTREE_CREATE: 'worktree:create',

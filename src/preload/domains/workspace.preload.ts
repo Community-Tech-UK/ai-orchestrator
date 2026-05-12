@@ -103,6 +103,67 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       });
     },
 
+    /**
+     * Discover all nested git repositories under a directory.
+     * Used by the Source Control panel to enumerate every repo the user has
+     * inside their working folder (matches VS Code's multi-root SCM behavior).
+     */
+    vcsFindRepos: (
+      rootPath: string,
+      ignorePatterns?: string[]
+    ): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_FIND_REPOS, {
+        rootPath,
+        ignorePatterns
+      });
+    },
+
+    /**
+     * Replace the set of repos the main-process GitStatusWatcher tracks.
+     * Passing `repoPaths: []` stops all watchers.
+     */
+    vcsWatchRepos: (repoPaths: string[]): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_WATCH_REPOS, { repoPaths });
+    },
+
+    /**
+     * Subscribe to git-status-changed events from the main-process
+     * watcher. Returns an unsubscribe function.
+     */
+    onVcsStatusChanged: (
+      callback: (event: { repoPath: string; reason: string; timestamp: number }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        data: { repoPath: string; reason: string; timestamp: number }
+      ) => callback(data);
+      ipcRenderer.on(ch.VCS_STATUS_CHANGED, handler);
+      return () => ipcRenderer.removeListener(ch.VCS_STATUS_CHANGED, handler);
+    },
+
+    /**
+     * Stage files (`git add -- <paths>`).
+     * Phase 2d — item 7 of the source-control phase-2 plan.
+     */
+    vcsStageFiles: (payload: {
+      workingDirectory: string;
+      filePaths: string[];
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_STAGE_FILES, payload);
+    },
+
+    /**
+     * Unstage files (`git restore --staged -- <paths>`).
+     * Phase 2d — item 7. Only the index side is touched; the worktree
+     * contents are preserved.
+     */
+    vcsUnstageFiles: (payload: {
+      workingDirectory: string;
+      filePaths: string[];
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_UNSTAGE_FILES, payload);
+    },
+
     // ============================================
     // Phase 7: Worktrees (7.1)
     // ============================================

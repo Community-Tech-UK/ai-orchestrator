@@ -25,7 +25,7 @@ export class HistoryRailService {
   readonly expandedHistoryKeys = signal<Set<string>>(new Set());
   readonly restoringHistoryIds = signal<Set<string>>(new Set());
 
-  private readonly HISTORY_DISPLAY_LIMIT = 10;
+  readonly historyDisplayLimit = 5;
 
   // -------------------------------------------------------------------------
   // localStorage persistence
@@ -156,7 +156,7 @@ export class HistoryRailService {
     if (this.expandedHistoryKeys().has(group.key)) {
       return group.historyItems;
     }
-    return group.historyItems.slice(0, this.HISTORY_DISPLAY_LIMIT);
+    return group.historyItems.slice(0, this.historyDisplayLimit);
   }
 
   toggleHistoryExpanded(key: string): void {

@@ -444,7 +444,7 @@
                         </div>
                       </div>
                     }
-                    @if (group.historyItems.length > 10) {
+                    @if (group.historyItems.length > historyRail.historyDisplayLimit) {
                       <button
                         type="button"
                         class="history-show-more"

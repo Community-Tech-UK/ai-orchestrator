@@ -62,6 +62,9 @@ export class InstanceHeaderComponent implements OnInit {
   contextUsage = input<ContextUsage | null>(null);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
+  canShowSourceControl = input(false);
+  isSourceControlOpen = input(false);
+  sourceControlChangeCount = input(0);
 
   // Effective display title — delegates to the shared resolver so the header
   // stays in sync with the workspace rail list. See
@@ -74,13 +77,9 @@ export class InstanceHeaderComponent implements OnInit {
   activeSkillCount = computed(() => this.skillStore.activeSkillCount());
   enabledHookCount = computed(() => this.hookStore.enabledHookCount());
   showOpenMenu = signal(false);
-  showRestartMenu = signal(false);
   editorTargets = signal<EditorMenuItem[]>([]);
   isLoadingEditors = signal(false);
   private hasLoadedEditorTargets = false;
-  readonly supportsResume = computed(() =>
-    this.instance().provider === 'claude' || this.instance().provider === 'codex'
-  );
 
   readonly isStartingOrRecovering = computed(() => {
     const status = this.instance().status;
@@ -182,7 +181,9 @@ export class InstanceHeaderComponent implements OnInit {
     this.hookStore.loadHooks();
   }
 
-  // Actions
+  // Actions. Restart/terminate/create-child have moved to the session
+  // right-click menu in the instance list, so they're no longer surfaced
+  // here; the corresponding outputs were removed with their buttons.
   startEditName = output<void>();
   cancelEditName = output<void>();
   saveName = output<string>();
@@ -190,15 +191,35 @@ export class InstanceHeaderComponent implements OnInit {
   toggleYolo = output<void>();
   selectFolder = output<string>();
   interrupt = output<void>();
-  restart = output<void>();
-  restartFresh = output<void>();
-  terminate = output<void>();
-  createChild = output<void>();
   toggleModelDropdown = output<void>();
   closeModelDropdown = output<void>();
   selectModel = output<string>();
   toggleFileExplorer = output<void>();
+  toggleSourceControl = output<void>();
   reviewPanelToggle = output<void>();
+
+  /**
+   * Compact pip label for the source-control icon. Clamps very large
+   * counts to "99+" so the badge stays single-glyph wide.
+   */
+  sourceControlPipLabel = computed(() => {
+    const n = this.sourceControlChangeCount();
+    if (n <= 0) return '';
+    return n > 99 ? '99+' : String(n);
+  });
+
+  /**
+   * Hover title for the source-control icon. Surfaces the change count
+   * so accessibility tools / hover users get the same signal the pip
+   * conveys visually.
+   */
+  sourceControlButtonTitle = computed(() => {
+    const n = this.sourceControlChangeCount();
+    if (this.isSourceControlOpen()) return 'Hide source control';
+    if (n <= 0) return 'Show source control';
+    if (n === 1) return 'Show source control (1 change)';
+    return `Show source control (${n} changes)`;
+  });
 
   providerDisplayName = computed(() => {
     return this.getProviderDisplayName(this.instance().provider);
@@ -248,10 +269,6 @@ export class InstanceHeaderComponent implements OnInit {
   preferredEditorLabel = computed(() => {
     return this.editorTargets()[0]?.label || 'Editor';
   });
-
-  restartPrimaryTooltip = computed(() => this.supportsResume()
-    ? 'Restart and resume conversation'
-    : "This provider doesn't support session resume — restart starts a fresh session.");
 
   systemFolderLabel = computed(() => {
     switch (this.electronIpc.platform) {
@@ -338,21 +355,6 @@ export class InstanceHeaderComponent implements OnInit {
     this.showOpenMenu.update((current) => !current);
   }
 
-  onToggleRestartMenu(event: Event): void {
-    event.stopPropagation();
-    this.showRestartMenu.update((current) => !current);
-  }
-
-  onRestartPrimary(event: Event): void {
-    event.stopPropagation();
-    this.showRestartMenu.set(false);
-    if (this.supportsResume()) {
-      this.restart.emit();
-      return;
-    }
-    this.restartFresh.emit();
-  }
-
   async openInPreferredEditor(): Promise<void> {
     const workingDirectory = this.instance().workingDirectory?.trim();
     if (!workingDirectory) {
@@ -370,6 +372,22 @@ export class InstanceHeaderComponent implements OnInit {
     }
 
     await this.fileIpc.openPath(workingDirectory);
+    this.showOpenMenu.set(false);
+  }
+
+  /**
+   * Open the system terminal at this instance's working directory.
+   * Surfaced as both a dedicated icon button in the header (mirroring the
+   * "Open Terminal" button in the Codex desktop app) and as an item in the
+   * Open dropdown for keyboard/menu access.
+   */
+  async openInTerminal(): Promise<void> {
+    const workingDirectory = this.instance().workingDirectory?.trim();
+    if (!workingDirectory) {
+      return;
+    }
+
+    await this.fileIpc.openTerminalAtPath(workingDirectory);
     this.showOpenMenu.set(false);
   }
 
